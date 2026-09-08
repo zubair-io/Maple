@@ -115,6 +115,8 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
             decode: decodeSpy,
             closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal(null),
+            // #3397: the component mirrors out-of-band scope samples from here.
+            scopeSample: signal(null),
           },
         },
       ],
@@ -319,6 +321,8 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
   let decodeSpy: ReturnType<typeof vi.fn>;
   let openSessionSpy: ReturnType<typeof vi.fn>;
   let renderSessionSpy: ReturnType<typeof vi.fn>;
+  // #3397: the worker's out-of-band scope broadcast, as the component sees it.
+  let scopeSample: WritableSignal<DecodedImage | null>;
   let closeSessionSpy: ReturnType<typeof vi.fn>;
   let transferSpy: ReturnType<typeof vi.fn>;
   let fixture: ComponentFixture<ImageCanvasComponent>;
@@ -354,9 +358,7 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
         scopePixels: scopeSnap(),
       }),
     );
-    renderSessionSpy = vi.fn(() =>
-      Promise.resolve({ colorSpace: 'display-p3', scopePixels: scopeSnap() }),
-    );
+    renderSessionSpy = vi.fn(() => Promise.resolve({ colorSpace: 'display-p3' }));
     closeSessionSpy = vi.fn();
 
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -393,11 +395,15 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
       openDownloadProgress: signal(null),
     } as unknown as Partial<LibraryStateService>;
 
+    scopeSample = signal<DecodedImage | null>(null);
     const pipelineStub = {
       decode: decodeSpy,
       // #1153: the canvas template reads the deep-denoise progress signal.
       closeNativeDetail: vi.fn(),
       deepDenoiseProgress: signal(null),
+      // #3397: scope samples arrive out-of-band on this signal, not on the
+      // render reply; tests drive it directly to simulate the broadcast.
+      scopeSample,
       gpuLiveRenderEnabled: true,
       openLiveSession: openSessionSpy,
       renderLiveSession: renderSessionSpy,
@@ -525,29 +531,6 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     const px = canvasSvc.currentPixels();
     expect(px).not.toBeNull();
     expect(Array.from(px!.rgb)).toEqual([12, 34, 56]);
-  });
-
-  it('an edit refreshes currentPixels from the session readback (scopes update)', async () => {
-    const canvasSvc = TestBed.inject(ImageCanvasService);
-    focused.set(fakeAsset('a'));
-    await settle(REFINE_MS + 50);
-
-    // Make the edit's render reply a DISTINCT snapshot so we can prove a refresh.
-    renderSessionSpy.mockResolvedValueOnce({
-      colorSpace: 'display-p3',
-      scopePixels: {
-        width: 1,
-        height: 1,
-        rgb: new Uint8Array([99, 88, 77]),
-        asShotTemperature: 6500,
-        asShotTint: 0,
-      },
-    });
-    setModel('a', { exposure: 1.0 });
-    await settle(0);
-
-    expect(renderSessionSpy).toHaveBeenCalledTimes(1);
-    expect(Array.from(canvasSvc.currentPixels()!.rgb)).toEqual([99, 88, 77]);
   });
 
   it('a missing readback snapshot leaves currentPixels null on open (scopes fall back)', async () => {

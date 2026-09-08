@@ -26,6 +26,7 @@ import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import {
   ImageCanvasGpuPresent,
   wireGpuKillSwitchEffect,
+  wireScopeSampleEffect,
   type GpuPresentHost,
   type GpuKillSwitchHost,
 } from './image-canvas.gpu-present';
@@ -229,6 +230,9 @@ export class ImageCanvasComponent
 
     // Zoom/pan gestures (#1100) — attached imperatively (non-passive wheel).
     this.detachGestures = this.gestures.attach(this.wrapRef.nativeElement);
+
+    // #3397: publish the worker's out-of-band scope samples. See the helper.
+    wireScopeSampleEffect(this, this.injector);
 
     // Watch focused asset — decode if it has bytes.
     const decodeEff = effect(

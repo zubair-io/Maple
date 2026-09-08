@@ -250,8 +250,8 @@ export interface RenderSessionSuccess {
   id: number;
   type: 'render-session-success';
   colorSpace: string;
-  /** Downsampled RGB readback of the presented frame, for the scopes (#1045). */
-  scope?: ScopeSnapshot;
+  // No `scope` (#3397): published out-of-band so this reply never waits on a
+  // GPU sync. See `ScopeSampleBroadcast`.
 }
 
 /** Error from any session op (incl. "gpu bundle absent" → component falls back). */
@@ -323,6 +323,7 @@ export type WorkerResponse =
   | WorkerStatus
   | WorkerLog
   | DeepDenoiseProgress
+  | import('./raw-pipeline.scope-sample.types').ScopeSampleBroadcast
   | AutoAdjustSuccess
   | AutoAdjustError
   | SampleWbSuccess

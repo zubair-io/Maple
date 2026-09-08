@@ -55,6 +55,7 @@ describe('ImageCanvasComponent — hideToolbar input (#1558)', () => {
             decode: vi.fn(() => new Promise(() => {})),
             closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal(null),
+            scopeSample: signal(null),
           },
         },
       ],

@@ -56,11 +56,12 @@ export interface OpenedLiveSession {
 
 /**
  * Result of re-rendering a live session for an edit (#846): the achieved canvas
- * colour-space tag plus an optional downsampled readback for the scopes (#1045).
+ * colour-space tag. The scope readback left this reply in #3397 — see below.
  */
 export interface RenderedLiveSession {
   colorSpace: string;
-  scopePixels?: DecodedImage;
+  // No `scopePixels` (#3397): the sample is broadcast out-of-band as
+  // `scope-sample` and lands on `RawPipelineService.scopeSample`.
 }
 
 /** Discriminated union of all pending worker-request handler entries. */

@@ -128,6 +128,8 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
             // #1153: the canvas template reads the deep-denoise progress signal.
             closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal(null),
+            // #3397: the canvas reads this to publish out-of-band scope samples.
+            scopeSample: signal(null),
             decode: vi.fn(() =>
               Promise.resolve({
                 width: 800,

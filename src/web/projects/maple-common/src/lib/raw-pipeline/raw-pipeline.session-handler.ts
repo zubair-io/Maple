@@ -56,6 +56,42 @@ function enqueueSessionOp<T>(op: () => Promise<T>): Promise<T> {
   return next;
 }
 
+// ── Out-of-band scope sampling (#3397) ───────────────────────────────────────
+// Renders admitted onto `sessionChain` but not yet finished. A deferred scope
+// sample is skipped while this is non-zero: a newer frame is already on its way
+// and will publish its own sample, and scopes describe the frame on screen, so
+// dropping a superseded sample is correct rather than merely tolerable.
+let queuedRenders = 0;
+// Coalesces bursts — one pending timer at a time, not one per render tick.
+let scopeSampleScheduled = false;
+// Perf-mark id for the sample, so the readback measure still names the render
+// that produced the frame being sampled.
+let lastRenderId = 0;
+
+/**
+ * Read back the presented frame and broadcast it, unless a newer render is
+ * already queued. Runs OUTSIDE `sessionChain` and after the render reply has
+ * been posted, so its GPU sync never sits inside the acknowledgement the
+ * editor's latest-wins scheduler waits on (#3397).
+ */
+function publishScopeSample(): void {
+  if (queuedRenders > 0) return;
+  const scope = markScopeReadback(lastRenderId, () => readbackScopeSnapshot());
+  if (!scope) return;
+  const response: WorkerResponse = { id: 0, type: 'scope-sample', scope };
+  (self as unknown as Worker).postMessage(response, [scope.rgb]);
+}
+
+/** Defer one coalesced sample to a later task, after the reply has gone out. */
+function scheduleScopeSample(): void {
+  if (scopeSampleScheduled) return;
+  scopeSampleScheduled = true;
+  setTimeout(() => {
+    scopeSampleScheduled = false;
+    publishScopeSample();
+  }, 0);
+}
+
 function postSessionError(id: number, message: string): void {
   const response: WorkerResponse = { id, type: 'session-error', message };
   (self as unknown as Worker).postMessage(response);
@@ -181,25 +217,31 @@ async function renderLiveSessionFrame(
 }
 
 /**
- * Builds and posts the `render-session-success` response, including the scope
- * readback (#1045). Read back the just-presented frame — the render is
- * serialized on `sessionChain`, so the canvas holds this edit's frame here;
- * null on any failure → the scopes keep their previous (or pseudo) data.
- * Marked SEPARATELY from `maple:session-render` (#1930) — same reasoning as
- * `postOpenSessionSuccess`: the readback is a real GPU-sync cost with no
- * bearing on the render-loop tick the other measure times. `markScopeReadback`
- * guards its own clearMarks/clearMeasures cleanup independently (#1123, jules
- * review) so a `measure` throw can't skip it.
+ * Post the `render-session-success` reply, then schedule the scope readback
+ * to happen after it (#3397).
+ *
+ * This reply is what settles the render promise, and the editor's latest-wins
+ * scheduler cannot dispatch the next adjustment until it lands. The readback
+ * is a synchronous GPU→CPU sync (`drawImage` off the presented canvas, then
+ * `getImageData`), so doing it first — as this did through #1045/#1930 — put
+ * that sync inside the acknowledgement and stalled edit dispatch well past the
+ * 50ms budget while the render/submit itself measured ~3ms.
+ *
+ * The sample now leaves separately as a `scope-sample` broadcast. It is still
+ * marked apart from `maple:session-render` (#1930) so its cost stays visible
+ * rather than folded into the render window, and `markScopeReadback` still
+ * guards its own clearMarks/clearMeasures cleanup (#1123, jules review) so a
+ * `measure` throw cannot skip a clear and leak marks.
  */
 function postRenderSessionSuccess(req: RenderSessionRequest, colorSpace: string): void {
-  const scope = markScopeReadback(req.id, () => readbackScopeSnapshot());
   const response: WorkerResponse = {
     id: req.id,
     type: 'render-session-success',
     colorSpace,
-    scope: scope ?? undefined,
   };
-  (self as unknown as Worker).postMessage(response, scope ? [scope.rgb] : []);
+  (self as unknown as Worker).postMessage(response);
+  lastRenderId = req.id;
+  scheduleScopeSample();
 }
 
 async function renderSessionOp(req: RenderSessionRequest): Promise<void> {
@@ -226,7 +268,17 @@ async function renderSessionOp(req: RenderSessionRequest): Promise<void> {
 }
 
 export async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
-  await enqueueSessionOp(() => renderSessionOp(req));
+  // Counted on ADMISSION, not on start (#3397): the check that matters to a
+  // deferred sample is "is another frame coming", and a render sitting behind
+  // this one on `sessionChain` already answers yes. Decremented in a `finally`
+  // so an error path cannot strand the counter above zero and mute the scopes
+  // for the rest of the session.
+  queuedRenders += 1;
+  try {
+    await enqueueSessionOp(() => renderSessionOp(req));
+  } finally {
+    queuedRenders -= 1;
+  }
 }
 
 /**
