@@ -409,6 +409,8 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
       mapping: 'anchored',
       decimals: 2,
       commitOnRelease: true,
+    },
+  ],
   // Defringe (#3411) — the per-tick half of the profile-free lens
   // corrections. Six ordinary sliders driven through this module's shared
   // machinery, and NONE of them commits on release: unlike the Lens
