@@ -86,6 +86,7 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
             decode: decodeSpy,
             closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal(null),
+            scopeSample: signal(null),
           },
         },
       ],

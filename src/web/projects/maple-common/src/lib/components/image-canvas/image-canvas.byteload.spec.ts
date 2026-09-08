@@ -91,6 +91,7 @@ describe('ImageCanvasComponent — async byte-fetch gate (#1562)', () => {
             decode: decodeSpy,
             closeNativeDetail: vi.fn(),
             deepDenoiseProgress: signal(null),
+            scopeSample: signal(null),
           },
         },
       ],

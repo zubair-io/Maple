@@ -117,10 +117,9 @@ const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
 
 const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
   if (msg.type === 'render-session-success') {
-    handler.resolve({
-      colorSpace: msg.colorSpace,
-      scopePixels: scopeToDecoded(msg.scope),
-    });
+    // No scopePixels here (#3397): the sample arrives out-of-band as a
+    // 'scope-sample' broadcast so this reply doesn't wait on a GPU sync.
+    handler.resolve({ colorSpace: msg.colorSpace });
     return true;
   }
   if (msg.type === 'session-error') {
@@ -275,6 +274,8 @@ export interface WorkerDispatchContext {
   threadedSubject: BehaviorSubject<boolean | null>;
   threadCountSubject: BehaviorSubject<number>;
   deepDenoiseProgress: WritableSignal<{ pass: 1 | 2; fraction: number } | null>;
+  /** Latest out-of-band scope sample (#3397), or null before the first one. */
+  scopeSample: WritableSignal<DecodedImage | null>;
 }
 
 /**
@@ -294,6 +295,13 @@ export function handleWorkerMessage(msg: WorkerResponse, ctx: WorkerDispatchCont
   if (msg.type === 'status') {
     ctx.threadedSubject.next(msg.threaded);
     ctx.threadCountSubject.next(msg.threads);
+    return;
+  }
+  if (msg.type === 'scope-sample') {
+    // #3397: broadcast, not a reply — carries id 0 and has no pending handler,
+    // so it must be handled before the registry lookup below. Latest wins;
+    // the worker already skipped samples superseded by a queued render.
+    ctx.scopeSample.set(scopeToDecoded(msg.scope) ?? null);
     return;
   }
   if (msg.type === 'deep-denoise-progress') {
