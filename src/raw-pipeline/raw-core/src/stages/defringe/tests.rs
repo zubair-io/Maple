@@ -222,7 +222,10 @@ fn params_engage_only_past_the_slider_epsilon() {
     let p = params_from_model(&model).expect("green amount engages the stage");
     assert_eq!(p.purple_strength, 0.0);
     assert!((p.green_strength - 0.25).abs() < 1e-6);
-    assert_eq!(p.all_hues_strength, 0.0, "the global path claims no hue-agnostic strength");
+    assert_eq!(
+        p.all_hues_strength, 0.0,
+        "the global path claims no hue-agnostic strength"
+    );
 }
 
 #[test]
@@ -343,18 +346,24 @@ fn the_strongest_claim_on_a_pixel_wins() {
         all_hues_strength: 0.25,
         ..purple_engaged()
     };
-    // In-band violet: the band's 1.0 beats the hue-agnostic 0.25.
+    // In-band violet: the band's 1.0 beats the hue-agnostic 0.25, so the
+    // fringe pixel lands exactly where the band alone would have put it.
+    // Only that pixel is compared — the neutral plateaus around it DO see
+    // the 0.25, which is the point of the hue-agnostic strength.
     let mut in_band = fringed([0.30, 0.05, 0.55]);
     apply_params(&mut in_band, &both);
     let mut band_only = fringed([0.30, 0.05, 0.55]);
     apply_params(&mut band_only, &purple_engaged());
-    assert_eq!(in_band.pixels, band_only.pixels);
+    assert_eq!(in_band.pixels[3], band_only.pixels[3]);
 
     // Out-of-band orange: only the hue-agnostic 0.25 applies, and it must.
     let mut out_of_band = fringed([0.55, 0.22, 0.03]);
     let before = chroma(out_of_band.pixels[3]);
     apply_params(&mut out_of_band, &both);
     let after = chroma(out_of_band.pixels[3]);
-    assert!(after < before, "hue-agnostic strength must still apply: {before} -> {after}");
+    assert!(
+        after < before,
+        "hue-agnostic strength must still apply: {before} -> {after}"
+    );
     assert!(after > 0.6 * before, "…but only at its own 0.25 strength");
 }

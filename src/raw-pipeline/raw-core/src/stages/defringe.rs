@@ -224,7 +224,11 @@ fn hue_suppression(lab: [f32; 3], p: &DefringeParams) -> f32 {
     }
     let hue = lab[2].atan2(lab[1]).to_degrees().rem_euclid(360.0);
     let purple = p.purple_strength
-        * band_weight(axis_position(hue, PURPLE_BAND_DEG), p.purple_lo, p.purple_hi);
+        * band_weight(
+            axis_position(hue, PURPLE_BAND_DEG),
+            p.purple_lo,
+            p.purple_hi,
+        );
     let green =
         p.green_strength * band_weight(axis_position(hue, GREEN_BAND_DEG), p.green_lo, p.green_hi);
     p.all_hues_strength.max(purple.max(green))

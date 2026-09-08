@@ -212,6 +212,7 @@ impl Case {
             dehaze: self.model.dehaze,
             defringe: raw_core::stages::defringe::params_from_model(&self.model)
                 .map(|p| crate::DefringeInputs {
+                    all_hues_strength: p.all_hues_strength,
                     purple_strength: p.purple_strength,
                     purple_lo: p.purple_lo,
                     purple_hi: p.purple_hi,
@@ -338,7 +339,7 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     // Defringe (#3411) — develop's 12a slot, between dehaze and local
     // adjustments. Both amounts default to 0, so every pre-#3411 case
     // short-circuits here exactly as `build_split` omits the pass.
-    raw_core::stages::defringe::apply(&mut img, &case.model);
+    raw_core::stages::defringe::apply_model(&mut img, &case.model);
     // Local adjustments (#1698) — develop's 12b slot, between dehaze and
     // vignette. Empty for every existing case, so the shared oracle stays
     // bit-identical for them.

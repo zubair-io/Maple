@@ -203,7 +203,9 @@ pub fn apply_scene_linear_chain(
     // adjustments. Both amounts at 0 (the default) is a bit-identical
     // no-op; the GPU live chain's `DefringePass` is gated on the same
     // `defringe::params_from_model` predicate.
-    stage("ffi_chain_defringe", || defringe::apply_model(&mut img, model));
+    stage("ffi_chain_defringe", || {
+        defringe::apply_model(&mut img, model)
+    });
     // Local adjustments (ticket #280). Empty Vec is a bit-identical no-op.
     stage("ffi_chain_local_adjustments", || {
         local_adjustments::apply(&mut img, &model.local_adjustments, &model.mask_rasters)
