@@ -28,6 +28,7 @@ import {
   type RetouchSpot,
 } from '../../models/retouch-spot';
 import { defaultRetouchSource } from './retouch-geometry';
+import { removeAt } from '../../editor/list-selection';
 
 @Injectable({ providedIn: 'root' })
 export class RetouchSessionService {
@@ -106,18 +107,12 @@ export class RetouchSessionService {
   }
 
   remove(index: number): void {
-    const spots = this.spots();
-    if (index < 0 || index >= spots.length) return;
+    const removal = removeAt(this.spots(), index);
+    if (!removal) return;
     this.endGesture();
     this.commit('Delete spot');
-    const next = spots.filter((_, i) => i !== index);
-    this.write(next);
-    this.selectedIndex.set(next.length === 0 ? null : Math.min(index, next.length - 1));
-  }
-
-  removeSelected(): void {
-    const index = this.selectedIndex();
-    if (index !== null) this.remove(index);
+    this.write(removal.next);
+    this.selectedIndex.set(removal.selected);
   }
 
   /** Drop every spot on the image. */
