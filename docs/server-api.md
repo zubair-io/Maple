@@ -314,6 +314,17 @@ Every one of these reads and writes a document in `app_settings`, so a change ta
 | GET    | `/api/admin/enrichment/meilisearch-status`   | owner  | Index health, document counts, and semantic-vector coverage                                                     |
 | POST   | `/api/admin/enrichment/backfill-meilisearch` | owner  | Bulk reindex, leased so it survives a restart                                                                   |
 
+## Imported lens profiles
+
+Both routes require a bearer session with file access. No profile catalog is bundled.
+
+| Method | Path                         | Purpose                                                                                                                                                                                                                                      |
+| ------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/lens-profiles`         | Import multipart `file`: a nonempty `.lcp` up to 32 MiB. The isolated native parser returns `version`, `reference`, `name`, `make`, `camera`, `lens`, and `sampleCount`. Invalid profiles return `422`; an unavailable engine returns `503`. |
+| GET    | `/api/lens-profiles/:digest` | Retrieve exact original XML by its 64-character lowercase BLAKE3 digest. Missing profiles return `404`.                                                                                                                                      |
+
+The server verifies hashes when storing and reading imported bytes. GridFS retains profiles across process restarts. Render children restore the reference from the XMP through the shared parser before developing; disabled corrections need no profile, and embedded corrections take priority. Importing a profile does not itself acknowledge an approximate match or edit a photo's sidecar.
+
 ## Static UI
 
 | Method | Path | Auth   | Purpose                                                                                                                                                                                                                             |

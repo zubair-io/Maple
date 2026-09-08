@@ -239,6 +239,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         }
     }
 
@@ -347,6 +348,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         assert_eq!(img.width, 2);
@@ -429,6 +431,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         };
         let img = linearraw_to_camera_rgb(&raw).expect("LinearRaw decode");
         let p = img.pixels[0];
@@ -499,6 +502,7 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+            lens_metadata: Default::default(),
         };
         let err = linearraw_to_camera_rgb(&raw).unwrap_err();
         match err {

@@ -72,6 +72,7 @@ mod tests {
             forward_matrices: HashMap::new(),
             orientation: ExifOrientation::Normal,
             baseline_exposure: 0.,
+            lens_metadata: Default::default(),
             hsm_data: HashMap::new(),
             plt: None,
             profile_tone_curve: None,
