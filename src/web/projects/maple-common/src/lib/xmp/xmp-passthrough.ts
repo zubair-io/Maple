@@ -72,8 +72,14 @@ const CANONICAL_NAMESPACE_URIS: Readonly<Record<string, string>> = {
 
 // Ordinary adjustment saves do not replace metadata. Preserve its source XML,
 // including language alternatives and multiple creators the metadata form cannot model.
+/** A child element the serializer re-emits from the model, so it must never
+ *  also survive as a passthrough node — that would emit it twice. Both
+ *  repair containers (#3409) qualify: `crs:RetouchAreas` is rewritten from
+ *  `model.retouchSpots`, and the legacy `crs:RetouchInfo` is read into the
+ *  same list and replaced by the struct form on the next save. */
 const isManagedChild = (child: Element): boolean =>
-  child.namespaceURI === DC_NAMESPACE && child.localName === 'subject';
+  (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
+  retouchContainerKind(child) !== undefined;
 
 const visibleNamespaceUris = (description: Element): Map<string, string> => {
   const namespaces = new Map<string, string>();
@@ -108,12 +114,7 @@ const withoutModeledFields = (source: Element, primary: Element): Element => {
   Array.from(source.children).forEach((child, index) => {
     if (localAdjustmentContainerKind(child) === 'group' && !sharesMaskGroupContext(source, primary))
       return;
-    if (
-      toneCurveElementKey(child) ||
-      localAdjustmentContainerKind(child) ||
-      retouchContainerKind(child) ||
-      isManagedChild(child)
-    )
+    if (toneCurveElementKey(child) || localAdjustmentContainerKind(child) || isManagedChild(child))
       clonedChildren[index]?.remove();
   });
   return clone;
@@ -145,6 +146,23 @@ const preservedStructure = (
 };
 
 /**
+ * Every repair spot `description` carries (#3409). The struct
+ * `crs:RetouchAreas` container wins whenever it produced one; the legacy
+ * `crs:RetouchInfo` strings are the fallback for a document that only has
+ * those.
+ */
+function retouchSpotsFrom(description: Element): RetouchSpot[] {
+  const areas: RetouchSpot[] = [];
+  const legacy: RetouchSpot[] = [];
+  for (const child of Array.from(description.children)) {
+    const kind = retouchContainerKind(child);
+    if (kind === 'areas') areas.push(...parseRetouchAreasContainer(child));
+    else if (kind === 'legacy') legacy.push(...parseRetouchInfoContainer(child));
+  }
+  return areas.length > 0 ? areas : legacy;
+}
+
+/**
  * Capture fields Maple does not model and hydrate Maple-owned point curves.
  * The parser intentionally delegates the whole child classification here so
  * managed nodes can never also leak into the passthrough bucket.
@@ -173,8 +191,11 @@ export function collectXmpPassthrough(
     });
   const unknownNodes: string[] = [];
   const passthroughPrefixes = new Set<string>();
-  const areaSpots: RetouchSpot[] = [];
-  const legacySpots: RetouchSpot[] = [];
+  // Repair spots (#3409) are collected in one pass of their own so the
+  // child loop below keeps a single skip branch for them rather than the
+  // two-container-plus-precedence logic `retouchSpotsFrom` owns.
+  const retouchSpots = retouchSpotsFrom(description);
+  if (retouchSpots.length > 0) model.retouchSpots = retouchSpots;
 
   for (const child of Array.from(description.children)) {
     const curveKey = toneCurveElementKey(child);
@@ -194,26 +215,10 @@ export function collectXmpPassthrough(
       ];
       continue;
     }
-    // Repair spots (#3409): the struct container hydrates the model and the
-    // legacy string form is a read-only fallback — neither may also reach the
-    // passthrough bucket, or the writer would emit the block twice.
-    const retouchKind = retouchContainerKind(child);
-    if (retouchKind === 'areas') {
-      areaSpots.push(...parseRetouchAreasContainer(child));
-      continue;
-    }
-    if (retouchKind === 'legacy') {
-      legacySpots.push(...parseRetouchInfoContainer(child));
-      continue;
-    }
+    // `isManagedChild` covers both repair containers (#3409), hydrated above.
     if (isManagedChild(child)) continue;
     unknownNodes.push(selfContainedXml(child));
   }
-
-  // The struct form wins whenever it produced a spot; the legacy strings
-  // are the fallback for a document that only carries them.
-  const spots = areaSpots.length > 0 ? areaSpots : legacySpots;
-  if (spots.length > 0) model.retouchSpots = spots;
 
   const maskGroups = collectMaskGroups(description, model);
 

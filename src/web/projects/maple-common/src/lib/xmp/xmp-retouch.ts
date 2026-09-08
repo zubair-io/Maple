@@ -18,10 +18,17 @@ import type { AdjustmentModel } from '../models/adjustment-model';
 import type { RetouchKind, RetouchPoint, RetouchSpot } from '../models/retouch-spot';
 import { RETOUCH_DEFAULT_FEATHER } from '../models/retouch-spot';
 import { attrOf, managedXmpName } from './xmp-dom-utils';
+import {
+  correctionDescriptions,
+  childrenNamed,
+  finiteAttr,
+  firstRecognisedLeaf,
+  maskLeaves,
+} from './xmp-crs-corrections';
 
-export const RETOUCH_AREAS_ELEMENT = 'crs:RetouchAreas';
-export const RETOUCH_INFO_ELEMENT = 'crs:RetouchInfo';
-const MASKS_ELEMENT = 'crs:Masks';
+const RETOUCH_AREAS_ELEMENT = 'crs:RetouchAreas';
+const RETOUCH_INFO_ELEMENT = 'crs:RetouchInfo';
+const MASKS_LOCAL_NAME = 'Masks';
 const MASK_WHAT_CIRCULAR = 'Mask/CircularGradient';
 
 /** Which retouch container `child` is, or undefined when it is neither. */
@@ -33,24 +40,23 @@ export function retouchContainerKind(child: Element): 'areas' | 'legacy' | undef
 }
 
 // ── Parse ──────────────────────────────────────────────────────────────────
-
-const childrenNamed = (el: Element, local: string): Element[] =>
-  Array.from(el.children).filter((c) => c.localName === local);
-
-const finiteAttr = (el: Element, name: string): number | undefined => {
-  const raw = attrOf(el, [name]);
-  if (raw === null || raw.trim().length === 0) return undefined;
-  const v = Number(raw);
-  return Number.isFinite(v) ? v : undefined;
-};
+// The container walk and the attribute codecs live in
+// `xmp-crs-corrections.ts`, shared with the local-adjustment reader (#358);
+// only the spot semantics below are this container's own.
 
 const spotKind = (raw: string | null): RetouchKind | undefined =>
   raw === 'heal' || raw === 'clone' ? raw : undefined;
 
+/** The destination disc a `crs:Masks` leaf describes. */
+interface RetouchDisc {
+  center: RetouchPoint;
+  radius: number;
+  /** A leaf-level `crs:Feather`, which overrides the correction's. */
+  feather?: number;
+}
+
 /** The destination disc from a `crs:Masks` leaf, or undefined if unmodelled. */
-function parseMaskLeaf(
-  leaf: Element,
-): { center: RetouchPoint; radius: number; feather?: number } | undefined {
+function parseMaskLeaf(leaf: Element): RetouchDisc | undefined {
   if (attrOf(leaf, ['crs:What']) !== MASK_WHAT_CIRCULAR) return undefined;
   const x = finiteAttr(leaf, 'crs:X');
   const y = finiteAttr(leaf, 'crs:Y');
@@ -59,86 +65,68 @@ function parseMaskLeaf(
   return { center: { x, y }, radius, feather: finiteAttr(leaf, 'crs:Feather') };
 }
 
+/**
+ * Where the spot samples from. Adobe writes it either absolutely
+ * (`crs:SourceX`/`Y`) or as a delta from the destination
+ * (`crs:OffsetX`/`Y`); both spellings resolve to the same stored point, and
+ * the absolute pair wins when a document carries both.
+ */
+function parseSource(description: Element, center: RetouchPoint): RetouchPoint | undefined {
+  for (const [xKey, yKey, originX, originY] of [
+    ['crs:SourceX', 'crs:SourceY', 0, 0],
+    ['crs:OffsetX', 'crs:OffsetY', center.x, center.y],
+  ] as const) {
+    const x = finiteAttr(description, xKey);
+    const y = finiteAttr(description, yKey);
+    if (x !== undefined && y !== undefined) return { x: originX + x, y: originY + y };
+  }
+  return undefined;
+}
+
 /** One `rdf:Description` correction under `crs:RetouchAreas`. */
-export function parseRetouchCorrection(description: Element): RetouchSpot | undefined {
+function parseRetouchCorrection(description: Element): RetouchSpot | undefined {
   const kind = spotKind(attrOf(description, ['crs:SpotType']));
   if (!kind) return undefined;
-  const leaf = childrenNamed(description, 'Masks')
-    .flatMap((masks) => childrenNamed(masks, 'Seq'))
-    .flatMap((seq) => childrenNamed(seq, 'li'))
-    .map(parseMaskLeaf)
-    .find((m) => m !== undefined);
-  if (!leaf) return undefined;
-
-  const sourceX = finiteAttr(description, 'crs:SourceX');
-  const sourceY = finiteAttr(description, 'crs:SourceY');
-  const offsetX = finiteAttr(description, 'crs:OffsetX');
-  const offsetY = finiteAttr(description, 'crs:OffsetY');
-  // Adobe writes the source either absolutely or as a delta from the
-  // destination; both spellings resolve to the same stored point.
-  const source =
-    sourceX !== undefined && sourceY !== undefined
-      ? { x: sourceX, y: sourceY }
-      : offsetX !== undefined && offsetY !== undefined
-        ? { x: leaf.center.x + offsetX, y: leaf.center.y + offsetY }
-        : undefined;
+  const disc = firstRecognisedLeaf(maskLeaves(description, MASKS_LOCAL_NAME), parseMaskLeaf);
+  if (!disc) return undefined;
+  const source = parseSource(description, disc.center);
   if (!source) return undefined;
-
-  const correctionFeather = finiteAttr(description, 'crs:Feather');
   return {
     kind,
-    center: leaf.center,
+    center: disc.center,
     source,
-    radius: leaf.radius,
-    feather: leaf.feather ?? correctionFeather ?? RETOUCH_DEFAULT_FEATHER,
+    radius: disc.radius,
+    feather: disc.feather ?? finiteAttr(description, 'crs:Feather') ?? RETOUCH_DEFAULT_FEATHER,
     opacity: finiteAttr(description, 'crs:Opacity') ?? 1,
   };
 }
 
 /** Every modelled spot in a `crs:RetouchAreas` container element. */
 export function parseRetouchAreasContainer(container: Element): RetouchSpot[] {
-  return childrenNamed(container, 'Seq')
-    .flatMap((seq) => childrenNamed(seq, 'li'))
-    .flatMap((li) => childrenNamed(li, 'Description'))
+  return correctionDescriptions(container)
     .map(parseRetouchCorrection)
     .filter((s): s is RetouchSpot => s !== undefined);
 }
+
+/** The legacy string form's numeric keys, in the order they compose a spot. */
+const LEGACY_NUMERIC_KEYS = ['centerX', 'centerY', 'sourceX', 'sourceY', 'radius'] as const;
 
 /**
  * One legacy `crs:RetouchInfo` `rdf:li` body — a comma-separated
  * `key = value` list. Tolerant: a missing coordinate, radius, or modelled
  * spot type drops that entry.
  */
-export function parseLegacyRetouchInfo(body: string): RetouchSpot | undefined {
+function parseLegacyRetouchInfo(body: string): RetouchSpot | undefined {
   const fields = new Map<string, string>();
   for (const field of body.split(',')) {
     const eq = field.indexOf('=');
-    if (eq < 0) continue;
-    fields.set(field.slice(0, eq).trim(), field.slice(eq + 1).trim());
+    if (eq >= 0) fields.set(field.slice(0, eq).trim(), field.slice(eq + 1).trim());
   }
-  const num = (key: string): number | undefined => {
-    const raw = fields.get(key);
-    if (raw === undefined) return undefined;
-    const v = Number(raw);
-    return Number.isFinite(v) ? v : undefined;
-  };
   const kind = spotKind(fields.get('spotType') ?? null);
-  const [cx, cy, sx, sy, radius] = [
-    num('centerX'),
-    num('centerY'),
-    num('sourceX'),
-    num('sourceY'),
-    num('radius'),
-  ];
-  if (
-    !kind ||
-    cx === undefined ||
-    cy === undefined ||
-    sx === undefined ||
-    sy === undefined ||
-    radius === undefined
-  )
-    return undefined;
+  if (!kind) return undefined;
+  const numbers = LEGACY_NUMERIC_KEYS.map((key) => Number(fields.get(key)));
+  if (!numbers.every((v) => Number.isFinite(v))) return undefined;
+  const [cx, cy, sx, sy, radius] = numbers;
   return {
     kind,
     center: { x: cx, y: cy },

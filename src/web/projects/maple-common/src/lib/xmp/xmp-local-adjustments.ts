@@ -31,6 +31,13 @@ import type {
 } from '../models/local-adjustment';
 import { numericSerializer } from './xmp-fields';
 import { attrOf, managedXmpName } from './xmp-dom-utils';
+import {
+  correctionDescriptions,
+  finiteAttr,
+  firstRecognisedLeaf,
+  maskLeaves,
+  xmpBool,
+} from './xmp-crs-corrections';
 
 export type LocalAdjustmentContainerKind = 'linear' | 'radial' | 'group';
 
@@ -117,26 +124,9 @@ export function localAdjustmentContainerKind(
 }
 
 // ── Parse ──────────────────────────────────────────────────────────────────
-
-/** RDF structural elements are matched on local name only, like raw-core's
- * `is_seq` / `is_li` / `is_description` — a sidecar may bind RDF to any prefix. */
-const childrenNamed = (el: Element, local: string): Element[] =>
-  Array.from(el.children).filter((c) => c.localName === local);
-
-const finiteAttr = (el: Element, name: string): number | undefined => {
-  const raw = attrOf(el, [name]);
-  if (raw === null || raw.trim().length === 0) return undefined;
-  const v = Number(raw);
-  return Number.isFinite(v) ? v : undefined;
-};
-
-/** Adobe's boolean spellings, case-insensitive; undefined for anything else. */
-const xmpBool = (raw: string | null): boolean | undefined => {
-  const lower = raw?.trim().toLowerCase();
-  if (lower === '1' || lower === 'true' || lower === 'on') return true;
-  if (lower === '0' || lower === 'false' || lower === 'off') return false;
-  return undefined;
-};
+// The container walk and the attribute codecs live in
+// `xmp-crs-corrections.ts`, shared with the repair-spot reader (#3409);
+// only the leaf semantics below are this container's own.
 
 const point = (x: number, y: number): MaskPoint => ({ x, y });
 
@@ -225,13 +215,17 @@ function parseMask(
   description: Element,
   kind: LocalAdjustmentContainerKind,
 ): LocalMask | undefined {
-  const masks = Array.from(description.children).find((c) => managedXmpName(c) === MASKS_ELEMENT);
-  const seq = masks ? childrenNamed(masks, 'Seq')[0] : undefined;
-  const leaves = seq ? childrenNamed(seq, 'li') : [];
-  return leaves
-    .filter((leaf) => attrOf(leaf, ['crs:What']) === MASK_WHAT[kind])
-    .map((leaf) => LEAF_PARSERS[kind](leaf))
-    .find((mask) => mask !== undefined);
+  // Matched through `managedXmpName` rather than the local name alone: the
+  // masks element is a `crs:` node Maple owns, so a foreign element with the
+  // same local name in another namespace must not be mistaken for it.
+  const masksLocalName = Array.from(description.children).find(
+    (c) => managedXmpName(c) === MASKS_ELEMENT,
+  )?.localName;
+  if (!masksLocalName) return undefined;
+  const leaves = maskLeaves(description, masksLocalName).filter(
+    (leaf) => attrOf(leaf, ['crs:What']) === MASK_WHAT[kind],
+  );
+  return firstRecognisedLeaf(leaves, LEAF_PARSERS[kind]);
 }
 
 export function parseLocalCorrection(
@@ -265,11 +259,8 @@ export function parseLocalAdjustmentsContainer(
   container: Element,
   kind: LocalAdjustmentContainerKind,
 ): LocalAdjustment[] {
-  const seq = childrenNamed(container, 'Seq')[0];
-  if (!seq) return [];
-  return childrenNamed(seq, 'li').flatMap((li) => {
-    const description = childrenNamed(li, 'Description')[0];
-    const layer = description ? parseLocalCorrection(description, kind) : undefined;
+  return correctionDescriptions(container).flatMap((description) => {
+    const layer = parseLocalCorrection(description, kind);
     return layer ? [layer] : [];
   });
 }

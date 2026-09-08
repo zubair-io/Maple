@@ -27,15 +27,9 @@ import {
 import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { RetouchSessionService } from './retouch-session.service';
-import { defaultCrop } from '../../models/adjustment-model';
 import type { RetouchPoint, RetouchSpot } from '../../models/retouch-spot';
-import { fitFootprint, type Footprint } from '../crop-overlay/crop-geometry';
-import { focusedImageDims, hostLocalPoint, observeHostSize } from '../crop-overlay/overlay-host';
-import {
-  type MaskCanvasMap,
-  makeMaskCanvasMap,
-  maskFromScreen,
-} from '../mask-overlay/mask-geometry';
+import { OverlayDrag, OverlayPlacement } from '../crop-overlay/overlay-host';
+import { maskFromScreen } from '../mask-overlay/mask-geometry';
 import {
   RETOUCH_HANDLE_NAME,
   type RetouchHandle,
@@ -52,9 +46,6 @@ interface DragState {
   handle: RetouchHandle;
   startSpot: RetouchSpot;
   anchor: RetouchPoint;
-  /** True once the pointer actually moved: a press that never moves is a
-   *  selection, not a drag, and must not open an undo boundary. */
-  moved: boolean;
 }
 
 interface DiscView {
@@ -85,36 +76,12 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
   private readonly canvasSvc = inject(ImageCanvasService);
   protected readonly session = inject(RetouchSessionService);
 
-  private readonly wrapW = signal(0);
-  private readonly wrapH = signal(0);
-  private ro?: ResizeObserver;
-  private drag: DragState | null = null;
+  private readonly drag = new OverlayDrag<DragState>();
 
-  private readonly imgDims = focusedImageDims(this.library);
-
-  private readonly crop = computed(() => {
-    const a = this.library.focusedAsset();
-    return a ? this.library.adjustmentFor(a.id)().crop : defaultCrop();
-  });
-
-  /** Displayed (cropped) image dimensions — the extent the canvas fits. */
-  private readonly displayDims = computed(() => {
-    const { w, h } = this.imgDims();
-    const c = this.crop();
-    const cw = (c.right - c.left) * w;
-    const ch = (c.bottom - c.top) * h;
-    return cw > 0 && ch > 0 ? { w: cw, h: ch } : { w, h };
-  });
-
-  protected readonly footprint = computed<Footprint>(() => {
-    const { w, h } = this.displayDims();
-    return fitFootprint(this.wrapW(), this.wrapH(), w, h);
-  });
-
-  protected readonly map = computed<MaskCanvasMap>(() => {
-    const { w, h } = this.imgDims();
-    return makeMaskCanvasMap(this.footprint(), this.crop(), w, h);
-  });
+  /** Host size, applied crop, fit footprint and the full-frame ↔ screen map
+   *  — shared with every other canvas overlay (`overlay-host.ts`). */
+  private readonly placement = new OverlayPlacement(() => this.host.nativeElement, this.library);
+  protected readonly map = this.placement.map;
 
   /** Every spot's destination disc, in screen space. */
   protected readonly discs = computed<DiscView[]>(() => {
@@ -179,85 +146,83 @@ export class RetouchOverlayComponent implements AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
-    this.ro = observeHostSize(this.host.nativeElement, this.wrapW, this.wrapH);
+    this.placement.observe();
   }
 
   ngOnDestroy(): void {
-    this.ro?.disconnect();
+    this.placement.destroy();
   }
 
   // ── Pointer interaction ────────────────────────────────────────────────
 
   protected onPointerDown(ev: PointerEvent): void {
-    const { px, py } = this.localPoint(ev);
-    const point = maskFromScreen(this.map(), px, py);
-    const hit = this.hitTest(px, py);
+    const point = this.imagePoint(ev);
+    const hit = this.hitTest(point);
     if (hit) {
       this.session.select(hit.index);
-      const spot = this.session.spots()[hit.index];
-      this.drag = { handle: hit.handle, startSpot: spot, anchor: point, moved: false };
-    } else {
-      // Empty canvas: place a new spot and immediately begin dragging its
-      // source, so one press-drag-release both places and aims the repair.
-      const index = this.session.place(point);
-      this.drag = {
-        handle: 'source',
-        startSpot: this.session.spots()[index],
-        anchor: this.session.spots()[index].source,
-        moved: false,
-      };
+      this.drag.begin(ev, {
+        handle: hit.handle,
+        startSpot: this.session.spots()[hit.index],
+        anchor: point,
+      });
+      return;
     }
-    (ev.target as Element).setPointerCapture?.(ev.pointerId);
-    ev.preventDefault();
+    // Empty canvas: place a new spot and immediately begin dragging its
+    // source, so one press-drag-release both places and aims the repair.
+    const placed = this.session.spots()[this.session.place(point)];
+    this.drag.begin(ev, { handle: 'source', startSpot: placed, anchor: placed.source });
   }
 
   protected onPointerMove(ev: PointerEvent): void {
-    if (!this.drag) {
+    const drag = this.drag.active;
+    if (!drag) {
       this.onHover(ev);
       return;
     }
-    const { px, py } = this.localPoint(ev);
-    const point = maskFromScreen(this.map(), px, py);
-    this.drag = { ...this.drag, moved: true };
     this.session.setShape(
-      dragRetouchHandle(this.drag.startSpot, this.drag.handle, point, this.drag.anchor),
+      dragRetouchHandle(drag.startSpot, drag.handle, this.imagePoint(ev), drag.anchor),
     );
     ev.preventDefault();
   }
 
   protected onPointerUp(ev: PointerEvent): void {
-    if (!this.drag) return;
-    this.drag = null;
-    this.session.endGesture();
-    (ev.target as Element).releasePointerCapture?.(ev.pointerId);
+    this.drag.end(ev, this.session);
   }
 
   private onHover(ev: PointerEvent): void {
-    const { px, py } = this.localPoint(ev);
-    this.cursor.set(this.hitTest(px, py) === null ? 'crosshair' : 'move');
+    this.cursor.set(this.hitTest(this.imagePoint(ev)) === null ? 'crosshair' : 'move');
   }
 
-  /** The topmost spot+handle under `(px, py)`; later spots win, matching the
-   *  paint order (a spot placed on top of another is the one you grab). */
-  private hitTest(px: number, py: number): { index: number; handle: RetouchHandle } | null {
+  /**
+   * The topmost spot and handle under the normalised point `p`, or null.
+   * The selected spot is tested first because only it draws a source disc;
+   * the rest are tested back to front, so a spot placed on top of another is
+   * the one you grab.
+   */
+  private hitTest(p: RetouchPoint): { index: number; handle: RetouchHandle } | null {
     const map = this.map();
     const spots = this.session.spots();
     const selectedIndex = this.session.selectedIndex();
-    // The selected spot is tested first, because only it draws a source disc.
-    if (selectedIndex !== null && spots[selectedIndex]) {
-      const handle = hitTestRetouchHandle(px, py, spots[selectedIndex], map, HANDLE_TOLERANCE);
+    const screen = retouchPointToScreen(map, p);
+    const selected = selectedIndex === null ? undefined : spots[selectedIndex];
+    if (selected && selectedIndex !== null) {
+      const handle = hitTestRetouchHandle(screen.x, screen.y, selected, map, HANDLE_TOLERANCE);
       if (handle) return { index: selectedIndex, handle };
     }
     for (let i = spots.length - 1; i >= 0; i--) {
       if (i === selectedIndex) continue;
-      const s = retouchPointToScreen(map, spots[i].center);
+      const centre = retouchPointToScreen(map, spots[i].center);
       const reach = Math.max(HANDLE_TOLERANCE, retouchRadiusPx(map, spots[i]));
-      if (Math.hypot(px - s.x, py - s.y) <= reach) return { index: i, handle: 'destination' };
+      if (Math.hypot(screen.x - centre.x, screen.y - centre.y) <= reach) {
+        return { index: i, handle: 'destination' };
+      }
     }
     return null;
   }
 
-  private localPoint(ev: PointerEvent): { px: number; py: number } {
-    return hostLocalPoint(this.host.nativeElement, ev);
+  /** The pointer's position in full-frame normalised coordinates. */
+  private imagePoint(ev: PointerEvent): RetouchPoint {
+    const { px, py } = this.placement.localPoint(ev);
+    return maskFromScreen(this.placement.map(), px, py);
   }
 }

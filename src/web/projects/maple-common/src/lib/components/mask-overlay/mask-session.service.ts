@@ -30,6 +30,7 @@ import type {
 } from '../../models/local-adjustment';
 import type { MaskRangeSeed } from '../../raw-pipeline/raw-pipeline.sample-range.types';
 import { defaultLinearMask, defaultRadialMask, withMaskFeather } from './mask-geometry';
+import { removeAt } from '../../editor/list-selection';
 import { defaultRangeRefinement, withRangeField, type RangeFieldId } from './mask-range';
 import { sampleMaskRangeInto, seededLayer } from './mask-range-sample';
 
@@ -104,13 +105,12 @@ export class MaskSessionService {
   }
 
   remove(index: number): void {
-    const layers = this.layers();
-    if (index < 0 || index >= layers.length) return;
+    const removal = removeAt(this.layers(), index);
+    if (!removal) return;
     this.endGesture();
     this.editor.commit();
-    const next = layers.filter((_, i) => i !== index);
-    this.write(next);
-    this.selectedIndex.set(next.length === 0 ? null : Math.min(index, next.length - 1));
+    this.write(removal.next);
+    this.selectedIndex.set(removal.selected);
   }
 
   removeSelected(): void {
