@@ -1,6 +1,6 @@
 {
   "backend": "bun",
-  "command": "CI job 101500999521: bash -c \"cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts --timeout 30000\"",
+  "command": "bash -c \"cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts --timeout 30000\"",
   "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
   "executed_cases": 3,
   "expected_cases": 3,
