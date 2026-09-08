@@ -88,19 +88,6 @@ impl GpuContext {
         })
     }
 
-    /// The cached defringe compute pipeline (#3411).
-    ///
-    /// Reads its own 3×3 luminance window out of `src` and scales the
-    /// centre pixel's Oklab chroma, so it is one dispatch like the point
-    /// ops — but it rounds through Oklab, so the generated color-matrix
-    /// module is prepended (`compile_with_matrices`), the same concat
-    /// pattern saturation / vibrance use.
-    pub fn defringe_pipeline(&self) -> &wgpu::ComputePipeline {
-        self.defringe_pipeline.get_or_init(|| {
-            compile_with_matrices(&self.device, "defringe", include_str!("defringe.wgsl"))
-        })
-    }
-
     /// The cached local-adjustments compute pipeline (#1698).
     ///
     /// The kernel rasterizes each layer's vector mask and applies that layer's
@@ -216,7 +203,7 @@ impl GpuContext {
         })
     }
 
-    /// The cached defringe compute pipeline (#3407).
+    /// The cached defringe compute pipeline (#3407 per-mask, #3411 global).
     ///
     /// The kernel rounds each edge pixel through Oklab to scale its chroma,
     /// so — like `saturation_pipeline` — the generated `color_matrices.wgsl`
