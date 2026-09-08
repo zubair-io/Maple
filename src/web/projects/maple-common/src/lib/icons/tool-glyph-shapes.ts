@@ -48,6 +48,7 @@ export type ToolIconName =
   | 'tool-color-nr'
   | 'tool-capture-sharpen'
   | 'tool-lens'
+  | 'tool-defringe'
   | 'tool-crop'
   | 'tool-geometry'
   | 'tool-presets';
@@ -222,6 +223,10 @@ export const TOOL_ICON_SHAPES: Record<ToolIconName, readonly IconShape[]> = {
   // Concentric rings — a lens element viewed head-on. Mirrored verbatim to
   // Apple's `ToolGlyphShapes.swift` (`case .lensCorrections`, #2231).
   'tool-lens': [c(8, 8, 4.8), c(8, 8, 2.2)],
+  // One ring with a split arc offset outside it — the colour halo hugging
+  // one side of an edge, which is what this tool desaturates. Mirrored
+  // verbatim to Apple's `ToolGlyphShapes.swift` (`case .defringe`, #3411).
+  'tool-defringe': [c(8, 8, 4.0), p('M12.6 4.6a6.4 6.4 0 0 1 0 6.8')],
 
   // ── Standalone ──────────────────────────────────────────────────────────
   // Two crop rails crossing — the classic corner-bracket pair.
