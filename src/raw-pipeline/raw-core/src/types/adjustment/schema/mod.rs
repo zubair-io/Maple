@@ -15,23 +15,9 @@
 //! (`tone_curve_*` #366, `display_tone_curve_*` #2232) as
 //! [`FieldKind::ToneCurve`].
 
-// Every one of these is a sibling submodule for the same reason: spelling
-// its `FieldSpec` literals inline pushed this file past the 600-LOC hard
-// budget (#1181). `ADJUSTMENT_SCHEMA` still lists each entry IN PLACE, so
-// the emitted order matches `AdjustmentModel`'s struct order exactly.
-// `types` holds `FieldKind`/`FieldSpec` themselves; `hsl` the 24 band
-// entries (#366); `color_grade` the 13 wheel entries (#376);
-// `display_curves` the four display-referred point curves (#2232);
-// `perspective` the seven manual-geometry entries (#3410); `white_balance`
-// the slider pair, method and #2434 provenance fields; `lens_auto` the
-// seven profile-free lens corrections (#3411).
-mod color_grade;
-mod display_curves;
-mod hsl;
-mod lens_auto;
-mod perspective;
+// FieldKind and FieldSpec split into a sibling submodule to stay under the
+// 600-LOC hard budget (#1181).
 mod types;
-mod white_balance;
 pub use types::{band_field, FieldKind, FieldSpec};
 
 // The 24 HSL band entries live in a sibling submodule for the same reason
