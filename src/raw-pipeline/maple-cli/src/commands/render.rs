@@ -14,6 +14,7 @@ use raw_core::view::encode::TargetPrimaries;
 use raw_core::xmp;
 use std::path::{Path, PathBuf};
 
+use super::render_lens;
 use super::types::{DemosaicChoice, OutputFormat, PrimariesChoice, ProfileChoice};
 
 /// Default `--film-lut-dir` value: `resources/film-luts` resolved from the
@@ -84,7 +85,7 @@ pub(super) fn render_path(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    report_lens_resolution(&raw, model)?;
+    render_lens::report_lens_resolution(&raw, model)?;
     Ok(render_from_raw_with_quality_source_and_film(
         &raw,
         model,
@@ -108,7 +109,7 @@ fn render_path_with_quality(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    report_lens_resolution(&raw, model)?;
+    render_lens::report_lens_resolution(&raw, model)?;
     Ok(render_from_raw_with_quality_source_and_film(
         &raw,
         model,
@@ -138,7 +139,7 @@ fn render_path_with_primaries(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    report_lens_resolution(&raw, model)?;
+    render_lens::report_lens_resolution(&raw, model)?;
     let (w, h, pixels) = render_export_from_raw_with_film(
         &raw,
         model,
@@ -184,17 +185,14 @@ pub fn run(
     profile: ProfileChoice,
     film_lut_dir: Option<&Path>,
     target_primaries: PrimariesChoice,
-    lens_profile: Option<(&Path,bool)>,
+    lens_profile: Option<(&Path, bool)>,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let mut model = match params {
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
     };
-    if let Some((path,acknowledged)) = lens_profile {
-        let registration = raw_core::lens_profile::register(&std::fs::read_to_string(path)?)?;
-        let reference = registration["reference"].as_str().ok_or("LCP registration has no reference")?;
-        model.lens_profile = if acknowledged { reference.replacen("lcp1:","lcp1-ack:",1) } else { reference.to_owned() };
-        eprintln!("LCP selection: {}",model.lens_profile);
+    if let Some((path, acknowledged)) = lens_profile {
+        render_lens::apply_lens_profile_selection(&mut model, path, acknowledged)?;
     }
     // CLI override for Auto Profile (#537). `Xmp` honours the sidecar;
     // `Neutral` pins the view transform for the color-parity harness;
@@ -558,15 +556,4 @@ mod tests {
         };
         (rgb, info.width, info.height)
     }
-}
-
-/// Print real resolver evidence once per CLI render, including embedded priority.
-fn report_lens_resolution(raw: &raw_core::RawImage, model: &xmp::AdjustmentModel) -> Result<(), Box<dyn std::error::Error>> {
-    if model.lens_profile.is_empty() { return Ok(()); }
-    if raw.opcode_list3.is_some() {
-        eprintln!("Lens correction source: embedded OpcodeList3 (external profile not applied)");
-    } else if let Some(resolution) = raw_core::lens_profile::resolve_for_raw(raw, &model.lens_profile)? {
-        eprintln!("Lens correction: {}", resolution.metadata());
-    }
-    Ok(())
 }

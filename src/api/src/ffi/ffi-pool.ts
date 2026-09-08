@@ -121,11 +121,6 @@ class FfiWorkerPool {
     });
   }
 
-  private requestId(): number {
-    if (!this.available()) throw new Error('ffi-pool: raw-ffi dylib not available');
-    return this.nextId++;
-  }
-
   /** Effective pool size (lazy spawn ceiling). */
   poolSize(): number {
     return this.targetSize;

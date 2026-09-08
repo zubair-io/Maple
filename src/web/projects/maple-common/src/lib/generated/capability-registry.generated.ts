@@ -285,6 +285,7 @@ export const CAPABILITY_REGISTRY: readonly CapabilityRecord[] = [
       'defringe_green_hue_lo',
       'defringe_green_hue_hi',
       'capture_sharpening_radius',
+      'lens_profile',
     ],
     integration: ['sidecar_contract_apple', 'sidecar_contract_api', 'gpu_chain_parity_lavapipe'],
     qualification: [

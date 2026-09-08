@@ -27,7 +27,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — satisfied
+  - `grey_adjustments` — corpus changed since the record
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
@@ -50,7 +50,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — satisfied
+  - `grey_adjustments` — corpus changed since the record
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
@@ -73,7 +73,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — satisfied
+  - `grey_adjustments` — corpus changed since the record
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
@@ -90,13 +90,13 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Asset classes: `raw`, `non_raw`
 - Preview paths: `cpu_reference`, `gpu_live`, `wasm_cpu`, `wasm_gpu`
 - Export paths: `maple_cli`, `apple_ffi`, `wasm`, `api_ffi`, `windows_dll`
-- Fields: `clarity`, `texture`, `dehaze`, `sharpen_amount`, `sharpen_radius`, `sharpen_detail`, `sharpen_masking`, `capture_sharpening_amount`, `capture_sharpening_sigma`, `nr_luminance`, `nr_color`, `chroma_prefilter`, `hot_pixel_suppression`, `deep_denoise`, `lens_profile_enable`, `lens_correction_distortion`, `lens_correction_ca`, `lens_correction_vignetting`, `demosaic`, `auto_lateral_ca`, `defringe_purple_amount`, `defringe_purple_hue_lo`, `defringe_purple_hue_hi`, `defringe_green_amount`, `defringe_green_hue_lo`, `defringe_green_hue_hi`, `capture_sharpening_radius`
+- Fields: `clarity`, `texture`, `dehaze`, `sharpen_amount`, `sharpen_radius`, `sharpen_detail`, `sharpen_masking`, `capture_sharpening_amount`, `capture_sharpening_sigma`, `nr_luminance`, `nr_color`, `chroma_prefilter`, `hot_pixel_suppression`, `deep_denoise`, `lens_profile_enable`, `lens_correction_distortion`, `lens_correction_ca`, `lens_correction_vignetting`, `demosaic`, `auto_lateral_ca`, `defringe_purple_amount`, `defringe_purple_hue_lo`, `defringe_purple_hue_hi`, `defringe_green_amount`, `defringe_green_hue_lo`, `defringe_green_hue_hi`, `capture_sharpening_radius`, `lens_profile`
 - Integration evidence:
   - `sidecar_contract_apple` — satisfied
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — satisfied
+  - `grey_adjustments` — corpus changed since the record
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
@@ -119,7 +119,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — satisfied
+  - `grey_adjustments` — corpus changed since the record
   - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 40
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`
-- Record: satisfied — 40 of 40 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v2, schema v5, commit `6dd110674a0f5a8a18450dd06e7ba5df29527af4`, recorded 2026-09-03T03:53:44Z
+- Record: corpus changed since the record — 40 of 40 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v2, schema v5, commit `6dd110674a0f5a8a18450dd06e7ba5df29527af4`, recorded 2026-09-03T03:53:44Z
 
 ### `synthetic_grey`
 

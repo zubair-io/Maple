@@ -55,8 +55,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "synthetic_grey",
@@ -154,8 +154,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "synthetic_grey",
@@ -280,8 +280,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "synthetic_grey",
@@ -360,7 +360,8 @@
         "defringe_green_amount",
         "defringe_green_hue_lo",
         "defringe_green_hue_hi",
-        "capture_sharpening_radius"
+        "capture_sharpening_radius",
+        "lens_profile"
       ],
       "integration": [
         {
@@ -382,8 +383,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "synthetic_grey",
@@ -464,8 +465,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "gpu_chain_parity_metal",
@@ -735,8 +736,8 @@
         "src/raw-pipeline/raw-core/tests/grey_adjustments.rs",
         "src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs"
       ],
-      "corpus_hash": "blake3:fc275d707aca0f4b687a796e9528d92240dd2d94db65eaa46aad7e2f1255871b",
-      "status": "satisfied",
+      "corpus_hash": "blake3:0784b2c2fa0c3ea42eecf520f66ee9ba519bfe162ff09fcbb0fd2af1deaf7bd8",
+      "status": "stale_corpus",
       "record": {
         "backend": "cpu-reference",
         "pipeline_version": 2,
