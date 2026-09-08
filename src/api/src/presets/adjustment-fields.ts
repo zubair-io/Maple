@@ -181,6 +181,12 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   // value, not an invalid one: a preset must be able to explicitly clear a
   // film look by writing `film_look: ""`.
   'film_look',
+  // Bayer demosaic kernel override (#3413) — a closed enum
+  // (Auto|Amaze|Rcd|DualAmaze|DualRcd|Lmmse) and a decode-product field, so
+  // it takes the same shape as `hot_pixel_suppression` above: no variant
+  // list here, because per this module's header a downlevel server must not
+  // reject a preset that pins a kernel a newer client knows about.
+  'demosaic',
 ]);
 
 /**
