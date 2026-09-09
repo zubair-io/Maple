@@ -14,7 +14,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class EditorStateTests: XCTestCase {
+final class EditorStateTests: EditorTestCase {
     // MARK: - Helpers
 
     private func makeSession() -> EditSession {
@@ -402,14 +402,15 @@ final class EditorStateTests: XCTestCase {
 
     // MARK: - Tool catalog sanity
 
-    func testTwentyNineToolsExist() {
+    func testToolCaseCount() {
         // 22 base tools + Capture Sharpening Amount / Sigma, relocated to
         // the Detail group when the Develop tab was removed (#875), +
         // Brightness in Light (#1108 / #1102), + B&W Mix in Color (#276),
         // + Tone Curve in Light (#367), + Film in Effects, + Lens
-        // Corrections in Detail (#2231), + Mask and Heal in Detail (#3274):
-        // 29 → 31.
-        XCTAssertEqual(Tool.allCases.count, 31)
+        // Corrections in Detail (#2231), + Mask and Heal in Detail (#3274),
+        // + Geometry (#3410) and Defringe (#3411) in Detail:
+        // 29 → 33.
+        XCTAssertEqual(Tool.allCases.count, 33)
     }
 
     func testToolGroupMembership() {
@@ -420,8 +421,9 @@ final class EditorStateTests: XCTestCase {
         // Effects gained Film: 6 → 7.
         XCTAssertEqual(Tool.tools(in: .effects).count, 7)
         // Detail gained captureSharpen + captureSigma (#875): 5 → 7, then
-        // Lens Corrections (#2231): 7 → 8, then Mask + Heal (#3274): 8 → 10.
-        XCTAssertEqual(Tool.tools(in: .detail).count, 10)
+        // Lens Corrections (#2231): 7 → 8, then Mask + Heal (#3274): 8 → 10,
+        // then Geometry (#3410) and Defringe (#3411): 10 → 12.
+        XCTAssertEqual(Tool.tools(in: .detail).count, 12)
     }
 
     func testBrightnessToolWiresToModel() {
@@ -441,7 +443,7 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.brightness, 0, accuracy: 1e-9)
     }
 
-    func testWiredToolsCoverTwentyEightTools() {
+    func testWiredToolCount() {
         // The S5 effects all left the #952 stub list as their stages
         // landed (vignette #1109, grain #1110, colorGrade #1111 —
         // superseded split tone at #275), and HSL left it at #274 — its 24
@@ -458,9 +460,12 @@ final class EditorStateTests: XCTestCase {
         // Lens Corrections (#2231) joined wired with the same no-primary-
         // field shape as HSL/Tone Curve/Film: three sub-params
         // (distortion/ca/vignetting) plus the master toggle the section
-        // itself owns.
+        // itself owns. Geometry (#3410) and Defringe (#3411) joined wired
+        // with that same no-primary-field shape — seven `crs:Perspective*`
+        // sub-params and six defringe sub-params respectively — so only
+        // crop, mask and heal stay unwired: 28 → 30.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 28)
+        XCTAssertEqual(wired.count, 30)
         XCTAssertTrue(Tool.hsl.isWired)
         XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
         XCTAssertTrue(Tool.toneCurve.isWired)
