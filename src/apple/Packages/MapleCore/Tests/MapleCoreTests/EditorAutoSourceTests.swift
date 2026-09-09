@@ -3,7 +3,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class EditorAutoSourceTests: XCTestCase {
+final class EditorAutoSourceTests: EditorTestCase {
   private var fixtureURL: URL {
     URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()  // MapleCoreTests

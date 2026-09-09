@@ -11,7 +11,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class FilmStrengthCommitTests: XCTestCase {
+final class FilmStrengthCommitTests: EditorTestCase {
 
     private func makeState() -> EditorState {
         let url = FileManager.default.temporaryDirectory
