@@ -407,9 +407,10 @@ final class EditorStateTests: XCTestCase {
         // the Detail group when the Develop tab was removed (#875), +
         // Brightness in Light (#1108 / #1102), + B&W Mix in Color (#276),
         // + Tone Curve in Light (#367), + Film in Effects, + Lens
-        // Corrections in Detail (#2231), + Mask and Heal in Detail (#3274):
-        // 29 → 31.
-        XCTAssertEqual(Tool.allCases.count, 31)
+        // Corrections in Detail (#2231), + Mask and Heal in Detail (#3274),
+        // + Geometry in Detail (#3410), + Defringe in Detail (#3411):
+        // 29 → 33.
+        XCTAssertEqual(Tool.allCases.count, 33)
     }
 
     func testToolGroupMembership() {
@@ -420,8 +421,9 @@ final class EditorStateTests: XCTestCase {
         // Effects gained Film: 6 → 7.
         XCTAssertEqual(Tool.tools(in: .effects).count, 7)
         // Detail gained captureSharpen + captureSigma (#875): 5 → 7, then
-        // Lens Corrections (#2231): 7 → 8, then Mask + Heal (#3274): 8 → 10.
-        XCTAssertEqual(Tool.tools(in: .detail).count, 10)
+        // Lens Corrections (#2231): 7 → 8, then Mask + Heal (#3274): 8 → 10,
+        // then Geometry (#3410): 10 → 11, then Defringe (#3411): 11 → 12.
+        XCTAssertEqual(Tool.tools(in: .detail).count, 12)
     }
 
     func testBrightnessToolWiresToModel() {
@@ -458,9 +460,16 @@ final class EditorStateTests: XCTestCase {
         // Lens Corrections (#2231) joined wired with the same no-primary-
         // field shape as HSL/Tone Curve/Film: three sub-params
         // (distortion/ca/vignetting) plus the master toggle the section
-        // itself owns.
+        // itself owns. Geometry (#3410) joined wired in that same shape:
+        // seven `crs:Perspective*` sub-params composing one homography,
+        // with no single "main" one to hang a drag bar on. Defringe
+        // (#3411) joined wired the same way — six sub-params (two amounts
+        // and two hue bands), no primary field. Mask (#3274) and Heal
+        // (#3409) are the only additions that did NOT join wired: each
+        // writes a nested list (`localAdjustments` / `retouchSpots`)
+        // rather than a scalar field, so both stay stubs alongside Crop.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 28)
+        XCTAssertEqual(wired.count, 30)
         XCTAssertTrue(Tool.hsl.isWired)
         XCTAssertNil(ToolValueMapping.displayRange(for: .hsl))
         XCTAssertTrue(Tool.toneCurve.isWired)
