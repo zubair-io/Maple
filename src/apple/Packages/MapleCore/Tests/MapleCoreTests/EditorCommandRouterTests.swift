@@ -3,7 +3,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class EditorCommandRouterTests: XCTestCase {
+final class EditorCommandRouterTests: EditorTestCase {
   private func makeRouter() -> EditorCommandRouter {
     let session = EditSession.preview()
     session.nativeImageSize = CGSize(width: 4000, height: 3000)

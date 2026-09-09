@@ -17,7 +17,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class EditorHSLTests: XCTestCase {
+final class EditorHSLTests: EditorTestCase {
     private func makeSession() -> EditSession {
         EditSession.preview()
     }

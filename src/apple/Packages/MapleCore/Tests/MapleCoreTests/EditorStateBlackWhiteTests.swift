@@ -17,7 +17,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class EditorStateBlackWhiteTests: XCTestCase {
+final class EditorStateBlackWhiteTests: EditorTestCase {
 
     // MARK: - Helpers
 

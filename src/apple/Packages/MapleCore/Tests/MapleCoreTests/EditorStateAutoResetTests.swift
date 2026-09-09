@@ -8,7 +8,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class EditorStateAutoResetTests: XCTestCase {
+final class EditorStateAutoResetTests: EditorTestCase {
 
   // MARK: - Helpers
 

@@ -23,7 +23,7 @@ final class RecordingAnnouncer: EditAnnouncer, @unchecked Sendable {
 }
 
 @MainActor
-final class EditSessionTransactionTests: XCTestCase {
+final class EditSessionTransactionTests: EditorTestCase {
     /// The committed synthetic grey DNG (`src/apple/MapleUITests/Fixtures/
     /// synthetic/`) — a real, decodable RAW, small enough to develop in a
     /// unit test.

@@ -3,7 +3,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class WhiteBalancePresetTests: XCTestCase {
+final class WhiteBalancePresetTests: EditorTestCase {
   func testLiveWhiteBalanceModesShareTheSameDecodedImageCacheKey() {
     let decoded = RawCoreBridge.stripAppleGPUStages(.default)
     for preset in WhiteBalancePreset.allCases {
