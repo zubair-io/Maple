@@ -8,7 +8,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class RetouchSessionTests: XCTestCase {
+final class RetouchSessionTests: EditorTestCase {
     private func makeState() -> EditorState {
         let session = EditSession(
             asset: AssetRef(displayName: "t.dng", hintExtension: "dng") { Data() },

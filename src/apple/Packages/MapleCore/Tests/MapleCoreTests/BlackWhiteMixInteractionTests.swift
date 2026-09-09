@@ -3,7 +3,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class BlackWhiteMixInteractionTests: XCTestCase {
+final class BlackWhiteMixInteractionTests: EditorTestCase {
   func testRepeatedMixTicksHaveOneUndoAndRetainBlackWhiteMode() {
     let session = EditSession.preview()
     let state = EditorState(session: session)

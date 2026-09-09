@@ -10,7 +10,7 @@ import CoreGraphics
 @testable import MapleCore
 
 @MainActor
-final class CropEditingStateTests: XCTestCase {
+final class CropEditingStateTests: EditorTestCase {
     private func makeState() -> EditorState {
         EditorState(session: EditSession.preview())
     }

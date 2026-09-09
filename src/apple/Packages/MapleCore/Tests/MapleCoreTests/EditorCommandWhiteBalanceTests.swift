@@ -3,7 +3,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class EditorCommandWhiteBalanceTests: XCTestCase {
+final class EditorCommandWhiteBalanceTests: EditorTestCase {
   func testHeldTemperatureNudgePreservesPresetUndoAndDecodedCacheIdentity() async {
     let session = EditSession.preview()
     let state = EditorState(session: session)

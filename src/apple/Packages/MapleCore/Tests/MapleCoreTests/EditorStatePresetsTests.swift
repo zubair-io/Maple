@@ -14,7 +14,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class EditorStatePresetsTests: XCTestCase {
+final class EditorStatePresetsTests: EditorTestCase {
     // MARK: - Helpers
 
     private func makeSession() -> EditSession {

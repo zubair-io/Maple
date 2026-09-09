@@ -554,4 +554,13 @@ public final class ToolSubParamMemory {
     public func recall(for tool: Tool) -> String? {
         selections[tool]
     }
+
+    /// Drops every remembered selection. The app never calls this — a real
+    /// session's memory lives as long as the process — but the test target
+    /// does, from `EditorTestCase.setUp`: `.shared` is process-global, so a
+    /// test that arms e.g. Noise · Deep would otherwise leave it armed for
+    /// every later test that builds an `EditorState` on the default store.
+    func reset() {
+        selections.removeAll()
+    }
 }

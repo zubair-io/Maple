@@ -3,7 +3,7 @@ import XCTest
 @testable import MapleCore
 
 @MainActor
-final class WhiteBalanceAuthoringParityTests: XCTestCase {
+final class WhiteBalanceAuthoringParityTests: EditorTestCase {
   /// The golden is the actual Web Download XMP result after choosing WB Auto
   /// on the committed gray DNG, using the release gpu,parallel WASM build.
   /// This gate runs Apple's real FFI analysis, canonical serializer and Metal
