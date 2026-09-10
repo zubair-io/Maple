@@ -219,6 +219,14 @@ jobs:
           # that died part-way (network blip, registry 5xx, OIDC hiccup) can be
           # re-run and will pick up exactly the packages that never landed —
           # npm rejects publishing over an existing version with E403.
+          # Publish one package directory. The path is passed with an explicit
+          # "./" — a bare "src/maple" parses as the GitHub shorthand
+          # "user/repo" and npm tries git ls-remote instead of packing the dir.
+          # Outside dry-run, a version that is already on the registry is
+          # skipped instead of failing, so a run that died part-way (network
+          # blip, registry 5xx, OIDC hiccup) can be re-run and will pick up
+          # exactly the packages that never landed — npm rejects publishing
+          # over an existing version with E403.
           publish_pkg() {
             local dir="$1"
             local name version
@@ -226,14 +234,14 @@ jobs:
             version="$(node -p "require('./$dir/package.json').version")"
             echo "Publishing $name@$version from $dir"
             if [ "$DRY_RUN" = "true" ]; then
-              npm publish "$dir" --dry-run --access public
+              npm publish "./$dir" --dry-run --access public
               return
             fi
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "  already published — skipping"
               return
             fi
-            npm publish "$dir" --access public --provenance
+            npm publish "./$dir" --access public --provenance
           }
 
           PLATFORM_PKGS=(
