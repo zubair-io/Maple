@@ -105,6 +105,8 @@ describe('dispatchRegisterMaskRaster (#3300)', () => {
         threadCountSubject: new BehaviorSubject<number>(0),
         deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
         scopeSample: signal<DecodedImage | null>(null),
+        lensProfileStatus: signal(null),
+        restoreLensProfile: vi.fn(),
       },
     );
     await expect(promise).resolves.toBe(42);
@@ -131,6 +133,8 @@ describe('dispatchRegisterMaskRaster (#3300)', () => {
         threadCountSubject: new BehaviorSubject<number>(0),
         deepDenoiseProgress: signal<{ pass: 1 | 2; fraction: number } | null>(null),
         scopeSample: signal<DecodedImage | null>(null),
+        lensProfileStatus: signal(null),
+        restoreLensProfile: vi.fn(),
       },
     );
     await expect(promise).rejects.toThrow('digest must be 16 lowercase hex chars');

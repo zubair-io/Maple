@@ -106,6 +106,7 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
+      seedLensProfile: vi.fn(),
       lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
@@ -130,6 +131,7 @@ describe('EditorShellComponent — crop tool port (#1813)', () => {
             deepDenoiseProgress: signal(null),
             // #3397: the canvas reads this to publish out-of-band scope samples.
             scopeSample: signal(null),
+            lensProfileStatus: signal(null),
             decode: vi.fn(() =>
               Promise.resolve({
                 width: 800,

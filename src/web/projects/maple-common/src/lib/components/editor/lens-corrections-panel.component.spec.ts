@@ -14,11 +14,32 @@ import { signal } from '@angular/core';
 
 import { LensCorrectionsPanelComponent } from './lens-corrections-panel.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
+import type { LensProfileResolution } from '../../lens/lens-profile.types';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { LensCorrectionCapability } from '../../state/library-store-lens-corrections';
 import { cameraSupportFromJson } from '../../state/camera-support';
 
 const ASSET_ID = 'local-asset-1';
+const REFERENCE = `lcp1:${'a'.repeat(64)}`;
+
+/** An imported-profile verdict covering distortion + vignetting but no CA model. */
+function importedVerdict(reference = REFERENCE): LensProfileResolution {
+  return {
+    source: 'lcp',
+    confidence: 'in-range',
+    reference,
+    enabled: true,
+    approximations: [],
+    unsupported: [],
+    hasDistortion: true,
+    hasCa: false,
+    hasVignetting: true,
+    distortion: [],
+    ca: [],
+    vignetting: [],
+  };
+}
 
 class FakeLibraryStateService {
   focusedAssetId = signal<string | undefined>(ASSET_ID);
@@ -60,21 +81,40 @@ class FakeLibraryStateService {
   lensCorrectionsFor = vi.fn((id: string) => this.capsFor(id)());
 
   seedLensCorrections = vi.fn(
-    (id: string, hasLensCorrections: boolean, caInert: boolean, supportJson?: string) => {
+    (
+      id: string,
+      hasLensCorrections: boolean,
+      caInert: boolean,
+      supportJson?: string,
+      lensProfile?: LensProfileResolution,
+    ) => {
       this.capsFor(id).set({
         hasLensCorrections,
         lensCorrectionCaInert: caInert,
         cameraSupport: cameraSupportFromJson(supportJson),
+        ...(lensProfile ? { lensProfile } : {}),
       });
     },
   );
+
+  // The import block reads these too (#3479); the panel specs never pick a file.
+  backend = 'hosted';
+  focusedAsset = () => ({ id: ASSET_ID, filename: 'photo.dng' });
+  bytesForAsset = vi.fn();
 }
+
+// The import block's only pipeline reads: the worker import (never invoked
+// here) and the availability broadcast.
+const fakePipeline = { importLensProfile: vi.fn(), lensProfileStatus: signal(null) };
 
 function makeFixture() {
   const library = new FakeLibraryStateService();
   TestBed.configureTestingModule({
     imports: [LensCorrectionsPanelComponent],
-    providers: [{ provide: LibraryStateService, useValue: library }],
+    providers: [
+      { provide: LibraryStateService, useValue: library },
+      { provide: RawPipelineService, useValue: fakePipeline },
+    ],
   });
   const fixture = TestBed.createComponent(LensCorrectionsPanelComponent);
   fixture.detectChanges();
@@ -247,5 +287,95 @@ describe('LensCorrectionsPanelComponent — lens-correction capability gate (#31
     expect(el.querySelector('[data-testid="lens-corrections-ca-wrap"]')?.className).not.toContain(
       'opacity-[0.45]',
     );
+  });
+});
+
+// #3479 — an imported LCP profile is the other way the panel comes alive:
+// once the sidecar names it AND a render has reported the resolver's verdict
+// for that exact reference, the panel enables without any OpcodeList3 and
+// each strength slider follows the families the calibration actually covers.
+describe('LensCorrectionsPanelComponent — imported lens profile (#3479)', () => {
+  function seedImported(library: FakeLibraryStateService, reference = REFERENCE) {
+    library.updateAdjustment(ASSET_ID, { lensProfile: REFERENCE });
+    library.seedLensCorrections(ASSET_ID, false, true, undefined, importedVerdict(reference));
+  }
+
+  it('mounts the import block above the controls', () => {
+    const { fixture } = makeFixture();
+    const el = fixture.nativeElement as HTMLElement;
+    const importBlock = el.querySelector('[data-testid="lens-profile-import"]');
+    const controls = el.querySelector('[data-testid="lens-corrections-panel"]');
+    expect(importBlock).not.toBeNull();
+    expect(importBlock!.compareDocumentPosition(controls!) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('enables the panel without OpcodeList3 and disables only the uncalibrated family', () => {
+    const { fixture, component, library } = makeFixture();
+    seedImported(library);
+    fixture.detectChanges();
+
+    expect(component.imported()?.reference).toBe(REFERENCE);
+    expect(component.panelDisabled()).toBe(false);
+    expect(component.distortionDisabled()).toBe(false);
+    expect(component.vignettingDisabled()).toBe(false);
+    expect(component.caInertOnly()).toBe(true);
+    expect(component.caDisabled()).toBe(true);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="lens-corrections-toggle"]')).toHaveProperty(
+      'disabled',
+      false,
+    );
+    expect(el.querySelector('[data-testid="lens-corrections-panel"]')?.className).not.toContain(
+      'opacity-[0.45]',
+    );
+    expect(el.querySelector('[data-testid="lens-corrections-ca-wrap"]')?.className).toContain(
+      'opacity-[0.45]',
+    );
+  });
+
+  it('hides the bundled-calibration note while an imported profile applies', () => {
+    const { fixture, library } = makeFixture();
+    library.seedLensCorrections(
+      ASSET_ID,
+      false,
+      true,
+      JSON.stringify({
+        cameraKey: 'Example',
+        resolution: 'bundle_confident',
+        lens: 'no_correction_data',
+      }),
+      importedVerdict(),
+    );
+    library.updateAdjustment(ASSET_ID, { lensProfile: REFERENCE });
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="lens-support"]'),
+    ).toBeNull();
+  });
+
+  it('ignores a verdict for a profile the sidecar no longer names', () => {
+    const { fixture, component, library } = makeFixture();
+    seedImported(library, `lcp1:${'b'.repeat(64)}`);
+    fixture.detectChanges();
+    expect(component.imported()).toBeUndefined();
+    expect(component.panelDisabled()).toBe(true);
+  });
+
+  it('leaves the opcode gate in charge when the RAW carries embedded corrections', () => {
+    const { fixture, component, library } = makeFixture();
+    library.updateAdjustment(ASSET_ID, { lensProfile: REFERENCE });
+    library.seedLensCorrections(ASSET_ID, true, false, undefined, {
+      source: 'embedded',
+      confidence: 'embedded',
+      reference: REFERENCE,
+      approximations: [],
+      unsupported: [],
+    });
+    fixture.detectChanges();
+    expect(component.imported()).toBeUndefined();
+    expect(component.panelDisabled()).toBe(false);
+    expect(component.caDisabled()).toBe(false);
   });
 });
