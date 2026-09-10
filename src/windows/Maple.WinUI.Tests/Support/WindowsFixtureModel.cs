@@ -184,6 +184,9 @@ namespace Maple.WinUI.Tests.Support
             LensCorrectionDistortion = 85,
             LensCorrectionCa = 70,
             LensCorrectionVignetting = 60,
+            // Imported LCP selection (#2435 / #3480): the acknowledged
+            // spelling, same 64-hex digest the web and Swift suites use.
+            LensProfile = "lcp1-ack:" + new string('a', 64),
             // Manual geometry (#3410) — the same seven values the Swift and
             // TypeScript canonical goldens carry, so the three suites stay
             // eyeball-comparable where the field exists on all of them.
