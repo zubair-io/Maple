@@ -25,7 +25,8 @@ echo "Auditing dynamic linkage for: $SO_FILE"
 echo "Expected libc variant: $LIBC_TYPE"
 echo "=========================================================="
 
-NEEDED_ENTRIES=$(readelf -d "$SO_FILE" | grep '(NEEDED)' || true)
+READELF_OUTPUT=$(readelf -d "$SO_FILE")
+NEEDED_ENTRIES=$(echo "$READELF_OUTPUT" | grep '(NEEDED)' || true)
 
 if [ -z "$NEEDED_ENTRIES" ]; then
   echo "No dynamic (NEEDED) entries found in $SO_FILE (statically linked)."

@@ -140,11 +140,7 @@ for (const platform of PLATFORMS) {
   const readmePath = path.join(targetDir, 'README.md');
   if (!fs.existsSync(readmePath)) {
     const pkg = JSON.parse(fs.readFileSync(path.join(targetDir, 'package.json'), 'utf-8'));
-    fs.writeFileSync(
-      readmePath,
-      `# ${pkg.name}\n\nPrebuilt native binary for \`@justmaple/maple\` on ${pkg.description}.\n`,
-      'utf-8',
-    );
+    fs.writeFileSync(readmePath, `# ${pkg.name}\n\n${pkg.description}.\n`, 'utf-8');
   }
 }
 

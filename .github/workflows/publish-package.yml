@@ -178,11 +178,13 @@ jobs:
       - name: Publish to npm (dry-run on PR/dispatch, release on v* tags)
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run || '' }}
         run: |
           set -euo pipefail
 
           DRY_RUN="false"
-          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event.inputs.dry_run }}" = "true" ] || [ -z "${NPM_TOKEN:-}" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$DRY_RUN_INPUT" = "true" ] || [ -z "${NPM_TOKEN:-}" ]; then
             DRY_RUN="true"
           fi
 
