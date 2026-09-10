@@ -172,6 +172,13 @@ namespace Maple.WinUI.Models
 
         // --- Lens corrections ---
         public ToggleMode LensProfileEnable = ToggleMode.On;
+        /// <summary>Imported LCP selection (#2435 / #3480): `lcp1:&lt;BLAKE3&gt;`
+        /// names the exact imported bytes, `lcp1-ack:&lt;BLAKE3&gt;` records that
+        /// the user also accepted the resolver's approximations. Free-form
+        /// text (`papp:LensProfile`); empty = no imported profile, only the
+        /// DNG's own embedded corrections. Omitted from the sidecar when
+        /// empty, never copied between photos.</summary>
+        public string LensProfile = "";
 
         // --- Geometry (#2582) ---
         public CropState Crop = CropState.Identity;
