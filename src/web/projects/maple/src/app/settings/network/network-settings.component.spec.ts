@@ -13,6 +13,8 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { API_BASE_URL, type ApnsConfigResponse, type NetworkConfigResponse } from '@maple-common';
+import { of } from 'rxjs';
+import { ManagedHttpsService } from './managed-https.service';
 import { NetworkSettingsComponent } from './network-settings.component';
 
 describe('NetworkSettingsComponent', () => {
@@ -39,6 +41,7 @@ describe('NetworkSettingsComponent', () => {
     await TestBed.configureTestingModule({
       imports: [NetworkSettingsComponent],
       providers: [
+        { provide: ManagedHttpsService, useValue: { load: () => of(null) } },
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
@@ -66,7 +69,9 @@ describe('NetworkSettingsComponent', () => {
   }
 
   function clickSave(): void {
-    const btn = el().querySelector<HTMLButtonElement>('mui-button button');
+    const btn = Array.from(el().querySelectorAll<HTMLButtonElement>('mui-button button')).find(
+      (button) => button.textContent?.trim() === 'Save',
+    );
     if (!btn) throw new Error('missing save button');
     btn.click();
   }

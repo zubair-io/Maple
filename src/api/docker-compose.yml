@@ -42,6 +42,10 @@ services:
     restart: unless-stopped
     ports:
       - '3000:3000'
+      # Managed LAN HTTPS (Settings → Network). Keep these LAN-only in your firewall.
+      # If the runtime HTTPS port changes, update both mappings accordingly.
+      - '3443:3443/tcp'
+      - '3443:3443/udp'
     environment:
       PORT: '3000'
       MAPLE_MONGO_URI: 'mongodb://mongo:27017'

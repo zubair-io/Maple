@@ -25,6 +25,7 @@ import {
   validateLocalAddress,
   type ResolvedNetworkConfig,
 } from '../network/network-config.repo.ts';
+import { managedHttps, type HttpsEndpoint } from '../network/managed-https.ts';
 import { TLS_ENABLED } from '../runtime/tls-config.ts';
 
 export interface LocalAddressResponse {
@@ -32,6 +33,8 @@ export interface LocalAddressResponse {
   ip?: string;
   port?: number;
   scheme?: 'http' | 'https';
+  /** Preferred managed hostname; legacy IP fields remain the fallback. */
+  https?: HttpsEndpoint;
 }
 
 /**
@@ -47,20 +50,26 @@ export interface LocalAddressResponse {
 export function buildLocalAddressResponse(
   resolved: ResolvedNetworkConfig,
   tlsEnabled: boolean,
+  https: HttpsEndpoint | null = null,
 ): LocalAddressResponse {
-  if (!resolved.enabled || resolved.local_ip === null) {
+  if (!resolved.enabled || (resolved.local_ip === null && !https)) {
     return { available: false as const };
   }
   return {
     available: true as const,
-    ip: resolved.local_ip,
+    ...(https ? { https } : {}),
+    ...(resolved.local_ip ? { ip: resolved.local_ip } : {}),
     port: resolved.local_port,
     scheme: tlsEnabled ? ('https' as const) : ('http' as const),
   };
 }
 
 export const networkPublicRoutes = new Elysia().get('/api/network/local-address', async () =>
-  buildLocalAddressResponse(resolveNetworkConfig(await loadNetworkConfig()), TLS_ENABLED),
+  buildLocalAddressResponse(
+    resolveNetworkConfig(await loadNetworkConfig()),
+    TLS_ENABLED,
+    managedHttps.endpoint(),
+  ),
 );
 
 const NetworkConfigBody = t.Object({

@@ -1,0 +1,113 @@
+<section>
+  <div class="set-subhead">Local HTTPS hostname</div>
+  <p class="set-fhint">
+    Prefer this hostname on your local network, then the IP address configured below, then your
+    public server. Create a DNS-only record in Cloudflare pointing the hostname to your private IP.
+    Maple obtains and renews a Let’s Encrypt certificate through DNS validation; no inbound internet
+    ports are needed.
+  </p>
+  <div class="check-row set-check-row">
+    <mui-checkbox
+      label="Enable managed local HTTPS"
+      [checked]="enabled()"
+      (checkedChange)="enabled.set($event)"
+    />
+  </div>
+  <div class="https-fields">
+    <div class="field">
+      <span class="flabel">Local hostname</span>
+      <mui-input
+        [(value)]="hostname"
+        ariaLabel="Local HTTPS hostname"
+        placeholder="local.maple.example.com"
+      />
+    </div>
+    <div class="field">
+      <span class="flabel">HTTPS port</span>
+      <mui-input [(value)]="port" ariaLabel="Local HTTPS port" placeholder="3443" />
+      <span class="fhint set-fhint"
+        >Separate from the IP port. Docker must publish this port over TCP and, for HTTP/3,
+        UDP.</span
+      >
+    </div>
+    <div class="field">
+      <span class="flabel">Certificate contact email</span>
+      <mui-input [(value)]="email" ariaLabel="Certificate contact email" />
+    </div>
+    <div class="field">
+      <span class="flabel">Cloudflare zone ID</span>
+      <mui-input [(value)]="zoneId" ariaLabel="Cloudflare DNS zone ID" />
+    </div>
+    <div class="field">
+      <span class="flabel">Cloudflare API token</span>
+      <mui-input
+        [(value)]="token"
+        ariaLabel="Cloudflare DNS API token"
+        [masked]="true"
+        autocomplete="off"
+        [placeholder]="
+          response()?.config?.api_token_set
+            ? 'Token saved — leave blank to keep'
+            : 'Enter API token'
+        "
+      />
+      <span class="fhint set-fhint"
+        >Use Zone Read and DNS Edit permissions limited to this zone. The token is never returned to
+        your browser.</span
+      >
+    </div>
+  </div>
+  <div class="check-row set-check-row">
+    <mui-checkbox
+      label="Remove saved API token on save"
+      [checked]="clearToken()"
+      (checkedChange)="clearToken.set($event)"
+    />
+  </div>
+  <div class="check-row set-check-row">
+    <mui-checkbox
+      label="Enable HTTP/3 (experimental); keep TCP HTTPS available"
+      [checked]="http3()"
+      (checkedChange)="http3.set($event)"
+    />
+  </div>
+  <div class="check-row set-check-row">
+    <mui-checkbox
+      label="I accept the Let’s Encrypt subscriber agreement"
+      [checked]="terms()"
+      (checkedChange)="terms.set($event)"
+    />
+    <a href="https://letsencrypt.org/repository/" target="_blank" rel="noopener noreferrer"
+      >Read agreement</a
+    >
+  </div>
+  <p class="mt-4 mb-2" role="status" aria-live="polite">
+    {{ statusText() }}
+    @if (expires()) {
+      · Certificate expires {{ expires() }}
+    }
+  </p>
+  @if (response()?.status?.error; as message) {
+    <p class="set-test-err">{{ message }}</p>
+  }
+  @if (retry()) {
+    <p class="set-fhint">Next certificate attempt: {{ retry() }}</p>
+  }
+  <p class="set-fhint">
+    The IP connection remains independently configurable. Renewing a certificate briefly reconnects
+    local HTTPS clients.
+  </p>
+  <div class="form-actions set-form-actions-row">
+    <mui-button variant="primary" [disabled]="saving() || !response()" (pressed)="save()">{{
+      saving() ? 'Saving…' : 'Save HTTPS settings'
+    }}</mui-button>
+    @if (saved()) {
+      <span class="set-test-ok" role="status"
+        >Saved. Certificate status updates automatically.</span
+      >
+    }
+    @if (error()) {
+      <span class="set-test-err" role="alert">{{ error() }}</span>
+    }
+  </div>
+</section>

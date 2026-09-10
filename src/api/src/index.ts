@@ -48,6 +48,9 @@ import { requestContext } from './middleware/request-context.ts';
 import { bodyLimit } from './middleware/body-limit.ts';
 import { healthRoutes } from './routes/health.ts';
 import { networkPublicRoutes } from './routes/network.ts';
+import { managedHttpsRoutes } from './routes/managed-https.ts';
+import { managedHttps } from './network/managed-https.ts';
+import { httpsListenerFactory } from './network/managed-https-listener.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { videoRoutes } from './routes/video.ts';
 import { securityHeaders } from './middleware/security-headers.ts';
@@ -129,6 +132,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
     .use(healthRoutes)
     .use(networkPublicRoutes)
+    .use(managedHttpsRoutes)
     .use(authRoutes)
     // Wraps itself in `.use(requireAuth).use(requireOwner)` internally
     // (mirrors authRoutes' /invites sub-tree above), so it sits outside
@@ -446,12 +450,14 @@ async function start(): Promise<void> {
   const server = buildApp();
   // listenOptions wires in TLS_CONFIG (validated at module load) when configured.
   server.listen(listenOptions(PORT));
+  managedHttps.start(httpsListenerFactory(buildApp));
 }
 
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   log.info({ signal }, 'shutting down');
+  managedHttps.stop();
   // Stop the event-loop lag probe (no-op if it was never started).
   try {
     stopEventLoopLagMonitor();

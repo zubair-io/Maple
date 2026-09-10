@@ -51,3 +51,24 @@ describe('buildLocalAddressResponse', () => {
     });
   });
 });
+
+const hostname = { ip: 'local.example.com', port: 3443, scheme: 'https' as const };
+it('advertises a managed hostname without replacing the independent IP endpoint', () => {
+  expect(buildLocalAddressResponse(resolved(), false, hostname)).toEqual({
+    available: true,
+    ip: '192.168.1.42',
+    port: 3000,
+    scheme: 'http',
+    https: hostname,
+  });
+});
+it('can advertise a hostname when IP detection is unavailable', () => {
+  expect(buildLocalAddressResponse(resolved({ local_ip: null }), false, hostname).https).toEqual(
+    hostname,
+  );
+});
+it('the network master switch disables both local candidates', () => {
+  expect(buildLocalAddressResponse(resolved({ enabled: false }), false, hostname)).toEqual({
+    available: false,
+  });
+});

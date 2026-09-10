@@ -22,6 +22,8 @@ import type { LocalAddressReport } from './local-address-report.model';
 export interface LanSwitchCandidate {
   /** e.g. "http://192.168.1.42:3000" */
   origin: string;
+  /** A confirmed managed HTTPS origin can be preferred without an HTTP downgrade. */
+  automatic?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -55,15 +57,29 @@ export class LanSwitchService {
       const report = await firstValueFrom(
         this.http.get<LocalAddressReport>('/api/network/local-address'),
       );
-      const candidate = LanSwitchService.parseCandidate(report);
-      if (!candidate) return null;
-      if (this.isAlreadyAtCandidate(candidate, pageProtocol, currentLocation)) return null;
-
-      if (pageProtocol === 'https:' && candidate.scheme === 'http') {
-        return { origin: candidate.origin };
+      if (!report.available) return null;
+      const candidates = [
+        ...(report.https?.scheme === 'https'
+          ? [{ ...report.https, available: true, managed: true }]
+          : []),
+        { ...report, managed: false },
+      ];
+      for (const endpoint of candidates) {
+        const candidate = LanSwitchService.parseCandidate(endpoint);
+        if (!candidate) continue;
+        if (this.isAlreadyAtCandidate(candidate, pageProtocol, currentLocation)) return null;
+        // Browsers cannot probe an HTTP LAN IP from an HTTPS page. Preserve
+        // the existing explicit switch for this fallback instead of silently
+        // navigating to a potentially unreachable/insecure address.
+        if (pageProtocol === 'https:' && candidate.scheme === 'http')
+          return { origin: candidate.origin };
+        if (await this.probe(candidate.origin, endpoint)) {
+          return endpoint.managed
+            ? { origin: candidate.origin, automatic: true }
+            : { origin: candidate.origin };
+        }
       }
-      const confirmed = await this.probe(candidate.origin, report);
-      return confirmed ? { origin: candidate.origin } : null;
+      return null;
     } catch {
       return null;
     }
@@ -74,14 +90,34 @@ export class LanSwitchService {
   private static parseCandidate(
     report: LocalAddressReport,
   ): { origin: string; scheme: string; ip: string; port: number } | null {
-    if (!report.available || !report.ip || !report.port) return null;
+    if (
+      !report.available ||
+      !report.ip ||
+      !Number.isInteger(report.port) ||
+      !report.port ||
+      report.port < 1 ||
+      report.port > 65535
+    )
+      return null;
     const scheme = report.scheme ?? 'http';
-    return {
-      origin: `${scheme}://${report.ip}:${report.port}`,
-      scheme,
-      ip: report.ip,
-      port: report.port,
-    };
+    if (scheme !== 'http' && scheme !== 'https') return null;
+    const host =
+      report.ip.includes(':') && !report.ip.startsWith('[') ? `[${report.ip}]` : report.ip;
+    try {
+      const url = new URL(`${scheme}://${host}:${report.port}`);
+      if (
+        url.username ||
+        url.password ||
+        url.pathname !== '/' ||
+        url.search ||
+        url.hash ||
+        url.hostname !== host.toLowerCase()
+      )
+        return null;
+      return { origin: `${scheme}://${host}:${report.port}`, scheme, ip: host, port: report.port };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -137,7 +173,16 @@ export class LanSwitchService {
       const res = await fetch(`${origin}/api/network/local-address`, { signal: ctrl.signal });
       if (!res.ok) return false;
       const body = (await res.json()) as LocalAddressReport;
-      return body.available === true && body.ip === expected.ip && body.port === expected.port;
+      return (
+        body.available === true &&
+        [body, body.https].some(
+          (endpoint) =>
+            endpoint !== undefined &&
+            endpoint.ip === expected.ip &&
+            endpoint.port === expected.port &&
+            (endpoint.scheme ?? 'http') === (expected.scheme ?? 'http'),
+        )
+      );
     } catch {
       return false;
     } finally {
