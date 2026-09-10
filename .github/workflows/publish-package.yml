@@ -184,7 +184,7 @@ jobs:
           set -euo pipefail
 
           DRY_RUN="false"
-          if [ "$EVENT_NAME" = "pull_request" ] || [ "$DRY_RUN_INPUT" = "true" ] || [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$DRY_RUN_INPUT" = "true" ]; then
             DRY_RUN="true"
           fi
 

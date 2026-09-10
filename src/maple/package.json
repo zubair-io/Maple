@@ -20,6 +20,15 @@
   "bin": {
     "maple": "bin/maple.js"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zubair-io/Maple.git",
+    "directory": "src/maple"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target node && tsc -p tsconfig.json",
     "test": "bun test",
