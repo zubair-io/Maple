@@ -232,7 +232,7 @@ jobs:
           # (#3460 — EditorStateTests sat red on main for weeks because
           # nothing recorded that it was not run here).
           classes=()
-          while IFS= read -r line; do
+          while IFS= read -r line || [ -n "$line" ]; do
             line="${line%%#*}"; line="${line//[[:space:]]/}"
             [ -n "$line" ] && classes+=("$line")
           done < .github/swift-regressions/run.txt
