@@ -19,6 +19,7 @@ pub mod fit_acr;
 pub mod fit_auto2;
 pub mod inspect;
 pub mod render;
+pub mod resize;
 pub mod synthetic;
 pub mod tile;
 pub mod transcode_dcp;

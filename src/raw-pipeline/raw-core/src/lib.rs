@@ -58,6 +58,11 @@ pub mod export_recipe;
 /// raw-wasm (browser, bytes-based) — see the module doc for why this lives
 /// here instead of forking per platform (#2010).
 pub mod preview;
+pub mod raster;
+pub use raster::{
+    decode_raster, extract_tensor, probe_raster_metadata, resize_raster, FilterAlg, RasterImage,
+    RasterMetadata, ResizeFit, ResizeOptions, TensorData, TensorLayout, TensorNormalize,
+};
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

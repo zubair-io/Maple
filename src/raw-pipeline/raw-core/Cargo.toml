@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 rawler.workspace = true
 image.workspace = true
+fast_image_resize.workspace = true
 png.workspace = true
 miniz_oxide.workspace = true
 quick-xml.workspace = true

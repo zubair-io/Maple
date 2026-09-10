@@ -179,7 +179,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl unzip ffmp
 # 127 and aborts the build.
 RUN whisper-cli --help >/dev/null && ffmpeg -version >/dev/null
 
-# Bun server deps.
+# Bun server deps & internal maple package.
+COPY src/maple/ ../maple/
 COPY src/api/package.json src/api/bun.lock* ./
 RUN bun install --production --frozen-lockfile
 

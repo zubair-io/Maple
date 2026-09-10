@@ -104,7 +104,9 @@ collect_files() {
       if [[ "$f" != /* && ! -f "$f" && -f "$REPO_ROOT/$f" ]]; then
         f="$REPO_ROOT/$f"
       fi
-      [[ -f "$f" ]] || continue
+      case "$f" in
+        */vendor/*|*/node_modules/*|*/target/*|*/dist/*|*/.git/*|*/.angular/*|*/.build/*|*/DerivedData/*|*/pkg/*) continue ;;
+      esac
       case "$f" in
         *.rs|*.swift|*.ts|*.tsx|*.js|*.py|*.cs) printf '%s\n' "$f" ;;
       esac

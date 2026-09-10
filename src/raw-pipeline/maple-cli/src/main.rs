@@ -86,6 +86,26 @@ enum Cmd {
         #[arg(long = "target-primaries", value_enum, default_value_t = PrimariesChoice::Srgb)]
         target_primaries: PrimariesChoice,
     },
+    /// Resize a raster image (JPEG, PNG, WebP, TIFF) with SIMD acceleration.
+    Resize {
+        /// Path to the input image file.
+        input: PathBuf,
+        /// Path to the output image file.
+        #[arg(long)]
+        out: PathBuf,
+        /// Target bounding width.
+        #[arg(long)]
+        width: u32,
+        /// Target bounding height.
+        #[arg(long)]
+        height: u32,
+        /// Resize fit: 'inside' (preserve aspect ratio) or 'fill' (exact dimensions). Default: inside.
+        #[arg(long, default_value = "inside")]
+        fit: String,
+        /// Output quality 1..100 (for lossy formats, default: 85).
+        #[arg(long, default_value_t = 85)]
+        quality: u8,
+    },
     /// Panorama stitching (requires the `pano` build feature).
     #[cfg(feature = "pano")]
     Pano {
@@ -386,6 +406,16 @@ fn main() -> ExitCode {
             profile,
             film_lut_dir.as_deref(),
             target_primaries,
+        )),
+        Cmd::Resize {
+            input,
+            out,
+            width,
+            height,
+            fit,
+            quality,
+        } => run_or_exit(commands::resize::run(
+            &input, &out, width, height, &fit, quality,
         )),
         Cmd::Batch {
             manifest,

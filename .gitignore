@@ -113,6 +113,7 @@ node_modules/
 # Storybook static build output
 src/web/storybook-static/
 dist/
+!src/maple/dist/
 .next/
 npm-debug.log
 yarn-error.log

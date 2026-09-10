@@ -34,6 +34,10 @@ pub enum ExportFormat {
     Tiff16,
     /// 8-bit lossless.
     Png,
+    /// 8-bit AVIF.
+    Avif,
+    /// 8-bit WebP.
+    Webp,
 }
 
 impl ExportFormat {
@@ -43,6 +47,8 @@ impl ExportFormat {
             "jpeg" => Some(Self::Jpeg),
             "tiff" => Some(Self::Tiff16),
             "png" => Some(Self::Png),
+            "avif" => Some(Self::Avif),
+            "webp" => Some(Self::Webp),
             _ => None,
         }
     }
@@ -53,6 +59,8 @@ impl ExportFormat {
             Self::Jpeg => "image/jpeg",
             Self::Tiff16 => "image/tiff",
             Self::Png => "image/png",
+            Self::Avif => "image/avif",
+            Self::Webp => "image/webp",
         }
     }
 
@@ -62,6 +70,8 @@ impl ExportFormat {
             Self::Jpeg => "jpg",
             Self::Tiff16 => "tif",
             Self::Png => "png",
+            Self::Avif => "avif",
+            Self::Webp => "webp",
         }
     }
 
@@ -69,7 +79,7 @@ impl ExportFormat {
     fn depth(self) -> ExportDepth {
         match self {
             Self::Tiff16 => ExportDepth::Sixteen,
-            Self::Jpeg | Self::Png => ExportDepth::Eight,
+            Self::Jpeg | Self::Png | Self::Avif | Self::Webp => ExportDepth::Eight,
         }
     }
 }
@@ -149,6 +159,10 @@ pub fn export_from_raw_with_film(
         (ExportFormat::Tiff16, ExportPixels::Sixteen(rgb)) => {
             encode_tiff16(width, height, &rgb, profile)?
         }
+        (ExportFormat::Avif, ExportPixels::Eight(rgb)) => {
+            encode_avif(width, height, &rgb, options.quality)?
+        }
+        (ExportFormat::Webp, ExportPixels::Eight(rgb)) => encode_webp(width, height, &rgb)?,
         // `ExportFormat::depth` is what chose the buffer, so the pairings above
         // are exhaustive in practice; this keeps that invariant loud rather
         // than letting a future format land on a silently wrong encoder.
@@ -226,6 +240,48 @@ fn encode_tiff16(width: u32, height: u32, rgb: &[u16], profile: Vec<u8>) -> Resu
         )
         .map_err(|e| Error::Png(e.to_string()))?;
     Ok(out)
+}
+
+#[cfg(feature = "avif")]
+pub fn encode_avif(width: u32, height: u32, rgb: &[u8], quality: u8) -> Result<Vec<u8>> {
+    crate::avif::encode(width, height, rgb, quality)
+}
+
+#[cfg(not(feature = "avif"))]
+pub fn encode_avif(_width: u32, _height: u32, _rgb: &[u8], _quality: u8) -> Result<Vec<u8>> {
+    Err(Error::UnsupportedFormat(
+        "AVIF export requires the 'avif' feature".into(),
+    ))
+}
+
+pub fn encode_webp(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
+    check_len(width, height, rgb.len())?;
+    let mut out: Vec<u8> = Vec::new();
+    let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+    encoder
+        .encode(rgb, width, height, ExtendedColorType::Rgb8)
+        .map_err(|e| Error::Png(e.to_string()))?;
+    Ok(out)
+}
+
+/// Encode a non-RAW RasterImage into the requested container format.
+pub fn encode_raster(
+    raster: &crate::raster::RasterImage,
+    format: ExportFormat,
+    quality: u8,
+) -> Result<Vec<u8>> {
+    let rgb = raster.to_rgb_bytes();
+    let profile = icc::profile_for(crate::view::encode::TargetPrimaries::Srgb);
+    match format {
+        ExportFormat::Jpeg => encode_jpeg(raster.width, raster.height, &rgb, quality, profile),
+        ExportFormat::Png => encode_png(raster.width, raster.height, &rgb, profile),
+        ExportFormat::Tiff16 => {
+            let rgb16: Vec<u16> = rgb.iter().map(|&v| (v as u16) * 257).collect();
+            encode_tiff16(raster.width, raster.height, &rgb16, profile)
+        }
+        ExportFormat::Avif => encode_avif(raster.width, raster.height, &rgb, quality),
+        ExportFormat::Webp => encode_webp(raster.width, raster.height, &rgb),
+    }
 }
 
 #[cfg(test)]
@@ -336,5 +392,22 @@ mod tests {
         let srgb = encode_jpeg(8, 8, &rgb, 92, icc::profile_for(TargetPrimaries::Srgb)).unwrap();
         let p3 = encode_jpeg(8, 8, &rgb, 92, icc::profile_for(TargetPrimaries::P3)).unwrap();
         assert_ne!(srgb, p3);
+    }
+
+    #[test]
+    fn webp_lossless_encodes_valid_riff_header() {
+        let rgb = ramp_u8(8, 8);
+        let webp_bytes = encode_webp(8, 8, &rgb).unwrap();
+        assert_eq!(&webp_bytes[..4], b"RIFF");
+        assert_eq!(&webp_bytes[8..12], b"WEBP");
+    }
+
+    #[test]
+    fn encode_raster_supports_all_formats() {
+        let raster = crate::raster::RasterImage::new_rgb(4, 4, ramp_u8(4, 4));
+        assert!(encode_raster(&raster, ExportFormat::Jpeg, 90).is_ok());
+        assert!(encode_raster(&raster, ExportFormat::Png, 90).is_ok());
+        assert!(encode_raster(&raster, ExportFormat::Tiff16, 90).is_ok());
+        assert!(encode_raster(&raster, ExportFormat::Webp, 90).is_ok());
     }
 }

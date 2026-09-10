@@ -93,6 +93,7 @@ mod id;
 // layer's raster. No `gpu` gate — bitmap masks apply on the CPU chain too.
 mod mask_registry;
 mod model;
+mod raster;
 mod render;
 mod render_develop;
 // Film-look sibling of `maple_render_file` (epic #2683, Task 8) — split out

@@ -37,6 +37,8 @@ export const EXPORT_ENCODERS = [
   { format: 'jpeg', bitDepth: 8, extension: 'jpg' },
   { format: 'tiff', bitDepth: 16, extension: 'tif' },
   { format: 'png', bitDepth: 8, extension: 'png' },
+  { format: 'avif', bitDepth: 8, extension: 'avif' },
+  { format: 'webp', bitDepth: 8, extension: 'webp' },
 ] as const;
 const EXPORT_OUTPUT_PROFILES: readonly string[] = ['srgb', 'display-p3'];
 const EXPORT_RENDERING_INTENTS: readonly string[] = ['maple-display'];
