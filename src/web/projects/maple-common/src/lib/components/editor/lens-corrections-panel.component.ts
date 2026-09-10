@@ -30,6 +30,16 @@
 // already off, so the two dims don't multiply (same reasoning as Apple's
 // `.opacity` gate on the CA slider specifically checking
 // `hasLensCorrections && lensCorrectionCaInert`, not just `lensCorrectionCaInert`).
+//
+// #3479: an imported LCP profile (`LensProfileImportComponent`, mounted at
+// the top of this panel) is the other way the panel comes alive. Once the
+// sidecar names a profile and a render has reported the resolver's verdict
+// for it (`lensCorrectionsFor(id).lensProfile`, refreshed by every render
+// reply), the panel enables even without an `OpcodeList3`, and each
+// strength slider disables individually for a family the calibration does
+// not cover — a strength for an uncalibrated family is inert in raw-core.
+// Embedded corrections still win: a RAW with its own opcodes reports the
+// profile as `embedded`, and the opcode gates above apply unchanged.
 
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -38,6 +48,7 @@ import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slid
 import { MuiTextComponent } from '../../ui/text/mui-text.component';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
 import { DEFAULT_LENS_CORRECTION_CAPABILITY } from '../../state/library-store-lens-corrections';
+import { LensProfileImportComponent } from './lens-profile-import.component';
 
 const DISTORTION_RANGE = ADJUSTMENT_RANGES.lensCorrectionDistortion;
 const CA_RANGE = ADJUSTMENT_RANGES.lensCorrectionCa;
@@ -46,7 +57,7 @@ const VIGNETTING_RANGE = ADJUSTMENT_RANGES.lensCorrectionVignetting;
 @Component({
   selector: 'lens-corrections-panel',
   standalone: true,
-  imports: [MuiLivingSliderComponent, MuiTextComponent],
+  imports: [MuiLivingSliderComponent, MuiTextComponent, LensProfileImportComponent],
   templateUrl: './lens-corrections-panel.component.html',
   host: { class: 'block min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -75,14 +86,37 @@ export class LensCorrectionsPanelComponent {
     const id = this.library.focusedAssetId();
     return id ? this.library.lensCorrectionsFor(id) : DEFAULT_LENS_CORRECTION_CAPABILITY;
   });
-  /** Whole panel: toggle + all three sliders. */
   readonly lensSupport = computed(() => this.capabilities().cameraSupport);
-  readonly panelDisabled = computed<boolean>(() => !this.capabilities().hasLensCorrections);
-  /** True only when the panel IS active but the CA scale is a structural
-   *  no-op — the narrower case the dim class gates on (see file banner). */
-  readonly caInertOnly = computed<boolean>(
-    () => this.capabilities().hasLensCorrections && this.capabilities().lensCorrectionCaInert,
+  /** The renderer's verdict for the imported profile the sidecar currently
+   *  names (#3479) — only an `lcp` resolution for THIS selection counts; an
+   *  `embedded` verdict means the RAW's own opcodes won and gate as before. */
+  readonly imported = computed(() => {
+    const profile = this.capabilities().lensProfile;
+    return profile?.source === 'lcp' && profile.reference === this.adj()?.lensProfile
+      ? profile
+      : undefined;
+  });
+  /** Whole panel: toggle + all three sliders. */
+  readonly panelDisabled = computed<boolean>(
+    () => !this.capabilities().hasLensCorrections && !this.imported(),
   );
+  readonly distortionDisabled = computed<boolean>(() => {
+    const imported = this.imported();
+    return this.panelDisabled() || (!!imported && !imported.hasDistortion);
+  });
+  readonly vignettingDisabled = computed<boolean>(() => {
+    const imported = this.imported();
+    return this.panelDisabled() || (!!imported && !imported.hasVignetting);
+  });
+  /** True only when the panel IS active but the CA scale is a structural
+   *  no-op — the narrower case the dim class gates on (see file banner).
+   *  With an imported profile that is "the calibration has no CA model". */
+  readonly caInertOnly = computed<boolean>(() => {
+    const imported = this.imported();
+    return imported
+      ? !imported.hasCa
+      : this.capabilities().hasLensCorrections && this.capabilities().lensCorrectionCaInert;
+  });
   readonly caDisabled = computed<boolean>(() => this.panelDisabled() || this.caInertOnly());
 
   // In-progress drag values — `null` when no gesture is live, in which

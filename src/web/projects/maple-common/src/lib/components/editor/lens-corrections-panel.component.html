@@ -4,7 +4,9 @@
      OpcodeList3 (panelDisabled()); the CA slider ALSO dims on its own
      (caInertOnly()) when the panel is active but its WarpRectilinear opcode
      has no per-plane divergence — see the .ts file banner for why the two
-     dims don't compound. -->
+     dims don't compound. #3479: the import block above the controls is the
+     other way the panel comes alive (an imported LCP profile). -->
+<lens-profile-import />
 <div
   class="flex min-h-0 flex-col gap-2.5 p-2.5"
   [class]="panelDisabled() ? 'opacity-[0.45]' : ''"
@@ -37,7 +39,7 @@
       [value]="distortion()"
       [min]="distortionMin"
       [max]="distortionMax"
-      [disabled]="panelDisabled()"
+      [disabled]="distortionDisabled()"
       (valueChange)="onDistortionChange($event)"
       (dragEnd)="onDistortionDragEnd()"
       (resetRequest)="onDistortionReset()"
@@ -59,7 +61,7 @@
       [value]="vignetting()"
       [min]="vignettingMin"
       [max]="vignettingMax"
-      [disabled]="panelDisabled()"
+      [disabled]="vignettingDisabled()"
       (valueChange)="onVignettingChange($event)"
       (dragEnd)="onVignettingDragEnd()"
       (resetRequest)="onVignettingReset()"
@@ -94,13 +96,17 @@
   </button>
 </div>
 
-@if (lensSupport(); as support) {
-  <section
-    aria-label="Lens support"
-    data-testid="lens-support"
-    class="flex flex-col gap-1 px-2.5 pb-2.5"
-  >
-    <mui-text variant="row-label">{{ support.lensLabel }}</mui-text>
-    <mui-text color="muted" [block]="true">{{ support.lensExplanation }}</mui-text>
-  </section>
+<!-- The camera-calibration note describes the bundled profile situation;
+     it is moot while an imported profile is what the renderer applies. -->
+@if (!imported()) {
+  @if (lensSupport(); as support) {
+    <section
+      aria-label="Lens support"
+      data-testid="lens-support"
+      class="flex flex-col gap-1 px-2.5 pb-2.5"
+    >
+      <mui-text variant="row-label">{{ support.lensLabel }}</mui-text>
+      <mui-text color="muted" [block]="true">{{ support.lensExplanation }}</mui-text>
+    </section>
+  }
 }

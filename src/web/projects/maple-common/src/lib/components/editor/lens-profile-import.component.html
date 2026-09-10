@@ -1,0 +1,120 @@
+<!-- LensProfileImportComponent — import / inspect / select an LCP profile
+     (#3479). See the .ts banner for the flow; the sliders that this
+     selection enables live in the parent LensCorrectionsPanelComponent. -->
+<section
+  aria-label="Lens profile"
+  data-testid="lens-profile-import"
+  class="flex flex-col gap-2 p-2.5"
+>
+  <input
+    #picker
+    type="file"
+    accept=".lcp"
+    hidden
+    aria-label="Lens profile file"
+    data-testid="lens-profile-file"
+    (change)="choose($event)"
+  />
+  <div class="flex flex-wrap gap-1.5">
+    <mui-button
+      size="sm"
+      variant="secondary"
+      [disabled]="busy()"
+      [loading]="busy()"
+      data-testid="lens-profile-pick"
+      (pressed)="picker.click()"
+    >
+      Import lens profile…
+    </mui-button>
+    @if (selected()) {
+      <mui-button size="sm" variant="ghost" data-testid="lens-profile-clear" (pressed)="clear()">
+        Use embedded only
+      </mui-button>
+    }
+  </div>
+
+  @if (selected()) {
+    <mui-text color="muted" [block]="true" data-testid="lens-profile-selection">
+      {{ selectionLabel() }}
+    </mui-text>
+  }
+  @if (unavailable(); as message) {
+    <mui-banner variant="error" [message]="message" data-testid="lens-profile-unavailable" />
+  }
+  @if (error(); as message) {
+    <mui-banner variant="error" [message]="message" data-testid="lens-profile-error" />
+  }
+
+  @if (visibleCandidate(); as profile) {
+    <div class="flex flex-col gap-0.5" data-testid="lens-profile-candidate">
+      <mui-text variant="row-label" [block]="true">{{ profileTitle(profile) }}</mui-text>
+      @if (profileSubtitle(profile)) {
+        <mui-text color="muted" [block]="true">{{ profileSubtitle(profile) }}</mui-text>
+      }
+    </div>
+  }
+
+  @if (details(); as resolution) {
+    @if (resolution.source === 'embedded') {
+      <mui-text color="muted" [block]="true" data-testid="lens-profile-embedded">
+        This image carries embedded lens corrections. Maple applies those and keeps the imported
+        profile inert.
+      </mui-text>
+    } @else {
+      <div class="flex flex-col gap-1" data-testid="lens-profile-resolution">
+        <mui-text [block]="true">{{ confidenceLabel(resolution) }}</mui-text>
+        @for (reason of resolution.approximations; track reason) {
+          <mui-text color="warning" [block]="true" data-testid="lens-profile-approximation">
+            {{ reason }}
+          </mui-text>
+        }
+        @for (reason of resolution.unsupported; track reason) {
+          <mui-text color="muted" [block]="true" data-testid="lens-profile-unsupported">
+            Unsupported: {{ reason }}
+          </mui-text>
+        }
+        <mui-text color="muted" [block]="true" data-testid="lens-profile-families">
+          {{ familiesLabel(resolution) }}
+        </mui-text>
+        <mui-collapsible label="Calibration samples" [padInner]="false">
+          <div class="flex flex-col gap-0.5 pb-1">
+            @for (sample of resolution.distortion ?? []; track sample.index) {
+              <mui-text color="muted" [block]="true">{{
+                sampleLabel('Distortion', sample)
+              }}</mui-text>
+            }
+            @for (sample of resolution.ca ?? []; track sample.index) {
+              <mui-text color="muted" [block]="true">
+                {{ sampleLabel('Chromatic aberration', sample) }}
+              </mui-text>
+            }
+            @for (sample of resolution.vignetting ?? []; track sample.index) {
+              <mui-text color="muted" [block]="true">{{
+                sampleLabel('Vignetting', sample)
+              }}</mui-text>
+            }
+          </div>
+        </mui-collapsible>
+      </div>
+      @if (visibleCandidate()) {
+        @if (needsAcknowledgement()) {
+          <mui-checkbox
+            label="I accept these approximations"
+            [checked]="acknowledged()"
+            data-testid="lens-profile-acknowledge"
+            (checkedChange)="acknowledged.set($event)"
+          />
+        }
+        <mui-button
+          size="sm"
+          variant="primary"
+          [disabled]="!canApply()"
+          data-testid="lens-profile-apply"
+          (pressed)="apply()"
+        >
+          Use profile
+        </mui-button>
+      }
+    }
+  }
+</section>
