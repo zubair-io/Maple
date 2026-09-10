@@ -317,7 +317,9 @@ describe('Maple Native Binding', () => {
       const npmDir = resolve(__dirname, '../npm');
       expect(existsSync(npmDir)).toBe(true);
 
-      const dirs = readdirSync(npmDir);
+      const dirs = readdirSync(npmDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
       expect(dirs.length).toBe(7);
 
       for (const dir of dirs) {
