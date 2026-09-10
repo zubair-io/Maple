@@ -92,6 +92,17 @@ export function decodeSupportFrom(reply: {
  * dims + As-Shot WB, open the cold-open gate, paint, and kick a refine if the
  * view is already zoomed past fit. Mirrors the inlined `loadReal` 2D tail.
  */
+/**
+ * The sidecar a 2D cold open decodes with (#3479, mirroring the GPU path's
+ * #1915) so the first pixels carry existing edits — an imported lens profile
+ * included. A fresh import (default model) stays `undefined` to keep the
+ * #1892 As-Shot seeding contract.
+ */
+function coldOpenXmp(host: Render2dHost, assetId: AssetId): string | undefined {
+  const openModel = host.state.adjustmentFor(assetId)();
+  return isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
+}
+
 export async function coldOpen2d(
   host: Render2dHost,
   assetId: AssetId,
@@ -108,12 +119,7 @@ export async function coldOpen2d(
   try {
     // Viewport-sized cold open (#1101): decode at the fast-phase target so first
     // pixels land at viewport resolution; the refine pass sharpens past fit.
-    // Open with the asset's actual sidecar (#3479, mirroring the GPU path's
-    // #1915) so the first pixels carry existing edits — an imported lens
-    // profile included. A fresh import (default model) stays `undefined` to
-    // keep the #1892 As-Shot seeding contract.
-    const openModel = host.state.adjustmentFor(assetId)();
-    const openXmp = isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
+    const openXmp = coldOpenXmp(host, assetId);
     const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 

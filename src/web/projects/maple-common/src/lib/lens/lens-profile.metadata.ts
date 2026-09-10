@@ -36,25 +36,45 @@ function isOptionalBoolean(value: unknown): boolean {
   return value === undefined || typeof value === 'boolean';
 }
 
-/** Parse + validate one resolution document; `undefined` for anything else. */
-export function lensProfileFromJson(json: string | undefined): LensProfileResolution | undefined {
-  if (!json) return undefined;
+/** The fields every verdict carries, whatever its source. */
+function hasCommonShape(value: Partial<LensProfileResolution>): boolean {
+  return (
+    isStringList(value.approximations) &&
+    isStringList(value.unsupported) &&
+    (value.reference === undefined || typeof value.reference === 'string') &&
+    isOptionalBoolean(value.enabled)
+  );
+}
+
+/** An embedded (DNG OpcodeList3) verdict carries no calibration detail. */
+function isEmbeddedVerdict(value: Partial<LensProfileResolution>): boolean {
+  return value.source === 'embedded' && value.confidence === 'embedded';
+}
+
+/** An LCP verdict: in-range or approximate, with per-family flags and samples. */
+function isLcpVerdict(value: Partial<LensProfileResolution>): boolean {
+  return (
+    value.source === 'lcp' &&
+    (value.confidence === 'in-range' || value.confidence === 'approximate') &&
+    [value.hasDistortion, value.hasCa, value.hasVignetting].every(isOptionalBoolean) &&
+    [value.distortion, value.ca, value.vignetting].every(isSampleList)
+  );
+}
+
+function parseObject(json: string): Partial<LensProfileResolution> | undefined {
   try {
     const value = JSON.parse(json) as Partial<LensProfileResolution> | null;
-    if (typeof value !== 'object' || value === null) return undefined;
-    if (!isStringList(value.approximations) || !isStringList(value.unsupported)) return undefined;
-    if (value.reference !== undefined && typeof value.reference !== 'string') return undefined;
-    if (!isOptionalBoolean(value.enabled)) return undefined;
-    if (value.source === 'embedded') {
-      return value.confidence === 'embedded' ? (value as LensProfileResolution) : undefined;
-    }
-    if (value.source !== 'lcp') return undefined;
-    if (value.confidence !== 'in-range' && value.confidence !== 'approximate') return undefined;
-    if (![value.hasDistortion, value.hasCa, value.hasVignetting].every(isOptionalBoolean))
-      return undefined;
-    if (![value.distortion, value.ca, value.vignetting].every(isSampleList)) return undefined;
-    return value as LensProfileResolution;
+    return typeof value === 'object' && value !== null ? value : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Parse + validate one resolution document; `undefined` for anything else. */
+export function lensProfileFromJson(json: string | undefined): LensProfileResolution | undefined {
+  const value = json ? parseObject(json) : undefined;
+  if (!value || !hasCommonShape(value)) return undefined;
+  return isEmbeddedVerdict(value) || isLcpVerdict(value)
+    ? (value as LensProfileResolution)
+    : undefined;
 }
