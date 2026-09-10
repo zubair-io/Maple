@@ -13,6 +13,7 @@ import {
   MuiButtonComponent,
   MuiCheckboxComponent,
   MuiInputComponent,
+  MuiLinkComponent,
   errorMessage,
 } from '@maple-common';
 import { ManagedHttpsService, type ManagedHttpsResponse } from './managed-https.service';
@@ -20,7 +21,7 @@ import { ManagedHttpsService, type ManagedHttpsResponse } from './managed-https.
 @Component({
   selector: 'maple-managed-https',
   standalone: true,
-  imports: [MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent],
+  imports: [MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent, MuiLinkComponent],
   templateUrl: './managed-https.component.html',
   styleUrl: './managed-https.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -69,7 +70,9 @@ export class ManagedHttpsComponent implements OnInit {
         switchMap(() =>
           this.api.load().pipe(
             catchError((err: unknown) => {
-              this.error.set(errorMessage(err));
+              // A missed poll after the form is seeded (e.g. the brief
+              // reconnect during certificate replacement) is not a save error.
+              if (!this.seeded) this.error.set(errorMessage(err));
               return of(null);
             }),
           ),
@@ -111,10 +114,12 @@ export class ManagedHttpsComponent implements OnInit {
           zone_id: this.zoneId(),
           http3: this.http3(),
           terms_agreed: this.terms(),
-          ...(this.clearToken()
-            ? { api_token: null }
-            : this.token().trim()
-              ? { api_token: this.token().trim() }
+          // A token typed into the field is the operator's most recent intent
+          // and wins over a stale "remove saved token" tick.
+          ...(this.token().trim()
+            ? { api_token: this.token().trim() }
+            : this.clearToken()
+              ? { api_token: null }
               : {}),
         }),
       );

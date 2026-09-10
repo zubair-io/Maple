@@ -64,6 +64,32 @@ describe('ManagedHttpsComponent', () => {
     await Promise.resolve();
     fixture.destroy();
   });
+  it('sends null to clear the saved token, but a newly typed token wins over the clear tick', async () => {
+    const fixture = await render();
+    const el: HTMLElement = fixture.nativeElement;
+    const component = fixture.componentInstance as unknown as {
+      clearToken: { set(value: boolean): void };
+      token: { set(value: string): void };
+    };
+    const saveButton = el.querySelector<HTMLButtonElement>('mui-button button')!;
+    component.clearToken.set(true);
+    saveButton.click();
+    const cleared = http.expectOne('/api/network/https/');
+    expect(cleared.request.body.api_token).toBeNull();
+    cleared.flush({ ...response, config: { ...response.config, api_token_set: false } });
+    await Promise.resolve();
+    component.clearToken.set(true);
+    component.token.set('  cf-token  ');
+    saveButton.click();
+    const typed = http.expectOne('/api/network/https/');
+    expect(typed.request.body.api_token).toBe('cf-token');
+    typed.flush(response);
+    await Promise.resolve();
+    expect(
+      el.querySelector<HTMLInputElement>('input[aria-label="Cloudflare DNS API token"]')!.value,
+    ).toBe('');
+    fixture.destroy();
+  });
   it('shows failed renewal and the next retry while retaining the existing expiry', async () => {
     const fixture = TestBed.createComponent(ManagedHttpsComponent);
     fixture.detectChanges();

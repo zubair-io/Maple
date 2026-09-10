@@ -76,6 +76,21 @@ describe('LanSwitchService.checkAvailable', () => {
     expect(probe).not.toHaveBeenCalled();
   });
 
+  it('recognises a mixed-case managed hostname as the current origin (no redirect loop)', async () => {
+    const probe = okFetch({ available: false });
+    vi.stubGlobal('fetch', probe);
+    const pending = service.checkAvailable('https:', {
+      hostname: 'local.example.com',
+      port: '3443',
+    });
+    ctrl.expectOne('/api/network/local-address').flush({
+      available: true,
+      https: { ip: 'Local.Example.com', port: 3443, scheme: 'https' },
+    });
+    expect(await pending).toBeNull();
+    expect(probe).not.toHaveBeenCalled();
+  });
+
   it('rejects a candidate that changes HTTPS to HTTP in its confirmation', async () => {
     vi.stubGlobal(
       'fetch',
