@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import {
   loadNativeBinding,
@@ -5,7 +6,15 @@ import {
   maple,
   exportImage,
   exportRecipe,
+  getPlatformPackageName,
+  getPlatformBinaryFilename,
+  isMusl,
+  resolvePlatformPackageLib,
 } from '../src/index.ts';
+
+const repoRoot = path.resolve(__dirname, '../../..');
+const fixturePng = path.join(repoRoot, 'src/apple/MapleUITests/Goldens/.calibration/a.png');
+const fixtureDng = path.join(repoRoot, 'test-fixtures/batch-transfer/source.dng');
 
 describe('Maple Native Binding', () => {
   it('locates the native library', () => {
@@ -68,7 +77,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('probes raster image metadata without full decode', async () => {
-    const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+    const pngPath = fixturePng;
     const meta = await maple(pngPath).metadata();
     expect(meta.width).toBe(64);
     expect(meta.height).toBe(64);
@@ -78,7 +87,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('probes RAW DNG metadata with fast TIFF parsing', async () => {
-    const dngPath = '../../test-fixtures/batch-transfer/source.dng';
+    const dngPath = fixtureDng;
     const meta = await maple(dngPath).metadata();
     expect(meta.width).toBe(96);
     expect(meta.height).toBe(64);
@@ -87,7 +96,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('resizes bitmap to file with format transcoding', async () => {
-    const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+    const pngPath = fixturePng;
     const outPath = '/tmp/test_maple_resize.webp';
     const res = await maple(pngPath)
       .resize({ width: 32, height: 32, fit: 'inside' })
@@ -102,7 +111,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('resizes bitmap directly to an in-memory Buffer', async () => {
-    const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+    const pngPath = fixturePng;
     const buf = await maple(pngPath)
       .resize({ width: 48, height: 48, fit: 'inside' })
       .toFormat('jpeg', { quality: 90 })
@@ -124,7 +133,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('extracts InsightFace normalized Float32Array tensor for ML inference', async () => {
-    const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+    const pngPath = fixturePng;
     const { data, width, height, channels } = await maple(pngPath)
       .resize(64, 64)
       .toRawRgb({ targetSize: 64, layout: 'nchw', normalize: 'insightface' });
@@ -143,7 +152,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('validates file integrity and normalizes orientation', async () => {
-    const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+    const pngPath = fixturePng;
     const isValid = await maple(pngPath).validateIntegrity();
     expect(isValid).toBe(true);
 
@@ -159,7 +168,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('develops real RAW DNG photo to JPEG with AgX view transform', async () => {
-    const dngPath = '../../test-fixtures/batch-transfer/source.dng';
+    const dngPath = fixtureDng;
     const outJpg = '/tmp/test_maple_raw_develop.jpg';
     const res = await maple(dngPath).format('jpeg').quality(92).colorSpace('srgb').toFile(outJpg);
 
@@ -172,7 +181,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('extracts HWC layout tensor with zeroToOne normalization', async () => {
-    const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+    const pngPath = fixturePng;
     const { data, width, height } = await maple(pngPath)
       .resize(32, 32)
       .toRawRgb({ targetSize: 32, layout: 'hwc', normalize: 'zeroToOne' });
@@ -187,7 +196,7 @@ describe('Maple Native Binding', () => {
   });
 
   it('transcodes in-memory buffers across multiple formats', async () => {
-    const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+    const pngPath = fixturePng;
     const pngBytes = await Bun.file(pngPath).arrayBuffer();
 
     // PNG -> WebP in-memory
@@ -210,14 +219,14 @@ describe('Maple Native Binding', () => {
   describe('CLI Command Execution', () => {
     it('executes "inspect" subcommand', async () => {
       const { runCli } = await import('../src/cli.ts');
-      const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+      const pngPath = fixturePng;
       const code = await runCli(['bun', 'maple', 'inspect', pngPath, '--json']);
       expect(code).toBe(0);
     });
 
     it('executes "resize" subcommand', async () => {
       const { runCli } = await import('../src/cli.ts');
-      const pngPath = '../../src/apple/MapleUITests/Goldens/.calibration/a.png';
+      const pngPath = fixturePng;
       const outPath = '/tmp/cli_resize_test.webp';
       const code = await runCli([
         'bun',
@@ -248,6 +257,68 @@ describe('Maple Native Binding', () => {
     it('returns error code 1 for unknown commands', async () => {
       const { runCli } = await import('../src/cli.ts');
       expect(await runCli(['bun', 'maple', 'unknown-subcommand'])).toBe(1);
+    });
+  });
+
+  describe('Platform Package Resolution & Packaging', () => {
+    it('detects platform package name accurately across operating systems', () => {
+      expect(getPlatformPackageName('darwin', 'arm64')).toBe('@justmaple/maple-darwin-arm64');
+      expect(getPlatformPackageName('darwin', 'x64')).toBe('@justmaple/maple-darwin-x64');
+      expect(getPlatformPackageName('linux', 'x64', false)).toBe('@justmaple/maple-linux-x64-gnu');
+      expect(getPlatformPackageName('linux', 'x64', true)).toBe('@justmaple/maple-linux-x64-musl');
+      expect(getPlatformPackageName('linux', 'arm64', false)).toBe(
+        '@justmaple/maple-linux-arm64-gnu',
+      );
+      expect(getPlatformPackageName('linux', 'arm64', true)).toBe(
+        '@justmaple/maple-linux-arm64-musl',
+      );
+      expect(getPlatformPackageName('win32', 'x64')).toBe('@justmaple/maple-win32-x64-msvc');
+      expect(getPlatformPackageName('freebsd' as any, 'x64')).toBeNull();
+    });
+
+    it('determines platform library filename correctly', () => {
+      expect(getPlatformBinaryFilename('win32')).toBe('raw_ffi.dll');
+      expect(getPlatformBinaryFilename('darwin')).toBe('libraw_ffi.dylib');
+      expect(getPlatformBinaryFilename('linux')).toBe('libraw_ffi.so');
+    });
+
+    it('evaluates isMusl without throwing', () => {
+      const res = isMusl();
+      expect(typeof res).toBe('boolean');
+    });
+
+    it('evaluates resolvePlatformPackageLib safely', () => {
+      const res = resolvePlatformPackageLib();
+      expect(res === null || typeof res === 'string').toBe(true);
+    });
+
+    it('contains valid manifest structure in all 7 npm platform packages', async () => {
+      const { readdirSync, readFileSync, existsSync } = await import('node:fs');
+      const { resolve, join } = await import('node:path');
+      const npmDir = resolve(__dirname, '../npm');
+      expect(existsSync(npmDir)).toBe(true);
+
+      const dirs = readdirSync(npmDir);
+      expect(dirs.length).toBe(7);
+
+      for (const dir of dirs) {
+        const pkgJsonPath = join(npmDir, dir, 'package.json');
+        expect(existsSync(pkgJsonPath)).toBe(true);
+        const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf-8'));
+        expect(pkg.name).toMatch(/^@justmaple\/maple-/);
+        expect(pkg.version).toBeDefined();
+        expect(pkg.main).toBeDefined();
+        expect(pkg.license).toBe('MIT');
+        expect(pkg.publishConfig?.access).toBe('public');
+      }
+    });
+
+    it('executes linkage auditor against non-existent or invalid files with clean failure', async () => {
+      const { spawnSync } = await import('node:child_process');
+      const { resolve } = await import('node:path');
+      const auditScript = resolve(__dirname, '../scripts/audit-linkage.sh');
+      const res = spawnSync(auditScript, ['/non/existent/lib.so', 'glibc']);
+      expect(res.status).not.toBe(0);
     });
   });
 });

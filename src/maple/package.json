@@ -23,10 +23,21 @@
   "scripts": {
     "build": "bun build ./src/index.ts --outdir ./dist --target node && tsc -p tsconfig.json",
     "test": "bun test",
-    "bench": "bun ../api/scripts/bench-maple-vs-sharp.ts"
+    "bench": "bun ../api/scripts/bench-maple-vs-sharp.ts",
+    "sync:versions": "bun ./scripts/sync-versions.ts",
+    "assemble": "bun ./scripts/assemble-packages.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.5.0"
+  },
+  "optionalDependencies": {
+    "@justmaple/maple-darwin-arm64": "0.1.0",
+    "@justmaple/maple-darwin-x64": "0.1.0",
+    "@justmaple/maple-linux-arm64-gnu": "0.1.0",
+    "@justmaple/maple-linux-arm64-musl": "0.1.0",
+    "@justmaple/maple-linux-x64-gnu": "0.1.0",
+    "@justmaple/maple-linux-x64-musl": "0.1.0",
+    "@justmaple/maple-win32-x64-msvc": "0.1.0"
   }
 }

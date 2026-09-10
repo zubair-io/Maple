@@ -1,0 +1,24 @@
+{
+  "name": "@justmaple/maple-darwin-arm64",
+  "version": "0.1.0",
+  "description": "Native binary for @justmaple/maple on macOS ARM64 (Apple Silicon)",
+  "main": "libraw_ffi.dylib",
+  "files": [
+    "libraw_ffi.dylib"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zubair-io/Maple.git",
+    "directory": "src/maple/npm/darwin-arm64"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

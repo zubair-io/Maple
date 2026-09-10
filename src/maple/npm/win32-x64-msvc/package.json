@@ -1,0 +1,24 @@
+{
+  "name": "@justmaple/maple-win32-x64-msvc",
+  "version": "0.1.0",
+  "description": "Native binary for @justmaple/maple on Windows x64 (MSVC)",
+  "main": "raw_ffi.dll",
+  "files": [
+    "raw_ffi.dll"
+  ],
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zubair-io/Maple.git",
+    "directory": "src/maple/npm/win32-x64-msvc"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

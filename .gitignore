@@ -114,6 +114,9 @@ node_modules/
 src/web/storybook-static/
 dist/
 !src/maple/dist/
+src/maple/npm/*/*.so
+src/maple/npm/*/*.dylib
+src/maple/npm/*/*.dll
 .next/
 npm-debug.log
 yarn-error.log
