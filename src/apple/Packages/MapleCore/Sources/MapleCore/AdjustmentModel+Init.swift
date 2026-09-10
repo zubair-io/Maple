@@ -122,6 +122,7 @@ extension AdjustmentModel {
     lensCorrectionVignetting: Double = 100,
     perspective: Perspective = .identity,
     filmLook: String = "",
+    lensProfile: String = "",
     filmStrength: Double = 100,
     demosaic: DemosaicChoice = .auto
   ) {
@@ -236,6 +237,7 @@ extension AdjustmentModel {
     self.lensCorrectionVignetting = lensCorrectionVignetting
     self.perspective = perspective
     self.filmLook = filmLook
+    self.lensProfile = lensProfile
     self.filmStrength = filmStrength
     self.demosaic = demosaic
   }

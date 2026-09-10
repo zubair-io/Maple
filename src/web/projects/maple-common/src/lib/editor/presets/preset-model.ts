@@ -167,7 +167,15 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
  * identity at render time rather than rejecting it, and the client-side
  * apply path follows the same rule.
  */
-export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look']);
+export const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set([
+  'film_look',
+  // Imported LCP reference (#2435). Free-form like `film_look`, but ALSO in
+  // raw-core's `NON_COPYABLE_FIELDS`: it names the calibration for the lens
+  // one specific frame was shot with, so capture skips it and apply never
+  // sees it. Listed here so an imported preset document that carries one
+  // is preserved as string data rather than rejected as an unknown enum.
+  'lens_profile',
+]);
 
 // ── Capture (save-preset) ─────────────────────────────────────────────────
 
@@ -260,6 +268,12 @@ function coerceStringField(snakeKey: string, value: string): string | undefined 
 export function buildApplyPatch(fields: PresetFields): Partial<AdjustmentModel> {
   const patch: Partial<AdjustmentModel> = {};
   for (const [snakeKey, value] of Object.entries(fields)) {
+    // NON_COPYABLE fields describe one specific image, never a look. They
+    // are skipped on capture above, but an imported preset document may
+    // still carry one (the API preserves them as string data), so apply
+    // must skip them too — a `lens_profile` names the calibration for the
+    // SOURCE frame's lens, and the target keeps its own.
+    if (NON_COPYABLE.has(snakeKey)) continue;
     const key = SNAKE_TO_GENERATED_KEY.get(snakeKey);
     if (!key) continue; // Unknown field (newer schema) — skip on apply.
     const resolved =

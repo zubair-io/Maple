@@ -43,3 +43,7 @@ FilmStrengthCommitTests
 RetouchGestureContractTests
 RetouchSessionTests
 WhiteBalancePresetTests
+#
+# Sidecar fidelity for the imported-profile reference (#3476): pure
+# serialize/parse, no fixtures, no Metal.
+LensProfileXMPTests
