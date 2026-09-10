@@ -155,6 +155,11 @@ jobs:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Upgrade npm for OIDC Trusted Publishing
+        run: |
+          npm install --global npm@11
+          npm --version
+
       - name: Download all compiled binary artifacts
         uses: actions/download-artifact@v4
         with:
