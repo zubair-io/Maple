@@ -246,6 +246,7 @@ namespace Maple.WinUI.ViewModels
         /// AMaZE decode (#3417 review).</summary>
         private void DecodeCurrent(PhotoItem photo)
         {
+            ResetLensProfileState();   // #3480 — EditSessionViewModel.LensProfile.cs
             var generation = Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
 
@@ -273,7 +274,12 @@ namespace Maple.WinUI.ViewModels
                 catch (Exception ex)
                 {
                     if (generation == _decodeGeneration)
-                        OnUi(() => { IsDecoding = false; DecodeStatus = $"Decode failed: {ex.Message}"; });
+                        OnUi(() =>
+                        {
+                            IsDecoding = false;
+                            DecodeStatus = $"Decode failed: {ex.Message}";
+                            ReportLensProfileFailure(ex);
+                        });
                 }
                 finally
                 {

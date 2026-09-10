@@ -146,6 +146,7 @@ namespace Maple.WinUI
             BuildEditRail();
             BuildGradePanel();
             BuildProfilePanel();
+            BuildLensPanel();      // #3480 — MainWindow.LensProfile.cs
             BuildCropPanel();
             BuildMaskPanel();
             MaybeStartQualifyRun();
@@ -153,6 +154,7 @@ namespace Maple.WinUI
             ViewModel.ModelSynced += () =>
             {
                 SyncProfilePanel();
+                SyncLensPanel();
                 SyncGradeWheels();
                 if (_activeGroup == "Tone Curve")
                     RefreshCurvePlot();

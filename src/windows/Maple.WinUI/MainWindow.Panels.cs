@@ -41,6 +41,7 @@ namespace Maple.WinUI
             ("Color", "tool-tint", null),
             ("Effects", "tool-vignette", null),
             ("Detail", "tool-sharpen", null),
+            ("Lens", "scope", null),
             ("Tone Curve", "tool-contrast", null),
             ("Crop", "tool-crop", null),
             ("Geometry", "tool-crop", null),
@@ -90,6 +91,7 @@ namespace Maple.WinUI
             PanelFootnote.Visibility = Visibility.Collapsed;
             PanelGradeHost.Visibility = Visibility.Collapsed;
             PanelProfileHost.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
+            PanelLensHost.Visibility = group == "Lens" ? Visibility.Visible : Visibility.Collapsed;
             PanelCurveHost.Visibility = group == "Tone Curve" ? Visibility.Visible : Visibility.Collapsed;
             PanelCropHost.Visibility = group == "Crop" ? Visibility.Visible : Visibility.Collapsed;
             PanelMaskHost.Visibility = group == "Mask" ? Visibility.Visible : Visibility.Collapsed;
