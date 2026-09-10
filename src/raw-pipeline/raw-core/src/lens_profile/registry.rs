@@ -49,6 +49,18 @@ pub fn profile_id(reference: &str) -> Result<(&str, bool), String> {
     Ok((id, acknowledged))
 }
 
+fn fits(registry: &BTreeMap<String, (usize, Arc<LensProfile>)>, additional: usize) -> bool {
+    registry.values().map(|(bytes, _)| bytes).sum::<usize>() + additional <= MAX_CACHE_BYTES
+}
+
+/// Whether `additional` more bytes fit the process cache. A host that keeps
+/// its own copy of every profile (the Web worker's IndexedDB) clears the
+/// cache and re-registers on demand rather than failing the import.
+pub fn has_capacity(additional: usize) -> Result<bool, String> {
+    let registry = cache().read().map_err(|_| "LCP cache lock failed")?;
+    Ok(fits(&registry, additional))
+}
+
 /// Register user-owned LCP bytes in this process. Returns the canonical
 /// exact-match reference and human-readable inventory for the import UI.
 pub fn register(xml: &str) -> Result<serde_json::Value, String> {
@@ -56,7 +68,7 @@ pub fn register(xml: &str) -> Result<serde_json::Value, String> {
     let profile = Arc::new(super::parse(xml)?);
     let mut registry = cache().write().map_err(|_| "LCP cache lock failed")?;
     if !registry.contains_key(&id) {
-        if registry.values().map(|(bytes, _)| bytes).sum::<usize>() + xml.len() > MAX_CACHE_BYTES {
+        if !fits(&registry, xml.len()) {
             return Err(
                 "LCP process cache is full; reload the app or restart the rendering worker".into(),
             );

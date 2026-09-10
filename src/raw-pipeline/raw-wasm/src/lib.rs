@@ -65,6 +65,10 @@ pub mod export;
 /// `raw-ffi` so a template renders byte-identically on every surface.
 pub mod filename;
 pub mod id;
+/// Imported LCP profiles on the render worker (#3479): register / resolve /
+/// clear bindings plus the sidecar-selection accessor the worker restores
+/// against before a decode.
+pub mod lens_profile;
 /// Colour-range eyedropper for the mask panel (#362) — the render worker's
 /// `sample_mask_range_from_bytes`.
 pub mod mask_range_sample;

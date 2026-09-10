@@ -34,6 +34,7 @@ pub struct MapleRender {
     has_lens_corrections: bool,
     lens_correction_ca_inert: bool,
     camera_support: Option<raw_core::support_tiers::RenderSupport>,
+    lens_profile_json: Option<String>,
 }
 
 impl MapleRender {
@@ -60,6 +61,7 @@ impl MapleRender {
         has_lens_corrections: bool,
         lens_correction_ca_inert: bool,
         camera_support: Option<raw_core::support_tiers::RenderSupport>,
+        lens_profile_json: Option<String>,
     ) -> Self {
         Self {
             width,
@@ -72,6 +74,7 @@ impl MapleRender {
             has_lens_corrections,
             lens_correction_ca_inert,
             camera_support,
+            lens_profile_json,
         }
     }
 }
@@ -136,6 +139,14 @@ impl MapleRender {
         self.camera_support
             .as_ref()
             .map(|support| support.to_json())
+    }
+
+    /// Resolver facts for the imported LCP profile the model named, as JSON
+    /// (`crate::lens_profile::metadata`, #3479) — `None` when no profile is
+    /// selected or the named profile is not registered. Read once per reply.
+    #[wasm_bindgen(getter)]
+    pub fn lens_profile_json(&self) -> Option<String> {
+        self.lens_profile_json.clone()
     }
 
     /// Whether this RAW carries a DNG `OpcodeList3` (`RawImage::has_lens_corrections`,
@@ -247,6 +258,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 has_lens_corrections,
                 lens_correction_ca_inert,
                 camera_support,
+                lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
             })
         }
         Some(cap) => {
@@ -266,6 +278,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 has_lens_corrections,
                 lens_correction_ca_inert,
                 camera_support,
+                lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
             })
         }
     }
@@ -351,6 +364,7 @@ pub fn render_bytes_sized(
         has_lens_corrections,
         lens_correction_ca_inert,
         camera_support,
+        lens_profile_json: crate::lens_profile::metadata(&raw_img, &model),
     })
 }
 
@@ -434,6 +448,7 @@ pub fn develop_non_raw(
         has_lens_corrections: false,
         lens_correction_ca_inert: true,
         camera_support: None,
+        lens_profile_json: None,
     })
 }
 

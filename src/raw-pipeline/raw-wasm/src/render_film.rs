@@ -77,6 +77,7 @@ pub fn render_bytes_with_film(
                 has_lens_corrections,
                 lens_correction_ca_inert,
                 camera_support,
+                crate::lens_profile::metadata(&raw_img, &model),
             ))
         }
         Some(cap) => {
@@ -102,6 +103,7 @@ pub fn render_bytes_with_film(
                 has_lens_corrections,
                 lens_correction_ca_inert,
                 camera_support,
+                crate::lens_profile::metadata(&raw_img, &model),
             ))
         }
     }
@@ -200,5 +202,6 @@ pub fn render_bytes_sized_with_film(
         has_lens_corrections,
         lens_correction_ca_inert,
         camera_support,
+        crate::lens_profile::metadata(&raw_img, &model),
     ))
 }
