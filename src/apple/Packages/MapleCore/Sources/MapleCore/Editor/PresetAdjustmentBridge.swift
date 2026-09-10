@@ -176,6 +176,11 @@ extension AdjustmentModel.FieldName {
     // `PresetAdjustments` below (#2720). (`film_strength` DOES have a
     // key path above — it is an ordinary numeric field.)
     case .filmLook: return nil
+    // Imported LCP reference (#2435) — free-form string AND in raw-core's
+    // `NON_COPYABLE_FIELDS`: it names the calibration for the lens one
+    // specific frame was shot with, so a preset never captures or applies
+    // it (the capture/apply switches below fall through to their defaults).
+    case .lensProfile: return nil
     // Point curves (#366) — structured `ToneCurve` values, not scalars.
     // A preset `fields` map is flat (number | string | bool) on every
     // client, so curves are neither captured nor applied here; the web

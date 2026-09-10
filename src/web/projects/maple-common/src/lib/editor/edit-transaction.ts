@@ -61,6 +61,7 @@ const DECODE_INPUT_KEYS = [
   'hotPixelSuppression',
   'demosaic',
   'lensProfileEnable',
+  'lensProfile',
   'lensCorrectionDistortion',
   'lensCorrectionCa',
   'lensCorrectionVignetting',

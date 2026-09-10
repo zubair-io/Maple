@@ -86,6 +86,34 @@ describe('XMP DNG lens-correction fields (#376)', () => {
     });
   });
 
+  describe('papp:LensProfile (#2435)', () => {
+    const reference = `lcp1:${'a'.repeat(64)}`;
+
+    it('parses the imported-profile reference verbatim', () => {
+      const { model } = parser.parseAdjustmentModel(makeSidecar(`papp:LensProfile="${reference}"`));
+      expect(model.lensProfile).toBe(reference);
+    });
+
+    it('round-trips both the plain and the acknowledged form', () => {
+      for (const value of [reference, reference.replace('lcp1:', 'lcp1-ack:')]) {
+        const m = defaultAdjustmentModel();
+        m.lensProfile = value;
+        const xml = serializer.serialize(m);
+        expect(xml).toContain(`papp:LensProfile="${value}"`);
+        const { model } = parser.parseAdjustmentModel(xml);
+        expect(model.lensProfile).toBe(value);
+      }
+    });
+
+    it('omits the attribute when empty so embedded-only sidecars stay byte-identical', () => {
+      expect(defaultAdjustmentModel().lensProfile).toBe('');
+      const xml = serializer.serialize(defaultAdjustmentModel());
+      expect(xml).not.toContain('papp:LensProfile');
+      const { model } = parser.parseAdjustmentModel(makeSidecar(`papp:LensProfile=""`));
+      expect(model.lensProfile).toBeUndefined();
+    });
+  });
+
   describe('crs:LensProfile*Scale', () => {
     it('parses and round-trips all three strengths', () => {
       const m = defaultAdjustmentModel();

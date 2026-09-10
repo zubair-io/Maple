@@ -40,6 +40,21 @@ describe('validatePresetName', () => {
 });
 
 describe('validatePresetFields', () => {
+  it.each(['', `lcp1:${'a'.repeat(64)}`, `lcp1-ack:${'a'.repeat(64)}`, 'future:opaque'])(
+    'preserves imported calibration references as bounded string data: %s',
+    (reference) => {
+      const fields = {
+        lens_profile: reference,
+        future_lens_hint: 'opaque data',
+      };
+      expect(validatePresetFields(fields)).toEqual({ fields });
+    },
+  );
+
+  it('rejects wrong-typed calibration references', () => {
+    expect(validatePresetFields({ lens_profile: 1 })).toHaveProperty('error');
+  });
+
   it('accepts known numeric fields within range', () => {
     expect(validatePresetFields({ contrast: -50, temperature: 5500 })).toEqual({
       fields: { contrast: -50, temperature: 5500 },

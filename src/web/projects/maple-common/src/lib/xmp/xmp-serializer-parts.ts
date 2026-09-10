@@ -77,6 +77,9 @@ function lookProfileFilmParts(model: AdjustmentModel): string[] {
   if (model.filmLook) {
     parts.push(`papp:FilmLook="${escapeXmpAttr(model.filmLook)}"`);
   }
+  if (model.lensProfile) {
+    parts.push(`papp:LensProfile="${escapeXmpAttr(model.lensProfile)}"`);
+  }
 
   return parts;
 }
