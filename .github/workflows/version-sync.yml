@@ -1,0 +1,121 @@
+# .github/workflows/version-sync.yml
+#
+# After a release tag has shipped, open a PR that brings the committed
+# version fields back in line with it (#3486).
+#
+# The tag is the version of record: release.yml stamps it into the macOS
+# archive and the Windows build, publish-package.yml stamps it into the npm
+# packages. None of that touches main, so package.json and the Xcode project
+# drift behind what was actually shipped. This workflow runs once BOTH of
+# those workflows have succeeded for the same tag, runs the same sync by
+# hand (tools/sync-release-version.sh), and opens
+# `chore(release): sync versions to vX.Y.Z`. It is a no-op when there is
+# nothing to change or the PR already exists, and it never runs for a
+# prerelease tag (v1.2.3-test.1): main should not claim a test version.
+#
+# TOKEN: a PR opened with the default GITHUB_TOKEN triggers no CI, and main
+# requires jules/review + api-tests, so the PR could never merge. Set the
+# repository secret VERSION_SYNC_TOKEN (a fine-grained PAT or GitHub App
+# token with contents:write + pull-requests:write) and it is used instead.
+
+name: version-sync
+
+on:
+  workflow_run:
+    workflows: [release, publish-package]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: version-sync-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  open-pr:
+    name: Open version-sync PR
+    # workflow_run fires for every completion of either workflow; only a
+    # successful run of a tag push (head_branch is the tag name) matters.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v') &&
+      !contains(github.event.workflow_run.head_branch, '-')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.VERSION_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.workflow_run.head_branch }}
+      TAG_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      # Both workflows must have succeeded for this tag. Each completion
+      # triggers this job, so whichever finishes second sees both green;
+      # the earlier one exits here.
+      - name: Require release and publish-package to have both succeeded
+        id: gate
+        run: |
+          set -euo pipefail
+          for wf in release.yml publish-package.yml; do
+            conclusion="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$wf" --event push \
+              --json headSha,status,conclusion \
+              --jq "[.[] | select(.headSha == \"$TAG_SHA\")] | first | \"\(.status):\(.conclusion)\"")"
+            echo "$wf for $TAG ($TAG_SHA): ${conclusion:-no run}"
+            if [ "$conclusion" != "completed:success" ]; then
+              echo "waiting=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "waiting=false" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if the sync PR already exists
+        if: steps.gate.outputs.waiting == 'false'
+        id: existing
+        run: |
+          set -euo pipefail
+          BRANCH="chore/version-sync-${TAG#v}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          n="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state all --json number --jq 'length')"
+          echo "exists=$([ "$n" != "0" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.waiting == 'false' && steps.existing.outputs.exists == 'false'
+        with:
+          ref: main
+          token: ${{ secrets.VERSION_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.gate.outputs.waiting == 'false' && steps.existing.outputs.exists == 'false'
+        with:
+          bun-version: latest
+
+      - name: Sync committed versions to the tag
+        if: steps.gate.outputs.waiting == 'false' && steps.existing.outputs.exists == 'false'
+        id: sync
+        run: |
+          set -euo pipefail
+          tools/sync-release-version.sh "$TAG"
+          if git diff --quiet; then
+            echo "Committed versions already match $TAG; nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open the PR
+        if: steps.sync.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          BRANCH="${{ steps.existing.outputs.branch }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add src/maple/package.json src/maple/npm/*/package.json src/apple/Maple.xcodeproj/project.pbxproj
+          git commit \
+            -m "chore(release): sync versions to $TAG" \
+            -m "Release $TAG shipped from $TAG_SHA with the tag stamped into every artifact; this brings the committed version fields in line with it. Opened automatically by version-sync.yml (#3486)."
+          git push origin "$BRANCH"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "chore(release): sync versions to $TAG" \
+            --body "Release [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) shipped from $TAG_SHA with the tag stamped into the macOS archive, the Windows build and the npm packages. This PR brings the committed version fields (src/maple package.json files, Xcode MARKETING_VERSION) in line with what shipped. Opened automatically by version-sync.yml; part of #3486."
