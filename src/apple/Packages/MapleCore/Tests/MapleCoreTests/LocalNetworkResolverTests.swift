@@ -22,9 +22,9 @@ final class LocalNetworkResolverTests: XCTestCase {
 
   func test_resolveEffectiveURL_returnsCandidate_whenReachable() async {
     let session = URLSession.stubbedSequence { req in
-      // The reachability probe (against the candidate) only checks the
-      // HTTP status, not the body — a single "available" response for
-      // every request (report fetch + probe) is sufficient here.
+      // The reachability probe (against the candidate) must echo the same
+      // ip/port/scheme back — a single "available" response for every
+      // request (report fetch + probe) satisfies that here.
       let body = #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http"}"#
       return (Data(body.utf8), Self.okResponse(for: req))
     }
@@ -166,6 +166,22 @@ final class LocalNetworkResolverTests: XCTestCase {
         HTTPURLResponse(
           url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
       )
+    }
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
+    XCTAssertEqual(effective, URL(string: "http://192.168.1.42:3000"))
+  }
+
+  func test_hostnameAnsweringWithoutManagedEndpointFallsBackToIP() async {
+    // The hostname resolves to a different Maple server (or a stale one):
+    // it answers 200 but its report does not list this managed endpoint, so
+    // the probe must not accept "something answered" and must try the IP.
+    let identityBody =
+      #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http","https":{"ip":"local.example.com","port":3443,"scheme":"https"}}"#
+    let strangerBody = #"{"available":true,"ip":"10.9.9.9","port":3000,"scheme":"http"}"#
+    let session = URLSession.stubbedSequence { req in
+      let body = req.url?.host == "local.example.com" ? strangerBody : identityBody
+      return (Data(body.utf8), Self.okResponse(for: req))
     }
     let effective = await LocalNetworkResolving.resolveEffectiveURL(
       identity: identity, session: session)
