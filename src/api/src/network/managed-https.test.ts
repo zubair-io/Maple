@@ -37,13 +37,15 @@ const certificate = {
 describe('managed HTTPS settings and lifecycle', () => {
   let mongo: MongoMemoryServer;
   let manager: ManagedHttps;
-  const originalEnv = {
-    uri: process.env.MAPLE_MONGO_URI,
-    db: process.env.MAPLE_MONGO_DB,
-    jwt: process.env.MAPLE_JWT_SECRET,
-  };
-  const issued = spyOn(issuer, 'issueCertificate');
+  let originalEnv: { uri: string | undefined; db: string | undefined; jwt: string | undefined };
+  let issued: ReturnType<typeof spyOn<typeof issuer, 'issueCertificate'>>;
   beforeAll(async () => {
+    originalEnv = {
+      uri: process.env.MAPLE_MONGO_URI,
+      db: process.env.MAPLE_MONGO_DB,
+      jwt: process.env.MAPLE_JWT_SECRET,
+    };
+    issued = spyOn(issuer, 'issueCertificate');
     mongo = await MongoMemoryServer.create({ binary: { version: '7.0.24' } });
     process.env.MAPLE_MONGO_URI = mongo.getUri();
     process.env.MAPLE_MONGO_DB = `managed_https_test_${process.pid}`;

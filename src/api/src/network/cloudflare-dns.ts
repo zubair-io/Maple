@@ -60,14 +60,19 @@ export class CloudflareDns {
     url.searchParams.set('name', `_acme-challenge.${this.config.hostname}`);
     url.searchParams.set('type', 'TXT');
     for (let attempt = 0; attempt < 24; attempt++) {
-      const response = await fetch(url, {
-        headers: { accept: 'application/dns-json' },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (response.ok) {
-        const body = (await response.json()) as { Answer?: { type: number; data: string }[] };
-        if (body.Answer?.some((answer) => answer.type === 16 && answer.data === `"${value}"`))
-          return;
+      try {
+        const response = await fetch(url, {
+          headers: { accept: 'application/dns-json' },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (response.ok) {
+          const body = (await response.json()) as { Answer?: { type: number; data: string }[] };
+          if (body.Answer?.some((answer) => answer.type === 16 && answer.data === `"${value}"`))
+            return;
+        }
+      } catch {
+        // Resolver timeouts and malformed responses are transient; keep the
+        // bounded propagation retry window instead of abandoning the order.
       }
       await delay(5000);
     }
