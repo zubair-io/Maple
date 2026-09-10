@@ -56,6 +56,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/raw-pipeline -> target
+          key: ${{ matrix.target }}
+
       - name: Install Zig
         uses: mlugg/setup-zig@v1
         with:
@@ -101,6 +107,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/raw-pipeline -> target
+          key: ${{ matrix.target }}
+
       - name: Build libraw_ffi (${{ matrix.pkg_name }})
         run: |
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target ${{ matrix.target }}
@@ -122,6 +134,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/raw-pipeline -> target
+          key: x86_64-pc-windows-msvc
 
       - name: Build raw_ffi (maple-win32-x64-msvc)
         run: |
@@ -196,30 +214,44 @@ jobs:
           echo "Publish execution mode: DRY_RUN=$DRY_RUN"
           echo "=========================================================="
 
+          # Publish one package directory. Outside dry-run, a version that is
+          # already on the registry is skipped instead of failing, so a run
+          # that died part-way (network blip, registry 5xx, OIDC hiccup) can be
+          # re-run and will pick up exactly the packages that never landed —
+          # npm rejects publishing over an existing version with E403.
+          publish_pkg() {
+            local dir="$1"
+            local name version
+            name="$(node -p "require('./$dir/package.json').name")"
+            version="$(node -p "require('./$dir/package.json').version")"
+            echo "Publishing $name@$version from $dir"
+            if [ "$DRY_RUN" = "true" ]; then
+              npm publish "$dir" --dry-run --access public
+              return
+            fi
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "  already published — skipping"
+              return
+            fi
+            npm publish "$dir" --access public --provenance
+          }
+
           PLATFORM_PKGS=(
-            "./src/maple/npm/darwin-arm64"
-            "./src/maple/npm/darwin-x64"
-            "./src/maple/npm/linux-x64-gnu"
-            "./src/maple/npm/linux-x64-musl"
-            "./src/maple/npm/linux-arm64-gnu"
-            "./src/maple/npm/linux-arm64-musl"
-            "./src/maple/npm/win32-x64-msvc"
+            "src/maple/npm/darwin-arm64"
+            "src/maple/npm/darwin-x64"
+            "src/maple/npm/linux-x64-gnu"
+            "src/maple/npm/linux-x64-musl"
+            "src/maple/npm/linux-arm64-gnu"
+            "src/maple/npm/linux-arm64-musl"
+            "src/maple/npm/win32-x64-msvc"
           )
 
+          # Platform packages first, root last: if any platform publish fails
+          # the previously published root stays live and consumers are
+          # unaffected, and a re-run resumes from the first missing package.
           for pkg in "${PLATFORM_PKGS[@]}"; do
-            echo "Publishing platform package: $pkg"
-            if [ "$DRY_RUN" = "true" ]; then
-              npm publish "$pkg" --dry-run --access public
-            else
-              npm publish "$pkg" --access public --provenance
-            fi
+            publish_pkg "$pkg"
           done
-
-          echo "Publishing root package: src/maple"
-          if [ "$DRY_RUN" = "true" ]; then
-            (cd src/maple && npm publish --dry-run --access public)
-          else
-            (cd src/maple && npm publish --access public --provenance)
-          fi
+          publish_pkg "src/maple"
 
           echo "Publish workflow completed successfully."
