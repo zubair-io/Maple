@@ -71,13 +71,8 @@ export class LanSwitchService {
         // Browsers cannot probe an HTTP LAN IP from an HTTPS page. Preserve
         // the existing explicit switch for this fallback instead of silently
         // navigating to a potentially unreachable/insecure address.
-        if (pageProtocol === 'https:' && candidate.scheme === 'http')
-          return { origin: candidate.origin };
-        if (await this.probe(candidate.origin, endpoint)) {
-          return endpoint.managed
-            ? { origin: candidate.origin, automatic: true }
-            : { origin: candidate.origin };
-        }
+        const offer = await this.offerCandidate(candidate, endpoint, pageProtocol);
+        if (offer) return offer;
       }
       return null;
     } catch {
@@ -85,35 +80,50 @@ export class LanSwitchService {
     }
   }
 
+  private async offerCandidate(
+    candidate: { origin: string; scheme: string },
+    endpoint: LocalAddressReport & { managed: boolean },
+    pageProtocol: string,
+  ): Promise<LanSwitchCandidate | null> {
+    if (pageProtocol === 'https:' && candidate.scheme === 'http')
+      return { origin: candidate.origin };
+    if (!(await this.probe(candidate.origin, endpoint))) return null;
+    return endpoint.managed
+      ? { origin: candidate.origin, automatic: true }
+      : { origin: candidate.origin };
+  }
+
+  private static validPort(port: number | undefined): port is number {
+    return Number.isInteger(port) && port !== undefined && port >= 1 && port <= 65535;
+  }
+
+  private static isHostOnly(url: URL, host: string): boolean {
+    return (
+      !url.username &&
+      !url.password &&
+      url.pathname === '/' &&
+      !url.search &&
+      !url.hash &&
+      url.hostname === host.toLowerCase()
+    );
+  }
+
+  private static formatHost(ip: string): string {
+    return ip.includes(':') && !ip.startsWith('[') ? `[${ip}]` : ip;
+  }
+
   /** Extracts the advertised LAN origin from a report, or `null` when the
    * server has none to offer (disabled, or no IP/port resolved). */
   private static parseCandidate(
     report: LocalAddressReport,
   ): { origin: string; scheme: string; ip: string; port: number } | null {
-    if (
-      !report.available ||
-      !report.ip ||
-      !Number.isInteger(report.port) ||
-      !report.port ||
-      report.port < 1 ||
-      report.port > 65535
-    )
-      return null;
+    if (!report.available || !report.ip || !LanSwitchService.validPort(report.port)) return null;
     const scheme = report.scheme ?? 'http';
     if (scheme !== 'http' && scheme !== 'https') return null;
-    const host =
-      report.ip.includes(':') && !report.ip.startsWith('[') ? `[${report.ip}]` : report.ip;
+    const host = LanSwitchService.formatHost(report.ip);
     try {
       const url = new URL(`${scheme}://${host}:${report.port}`);
-      if (
-        url.username ||
-        url.password ||
-        url.pathname !== '/' ||
-        url.search ||
-        url.hash ||
-        url.hostname !== host.toLowerCase()
-      )
-        return null;
+      if (!LanSwitchService.isHostOnly(url, host)) return null;
       return { origin: `${scheme}://${host}:${report.port}`, scheme, ip: host, port: report.port };
     } catch {
       return null;
