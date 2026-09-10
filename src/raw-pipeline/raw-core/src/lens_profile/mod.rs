@@ -12,7 +12,9 @@ mod apply;
 pub use apply::apply;
 pub(crate) mod metadata;
 mod registry;
-pub use registry::{apply_for_raw, clear_cache, profile_id, register, resolve_for_raw};
+pub use registry::{
+    apply_for_raw, clear_cache, has_capacity, profile_id, register, resolve_for_raw,
+};
 
 pub fn corrections_enabled(model: &crate::AdjustmentModel) -> bool {
     use crate::pipeline::pano::opcode_apply::LensCorrectionScales;
