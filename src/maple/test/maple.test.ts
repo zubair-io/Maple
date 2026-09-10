@@ -254,6 +254,23 @@ describe('Maple Native Binding', () => {
       expect(await runCli(['bun', 'maple', '--version'])).toBe(0);
     });
 
+    it('reports the version from package.json', async () => {
+      const { runCli } = await import('../src/cli.ts');
+      const { readFileSync } = await import('node:fs');
+      const pkg = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf-8'));
+      const lines: string[] = [];
+      const original = console.log;
+      console.log = (...args: unknown[]) => {
+        lines.push(args.join(' '));
+      };
+      try {
+        expect(await runCli(['bun', 'maple', 'version'])).toBe(0);
+      } finally {
+        console.log = original;
+      }
+      expect(lines.join('\n')).toContain(`maple ${pkg.version}`);
+    });
+
     it('returns error code 1 for unknown commands', async () => {
       const { runCli } = await import('../src/cli.ts');
       expect(await runCli(['bun', 'maple', 'unknown-subcommand'])).toBe(1);
