@@ -110,6 +110,7 @@ describe('EditorShellComponent — presets port (#1815)', () => {
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
+      seedLensProfile: vi.fn(),
       lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
@@ -139,6 +140,7 @@ describe('EditorShellComponent — presets port (#1815)', () => {
             deepDenoiseProgress: signal(null),
             // #3397: the canvas reads this to publish out-of-band scope samples.
             scopeSample: signal(null),
+            lensProfileStatus: signal(null),
             decode: vi.fn(() =>
               Promise.resolve({
                 width: 800,
