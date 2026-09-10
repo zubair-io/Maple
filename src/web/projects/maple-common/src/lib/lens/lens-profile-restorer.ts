@@ -51,21 +51,10 @@ export class LensProfileRestorer {
    */
   async restore(xmp: string | null): Promise<LensProfileRestoreOutcome | null> {
     if (!xmp || !/\bLensProfile\b/.test(xmp)) return null;
-    if (this.previousXmp !== xmp) {
-      this.previousReference = await this.select(xmp);
-      this.previousXmp = xmp;
-    }
-    const reference = this.previousReference;
+    const reference = await this.selectedReference(xmp);
     if (!reference) return null;
     try {
-      const digest = lensProfileDigest(reference);
-      if (this.loaded.has(digest) || this.missing.has(digest)) return null;
-      if (await this.restoreCached(reference, digest)) {
-        this.loaded.add(digest);
-        return { reference, available: true };
-      }
-      this.missing.add(digest);
-      return { reference, available: false, message: LENS_PROFILE_MISSING_MESSAGE };
+      return await this.restoreReference(reference);
     } catch (error) {
       // Denied storage, a corrupt row or an unsupported reference version:
       // the render decides whether the profile was required and fails
@@ -76,5 +65,26 @@ export class LensProfileRestorer {
         message: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /** The reference `xmp` selects, memoised on the exact sidecar text. */
+  private async selectedReference(xmp: string): Promise<string | null> {
+    if (this.previousXmp !== xmp) {
+      this.previousReference = await this.select(xmp);
+      this.previousXmp = xmp;
+    }
+    return this.previousReference;
+  }
+
+  /** `null` when the digest was already restored or already known missing. */
+  private async restoreReference(reference: string): Promise<LensProfileRestoreOutcome | null> {
+    const digest = lensProfileDigest(reference);
+    if (this.loaded.has(digest) || this.missing.has(digest)) return null;
+    if (await this.restoreCached(reference, digest)) {
+      this.loaded.add(digest);
+      return { reference, available: true };
+    }
+    this.missing.add(digest);
+    return { reference, available: false, message: LENS_PROFILE_MISSING_MESSAGE };
   }
 }
