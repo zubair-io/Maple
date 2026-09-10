@@ -65,6 +65,8 @@ jobs:
         run: pipx install cargo-zigbuild
 
       - name: Build libraw_ffi (${{ matrix.pkg_name }})
+        env:
+          RUSTFLAGS: ${{ matrix.libc_type == 'musl' && '-C target-feature=-crt-static' || '' }}
         run: |
           cargo zigbuild --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target ${{ matrix.zig_target }}
 
