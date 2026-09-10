@@ -1,4 +1,5 @@
 import type { CameraSupport } from '../state/camera-support';
+import type { ImportedLensProfile, LensProfileResolution } from '../lens/lens-profile.types';
 // raw-pipeline.service-internals.ts
 // Extracted from raw-pipeline.service.ts (pure code move — no behaviour change).
 // Contains: public session result types (OpenedLiveSession, RenderedLiveSession)
@@ -44,6 +45,8 @@ export interface OpenedLiveSession {
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
   cameraSupport?: CameraSupport;
+  /** See `DecodeSuccess.lensProfile` (#3479). */
+  lensProfile?: LensProfileResolution;
   colorSpace: string;
   /**
    * Downsampled RGB readback of the first presented frame, for the scopes (#1045).
@@ -60,6 +63,8 @@ export interface OpenedLiveSession {
  */
 export interface RenderedLiveSession {
   colorSpace: string;
+  /** See `RenderSessionSuccess.lensProfile` (#3479). */
+  lensProfile?: LensProfileResolution;
   // No `scopePixels` (#3397): the sample is broadcast out-of-band as
   // `scope-sample` and lands on `RawPipelineService.scopeSample`.
 }
@@ -70,6 +75,12 @@ export type PendingHandler =
       kind: 'native-detail';
       resolve: (pixels: import('./raw-pipeline.native-detail.types').NativeDetailPixels) => void;
       reject: (error: Error) => void;
+    }
+  | {
+      kind: 'lens-profile';
+      /** Resolves with the registered profile + its resolution for the RAW (#3479). */
+      resolve: (profile: ImportedLensProfile) => void;
+      reject: (err: Error) => void;
     }
   | {
       kind: 'legacy';

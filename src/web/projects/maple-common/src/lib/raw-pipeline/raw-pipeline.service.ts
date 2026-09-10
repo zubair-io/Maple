@@ -2,16 +2,10 @@
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
 //
-// T10: the worker still reports its thread-pool status (`threadedSubject`/
-// `threadCountSubject` below) once WASM init completes — but the public
-// `isThreaded$`/`threadCount$` observables that surfaced this to a UI were
-// removed as dead (#3048): no production caller remained anywhere in the
-// app. Retiring the worker-side status message and its request/response
-// protocol is a further, separate cleanup (touches raw-pipeline.worker.ts
-// and raw-pipeline.types.ts, outside this ticket's scope) — flagged as a
-// follow-up rather than folded in here.
+// The worker's thread-pool status protocol outlived the public observables
+// #3048 removed; the subjects below still receive those messages.
 
-import { Injectable, OnDestroy, inject, signal } from '@angular/core';
+import { Injectable, Injector, OnDestroy, inject, signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import type {
   AutoAdjustPatch,
@@ -24,6 +18,12 @@ import type {
 } from './raw-pipeline.types';
 import { dispatchExport } from './raw-pipeline.export-request';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
+import {
+  dispatchImportLensProfile,
+  restoreRequestedLensProfile,
+} from './raw-pipeline.lens-profile-request';
+import type { ImportedLensProfile, LensProfileStatus } from '../lens/lens-profile.types';
+import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import type { SampleQueue } from './raw-pipeline.samplers';
 import {
   sampleMaskRange as runMaskRangeSample,
@@ -60,22 +60,21 @@ import { handleWorkerMessage } from './raw-pipeline.worker-dispatch';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
-  // Routes the legacy display-encoded `decode()` through the GPU live chain
-  // (`render_bytes_gpu`) when true (epic #925, P4b-web / #1029). Off → the
-  // WASM-CPU `render_bytes` path, byte-for-byte today. The worker further
-  // gates on whether the loaded bundle exports the GPU entry, so flag-on
-  // against a gpu-off WASM build still falls back to `render_bytes`.
-  //
-  // #1062: read from `GpuLiveRenderGate` (build-time token AND the DB-backed
-  // operator setting) at REQUEST time rather than captured at construction, so
-  // an operator kill lands on the next decode / live-session open instead of
-  // needing a reload.
+  // Routes the legacy `decode()` through the GPU live chain when true (#1029);
+  // the worker still falls back to `render_bytes` on a gpu-off bundle. Read
+  // at REQUEST time (#1062) so an operator flip lands on the next open.
   private readonly gate = inject(GpuLiveRenderGate);
 
   // #3191: the requested GPU-live canvas colour space, read per session-open
   // request (same pattern as `gate` above) so a Settings change lands on the
   // next image open with no reload.
   private readonly colorSpacePref = inject(CanvasColorSpacePref);
+
+  // #3479: Self Hosted restores a missing browser copy of an imported lens
+  // profile from the server cache; the bridge is reached lazily through the
+  // injector so Hosted never bundles the authenticated client.
+  private readonly injector = inject(Injector);
+  private readonly backend = inject(LIBRARY_BACKEND);
 
   private worker: Worker | null = null;
   private nextId = 1;
@@ -91,16 +90,8 @@ export class RawPipelineService implements OnDestroy {
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
 
-  /**
-   * #1153: live BM3D deep-denoise progress, or `null` when the stage is not
-   * running. Fed by the worker's `deep-denoise-progress` broadcast, which
-   * carries raw-core's own per-reference-row ticks — the editor binds this
-   * to a DETERMINATE indicator, never a simulated one.
-   *
-   * Cleared when the request the develop belonged to settles (below): the
-   * stage itself has no "finished" tick, and the render still has GPU work
-   * to do after the last one.
-   */
+  /** Real BM3D progress from worker broadcasts (#1153), cleared when the
+   * develop request settles because the stage has no final completion tick. */
   readonly deepDenoiseProgress = signal<{ pass: 1 | 2; fraction: number } | null>(null);
 
   /**
@@ -110,6 +101,14 @@ export class RawPipelineService implements OnDestroy {
    * latest-wins scheduler waits on. Latest-wins and lossy by design.
    */
   readonly scopeSample = signal<DecodedImage | null>(null);
+
+  /**
+   * #3479: whether the imported lens profile the latest render named could be
+   * supplied from the browser / server caches. `available: false` is what the
+   * Lens Corrections panel shows as an explicit error; raw-core refuses the
+   * render itself when the profile was required.
+   */
+  readonly lensProfileStatus = signal<LensProfileStatus | null>(null);
 
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
@@ -132,6 +131,14 @@ export class RawPipelineService implements OnDestroy {
           threadCountSubject: this.threadCountSubject,
           deepDenoiseProgress: this.deepDenoiseProgress,
           scopeSample: this.scopeSample,
+          lensProfileStatus: this.lensProfileStatus,
+          restoreLensProfile: (request) =>
+            restoreRequestedLensProfile(
+              worker,
+              request,
+              this.injector,
+              this.backend === 'self-hosted',
+            ),
         });
       });
       this.worker.addEventListener('error', (e) => {
@@ -183,34 +190,17 @@ export class RawPipelineService implements OnDestroy {
   }
 
   /**
-   * @param maxLongEdge Cap the render's long edge in REAL (backing-store)
-   *   pixels (#1101, spec §5.1) — the editor passes viewport × devicePixelRatio
-   *   for the fast phase. Routes the WASM-CPU sized entry
-   *   (`render_bytes_sized`): the develop downsamples right after demosaic so
-   *   every later stage runs at the capped size. Never upscales; the reply
-   *   carries the NATIVE oriented dims in `nativeWidth`/`nativeHeight` so the
-   *   caller keeps its fit/100% zoom math. Absent ⇒ full-res `render_bytes`,
-   *   byte-for-byte today's behaviour. (PR #1096 gives the GPU one-shot route
-   *   the same cap — same field, same units.)
-   * @param qualityPreview Only honoured with `maxLongEdge`: `true` runs the
-   *   half-res Preview demosaic (the fast-phase cost profile), `false`/absent
-   *   runs Full (the refine phase).
+   * @param maxLongEdge Cap the long edge in REAL pixels (#1101): routes the
+   *   sized WASM-CPU entry, which downsamples right after demosaic. Never
+   *   upscales; the reply carries the NATIVE dims. Absent ⇒ full-res.
+   * @param qualityPreview Only with `maxLongEdge`: half-res Preview demosaic
+   *   (fast phase) vs Full (refine).
+   * @param filmLut A resolved `.mlut` grid (#3171), routed per
+   *   `selectLegacyDecodeRoute`. NOT transferred: the same buffer is reused
+   *   across every fast/refine tick until the look changes.
    *
-   * Non-RAW images decode browser-natively at their full size (sizing them
-   * is the canvas's draw transform's job — `maxLongEdge`/`qualityPreview`
-   * are ignored for this branch), but DO still run through the WASM
-   * per-tick adjustment chain via `develop_non_raw` (#3039) — see
-   * `raw-pipeline.non-raw-develop.ts`'s `developNonRaw`.
-   * @param filmLut A resolved film-look `.mlut` v1 grid (#3171) — the
-   *   WASM-CPU counterpart of the GPU live session's `set-film-lut` upload
-   *   (see `setFilmLut` below and `ImageCanvasFilmSync`). Absent/empty
-   *   renders with no look applied. Routes to `sizedFilm`/`film` per
-   *   `selectLegacyDecodeRoute` (`raw-pipeline.decode-route.ts`) —
-   *   `decodeOnce` does not need to know which. Deliberately NOT part of
-   *   `decodeOnce`'s transfer list: unlike `bytes` (a one-shot RAW file
-   *   copy), the SAME resolved LUT buffer is reused across every
-   *   fast/refine render tick until the look changes, and transferring it
-   *   would detach/neuter it after the first tick.
+   * Non-RAW images decode browser-natively at full size (sizing ignored) and
+   * still run the WASM adjustment chain via `develop_non_raw` (#3039).
    */
   decode(
     bytes: Uint8Array,
@@ -220,17 +210,9 @@ export class RawPipelineService implements OnDestroy {
     qualityPreview?: boolean,
     filmLut?: ArrayBuffer,
   ): Promise<DecodedImage> {
-    // Non-RAW images (jpg/png/heic/webp/…) are already developed sRGB pixels,
-    // so they never touch `rawler`/demosaic — but they DO still need the
-    // per-tick adjustment chain applied on every call (#3039): a JPEG opened
-    // in the single-file editor is editable exactly like a RAW, and Apple's
-    // `ImageEditPipeline.processSceneLinearNonRaw` already runs the SAME
-    // adjustment chain here (via the C-FFI `apply_scene_linear_chain`,
-    // AgX skipped). `developNonRaw` decodes browser-natively (mirroring
-    // Apple's ImageIO path) and then runs that chain through the WASM
-    // `develop_non_raw` entry — so this DOES join the serialization gate and
-    // DOES cross into the worker, unlike the pre-#3039 version of this
-    // comment, which decoded once and never touched WASM again.
+    // Non-RAW images never touch demosaic but DO run the per-tick adjustment
+    // chain (#3039, mirroring Apple's `processSceneLinearNonRaw`), so they
+    // join the serialization gate and cross into the worker like a RAW.
     this.closeNativeDetail();
     const run = isNonRawExtension(ext)
       ? () =>
@@ -298,23 +280,11 @@ export class RawPipelineService implements OnDestroy {
   }
 
   // ── Persistent GPU live session (epic #925, P4b-web / #1038) ───────────────
-  // The 16ms-ready web live-render path: open a `WebLiveSession` in the worker that
-  // keeps the GPU context + uploaded image resident and presents straight to a
-  // transferred `OffscreenCanvas` (NO CPU readback). The component routes here only
-  // when `gpuLiveRender` is true; otherwise it stays on the `decode()` + 2D-canvas
-  // path (flag-off == today, byte-for-byte). Session renders are serialized in the
-  // worker (the wasm `&mut self` re-entrancy guard), so concurrent `render()` calls
-  // can't trip "recursive use of an object detected". Outside the `decode()`
-  // serialization gate — the session lives entirely in the worker and owns its own
-  // render queue. Request bodies live in `raw-pipeline.gpu-live-session.ts`
-  // (file-budget split, mirrors `raw-pipeline.non-raw-develop.ts`); these three
-  // methods keep ownership of `ensureWorker()`'s try/catch and just delegate.
-  //
-  // Called via `this.host.pipeline.<method>(...)` in `ImageCanvasGpuPresent`
-  // (image-canvas.gpu-present.ts), where `pipeline` is a type-only-imported
-  // `RawPipelineService` field on the `GpuPresentHost` interface; fallow's
-  // dead-code pass doesn't trace calls through that indirection (same blind
-  // spot `setFilmLut` below documents) — hence the suppression on each.
+  // A worker-resident `WebLiveSession` presents straight to a transferred
+  // `OffscreenCanvas` (no readback). Outside the `decode()` gate — the worker
+  // serializes session ops itself. Bodies live in `raw-pipeline.gpu-live-session.ts`.
+  // Reached via `this.host.pipeline.<method>` on the `GpuPresentHost` interface,
+  // which fallow's dead-code pass can't trace — hence the suppression on each.
 
   /** Whether the GPU live-render path is enabled right now (#1038, #1062):
    * the build-time token AND the operator's DB-backed setting. Evaluated per
@@ -374,18 +344,11 @@ export class RawPipelineService implements OnDestroy {
   }
 
   /**
-   * Load (or clear) the open live session's film-look LUT (epic #2683, Task
-   * 12 — client half of Task 9's `set-film-lut` worker protocol). `bytes` is
-   * a `.mlut` v1 buffer, transferred like `openLiveSession`'s bytes; an
-   * empty buffer clears the loaded look (the Film panel's "None" row).
-   * `lookKey` is the `FilmLutService.filmLutKey`-derived content-identity
-   * key for the loaded look. Does NOT itself trigger a re-render — the
-   * caller's next `renderLiveSession` call picks up the new grid.
-   *
-   * Called via `this.host.pipeline.setFilmLut(...)` in ImageCanvasFilmSync
-   * (image-canvas.film.ts), where `pipeline` is a type-only-imported
-   * `RawPipelineService` field on the `FilmSyncHost` interface; fallow's
-   * dead-code pass doesn't trace calls through that indirection.
+   * Load (or clear) the open live session's film-look LUT (epic #2683):
+   * `bytes` is a `.mlut` v1 buffer (empty clears), `lookKey` its content
+   * identity. Takes effect on the caller's next `renderLiveSession`.
+   * Reached via `FilmSyncHost.pipeline` (image-canvas.film.ts), untraceable
+   * for fallow's dead-code pass.
    */
   // fallow-ignore-next-line unused-class-member
   setFilmLut(bytes: ArrayBuffer, lookKey: number): Promise<void> {
@@ -426,50 +389,30 @@ export class RawPipelineService implements OnDestroy {
     releaseMaskRasterRequest(this.worker, this.nextId++, rasterId);
   }
 
-  // ── Auto-adjust (#1379) ─────────────────────────────────────────────────────
-  // One-shot: decode the RAW via the WASM standalone entry and return the 8-field
-  // recommendation. Independent of any GPU session — runs on every browser.
-  // The worker serialises this behind the same `decodeChain` gate as `decode()` so
-  // a concurrent cold-open decode and an AUTO press don't both sit in the WASM heap.
-
   /**
-   * Analyse `bytes` (a RAW file) and return auto-adjustment recommendations.
-   *
-   * IMPORTANT: the returned `exposure` was measured against an AE-Off probe.
-   * The caller MUST set `autoExposure: 'Off'` alongside `exposure` — never
-   * apply the result on top of an `auto_exposure: On` model. See the WASM
-   * module doc in `raw-wasm/src/auto_adjustments.rs` for the full contract.
-   *
-   * @param bytes RAW file bytes (copied; the caller's view is not consumed).
-   * @param ext   Lowercase file extension, e.g. `"dng"`.
-   * @param xmp   Optional current XMP sidecar text. Pass `undefined` for a
-   *              fresh-open recommendation (most useful default).
+   * Import a user-owned `.lcp` document for the RAW in `bytes` (#3479): the
+   * worker registers it, resolves it against that RAW, persists the bytes
+   * in IndexedDB and reports the inventory + resolution. Behind the
+   * `decodeChain` gate — the resolve decodes the RAW in the worker.
    */
-  computeAutoAdjustments(bytes: Uint8Array, ext: string, xmp?: string): Promise<AutoAdjustPatch> {
-    const run = () => this.computeAutoAdjustmentsOnce(bytes, ext, xmp);
-    const next = this.decodeChain.then(run, run);
-    this.decodeChain = next.catch(() => undefined);
-    return next;
+  importLensProfile(xml: string, bytes: Uint8Array, ext: string): Promise<ImportedLensProfile> {
+    return this.sampleQueue((worker, id, register) =>
+      dispatchImportLensProfile(worker, id, register, xml, bytes, ext),
+    );
   }
 
-  private computeAutoAdjustmentsOnce(
-    bytes: Uint8Array,
-    ext: string,
-    xmp: string | undefined,
-  ): Promise<AutoAdjustPatch> {
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
-    return dispatchAutoAdjust(
-      worker,
-      this.nextId++,
-      this.pending.set.bind(this.pending),
-      bytes,
-      ext,
-      xmp,
+  // ── Auto-adjust (#1379) ─────────────────────────────────────────────────────
+  /**
+   * Analyse a RAW and return the 8-field auto-adjustment recommendation —
+   * a standalone WASM probe, independent of any GPU session, behind the
+   * same `decodeChain` gate as `decode()`. IMPORTANT: `exposure` was
+   * measured against an AE-Off probe, so the caller MUST set
+   * `autoExposure: 'Off'` alongside it (`raw-wasm/src/auto_adjustments.rs`).
+   * `xmp` undefined ⇒ a fresh-open recommendation.
+   */
+  computeAutoAdjustments(bytes: Uint8Array, ext: string, xmp?: string): Promise<AutoAdjustPatch> {
+    return this.sampleQueue((worker, id, register) =>
+      dispatchAutoAdjust(worker, id, register, bytes, ext, xmp),
     );
   }
 
@@ -499,8 +442,9 @@ export class RawPipelineService implements OnDestroy {
     return runMaskRangeSample(this.sampleQueue, bytes, ext, xmp, nx, ny);
   }
 
-  /** Chains one sampler request after the in-flight decode work: every
-   *  sampler develops its own probe, so two must never sit in the heap. */
+  /** Chains one request after the in-flight decode work: every sampler, the
+   *  AUTO probe and a lens-profile import develop their own decode, so two
+   *  must never sit in the WASM heap at once. */
   private readonly sampleQueue: SampleQueue = (run) => {
     const once = () => {
       try {
