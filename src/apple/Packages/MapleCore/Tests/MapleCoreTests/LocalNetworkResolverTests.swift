@@ -5,6 +5,7 @@
 // identity URL) and `LocalNetworkResolver`'s default-state / cache behavior.
 
 import XCTest
+
 @testable import MapleCore
 
 final class LocalNetworkResolverTests: XCTestCase {
@@ -14,7 +15,8 @@ final class LocalNetworkResolverTests: XCTestCase {
     let session = URLSession.stubbedSequence { req in
       (Data(#"{"available":false}"#.utf8), Self.okResponse(for: req))
     }
-    let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: identity, session: session)
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
     XCTAssertEqual(effective, identity)
   }
 
@@ -26,7 +28,8 @@ final class LocalNetworkResolverTests: XCTestCase {
       let body = #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http"}"#
       return (Data(body.utf8), Self.okResponse(for: req))
     }
-    let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: identity, session: session)
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
     XCTAssertEqual(effective, URL(string: "http://192.168.1.42:3000")!)
   }
 
@@ -40,9 +43,13 @@ final class LocalNetworkResolverTests: XCTestCase {
         return (Data(body.utf8), Self.okResponse(for: req))
       }
       // Reachability probe against the candidate fails (503).
-      return (Data(), HTTPURLResponse(url: req.url!, statusCode: 503, httpVersion: "HTTP/1.1", headerFields: [:])!)
+      return (
+        Data(),
+        HTTPURLResponse(url: req.url!, statusCode: 503, httpVersion: "HTTP/1.1", headerFields: [:])!
+      )
     }
-    let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: identity, session: session)
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
     XCTAssertEqual(effective, identity)
   }
 
@@ -63,15 +70,20 @@ final class LocalNetworkResolverTests: XCTestCase {
       let body = #"{"available":true,"ip":"192.168.1.99","port":8080,"scheme":"http"}"#
       return (Data(body.utf8), Self.okResponse(for: req))
     }
-    let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: identity, session: session)
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
     XCTAssertEqual(effective, identity)
   }
 
   func test_resolveEffectiveURL_returnsIdentity_whenReportFetchFails() async {
     let session = URLSession.stubbedSequence { req in
-      (Data(), HTTPURLResponse(url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1", headerFields: [:])!)
+      (
+        Data(),
+        HTTPURLResponse(url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1", headerFields: [:])!
+      )
     }
-    let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: identity, session: session)
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
     XCTAssertEqual(effective, identity)
   }
 
@@ -79,7 +91,8 @@ final class LocalNetworkResolverTests: XCTestCase {
     let session = URLSession.stubbedSequence { req in
       (Data("not json".utf8), Self.okResponse(for: req))
     }
-    let effective = await LocalNetworkResolving.resolveEffectiveURL(identity: identity, session: session)
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
     XCTAssertEqual(effective, identity)
   }
 
@@ -108,7 +121,8 @@ final class LocalNetworkResolverTests: XCTestCase {
     let resolver = LocalNetworkResolver()
     await resolver.resolve(identity: identity, session: session)
     XCTAssertEqual(resolver.effectiveURL(for: identity), identity)
-    XCTAssertEqual(resolver.status(for: identity), LocalNetworkStatus(localURL: nil, isConnectedLocally: false))
+    XCTAssertEqual(
+      resolver.status(for: identity), LocalNetworkStatus(localURL: nil, isConnectedLocally: false))
   }
 
   @MainActor
@@ -118,13 +132,60 @@ final class LocalNetworkResolverTests: XCTestCase {
       callCount += 1
       let body = #"{"available":true,"ip":"10.0.0.8","port":3000,"scheme":"http"}"#
       let status = callCount == 1 ? 200 : 503
-      return (Data(body.utf8), HTTPURLResponse(url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!)
+      return (
+        Data(body.utf8),
+        HTTPURLResponse(
+          url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
+      )
     }
     let resolver = LocalNetworkResolver()
     await resolver.resolve(identity: identity, session: session)
     XCTAssertEqual(
       resolver.status(for: identity),
       LocalNetworkStatus(localURL: URL(string: "http://10.0.0.8:3000"), isConnectedLocally: false))
+  }
+
+  func test_managedHostnameIsPreferredBeforeIP() async {
+    let body =
+      #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http","https":{"ip":"local.example.com","port":3443,"scheme":"https"}}"#
+    let session = URLSession.stubbedSequence { req in
+      (Data(body.utf8), Self.okResponse(for: req))
+    }
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
+    XCTAssertEqual(effective, URL(string: "https://local.example.com:3443"))
+  }
+
+  func test_unreachableHostnameFallsBackToIP() async {
+    let body =
+      #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http","https":{"ip":"local.example.com","port":3443,"scheme":"https"}}"#
+    let session = URLSession.stubbedSequence { req in
+      let status = req.url?.host == "local.example.com" ? 503 : 200
+      return (
+        Data(body.utf8),
+        HTTPURLResponse(
+          url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
+      )
+    }
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
+    XCTAssertEqual(effective, URL(string: "http://192.168.1.42:3000"))
+  }
+
+  func test_bothLocalEndpointsUnreachableReturnsPublicIdentity() async {
+    let body =
+      #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http","https":{"ip":"local.example.com","port":3443,"scheme":"https"}}"#
+    let session = URLSession.stubbedSequence { req in
+      let status = req.url?.host == "public.example.com" ? 200 : 503
+      return (
+        Data(body.utf8),
+        HTTPURLResponse(
+          url: req.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
+      )
+    }
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: identity, session: session)
+    XCTAssertEqual(effective, identity)
   }
 
   private static func okResponse(for req: URLRequest) -> HTTPURLResponse {

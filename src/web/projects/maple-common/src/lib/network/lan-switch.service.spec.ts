@@ -30,6 +30,64 @@ describe('LanSwitchService.checkAvailable', () => {
     vi.unstubAllGlobals();
   });
 
+  it('prefers a confirmed managed HTTPS hostname before the IP fallback', async () => {
+    const report: LocalAddressReport = {
+      available: true,
+      ip: '192.168.1.42',
+      port: 3000,
+      scheme: 'http',
+      https: { ip: 'local.example.com', port: 3443, scheme: 'https' },
+    };
+    const probe = okFetch(report);
+    vi.stubGlobal('fetch', probe);
+    const pending = service.checkAvailable('https:');
+    ctrl.expectOne('/api/network/local-address').flush(report);
+    expect(await pending).toEqual({ origin: 'https://local.example.com:3443', automatic: true });
+    expect(probe).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the IP offer when the managed hostname is unreachable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('DNS failure')));
+    const pending = service.checkAvailable('https:');
+    ctrl.expectOne('/api/network/local-address').flush({
+      available: true,
+      ip: '192.168.1.42',
+      port: 3000,
+      scheme: 'http',
+      https: { ip: 'local.example.com', port: 3443, scheme: 'https' },
+    });
+    expect(await pending).toEqual({ origin: 'http://192.168.1.42:3000' });
+  });
+
+  it('does not navigate away when already on the preferred HTTPS hostname', async () => {
+    const probe = okFetch({ available: false });
+    vi.stubGlobal('fetch', probe);
+    const pending = service.checkAvailable('https:', {
+      hostname: 'local.example.com',
+      port: '3443',
+    });
+    ctrl.expectOne('/api/network/local-address').flush({
+      available: true,
+      ip: '192.168.1.42',
+      port: 3000,
+      https: { ip: 'local.example.com', port: 3443, scheme: 'https' },
+    });
+    expect(await pending).toBeNull();
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('rejects a candidate that changes HTTPS to HTTP in its confirmation', async () => {
+    vi.stubGlobal(
+      'fetch',
+      okFetch({ available: true, ip: 'local.example.com', port: 3443, scheme: 'http' }),
+    );
+    const pending = service.checkAvailable('https:');
+    ctrl
+      .expectOne('/api/network/local-address')
+      .flush({ available: true, https: { ip: 'local.example.com', port: 3443, scheme: 'https' } });
+    expect(await pending).toBeNull();
+  });
+
   it('returns null when the server reports no LAN address available', async () => {
     const p = service.checkAvailable('https:');
     ctrl.expectOne('/api/network/local-address').flush({ available: false });

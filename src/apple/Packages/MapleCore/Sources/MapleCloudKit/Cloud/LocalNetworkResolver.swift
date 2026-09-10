@@ -28,6 +28,33 @@ public struct LocalAddressReport: Decodable, Sendable {
   public let ip: String?
   public let port: Int?
   public let scheme: String?
+  public let https: LocalHttpsEndpoint?
+
+  fileprivate var candidates: [LocalHttpsEndpoint] {
+    guard available else { return [] }
+    let legacy = ip.flatMap { host in
+      port.map { LocalHttpsEndpoint(ip: host, port: $0, scheme: scheme ?? "http") }
+    }
+    return [https.flatMap { $0.scheme == "https" ? $0 : nil }, legacy].compactMap { $0 }
+  }
+}
+
+public struct LocalHttpsEndpoint: Decodable, Sendable, Equatable {
+  public let ip: String
+  public let port: Int
+  public let scheme: String
+
+  fileprivate var url: URL? {
+    guard ["https", "http"].contains(scheme), (1...65535).contains(port),
+      !ip.isEmpty, !ip.contains(where: { $0.isWhitespace }),
+      !ip.contains(where: { "/@?#".contains($0) })
+    else { return nil }
+    var components = URLComponents()
+    components.scheme = scheme
+    components.host = ip
+    components.port = port
+    return components.url
+  }
 }
 
 /// The latest LAN discovery result for a registered server.
@@ -55,7 +82,8 @@ public enum LocalNetworkResolving {
     probeTimeout: TimeInterval = 1.5,
     session: URLSession = .shared
   ) async -> URL {
-    await resolveStatus(identity: identity, probeTimeout: probeTimeout, session: session).effectiveURL
+    await resolveStatus(identity: identity, probeTimeout: probeTimeout, session: session)
+      .effectiveURL
   }
 
   static func resolveStatus(
@@ -63,33 +91,26 @@ public enum LocalNetworkResolving {
     probeTimeout: TimeInterval = 1.5,
     session: URLSession = .shared
   ) async -> (effectiveURL: URL, status: LocalNetworkStatus) {
-    guard let report = await fetchReport(url: identity.appending(path: "/api/network/local-address"), session: session),
-          report.available,
-          let ip = report.ip,
-          let port = report.port,
-          let candidate = URL(string: "\(report.scheme ?? "http")://\(ip):\(port)")
-    else {
-      return (identity, LocalNetworkStatus(localURL: nil, isConnectedLocally: false))
+    guard
+      let report = await fetchReport(
+        url: identity.appending(path: "/api/network/local-address"), session: session)
+    else { return (identity, LocalNetworkStatus(localURL: nil, isConnectedLocally: false)) }
+    let candidates = report.candidates
+    for endpoint in candidates {
+      guard let candidate = endpoint.url else { continue }
+      // Hostname TLS is validated normally by URLSession; a hostname's
+      // certificate is never reused or trusted for the IP fallback.
+      guard
+        let confirmed = await fetchReport(
+          url: candidate.appending(path: "/api/network/local-address"), session: session,
+          timeout: probeTimeout
+        ), confirmed.candidates.contains(endpoint)
+      else { continue }
+      return (candidate, LocalNetworkStatus(localURL: candidate, isConnectedLocally: true))
     }
-    // Reachability probe: re-hit the SAME report endpoint, but at the
-    // candidate origin, and require it to answer with a matching
-    // `available`/ip/port — not just any 200. Per-feature clients attach a
-    // Bearer token to every subsequent data request, so a probe that only
-    // checked "is something listening on ip:port" would risk sending
-    // credentials to an unrelated host if the reported IP were stale or
-    // later reassigned to a different device on the LAN.
-    guard let confirmed = await fetchReport(
-      url: candidate.appending(path: "/api/network/local-address"),
-      session: session,
-      timeout: probeTimeout
-    ),
-      confirmed.available,
-      confirmed.ip == ip,
-      confirmed.port == port
-    else {
-      return (identity, LocalNetworkStatus(localURL: candidate, isConnectedLocally: false))
-    }
-    return (candidate, LocalNetworkStatus(localURL: candidate, isConnectedLocally: true))
+    return (
+      identity, LocalNetworkStatus(localURL: candidates.first?.url, isConnectedLocally: false)
+    )
   }
 
   private static func fetchReport(
@@ -98,7 +119,7 @@ public enum LocalNetworkResolving {
     var req = URLRequest(url: url)
     req.timeoutInterval = timeout
     guard let (data, resp) = try? await session.data(for: req),
-          (resp as? HTTPURLResponse)?.statusCode == 200
+      (resp as? HTTPURLResponse)?.statusCode == 200
     else { return nil }
     return try? JSONDecoder().decode(LocalAddressReport.self, from: data)
   }

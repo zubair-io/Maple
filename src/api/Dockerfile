@@ -59,7 +59,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # Uses bun (not npm) — the workspace is bun-locked (bun.lock) and carries no
 # npm lockfile. bun runs @angular/cli without issue.
 # ---------------------------------------------------------------------------
-FROM oven/bun:1.3-slim AS ui-builder
+FROM oven/bun:1.4.2-slim AS ui-builder
 
 WORKDIR /build
 
@@ -146,7 +146,7 @@ RUN git clone --depth 1 --branch "${WHISPER_CPP_TAG}" https://github.com/ggergan
 # ---------------------------------------------------------------------------
 # Stage 3: runtime image — Bun server + UI bundle + native FFI.
 # ---------------------------------------------------------------------------
-FROM oven/bun:1.3-slim AS runtime
+FROM oven/bun:1.4.2-slim AS runtime
 
 WORKDIR /app
 
@@ -206,7 +206,7 @@ ENV MAPLE_UI_DIST=/app/ui
 # so even the degraded path doesn't rotate the secret on every recreate.
 ENV MAPLE_JWT_SECRET_FILE=/app/config/jwt.secret
 
-EXPOSE 3000
+EXPOSE 3000 3443/tcp 3443/udp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD curl -f http://localhost:3000/api/health || exit 1

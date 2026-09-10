@@ -87,6 +87,7 @@
         "src/auth/jwt-bootstrap.ts",
         "src/runtime/tls-config.ts",
         "src/runtime/tls-config.test.ts",
+        "src/network/managed-https-listener.test.ts",
         "src/backup/config.ts",
         "src/backup/fs-util.ts",
         "src/enrichment/face-models-bootstrap.ts",

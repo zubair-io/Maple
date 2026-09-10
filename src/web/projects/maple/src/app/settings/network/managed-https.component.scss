@@ -1,0 +1,29 @@
+:host {
+  display: block;
+}
+
+.https-fields {
+  display: grid;
+  gap: 14px 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+// Keep label layout scoped to this component; the shared settings grid's
+// descendant .field rule otherwise also changes MuiInput's internal flex row.
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.flabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--s-text-muted);
+}
+
+@media (max-width: 640px) {
+  .https-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -207,3 +207,90 @@ bun run lint            # oxlint (correctness + fs-import guardrail)
 ```
 
 CI (`.github/workflows/api.yml`) runs the suite against real MongoDB 7 and Meilisearch services. To run the Mongo-backed tests locally, start a mongod and export `MAPLE_MONGO_URI` (for example `mongodb://localhost:27017`) before `bun test`. See [`docs/testing.md`](../../docs/testing.md).
+
+## Managed local HTTPS and IP fallback
+
+Settings → Network → **Local HTTPS hostname** provisions a separate Bun HTTPS
+listener. The existing IP listener (including manual `MAPLE_TLS_CERT`/`MAPLE_TLS_KEY`)
+and Cloudflare Tunnel origin remain independent. Keep the tunnel pointed at its
+existing origin, normally `http://maple:3000`.
+
+```mermaid
+flowchart LR
+  C[Client connection] --> H{Local HTTPS reachable?}
+  H -->|Yes| B[Bun managed HTTPS / HTTP3]
+  H -->|No| I{Existing IP reachable?}
+  I -->|Yes| P[Existing IP listener]
+  I -->|No| F[Cloudflare Tunnel]
+  F --> P
+  S[Network settings in MongoDB] --> M[Certificate manager]
+  M --> D[Cloudflare TXT DNS validation]
+  D --> L[Let's Encrypt]
+  L --> M
+  M --> B
+```
+
+1. Create a **DNS-only** Cloudflare A/AAAA record for a hostname you own pointing
+   to the server's private address. Reserve that address on your LAN. The hostname
+   must resolve on each client; a DNS resolver with rebinding protection may need
+   a hostname-specific exception.
+2. In Network settings, enter that hostname, HTTPS port (default **3443**), a
+   certificate contact email, Cloudflare zone ID, and a zone-scoped API token with
+   **Zone Read** and **DNS Edit** permissions. Accept the Let’s Encrypt subscriber
+   agreement and enable managed HTTPS. Blank token input preserves the saved
+   token; the removal checkbox clears it after HTTPS is disabled.
+3. Allow the selected TCP port on your LAN. For HTTP/3, also allow the same UDP
+   port. The supplied Compose file publishes 3443 for both protocols; if changing
+   the port in settings, change the corresponding container mappings too.
+   Do **not** forward these ports from the internet. The record must be DNS-only,
+   since this route connects directly to the private server.
+4. Keep the existing LAN address/port override (or auto-detection) for direct-IP
+   fallback. The existing "Advertise a LAN address" master switch controls both
+   candidates. The HTTPS enable switch controls certificate management and its
+   listener independently.
+
+Maple uses Let's Encrypt **DNS-01**, creating `_acme-challenge.<hostname>` TXT
+records through the Cloudflare API and checking public DNS propagation. It does
+not modify the hostname's A/AAAA records, open WAN ports, or change tunnel config.
+Certificates and the ACME account key persist in MongoDB's internal
+`managed_certificates` collection. Settings and the write-only token live in
+`app_settings`; credentials follow the existing server-side Cloudflare settings
+storage policy, so protect DB access and backups. Neither certificate keys nor
+API tokens are returned in settings/discovery responses.
+
+The server checks settings every 30 seconds. It renews certificates when one
+third of their actual lifetime remains (at most 30 days before expiry), retries
+failed orders after an hour, and retains a still-valid certificate during renewal
+failure. A DB lease prevents concurrent issuers, and pending challenge IDs support
+cleanup after restart. Certificate replacement briefly reconnects HTTPS clients;
+the independent IP/tunnel listener keeps serving. Expired certificates are never
+advertised. The settings page reports status, expiry, errors and retry time.
+
+Apple's existing discovery flow now probes **managed hostname → legacy IP →
+registered public URL**. Web automatically hands an authenticated session to a
+confirmed managed HTTPS hostname, preserving the current route. A plain-HTTP IP
+fallback remains an explicit "Switch" offer: browsers block probing HTTP from
+HTTPS, so Maple cannot safely choose it automatically. Certificate trust checks
+are never disabled for an IP. These choices run during the existing connection
+setup; they do not retry arbitrary in-flight uploads or edits against another
+origin. Fresh discovery still starts at the registered public server.
+
+Passkeys remain bound to the public sign-in origin. The existing one-time session
+handoff signs the local web origin in; a new local hostname does not automatically
+make existing passkeys valid for it. Certificate management does not alter passkey
+RP IDs or allowed origins.
+
+The API image uses **Bun 1.4.2**. HTTP/3 is experimental and can be disabled in
+Network settings; TCP HTTPS remains available. The private listener advertises
+HTTP/3 via `Alt-Svc`; UDP support on the LAN and client determines negotiation.
+
+Owner-only API: `GET` and `PUT /api/network/https/`. PUT accepts `enabled`,
+`hostname`, `port`, `email`, `zone_id`, `http3`, `terms_agreed`, and optional
+`api_token` (omitted/blank keeps it, `null` clears it). GET/PUT return redacted
+`config` plus listener `status`. Public `/api/network/local-address` retains the
+legacy `ip`, `port`, `scheme` fields and adds an optional `https` endpoint with the
+same three fields only while the managed listener has a valid certificate.
+
+References: [Bun HTTP/3](https://bun.sh/docs/runtime/http/server#http3-quic),
+[Let's Encrypt DNS-01](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge),
+[Cloudflare DNS API](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/create/).
