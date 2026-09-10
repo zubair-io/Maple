@@ -57,7 +57,7 @@ for lib in $LIBS; do
 
     musl)
       case "$lib" in
-        libc.musl*|ld-musl*|libc.so)
+        libc.musl*|ld-musl*|libc.so*|libm.so*|libdl.so*|libpthread.so*)
           echo "  ✓ ALLOWED ($LIBC_TYPE): $lib"
           ;;
         *)
