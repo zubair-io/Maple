@@ -1,0 +1,45 @@
+# Test classes `swift-regressions` (.github/workflows/apple.yml) executes,
+# one per line. Every class here must pass with no skips on macos-latest
+# against the staged host archive and the committed synthetic DNG — no
+# gitignored RAW fixtures, no Metal device, no keychain or FileProvider.
+# Everything else is in excluded.txt with a reason;
+# tools/check-swift-regressions-coverage.py keeps the two lists complete.
+#
+# Scheduling / cache / geometry / XMP / Metal-safe GPU state (#3363):
+RenderSchedulingBackpressureTests
+RenderRequestIdentityTests
+RenderActivityTests
+NativeDetailCancellationTests
+DecodedCacheAutosaveTests
+RenderedPreviewCacheWriteTests
+RawRenderSourceTests
+EditSessionNativeSizeSeedTests
+EditSessionPreviewCeilingTests
+CanvasMathTests
+GpuPrescaledExtentTests
+GpuReadbackFreshnessTests
+GpuExitPreviewCacheTests
+GpuPresentationOutcomeTests
+GpuSessionReplacementTests
+LocalAdjustmentXMPTests
+#
+# Editor state (#3460): pure `EditorState` / `EditSession` logic on
+# `EditorTestCase`, plus the sub-param memory tests that inject their own
+# store. `EditorStateTests` sat red on main for weeks before this — its
+# tool-count assertions were never run here.
+BlackWhiteMixInteractionTests
+CropEditingStateTests
+EditSessionTransactionTests
+EditorAutoSourceTests
+EditorCommandRouterTests
+EditorCommandWhiteBalanceTests
+EditorHSLTests
+EditorStateAutoResetTests
+EditorStateBlackWhiteTests
+EditorStatePresetsTests
+EditorStateTests
+EditorSubParamTests
+FilmStrengthCommitTests
+RetouchGestureContractTests
+RetouchSessionTests
+WhiteBalancePresetTests
