@@ -34,6 +34,11 @@ public sealed class NativeExportRecipeExecutor : IExportRecipeExecutor
 
     public void Render(ExportRecipe recipe, ExportQueueItem item)
     {
+        // The queued snapshot is immutable: the profile it names is restored
+        // from the store exactly as captured, even after a cold restart and
+        // even if the editor or the source sidecar has since changed (#3480).
+        // A profile this device no longer holds fails this item, verbatim.
+        LensProfileStore.RestoreForSidecar(item.Input.SourcePath, item.Input.Xmp);
         if (RawFfi.maple_export_recipe_to_file(item.Input.SourcePath, item.Input.Xmp,
             JsonSerializer.Serialize(recipe), _filmDirectory, item.TempPath) != 0)
             throw new IOException(RawFfi.LastError() ?? "The image encoder failed.");
