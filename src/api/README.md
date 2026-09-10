@@ -291,6 +291,14 @@ Owner-only API: `GET` and `PUT /api/network/https/`. PUT accepts `enabled`,
 legacy `ip`, `port`, `scheme` fields and adds an optional `https` endpoint with the
 same three fields only while the managed listener has a valid certificate.
 
+`package.json` pins every `@peculiar/asn1-*` package to one version via `overrides`.
+`@simplewebauthn/server` (WebAuthn signatures) and `acme-client` → `@peculiar/x509`
+(CSRs) share the ASN.1 schema registry, which is a per-module-instance singleton: a
+split tree (a hoisted 2.9.x with nested 2.6/2.8 copies, or an older package resolving
+`@peculiar/asn1-schema` 2.9.x through its `exports` map) registers classes in one
+instance and serialises through another, failing with `Cannot get schema for …`.
+Re-resolving the lockfile without the pin re-breaks either login or issuance.
+
 References: [Bun HTTP/3](https://bun.sh/docs/runtime/http/server#http3-quic),
 [Let's Encrypt DNS-01](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge),
 [Cloudflare DNS API](https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/create/).
