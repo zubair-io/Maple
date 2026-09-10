@@ -185,6 +185,7 @@ The schema's single source of truth is `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/
 | `crs:GrainSize`                           | `grainSize`                          | 0 – 100                           | 25                    |
 | `crs:GrainFrequency`                      | `grainRoughness`                     | 0 – 100                           | 50                    |
 | `papp:FilmLook`                           | `filmLook`                           | catalog id (free-form)            | `""`                  |
+| `papp:LensProfile`                        | `lensProfile`                        | LCP reference (free-form, #2435)  | `""`                  |
 | `papp:FilmStrength`                       | `filmStrength`                       | 0 – 100                           | 100                   |
 | `papp:Profile`                            | `profile`                            | `Auto` \| `Neutral`               | `Auto`                |
 | `papp:Look`                               | `look`                               | `Default` \| `Neutral`            | `Default` (legacy)    |
