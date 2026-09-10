@@ -30,11 +30,15 @@ on:
       - 'src/apple/**'
       - 'src/raw-pipeline/**'
       - '.github/workflows/apple.yml'
+      - '.github/swift-regressions/**'
+      - 'tools/check-swift-regressions-coverage.py'
   pull_request:
     paths:
       - 'src/apple/**'
       - 'src/raw-pipeline/**'
       - '.github/workflows/apple.yml'
+      - '.github/swift-regressions/**'
+      - 'tools/check-swift-regressions-coverage.py'
 
 # Cancel in-progress runs on non-main refs (PRs, feature branches). Pushes to
 # main always run to completion so the protected-branch signal stays accurate.
@@ -116,6 +120,14 @@ jobs:
       - name: swift build
         working-directory: src/apple/Packages/MapleCore
         run: swift build
+
+  swift-regressions-coverage:
+    name: swift-regressions-coverage (every test class is run or excluded on purpose)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/check-swift-regressions-coverage.py
 
   swift-regressions:
     name: swift-regressions (MapleCore execution gate)
@@ -210,14 +222,20 @@ jobs:
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
             ~/Library/Caches/org.swift.swiftpm
           key: apple-test-swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', 'src/apple/Packages/MapleBackup/Package.resolved', '.github/workflows/apple.yml') }}
-      - name: Execute scheduling, cache, geometry, XMP and Metal regressions
+      - name: Execute the regression allowlist (.github/swift-regressions/run.txt)
         run: |
           set -euo pipefail
-          classes=(RenderSchedulingBackpressureTests RenderRequestIdentityTests RenderActivityTests
-            NativeDetailCancellationTests DecodedCacheAutosaveTests RenderedPreviewCacheWriteTests
-            RawRenderSourceTests EditSessionNativeSizeSeedTests EditSessionPreviewCeilingTests
-            CanvasMathTests GpuPrescaledExtentTests GpuReadbackFreshnessTests GpuExitPreviewCacheTests
-            GpuPresentationOutcomeTests GpuSessionReplacementTests LocalAdjustmentXMPTests)
+          # The class list is a committed file so that its complement is
+          # explicit too: every other MapleCore test class is in
+          # .github/swift-regressions/excluded.txt with a reason, and the
+          # swift-regressions-coverage job fails when a class is in neither
+          # (#3460 — EditorStateTests sat red on main for weeks because
+          # nothing recorded that it was not run here).
+          classes=()
+          while IFS= read -r line; do
+            line="${line%%#*}"; line="${line//[[:space:]]/}"
+            [ -n "$line" ] && classes+=("$line")
+          done < .github/swift-regressions/run.txt
           FILTER="MapleCoreTests\.($(IFS='|'; echo "${classes[*]}"))/"
           test_status=0
           swift test --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore" \
