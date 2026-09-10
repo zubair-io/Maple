@@ -124,7 +124,15 @@ export class LanSwitchService {
     try {
       const url = new URL(`${scheme}://${host}:${report.port}`);
       if (!LanSwitchService.isHostOnly(url, host)) return null;
-      return { origin: `${scheme}://${host}:${report.port}`, scheme, ip: host, port: report.port };
+      // `url.hostname` is what `location.hostname` will report after the hop
+      // (lowercased, brackets kept); a mixed-case server value would otherwise
+      // never match "already here" and re-hop on every load.
+      return {
+        origin: `${scheme}://${host}:${report.port}`,
+        scheme,
+        ip: url.hostname,
+        port: report.port,
+      };
     } catch {
       return null;
     }
