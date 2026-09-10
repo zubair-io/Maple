@@ -42,7 +42,8 @@ FAILED=0
 # Extract clean library names
 LIBS=$(echo "$NEEDED_ENTRIES" | sed -E 's/.*\[(.*)\].*/\1/')
 
-for lib in $LIBS; do
+while IFS= read -r lib; do
+  [ -z "$lib" ] && continue
   case "$LIBC_TYPE" in
     glibc)
       case "$lib" in
@@ -73,7 +74,7 @@ for lib in $LIBS; do
       exit 1
       ;;
   esac
-done
+done <<< "$LIBS"
 
 if [ "$FAILED" -ne 0 ]; then
   echo "" >&2

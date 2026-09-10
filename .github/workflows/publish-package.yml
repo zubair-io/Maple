@@ -193,13 +193,13 @@ jobs:
           echo "=========================================================="
 
           PLATFORM_PKGS=(
-            "src/maple/npm/darwin-arm64"
-            "src/maple/npm/darwin-x64"
-            "src/maple/npm/linux-x64-gnu"
-            "src/maple/npm/linux-x64-musl"
-            "src/maple/npm/linux-arm64-gnu"
-            "src/maple/npm/linux-arm64-musl"
-            "src/maple/npm/win32-x64-msvc"
+            "./src/maple/npm/darwin-arm64"
+            "./src/maple/npm/darwin-x64"
+            "./src/maple/npm/linux-x64-gnu"
+            "./src/maple/npm/linux-x64-musl"
+            "./src/maple/npm/linux-arm64-gnu"
+            "./src/maple/npm/linux-arm64-musl"
+            "./src/maple/npm/win32-x64-msvc"
           )
 
           for pkg in "${PLATFORM_PKGS[@]}"; do
@@ -213,9 +213,9 @@ jobs:
 
           echo "Publishing root package: src/maple"
           if [ "$DRY_RUN" = "true" ]; then
-            npm publish src/maple --dry-run --access public
+            (cd src/maple && npm publish --dry-run --access public)
           else
-            npm publish src/maple --access public --provenance
+            (cd src/maple && npm publish --access public --provenance)
           fi
 
           echo "Publish workflow completed successfully."
