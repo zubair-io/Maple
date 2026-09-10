@@ -227,21 +227,31 @@ jobs:
           # blip, registry 5xx, OIDC hiccup) can be re-run and will pick up
           # exactly the packages that never landed — npm rejects publishing
           # over an existing version with E403.
+          #
+          # Dist-tag: the release pipeline only ever mints plain numbered tags
+          # (v0.1.2), so those land on `latest` and are what a bare
+          # `npm install @justmaple/maple` resolves. A prerelease version
+          # (v0.1.2-test.1, always a manual tag push) goes to `next` instead,
+          # so a hand-pushed test build can never become the default.
           publish_pkg() {
             local dir="$1"
-            local name version
+            local name version dist_tag
             name="$(node -p "require('./$dir/package.json').name")"
             version="$(node -p "require('./$dir/package.json').version")"
-            echo "Publishing $name@$version from $dir"
+            case "$version" in
+              *-*) dist_tag="next" ;;
+              *)   dist_tag="latest" ;;
+            esac
+            echo "Publishing $name@$version from $dir (dist-tag: $dist_tag)"
             if [ "$DRY_RUN" = "true" ]; then
-              npm publish "./$dir" --dry-run --access public
+              npm publish "./$dir" --dry-run --access public --tag "$dist_tag"
               return
             fi
             if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "  already published — skipping"
               return
             fi
-            npm publish "./$dir" --access public --provenance
+            npm publish "./$dir" --access public --provenance --tag "$dist_tag"
           }
 
           PLATFORM_PKGS=(
