@@ -170,13 +170,20 @@ namespace Maple.WinUI.Services
                 RestoreReference(rawPath, reference);
         }
 
+        /// <summary>raw-core's `resolve_for_raw` wording for a reference this
+        /// process has not registered — the one failure the store can repair.
+        /// Every other resolver refusal (camera/lens mismatch, unsupported
+        /// model) is reported verbatim, acknowledged or not.</summary>
+        private const string NotRegistered = "not in the local cache";
+
         private static void RestoreReference(string rawPath, string reference)
         {
             var digest = Digest(reference);
             // Warm process cache, or a DNG whose embedded corrections take
             // priority: nothing to read from disk.
             try { Resolve(rawPath, reference); return; }
-            catch (LensProfileException) { /* fall through to the stored bytes */ }
+            catch (LensProfileException error) when (error.Message.Contains(NotRegistered, StringComparison.Ordinal))
+            { /* fall through to the stored bytes */ }
             var path = StoredPath(reference);
             if (!File.Exists(path))
                 throw new LensProfileException(
