@@ -3,10 +3,22 @@
  */
 
 import * as fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { maple } from './builder';
 import { exportImage, exportRecipe, renderPreview, renderThumbnail } from './export';
 import type { ExportColorSpace, ExportFormat } from './types';
+
+/**
+ * Version of the package this CLI ships in, read at runtime so it is always
+ * the value the release pipeline stamped into package.json (from the git tag)
+ * rather than a literal that drifts. Resolves to src/maple/package.json both
+ * from src/ (dev) and from the bundled dist/index.js.
+ */
+function packageVersion(): string {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+  return String(pkg.version);
+}
 
 function printHelp() {
   console.log(`
@@ -78,7 +90,7 @@ export async function runCli(argv: string[]): Promise<number> {
   }
 
   if (args.includes('-v') || args.includes('--version') || args[0] === 'version') {
-    console.log('maple 0.1.0 (Maple raw-core engine)');
+    console.log(`maple ${packageVersion()} (Maple raw-core engine)`);
     return 0;
   }
 
