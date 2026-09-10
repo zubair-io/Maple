@@ -56,10 +56,13 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install zig and cargo-zigbuild
-        uses: taiki-e/install-action@v2
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
         with:
-          tool: cargo-zigbuild,zig
+          version: 0.13.0
+
+      - name: Install cargo-zigbuild
+        run: pipx install cargo-zigbuild
 
       - name: Build libraw_ffi (${{ matrix.pkg_name }})
         run: |
