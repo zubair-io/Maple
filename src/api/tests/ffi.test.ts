@@ -43,6 +43,32 @@ describe('tryGetRawFfi', () => {
     // Not a hard failure: the test just documents expected state.
     expect(typeof exists).toBe('boolean');
   });
+
+  it('delegates renderFilenameTemplate and validateFilename to maple package', async () => {
+    const { tryGetRawFfi } = await import('../src/ffi/raw_ffi.ts');
+    const ffi = tryGetRawFfi();
+    if (!ffi) return;
+
+    const rendered = ffi.renderFilenameTemplate({
+      template: '{original}_{n}.{ext}',
+      originalStem: 'DSC_0001',
+      ext: 'jpg',
+      capturedAt: null,
+      sequenceStart: 1,
+      sequenceIndex: 0,
+      sequencePadWidth: 4,
+    });
+    expect(rendered.ok).toBe(true);
+    if (rendered.ok) {
+      expect(rendered.name).toBe('DSC_0001_0001.jpg');
+    }
+
+    const valid = ffi.validateFilename('clean_name.jpg');
+    expect(valid.ok).toBe(true);
+
+    const invalid = ffi.validateFilename('bad/name.jpg');
+    expect(invalid.ok).toBe(false);
+  });
 });
 
 describe('histogramBinsFromBuffer', () => {

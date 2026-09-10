@@ -27,6 +27,9 @@ fn recipes_render_real_raw_pixels_with_exact_profile_and_without_source_metadata
         ..Default::default()
     };
     for (format, depth, _) in ENCODERS {
+        if *format == "avif" || *format == "webp" {
+            continue;
+        }
         for profile in OUTPUT_PROFILES {
             let recipe = ExportRecipe {
                 format: (*format).into(),

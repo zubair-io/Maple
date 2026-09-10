@@ -17,7 +17,8 @@ license = "Proprietary"
 
 [workspace.dependencies]
 rawler = "0.7"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp"] }
+fast_image_resize = { version = "5.5", default-features = false, features = ["image", "rayon"] }
 png = "0.17"
 quick-xml = "0.37"
 thiserror = "2"
