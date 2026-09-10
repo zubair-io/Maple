@@ -14,7 +14,8 @@ import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service
 import type { ImageCanvasService } from './image-canvas.service';
 import type { AssetId } from '../../models/asset';
 import type { CameraSupport } from '../../state/camera-support';
-import type { AdjustmentModel } from '../../models/adjustment-model';
+import type { LensProfileResolution } from '../../lens/lens-profile.types';
+import { isDefaultAdjustment, type AdjustmentModel } from '../../models/adjustment-model';
 import type { RenderSizing } from './image-canvas.two-phase';
 import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import type { ImageCanvasFilmSync } from './image-canvas.film';
@@ -64,21 +65,25 @@ export interface Render2dHost {
  * lens-correction fields (older worker builds, minimal test fakes): no known
  * corrections ⇒ the panel reads as disabled, CA reads as inert. Shared by the
  * 2D cold open below and the GPU live-session open (`image-canvas.gpu-present.ts`).
- * A decode without camera metadata explicitly clears any prior assessment.
+ * A decode without camera metadata explicitly clears any prior assessment,
+ * and one without an imported-profile verdict (#3479) clears that too.
  */
 export function decodeSupportFrom(reply: {
   hasLensCorrections?: boolean;
   lensCorrectionCaInert?: boolean;
   cameraSupport?: CameraSupport;
+  lensProfile?: LensProfileResolution;
 }): {
   hasLensCorrections: boolean;
   lensCorrectionCaInert: boolean;
   cameraSupport: CameraSupport | null;
+  lensProfile: LensProfileResolution | null;
 } {
   return {
     hasLensCorrections: reply.hasLensCorrections ?? false,
     lensCorrectionCaInert: reply.lensCorrectionCaInert ?? true,
     cameraSupport: reply.cameraSupport ?? null,
+    lensProfile: reply.lensProfile ?? null,
   };
 }
 
@@ -103,7 +108,13 @@ export async function coldOpen2d(
   try {
     // Viewport-sized cold open (#1101): decode at the fast-phase target so first
     // pixels land at viewport resolution; the refine pass sharpens past fit.
-    const decoded = await host.pipeline.decode(bytes, ext, undefined, sizing.maxLongEdge, true);
+    // Open with the asset's actual sidecar (#3479, mirroring the GPU path's
+    // #1915) so the first pixels carry existing edits — an imported lens
+    // profile included. A fresh import (default model) stays `undefined` to
+    // keep the #1892 As-Shot seeding contract.
+    const openModel = host.state.adjustmentFor(assetId)();
+    const openXmp = isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
+    const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
     // Update dimensions on the asset — the NATIVE dims (the sized reply carries
@@ -127,9 +138,10 @@ export async function coldOpen2d(
       support.hasLensCorrections,
       support.lensCorrectionCaInert,
       support.cameraSupport,
+      support.lensProfile,
     );
 
-    // Open the gate + record what this no-XMP render reflects (the seed's effect
+    // Open the gate + record what this initial render reflects (the seed's effect
     // re-fire dedups against it). Guard on still-current asset.
     if (assetId === host.currentAssetId) {
       host.markColdOpenDone();
@@ -151,6 +163,7 @@ export async function coldOpen2d(
     host.nativeDetail?.recordBase({
       assetId,
       generation,
+      renderXmp: openXmp,
       displayXmp: host.lastRenderedXmp!,
       sizing,
     });
@@ -207,6 +220,10 @@ export async function runRender2d(
     // Stale guard: a newer edit (or asset switch) bumped the generation.
     if (generation !== host.renderGeneration) return;
 
+    // #3479: every render reply is authoritative about the imported profile
+    // it consumed — the panel enables per calibrated family from this.
+    if (host.currentAssetId)
+      host.state.seedLensProfile(host.currentAssetId, decoded.lensProfile ?? null);
     host.canvasSvc.currentPixels.set(decoded);
     const bitmap = await imageDataToBitmap(decoded);
     if (generation !== host.renderGeneration) {

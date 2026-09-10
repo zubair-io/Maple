@@ -18,6 +18,7 @@ import { NativeDetailSupersededError } from './raw-pipeline.native-detail.types'
 import type { BehaviorSubject } from 'rxjs';
 import type { WritableSignal } from '@angular/core';
 import type { DecodedImage, ScopeSnapshot, WorkerResponse } from './raw-pipeline.types';
+import type { LensProfileFetch, LensProfileStatus } from '../lens/lens-profile.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
 import { WbSampleRejected } from './raw-pipeline.sample-wb.types';
 import { RangeSampleRejected } from './raw-pipeline.sample-range.types';
@@ -61,6 +62,7 @@ const settleLegacy: Settler<'legacy'> = (msg, handler) => {
       hasLensCorrections: msg.hasLensCorrections, // #3182
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
+      lensProfile: msg.lensProfile,
     });
     return true;
   }
@@ -103,6 +105,7 @@ const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
       hasLensCorrections: msg.hasLensCorrections, // #3182
       lensCorrectionCaInert: msg.lensCorrectionCaInert,
       cameraSupport: msg.cameraSupport,
+      lensProfile: msg.lensProfile,
       colorSpace: msg.colorSpace,
       scopePixels: scopeToDecoded(msg.scope),
     });
@@ -119,7 +122,7 @@ const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
   if (msg.type === 'render-session-success') {
     // No scopePixels here (#3397): the sample arrives out-of-band as a
     // 'scope-sample' broadcast so this reply doesn't wait on a GPU sync.
-    handler.resolve({ colorSpace: msg.colorSpace });
+    handler.resolve({ colorSpace: msg.colorSpace, lensProfile: msg.lensProfile });
     return true;
   }
   if (msg.type === 'session-error') {
@@ -193,6 +196,18 @@ const settleRegisterMaskRaster: Settler<'register-mask-raster'> = (msg, handler)
   return false;
 };
 
+const settleLensProfile: Settler<'lens-profile'> = (msg, handler) => {
+  if (msg.type === 'lens-profile-success') {
+    handler.resolve(msg.profile);
+    return true;
+  }
+  if (msg.type === 'lens-profile-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
 const settleExport: Settler<'export'> = (msg, handler) => {
   if (msg.type === 'export-success') {
     handler.resolve({
@@ -240,6 +255,7 @@ const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
   'sample-wb': settleSampleWb,
   'sample-range': settleSampleRange,
   'register-mask-raster': settleRegisterMaskRaster,
+  'lens-profile': settleLensProfile,
   export: settleExport,
 };
 
@@ -276,6 +292,12 @@ export interface WorkerDispatchContext {
   deepDenoiseProgress: WritableSignal<{ pass: 1 | 2; fraction: number } | null>;
   /** Latest out-of-band scope sample (#3397), or null before the first one. */
   scopeSample: WritableSignal<DecodedImage | null>;
+  /** Latest word on whether a render's imported lens profile could be
+   *  supplied (#3479), or null before the first render that named one. */
+  lensProfileStatus: WritableSignal<LensProfileStatus | null>;
+  /** The worker's IndexedDB copy of a named profile is missing — the host
+   *  restores what it can and then answers `lens-profile-restored`. */
+  restoreLensProfile: (request: LensProfileFetch) => void;
 }
 
 /**
@@ -306,6 +328,15 @@ export function handleWorkerMessage(msg: WorkerResponse, ctx: WorkerDispatchCont
   }
   if (msg.type === 'deep-denoise-progress') {
     ctx.deepDenoiseProgress.set({ pass: msg.pass, fraction: msg.fraction });
+    return;
+  }
+  if (msg.type === 'lens-profile-status') {
+    ctx.lensProfileStatus.set(msg);
+    return;
+  }
+  if (msg.type === 'lens-profile-fetch') {
+    // A worker-initiated request, not a reply: it has no pending handler.
+    ctx.restoreLensProfile(msg);
     return;
   }
   const handler = ctx.pending.get(msg.id);

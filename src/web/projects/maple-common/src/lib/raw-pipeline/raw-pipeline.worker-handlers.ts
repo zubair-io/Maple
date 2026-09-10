@@ -98,6 +98,9 @@ export interface WebLiveSessionInstance {
   /** See `DecodeSuccess.lensCorrectionCaInert` (#3182). */
   readonly lensCorrectionCaInert: boolean;
   readonly cameraSupportJson: string | undefined;
+  /** Resolver facts for the imported LCP profile the session's model names
+   *  (#3479); refreshed by every `render` that re-developed the prefix. */
+  readonly lensProfileJson: string | undefined;
   readonly colorSpace: string;
   free(): void;
 }

@@ -1,4 +1,5 @@
 import { cameraSupportFromJson } from '../state/camera-support';
+import { lensProfileFromJson } from '../lens/lens-profile.metadata';
 /// <reference lib="webworker" />
 
 import {
@@ -27,6 +28,11 @@ import type {
   WorkerRequest,
 } from './raw-pipeline.types';
 import { ensureReady } from './raw-pipeline.worker-handlers';
+import {
+  importLensProfile,
+  lensProfileRestored,
+  restoreLensProfile,
+} from './raw-pipeline.lens-profile';
 import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
@@ -87,6 +93,18 @@ void ensureReady();
 // fallow-ignore-next-line complexity
 addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
+  // Imported lens profiles (#3479): the import handshake, the main thread's
+  // fetch acknowledgement, and — for every request that carries a sidecar —
+  // registering the profile it names BEFORE the render that needs it.
+  if (req.type === 'lens-profile-restored') {
+    lensProfileRestored(req.id);
+    return;
+  }
+  if (req.type === 'import-lens-profile') {
+    await importLensProfile(req);
+    return;
+  }
+  if ('xmp' in req) await restoreLensProfile(req.xmp ?? null);
   switch (req.type) {
     case 'native-detail':
       await handleNativeDetail(req);
@@ -289,6 +307,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const hasLensCorrections = result.has_lens_corrections; // #3182
   const lensCorrectionCaInert = result.lens_correction_ca_inert;
   const cameraSupport = cameraSupportFromJson(result.camera_support_json);
+  const lensProfile = lensProfileFromJson(result.lens_profile_json); // #3479
   const rgb = result.take_rgb();
   result.free();
   const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
@@ -305,6 +324,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
     hasLensCorrections,
     lensCorrectionCaInert,
     cameraSupport,
+    lensProfile,
   };
   (self as unknown as Worker).postMessage(response, [buffer]);
 }

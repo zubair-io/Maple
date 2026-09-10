@@ -1,4 +1,5 @@
 import { cameraSupportFromJson } from '../state/camera-support';
+import { lensProfileFromJson } from '../lens/lens-profile.metadata';
 /// <reference lib="webworker" />
 // raw-pipeline.session-handler.ts
 // Extracted from raw-pipeline.worker.ts (pure code move — no behaviour change,
@@ -147,6 +148,7 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
     hasLensCorrections: session.hasLensCorrections,
     lensCorrectionCaInert: session.lensCorrectionCaInert,
     cameraSupport: cameraSupportFromJson(session.cameraSupportJson),
+    lensProfile: lensProfileFromJson(session.lensProfileJson), // #3479
     // The TRUTH the browser configured after the one-time display-p3 retag
     // `open` did (read back via `getConfiguration()`), never an assumption.
     colorSpace: session.colorSpace,
@@ -233,11 +235,18 @@ async function renderLiveSessionFrame(
  * guards its own clearMarks/clearMeasures cleanup (#1123, jules review) so a
  * `measure` throw cannot skip a clear and leak marks.
  */
-function postRenderSessionSuccess(req: RenderSessionRequest, colorSpace: string): void {
+function postRenderSessionSuccess(
+  req: RenderSessionRequest,
+  session: WebLiveSessionInstance,
+  colorSpace: string,
+): void {
   const response: WorkerResponse = {
     id: req.id,
     type: 'render-session-success',
     colorSpace,
+    // #3479: a scalar-params tick never re-develops, so only an XMP render
+    // can have changed which imported profile the prefix consumed.
+    lensProfile: req.params ? undefined : lensProfileFromJson(session.lensProfileJson),
   };
   (self as unknown as Worker).postMessage(response);
   lastRenderId = req.id;
@@ -257,7 +266,7 @@ async function renderSessionOp(req: RenderSessionRequest): Promise<void> {
     markStart(sessionRenderStartMark);
     const colorSpace = await renderLiveSessionFrame(req, liveSession);
     markEnd(sessionRenderStartMark, `maple:session-render:${req.id}:end`, 'maple:session-render');
-    postRenderSessionSuccess(req, colorSpace);
+    postRenderSessionSuccess(req, liveSession, colorSpace);
   } catch (e) {
     const err = e instanceof Error ? e : null;
     if (err?.stack) {

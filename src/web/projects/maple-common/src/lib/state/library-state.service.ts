@@ -1,4 +1,5 @@
 import type { CameraSupport } from './camera-support';
+import type { LensProfileResolution } from '../lens/lens-profile.types';
 // LibraryStateService — thin facade over the four split modules.
 //
 // **Why this file still exists** (ticket #122): the public API is consumed by
@@ -265,8 +266,23 @@ export class LibraryStateService {
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
+    lensProfile?: LensProfileResolution | null,
   ): void {
-    this.store.lensCorrections.seed(id, hasLensCorrections, lensCorrectionCaInert, cameraSupport);
+    this.store.lensCorrections.seed(
+      id,
+      hasLensCorrections,
+      lensCorrectionCaInert,
+      cameraSupport,
+      lensProfile,
+    );
+  }
+
+  /** Record the latest render's verdict on `id`'s imported lens profile
+   *  (#3479); `null` clears it. Same interface-only reachability as
+   *  `seedLensCorrections` above. */
+  // fallow-ignore-next-line unused-class-member
+  seedLensProfile(id: AssetId, lensProfile: LensProfileResolution | null): void {
+    this.store.lensCorrections.seedProfile(id, lensProfile);
   }
 
   /** Per-asset lens-correction capability (#3182); the fail-closed default

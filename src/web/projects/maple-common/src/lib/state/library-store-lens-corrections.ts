@@ -19,11 +19,16 @@
 import { signal, WritableSignal } from '@angular/core';
 import { AssetId } from '../models/asset';
 import type { CameraSupport } from './camera-support';
+import type { LensProfileResolution } from '../lens/lens-profile.types';
 
 export interface LensCorrectionCapability {
   hasLensCorrections: boolean;
   lensCorrectionCaInert: boolean;
   cameraSupport?: CameraSupport;
+  /** The resolver's verdict for the imported LCP profile the last render
+   *  consumed (#3479); absent when the sidecar named none or the worker
+   *  held no copy of it. */
+  lensProfile?: LensProfileResolution;
 }
 
 /**
@@ -52,6 +57,7 @@ export class LensCorrectionCapabilities {
     hasLensCorrections: boolean,
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
+    lensProfile?: LensProfileResolution | null,
   ): void {
     this.byAsset.update((map) => {
       const next = new Map(map);
@@ -60,7 +66,23 @@ export class LensCorrectionCapabilities {
         hasLensCorrections,
         lensCorrectionCaInert,
         ...(cameraSupport !== undefined ? { cameraSupport: cameraSupport ?? undefined } : {}),
+        ...(lensProfile !== undefined ? { lensProfile: lensProfile ?? undefined } : {}),
       });
+      return next;
+    });
+  }
+
+  /**
+   * Record what the latest re-render said about `id`'s imported profile
+   * (#3479) — every render reply is authoritative, so `null` clears a
+   * verdict the sidecar no longer names. Leaves the decode-time opcode
+   * facts alone; an asset with no decode yet keeps the fail-closed default.
+   */
+  seedProfile(id: AssetId, lensProfile: LensProfileResolution | null): void {
+    this.byAsset.update((map) => {
+      const current = map.get(id) ?? DEFAULT_LENS_CORRECTION_CAPABILITY;
+      const next = new Map(map);
+      next.set(id, { ...current, lensProfile: lensProfile ?? undefined });
       return next;
     });
   }

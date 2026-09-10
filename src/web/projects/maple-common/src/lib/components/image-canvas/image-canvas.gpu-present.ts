@@ -361,6 +361,7 @@ export class ImageCanvasGpuPresent {
         support.hasLensCorrections,
         support.lensCorrectionCaInert,
         support.cameraSupport,
+        support.lensProfile,
       );
       this.host.markColdOpenDone();
       const liveXmp = this.host.serializeForRender(this.host.state.adjustmentFor(assetId)());
@@ -405,11 +406,15 @@ export class ImageCanvasGpuPresent {
     // even while the Neutral request is still queued in the worker (#2441).
     if (!fastParams) this.scalarPrefixReady = false;
     try {
-      await this.host.pipeline.renderLiveSession(xmp, fastParams);
+      const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
+      // #3479: an XMP render re-develops the prefix and reports which imported
+      // profile it consumed; a scalar-params tick carries no verdict.
+      if (!fastParams && this.host.currentAssetId)
+        this.host.state.seedLensProfile(this.host.currentAssetId, rendered.lensProfile ?? null);
       this.scalarPrefixReady = params !== undefined;
       // Scopes are no longer fed from this reply (#3397): the readback now
       // arrives as a `scope-sample` broadcast, mirrored into `currentPixels`
