@@ -28,6 +28,11 @@ namespace Maple.WinUI.Services
         /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
         public required float[] WbFrame { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
+        /// <summary>What the core resolved for the sidecar's lens selection
+        /// on this RAW (#3480): source and per-family coverage, which the
+        /// Lens panel uses to enable exactly the strengths the calibration
+        /// covers. Null only when the native core could not be asked.</summary>
+        public LensProfileResolution? LensProfile { get; init; }
 
         // --- Auto Profile tail (#550/#924): fitted per image from the embedded
         //     JPEG. Without it a Profile::Auto decode renders 2-3x darker and
@@ -79,6 +84,12 @@ namespace Maple.WinUI.Services
             IntPtr cancelFlag, DecodedImage? reuseAutoProfileFrom = null)
         {
             var stripped = StripChainStages(model);
+            // An imported LCP the sidecar names must be resolvable in this
+            // process before the develop reads it (#3480): warm cache, or
+            // re-registered from %LOCALAPPDATA%. A profile this device does
+            // not hold throws here, so the decode fails loudly instead of
+            // rendering without the correction the sidecar asked for.
+            LensProfileStore.RestoreForFile(rawPath, stripped);
             var strippedXmp = Xmp.XmpWriter.Serialize(
                 new Xmp.XmpSidecarDocument { Adjustments = stripped });
             var tempXmpPath = Path.Combine(
@@ -114,6 +125,9 @@ namespace Maple.WinUI.Services
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
                         CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer.camera_support_json),
+                        // Warm: the develop above left the RAW in the decode
+                        // cache, so this is a metadata lookup, not a decode.
+                        LensProfile = LensProfileStore.AssessForFile(rawPath, stripped.LensProfile),
                     };
                     if (stripped.Profile == ProfileMode.Auto)
                     {
