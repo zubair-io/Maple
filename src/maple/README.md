@@ -1,18 +1,24 @@
-# maple
+# @justmaple/maple
 
 The official image processing, development, and export package for Maple — powered by Maple's scene-referred Rust image processing core (`raw-core` and `raw-ffi`).
 
-Provides both a TypeScript/JavaScript programmatic API and an `npx` CLI runner for headless export, recipe processing, thumbnail extraction, and batch-renaming.
+Provides both a TypeScript/JavaScript programmatic API and a `maple` CLI for headless export, recipe processing, thumbnail extraction, and batch-renaming.
+
+Requires [Bun](https://bun.sh): the native core is loaded through `bun:ffi`, so the library and the CLI both run under Bun, not Node.
 
 ## Installation
 
 ```bash
-npm install maple
+bun add @justmaple/maple
 # or
-bun add maple
+npm install @justmaple/maple
 ```
 
+The matching prebuilt native library (`@justmaple/maple-<platform>`) is installed automatically as an optional dependency for macOS (arm64, x64), Linux (x64, arm64; glibc and musl) and Windows (x64).
+
 ## CLI Usage (`npx maple`)
+
+Once `@justmaple/maple` is a dependency of your project, `npx maple` (or `bun x maple`) runs the CLI. For a one-off run without installing, use `bunx @justmaple/maple <command>` or `npx -p @justmaple/maple maple <command>`.
 
 Run headless photo exports directly from your terminal:
 
@@ -44,7 +50,7 @@ npx maple thumb photo.dng -o preview.jpg -s 1280 -f jpeg
 ### Fluent Builder API
 
 ```typescript
-import { maple } from 'maple';
+import { maple } from '@justmaple/maple';
 
 // Simple export to JPEG
 await maple('input.dng').format('jpeg').quality(92).colorSpace('srgb').toFile('output.jpg');
@@ -66,7 +72,7 @@ import {
   renderPreview,
   renderFilenameTemplate,
   validateFilename,
-} from 'maple';
+} from '@justmaple/maple';
 
 // Export an image directly
 const result = await exportImage({
@@ -92,18 +98,18 @@ const filename = renderFilenameTemplate({
 
 ## Native Core & Linux Support
 
-`maple` connects to `libraw_ffi` via `bun:ffi` or Node-API.
+`@justmaple/maple` connects to `libraw_ffi` via `bun:ffi`.
 
 ### Linux Environments (Docker, Server, Cloud)
 
 - **Prebuilt Libc Support**: Supports both `glibc` (Ubuntu 20.04+, Debian 11+, RHEL 8+) and `musl` (Alpine Linux containers).
-- **Zero Dependencies**: Pure Rust; dynamically links only `libc.so.6` and `libm.so.6`. No C++ runtime (`libstdc++`) or libvips installation required.
+- **Zero Dependencies**: Pure Rust; dynamically links only the C library itself (`libc`, `libm` and, on glibc, `libpthread`/`libdl`). No C++ runtime (`libstdc++`) or libvips installation required. The publish pipeline audits this with `readelf` on every Linux build.
 - **SIMD Hardware Dispatch**: Runtime CPU feature detection enables AVX-512 and AVX2+FMA on x86_64, and NEON on aarch64 (AWS Graviton, Apple Silicon).
 - **Library Discovery Ladder**:
-  1. `process.env.MAPLE_NATIVE_LIB`
-  2. Local `./native/libraw_ffi.so`
-  3. Container path `/app/native/libraw_ffi.so`
-  4. Monorepo release `../../raw-pipeline/target/release/libraw_ffi.so`
+  1. `process.env.MAPLE_NATIVE_LIB` (explicit override; the Docker image sets this)
+  2. A binary built from the monorepo checkout (`raw-pipeline/target/**/release/`, `src/api/native/`) — only present when running inside the repo
+  3. The installed `@justmaple/maple-<platform>` package
+  4. Local `./native/libraw_ffi.so`, container path `/app/native/libraw_ffi.so`
   5. System library paths (`/usr/local/lib/`, `/usr/lib/`)
 
 To compile the native Linux shared library:
