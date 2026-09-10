@@ -49,3 +49,13 @@ it('waits for the exact public TXT value, rather than trusting the Cloudflare wr
   expect(String(remote.mock.calls[0][0])).toContain('name=_acme-challenge.local.example.com');
   expect(new Headers(remote.mock.calls[0][1]?.headers).has('authorization')).toBe(false);
 });
+
+it('retries transient resolver and JSON failures until the TXT propagates', async () => {
+  remote.mockRejectedValueOnce(new Error('resolver timeout'));
+  remote.mockResolvedValueOnce(new Response('invalid json'));
+  remote.mockResolvedValueOnce(
+    Response.json({ Answer: [{ type: 16, data: '"challenge-value"' }] }),
+  );
+  await new CloudflareDns(config).waitForPropagation('challenge-value');
+  expect(remote).toHaveBeenCalledTimes(3);
+}, 15_000);

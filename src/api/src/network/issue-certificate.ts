@@ -79,8 +79,13 @@ export async function issueCertificate(config: ManagedHttpsConfig): Promise<Stor
     return issued;
   } finally {
     for (const record of records.values()) {
-      await dns.remove(record.zone_id, record.id);
-      await forgetChallenge(record);
+      try {
+        await dns.remove(record.zone_id, record.id);
+        await forgetChallenge(record);
+      } catch {
+        // Keep failed records persisted for the coordinator to retry. Cleanup
+        // must not replace the order error or skip the remaining records.
+      }
     }
   }
 }
