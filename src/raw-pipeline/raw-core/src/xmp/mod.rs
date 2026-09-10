@@ -445,6 +445,12 @@ pub fn serialize(model: &AdjustmentModel) -> String {
             out.push_str(&format!(r#" {key}="{rounded}""#));
         }
     }
+    if !model.lens_profile.is_empty() {
+        out.push_str(&format!(
+            r#" papp:LensProfile="{}""#,
+            escape(model.lens_profile.as_str())
+        ));
+    }
     for (key, value) in [
         (
             "crs:LensProfileDistortionScale",

@@ -193,6 +193,7 @@ impl Default for AdjustmentModel {
             defringe_green_amount: 0.0,
             defringe_green_hue_lo: 40.0,
             defringe_green_hue_hi: 60.0,
+            lens_profile: String::new(),
         }
     }
 }

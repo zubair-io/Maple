@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     image::{CfaPattern, ColorSpace, ExifOrientation},
     pipeline::pano::opcodes::{ActiveAreaRect, OpcodeList3},
-    RawImage,
+    AdjustmentModel, RawImage,
 };
 
 fn xml() -> String {
@@ -119,4 +119,102 @@ fn an_embedded_opcode_list_takes_priority_over_any_external_profile() {
     assert!(resolve_for_raw(&raw, &format!("lcp1:{}", "0".repeat(64)))
         .unwrap()
         .is_none());
+}
+
+#[test]
+fn selected_reference_survives_real_sidecar_io() {
+    let reference = reference();
+    for value in [
+        reference.clone(),
+        reference.replacen("lcp1:", "lcp1-ack:", 1),
+    ] {
+        let model = AdjustmentModel {
+            lens_profile: value.clone(),
+            ..Default::default()
+        };
+        let path = tempfile::tempdir().unwrap();
+        let sidecar = path.path().join("synthetic.xmp");
+        std::fs::write(
+            &sidecar,
+            format!(
+                "<x><rdf:Description xmlns:rdf=\"x\" xmlns:papp=\"x\" {}/></x>",
+                crate::xmp::serialize(&model)
+            ),
+        )
+        .unwrap();
+        let reread = crate::xmp::parse(&std::fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(reread.lens_profile, value);
+    }
+}
+
+#[test]
+fn selected_profile_failure_does_not_silently_render_a_different_baseline() {
+    let mut raw = raw();
+    let mut image = crate::Image::new(8, 8, ColorSpace::CameraNativeLinearRgb);
+    let mut model = AdjustmentModel {
+        lens_profile: format!("lcp1:{}", "0".repeat(64)),
+        ..Default::default()
+    };
+    assert!(apply_for_raw(&raw, &model, &mut image, 1.0)
+        .unwrap_err()
+        .to_string()
+        .contains("local cache"));
+    model.lens_profile = reference();
+    raw.focal_length = Some(70.0);
+    assert!(apply_for_raw(&raw, &model, &mut image, 1.0)
+        .unwrap_err()
+        .to_string()
+        .contains("acknowledgement"));
+    model.lens_profile = model.lens_profile.replacen("lcp1:", "lcp1-ack:", 1);
+    apply_for_raw(&raw, &model, &mut image, 1.0).unwrap();
+    // Consent covers approximation, never a different lens.
+    raw.lens_metadata.lens_model = Some("Different lens".into());
+    assert!(apply_for_raw(&raw, &model, &mut image, 1.0).is_err());
+}
+
+#[test]
+fn master_off_needs_no_external_cache() {
+    let raw = raw();
+    let mut model = AdjustmentModel {
+        lens_profile: format!("lcp1:{}", "0".repeat(64)),
+        ..Default::default()
+    };
+    model.lens_profile_enable = crate::types::adjustment::LensProfileEnable::Off;
+    // With the master toggle off there is nothing to apply, so a reference
+    // that is not cached must not be looked up at all.
+    apply_for_raw(
+        &raw,
+        &model,
+        &mut crate::Image::new(8, 8, ColorSpace::CameraNativeLinearRgb),
+        1.0,
+    )
+    .unwrap();
+}
+
+#[test]
+fn actual_develop_entry_consumes_selected_profile_and_preserves_default_pixels() {
+    let raw = raw();
+    let mut model = AdjustmentModel::default();
+    let baseline = crate::pipeline::develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &model,
+        crate::pipeline::RenderQuality::Full,
+    )
+    .unwrap();
+    model.lens_profile = reference();
+    let corrected = crate::pipeline::develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &model,
+        crate::pipeline::RenderQuality::Full,
+    )
+    .unwrap();
+    assert_ne!(baseline.pixels, corrected.pixels);
+    model.lens_profile_enable = crate::types::adjustment::LensProfileEnable::Off;
+    let disabled = crate::pipeline::develop_scene_linear_from_raw_with_quality(
+        &raw,
+        &model,
+        crate::pipeline::RenderQuality::Full,
+    )
+    .unwrap();
+    assert_eq!(baseline.pixels, disabled.pixels);
 }

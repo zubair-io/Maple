@@ -523,6 +523,12 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
     lens_auto::DEFRINGE_GREEN_AMOUNT,
     lens_auto::DEFRINGE_GREEN_HUE_LO,
     lens_auto::DEFRINGE_GREEN_HUE_HI,
+    FieldSpec {
+        name: "lens_profile",
+        kind: FieldKind::String,
+        range: (0.0, 0.0), default_f32: 0.0, enum_name: "",
+        doc: "Versioned LCP content reference (#2435), empty for embedded-only corrections. lcp1:<BLAKE3> requires an in-range match; lcp1-ack:<BLAKE3> records explicit acceptance of reported approximations. XMP key papp:LensProfile. Part of the decoded-image cache key.",
+    },
 ];
 
 #[cfg(test)]

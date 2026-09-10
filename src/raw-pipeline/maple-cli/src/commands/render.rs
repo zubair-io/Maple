@@ -14,6 +14,7 @@ use raw_core::view::encode::TargetPrimaries;
 use raw_core::xmp;
 use std::path::{Path, PathBuf};
 
+use super::render_lens;
 use super::types::{DemosaicChoice, OutputFormat, PrimariesChoice, ProfileChoice};
 
 /// Default `--film-lut-dir` value: `resources/film-luts` resolved from the
@@ -84,6 +85,7 @@ pub(super) fn render_path(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
+    render_lens::report_lens_resolution(&raw, model)?;
     Ok(render_from_raw_with_quality_source_and_film(
         &raw,
         model,
@@ -107,6 +109,7 @@ fn render_path_with_quality(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
+    render_lens::report_lens_resolution(&raw, model)?;
     Ok(render_from_raw_with_quality_source_and_film(
         &raw,
         model,
@@ -136,6 +139,7 @@ fn render_path_with_primaries(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
+    render_lens::report_lens_resolution(&raw, model)?;
     let (w, h, pixels) = render_export_from_raw_with_film(
         &raw,
         model,
@@ -181,11 +185,15 @@ pub fn run(
     profile: ProfileChoice,
     film_lut_dir: Option<&Path>,
     target_primaries: PrimariesChoice,
+    lens_profile: Option<(&Path, bool)>,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let mut model = match params {
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
     };
+    if let Some((path, acknowledged)) = lens_profile {
+        render_lens::apply_lens_profile_selection(&mut model, path, acknowledged)?;
+    }
     // CLI override for Auto Profile (#537). `Xmp` honours the sidecar;
     // `Neutral` pins the view transform for the color-parity harness;
     // `Auto` is exposed for symmetry / spot-checks.

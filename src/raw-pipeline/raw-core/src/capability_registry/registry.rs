@@ -108,8 +108,11 @@ pub const CAPABILITY_REGISTRY: &[Capability] = &[
         groups: &[AdjustmentGroup::Detail],
         // Deprecated read-only alias for `capture_sharpening_sigma` (#456):
         // owned here so the field stays accounted for without joining a
-        // copy/paste group.
-        fields: &["capture_sharpening_radius"],
+        // copy/paste group. `lens_profile` (#2435) is owned the same way for
+        // a different reason: it is in `NON_COPYABLE_FIELDS` because a
+        // profile id names the lens THIS frame was shot with, so it never
+        // joins a paste group, but the capability must still account for it.
+        fields: &["capture_sharpening_radius", "lens_profile"],
         integration: DEVELOP_INTEGRATION,
         qualification: COLOR_QUALIFICATION,
     },
