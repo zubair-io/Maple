@@ -12,7 +12,12 @@ mod apply;
 pub use apply::apply;
 pub(crate) mod metadata;
 mod registry;
-pub use registry::{clear_cache, profile_id, register, resolve_for_raw};
+pub use registry::{apply_for_raw, clear_cache, profile_id, register, resolve_for_raw};
+
+pub fn corrections_enabled(model: &crate::AdjustmentModel) -> bool {
+    use crate::pipeline::pano::opcode_apply::LensCorrectionScales;
+    LensCorrectionScales::from_model(model) != LensCorrectionScales::NONE
+}
 
 /// Lens EXIF and calibration frame captured during the original RAW decode.
 #[derive(Clone, Debug, Default)]

@@ -47,6 +47,8 @@ enum Cmd {
         /// If omitted, renders with AdjustmentModel::default().
         #[arg(long)]
         params: Option<PathBuf>,
+        #[command(flatten)]
+        lens: commands::render_lens::LensProfileArgs,
         /// Output image path.
         #[arg(long)]
         out: PathBuf,
@@ -389,6 +391,7 @@ fn main() -> ExitCode {
         Cmd::Render {
             raw,
             params,
+            lens,
             out,
             format,
             quality,
@@ -406,6 +409,7 @@ fn main() -> ExitCode {
             profile,
             film_lut_dir.as_deref(),
             target_primaries,
+            lens.selection(),
         )),
         Cmd::Resize {
             input,
