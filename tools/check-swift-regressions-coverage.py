@@ -22,6 +22,11 @@ name must exist. A new test class therefore has to be placed consciously —
 run it, or say why not — and a deleted or renamed class has to be removed
 from the list it was on.
 
+Test methods are found by regex, not by `swift test --list-tests` (which
+needs a full build): a class's span runs to the next column-0 declaration,
+so nested helper types do not truncate it. A class that only inherits its
+tests from a base class is attributed to the base.
+
 Exit 0 when consistent; prints every violation and exits 1 otherwise.
 """
 
@@ -38,6 +43,13 @@ EXCLUDED_LIST = ROOT / ".github/swift-regressions/excluded.txt"
 REASON_TAGS = {"fixture", "gpu", "host", "slow", "untriaged"}
 
 CLASS_DECL = re.compile(r"^\s*(?:@\w+\s+)*(?:public\s+|internal\s+)?(?:final\s+)?class\s+(\w+)\s*:\s*(\w+)", re.M)
+# Only a declaration at column 0 ends the span a class's test methods are
+# searched in. A helper type nested inside a test class (or any indented
+# declaration) must not truncate that span, or tests declared after it in
+# the same class would go unseen and the class would be reported as
+# test-less. Swift test classes are top-level by convention, so a
+# column-0 `class` is the reliable boundary.
+TOP_LEVEL_DECL = re.compile(r"^(?:@\w+\s+)*(?:public\s+|internal\s+)?(?:final\s+)?(?:class|struct|enum|extension|protocol)\b", re.M)
 TEST_FUNC = re.compile(r"^\s*func\s+test\w*\s*\(", re.M)
 
 
@@ -47,11 +59,11 @@ def test_classes() -> set[str]:
     has_tests: set[str] = set()
     for path in sorted(TESTS.rglob("*.swift")):
         source = path.read_text(encoding="utf-8")
-        decls = list(CLASS_DECL.finditer(source))
-        for index, decl in enumerate(decls):
+        boundaries = [match.start() for match in TOP_LEVEL_DECL.finditer(source)]
+        for decl in CLASS_DECL.finditer(source):
             name, base = decl.group(1), decl.group(2)
             bases[name] = base
-            end = decls[index + 1].start() if index + 1 < len(decls) else len(source)
+            end = next((b for b in boundaries if b > decl.end()), len(source))
             if TEST_FUNC.search(source, decl.end(), end):
                 has_tests.add(name)
 
