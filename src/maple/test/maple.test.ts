@@ -287,6 +287,25 @@ describe('Maple Native Binding', () => {
       expect(typeof res).toBe('boolean');
     });
 
+    it('isMusl returns false when runtime glibc is present even if musl is installed', () => {
+      const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+      const originalReport = (process as unknown as { report?: unknown }).report;
+
+      try {
+        Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+        (process as unknown as { report?: unknown }).report = {
+          getReport: () => ({ header: { glibcVersionRuntime: '2.36' } }),
+        };
+
+        expect(isMusl()).toBe(false);
+      } finally {
+        if (originalPlatform) {
+          Object.defineProperty(process, 'platform', originalPlatform);
+        }
+        (process as unknown as { report?: unknown }).report = originalReport;
+      }
+    });
+
     it('evaluates resolvePlatformPackageLib safely', () => {
       const res = resolvePlatformPackageLib();
       expect(res === null || typeof res === 'string').toBe(true);

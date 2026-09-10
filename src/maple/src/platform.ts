@@ -12,26 +12,7 @@ import { fileURLToPath } from 'node:url';
 export function isMusl(): boolean {
   if (process.platform !== 'linux') return false;
 
-  // 1. Fast check for Alpine Linux release file
-  try {
-    if (fs.existsSync('/etc/alpine-release')) {
-      return true;
-    }
-  } catch {}
-
-  // 2. Probe dynamic linker in /lib or /lib64
-  try {
-    for (const dir of ['/lib', '/lib64', '/usr/lib']) {
-      if (fs.existsSync(dir)) {
-        const files = fs.readdirSync(dir);
-        if (files.some((f) => f.startsWith('ld-musl-'))) {
-          return true;
-        }
-      }
-    }
-  } catch {}
-
-  // 3. Check Node.js process report for glibc
+  // 1. Check Node.js process report for runtime glibc
   try {
     const report = (
       process as unknown as {
@@ -42,6 +23,26 @@ export function isMusl(): boolean {
     ).report?.getReport?.();
     if (report?.header?.glibcVersionRuntime) {
       return false;
+    }
+  } catch {}
+
+  // 2. Check loaded libraries of the running process via /proc/self/maps
+  try {
+    if (fs.existsSync('/proc/self/maps')) {
+      const maps = fs.readFileSync('/proc/self/maps', 'utf-8');
+      if (maps.includes('libc.so') || maps.includes('ld-linux')) {
+        return false;
+      }
+      if (maps.includes('ld-musl-') || maps.includes('libc.musl-')) {
+        return true;
+      }
+    }
+  } catch {}
+
+  // 3. Fast check for Alpine Linux release file (unconditionally musl-native)
+  try {
+    if (fs.existsSync('/etc/alpine-release')) {
+      return true;
     }
   } catch {}
 
@@ -56,9 +57,24 @@ export function isMusl(): boolean {
     ).Bun;
     if (bun) {
       const res = bun.spawnSync(['ldd', '--version']);
-      const text = (res.stdout?.toString() || '') + (res.stderr?.toString() || '');
-      if (text.toLowerCase().includes('musl')) {
+      const text = (res.stdout?.toString() || '') + (res.stderr?.toString() || '').toLowerCase();
+      if (text.includes('musl')) {
         return true;
+      }
+      if (text.includes('glibc') || text.includes('gnu libc')) {
+        return false;
+      }
+    }
+  } catch {}
+
+  // 5. As a fallback, probe dynamic linker on disk only if runtime libc is indeterminate
+  try {
+    for (const dir of ['/lib', '/lib64', '/usr/lib']) {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        if (files.some((f) => f.startsWith('ld-musl-'))) {
+          return true;
+        }
       }
     }
   } catch {}
