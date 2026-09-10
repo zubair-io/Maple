@@ -231,6 +231,12 @@
          library is needed at test time. -->
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.DecodeOwned.cs" LinkBase="Services" />
+    <!-- LensProfileStore.cs (#3480) — the %LOCALAPPDATA% LCP store
+         RenderEngine.Decode restores from and the export executor consults:
+         System.IO / System.Text.Json plus the RawFfi.LensProfile.cs externs
+         linked with Native\*.cs below. Its native calls only run when
+         MAPLE_RAW_FFI_DLL arms them (ExportLensProfileNativeTests). -->
+    <Compile Include="..\Maple.WinUI\Services\LensProfileStore.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\MaskLayerSelectionLogic.cs" LinkBase="Services" />
     <!-- RefineDecodeQuality.cs (#3417) — the refine-escalation rule
          RenderEngine.Decode calls — and its own dependency,

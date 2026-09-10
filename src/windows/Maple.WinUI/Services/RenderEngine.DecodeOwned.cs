@@ -85,7 +85,12 @@ namespace Maple.WinUI.Services
             before.Profile != after.Profile
             || before.AutoExposure != after.AutoExposure
             || before.LensProfileEnable != after.LensProfileEnable
+            // The imported profile and all three strengths are applied in the
+            // scene-linear decode stage (#3480), never by the per-tick chain.
+            || before.LensProfile != after.LensProfile
             || Math.Abs(before.LensCorrectionDistortion - after.LensCorrectionDistortion) > 1e-6
+            || Math.Abs(before.LensCorrectionCa - after.LensCorrectionCa) > 1e-6
+            || Math.Abs(before.LensCorrectionVignetting - after.LensCorrectionVignetting) > 1e-6
             || Math.Abs(before.CaptureSharpeningAmount - after.CaptureSharpeningAmount) > 1e-6
             // Sigma is the deconvolution PSF width — as decode-owned as Amount
             // (#3414). Without it a Sigma-only edit changed the sidecar and
