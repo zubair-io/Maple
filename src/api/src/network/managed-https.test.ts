@@ -10,7 +10,14 @@ import {
   publicHttpsConfig,
   validateHttpsConfig,
 } from './managed-https-config.ts';
-import { writeCertificateState, readCertificateState, renewalTime } from './certificate-store.ts';
+import {
+  claimCertificateLease,
+  releaseCertificateLease,
+  renewCertificateLease,
+  writeCertificateState,
+  readCertificateState,
+  renewalTime,
+} from './certificate-store.ts';
 import * as issuer from './issue-certificate.ts';
 import { CloudflareDns } from './cloudflare-dns.ts';
 import { managedHttpsRoutes } from '../routes/managed-https.ts';
@@ -181,21 +188,62 @@ describe('managed HTTPS settings and lifecycle', () => {
     }
   });
 
-  it('restores the previous listener when a new port cannot bind', async () => {
+  it('keeps the working listener untouched when a new port cannot bind', async () => {
     await saveHttpsConfig(config);
     await writeCertificateState({ certificate });
     const ports: number[] = [];
+    const stopped: number[] = [];
     manager.start((cfg) => {
       if (cfg.port === 4443) throw new Error('occupied port');
       ports.push(cfg.port);
-      return { stop() {} };
+      return {
+        stop() {
+          stopped.push(cfg.port);
+        },
+      };
     });
     await manager.refresh();
     await saveHttpsConfig({ ...config, port: 4443 });
     await manager.refresh();
+    await manager.refresh();
     expect(manager.endpoint()?.port).toBe(3443);
-    expect(ports).toEqual([3443, 3443]);
+    // Bound once, never stopped: retries must not cut clients on port 3443.
+    expect(ports).toEqual([3443]);
+    expect(stopped).toEqual([]);
     expect(manager.status().state).toBe('error');
+    expect(manager.status().error).toContain('port 4443');
+    expect(manager.status().error).toContain('occupied port');
+  });
+
+  it('reports a listener bind failure after issuance without an issuance retry window', async () => {
+    await saveHttpsConfig(config);
+    manager.start(() => {
+      throw new Error('occupied port');
+    });
+    await manager.refresh();
+    expect(issued).toHaveBeenCalledTimes(1);
+    expect((await readCertificateState())?.certificate).toEqual(certificate);
+    expect((await readCertificateState())?.retry_after).toBe(0);
+    expect(manager.status()).toMatchObject({
+      state: 'error',
+      retry_at: null,
+      expires_at: certificate.not_after,
+    });
+    expect(manager.status().error).toContain('port 3443');
+  });
+
+  it('grants the certificate lease to one claimant until it expires or is released', async () => {
+    expect(await claimCertificateLease('first')).toBe(true);
+    expect(await claimCertificateLease('second')).toBe(false);
+    expect(await renewCertificateLease('second')).toBe(false);
+    expect(await renewCertificateLease('first')).toBe(true);
+    await releaseCertificateLease('second');
+    expect(await claimCertificateLease('second')).toBe(false);
+    await releaseCertificateLease('first');
+    expect(await claimCertificateLease('second')).toBe(true);
+    await writeCertificateState({ lease_until: Date.now() - 1 });
+    expect(await claimCertificateLease('third')).toBe(true);
+    expect(await renewCertificateLease('second')).toBe(false);
   });
 
   it('renews short-lived certificates based on their actual lifetime', () => {
