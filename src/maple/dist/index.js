@@ -3,6 +3,7 @@ var __require = /* @__PURE__ */ createRequire(import.meta.url);
 // src/platform.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 function isMusl() {
   if (process.platform !== "linux")
     return false;
@@ -81,11 +82,14 @@ function resolvePlatformPackageLib() {
       return path.resolve(resolvedFile);
     }
   } catch {}
-  const currentDir = import.meta.dir || path.dirname(new URL(import.meta.url).pathname);
+  const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
+  const shortName = pkgName.replace("@justmaple/maple-", "");
   const candidateDirs = [
     path.join(currentDir, "..", "..", pkgName, libName),
     path.join(currentDir, "..", "node_modules", pkgName, libName),
-    path.join(process.cwd(), "node_modules", pkgName, libName)
+    path.join(process.cwd(), "node_modules", pkgName, libName),
+    path.join(currentDir, "..", "npm", shortName, libName),
+    path.join(process.cwd(), "npm", shortName, libName)
   ];
   for (const candidate of candidateDirs) {
     if (fs.existsSync(candidate)) {
@@ -97,6 +101,7 @@ function resolvePlatformPackageLib() {
 // src/native.ts
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/ffi-symbols.ts
 function getFfiSymbols(FFIType) {
@@ -259,7 +264,7 @@ function findNativeLib() {
     return platformLib;
   }
   const libName = nativeLibFilename();
-  const currentDir = import.meta.dir || path2.dirname(new URL(import.meta.url).pathname);
+  const currentDir = import.meta.dir || path2.dirname(fileURLToPath2(import.meta.url));
   const candidates = [
     path2.join(currentDir, "..", "native", libName),
     path2.join(process.cwd(), "native", libName),
