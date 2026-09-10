@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
-// src/maple/src/platform.ts
+// src/platform.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
 function isMusl() {
@@ -94,11 +94,11 @@ function resolvePlatformPackageLib() {
   }
   return null;
 }
-// src/maple/src/native.ts
+// src/native.ts
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 
-// src/maple/src/ffi-symbols.ts
+// src/ffi-symbols.ts
 function getFfiSymbols(FFIType) {
   return {
     maple_export_developed_to_file: {
@@ -240,7 +240,7 @@ function getFfiSymbols(FFIType) {
   };
 }
 
-// src/maple/src/native.ts
+// src/native.ts
 var RENDER_OUT_CAP = 1024;
 var _cachedBinding = undefined;
 function nativeLibFilename() {
@@ -472,7 +472,7 @@ function isNativeAvailable() {
     return false;
   }
 }
-// src/maple/src/export.ts
+// src/export.ts
 import * as fs3 from "node:fs/promises";
 import * as path3 from "node:path";
 function inferFormatFromExt(filePath) {
@@ -535,7 +535,7 @@ async function renderPreview(options) {
   }
   return true;
 }
-// src/maple/src/builder.ts
+// src/builder.ts
 import * as crypto from "node:crypto";
 import * as fs4 from "node:fs/promises";
 import * as os from "node:os";
@@ -846,7 +846,7 @@ class MapleImageBuilder {
 function maple(input) {
   return new MapleImageBuilder(input);
 }
-// src/maple/src/cli.ts
+// src/cli.ts
 import * as fs5 from "node:fs/promises";
 import * as path5 from "node:path";
 function printHelp() {
