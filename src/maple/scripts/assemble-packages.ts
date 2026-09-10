@@ -9,8 +9,9 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const mapleDir = path.resolve(scriptDir, '..');
 const npmDir = path.resolve(mapleDir, 'npm');
 
