@@ -10,6 +10,7 @@ import {
   writeCertificateState,
   renewalTime,
   type StoredCertificate,
+  type DnsChallengeRecord,
 } from './certificate-store.ts';
 import { CloudflareDns } from './cloudflare-dns.ts';
 import { forgetChallenge } from './certificate-store.ts';
@@ -56,7 +57,11 @@ export class ManagedHttps {
   endpoint(): HttpsEndpoint | null {
     const active = this.active;
     return active && active.cert.not_after > Date.now()
-      ? { ip: active.config.hostname, port: active.config.port, scheme: 'https' }
+      ? {
+          ip: active.config.hostname,
+          port: active.config.port,
+          scheme: 'https',
+        }
       : null;
   }
   start(factory: HttpsListenerFactory): void {
@@ -116,16 +121,56 @@ export class ManagedHttps {
       this.listener = this.factory(config, cert);
       this.active = { config, cert };
     } catch (error) {
-      if (
-        previous &&
-        previous.cert.not_after > Date.now() &&
-        previous.config.hostname === config.hostname
-      ) {
-        this.listener = this.factory(previous.config, previous.cert);
-        this.active = previous;
-      }
+      this.restoreListener(previous, config.hostname);
       throw error;
     }
+  }
+  private restoreListener(previous: typeof this.active, hostname: string): void {
+    if (!previous || !this.factory) return;
+    if (previous.cert.not_after <= Date.now() || previous.config.hostname !== hostname) return;
+    this.listener = this.factory(previous.config, previous.cert);
+    this.active = previous;
+  }
+  private async cleanupChallenges(
+    config: ManagedHttpsConfig,
+    challenges: DnsChallengeRecord[],
+  ): Promise<void> {
+    if (!challenges.length) return;
+    const owner = randomUUID();
+    if (!(await claimCertificateLease(owner))) return;
+    try {
+      const dns = new CloudflareDns(config);
+      for (const record of challenges) {
+        await dns.remove(record.zone_id, record.id);
+        await forgetChallenge(record);
+      }
+    } catch {
+      this.currentStatus = {
+        ...this.currentStatus,
+        state: 'error',
+        error:
+          'HTTPS is available, but DNS challenge cleanup failed. Check the Cloudflare token; Maple will retry.',
+      };
+    } finally {
+      await releaseCertificateLease(owner);
+    }
+  }
+  private closeStaleListener(config: ManagedHttpsConfig): void {
+    if (
+      this.active &&
+      (this.active.config.hostname !== config.hostname || this.active.cert.not_after <= Date.now())
+    )
+      this.closeListener();
+  }
+  private updateListener(config: ManagedHttpsConfig, cert: StoredCertificate | undefined): void {
+    if (cert) this.activate(config, cert);
+    this.currentStatus = {
+      state: this.endpoint() ? 'ready' : 'pending',
+      expires_at: cert?.not_after ?? null,
+      retry_at: null,
+      error: null,
+      http3: !!this.active?.config.http3,
+    };
   }
   private async reconcile(): Promise<void> {
     const config = await loadHttpsConfig();
@@ -141,47 +186,28 @@ export class ManagedHttps {
       };
       return;
     }
-    if (
-      this.active &&
-      (this.active.config.hostname !== config.hostname || this.active.cert.not_after <= Date.now())
-    )
-      this.closeListener();
+    this.closeStaleListener(config);
     const stored = await readCertificateState();
-    const cert = stored?.certificate?.hostname === config.hostname ? stored.certificate : undefined;
-    if (cert) this.activate(config, cert);
-    this.currentStatus = {
-      state: this.endpoint() ? 'ready' : 'pending',
-      expires_at: cert?.not_after ?? null,
-      retry_at: null,
-      error: null,
-      http3: !!this.active?.config.http3,
-    };
+    const cert = this.certificateForHostname(stored?.certificate, config.hostname);
+    this.updateListener(config, cert);
     if (cert && Date.now() < renewalTime(cert)) {
-      // A successful order may leave a TXT behind if Cloudflare was briefly
-      // unavailable during cleanup. Retry without issuing another certificate.
-      if (stored?.challenges?.length) {
-        const cleanupOwner = randomUUID();
-        if (await claimCertificateLease(cleanupOwner)) {
-          try {
-            const dns = new CloudflareDns(config);
-            for (const record of stored.challenges) {
-              await dns.remove(record.zone_id, record.id);
-              await forgetChallenge(record);
-            }
-          } catch {
-            this.currentStatus = {
-              ...this.currentStatus,
-              state: 'error',
-              error:
-                'HTTPS is available, but DNS challenge cleanup failed. Check the Cloudflare token; Maple will retry.',
-            };
-          } finally {
-            await releaseCertificateLease(cleanupOwner);
-          }
-        }
-      }
+      // Retry orphaned TXT cleanup without issuing another certificate.
+      await this.cleanupChallenges(config, stored?.challenges ?? []);
       return;
     }
+    if (this.isRetryDeferred(config, stored)) return;
+    await this.renew(config);
+  }
+  private certificateForHostname(
+    cert: StoredCertificate | undefined,
+    hostname: string,
+  ): StoredCertificate | undefined {
+    return cert?.hostname === hostname ? cert : undefined;
+  }
+  private isRetryDeferred(
+    config: ManagedHttpsConfig,
+    stored: Awaited<ReturnType<typeof readCertificateState>>,
+  ): boolean {
     if (stored?.attempted_revision === config.revision && (stored.retry_after ?? 0) > Date.now()) {
       this.currentStatus = {
         ...this.currentStatus,
@@ -190,8 +216,11 @@ export class ManagedHttps {
         error:
           'Certificate issuance or renewal failed. Check Cloudflare permissions and public DNS. Maple will retry automatically.',
       };
-      return;
+      return true;
     }
+    return false;
+  }
+  private async renew(config: ManagedHttpsConfig): Promise<void> {
     const owner = randomUUID();
     if (!(await claimCertificateLease(owner))) return;
     this.currentStatus = { ...this.currentStatus, state: 'issuing' };
