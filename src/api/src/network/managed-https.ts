@@ -101,35 +101,50 @@ export class ManagedHttps {
     this.listener = undefined;
     this.active = undefined;
   }
-  private activate(config: ManagedHttpsConfig, cert: StoredCertificate): void {
+  /** Binds `cert` on the configured port. Returns an operator-facing message
+   * when the bind fails; a listener that was already serving keeps serving. */
+  private activate(config: ManagedHttpsConfig, cert: StoredCertificate): string | null {
     if (
       this.stopped ||
       !this.factory ||
       cert.hostname !== config.hostname ||
       cert.not_after <= Date.now()
     )
-      return;
+      return null;
     const previous = this.active;
     if (
       previous?.cert.cert === cert.cert &&
       previous.config.port === config.port &&
       previous.config.http3 === config.http3
     )
-      return;
-    this.closeListener();
+      return null;
+    // Only a same-port swap must release the port first. A port change binds
+    // the new listener before closing the old one, so a port that cannot bind
+    // never interrupts clients on the port that works — reconcile runs every
+    // 30 s and would otherwise cut every HTTPS connection on each retry.
+    const samePort = previous?.config.port === config.port;
+    if (samePort) this.closeListener();
     try {
-      this.listener = this.factory(config, cert);
+      const listener = this.factory(config, cert);
+      if (!samePort) this.closeListener();
+      this.listener = listener;
       this.active = { config, cert };
+      return null;
     } catch (error) {
-      this.restoreListener(previous, config.hostname);
-      throw error;
+      if (samePort) this.restoreListener(previous, config.hostname);
+      const reason = error instanceof Error ? error.message : String(error);
+      return `Managed HTTPS could not start on port ${config.port}: ${reason} The IP and tunnel listener remains available.`;
     }
   }
   private restoreListener(previous: typeof this.active, hostname: string): void {
     if (!previous || !this.factory) return;
     if (previous.cert.not_after <= Date.now() || previous.config.hostname !== hostname) return;
-    this.listener = this.factory(previous.config, previous.cert);
-    this.active = previous;
+    try {
+      this.listener = this.factory(previous.config, previous.cert);
+      this.active = previous;
+    } catch {
+      // The port was taken between stop and rebind; the next tick retries.
+    }
   }
   private async cleanupChallenges(
     config: ManagedHttpsConfig,
@@ -163,12 +178,14 @@ export class ManagedHttps {
       this.closeListener();
   }
   private updateListener(config: ManagedHttpsConfig, cert: StoredCertificate | undefined): void {
-    if (cert) this.activate(config, cert);
+    this.publishListenerStatus(cert, cert ? this.activate(config, cert) : null);
+  }
+  private publishListenerStatus(cert: StoredCertificate | undefined, bindError: string | null) {
     this.currentStatus = {
-      state: this.endpoint() ? 'ready' : 'pending',
+      state: bindError ? 'error' : this.endpoint() ? 'ready' : 'pending',
       expires_at: cert?.not_after ?? null,
       retry_at: null,
-      error: null,
+      error: bindError,
       http3: !!this.active?.config.http3,
     };
   }
@@ -243,14 +260,9 @@ export class ManagedHttps {
         this.closeListener();
         return;
       }
-      this.activate(latest, issued);
-      this.currentStatus = {
-        state: 'ready',
-        expires_at: issued.not_after,
-        retry_at: null,
-        error: null,
-        http3: latest.http3,
-      };
+      // A bind failure after a successful order is a listener problem, not an
+      // issuance failure: the certificate is persisted and no retry window applies.
+      this.publishListenerStatus(issued, this.activate(latest, issued));
     } catch {
       // ACME/HTTP errors can carry authorization headers, private keys or JWS
       // payloads. Report a safe operational message instead of serializing them.
