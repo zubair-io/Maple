@@ -9,4 +9,6 @@ export interface LocalAddressReport {
   ip?: string;
   port?: number;
   scheme?: 'http' | 'https';
+  /** Preferred managed hostname; the top-level IP remains a separate fallback. */
+  https?: { ip: string; port: number; scheme: 'https' };
 }

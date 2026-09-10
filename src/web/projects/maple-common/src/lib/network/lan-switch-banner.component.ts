@@ -7,11 +7,11 @@
 // the utility-class convention used by the other toasts (see
 // update-toast.component.html) — no component stylesheet needed.
 //
-// Explicit opt-in by design: switching means a full-page reload to a
+// Plain-HTTP IP switching is explicit opt-in: switching means a full-page reload to a
 // different origin (http://<lan-ip>:<port> instead of the https:// domain),
 // which drops the padlock and changes the address bar. That's a visible
 // enough change that it shouldn't happen silently — the user clicks
-// "Switch".
+// "Switch". A confirmed managed HTTPS hostname is preferred automatically.
 
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { AuthService } from '../auth/auth.service';
@@ -49,6 +49,10 @@ export class LanSwitchBannerComponent implements OnInit {
     const candidate = await this.lanSwitch.checkAvailable();
     if (!candidate) return;
     this.candidate = candidate;
+    if (candidate.automatic) {
+      await this.switchNow();
+      return;
+    }
     this.phase.set('offering');
   }
 

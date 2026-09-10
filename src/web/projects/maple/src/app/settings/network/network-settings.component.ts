@@ -25,6 +25,7 @@ import {
   MuiCheckboxComponent,
   MuiInputComponent,
 } from '@maple-common';
+import { ManagedHttpsComponent } from './managed-https.component';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
@@ -41,6 +42,7 @@ type SaveState =
   standalone: true,
   imports: [
     SettingsShellComponent,
+    ManagedHttpsComponent,
     SettingsIconComponent,
     MuiButtonComponent,
     MuiCheckboxComponent,
