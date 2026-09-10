@@ -4,6 +4,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Detect whether the current Linux environment uses musl libc (e.g. Alpine Linux).
@@ -122,14 +123,17 @@ export function resolvePlatformPackageLib(): string | null {
     }
   } catch {}
 
-  // 2. Try relative node_modules from this module or cwd
+  // 2. Try relative node_modules from this module or cwd, or assembled local npm folder
   const currentDir =
-    (import.meta as { dir?: string }).dir || path.dirname(new URL(import.meta.url).pathname);
+    (import.meta as { dir?: string }).dir || path.dirname(fileURLToPath(import.meta.url));
+  const shortName = pkgName.replace('@justmaple/maple-', '');
 
   const candidateDirs = [
     path.join(currentDir, '..', '..', pkgName, libName),
     path.join(currentDir, '..', 'node_modules', pkgName, libName),
     path.join(process.cwd(), 'node_modules', pkgName, libName),
+    path.join(currentDir, '..', 'npm', shortName, libName),
+    path.join(process.cwd(), 'npm', shortName, libName),
   ];
 
   for (const candidate of candidateDirs) {
