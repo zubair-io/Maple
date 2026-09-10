@@ -57,7 +57,7 @@ export function isMusl(): boolean {
     ).Bun;
     if (bun) {
       const res = bun.spawnSync(['ldd', '--version']);
-      const text = (res.stdout?.toString() || '') + (res.stderr?.toString() || '').toLowerCase();
+      const text = ((res.stdout?.toString() || '') + (res.stderr?.toString() || '')).toLowerCase();
       if (text.includes('musl')) {
         return true;
       }
