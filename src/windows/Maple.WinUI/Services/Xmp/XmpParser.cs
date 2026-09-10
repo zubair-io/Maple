@@ -36,6 +36,7 @@ namespace Maple.WinUI.Services.Xmp
                 "papp:HighlightRecoveryMode", "papp:AutoExposure",
                 "papp:Look", "papp:Profile",
                 "papp:HotPixelSuppression", "crs:LensProfileEnable",
+                "papp:LensProfile",
                 "crs:AutoLateralCA",
                 "papp:WbMethod", "papp:ToneCurveMode", "crs:ConvertToGrayscale",
                 "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom",
@@ -178,6 +179,12 @@ namespace Maple.WinUI.Services.Xmp
                         break;
                     case "crs:LensProfileEnable":
                         Apply(ParseOnOffBool(attr.Value), m => state.LensProfileEnable = m);
+                        break;
+                    // Free-form LCP reference (#2435): stored verbatim like
+                    // papp:FilmLook on the other hosts; the render side is
+                    // what validates the `lcp1:` / `lcp1-ack:` spelling.
+                    case "papp:LensProfile":
+                        state.LensProfile = attr.Value;
                         break;
                     case "crs:AutoLateralCA":
                         Apply(ParseOnOffBool(attr.Value), m => state.AutoLateralCa = m);
