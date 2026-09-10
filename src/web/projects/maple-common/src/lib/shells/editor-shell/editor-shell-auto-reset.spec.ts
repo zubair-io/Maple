@@ -118,6 +118,7 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
       selectAsset: vi.fn(),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
+      seedLensProfile: vi.fn(),
       lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
@@ -165,6 +166,7 @@ describe('EditorShellComponent — AUTO / RESET reachability (#2244)', () => {
             // #3397: same contract — the canvas reads this signal to publish
             // out-of-band scope samples, so the stub must carry it too.
             scopeSample: signal(null),
+            lensProfileStatus: signal(null),
           },
         },
       ],

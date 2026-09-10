@@ -112,18 +112,19 @@ On read, freshness is checked rather than keyed (`ThumbnailLoader+DisplayPreview
 
 Caches under `src/web/projects/maple-common/src/lib/` unless noted.
 
-Ten IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) that opens, transacts, and closes per operation — no long-lived connection. **None of the ten has a byte cap, count cap, LRU, or TTL.** Several records carry a `storedAt` timestamp, but no read path ever compares it against a threshold; the only bounding force is the browser's own quota eviction, and where invalidation exists it is content-validity based.
+Eleven IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) that opens, transacts, and closes per operation — no long-lived connection. **None of the eleven has a byte cap, count cap, LRU, or TTL.** Several records carry a `storedAt` timestamp, but no read path ever compares it against a threshold; the only bounding force is the browser's own quota eviction, and where invalidation exists it is content-validity based.
 
-| Database                                   | Store                 | Key                            | Value                    | Invalidated by                                                      |
-| ------------------------------------------ | --------------------- | ------------------------------ | ------------------------ | ------------------------------------------------------------------- |
-| `maple-id-cache`                           | `ids`                 | `slug:relPath` address         | `{size, mtime, mapleId}` | Live size/mtime mismatch                                            |
-| `maple-folder-listing-cache` (v2)          | `listings-by-address` | address                        | folder listing           | DB version bump; explicit `clear()`                                 |
-| `maple-sidecar-cache` (v2)                 | `sidecars-by-path`    | path                           | XMP text                 | DB version bump; explicit delete                                    |
-| `maple-film-lut-cache`                     | `luts-by-id`          | LUT id                         | `.mlut` bytes            | Nothing — no delete path exists                                     |
-| `maple-file-cache`                         | `files`               | id                             | imported `File`          | `clear()` runs in the same transaction as every write — single-slot |
-| `maple-slug-registry` / `maple-fs-handles` | —                     | slug / UUID                    | directory + file handles | Explicit removal only                                               |
-| `maple-fallback-cache`                     | `blobs`               | `` `${folderLabel}/${path}` `` | bytes                    | Nothing                                                             |
-| `maple-observability` / `maple-presets`    | `config` / `presets`  | `'current'` / preset id        | config / preset          | Overwrite; user delete                                              |
+| Database                                   | Store                 | Key                            | Value                    | Invalidated by                                                                |
+| ------------------------------------------ | --------------------- | ------------------------------ | ------------------------ | ----------------------------------------------------------------------------- |
+| `maple-id-cache`                           | `ids`                 | `slug:relPath` address         | `{size, mtime, mapleId}` | Live size/mtime mismatch                                                      |
+| `maple-folder-listing-cache` (v2)          | `listings-by-address` | address                        | folder listing           | DB version bump; explicit `clear()`                                           |
+| `maple-sidecar-cache` (v2)                 | `sidecars-by-path`    | path                           | XMP text                 | DB version bump; explicit delete                                              |
+| `maple-film-lut-cache`                     | `luts-by-id`          | LUT id                         | `.mlut` bytes            | Nothing — no delete path exists                                               |
+| `maple-file-cache`                         | `files`               | id                             | imported `File`          | `clear()` runs in the same transaction as every write — single-slot           |
+| `maple-slug-registry` / `maple-fs-handles` | —                     | slug / UUID                    | directory + file handles | Explicit removal only                                                         |
+| `maple-fallback-cache`                     | `blobs`               | `` `${folderLabel}/${path}` `` | bytes                    | Nothing                                                                       |
+| `maple-observability` / `maple-presets`    | `config` / `presets`  | `'current'` / preset id        | config / preset          | Overwrite; user delete                                                        |
+| `maple-lens-profiles` (#3479)              | `profiles`            | BLAKE3 digest of the `.lcp`    | LCP XML text             | Nothing — content-addressed; the core re-verifies the digest on every restore |
 
 In memory (`state/library-cache.service.ts`, `state/lru-cache.ts`):
 

@@ -114,6 +114,7 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
+      seedLensProfile: vi.fn(),
       lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
@@ -152,6 +153,7 @@ describe('EditorShellComponent — colour/effects sub-tool row reachability (#18
             // #3397: same contract — the canvas reads this signal to publish
             // out-of-band scope samples, so the stub must carry it too.
             scopeSample: signal(null),
+            lensProfileStatus: signal(null),
           },
         },
       ],

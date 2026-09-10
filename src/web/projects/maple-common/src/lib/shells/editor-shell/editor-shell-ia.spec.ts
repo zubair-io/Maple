@@ -123,6 +123,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
+      seedLensProfile: vi.fn(),
       lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
@@ -167,6 +168,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
             // #3397: same contract — the canvas reads this signal to publish
             // out-of-band scope samples, so the stub must carry it too.
             scopeSample: signal(null),
+            lensProfileStatus: signal(null),
           },
         },
       ],
