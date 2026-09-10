@@ -103,29 +103,28 @@ export class ManagedHttps {
   }
   /** Binds `cert` on the configured port. Returns an operator-facing message
    * when the bind fails; a listener that was already serving keeps serving. */
-  private activate(config: ManagedHttpsConfig, cert: StoredCertificate): string | null {
-    if (
-      this.stopped ||
-      !this.factory ||
-      cert.hostname !== config.hostname ||
-      cert.not_after <= Date.now()
-    )
-      return null;
+  private needsRebind(config: ManagedHttpsConfig, cert: StoredCertificate): boolean {
+    if (this.stopped || cert.hostname !== config.hostname || cert.not_after <= Date.now())
+      return false;
     const previous = this.active;
-    if (
+    return !(
       previous?.cert.cert === cert.cert &&
       previous.config.port === config.port &&
       previous.config.http3 === config.http3
-    )
-      return null;
+    );
+  }
+  private activate(config: ManagedHttpsConfig, cert: StoredCertificate): string | null {
+    const factory = this.factory;
+    if (!factory || !this.needsRebind(config, cert)) return null;
     // Only a same-port swap must release the port first. A port change binds
     // the new listener before closing the old one, so a port that cannot bind
     // never interrupts clients on the port that works — reconcile runs every
     // 30 s and would otherwise cut every HTTPS connection on each retry.
+    const previous = this.active;
     const samePort = previous?.config.port === config.port;
     if (samePort) this.closeListener();
     try {
-      const listener = this.factory(config, cert);
+      const listener = factory(config, cert);
       if (!samePort) this.closeListener();
       this.listener = listener;
       this.active = { config, cert };
