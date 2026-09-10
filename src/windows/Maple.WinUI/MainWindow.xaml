@@ -41,6 +41,7 @@
                     <Slider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
                             StepFrequency="{Binding StepFrequency}"
                             Value="{Binding Value, Mode=TwoWay}"
+                            IsEnabled="{Binding IsEnabled}"
                             AutomationProperties.Name="{Binding Label}"
                             PointerCaptureLost="OnSliderPointerCaptureLost"
                             KeyUp="OnSliderKeyUp"
@@ -811,6 +812,9 @@
                                             </Grid>
                                         </StackPanel>
                                         <StackPanel x:Name="PanelProfileHost" Visibility="Collapsed" Spacing="8" Margin="0,0,0,12" />
+                                        <!-- Imported lens profile (#3480): built in MainWindow.LensProfile.cs;
+                                             the three strength rows below it ride PanelSliders. -->
+                                        <StackPanel x:Name="PanelLensHost" Visibility="Collapsed" Spacing="8" Margin="0,0,0,12" />
                                         <ItemsControl x:Name="PanelSliders"
                                                       ItemTemplate="{StaticResource SliderRowTemplate}" />
                                         <StackPanel x:Name="PanelBwHeader" Visibility="Collapsed" Margin="0,0,0,6">

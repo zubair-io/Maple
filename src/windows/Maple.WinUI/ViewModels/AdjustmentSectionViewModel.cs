@@ -52,6 +52,13 @@ namespace Maple.WinUI.ViewModels
         public string FormattedValue => _format(Value);
         public bool IsModified => Math.Abs(Value - DefaultValue) > 1e-6;
 
+        /// <summary>Whether the row accepts input. Every row starts enabled;
+        /// the Lens strengths (#3480) are switched per correction family to
+        /// exactly what the resolved calibration covers, so a family the
+        /// profile has no model for reads as inert instead of pretending.</summary>
+        [ObservableProperty]
+        private bool _isEnabled = true;
+
         public AdjustmentSliderViewModel(
             EditSessionViewModel session, string label,
             double min, double max, double step,
@@ -252,6 +259,22 @@ namespace Maple.WinUI.ViewModels
                     Sl("Defringe Green", 0, 20, 1, m => m.DefringeGreenAmount, (m, v) => m.DefringeGreenAmount = v),
                     Sl("Green Hue Low", 0, 100, 1, m => m.DefringeGreenHueLo, (m, v) => m.DefringeGreenHueLo = v),
                     Sl("Green Hue High", 0, 100, 1, m => m.DefringeGreenHueHi, (m, v) => m.DefringeGreenHueHi = v),
+                }, expanded: false),
+
+                // Lens corrections (#3480): the imported-LCP / embedded-opcode
+                // strengths. All three are DECODE-OWNED (the profile is applied
+                // in the scene-linear decode stage, before the default crop),
+                // so they commit on release like capture sharpening; the Lens
+                // panel enables each row only for a family the resolved
+                // calibration actually covers (`IsEnabled` above).
+                new("Lens", new[]
+                {
+                    Sl("Distortion", 0, 100, 1, m => m.LensCorrectionDistortion, (m, v) => m.LensCorrectionDistortion = v,
+                        v => $"{v:0}%", commitOnRelease: true),
+                    Sl("Chromatic Aberration", 0, 100, 1, m => m.LensCorrectionCa, (m, v) => m.LensCorrectionCa = v,
+                        v => $"{v:0}%", commitOnRelease: true),
+                    Sl("Vignetting", 0, 100, 1, m => m.LensCorrectionVignetting, (m, v) => m.LensCorrectionVignetting = v,
+                        v => $"{v:0}%", commitOnRelease: true),
                 }, expanded: false),
 
                 new("Tone Curve", new[]
