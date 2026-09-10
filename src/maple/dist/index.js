@@ -8,12 +8,6 @@ function isMusl() {
   if (process.platform !== "linux")
     return false;
   try {
-    const report = process.report?.getReport?.();
-    if (report?.header?.glibcVersionRuntime) {
-      return false;
-    }
-  } catch {}
-  try {
     if (fs.existsSync("/etc/alpine-release")) {
       return true;
     }
@@ -26,6 +20,12 @@ function isMusl() {
           return true;
         }
       }
+    }
+  } catch {}
+  try {
+    const report = process.report?.getReport?.();
+    if (report?.header?.glibcVersionRuntime) {
+      return false;
     }
   } catch {}
   try {

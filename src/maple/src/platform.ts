@@ -12,7 +12,26 @@ import { fileURLToPath } from 'node:url';
 export function isMusl(): boolean {
   if (process.platform !== 'linux') return false;
 
-  // 1. Check Node.js process report for glibc
+  // 1. Fast check for Alpine Linux release file
+  try {
+    if (fs.existsSync('/etc/alpine-release')) {
+      return true;
+    }
+  } catch {}
+
+  // 2. Probe dynamic linker in /lib or /lib64
+  try {
+    for (const dir of ['/lib', '/lib64', '/usr/lib']) {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        if (files.some((f) => f.startsWith('ld-musl-'))) {
+          return true;
+        }
+      }
+    }
+  } catch {}
+
+  // 3. Check Node.js process report for glibc
   try {
     const report = (
       process as unknown as {
@@ -23,25 +42,6 @@ export function isMusl(): boolean {
     ).report?.getReport?.();
     if (report?.header?.glibcVersionRuntime) {
       return false;
-    }
-  } catch {}
-
-  // 2. Check for Alpine Linux release file
-  try {
-    if (fs.existsSync('/etc/alpine-release')) {
-      return true;
-    }
-  } catch {}
-
-  // 3. Probe dynamic linker in /lib or /lib64
-  try {
-    for (const dir of ['/lib', '/lib64', '/usr/lib']) {
-      if (fs.existsSync(dir)) {
-        const files = fs.readdirSync(dir);
-        if (files.some((f) => f.startsWith('ld-musl-'))) {
-          return true;
-        }
-      }
     }
   } catch {}
 
