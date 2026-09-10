@@ -214,11 +214,6 @@ jobs:
           echo "Publish execution mode: DRY_RUN=$DRY_RUN"
           echo "=========================================================="
 
-          # Publish one package directory. Outside dry-run, a version that is
-          # already on the registry is skipped instead of failing, so a run
-          # that died part-way (network blip, registry 5xx, OIDC hiccup) can be
-          # re-run and will pick up exactly the packages that never landed —
-          # npm rejects publishing over an existing version with E403.
           # Publish one package directory. The path is passed with an explicit
           # "./" — a bare "src/maple" parses as the GitHub shorthand
           # "user/repo" and npm tries git ls-remote instead of packing the dir.
