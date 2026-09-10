@@ -114,6 +114,8 @@ node_modules/
 src/web/storybook-static/
 dist/
 !src/maple/dist/
+# The published CLI shim (src/maple/package.json `bin`) lives in a bin/ dir.
+!src/maple/bin/
 src/maple/npm/*/*.so
 src/maple/npm/*/*.dylib
 src/maple/npm/*/*.dll
