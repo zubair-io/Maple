@@ -866,7 +866,12 @@ function maple(input) {
 }
 // src/cli.ts
 import * as fs5 from "node:fs/promises";
+import { readFileSync as readFileSync3 } from "node:fs";
 import * as path5 from "node:path";
+function packageVersion() {
+  const pkg = JSON.parse(readFileSync3(new URL("../package.json", import.meta.url), "utf-8"));
+  return String(pkg.version);
+}
 function printHelp() {
   console.log(`
 maple - Professional RAW photo development and export engine by Just Maple
@@ -935,7 +940,7 @@ async function runCli(argv) {
     return 0;
   }
   if (args.includes("-v") || args.includes("--version") || args[0] === "version") {
-    console.log("maple 0.1.0 (Maple raw-core engine)");
+    console.log(`maple ${packageVersion()} (Maple raw-core engine)`);
     return 0;
   }
   const command = args[0];
