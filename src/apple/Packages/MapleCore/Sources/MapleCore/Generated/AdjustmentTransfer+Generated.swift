@@ -132,6 +132,7 @@ public let adjustmentTransferModes: [String: AdjustmentTransferMode] = [
   "perspective_aspect": .absolute,
   "perspective_x": .absolute,
   "perspective_y": .absolute,
+  "lens_profile": .unsupported,
   "local_adjustments": .unsupported,
   "inpaint_removals": .unsupported,
   "retouch_spots": .unsupported,

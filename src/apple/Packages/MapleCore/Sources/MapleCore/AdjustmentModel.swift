@@ -338,6 +338,12 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// error — see `FilmLutStore`). XMP key `papp:FilmLook`; empty (default)
   /// omits the attribute on write.
   public var filmLook: String  // default ""
+  /// Imported LCP selection (#2435): `lcp1:<BLAKE3>` names the exact
+  /// profile bytes, `lcp1-ack:` additionally records that the user accepted
+  /// the resolver's reported approximations. Empty keeps embedded-only
+  /// correction. Apple carries it for sidecar fidelity and the shared decode
+  /// key; the import UI is Web/Windows (#3395).
+  public var lensProfile: String  // default ""
   /// Film-look blend strength, 0..100 — lerped against the pre-look value
   /// in display-linear space (mirrors every other blend-strength field in
   /// `MapleGpuLiveParams`). XMP key `papp:FilmStrength`; 100 (default,

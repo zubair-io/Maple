@@ -287,6 +287,8 @@ export interface GeneratedAdjustmentModel {
   defringeGreenHueLo: number;
   /** High edge of the green hue band (#3411). XMP key `crs:DefringeGreenHueHi`. Range: [0.0, 100.0]. */
   defringeGreenHueHi: number;
+  /** Versioned LCP content reference (#2435), empty for embedded-only corrections. lcp1:<BLAKE3> requires an in-range match; lcp1-ack:<BLAKE3> records explicit acceptance of reported approximations. XMP key papp:LensProfile. Part of the decoded-image cache key. */
+  lensProfile: string;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -415,6 +417,7 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     defringeGreenAmount: 0.0,
     defringeGreenHueLo: 40.0,
     defringeGreenHueHi: 60.0,
+    lensProfile: '',
   };
 }
 

@@ -141,6 +141,7 @@ extension AdjustmentModel {
         case defringeGreenAmount = "defringe_green_amount"
         case defringeGreenHueLo = "defringe_green_hue_lo"
         case defringeGreenHueHi = "defringe_green_hue_hi"
+        case lensProfile = "lens_profile"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -544,6 +545,7 @@ extension AdjustmentGroup {
 /// sync. See `raw_core::types::adjustment::schema::groups` for the
 /// per-field rationale (notably the mask decision).
 public let adjustmentNonCopyableFields: [String] = [
+    "lens_profile",
     "local_adjustments",
     "inpaint_removals",
     "retouch_spots",

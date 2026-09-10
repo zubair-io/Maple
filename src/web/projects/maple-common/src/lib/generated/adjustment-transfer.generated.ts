@@ -127,6 +127,7 @@ export const ADJUSTMENT_TRANSFER_MODES: Readonly<Record<string, AdjustmentTransf
   perspective_aspect: 'Absolute',
   perspective_x: 'Absolute',
   perspective_y: 'Absolute',
+  lens_profile: 'Unsupported',
   local_adjustments: 'Unsupported',
   inpaint_removals: 'Unsupported',
   retouch_spots: 'Unsupported',

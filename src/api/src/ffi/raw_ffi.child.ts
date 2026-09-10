@@ -29,6 +29,7 @@ import type { FfiRequest, FfiResponse } from './raw_ffi-protocol.ts';
 import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { readFile } from '../fs/mirrored.ts';
 import { clearLensProfiles, registerLensProfile } from '../lens-profiles/native.ts';
+import { restoreLensProfile } from '../lens-profiles/restore.ts';
 
 // Lower CPU priority (so the HTTP server's event loop wins under indexer load)
 // + self-exit if the parent dies. Shared with the face child; see runtime.
@@ -57,6 +58,10 @@ async function handle(req: FfiRequest): Promise<FfiResponse> {
   }
 
   if (req.type === 'exportRecipe') {
+    // The export snapshot carries its sidecar inline; restore the profile it
+    // selects exactly as the develop/histogram paths below do, so a queued
+    // export renders the same optical correction the editor showed.
+    await restoreLensProfile(req.rawPath, req.xmp || null);
     const error =
       ffi.exportRecipeToFile?.(req.rawPath, req.xmp, req.recipeJson, req.filmPath, req.outPath) ??
       (ffi.exportRecipeToFile ? null : 'Rebuild raw-ffi: recipe encoder unavailable');
@@ -83,6 +88,10 @@ async function handle(req: FfiRequest): Promise<FfiResponse> {
     clearLensProfiles();
     const inventory = registerLensProfile(await readFile(req.profilePath));
     return { type: req.type, id: req.id, ok: true, inventory };
+  }
+  if (req.type === 'renderDevelop' || req.type === 'histogram') {
+    const xml = req.xmpPath ? await readFile(req.xmpPath, 'utf8') : null;
+    await restoreLensProfile(req.rawPath, xml);
   }
 
   if (req.type === 'renderThumb') {

@@ -9,7 +9,15 @@ function openLensLibrary() {
       args: [FFIType.ptr, FFIType.u64, FFIType.ptr],
       returns: FFIType.i32,
     },
+    maple_lens_profile_selected: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32,
+    },
     maple_lens_profile_clear_cache: { args: [], returns: FFIType.i32 },
+    maple_lens_profile_resolve_file: {
+      args: [FFIType.ptr, FFIType.ptr, FFIType.ptr],
+      returns: FFIType.i32,
+    },
     maple_free_lens_profile_json: { args: [FFIType.ptr], returns: FFIType.void },
     maple_last_error: { args: [], returns: FFIType.cstring },
   });
@@ -39,6 +47,21 @@ export function registerLensProfile(bytes: Uint8Array): LensProfileInventory {
   );
 }
 
+export function selectedLensProfile(xml: string): { reference: string; enabled: boolean } {
+  const bytes = Buffer.from(xml);
+  return jsonResult((output) =>
+    symbols().maple_lens_profile_selected(ptr(bytes), bytes.length, ptr(output)),
+  );
+}
+
 export function clearLensProfiles(): void {
   if (symbols().maple_lens_profile_clear_cache() !== 0) throw new Error('LCP cache reset failed');
+}
+
+export function resolveLensProfile(rawPath: string, reference: string): { source: string } {
+  const path = Buffer.from(rawPath + '\0');
+  const ref = Buffer.from(reference + '\0');
+  return jsonResult((output) =>
+    symbols().maple_lens_profile_resolve_file(ptr(path), ptr(ref), ptr(output)),
+  );
 }

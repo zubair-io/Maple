@@ -360,7 +360,8 @@
         "defringe_green_amount",
         "defringe_green_hue_lo",
         "defringe_green_hue_hi",
-        "capture_sharpening_radius"
+        "capture_sharpening_radius",
+        "lens_profile"
       ],
       "integration": [
         {

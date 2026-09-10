@@ -310,6 +310,7 @@ public enum CapabilityRegistry {
                 "defringe_green_hue_lo",
                 "defringe_green_hue_hi",
                 "capture_sharpening_radius",
+                "lens_profile",
             ],
             integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
             qualification: [

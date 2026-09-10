@@ -68,6 +68,10 @@ const ENUM_ATTRIBUTE_PARSERS: Record<string, EnumAttributeParser> = {
   // still round-trips instead of being dropped to the '' default. An empty
   // attribute is treated the same as absent.
   'papp:FilmLook': (v) => (v.length > 0 ? { filmLook: v } : undefined),
+  // Imported LCP selection (#2435): a versioned content-addressed
+  // reference (`lcp1:` / `lcp1-ack:`), free-form like `filmLook`. Empty
+  // is the canonical "embedded corrections only" value, so it is omitted.
+  'papp:LensProfile': (v) => (v.length > 0 ? { lensProfile: v } : undefined),
 
   // Hot/dead-pixel suppression (#1106). Case-insensitive parse, mirroring
   // the Rust (`xmp/mod.rs`) and Swift parsers; unknown values are dropped so

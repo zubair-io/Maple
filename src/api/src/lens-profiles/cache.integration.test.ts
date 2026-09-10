@@ -9,6 +9,9 @@ import { nativeLibAvailable } from '../ffi/raw_ffi.ts';
 import { ffiPool, _resetFfiPoolForTests } from '../ffi/ffi-pool.ts';
 import { lensProfileRoutes } from '../routes/lens-profiles.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { mkdtemp, writeFile, readFile, rm } from '../fs/mirrored.ts';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 withTestDb(`maple_test_lcp_cache_${process.pid}`);
 let mongoAvailable = false;
@@ -103,6 +106,35 @@ test.skipIf(!nativeLibAvailable())(
       new Request('http://localhost/api/lens-profiles', { method: 'POST', body: invalid }),
     );
     expect(rejected.status).toBe(422);
+  },
+);
+
+test.skipIf(!nativeLibAvailable())(
+  'isolated develop rejects a missing required profile but renders a disabled profile unchanged',
+  async () => {
+    if (!mongoAvailable) return;
+    const dir = await mkdtemp(join(tmpdir(), 'maple-lcp-develop-test-'));
+    const raw = resolve(
+      import.meta.dir,
+      '../../..',
+      'apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng',
+    );
+    const sidecar = join(dir, 'adjustments.xmp');
+    const ref = `lcp1:${'0'.repeat(64)}`;
+    const sidecarXml = (enabled: number) =>
+      `<x><rdf:Description xmlns:rdf="x" xmlns:crs="x" xmlns:papp="x" crs:LensProfileEnable="${enabled}" papp:LensProfile="${ref}"/></x>`;
+    try {
+      await ffiPool().renderDevelopJpegToFile(raw, null, join(dir, 'base.jpg'), 64);
+      await writeFile(sidecar, sidecarXml(0));
+      await ffiPool().renderDevelopJpegToFile(raw, sidecar, join(dir, 'off.jpg'), 64);
+      expect(await readFile(join(dir, 'off.jpg'))).toEqual(await readFile(join(dir, 'base.jpg')));
+      await writeFile(sidecar, sidecarXml(1));
+      await expect(
+        ffiPool().renderDevelopJpegToFile(raw, sidecar, join(dir, 'missing.jpg'), 64),
+      ).rejects.toThrow('not in the local cache');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   },
 );
 

@@ -299,6 +299,12 @@ extension XMPSerializer {
     if !model.filmLook.isEmpty {
       attrs.append(("papp:FilmLook", escapeXMLAttr(model.filmLook)))
     }
+    // Imported LCP reference (#2435) — same free-form-string, omit-when-
+    // empty rule as `papp:FilmLook`; mirrors `xmp/mod.rs` and the web
+    // serializer so a sidecar round-trips byte-identically across hosts.
+    if !model.lensProfile.isEmpty {
+      attrs.append(("papp:LensProfile", escapeXMLAttr(model.lensProfile)))
+    }
     // Film-look blend strength — emit only when off full strength (100),
     // and only alongside a look (an id-less strength is meaningless, but
     // mirrors every other blend-strength field's omit-on-default rule

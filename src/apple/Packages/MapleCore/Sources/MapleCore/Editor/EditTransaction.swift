@@ -74,6 +74,7 @@ public enum InvalidationScope: String, Equatable, Sendable {
             hotPixelSuppression: m.hotPixelSuppression,
             demosaic: m.demosaic,
             lensProfileEnable: m.lensProfileEnable,
+            lensProfile: m.lensProfile,
             lensCorrectionDistortion: m.lensCorrectionDistortion,
             lensCorrectionCa: m.lensCorrectionCa,
             lensCorrectionVignetting: m.lensCorrectionVignetting,
@@ -89,6 +90,9 @@ public enum InvalidationScope: String, Equatable, Sendable {
         let hotPixelSuppression: HotPixelSuppressionMode
         let demosaic: DemosaicChoice
         let lensProfileEnable: LensProfileEnable
+        /// Imported LCP reference (#2435) — selects which calibration the
+        /// decode stage applies, so swapping it re-decodes like the toggle.
+        let lensProfile: String
         let lensCorrectionDistortion: Double
         let lensCorrectionCa: Double
         let lensCorrectionVignetting: Double

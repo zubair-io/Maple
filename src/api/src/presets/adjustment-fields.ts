@@ -193,6 +193,11 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   // value, not an invalid one: a preset must be able to explicitly clear a
   // film look by writing `film_look: ""`.
   'film_look',
+  // Imported LCP reference (#2435) — `lcp1:<BLAKE3>` / `lcp1-ack:<BLAKE3>`,
+  // free-form like `film_look`. Non-copyable on every client (it names the
+  // calibration for one specific frame's lens), so a preset only carries it
+  // when an imported document did; it is preserved as bounded string data.
+  'lens_profile',
   // Bayer demosaic kernel override (#3413) — a closed enum
   // (Auto|Amaze|Rcd|DualAmaze|DualRcd|Lmmse) and a decode-product field, so
   // it takes the same shape as `hot_pixel_suppression` above: no variant
@@ -203,12 +208,12 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
 
 /**
  * The subset of STRING_FIELDS whose empty string is a meaningful, valid
- * value rather than "missing" — currently just `film_look`, whose empty
- * string is the canonical "no look selected" state. Every other
+ * value rather than "missing": `film_look` (no look selected) and
+ * `lens_profile` (embedded corrections only, no imported calibration). Every other
  * STRING_FIELDS entry is a closed enum where an empty string can never be
  * a real variant, so it stays rejected.
  */
-const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look']);
+const FREE_FORM_STRING_FIELDS: ReadonlySet<string> = new Set(['film_look', 'lens_profile']);
 
 export function isKnownNumericField(name: string): boolean {
   return Object.prototype.hasOwnProperty.call(NUMERIC_FIELD_RANGES, name);

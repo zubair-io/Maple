@@ -109,6 +109,13 @@ describe('capturePresetFields', () => {
     expect(capturePresetFields(adj)).toEqual({});
   });
 
+  it('never captures a source lens calibration or its approximation consent', () => {
+    const adj = defaultAdjustmentModel();
+    adj.lensProfile = `lcp1-ack:${'a'.repeat(64)}`;
+    adj.exposure = 1;
+    expect(capturePresetFields(adj)).toEqual({ exposure: 1 });
+  });
+
   it('round-trips through buildApplyPatch onto a default model', () => {
     const adj = defaultAdjustmentModel();
     adj.contrast = -50;
@@ -124,6 +131,24 @@ describe('capturePresetFields', () => {
 });
 
 describe('buildApplyPatch', () => {
+  it.each(['', `lcp1:${'a'.repeat(64)}`, `lcp1-ack:${'a'.repeat(64)}`, 'future:opaque'])(
+    'preserves imported metadata while keeping the target calibration: %s',
+    (reference) => {
+      const fields = Object.freeze({
+        lens_profile: reference,
+        wb_sample_x: 0.5,
+        future_lens_hint: 'retain me',
+        exposure: 1,
+      });
+      const patch = buildApplyPatch(fields);
+      expect(patch).toEqual({ exposure: 1 });
+      const target = { ...defaultAdjustmentModel(), lensProfile: `lcp1:${'b'.repeat(64)}` };
+      expect({ ...target, ...patch }.lensProfile).toBe(target.lensProfile);
+      expect(fields.lens_profile).toBe(reference);
+      expect(fields.future_lens_hint).toBe('retain me');
+    },
+  );
+
   it('maps snake_case keys to generated camelCase keys', () => {
     expect(buildApplyPatch({ nr_color: 10, split_tone_balance: -20 })).toEqual({
       nrColor: 10,
