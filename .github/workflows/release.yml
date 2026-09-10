@@ -321,6 +321,15 @@ jobs:
           done) &
           MEMLOG_PID=$!
 
+          # The tag is the version of record (#3486): stamp it into every
+          # target in the archive (app + embedded extensions, which Apple
+          # requires to match) instead of trusting the MARKETING_VERSION
+          # committed in the project. A dispatch run keeps the project value.
+          VERSION_ARGS=()
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION_ARGS=(MARKETING_VERSION="${GITHUB_REF_NAME#v}")
+          fi
+
           set +e
           xcodebuild -project src/apple/Maple.xcodeproj \
             -scheme "Maple Exposure" \
@@ -333,7 +342,8 @@ jobs:
             -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            "${VERSION_ARGS[@]}"
           STATUS=$?
           kill "$MEMLOG_PID" 2>/dev/null
 
