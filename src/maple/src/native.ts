@@ -4,6 +4,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getFfiSymbols } from './ffi-symbols';
 import { resolvePlatformPackageLib } from './platform';
 import type { FilenameResult, FilenameTemplateArgs } from './types';
@@ -134,7 +135,7 @@ export function findNativeLib(): string | null {
 
   const libName = nativeLibFilename();
   const currentDir =
-    (import.meta as { dir?: string }).dir || path.dirname(new URL(import.meta.url).pathname);
+    (import.meta as { dir?: string }).dir || path.dirname(fileURLToPath(import.meta.url));
 
   const candidates = [
     // Pre-bundled in native/ inside package
