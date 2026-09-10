@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getFfiSymbols } from './ffi-symbols';
+import { resolvePlatformPackageLib } from './platform';
 import type { FilenameResult, FilenameTemplateArgs } from './types';
 
 const RENDER_OUT_CAP = 1024;
@@ -124,6 +125,11 @@ export function nativeLibFilename(): string {
 export function findNativeLib(): string | null {
   if (process.env.MAPLE_NATIVE_LIB && fs.existsSync(process.env.MAPLE_NATIVE_LIB)) {
     return process.env.MAPLE_NATIVE_LIB;
+  }
+
+  const platformLib = resolvePlatformPackageLib();
+  if (platformLib) {
+    return platformLib;
   }
 
   const libName = nativeLibFilename();

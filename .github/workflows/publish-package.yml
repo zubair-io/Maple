@@ -1,0 +1,218 @@
+# .github/workflows/publish-package.yml
+#
+# Automated multi-platform compilation and npm publish pipeline for @justmaple/maple.
+# Compiles prebuilt native libraries for 7 Tier-1 target platforms, performs
+# zero-dependency linkage auditing, and publishes modular platform packages with provenance.
+
+name: publish-package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (validate builds and packaging without publishing to npm)'
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - 'src/maple/**'
+      - '.github/workflows/publish-package.yml'
+
+concurrency:
+  group: publish-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  build-linux:
+    name: build-linux (${{ matrix.pkg_name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            zig_target: x86_64-unknown-linux-gnu.2.31
+            pkg_name: maple-linux-x64-gnu
+            libc_type: glibc
+          - target: x86_64-unknown-linux-musl
+            zig_target: x86_64-unknown-linux-musl
+            pkg_name: maple-linux-x64-musl
+            libc_type: musl
+          - target: aarch64-unknown-linux-gnu
+            zig_target: aarch64-unknown-linux-gnu.2.31
+            pkg_name: maple-linux-arm64-gnu
+            libc_type: glibc
+          - target: aarch64-unknown-linux-musl
+            zig_target: aarch64-unknown-linux-musl
+            pkg_name: maple-linux-arm64-musl
+            libc_type: musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install zig and cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild,zig
+
+      - name: Build libraw_ffi (${{ matrix.pkg_name }})
+        run: |
+          cargo zigbuild --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target ${{ matrix.zig_target }}
+
+      - name: Zero-dependency linkage verification (readelf audit)
+        run: |
+          chmod +x src/maple/scripts/audit-linkage.sh
+          ./src/maple/scripts/audit-linkage.sh "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.so" "${{ matrix.libc_type }}"
+
+      - name: Upload Linux binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.pkg_name }}
+          path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.so
+          if-no-files-found: error
+
+  build-macos:
+    name: build-macos (${{ matrix.pkg_name }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            pkg_name: maple-darwin-arm64
+          - target: x86_64-apple-darwin
+            pkg_name: maple-darwin-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build libraw_ffi (${{ matrix.pkg_name }})
+        run: |
+          cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target ${{ matrix.target }}
+
+      - name: Upload macOS binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.pkg_name }}
+          path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.dylib
+          if-no-files-found: error
+
+  build-windows:
+    name: build-windows (maple-win32-x64-msvc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build raw_ffi (maple-win32-x64-msvc)
+        run: |
+          cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target x86_64-pc-windows-msvc
+
+      - name: Upload Windows binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: maple-win32-x64-msvc
+          path: src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw_ffi.dll
+          if-no-files-found: error
+
+  publish:
+    name: Assemble & Publish Packages
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download all compiled binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Synchronize package versions
+        run: |
+          bun src/maple/scripts/sync-versions.ts
+
+      - name: Assemble platform packages
+        run: |
+          bun src/maple/scripts/assemble-packages.ts artifacts
+
+      - name: Build root @justmaple/maple package
+        working-directory: src/maple
+        run: |
+          bun install
+          bun run build
+          bun test
+
+      - name: Publish to npm (dry-run on PR/dispatch, release on v* tags)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          DRY_RUN="false"
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event.inputs.dry_run }}" = "true" ] || [ -z "${NPM_TOKEN:-}" ]; then
+            DRY_RUN="true"
+          fi
+
+          echo "=========================================================="
+          echo "Publish execution mode: DRY_RUN=$DRY_RUN"
+          echo "=========================================================="
+
+          if [ "$DRY_RUN" = "false" ]; then
+            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+          fi
+
+          PLATFORM_PKGS=(
+            "src/maple/npm/darwin-arm64"
+            "src/maple/npm/darwin-x64"
+            "src/maple/npm/linux-x64-gnu"
+            "src/maple/npm/linux-x64-musl"
+            "src/maple/npm/linux-arm64-gnu"
+            "src/maple/npm/linux-arm64-musl"
+            "src/maple/npm/win32-x64-msvc"
+          )
+
+          for pkg in "${PLATFORM_PKGS[@]}"; do
+            echo "Publishing platform package: $pkg"
+            if [ "$DRY_RUN" = "true" ]; then
+              npm publish "$pkg" --dry-run --access public
+            else
+              npm publish "$pkg" --access public --provenance
+            fi
+          done
+
+          echo "Publishing root package: src/maple"
+          if [ "$DRY_RUN" = "true" ]; then
+            npm publish src/maple --dry-run --access public
+          else
+            npm publish src/maple --access public --provenance
+          fi
+
+          echo "Publish workflow completed successfully."

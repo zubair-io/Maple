@@ -1,0 +1,27 @@
+{
+  "name": "@justmaple/maple-linux-arm64-musl",
+  "version": "0.1.0",
+  "description": "Native binary for @justmaple/maple on Linux ARM64 (musl)",
+  "main": "libraw_ffi.so",
+  "files": [
+    "libraw_ffi.so"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "libc": [
+    "musl"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zubair-io/Maple.git",
+    "directory": "src/maple/npm/linux-arm64-musl"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
