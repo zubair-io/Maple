@@ -17,8 +17,11 @@ const npmDir = path.resolve(mapleDir, 'npm');
 // 1. Determine target version
 let targetVersion = process.argv[2];
 
-if (!targetVersion && process.env.GITHUB_REF_NAME) {
-  targetVersion = process.env.GITHUB_REF_NAME.replace(/^v/, '');
+if (!targetVersion && process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME) {
+  const candidate = process.env.GITHUB_REF_NAME.replace(/^v/, '');
+  if (/^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/.test(candidate)) {
+    targetVersion = candidate;
+  }
 }
 
 const rootPkgPath = path.join(mapleDir, 'package.json');
