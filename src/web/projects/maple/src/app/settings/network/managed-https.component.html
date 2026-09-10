@@ -77,9 +77,7 @@
       [checked]="terms()"
       (checkedChange)="terms.set($event)"
     />
-    <a href="https://letsencrypt.org/repository/" target="_blank" rel="noopener noreferrer"
-      >Read agreement</a
-    >
+    <mui-link href="https://letsencrypt.org/repository/" [external]="true">Read agreement</mui-link>
   </div>
   <p class="mt-4 mb-2" role="status" aria-live="polite">
     {{ statusText() }}
