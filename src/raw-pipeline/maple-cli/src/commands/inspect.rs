@@ -13,6 +13,17 @@ pub fn run(path: &Path) -> Result<i32, Box<dyn std::error::Error>> {
         .unwrap_or("")
         .to_lowercase();
 
+    if ext == "lcp" {
+        use std::io::Read;
+        let mut xml = String::new();
+        std::fs::File::open(path)?
+            .take(32 * 1024 * 1024 + 1)
+            .read_to_string(&mut xml)?;
+        let profile = raw_core::lens_profile::parse(&xml)?;
+        println!("{}", serde_json::to_string_pretty(&profile.inspection())?);
+        return Ok(0);
+    }
+
     if ext == "xmp" {
         let xml = std::fs::read_to_string(path)?;
         let model = xmp::parse(&xml)?;

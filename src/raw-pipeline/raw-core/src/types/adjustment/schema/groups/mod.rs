@@ -322,6 +322,14 @@ const GEOMETRY_FIELDS: &[&str] = &[
 /// never moved by paste / sync. Every entry needs a reason; the coverage test
 /// requires each struct field to be either grouped above or listed here.
 pub const NON_COPYABLE_FIELDS: &[&str] = &[
+    // Imported LCP optical profile (#2435). A versioned content-addressed
+    // reference to the calibration for the SPECIFIC lens this frame was shot
+    // with, resolved per-photo from its own EXIF lens identity. Pasting the id
+    // onto a frame shot on a different lens would apply that other lens's
+    // distortion, CA and vignetting model — wrong correction presented as
+    // authored intent. Excluded for the same reason as `inpaint_removals`:
+    // the value describes the source image, not a transferable setting.
+    "lens_profile",
     // Local-adjustment layers (#280). Copy-safe by construction (normalized
     // parametric masks) but absent from BOTH front-end `AdjustmentModel`
     // mirrors, so a "Masks" group would be a dead checkbox. See the module

@@ -156,6 +156,7 @@ fn schema_matches_struct() {
         defringe_green_amount,
         defringe_green_hue_lo,
         defringe_green_hue_hi,
+        lens_profile,
     } = m;
     let expected_order = [
         "temperature",
@@ -281,6 +282,7 @@ fn schema_matches_struct() {
         "defringe_green_amount",
         "defringe_green_hue_lo",
         "defringe_green_hue_hi",
+        "lens_profile",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),
@@ -416,6 +418,7 @@ fn schema_matches_struct() {
         perspective_x,
         perspective_y,
         demosaic,
+        lens_profile,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema

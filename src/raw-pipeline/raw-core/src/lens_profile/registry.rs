@@ -140,6 +140,41 @@ pub fn resolve_for_raw(raw: &RawImage, reference: &str) -> Result<Option<Resolut
     Ok(Some(resolution))
 }
 
+/// Shared CPU/GPU decode entry, after demosaic and before default crop. The
+/// caller handles OpcodeList3 first; the guard here independently enforces it.
+pub fn apply_for_raw(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    image: &mut Image,
+    sensor_scale: f32,
+) -> crate::Result<()> {
+    let scales = LensCorrectionScales::from_model(model);
+    if scales == LensCorrectionScales::NONE {
+        return Ok(());
+    }
+    let Some(resolution) =
+        resolve_for_raw(raw, &model.lens_profile).map_err(crate::Error::Pipeline)?
+    else {
+        return Ok(());
+    };
+    if !resolution.approximations.is_empty()
+        && !profile_id(&model.lens_profile)
+            .map_err(crate::Error::Pipeline)?
+            .1
+    {
+        return Err(crate::Error::Pipeline(format!(
+            "LCP approximation requires acknowledgement: {}",
+            resolution.approximations.join("; ")
+        )));
+    }
+    let area = raw
+        .lens_metadata
+        .active_area
+        .unwrap_or(ActiveAreaRect::full(raw.width, raw.height));
+    let scaled = scale_active_area(area, sensor_scale, image.width, image.height);
+    super::apply(image, &resolution.calibration, scaled, scales).map_err(crate::Error::Pipeline)
+}
+
 impl Resolution {
     pub fn metadata(&self) -> serde_json::Value {
         let samples = |entries: &[super::SampleWeight]| {
