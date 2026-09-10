@@ -6,6 +6,7 @@ import { safeWriteAllowed } from '../fs/root.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
 import { tryGetRawFfi } from '../ffi/raw_ffi.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { renderFilenameTemplate } from 'maple';
 import { EXPORT_ENCODERS } from '../generated/export-recipe.generated.ts';
 import type { ExportRecipe } from '../generated/export-recipe.generated.ts';
 import type { ExportTarget } from './export-payload.ts';
@@ -82,7 +83,7 @@ async function exportPaths(
   const encoder = EXPORT_ENCODERS.find((entry) => entry.format === recipe.format)!;
   const native = tryGetRawFfi();
   if (!native) throw new Error('Recipe encoder unavailable. Rebuild or install raw-ffi.');
-  const filename = native.renderFilenameTemplate({
+  const filename = (native.renderFilenameTemplate ?? renderFilenameTemplate)({
     template: recipe.namingTemplate,
     originalStem: basename(source, extname(source)),
     ext: encoder.extension,

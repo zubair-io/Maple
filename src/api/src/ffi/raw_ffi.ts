@@ -13,6 +13,11 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import {
+  loadNativeBinding,
+  renderFilenameTemplate as mapleRenderFilenameTemplate,
+  validateFilename as mapleValidateFilename,
+} from 'maple';
 import { child as childLogger } from '../log.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
 import type * as BunFfi from 'bun:ffi';
@@ -54,13 +59,6 @@ export function histogramBinsFromBuffer(buf: Buffer): HistogramBins {
 type FilenameTemplateResult =
   | { ok: true; name: string }
   | { ok: false; code: number; error: string };
-
-/** Caller-owned output buffer size for `maple_render_filename_template_buf`.
- * 1 KiB comfortably covers any output that could ever pass filename
- * validation (every target filesystem caps names near 255 bytes); a
- * degenerate token-repeating template that overflows it gets a clean
- * buffer-too-small error (code 9), not a truncated name. */
-const RENDER_OUT_CAP = 1024;
 
 interface RawFfi {
   /** Null means success; errors carry the native encoder's actionable message. */
@@ -353,17 +351,9 @@ function loadFfi(): RawFfi | null {
       },
 
       exportRecipeToFile(rawPath, xmp, recipeJson, filmPath, outPath) {
-        const buffers = [rawPath, xmp, recipeJson, filmPath, outPath].map((value) =>
-          value === null ? null : Buffer.from(value + '\0'),
-        );
-        const code = lib.symbols.maple_export_recipe_to_file(
-          ptr(buffers[0]!),
-          ptr(buffers[1]!),
-          ptr(buffers[2]!),
-          buffers[3] ? ptr(buffers[3]) : null,
-          ptr(buffers[4]!),
-        );
-        return code === 0 ? null : String(lib.symbols.maple_last_error() || 'Native export failed');
+        const binding = loadNativeBinding();
+        const res = binding.exportRecipeToFile(rawPath, xmp, recipeJson, filmPath, outPath);
+        return res.ok ? null : (res.error ?? 'Native export failed');
       },
 
       renderThumbnailAvifToFile(
@@ -426,50 +416,11 @@ function loadFfi(): RawFfi | null {
       },
 
       renderFilenameTemplate(args): FilenameTemplateResult {
-        const templateBuf = Buffer.from(args.template + '\0', 'utf-8');
-        const stemBuf = Buffer.from(args.originalStem + '\0', 'utf-8');
-        const extBuf = Buffer.from(args.ext + '\0', 'utf-8');
-        const capturedBuf = args.capturedAt ? Buffer.from(args.capturedAt + '\0', 'utf-8') : null;
-        const outBuf = Buffer.alloc(RENDER_OUT_CAP, 0);
-        const outLenBuf = Buffer.alloc(8, 0); // *mut usize (64-bit)
-
-        const rc = lib.symbols.maple_render_filename_template_buf(
-          ptr(templateBuf),
-          ptr(stemBuf),
-          ptr(extBuf),
-          capturedBuf ? ptr(capturedBuf) : null,
-          BigInt(args.sequenceStart),
-          BigInt(args.sequenceIndex),
-          BigInt(args.sequencePadWidth),
-          ptr(outBuf),
-          BigInt(RENDER_OUT_CAP),
-          ptr(outLenBuf),
-        ) as number;
-
-        if (rc !== 0) {
-          const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          return {
-            ok: false,
-            code: rc,
-            error: errStr ?? `render failed with code ${rc}`,
-          };
-        }
-        const outLen = Number(outLenBuf.readBigUInt64LE(0));
-        return { ok: true, name: outBuf.subarray(0, outLen).toString('utf-8') };
+        return mapleRenderFilenameTemplate(args);
       },
 
       validateFilename(name: string) {
-        const nameBuf = Buffer.from(name + '\0', 'utf-8');
-        const rc = lib.symbols.maple_validate_filename(ptr(nameBuf)) as number;
-        if (rc !== 0) {
-          const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          return {
-            ok: false as const,
-            code: rc,
-            error: errStr ?? `invalid filename (code ${rc})`,
-          };
-        }
-        return { ok: true as const };
+        return mapleValidateFilename(name);
       },
     };
   } catch (err) {

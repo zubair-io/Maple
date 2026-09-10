@@ -1,0 +1,32 @@
+{
+  "name": "@justmaple/maple",
+  "version": "0.1.0",
+  "description": "Maple image development engine and CLI by Just Maple",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "bin": {
+    "maple": "./bin/maple.js"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node && tsc -p tsconfig.json",
+    "test": "bun test",
+    "bench": "bun ../api/scripts/bench-maple-vs-sharp.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.5.0"
+  }
+}

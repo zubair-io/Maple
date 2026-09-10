@@ -55,8 +55,13 @@ recipe! {
 
 pub const RECIPE_VERSION: u32 = 1;
 /// The canonical encoder owns these capabilities; native and WASM share it.
-pub const ENCODERS: &[(&str, u32, &str)] =
-    &[("jpeg", 8, "jpg"), ("tiff", 16, "tif"), ("png", 8, "png")];
+pub const ENCODERS: &[(&str, u32, &str)] = &[
+    ("jpeg", 8, "jpg"),
+    ("tiff", 16, "tif"),
+    ("png", 8, "png"),
+    ("avif", 8, "avif"),
+    ("webp", 8, "webp"),
+];
 pub const OUTPUT_PROFILES: &[&str] = &["srgb", "display-p3"];
 /// The existing display transform and gamut compression, not an ICC CMS intent.
 pub const RENDERING_INTENTS: &[&str] = &["maple-display"];
