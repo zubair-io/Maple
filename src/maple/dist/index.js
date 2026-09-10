@@ -1,8 +1,121 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
-// src/native.ts
+// src/platform.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+function isMusl() {
+  if (process.platform !== "linux")
+    return false;
+  try {
+    const report = process.report?.getReport?.();
+    if (report?.header?.glibcVersionRuntime) {
+      return false;
+    }
+  } catch {}
+  try {
+    if (fs.existsSync("/proc/self/maps")) {
+      const maps = fs.readFileSync("/proc/self/maps", "utf-8");
+      if (maps.includes("libc.so") || maps.includes("ld-linux")) {
+        return false;
+      }
+      if (maps.includes("ld-musl-") || maps.includes("libc.musl-")) {
+        return true;
+      }
+    }
+  } catch {}
+  try {
+    if (fs.existsSync("/etc/alpine-release")) {
+      return true;
+    }
+  } catch {}
+  try {
+    const bun = globalThis.Bun;
+    if (bun) {
+      const res = bun.spawnSync(["ldd", "--version"]);
+      const text = ((res.stdout?.toString() || "") + (res.stderr?.toString() || "")).toLowerCase();
+      if (text.includes("musl")) {
+        return true;
+      }
+      if (text.includes("glibc") || text.includes("gnu libc")) {
+        return false;
+      }
+    }
+  } catch {}
+  try {
+    for (const dir of ["/lib", "/lib64", "/usr/lib"]) {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        if (files.some((f) => f.startsWith("ld-musl-"))) {
+          return true;
+        }
+      }
+    }
+  } catch {}
+  return false;
+}
+function getPlatformPackageName(platform = process.platform, arch = process.arch, musl = isMusl()) {
+  if (platform === "darwin") {
+    if (arch === "arm64")
+      return "@justmaple/maple-darwin-arm64";
+    if (arch === "x64")
+      return "@justmaple/maple-darwin-x64";
+  } else if (platform === "linux") {
+    const libc = musl ? "musl" : "gnu";
+    if (arch === "x64")
+      return `@justmaple/maple-linux-x64-${libc}`;
+    if (arch === "arm64")
+      return `@justmaple/maple-linux-arm64-${libc}`;
+  } else if (platform === "win32") {
+    if (arch === "x64")
+      return "@justmaple/maple-win32-x64-msvc";
+  }
+  return null;
+}
+function getPlatformBinaryFilename(platform = process.platform) {
+  if (platform === "win32")
+    return "raw_ffi.dll";
+  if (platform === "darwin")
+    return "libraw_ffi.dylib";
+  return "libraw_ffi.so";
+}
+function resolvePlatformPackageLib() {
+  const pkgName = getPlatformPackageName();
+  if (!pkgName)
+    return null;
+  const libName = getPlatformBinaryFilename();
+  try {
+    const resolvedMain = __require.resolve(pkgName);
+    if (fs.existsSync(resolvedMain) && fs.statSync(resolvedMain).isFile()) {
+      return path.resolve(resolvedMain);
+    }
+  } catch {}
+  try {
+    const resolvedFile = __require.resolve(`${pkgName}/${libName}`);
+    if (fs.existsSync(resolvedFile)) {
+      return path.resolve(resolvedFile);
+    }
+  } catch {}
+  const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
+  const shortName = pkgName.replace("@justmaple/maple-", "");
+  const candidateDirs = [
+    path.join(currentDir, "..", "..", pkgName, libName),
+    path.join(currentDir, "..", "node_modules", pkgName, libName),
+    path.join(process.cwd(), "node_modules", pkgName, libName),
+    path.join(currentDir, "..", "npm", shortName, libName),
+    path.join(process.cwd(), "npm", shortName, libName)
+  ];
+  for (const candidate of candidateDirs) {
+    if (fs.existsSync(candidate)) {
+      return path.resolve(candidate);
+    }
+  }
+  return null;
+}
+// src/native.ts
+import * as fs2 from "node:fs";
+import * as path2 from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // src/ffi-symbols.ts
 function getFfiSymbols(FFIType) {
@@ -156,31 +269,34 @@ function nativeLibFilename() {
     return "libraw_ffi.dylib";
   return "libraw_ffi.so";
 }
+function firstExisting(candidates) {
+  const hit = candidates.find((candidate) => fs2.existsSync(candidate));
+  return hit ? path2.resolve(hit) : null;
+}
 function findNativeLib() {
-  if (process.env.MAPLE_NATIVE_LIB && fs.existsSync(process.env.MAPLE_NATIVE_LIB)) {
+  if (process.env.MAPLE_NATIVE_LIB && fs2.existsSync(process.env.MAPLE_NATIVE_LIB)) {
     return process.env.MAPLE_NATIVE_LIB;
   }
   const libName = nativeLibFilename();
-  const currentDir = import.meta.dir || path.dirname(new URL(import.meta.url).pathname);
-  const candidates = [
-    path.join(currentDir, "..", "native", libName),
-    path.join(process.cwd(), "native", libName),
-    path.join("/app", "native", libName),
-    path.join(currentDir, "..", "..", "api", "native", libName),
-    path.join(currentDir, "..", "..", "raw-pipeline", "target", "release", libName),
-    path.join(currentDir, "..", "..", "raw-pipeline", "target", "aarch64-apple-darwin", "release", libName),
-    path.join(currentDir, "..", "..", "raw-pipeline", "target", "x86_64-apple-darwin", "release", libName),
-    path.join(currentDir, "..", "..", "raw-pipeline", "target", "x86_64-unknown-linux-gnu", "release", libName),
-    path.join(currentDir, "..", "..", "raw-pipeline", "target", "aarch64-unknown-linux-gnu", "release", libName),
-    path.join("/usr/local/lib", libName),
-    path.join("/usr/lib", libName)
+  const currentDir = import.meta.dir || path2.dirname(fileURLToPath2(import.meta.url));
+  const cargoTarget = path2.join(currentDir, "..", "..", "raw-pipeline", "target");
+  const sourceBuilt = [
+    path2.join(cargoTarget, "release", libName),
+    path2.join(cargoTarget, "aarch64-apple-darwin", "release", libName),
+    path2.join(cargoTarget, "x86_64-apple-darwin", "release", libName),
+    path2.join(cargoTarget, "x86_64-unknown-linux-gnu", "release", libName),
+    path2.join(cargoTarget, "aarch64-unknown-linux-gnu", "release", libName),
+    path2.join(cargoTarget, "x86_64-pc-windows-msvc", "release", libName),
+    path2.join(currentDir, "..", "..", "api", "native", libName)
   ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return path.resolve(candidate);
-    }
-  }
-  return null;
+  const runtime = [
+    path2.join(currentDir, "..", "native", libName),
+    path2.join(process.cwd(), "native", libName),
+    path2.join("/app", "native", libName),
+    path2.join("/usr/local/lib", libName),
+    path2.join("/usr/lib", libName)
+  ];
+  return firstExisting(sourceBuilt) ?? resolvePlatformPackageLib() ?? firstExisting(runtime);
 }
 function loadNativeBinding() {
   if (_cachedBinding !== undefined && _cachedBinding !== null) {
@@ -288,7 +404,7 @@ function loadNativeBinding() {
     },
     rasterProbeMetadata(inputPath) {
       try {
-        const bytes = fs.readFileSync(inputPath);
+        const bytes = fs2.readFileSync(inputPath);
         return this.rasterProbeMetadataBuf(bytes);
       } catch (e) {
         return { ok: false, error: e?.message || String(e) };
@@ -375,10 +491,10 @@ function isNativeAvailable() {
   }
 }
 // src/export.ts
-import * as fs2 from "node:fs/promises";
-import * as path2 from "node:path";
+import * as fs3 from "node:fs/promises";
+import * as path3 from "node:path";
 function inferFormatFromExt(filePath) {
-  const ext = path2.extname(filePath).toLowerCase();
+  const ext = path3.extname(filePath).toLowerCase();
   if (ext === ".tif" || ext === ".tiff")
     return "tiff";
   if (ext === ".png")
@@ -391,9 +507,9 @@ async function exportImage(options) {
   const quality = options.quality ?? 92;
   const colorSpace = options.colorSpace ?? "srgb";
   const maxLongEdge = options.maxLongEdge ?? 0;
-  const parentDir = path2.dirname(options.outPath);
-  await fs2.mkdir(parentDir, { recursive: true });
-  const res = native.exportDevelopedToFile(path2.resolve(options.rawPath), options.xmpPath ? path2.resolve(options.xmpPath) : null, format, quality, colorSpace, maxLongEdge, path2.resolve(options.outPath));
+  const parentDir = path3.dirname(options.outPath);
+  await fs3.mkdir(parentDir, { recursive: true });
+  const res = native.exportDevelopedToFile(path3.resolve(options.rawPath), options.xmpPath ? path3.resolve(options.xmpPath) : null, format, quality, colorSpace, maxLongEdge, path3.resolve(options.outPath));
   if (!res.ok) {
     return { ok: false, outPath: options.outPath, error: res.error };
   }
@@ -406,14 +522,14 @@ async function exportRecipe(options) {
   if (!xmpXml) {
     const candidateXmp = options.rawPath.replace(/\.[^.]+$/, ".xmp");
     try {
-      xmpXml = await fs2.readFile(candidateXmp, "utf-8");
+      xmpXml = await fs3.readFile(candidateXmp, "utf-8");
     } catch {
       xmpXml = "";
     }
   }
-  const parentDir = path2.dirname(options.outPath);
-  await fs2.mkdir(parentDir, { recursive: true });
-  const res = native.exportRecipeToFile(path2.resolve(options.rawPath), xmpXml, recipeJson, options.filmPath ? path2.resolve(options.filmPath) : null, path2.resolve(options.outPath));
+  const parentDir = path3.dirname(options.outPath);
+  await fs3.mkdir(parentDir, { recursive: true });
+  const res = native.exportRecipeToFile(path3.resolve(options.rawPath), xmpXml, recipeJson, options.filmPath ? path3.resolve(options.filmPath) : null, path3.resolve(options.outPath));
   if (!res.ok) {
     return { ok: false, outPath: options.outPath, error: res.error };
   }
@@ -421,8 +537,8 @@ async function exportRecipe(options) {
 }
 async function renderThumbnail(options) {
   const native = loadNativeBinding();
-  await fs2.mkdir(path2.dirname(options.outPath), { recursive: true });
-  const res = native.renderThumbnailAvifToFile(path2.resolve(options.rawPath), path2.resolve(options.outPath), options.maxPx ?? 512, options.quality ?? 55);
+  await fs3.mkdir(path3.dirname(options.outPath), { recursive: true });
+  const res = native.renderThumbnailAvifToFile(path3.resolve(options.rawPath), path3.resolve(options.outPath), options.maxPx ?? 512, options.quality ?? 55);
   if (!res.ok) {
     throw new Error(res.error);
   }
@@ -430,8 +546,8 @@ async function renderThumbnail(options) {
 }
 async function renderPreview(options) {
   const native = loadNativeBinding();
-  await fs2.mkdir(path2.dirname(options.outPath), { recursive: true });
-  const res = native.renderThumbnailPreviewJpegToFile(path2.resolve(options.rawPath), path2.resolve(options.outPath), options.maxPx ?? 1280, options.quality ?? 85);
+  await fs3.mkdir(path3.dirname(options.outPath), { recursive: true });
+  const res = native.renderThumbnailPreviewJpegToFile(path3.resolve(options.rawPath), path3.resolve(options.outPath), options.maxPx ?? 1280, options.quality ?? 85);
   if (!res.ok) {
     throw new Error(res.error);
   }
@@ -439,9 +555,9 @@ async function renderPreview(options) {
 }
 // src/builder.ts
 import * as crypto from "node:crypto";
-import * as fs3 from "node:fs/promises";
+import * as fs4 from "node:fs/promises";
 import * as os from "node:os";
-import * as path3 from "node:path";
+import * as path4 from "node:path";
 var RAW_EXTENSIONS = new Set([
   ".dng",
   ".raw",
@@ -466,7 +582,7 @@ var RAW_EXTENSIONS = new Set([
   ".fff"
 ]);
 function isRawPath(filePath) {
-  const ext = path3.extname(filePath).toLowerCase();
+  const ext = path4.extname(filePath).toLowerCase();
   return RAW_EXTENSIONS.has(ext);
 }
 
@@ -599,7 +715,7 @@ class MapleImageBuilder {
     return {
       width: res.metadata.width,
       height: res.metadata.height,
-      format: res.metadata.format || path3.extname(this._inputPath).replace(".", "").toLowerCase(),
+      format: res.metadata.format || path4.extname(this._inputPath).replace(".", "").toLowerCase(),
       channels: res.metadata.channels,
       orientation: res.metadata.orientation,
       isRaw: isRawPath(this._inputPath) || res.metadata.format === "dng"
@@ -624,24 +740,24 @@ class MapleImageBuilder {
     if (meta.orientation <= 1) {
       return true;
     }
-    const ext = path3.extname(this._inputPath) || ".jpg";
+    const ext = path4.extname(this._inputPath) || ".jpg";
     const tempOut = `${this._inputPath}.orient_tmp.${Date.now()}.${crypto.randomUUID()}${ext}`;
     const targetFmt = this._format || meta.format || "jpeg";
     const res = await this.rotate().format(targetFmt).toFile(tempOut);
     if (!res.ok) {
       try {
-        await fs3.unlink(tempOut);
+        await fs4.unlink(tempOut);
       } catch {}
       throw new Error(res.error || "Failed to normalize orientation");
     }
-    await fs3.rename(tempOut, this._inputPath);
+    await fs4.rename(tempOut, this._inputPath);
     return true;
   }
   async toRawRgb(options) {
     const native = loadNativeBinding();
     let bytes = this._inputBytes;
     if (!bytes && this._inputPath) {
-      bytes = await fs3.readFile(this._inputPath);
+      bytes = await fs4.readFile(this._inputPath);
     }
     if (!bytes || bytes.length === 0) {
       throw new Error("Input image is empty");
@@ -664,7 +780,7 @@ class MapleImageBuilder {
     const native = loadNativeBinding();
     let bytes = this._inputBytes;
     if (!bytes && this._inputPath && !isRawPath(this._inputPath)) {
-      bytes = await fs3.readFile(this._inputPath);
+      bytes = await fs4.readFile(this._inputPath);
     }
     if (bytes) {
       let fitMask = this._resizeFit === "fill" ? 1 : 0;
@@ -681,17 +797,17 @@ class MapleImageBuilder {
     }
     if (this._inputPath) {
       const ext = this._format ? `.${this._format === "jpeg" ? "jpg" : this._format}` : ".jpg";
-      const tmpFile = path3.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+      const tmpFile = path4.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
       try {
         const fileRes = await this.toFile(tmpFile);
         if (!fileRes.ok) {
           throw new Error(fileRes.error || "Failed to develop RAW to buffer");
         }
-        const buf = await fs3.readFile(tmpFile);
+        const buf = await fs4.readFile(tmpFile);
         return buf;
       } finally {
         try {
-          await fs3.unlink(tmpFile);
+          await fs4.unlink(tmpFile);
         } catch {}
       }
     }
@@ -719,8 +835,8 @@ class MapleImageBuilder {
       });
     }
     const native = loadNativeBinding();
-    const parentDir = path3.dirname(outputPath);
-    await fs3.mkdir(parentDir, { recursive: true });
+    const parentDir = path4.dirname(outputPath);
+    await fs4.mkdir(parentDir, { recursive: true });
     let fitMask = this._resizeFit === "fill" ? 1 : 0;
     if (this._autoOrient)
       fitMask |= 2;
@@ -728,7 +844,7 @@ class MapleImageBuilder {
       fitMask |= 4;
     const targetFormat = this._format || null;
     if (this._inputPath) {
-      const res = native.rasterResizeToFile(path3.resolve(this._inputPath), path3.resolve(outputPath), this._resizeWidth, this._resizeHeight, fitMask, targetFormat, this._quality);
+      const res = native.rasterResizeToFile(path4.resolve(this._inputPath), path4.resolve(outputPath), this._resizeWidth, this._resizeHeight, fitMask, targetFormat, this._quality);
       if (!res.ok) {
         return { ok: false, outPath: outputPath, error: res.error };
       }
@@ -739,7 +855,7 @@ class MapleImageBuilder {
       if (!bufRes.ok || !bufRes.buffer) {
         return { ok: false, outPath: outputPath, error: bufRes.error };
       }
-      await fs3.writeFile(outputPath, bufRes.buffer);
+      await fs4.writeFile(outputPath, bufRes.buffer);
       return { ok: true, outPath: outputPath };
     }
     return { ok: false, outPath: outputPath, error: "No input provided" };
@@ -749,8 +865,8 @@ function maple(input) {
   return new MapleImageBuilder(input);
 }
 // src/cli.ts
-import * as fs4 from "node:fs/promises";
-import * as path4 from "node:path";
+import * as fs5 from "node:fs/promises";
+import * as path5 from "node:path";
 function printHelp() {
   console.log(`
 maple - Professional RAW photo development and export engine by Just Maple
@@ -864,7 +980,7 @@ async function runCli(argv) {
     console.log(`Exporting ${rawPath} -> ${outPath}...`);
     const start = Date.now();
     if (recipePath) {
-      const recipeContent = await fs4.readFile(recipePath, "utf-8");
+      const recipeContent = await fs5.readFile(recipePath, "utf-8");
       const res = await exportRecipe({
         rawPath,
         recipe: recipeContent,
@@ -891,7 +1007,7 @@ async function runCli(argv) {
       }
     }
     const elapsed = ((Date.now() - start) / 1000).toFixed(2);
-    const stat2 = await fs4.stat(outPath);
+    const stat2 = await fs5.stat(outPath);
     console.log(`✓ Exported: ${outPath} (${(stat2.size / 1024).toFixed(1)} KB in ${elapsed}s)`);
     return 0;
   }
@@ -919,16 +1035,16 @@ async function runCli(argv) {
       console.error("Error: No photo files specified for batch recipe export.");
       return 1;
     }
-    const recipeContent = await fs4.readFile(recipePath, "utf-8");
+    const recipeContent = await fs5.readFile(recipePath, "utf-8");
     const recipe = JSON.parse(recipeContent);
-    await fs4.mkdir(outDir, { recursive: true });
+    await fs5.mkdir(outDir, { recursive: true });
     console.log(`Batch exporting ${photoFiles.length} photo(s) with recipe "${recipe.name}"...`);
     let succeeded = 0;
     let failed = 0;
     for (const file of photoFiles) {
-      const stem = path4.basename(file, path4.extname(file));
+      const stem = path5.basename(file, path5.extname(file));
       const ext = recipe.format === "tiff" ? "tif" : recipe.format === "png" ? "png" : "jpg";
-      const dest = path4.join(outDir, `${stem}.${ext}`);
+      const dest = path5.join(outDir, `${stem}.${ext}`);
       process.stdout.write(`  Rendering ${stem}... `);
       const res = await exportRecipe({
         rawPath: file,
@@ -1029,7 +1145,7 @@ async function runCli(argv) {
       return 1;
     }
     const elapsed = ((Date.now() - start) / 1000).toFixed(2);
-    const stat2 = await fs4.stat(outPath);
+    const stat2 = await fs5.stat(outPath);
     console.log(`✓ Resized: ${outPath} (${(stat2.size / 1024).toFixed(1)} KB in ${elapsed}s)`);
     return 0;
   }
@@ -1066,6 +1182,7 @@ Maple Image Inspection: ${inputPath}`);
 export {
   validateFilename,
   runCli,
+  resolvePlatformPackageLib,
   renderThumbnail,
   renderPreview,
   renderFilenameTemplate,
@@ -1074,6 +1191,9 @@ export {
   loadNativeBinding,
   isRawPath,
   isNativeAvailable,
+  isMusl,
+  getPlatformPackageName,
+  getPlatformBinaryFilename,
   findNativeLib,
   exportRecipe,
   exportImage,
