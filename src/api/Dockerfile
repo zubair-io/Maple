@@ -194,6 +194,9 @@ COPY --from=ui-builder /build/dist/maple/browser/ /app/ui/
 # Native shared library from stage 2.
 RUN mkdir -p native
 COPY --from=rust-builder /libraw_ffi.so native/
+# Select the library this image just built explicitly, so the loader never
+# prefers an npm-installed @justmaple/maple-<platform> prebuilt over it.
+ENV MAPLE_NATIVE_LIB=/app/native/libraw_ffi.so
 
 ENV PORT=3000
 ENV MAPLE_MONGO_URI=mongodb://localhost:27017
