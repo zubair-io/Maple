@@ -8,10 +8,10 @@
 //! combined bounding box of alpha and non-alpha channels".
 //!
 //! If trimming would remove everything — an image that is entirely
-//! background — the image is returned unchanged. This is a deliberate
-//! divergence from sharp, which throws ("Image to trim was empty...") in
-//! that case; Maple prefers a no-op to an exception for a caller that trims
-//! speculatively.
+//! background — the image is returned unchanged. This matches sharp 0.34
+//! (measured against 0.34.5): despite documentation suggesting it throws
+//! ("Image to trim was empty..."), a uniform image is in practice returned
+//! as-is, not rejected.
 //!
 //! sharp's `lineArt` option selects a different libvips algorithm and is NOT
 //! in #3501; the recipe layer rejects it by name rather than ignoring it.
@@ -79,7 +79,8 @@ impl RasterImage {
             })
         });
         // Nothing differed from the background: an all-background image is
-        // returned unchanged rather than erroring (see the module doc).
+        // returned unchanged, matching sharp's actual behaviour (see the
+        // module doc).
         let Some((left, top, right, bottom)) = bounds else {
             return Ok(self.clone());
         };
