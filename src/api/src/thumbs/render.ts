@@ -65,8 +65,12 @@ export const THUMB_AVIF_EFFORT = 4;
  * `image/jpeg` as the media type it sends upstream. */
 export type ThumbOutputFormat = 'avif' | 'jpeg';
 
-/** Encode a Maple builder to `format`, matching the pre-migration
- * quality/encoder choice for the JPEG output format. */
+/** Encode a Maple builder to `format`. NOTE: Maple's encoder drops alpha
+ * with no compositing step, so a source with real transparency (a
+ * transparent PNG, or the PSD/HDR branch below) renders as opaque BLACK
+ * wherever it was transparent — not a neutral/white matte. This is a ruled
+ * interim (#3505); sharp used to composite onto white/whatever matte was
+ * configured. */
 function encodeToBuffer(
   builder: ReturnType<typeof maple>,
   quality: number,
@@ -170,6 +174,10 @@ async function renderPsdOrHdrThumbToFile(
       ? await decodeHdrIsolated(new Uint8Array(inputBuffer))
       : decodePsdComposite(new Uint8Array(inputBuffer));
 
+  // channels: 4 carries this raster's alpha through to Maple, but the
+  // encoder below drops it with no compositing — a fully transparent PSD/HDR
+  // pixel renders as opaque BLACK, not a neutral matte. Ruled interim
+  // (#3505).
   const builder = maple({
     data: raster.data,
     width: raster.width,
