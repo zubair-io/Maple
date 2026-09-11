@@ -32,6 +32,10 @@ libc = { version = "0.2", optional = true }
 ravif = { version = "0.13", optional = true, default-features = false }
 rgb = { version = "0.8", optional = true, default-features = false }
 imgref = { version = "1", optional = true }
+# Direct dep so TIFF compression, predictor and bit depth are selectable —
+# `image`'s TiffEncoder wrapper hard-codes them. Same version `image/tiff`
+# already resolves (0.11), so the vendor tree is unchanged.
+tiff = "0.11"
 zune-jpeg.workspace = true
 jpeg-encoder.workspace = true
 # GPU resource core (epic #925), feature-gated and OFF by default. All GPU code
