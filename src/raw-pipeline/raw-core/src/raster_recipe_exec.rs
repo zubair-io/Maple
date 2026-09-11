@@ -7,10 +7,10 @@ use crate::raster::RasterImage;
 use crate::raster_recipe::{Layer, Op, Output, Recipe, RecipeInput};
 
 use crate::export::ExportFormat;
-use crate::raster::{resize_raster, FilterAlg, ResizeFit, ResizeOptions};
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
 use crate::raster_encode::{container_supports_alpha, encode_raster_opts, RasterEncodeOptions};
 use crate::raster_recipe_geometry::apply_geometry_op;
+use crate::raster_recipe_resize::apply_resize_op;
 
 /// What a recipe produced: the encoded bytes (or raw pixels for
 /// `Output::Raw`) plus the dimensions actually written.
@@ -22,8 +22,10 @@ pub struct RecipeResult {
     pub bytes: Vec<u8>,
 }
 
-/// `pub(crate)` — shared with `raster_recipe_geometry`, which reports its own
-/// unsupported-option errors (`extendWith`, `trim.lineArt`) the same way.
+/// `pub(crate)` — shared with `raster_recipe_geometry` and
+/// `raster_recipe_resize`, which report their own unsupported-option errors
+/// (`extendWith`, `trim.lineArt`, unsupported fit/kernel/position) the same
+/// way.
 pub(crate) fn bad(reason: String) -> Error {
     Error::Decode {
         path: "<recipe>".into(),
@@ -52,32 +54,6 @@ fn decode_layer(layer: &Layer, aux: &[u8]) -> Result<RasterImage> {
     }
 }
 
-fn fit_from_wire(s: &str) -> Result<ResizeFit> {
-    match s {
-        "cover" => Ok(ResizeFit::Cover),
-        "contain" => Ok(ResizeFit::Contain),
-        "fill" => Ok(ResizeFit::Fill),
-        "inside" => Ok(ResizeFit::Inside),
-        "outside" => Ok(ResizeFit::Outside),
-        other => Err(bad(format!("unsupported resize fit '{other}'"))),
-    }
-}
-
-fn kernel_from_wire(s: &str) -> Result<FilterAlg> {
-    match s {
-        "lanczos3" => Ok(FilterAlg::Lanczos3),
-        "lanczos2" => Ok(FilterAlg::Lanczos2),
-        "cubic" => Ok(FilterAlg::CatmullRom),
-        "mitchell" => Ok(FilterAlg::Mitchell),
-        // `bilinear` is Maple's Tier 1 spelling; `linear` is sharp's.
-        "linear" | "bilinear" => Ok(FilterAlg::Bilinear),
-        "nearest" => Ok(FilterAlg::Nearest),
-        other => Err(bad(format!(
-            "unsupported resize kernel '{other}' (nearest, linear, cubic, mitchell, lanczos2, lanczos3)"
-        ))),
-    }
-}
-
 fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
     match op {
         Op::AutoOrient {} => {
@@ -94,23 +70,16 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
             without_enlargement,
             without_reduction,
             background,
-        } => resize_raster(
+        } => apply_resize_op(
             &image,
-            &ResizeOptions {
-                width: *width,
-                height: *height,
-                fit: fit_from_wire(fit)?,
-                filter: kernel_from_wire(kernel)?,
-                without_enlargement: *without_enlargement,
-                without_reduction: *without_reduction,
-                position: Gravity::from_wire(position).ok_or_else(|| {
-                    bad(format!(
-                        "unsupported resize position '{position}' \
-                         (the entropy and attention strategies are not implemented)"
-                    ))
-                })?,
-                background: *background,
-            },
+            *width,
+            *height,
+            fit,
+            position,
+            kernel,
+            *without_enlargement,
+            *without_reduction,
+            *background,
         ),
         Op::Flatten { background } => {
             Ok(image.flatten([background[0], background[1], background[2]]))
