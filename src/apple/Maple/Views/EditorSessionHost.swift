@@ -82,6 +82,17 @@ struct EditorSessionHost: View {
         // `state` and `builtAssetID` are set together so the gate above
         // never sees a state that doesn't match the live session.
         .task(id: session.asset.id) {
+            // `.task(id:)` can fire more than once for the same asset (a
+            // re-appear, or the modifier re-evaluating while the shell's
+            // `sessions` store changes underneath it). Rebuilding here
+            // handed the on-screen `CanvasZoomHost` a second, fresh
+            // `CanvasZoomController` whose viewport was never reported —
+            // `.onAppear` had already fired for the first one — so fit
+            // resolved against a zero viewport and the image opened at
+            // 100% with no way to zoom out (#3540). One state per asset.
+            if let state, state.session === session, builtAssetID == session.asset.id {
+                return
+            }
             state = EditorState(session: session)
             builtAssetID = session.asset.id
         }

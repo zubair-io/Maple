@@ -301,6 +301,26 @@ final class CanvasZoomControllerTests: XCTestCase {
         XCTAssertEqual(session.viewportSourceRect.height, 1280, accuracy: 1e-6)
     }
 
+    func testViewportBeforeNativeSizeDefersTheZoomCommit() {
+        // The host reports its viewport before the metadata seed has
+        // published a native size. Fit is unresolvable, and CanvasMath's
+        // degenerate answer is 1 — committing it wrote a literal 100% into
+        // the session (#3540). The viewport still lands as the fast-phase
+        // target; the zoom commit waits for the seed.
+        let session = EditSession.preview()
+        let controller = CanvasZoomController(session: session)
+
+        controller.viewportChanged(points: CGSize(width: 1000, height: 800), displayScale: 2)
+        XCTAssertEqual(session.previewSize, CGSize(width: 2000, height: 1600))
+        XCTAssertEqual(session.pixelScale, 0, "no 100% write while the image extent is unknown")
+        XCTAssertEqual(session.viewportSourceRect, .zero)
+
+        session.nativeImageSize = CGSize(width: 8000, height: 6000)
+        controller.nativeImageSizeChanged()
+        XCTAssertEqual(session.pixelScale, 0.25, accuracy: 1e-9, "the seed commits the real fit")
+        XCTAssertEqual(controller.displayFrameInPoints, CGSize(width: 1000, height: 750))
+    }
+
     func testResetToFitBeforeViewportLeavesSessionUntouched() {
         let session = EditSession.preview()
         session.nativeImageSize = CGSize(width: 8000, height: 6000)
