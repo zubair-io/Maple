@@ -105,17 +105,20 @@ jobs:
 
       - name: Open the PR
         if: steps.sync.outputs.changed == 'true'
+        env:
+          BRANCH: ${{ steps.existing.outputs.branch }}
         run: |
           set -euo pipefail
-          BRANCH="${{ steps.existing.outputs.branch }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add src/maple/package.json src/maple/npm/*/package.json src/apple/Maple.xcodeproj/project.pbxproj
+          git add src/maple/package.json src/maple/npm/*/package.json src/maple/src/version.ts src/apple/Maple.xcodeproj/project.pbxproj
           git commit \
             -m "chore(release): sync versions to $TAG" \
             -m "Release $TAG shipped from $TAG_SHA with the tag stamped into every artifact; this brings the committed version fields in line with it. Opened automatically by version-sync.yml (#3486)."
-          git push origin "$BRANCH"
+          # --force: an earlier run may have pushed the branch and died before
+          # `gh pr create`; the PR check above already established no PR uses it.
+          git push --force origin "$BRANCH"
           gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
             --title "chore(release): sync versions to $TAG" \
             --body "Release [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) shipped from $TAG_SHA with the tag stamped into the macOS archive, the Windows build and the npm packages. This PR brings the committed version fields (src/maple package.json files, Xcode MARKETING_VERSION) in line with what shipped. Opened automatically by version-sync.yml; part of #3486."

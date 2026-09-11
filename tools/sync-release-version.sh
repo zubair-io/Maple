@@ -9,6 +9,7 @@
 #
 # Touches:
 #   src/maple/package.json + src/maple/npm/*/package.json  (via sync-versions.ts)
+#   src/maple/src/version.ts  MAPLE_VERSION constant        (via sync-versions.ts)
 #   src/apple/Maple.xcodeproj/project.pbxproj              (every MARKETING_VERSION)
 
 set -euo pipefail

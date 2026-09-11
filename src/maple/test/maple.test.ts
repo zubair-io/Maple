@@ -254,10 +254,12 @@ describe('Maple Native Binding', () => {
       expect(await runCli(['bun', 'maple', '--version'])).toBe(0);
     });
 
-    it('reports the version from package.json', async () => {
+    it('reports the MAPLE_VERSION constant, which matches package.json', async () => {
       const { runCli } = await import('../src/cli.ts');
+      const { MAPLE_VERSION } = await import('../src/version.ts');
       const { readFileSync } = await import('node:fs');
       const pkg = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf-8'));
+      expect(MAPLE_VERSION).toBe(pkg.version);
       const lines: string[] = [];
       const original = console.log;
       console.log = (...args: unknown[]) => {
@@ -268,7 +270,24 @@ describe('Maple Native Binding', () => {
       } finally {
         console.log = original;
       }
-      expect(lines.join('\n')).toContain(`maple ${pkg.version}`);
+      expect(lines.join('\n')).toContain(`maple ${MAPLE_VERSION}`);
+    });
+
+    it('sync-versions.ts rewrites the MAPLE_VERSION constant along with package.json', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { spawnSync } = await import('node:child_process');
+      const script = path.resolve(__dirname, '../scripts/sync-versions.ts');
+      const versionTs = path.resolve(__dirname, '../src/version.ts');
+      const pkgJson = path.resolve(__dirname, '../package.json');
+      const original = JSON.parse(readFileSync(pkgJson, 'utf-8')).version as string;
+      try {
+        expect(spawnSync('bun', [script, '9.9.9']).status).toBe(0);
+        expect(readFileSync(versionTs, 'utf-8')).toContain("MAPLE_VERSION = '9.9.9'");
+        expect(JSON.parse(readFileSync(pkgJson, 'utf-8')).version).toBe('9.9.9');
+      } finally {
+        expect(spawnSync('bun', [script, original]).status).toBe(0);
+      }
+      expect(readFileSync(versionTs, 'utf-8')).toContain(`MAPLE_VERSION = '${original}'`);
     });
 
     it('returns error code 1 for unknown commands', async () => {
