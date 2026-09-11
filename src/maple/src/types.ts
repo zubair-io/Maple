@@ -99,6 +99,12 @@ export interface TrimOptions {
   background?: Colour | string;
   threshold?: number;
   margin?: number;
+  /**
+   * sharp's line-art trim mode is not implemented (#3501). The type only
+   * accepts `false` (its default); passing `true` throws by name at
+   * execution rather than being silently ignored.
+   */
+  lineArt?: false;
 }
 
 export interface TensorOptions {
