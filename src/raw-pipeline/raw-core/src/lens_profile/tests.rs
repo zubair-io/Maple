@@ -28,6 +28,21 @@ fn element_camera_identity_is_scalar_while_calibration_models_are_preserved() {
 }
 
 #[test]
+fn alternate_lens_names_are_an_identity_property_not_an_optical_model() {
+    let profile = parse(&document(r#"<r:li><r:Description c:Make="SONY" c:Lens="FE 24-70mm F4 ZA OSS" c:FocalLength="24" c:CameraRawProfile="True"><c:AlternateLensNames><r:Seq><r:li>24-70mm F4 ZA OSS</r:li><r:li>Sony FE 24-70mm F4 ZA OSS</r:li></r:Seq></c:AlternateLensNames><c:PerspectiveModel c:Version="2" c:RadialDistortParam1="-0.1"/></r:Description></r:li>"#)).unwrap();
+    let sample = &profile.samples[0];
+    assert_eq!(sample.models.len(), 1);
+    assert_eq!(sample.models[0].kind, "PerspectiveModel");
+    assert_eq!(
+        sample.properties["AlternateLensNames"],
+        format!(
+            "24-70mm F4 ZA OSS{}Sony FE 24-70mm F4 ZA OSS",
+            xml::LIST_SEPARATOR
+        )
+    );
+}
+
+#[test]
 fn preserves_duplicate_samples_without_choosing_coefficients() {
     let sample = r#"<r:li c:Make="Example" c:Lens="Prime" c:FocalLength="50"><c:PerspectiveModel c:RadialDistortParam1="0.1"/></r:li>"#;
     let parsed = parse(&document(&format!("{sample}{sample}"))).unwrap();

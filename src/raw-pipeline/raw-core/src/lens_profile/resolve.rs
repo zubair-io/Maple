@@ -137,9 +137,29 @@ fn matches(sample: &LensSample, query: &LensQuery<'_>) -> bool {
             .get(key)
             .is_some_and(|v| normalize(v) == normalize(expected))
     };
+    // A body-agnostic profile names no camera at all: Adobe ships most
+    // mirrorless lens profiles that way (`Make` + `Lens`, no `Model`), and
+    // such a document is by construction for every body of that make. A
+    // profile that DOES name a body is still held to the exact match — no
+    // alias, no "same sensor format" guess.
+    let names_a_body = sample.properties.contains_key("Model")
+        || sample.properties.contains_key("UniqueCameraModel");
+    let body_matches =
+        !names_a_body || eq("Model", query.camera) || eq("UniqueCameraModel", query.camera);
+    // `AlternateLensNames` is the list of spellings Adobe has seen bodies
+    // write for this lens; an exact (normalised) hit on any entry is the
+    // same identity, not a guess.
+    let alias_matches = sample
+        .properties
+        .get("AlternateLensNames")
+        .is_some_and(|names| {
+            names
+                .split(super::xml::LIST_SEPARATOR)
+                .any(|name| normalize(name) == normalize(query.lens))
+        });
     eq("Make", query.make)
-        && (eq("Model", query.camera) || eq("UniqueCameraModel", query.camera))
-        && (eq("Lens", query.lens) || eq("LensPrettyName", query.lens))
+        && body_matches
+        && (eq("Lens", query.lens) || eq("LensPrettyName", query.lens) || alias_matches)
         && sample
             .properties
             .get("CameraRawProfile")
@@ -234,19 +254,26 @@ fn interpolate<'a>(
         .max_by(f64::total_cmp)
         .unwrap();
     let desired = target[axis].unwrap_or_else(|| {
-        if min != max {
+        // Longest focus distance is the smallest reciprocal distance. Most
+        // bodies never write a subject distance at all, and Adobe reads that
+        // as infinity focus — so for the focus axis this is the documented
+        // default, not an approximation. A missing focal length or aperture
+        // is a real gap and stays explicit.
+        if min != max && axis != 2 {
             approximations.push(format!(
                 "{}: missing {} metadata",
                 family_name(family),
                 axis_name(axis)
             ));
         }
-        // Longest focus distance is smallest reciprocal distance. This choice
-        // is exposed as an approximation and never silently auto-applied.
         min
     });
     let clamped = desired.clamp(min, max);
-    if (clamped - desired).abs() > 1e-9 {
+    // Profiles write their axis values with a few decimals (`ApertureValue="6"`,
+    // `FocalLength="24"`), so a query that lands on the boundary can miss it by
+    // float noise; 1e-3 in log-focal, APEX or reciprocal-metre units is far
+    // below anything the calibration can resolve.
+    if (clamped - desired).abs() > 1e-3 {
         approximations.push(format!(
             "{}: {} outside calibrated range (distance {:.6})",
             family_name(family),

@@ -81,6 +81,47 @@ fn identity_matching_does_not_guess_aliases_or_jpeg_profiles() {
 }
 
 #[test]
+fn body_agnostic_profile_matches_any_body_of_its_make_but_a_named_body_stays_exact() {
+    // Adobe ships most mirrorless lens profiles with `Make` + `Lens` and no
+    // `Model` at all (e.g. "SONY (Sony FE 24-70mm F4 ZA OSS) - RAW.lcp"):
+    // such a document is for every body of that make.
+    let mut agnostic = profile();
+    for s in &mut agnostic.samples {
+        s.properties.remove("Model");
+        s.properties.remove("UniqueCameraModel");
+    }
+    let mut q = query();
+    q.camera = "Some other body";
+    assert!(agnostic.resolve(&q).is_ok());
+    // ...but never for another make, and never for another lens.
+    q.make = "Other";
+    assert!(agnostic.resolve(&q).is_err());
+    q.make = "Example";
+    q.lens = "Zoom II";
+    assert!(agnostic.resolve(&q).is_err());
+    // A profile that names a body is still held to that body exactly.
+    let mut q = query();
+    q.camera = "Some other body";
+    assert!(profile().resolve(&q).is_err());
+}
+
+#[test]
+fn an_alternate_lens_name_is_the_same_identity() {
+    let mut p = profile();
+    for s in &mut p.samples {
+        s.properties.insert(
+            "AlternateLensNames".into(),
+            format!("Zoom Mk I{}ZOOM (alias)", super::xml::LIST_SEPARATOR),
+        );
+    }
+    let mut q = query();
+    q.lens = "zoom (alias)";
+    assert!(p.resolve(&q).is_ok());
+    q.lens = "Zoom Mk II";
+    assert!(p.resolve(&q).is_err());
+}
+
+#[test]
 fn duplicate_calibrations_choose_best_fit_independently_of_order() {
     let mut p = LensProfile {
         samples: vec![
@@ -96,12 +137,15 @@ fn duplicate_calibrations_choose_best_fit_independently_of_order() {
 }
 
 #[test]
-fn sparse_or_missing_focus_and_focal_extrapolation_are_explicit() {
+fn focal_extrapolation_is_explicit_and_missing_focus_means_infinity() {
     let mut q = query();
     q.focal_mm = 120.0;
     let result = profile().resolve(&q).unwrap();
     assert!(result.approximations[0].contains("outside calibrated range"));
     assert_eq!(result.calibration.distortion.unwrap().radial[0], 0.3);
+    // No subject distance in the EXIF (the common case) reads as infinity
+    // focus, as Adobe does: the farthest calibration is chosen and nothing is
+    // reported as approximate.
     let p = LensProfile {
         samples: vec![
             sample(40.0, 4.0, 1.0, 0.1, 0.01),
@@ -110,7 +154,13 @@ fn sparse_or_missing_focus_and_focal_extrapolation_are_explicit() {
     };
     q.focal_mm = 40.0;
     q.focus_m = None;
-    assert!(p.resolve(&q).unwrap().approximations[0].contains("missing"));
+    let result = p.resolve(&q).unwrap();
+    assert!(
+        result.approximations.is_empty(),
+        "{:?}",
+        result.approximations
+    );
+    assert_eq!(result.calibration.distortion.unwrap().radial[0], 0.3);
 }
 
 #[test]
