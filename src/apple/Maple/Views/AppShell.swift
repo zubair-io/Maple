@@ -1321,6 +1321,9 @@ struct AppShell: View {
         onPrimeSession: { asset in ensureSession(for: asset) },
         onFullImageFallback: { mode = .browse },
         timelinePreviewSiblingAssets: { ref in timelinePreviewSiblingAssets(for: ref) },
+        searchPreviewSiblingAssets: { ref, server in
+          await searchPreviewSiblingAssets(for: ref, server: server)
+        },
         onMergePanorama: { openPanoramaMerge() },
         onEditMetadata: { openBatchMetadata() },
         onBatchRename: { openBatchRename() },
