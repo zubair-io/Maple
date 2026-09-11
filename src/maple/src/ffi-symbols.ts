@@ -136,6 +136,56 @@ export function getFfiSymbols(FFIType: Record<string, string | number>) {
       ],
       returns: FFIType.i32,
     },
+    maple_raster_render_buf: {
+      args: [
+        FFIType.ptr, // input_bytes
+        FFIType.u64, // input_len
+        FFIType.u32, // width
+        FFIType.u32, // height
+        FFIType.u32, // flags
+        FFIType.u32, // filter
+        FFIType.cstring, // format (nullable)
+        FFIType.u8, // quality
+        FFIType.u8, // effort
+        FFIType.ptr, // out_buf
+        FFIType.u64, // out_cap
+        FFIType.ptr, // out_len (u64*)
+      ],
+      returns: FFIType.i32,
+    },
+    maple_raster_from_raw_render_buf: {
+      args: [
+        FFIType.ptr, // pixels
+        FFIType.u64, // pixels_len
+        FFIType.u32, // src_width
+        FFIType.u32, // src_height
+        FFIType.u32, // channels
+        FFIType.u32, // width
+        FFIType.u32, // height
+        FFIType.u32, // flags
+        FFIType.u32, // filter
+        FFIType.cstring, // format (nullable)
+        FFIType.u8, // quality
+        FFIType.u8, // effort
+        FFIType.ptr, // out_buf
+        FFIType.u64, // out_cap
+        FFIType.ptr, // out_len (u64*)
+      ],
+      returns: FFIType.i32,
+    },
+    maple_raster_decode_rgb8_buf: {
+      args: [
+        FFIType.ptr, // input_bytes
+        FFIType.u64, // input_len
+        FFIType.u32, // auto_orient
+        FFIType.ptr, // out_buf
+        FFIType.u64, // out_cap
+        FFIType.ptr, // out_len (u64*)
+        FFIType.ptr, // out_width (u32*)
+        FFIType.ptr, // out_height (u32*)
+      ],
+      returns: FFIType.i32,
+    },
     maple_last_error: {
       args: [],
       returns: FFIType.cstring,

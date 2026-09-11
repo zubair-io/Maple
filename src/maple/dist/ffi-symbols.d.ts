@@ -50,6 +50,18 @@ export declare function getFfiSymbols(FFIType: Record<string, string | number>):
         args: (string | number)[];
         returns: string | number;
     };
+    maple_raster_render_buf: {
+        args: (string | number)[];
+        returns: string | number;
+    };
+    maple_raster_from_raw_render_buf: {
+        args: (string | number)[];
+        returns: string | number;
+    };
+    maple_raster_decode_rgb8_buf: {
+        args: (string | number)[];
+        returns: string | number;
+    };
     maple_last_error: {
         args: never[];
         returns: string | number;
