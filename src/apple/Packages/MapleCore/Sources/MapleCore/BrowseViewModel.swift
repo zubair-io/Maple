@@ -134,6 +134,7 @@ public final class BrowseViewModel {
         // editor only opens on double-click.
         selectedID = nil
         loadError = nil
+        photosAuthNeeded = false  // a folder is never the Photos-permission state (#3536)
     }
 
     /// Async variant that delegates directory enumeration to a `FilesystemSource`
@@ -165,6 +166,7 @@ public final class BrowseViewModel {
             selectedID = refs.first?.id
             currentSource = source
             loadError = nil
+            photosAuthNeeded = false
         } catch {
             guard gen == loadGeneration else { return }
             loadError = error
