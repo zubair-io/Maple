@@ -16,8 +16,9 @@
  * HEIC/HEIF decode is the expensive case: `heic-convert` is libheif compiled
  * to Emscripten WASM and runs SYNCHRONOUSLY on the calling thread for
  * ~500–2000 ms per file (the `await` is misleading — it's CPU-bound WASM, not
- * I/O). This module is loaded exclusively inside `ffi/raw_ffi.child.ts`, an
- * isolated child process, so the WASM decode and any native decoder crash
+ * I/O). This module is loaded exclusively inside the FFI decode child (by
+ * `ffi/raw_ffi-dispatch.ts`), an isolated child process, so the WASM decode
+ * and any native decoder crash
  * are contained to the child — the parent HTTP server is unaffected.
  *
  * `heic-convert` is imported lazily (inside `renderHeicThumbToFile`, not at
