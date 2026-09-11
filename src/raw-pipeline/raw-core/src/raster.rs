@@ -95,7 +95,14 @@ impl RasterImage {
         if width == 0 || height == 0 {
             return Err(invalid("raw input dimensions must be non-zero".into()));
         }
-        let expected = width as usize * height as usize * channels as usize;
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|px| px.checked_mul(channels as usize))
+            .ok_or_else(|| {
+                invalid(format!(
+                    "raw input dimensions {width}x{height}x{channels} overflow"
+                ))
+            })?;
         if data.len() != expected {
             return Err(invalid(format!(
                 "raw input has {} bytes, expected {expected} for {width}x{height}x{channels}",

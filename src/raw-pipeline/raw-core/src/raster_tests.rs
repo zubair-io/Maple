@@ -161,6 +161,7 @@ mod raw_input {
         assert!(RasterImage::from_raw(2, 2, 3, vec![0; 11]).is_err());
         assert!(RasterImage::from_raw(1, 1, 2, vec![0; 2]).is_err());
         assert!(RasterImage::from_raw(0, 1, 3, vec![]).is_err());
+        assert!(RasterImage::from_raw(u32::MAX, u32::MAX, 3, vec![0; 3]).is_err());
     }
 
     #[test]
