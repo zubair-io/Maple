@@ -164,6 +164,28 @@ fn southeast_tiling_still_covers_the_near_edge() {
 }
 
 #[test]
+fn exactly_one_of_left_or_top_is_rejected() {
+    let base = solid_rgba(2, 2, [0, 0, 0, 255]);
+    let dot = solid_rgba(1, 1, [255, 255, 255, 255]);
+    let only_left = CompositeLayer {
+        left: Some(0),
+        top: None,
+        ..layer(&dot, BlendMode::Over)
+    };
+    let err = composite(&base, &[only_left]).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("composite: a layer must set both left and top, or neither"));
+
+    let only_top = CompositeLayer {
+        left: None,
+        top: Some(0),
+        ..layer(&dot, BlendMode::Over)
+    };
+    assert!(composite(&base, &[only_top]).is_err());
+}
+
+#[test]
 fn wire_spellings_round_trip() {
     assert_eq!(BlendMode::from_wire("dest-in"), Some(BlendMode::DestIn));
     assert_eq!(BlendMode::from_wire("overlay"), None);
