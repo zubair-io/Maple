@@ -59,4 +59,26 @@ enum AppShellVM {
         sessions[asset.id] = session
         return (session, true)
     }
+
+    // MARK: - Search Preview sibling splice (#3551)
+
+    /// Put the asset the user actually TAPPED into its containing folder's
+    /// sibling list at its own position. The list entries are lazily built
+    /// refs with fresh `AssetRef.id`s, so the match is by catalog path (what
+    /// a folder listing knows) and then by `stableID` (both sides carry the
+    /// `fs:<absPath>` id). Without the splice the shown asset would not be
+    /// found BY ID in its own list — no filmstrip highlight, no prev/next.
+    /// Falls back to `[tapped]` when the folder does not contain it (the tap
+    /// raced a move or the listing failed) rather than risk a mismatched
+    /// swipe domain.
+    static func splicingTappedAsset(_ tapped: AssetRef, into siblings: [AssetRef]) -> [AssetRef] {
+        let index = siblings.firstIndex { sibling in
+            if let path = tapped.catalog?.absPath, sibling.catalog?.absPath == path { return true }
+            return tapped.stableID != nil && sibling.stableID == tapped.stableID
+        }
+        guard let index else { return [tapped] }
+        var spliced = siblings
+        spliced[index] = tapped
+        return spliced
+    }
 }

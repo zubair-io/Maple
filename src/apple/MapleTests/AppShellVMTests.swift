@@ -92,4 +92,36 @@ final class AppShellVMTests: XCTestCase {
     XCTAssertNotNil(sessions[second.id])
     XCTAssertEqual(sessions.count, 2)
   }
+
+  // MARK: - Search Preview sibling splice (#3551)
+
+  private func cloudRef(path: String) -> AssetRef {
+    let name = (path as NSString).lastPathComponent
+    return AssetRef(
+      displayName: name, hintExtension: "dng", stableID: "fs:\(path)",
+      catalog: CatalogRef(
+        serverID: URL(string: "https://cloud.example")!, folderID: "f1", absPath: path, address: nil),
+      bytesProvider: { Data() })
+  }
+
+  func testSplicingTappedAssetReplacesItsFolderEntryByPath() {
+    let siblings = [cloudRef(path: "/lib/a.dng"), cloudRef(path: "/lib/b.dng"), cloudRef(path: "/lib/c.dng")]
+    let tapped = cloudRef(path: "/lib/b.dng")  // fresh id, same catalog path
+
+    let spliced = AppShellVM.splicingTappedAsset(tapped, into: siblings)
+
+    XCTAssertEqual(spliced.count, 3)
+    XCTAssertEqual(spliced[1].id, tapped.id, "the tapped ref itself sits at its folder position")
+    XCTAssertEqual(spliced[0].id, siblings[0].id)
+    XCTAssertEqual(spliced[2].id, siblings[2].id)
+  }
+
+  func testSplicingTappedAssetFallsBackToSingleAssetWhenAbsent() {
+    let siblings = [cloudRef(path: "/lib/a.dng")]
+    let tapped = cloudRef(path: "/elsewhere/z.dng")
+
+    let spliced = AppShellVM.splicingTappedAsset(tapped, into: siblings)
+
+    XCTAssertEqual(spliced.map(\.id), [tapped.id])
+  }
 }

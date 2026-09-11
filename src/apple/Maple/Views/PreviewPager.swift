@@ -117,10 +117,19 @@ struct PreviewPager: UIViewControllerRepresentable {
             self.onSelectAsset = onSelectAsset
             self.onDismissDragChanged = onDismissDragChanged
             self.onDismissDragEnded = onDismissDragEnded
+            // A page captures its `ThumbnailSource` (and so the ambient
+            // `ImageSource`) when it is built. A source that arrives AFTER the
+            // first page was built — the Search tab sets it in the same tap
+            // that pushes Preview, so the first render can see the previous
+            // value — would otherwise leave that page on the sourceless path:
+            // a whole-RAW download for its thumbnail and no display tier
+            // (#3551). Treat a change of source identity like a change of
+            // asset list: rebuild the page window.
+            let sourceChanged = (source as AnyObject?) !== (self.source as AnyObject?)
             self.source = source
             self.provider = provider
             let fingerprint = AssetFingerprint(assets)
-            guard fingerprint != assetFingerprint else { return }
+            guard fingerprint != assetFingerprint || sourceChanged else { return }
             assetFingerprint = fingerprint
             self.assets = assets
             assetIndexByID = Dictionary(
