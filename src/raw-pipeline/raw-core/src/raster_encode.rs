@@ -187,6 +187,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_transparent_red_pixel_encodes_as_black_not_red() {
+        // Names the exact colour a compositing bug would leak: if alpha is
+        // dropped instead of composited, a [255,0,0,0] pixel keeps its red
+        // channel and comes out red, not black (#3501 — raw-ffi's
+        // `render_into` did exactly this via `encode_raster_rgb` before it
+        // was pointed at this function).
+        let transparent_red = RasterImage::new_rgba(1, 1, vec![255, 0, 0, 0]);
+        let bytes = encode_raster_opts(&transparent_red, &opts(ExportFormat::Jpeg)).unwrap();
+        let decoded = crate::raster::decode_raster(&bytes, Some("jpeg")).unwrap();
+        let (r, g, b) = (decoded.data[0], decoded.data[1], decoded.data[2]);
+        assert!(
+            r < 24 && g < 24 && b < 24,
+            "transparent red pixel encoded as ({r},{g},{b}), expected near-black"
+        );
+    }
+
     /// AVIF's alpha item is a separate code path from PNG/WebP's interleaved
     /// alpha channel (`encode_avif_rgba_with_speed` → `ravif::Encoder::encode_rgba`,
     /// #3505), so it needs its own round-trip pin rather than relying on the
