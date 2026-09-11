@@ -193,6 +193,11 @@ jobs:
 
       - name: Build root @justmaple/maple package
         working-directory: src/maple
+        env:
+          # Test against the binary this run just assembled, never the
+          # previously published platform package that bun install pulls in
+          # as an optionalDependency (it predates any new FFI symbols).
+          MAPLE_NATIVE_LIB: ${{ github.workspace }}/src/maple/npm/linux-x64-gnu/libraw_ffi.so
         run: |
           bun install
           bun run build
