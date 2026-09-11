@@ -313,9 +313,13 @@ function getFfiSymbols(FFIType) {
 
 // src/native-raster-v2.ts
 var NEED_LARGER_BUFFER = 100;
+var MAX_PROBE_SIZED_PIXELS = 268000000;
 function rgb8SizeFromProbe(probe, autoOrient) {
   const meta = probe.ok ? probe.metadata : undefined;
-  if (!meta || meta.width <= 0 || meta.height <= 0) {
+  if (!meta || meta.width <= 0 || meta.height <= 0 || meta.format === "dng") {
+    return 0;
+  }
+  if (meta.width * meta.height > MAX_PROBE_SIZED_PIXELS) {
     return 0;
   }
   const swapped = autoOrient && meta.orientation >= 5 && meta.orientation <= 8;
