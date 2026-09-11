@@ -12,6 +12,12 @@ impl RasterImage {
     /// the angle is reduced to a positive `[0, 360)` rotation first, so -450
     /// is 270.
     pub fn rotate(&self, degrees: f64, background: [u8; 4]) -> Result<Self> {
+        if !degrees.is_finite() {
+            return Err(Error::Decode {
+                path: "<memory>".into(),
+                reason: format!("rotate: angle must be finite (got {degrees})"),
+            });
+        }
         let normalised = degrees.rem_euclid(360.0);
         if (normalised - normalised.round()).abs() < 1e-9 {
             let quadrant = normalised.round() as i64 % 360;
@@ -47,6 +53,19 @@ impl RasterImage {
         }
     }
 
+    /// Bilinear-resamples into the rotated bounding box. On a 4-channel
+    /// source every sample is done in premultiplied space — each of the
+    /// four bilinear corners has its colour scaled by its own alpha (an
+    /// out-of-source corner uses `background`'s colour and alpha) before
+    /// the weighted sum, and the result is unpremultiplied afterwards.
+    /// Blending straight (unpremultiplied) colour would let a fully
+    /// transparent neighbour's colour leak into a partially-covered edge
+    /// pixel — visible as the neighbour's hue bleeding in, or the pixel
+    /// darkening toward the background, even though that neighbour
+    /// contributes nothing visible on its own. Matches libvips, which
+    /// premultiplies before `vips_affine`/`vips_rotate` and unpremultiplies
+    /// after. A 3-channel source has no alpha to weight by, so it stays a
+    /// plain per-channel bilinear blend against `background`.
     fn rotate_bilinear(&self, degrees: f64, background: [u8; 4]) -> Result<Self> {
         let src = if background[3] == 255 {
             self.clone()
@@ -73,37 +92,32 @@ impl RasterImage {
         let (cx_dst, cy_dst) = (out_w / 2.0, out_h / 2.0);
         let width = out_w as u32;
         let height = out_h as u32;
-        let sample = |x: f64, y: f64, ch: usize| -> f64 {
+        // The four bilinear corners around source-space point (x, y), as
+        // (corner_x, corner_y, weight).
+        let corner_weights = |x: f64, y: f64| -> [(f64, f64, f64); 4] {
             let x0 = x.floor();
             let y0 = y.floor();
             let fx = x - x0;
             let fy = y - y0;
-            let at = |xi: f64, yi: f64| -> f64 {
-                if xi < 0.0 || yi < 0.0 || xi >= sw || yi >= sh {
-                    return f64::NAN;
-                }
-                let idx = ((yi as usize) * src.width as usize + xi as usize) * c + ch;
-                src.data[idx] as f64
-            };
-            let corners = [
-                (at(x0, y0), (1.0 - fx) * (1.0 - fy)),
-                (at(x0 + 1.0, y0), fx * (1.0 - fy)),
-                (at(x0, y0 + 1.0), (1.0 - fx) * fy),
-                (at(x0 + 1.0, y0 + 1.0), fx * fy),
-            ];
-            // Corners outside the source contribute the background, so the
-            // edge fades into it instead of smearing the last row.
-            corners
-                .iter()
-                .map(|&(v, w)| {
-                    if v.is_nan() {
-                        background[ch] as f64 * w
-                    } else {
-                        v * w
-                    }
-                })
-                .sum()
+            [
+                (x0, y0, (1.0 - fx) * (1.0 - fy)),
+                (x0 + 1.0, y0, fx * (1.0 - fy)),
+                (x0, y0 + 1.0, (1.0 - fx) * fy),
+                (x0 + 1.0, y0 + 1.0, fx * fy),
+            ]
         };
+        // A source sample, or `None` off the edge of the source (the caller
+        // substitutes `background` there).
+        let at = |xi: f64, yi: f64, ch: usize| -> Option<f64> {
+            if xi < 0.0 || yi < 0.0 || xi >= sw || yi >= sh {
+                None
+            } else {
+                let idx = ((yi as usize) * src.width as usize + xi as usize) * c + ch;
+                Some(src.data[idx] as f64)
+            }
+        };
+        let has_alpha = c == 4;
+        let alpha_ch = c - 1;
         let data = (0..height)
             .flat_map(|dy| {
                 (0..width).flat_map(move |dx| {
@@ -113,13 +127,55 @@ impl RasterImage {
                     let sx = rx * cos + ry * sin + cx_src - 0.5;
                     let sy = -rx * sin + ry * cos + cy_src - 0.5;
                     let outside = sx < -0.5 || sy < -0.5 || sx > sw - 0.5 || sy > sh - 0.5;
-                    (0..c).map(move |ch| {
-                        if outside {
-                            background[ch]
-                        } else {
-                            sample(sx, sy, ch).round().clamp(0.0, 255.0) as u8
+                    let pixel: Vec<u8> = if outside {
+                        background[..c].to_vec()
+                    } else if has_alpha {
+                        let corners = corner_weights(sx, sy);
+                        let alphas: Vec<f64> = corners
+                            .iter()
+                            .map(|&(xi, yi, _)| {
+                                at(xi, yi, alpha_ch).unwrap_or(background[3] as f64)
+                            })
+                            .collect();
+                        let alpha_sum: f64 = corners
+                            .iter()
+                            .zip(&alphas)
+                            .map(|(&(_, _, w), &a)| w * a)
+                            .sum();
+                        let mut px = Vec::with_capacity(c);
+                        for ch in 0..alpha_ch {
+                            let premultiplied: f64 = corners
+                                .iter()
+                                .zip(&alphas)
+                                .map(|(&(xi, yi, w), &a)| {
+                                    let v = at(xi, yi, ch).unwrap_or(background[ch] as f64);
+                                    w * v * a / 255.0
+                                })
+                                .sum();
+                            let value = if alpha_sum <= 0.0 {
+                                0.0
+                            } else {
+                                premultiplied * 255.0 / alpha_sum
+                            };
+                            px.push(value.round().clamp(0.0, 255.0) as u8);
                         }
-                    })
+                        px.push(alpha_sum.round().clamp(0.0, 255.0) as u8);
+                        px
+                    } else {
+                        let corners = corner_weights(sx, sy);
+                        (0..c)
+                            .map(|ch| {
+                                let v: f64 = corners
+                                    .iter()
+                                    .map(|&(xi, yi, w)| {
+                                        w * at(xi, yi, ch).unwrap_or(background[ch] as f64)
+                                    })
+                                    .sum();
+                                v.round().clamp(0.0, 255.0) as u8
+                            })
+                            .collect()
+                    };
+                    pixel.into_iter()
                 })
             })
             .collect();
@@ -231,5 +287,53 @@ mod tests {
         let out = rgba.rotate(90.0, [0, 0, 0, 255]).unwrap();
         assert_eq!((out.width, out.height, out.channels), (1, 2, 4));
         assert_eq!(out.data, vec![1, 1, 1, 10, 2, 2, 2, 20]);
+    }
+
+    #[test]
+    fn rotate_rejects_a_nan_angle() {
+        assert!(ramp_rgb().rotate(f64::NAN, [0, 0, 0, 255]).is_err());
+    }
+
+    #[test]
+    fn rotate_rejects_positive_infinity() {
+        assert!(ramp_rgb().rotate(f64::INFINITY, [0, 0, 0, 255]).is_err());
+    }
+
+    #[test]
+    fn rotate_rejects_negative_infinity() {
+        assert!(ramp_rgb()
+            .rotate(f64::NEG_INFINITY, [0, 0, 0, 255])
+            .is_err());
+    }
+
+    #[test]
+    fn arbitrary_angle_resamples_premultiplied_so_transparency_does_not_bleed_colour() {
+        // Left column opaque red, right column fully transparent green. A
+        // straight (unpremultiplied) blend would pull red edge pixels
+        // toward green or toward black (the background) as the transparent
+        // column's neighbour is mixed in; a premultiplied blend only ever
+        // dilutes red's opacity, never its hue or brightness.
+        let src = RasterImage::new_rgba(
+            2,
+            2,
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 0, // row 0: opaque red | transparent green
+                255, 0, 0, 255, 0, 255, 0, 0, // row 1: opaque red | transparent green
+            ],
+        );
+        let out = src.rotate(1.0, [0, 0, 0, 0]).unwrap();
+        for px in out.data.chunks_exact(4) {
+            let (r, g, a) = (px[0], px[1], px[3]);
+            if a > 0 {
+                assert!(
+                    r >= 254,
+                    "red channel darkened toward the background: {px:?}"
+                );
+                assert!(
+                    g <= 1,
+                    "green bled in from the transparent neighbour: {px:?}"
+                );
+            }
+        }
     }
 }
