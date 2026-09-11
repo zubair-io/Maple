@@ -87,7 +87,7 @@ function looksLikeAvif(bytes: Uint8Array): boolean {
  * AVIF path and its JPEG fallback) set it correctly. A magic-byte sniff is
  * the fallback for a body whose Content-Type didn't survive transport or was
  * never set. Neither signature matching ⇒ `'unknown'`, rejected 422 before
- * ever reaching sharp or the temp-file staging below.
+ * ever reaching Maple or the temp-file staging below.
  */
 function sniffPreviewBodyFormat(
   bytes: Uint8Array,
