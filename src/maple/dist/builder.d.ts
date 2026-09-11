@@ -14,7 +14,7 @@ export declare class MapleImageBuilder {
     applyXmp(xml: string): this;
     /** Specify raw XML content of XMP sidecar (alias for applyXmp) */
     xmpContent(xml: string): this;
-    /** Configure SIMD resampling dimensions and framing */
+    /** Configure SIMD resampling dimensions and framing (sharp's `resize`) */
     resize(optionsOrWidth: ResizeOptions | number | null, height?: number | null): this;
     /**
      * With no angle: auto-orient from the EXIF Orientation tag (the Tier 1
