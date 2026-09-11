@@ -78,6 +78,13 @@ export class MapleImageBuilder {
     // NOTE: `withoutEnlargement` defaults to `true` here — sharp defaults to
     // `false`. That divergence is documented in the README and the API
     // relies on it; do not "fix" it to match sharp.
+    //
+    // Last-wins: sharp treats repeated `.resize()` calls as overriding the
+    // same pipeline stage (only one resample ever runs), not as stacking two
+    // resamples. Drop any earlier `resize` op and emit only this call's, at
+    // the position of this call — matching sharp's "the last call's params
+    // win" behaviour.
+    this.s.ops = this.s.ops.filter((op) => op.op !== 'resize');
     this.s.ops.push({
       op: 'resize',
       width: Math.max(0, opts.width ?? 0),
