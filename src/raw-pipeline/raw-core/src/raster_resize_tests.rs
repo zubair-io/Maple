@@ -252,3 +252,182 @@ fn a_3_channel_downscale_is_unaffected_by_the_premultiply_path() {
         );
     }
 }
+
+/// A 32x32 checkerboard — the pathological input for a resampler, so
+/// different kernels genuinely produce different bytes.
+fn checker() -> RasterImage {
+    let data = (0..32u32)
+        .flat_map(|y| {
+            (0..32u32).flat_map(move |x| {
+                if (x + y) % 2 == 0 {
+                    [255u8, 0, 0]
+                } else {
+                    [0, 0, 255]
+                }
+            })
+        })
+        .collect();
+    RasterImage::new_rgb(32, 32, data)
+}
+
+#[test]
+fn every_kernel_resamples_and_they_are_not_all_identical() {
+    // 11x11, not the more obvious 9x9: the checkerboard alternates at
+    // Nyquist frequency, so several downscale ratios (9x9 among them) make
+    // multiple kernels converge on the exact same rounded midpoint by
+    // construction, not by any implementation coincidence — 11x11 is
+    // confirmed clean of that effect.
+    let kernels = [
+        FilterAlg::Nearest,
+        FilterAlg::Bilinear,
+        FilterAlg::CatmullRom,
+        FilterAlg::Mitchell,
+        FilterAlg::Lanczos2,
+        FilterAlg::Lanczos3,
+    ];
+    let results: Vec<Vec<u8>> = kernels
+        .iter()
+        .map(|&filter| {
+            let mut o = opts(11, 11, ResizeFit::Fill);
+            o.filter = filter;
+            let out = resize_raster(&checker(), &o).unwrap();
+            assert_eq!((out.width, out.height), (11, 11));
+            out.data
+        })
+        .collect();
+    for i in 0..results.len() {
+        for j in i + 1..results.len() {
+            assert_ne!(
+                results[i], results[j],
+                "kernels {:?} and {:?} produced identical output",
+                kernels[i], kernels[j]
+            );
+        }
+    }
+}
+
+/// The three new kernels: catmull-rom, mitchell, lanczos2.
+const NEW_KERNELS: [FilterAlg; 3] = [
+    FilterAlg::CatmullRom,
+    FilterAlg::Mitchell,
+    FilterAlg::Lanczos2,
+];
+
+#[test]
+fn every_new_kernel_leaves_a_flat_image_unchanged() {
+    let flat = RasterImage::new_rgb(8, 8, vec![137u8; 8 * 8 * 3]);
+    for filter in NEW_KERNELS {
+        let mut o = opts(3, 3, ResizeFit::Fill);
+        o.filter = filter;
+        let out = resize_raster(&flat, &o).unwrap();
+        assert!(
+            out.data.iter().all(|&b| b == 137),
+            "{filter:?} did not leave a flat image unchanged: {:?}",
+            out.data
+        );
+    }
+}
+
+/// A 2-pixel-wide hard edge: downscaling to 1 pixel forces the kernel to
+/// blend exactly the two source samples, with no interior neighbours to
+/// draw from, so this is the simplest case a well-behaved kernel handles
+/// without ringing.
+#[test]
+fn every_new_kernel_blends_a_2_pixel_edge_between_the_source_values() {
+    let src = RasterImage::new_rgb(2, 1, vec![40, 40, 40, 220, 220, 220]);
+    for filter in NEW_KERNELS {
+        let mut o = opts(1, 1, ResizeFit::Fill);
+        o.filter = filter;
+        let out = resize_raster(&src, &o).unwrap();
+        let v = out.data[0];
+        assert!(
+            (40..=220).contains(&v),
+            "{filter:?} produced {v}, outside the source range [40, 220]"
+        );
+    }
+}
+
+/// A wide flat-40 / flat-220 step, downscaled 2x. Convolution kernels with
+/// negative lobes overshoot past the flat regions near the transition
+/// ("ringing"). Mitchell (B = C = 1/3) is tuned to ring less than
+/// Catmull-Rom, and both ring markedly less than Lanczos3's wider window —
+/// and all three land on different bytes than Lanczos3 at the edge.
+#[test]
+fn mitchell_and_cubic_ring_less_than_lanczos3_on_a_hard_edge() {
+    let mut data = Vec::new();
+    for x in 0..64u32 {
+        let v = if x < 32 { 40u8 } else { 220u8 };
+        data.extend_from_slice(&[v, v, v]);
+    }
+    let src = RasterImage::new_rgb(64, 1, data);
+
+    let resampled = |filter: FilterAlg| -> Vec<u8> {
+        let mut o = opts(32, 1, ResizeFit::Fill);
+        o.filter = filter;
+        resize_raster(&src, &o).unwrap().data
+    };
+    let overshoot = |data: &[u8]| -> u8 {
+        data.iter()
+            .map(|&b| {
+                if b < 40 {
+                    40 - b
+                } else if b > 220 {
+                    b - 220
+                } else {
+                    0
+                }
+            })
+            .max()
+            .unwrap()
+    };
+
+    let lanczos3 = resampled(FilterAlg::Lanczos3);
+    let lanczos3_overshoot = overshoot(&lanczos3);
+
+    for filter in [FilterAlg::CatmullRom, FilterAlg::Mitchell] {
+        let out = resampled(filter);
+        assert_ne!(
+            out, lanczos3,
+            "{filter:?} produced the same bytes as lanczos3 at a hard edge"
+        );
+        assert!(
+            overshoot(&out) < lanczos3_overshoot,
+            "{filter:?} overshoot {} should be smaller than lanczos3's {lanczos3_overshoot}",
+            overshoot(&out)
+        );
+    }
+}
+
+#[test]
+fn every_new_kernel_premultiplies_alpha_for_a_4_channel_downscale() {
+    for filter in NEW_KERNELS {
+        let out = resize_raster(
+            &half_red_half_transparent_green(),
+            &ResizeOptions {
+                width: 1,
+                height: 2,
+                fit: ResizeFit::Fill,
+                filter,
+                without_enlargement: false,
+                without_reduction: false,
+                position: Gravity::Centre,
+                background: [0, 0, 0, 255],
+            },
+        )
+        .unwrap();
+        assert_eq!((out.width, out.height, out.channels), (1, 2, 4));
+        for px in out.data.chunks_exact(4) {
+            let [r, g, _b, a] = [px[0], px[1], px[2], px[3]];
+            if a > 0 {
+                assert_eq!(
+                    g, 0,
+                    "{filter:?}: transparent green neighbour must not tint green in"
+                );
+                assert_eq!(
+                    r, 255,
+                    "{filter:?}: opaque red survivor must stay fully red, not diluted"
+                );
+            }
+        }
+    }
+}

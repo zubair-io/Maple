@@ -26,12 +26,18 @@ pub enum ResizeFit {
     Outside,
 }
 
-/// Filter kernel for resampling.
+/// Filter kernel for resampling, matching sharp's `kernel` names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum FilterAlg {
     #[default]
     Lanczos3,
+    /// sharp's `lanczos2` — a narrower, less ringy Lanczos window.
+    Lanczos2,
     Bilinear,
+    /// sharp's `cubic` — the Catmull-Rom bicubic spline.
+    CatmullRom,
+    /// Mitchell-Netravali bicubic (B = C = 1/3).
+    Mitchell,
     Nearest,
 }
 
@@ -220,6 +226,41 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
     resample(src, dst_w, dst_h, options.filter)
 }
 
+/// Lanczos with a = 2 — sharp's `lanczos2`. `fast_image_resize` ships
+/// Lanczos3 only, so the a = 2 window is supplied as a custom filter.
+fn lanczos2(x: f64) -> f64 {
+    let sinc = |mut t: f64| {
+        if t == 0.0 {
+            return 1.0;
+        }
+        t *= std::f64::consts::PI;
+        t.sin() / t
+    };
+    if (-2.0..2.0).contains(&x) {
+        sinc(x) * sinc(x / 2.0)
+    } else {
+        0.0
+    }
+}
+
+/// Map a [`FilterAlg`] onto the `fast_image_resize` algorithm it drives.
+fn resize_alg(filter: FilterAlg) -> Result<fr::ResizeAlg> {
+    let convolution = |t| fr::ResizeAlg::Convolution(t);
+    Ok(match filter {
+        FilterAlg::Nearest => fr::ResizeAlg::Nearest,
+        FilterAlg::Bilinear => convolution(fr::FilterType::Bilinear),
+        FilterAlg::CatmullRom => convolution(fr::FilterType::CatmullRom),
+        FilterAlg::Mitchell => convolution(fr::FilterType::Mitchell),
+        FilterAlg::Lanczos3 => convolution(fr::FilterType::Lanczos3),
+        FilterAlg::Lanczos2 => convolution(fr::FilterType::Custom(
+            fr::Filter::new("lanczos2", lanczos2, 2.0).map_err(|e| Error::Decode {
+                path: "<memory>".into(),
+                reason: format!("lanczos2 filter construction failed: {e:?}"),
+            })?,
+        )),
+    })
+}
+
 /// The `fast_image_resize` call itself.
 ///
 /// `mul_div_alpha: true` (#3548) is the crate's own premultiplied-alpha
@@ -263,14 +304,8 @@ fn resample(src: &RasterImage, dst_w: u32, dst_h: u32, filter: FilterAlg) -> Res
 
     let mut dst_image = fr::images::Image::new(dst_w, dst_h, pixel_type);
 
-    let alg = match filter {
-        FilterAlg::Lanczos3 => fr::ResizeAlg::Convolution(fr::FilterType::Lanczos3),
-        FilterAlg::Bilinear => fr::ResizeAlg::Convolution(fr::FilterType::Bilinear),
-        FilterAlg::Nearest => fr::ResizeAlg::Nearest,
-    };
-
     let fr_opts = fr::ResizeOptions {
-        algorithm: alg,
+        algorithm: resize_alg(filter)?,
         mul_div_alpha: true,
         ..Default::default()
     };
