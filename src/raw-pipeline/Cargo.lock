@@ -2245,6 +2245,7 @@ dependencies = [
  "sha1",
  "tempfile",
  "thiserror 2.0.18",
+ "tiff",
  "zune-jpeg",
 ]
 
