@@ -120,6 +120,15 @@ fn background_mode() -> String {
 fn ten() -> f64 {
     10.0
 }
+fn unit_gain() -> [f64; 3] {
+    [1.0, 1.0, 1.0]
+}
+fn yes() -> bool {
+    true
+}
+fn hundred() -> f64 {
+    100.0
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", deny_unknown_fields)]
@@ -221,6 +230,69 @@ pub enum Op {
         #[serde(default)]
         line_art: bool,
     },
+    /// Empty struct variant rather than unit — see `RecipeInput::Encoded`'s
+    /// doc for why (#3505 fix-round-2). Rec.709 luma taken in linear light
+    /// (`RasterImage::greyscale` — #3503 controller ruling reverses the
+    /// plan's D3 note for this one op; `gamma`/`linear` below genuinely do
+    /// stay on the encoded samples).
+    Greyscale {},
+    /// `out = 255 * (in/255)^exponent` on the encoded samples (libvips
+    /// `vips_gamma`). The builder emits this op twice around `resize` for
+    /// sharp's `gamma(g, gammaOut)` — exponent `1/g` before, `gammaOut`
+    /// after — so the schema only needs the one generic op.
+    Gamma {
+        exponent: f64,
+    },
+    /// `out = a*in + b` per channel on the encoded samples (libvips
+    /// `vips_linear`, uchar cast).
+    Linear {
+        #[serde(default = "unit_gain")]
+        a: [f64; 3],
+        #[serde(default)]
+        b: [f64; 3],
+    },
+    /// `out = 255 - in`. `alpha` is sharp's `negate({ alpha })`, default
+    /// `true`.
+    Negate {
+        #[serde(default = "yes")]
+        alpha: bool,
+    },
+    /// Stretch L* so the `lower`/`upper` percentiles land on 0/100
+    /// (`RasterImage::normalise`, via CIELAB).
+    Normalise {
+        #[serde(default = "one")]
+        lower: f64,
+        #[serde(default = "hundred")]
+        upper: f64,
+    },
+    /// Scale L*/C* and rotate hue in CIELCh (`RasterImage::modulate`).
+    Modulate {
+        #[serde(default = "one")]
+        brightness: f64,
+        #[serde(default = "one")]
+        saturation: f64,
+        #[serde(default)]
+        hue: f64,
+        #[serde(default)]
+        lightness: f64,
+    },
+    /// Keep each pixel's own lightness, take the chroma from `rgb`
+    /// (`RasterImage::tint`). Alpha is not part of the wire colour — the
+    /// builder resolves a `Colour`'s alpha field and drops it before
+    /// pushing this op.
+    Tint {
+        rgb: [u8; 3],
+    },
+    /// Rotate the primaries to `space` and select the ICC profile the
+    /// encoder tags the file with (`RasterImage::to_colourspace` +
+    /// `RasterEncodeOptions::primaries`). Only `srgb`/`display-p3`/`p3` are
+    /// accepted — anything else, including libvips interpretation names
+    /// like `b-w`/`cmyk`/`lab`, is rejected by name
+    /// (`raster_recipe_colour::primaries_from_wire`).
+    #[serde(rename_all = "camelCase")]
+    ToColourspace {
+        space: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -257,6 +329,16 @@ pub struct Recipe {
     pub output: Output,
 }
 
+/// A recipe-level error naming the offending option and value. Shared by
+/// `raster_recipe_exec` and `raster_recipe_colour` so every validation error
+/// in the pipeline is reported the same way.
+pub(crate) fn bad(reason: String) -> Error {
+    Error::Decode {
+        path: "<recipe>".into(),
+        reason,
+    }
+}
+
 pub fn parse_recipe(json: &str) -> Result<Recipe> {
     let recipe: Recipe = serde_json::from_str(json).map_err(|e| Error::Decode {
         path: "<recipe>".into(),
@@ -274,6 +356,10 @@ pub fn parse_recipe(json: &str) -> Result<Recipe> {
     Ok(recipe)
 }
 
+// Tests live in the sibling `raster_recipe_tests.rs` so this file stays
+// under the 400-LOC file-size budget (#3503 Task D6 added eight colour `Op`
+// variants). Same `#[path]` split pattern as `view/encode.rs` /
+// `stages/blur.rs`.
 #[cfg(test)]
 #[path = "raster_recipe_tests.rs"]
 mod tests;
