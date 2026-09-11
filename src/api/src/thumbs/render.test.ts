@@ -137,13 +137,15 @@ describe('renderImageThumbToFile — HEIC parity', () => {
     expect(ok).toBe(true);
     await renderHeicThumbToFile(FIXTURE_HEIC, viaDirect, 48);
 
+    // Same input, same size, same (default) quality → both calls must land on
+    // literally identical output bytes, not just matching dimensions. Byte
+    // equality is the stronger guarantee that dispatch really reaches the
+    // same chain, not a lookalike one that happens to produce the same size.
+    const dispatchBytes = await readFile(viaDispatch);
+    const directBytes = await readFile(viaDirect);
     const dispatchMeta = await maple(viaDispatch).metadata();
-    const directMeta = await maple(viaDirect).metadata();
     expect(dispatchMeta.format).toBe('avif');
-    expect([dispatchMeta.width, dispatchMeta.height]).toEqual([
-      directMeta.width,
-      directMeta.height,
-    ]);
+    expect(dispatchBytes.equals(directBytes)).toBe(true);
   });
 
   it('renderHeicThumbToFile writes a valid AVIF (fixture-gated)', async () => {

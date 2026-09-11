@@ -13,12 +13,15 @@
  * files or `sharp({ create: … })` (#3499/#3500).
  */
 import { describe, expect, it } from 'bun:test';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { maple } from 'maple';
 import { checkAvifOutput } from './avif-checks.ts';
 import { solidAvif, solidJpeg } from '../test-support/synth-image.ts';
+
+// `import.meta.dir` is src/api/src/thumbs; fixture lives under src/api/tests/fixtures.
+const FIXTURE_HEIC = resolve(import.meta.dir, '..', '..', 'tests', 'fixtures', 'sample.heic');
 
 describe('checkAvifOutput (maple)', () => {
   const withDir = async (fn: (dir: string) => Promise<void>) => {
@@ -44,6 +47,28 @@ describe('checkAvifOutput (maple)', () => {
       const r = await checkAvifOutput(p, 256);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.reason).toContain('unexpected format');
+    }));
+
+  it('rejects a HEIC file at an .avif path (fixture-gated)', () =>
+    withDir(async (dir) => {
+      // A HEIC and an AVIF are both ISOBMFF containers with a similar `ftyp`
+      // shape, so this exercises the format check against a REAL sibling
+      // format, not just arbitrary non-image bytes (the "non-AVIF container"
+      // case above uses JPEG for that; this one is a closer, deliberately
+      // adversarial neighbor).
+      let fixturePresent = true;
+      try {
+        await stat(FIXTURE_HEIC);
+      } catch {
+        fixturePresent = false;
+      }
+      if (!fixturePresent) return; // fixture missing → soft pass
+
+      const p = join(dir, 'mislabeled.avif');
+      await writeFile(p, await readFile(FIXTURE_HEIC));
+      const r = await checkAvifOutput(p, 256);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/decode failed|unexpected format/i);
     }));
 
   it('rejects dimensions over the expected long edge (+4px tolerance)', () =>
