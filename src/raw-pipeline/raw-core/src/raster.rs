@@ -95,6 +95,17 @@ pub struct RasterMetadata {
 
 /// Quick probing of raster image dimensions and format from raw bytes.
 pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
+    if avif_decode_gate::is_avif(bytes) {
+        let probe = avif_decode_gate::probe(bytes)?;
+        return Ok(RasterMetadata {
+            width: probe.width,
+            height: probe.height,
+            format: "avif".to_string(),
+            channels: if probe.has_alpha { 4 } else { 3 },
+            orientation: 1,
+        });
+    }
+
     let cursor = Cursor::new(bytes);
     let reader = ImageReader::new(cursor)
         .with_guessed_format()
@@ -156,6 +167,14 @@ pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
 
 /// Decode a non-RAW bitmap (JPEG, PNG, WebP, TIFF) from in-memory bytes into a RasterImage.
 pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage> {
+    let hinted_avif = matches!(
+        ext_hint.map(|e| e.to_ascii_lowercase()).as_deref(),
+        Some("avif")
+    );
+    if hinted_avif || avif_decode_gate::is_avif(bytes) {
+        return avif_decode_gate::decode(bytes);
+    }
+
     let mut reader = ImageReader::new(Cursor::new(bytes));
     if let Some(ext) = ext_hint {
         let fmt = match ext.to_ascii_lowercase().as_str() {
@@ -433,6 +452,59 @@ pub fn extract_tensor(
         channels: 3,
         data: out,
     })
+}
+
+/// Feature gate so the AVIF branch compiles to a clean error when raw-core is
+/// built without `avif` (raw-wasm), and to the real decoder otherwise.
+mod avif_decode_gate {
+    use super::*;
+
+    /// Container-level facts needed by `probe_raster_metadata`, mirrored from
+    /// `avif_decode::AvifProbe` so this module has a concrete return type
+    /// whether or not the `avif_decode` module exists in this build.
+    pub(crate) struct AvifProbeLite {
+        pub width: u32,
+        pub height: u32,
+        pub has_alpha: bool,
+    }
+
+    #[cfg(feature = "avif")]
+    pub(crate) fn is_avif(bytes: &[u8]) -> bool {
+        crate::avif_decode::is_avif(bytes)
+    }
+    #[cfg(not(feature = "avif"))]
+    pub(crate) fn is_avif(bytes: &[u8]) -> bool {
+        bytes.len() >= 12 && &bytes[4..8] == b"ftyp"
+    }
+
+    #[cfg(feature = "avif")]
+    pub(crate) fn decode(bytes: &[u8]) -> Result<RasterImage> {
+        crate::avif_decode::decode_avif(bytes)
+    }
+    #[cfg(not(feature = "avif"))]
+    pub(crate) fn decode(_bytes: &[u8]) -> Result<RasterImage> {
+        Err(Error::Decode {
+            path: "<memory>".into(),
+            reason: "AVIF decoding requires the `avif` feature".into(),
+        })
+    }
+
+    #[cfg(feature = "avif")]
+    pub(crate) fn probe(bytes: &[u8]) -> Result<AvifProbeLite> {
+        let probe = crate::avif_decode::probe_avif(bytes)?;
+        Ok(AvifProbeLite {
+            width: probe.width,
+            height: probe.height,
+            has_alpha: probe.has_alpha,
+        })
+    }
+    #[cfg(not(feature = "avif"))]
+    pub(crate) fn probe(_bytes: &[u8]) -> Result<AvifProbeLite> {
+        Err(Error::Decode {
+            path: "<memory>".into(),
+            reason: "AVIF probing requires the `avif` feature".into(),
+        })
+    }
 }
 
 #[cfg(test)]
