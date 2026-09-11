@@ -138,7 +138,9 @@ Two consequences worth knowing:
   entry resolves from the filesystem and is unaffected by source replacement.
 - **Every build uses the patch**, not just the Apple one — Linux/API, Windows,
   WASM included. That is the point of using `[patch]` rather than only editing
-  the vendor tree.
+  the vendor tree. `src/windows/` is its own cargo workspace, and a `[patch]`
+  reaches only the workspace that declares it, so it carries a second copy of
+  the entry pointing at the same directory. Keep the two in lockstep.
 
 `scripts/re-apply-patches.sh` covers `vendor/` patches only (today: `ort-sys`).
 The rav1d patch is re-applied by hand on an upgrade; the recipe is in
