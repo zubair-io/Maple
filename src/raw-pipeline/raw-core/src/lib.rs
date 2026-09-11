@@ -68,6 +68,7 @@ pub use raster::{
     decode_raster, extract_tensor, probe_raster_metadata, resize_raster, FilterAlg, RasterImage,
     RasterMetadata, ResizeFit, ResizeOptions, TensorData, TensorLayout, TensorNormalize,
 };
+pub mod raster_alpha;
 pub mod raster_encode;
 
 #[cfg(any(test, feature = "test-support"))]
