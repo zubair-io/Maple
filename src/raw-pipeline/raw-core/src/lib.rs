@@ -77,6 +77,7 @@ pub mod raster_encode;
 pub mod raster_encode_avif;
 pub mod raster_encode_jpeg;
 pub mod raster_encode_png;
+pub mod raster_encode_tiff;
 pub mod raster_filter;
 pub(crate) mod raster_filter_chain;
 pub(crate) mod raster_filter_conv;
