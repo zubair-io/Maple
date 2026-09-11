@@ -96,6 +96,23 @@ const filename = renderFilenameTemplate({
 // filename => { ok: true, name: "DSC_0001_0001.jpg" }
 ```
 
+### Raw pixels in and out
+
+```typescript
+import { maple } from '@justmaple/maple';
+
+// Caller-decoded pixels (e.g. from a PSD/HDR/HEIC decoder) into the same resize/encode path
+const avif = await maple({ data: rgba, width, height, channels: 4 })
+  .resize({ width: 512, height: 512, fit: 'inside' })
+  .toFormat('avif', { quality: 55, effort: 4 })
+  .toBuffer();
+
+// Native-size RGB8 for ML alignment / custom sampling
+const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
+```
+
+`fit` accepts `'inside' | 'fill' | 'cover'`; `filter` accepts `'lanczos3' | 'bilinear' | 'nearest'`. AVIF `effort` is 0 (fastest) to 9 (slowest), as in sharp. AVIF inputs decode (pure-Rust AV1 decoder); a JPEG truncated in its scan data decodes to the rows that survived.
+
 ## Native Core & Linux Support
 
 `@justmaple/maple` connects to `libraw_ffi` via `bun:ffi`.
