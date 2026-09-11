@@ -184,7 +184,13 @@ pub(crate) fn convolve_separable(
 
 /// Colour-premultiplied-by-alpha copy of a 4-channel image; a no-op clone
 /// for 3-channel images, which have no alpha to premultiply against.
-fn premultiply(src: &RasterImage) -> RasterImage {
+///
+/// `pub(crate)` so `raster_filter_ops.rs`'s `convolve` (#3504 task E4 /
+/// controller ruling on the E3 re-review) can reuse the same
+/// premultiply-around-the-convolution treatment `blur` uses above, rather
+/// than filtering straight-alpha colour band-by-band and leaking a
+/// transparent neighbour's stored colour into a partly opaque pixel.
+pub(crate) fn premultiply(src: &RasterImage) -> RasterImage {
     if src.channels != 4 {
         return src.clone();
     }
@@ -207,7 +213,10 @@ fn premultiply(src: &RasterImage) -> RasterImage {
 /// rather than divided back out (division by zero would be undefined, and a
 /// fully transparent pixel's colour is unobservable in straight-alpha form
 /// anyway).
-fn unpremultiply(src: &RasterImage) -> RasterImage {
+///
+/// `pub(crate)` for the same reason as [`premultiply`] — shared with
+/// `raster_filter_ops.rs`'s `convolve`.
+pub(crate) fn unpremultiply(src: &RasterImage) -> RasterImage {
     if src.channels != 4 {
         return src.clone();
     }

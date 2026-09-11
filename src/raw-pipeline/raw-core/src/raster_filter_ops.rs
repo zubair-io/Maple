@@ -13,7 +13,15 @@
 //!   otherwise-opaque alpha channel spreads under a 3x3 box exactly like any
 //!   other band (measured against sharp 0.34.5: a single 0 surrounded by
 //!   255 comes out 226 at every cell the box's 3x3 support touches —
-//!   `(8*255 + 1*0) / 9 = 226.67`, truncated).
+//!   `(8*255 + 1*0) / 9 = 226.67`, truncated). On a 4-channel raster the
+//!   colour bands are premultiplied by alpha before convolving and
+//!   unpremultiplied afterwards (reusing `raster_filter`'s `premultiply`/
+//!   `unpremultiply`, the same treatment `blur` uses), so a fully
+//!   transparent neighbour's stored colour can't bleed into a partly opaque
+//!   pixel's result — the alpha band itself is still convolved directly, not
+//!   premultiplied against itself (controller ruling on the E3 re-review,
+//!   #3504 task E4). `median` is a rank filter and libvips' `vips_rank` does
+//!   not premultiply, so it is untouched by this.
 //! - `threshold` thresholds alpha too, but directly against `value` (a plain
 //!   `alpha >= value` comparison, in both `greyscale` modes) rather than
 //!   through the luma computation — matching sharp, whose underlying
@@ -34,7 +42,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
-use crate::raster_filter::clamp_index;
+use crate::raster_filter::{clamp_index, premultiply, unpremultiply};
 use crate::view::encode::{srgb_degamma, srgb_gamma};
 
 /// Rec.709 luma weights ([ITU-R BT.709] luminance coefficients: `Y' =
@@ -149,7 +157,11 @@ impl RasterImage {
     /// kernel's own sum" (sharp's documented default), falling back to
     /// `1.0` for a zero-sum kernel such as a Sobel operator. Every band is
     /// filtered, alpha included (see the module doc). Clamp-to-edge
-    /// addressing at the boundary.
+    /// addressing at the boundary. On a 4-channel raster, colour is
+    /// premultiplied by alpha before convolving and unpremultiplied
+    /// afterwards (see the module doc); a 3-channel raster is unaffected,
+    /// since [`premultiply`]/[`unpremultiply`] are no-ops without an alpha
+    /// band.
     ///
     /// See the module doc for the integer-vs-float path this picks between.
     pub fn convolve(
@@ -197,6 +209,8 @@ impl RasterImage {
         let int_kernel: Vec<i64> = kernel.iter().map(|v| *v as i64).collect();
         let int_kernel: &[i64] = &int_kernel;
         let (int_divisor, int_offset) = (divisor as i64, offset as i64);
+        let premultiplied = premultiply(self);
+        let source: &RasterImage = &premultiplied;
         let data = (0..h)
             .flat_map(|y| {
                 (0..w).flat_map(move |x| {
@@ -206,7 +220,7 @@ impl RasterImage {
                                 let sy = clamp_index(y as i64 + ky - ry, h);
                                 let sx = clamp_index(x as i64 + kx - rx, w);
                                 let k = (ky * width as i64 + kx) as usize;
-                                (self.data[(sy * w + sx) * c + band], k)
+                                (source.data[(sy * w + sx) * c + band], k)
                             })
                         });
                         if integer_path {
@@ -222,10 +236,11 @@ impl RasterImage {
                 })
             })
             .collect();
-        Ok(Self {
+        let convolved = Self {
             data,
             ..self.clone()
-        })
+        };
+        Ok(unpremultiply(&convolved))
     }
 }
 
