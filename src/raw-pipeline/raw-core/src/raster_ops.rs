@@ -57,4 +57,34 @@ impl RasterImage {
             orientation: self.orientation,
         }
     }
+
+    /// Extract a rectangular window `(x, y, w, h)` from the image as a new
+    /// `RasterImage`. Errors if the window is empty or exceeds the source
+    /// bounds.
+    pub fn crop(&self, x: u32, y: u32, w: u32, h: u32) -> Result<Self> {
+        if w == 0 || h == 0 || x + w > self.width || y + h > self.height {
+            return Err(Error::Decode {
+                path: "<memory>".into(),
+                reason: format!(
+                    "crop {x},{y} {w}x{h} exceeds {}x{}",
+                    self.width, self.height
+                ),
+            });
+        }
+        let c = self.channels as usize;
+        let row_len = self.width as usize * c;
+        let data = (y..y + h)
+            .flat_map(|row| {
+                let start = row as usize * row_len + x as usize * c;
+                self.data[start..start + w as usize * c].iter().copied()
+            })
+            .collect();
+        Ok(Self {
+            width: w,
+            height: h,
+            channels: self.channels,
+            data,
+            orientation: self.orientation,
+        })
+    }
 }
