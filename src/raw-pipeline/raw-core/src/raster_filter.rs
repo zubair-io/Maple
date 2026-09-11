@@ -50,9 +50,11 @@ fn kernel_radius(sigma: f64) -> i64 {
     ((sigma * scale).ceil() as i64).max(1)
 }
 
-/// Clamp-to-edge index into `0..len`.
+/// Clamp-to-edge index into `0..len`. `pub(crate)` so `raster_filter_ops.rs`
+/// (median/threshold/convolve, #3504 task E3) can share it rather than
+/// redefine it.
 #[inline]
-fn clamp_index(i: i64, len: usize) -> usize {
+pub(crate) fn clamp_index(i: i64, len: usize) -> usize {
     i.clamp(0, len as i64 - 1) as usize
 }
 
