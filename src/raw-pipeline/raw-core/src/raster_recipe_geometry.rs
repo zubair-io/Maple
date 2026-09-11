@@ -116,11 +116,28 @@ mod tests {
     }
 
     #[test]
-    fn flip_and_flop_are_reachable_from_the_recipe() {
+    fn flop_is_reachable_from_the_recipe() {
         let out = run_recipe(
             &parse_recipe(
                 r#"{"v":1,"input":{"kind":"raw","width":2,"height":1,"channels":3},
                     "ops":[{"op":"flop"}],"output":{"format":"raw"}}"#,
+            )
+            .unwrap(),
+            &[1, 1, 1, 2, 2, 2],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(out.bytes, vec![2, 2, 2, 1, 1, 1]);
+    }
+
+    #[test]
+    fn flip_is_reachable_from_the_recipe() {
+        // 1x2: row 0 is [1,1,1], row 1 is [2,2,2]. Flipped, row 0 of the
+        // output is the source's row 1.
+        let out = run_recipe(
+            &parse_recipe(
+                r#"{"v":1,"input":{"kind":"raw","width":1,"height":2,"channels":3},
+                    "ops":[{"op":"flip"}],"output":{"format":"raw"}}"#,
             )
             .unwrap(),
             &[1, 1, 1, 2, 2, 2],
