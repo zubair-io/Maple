@@ -132,9 +132,21 @@ fn clamp_index(i: i64, len: usize) -> usize {
 /// kernel `[-1,-1,-1; -1,32,-1; -1,-1,-1] / 24`. The divisor equals the
 /// kernel's weight sum, so a flat region is returned unchanged. Alpha is
 /// left alone, same as the Lab path.
+///
+/// The accumulate-then-divide is plain integer arithmetic, truncating
+/// toward zero, NOT `f64` + `round()` — this is libvips' own uchar
+/// convolution path (`vips_convi`), which truncates rather than rounds to
+/// nearest. Confirmed against sharp 0.34.5's real output on the 60/200 step
+/// edge two independent ways (`.sharpen()` with no arguments, and
+/// `.convolve({kernel, scale: 24, offset: 0})` with this exact kernel):
+/// both give 42/217 at the pixels adjacent to the edge — sums of 1020/24 =
+/// 42.5 and 5220/24 = 217.5, truncated down, not `f64::round`'s 43/218
+/// (round-half-away-from-zero). A non-half sum agrees under either
+/// convention (e.g. 6032/24 = 251.33… is 251 either way), so this only
+/// matters at an exact `.5`.
 fn fast_sharpen(src: &RasterImage) -> RasterImage {
-    const KERNEL: [[f64; 3]; 3] = [[-1.0, -1.0, -1.0], [-1.0, 32.0, -1.0], [-1.0, -1.0, -1.0]];
-    const DIVISOR: f64 = 24.0;
+    const KERNEL: [[i32; 3]; 3] = [[-1, -1, -1], [-1, 32, -1], [-1, -1, -1]];
+    const DIVISOR: i32 = 24;
 
     let c = src.channels as usize;
     let bands = c.min(3);
@@ -145,17 +157,22 @@ fn fast_sharpen(src: &RasterImage) -> RasterImage {
         for x in 0..w {
             let base = (y * w + x) * c;
             for band in 0..bands {
-                let acc: f64 = KERNEL
+                let acc: i32 = KERNEL
                     .iter()
                     .enumerate()
                     .flat_map(|(ky, row)| row.iter().enumerate().map(move |(kx, w)| (ky, kx, w)))
                     .map(|(ky, kx, weight)| {
                         let sy = clamp_index(y as i64 + ky as i64 - 1, h);
                         let sx = clamp_index(x as i64 + kx as i64 - 1, w);
-                        src.data[(sy * w + sx) * c + band] as f64 * weight
+                        src.data[(sy * w + sx) * c + band] as i32 * weight
                     })
                     .sum();
-                data[base + band] = (acc / DIVISOR).round().clamp(0.0, 255.0) as u8;
+                // `/` on `i32` truncates toward zero, matching libvips: a
+                // positive half-integer (42.5) truncates down to 42. A
+                // negative sum (a very dark centre against very bright
+                // neighbours) also truncates toward zero — e.g. -12/24 is
+                // 0, not -1 — and `clamp` pins it at 0 regardless.
+                data[base + band] = (acc / DIVISOR).clamp(0, 255) as u8;
             }
             for band in bands..c {
                 data[base + band] = src.data[base + band];
