@@ -71,6 +71,7 @@ pub use raster::{
 pub mod raster_alpha;
 pub mod raster_composite;
 pub mod raster_encode;
+pub mod raster_geometry;
 mod raster_orient;
 pub mod raster_recipe;
 pub mod raster_recipe_exec;
