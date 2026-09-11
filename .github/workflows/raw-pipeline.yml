@@ -401,6 +401,13 @@ jobs:
   #     "fixtures"), ignore)]`, so they are *visibly* ignored here (and fail
   #     closed — panic on a missing fixture — when `--features fixtures` is
   #     enabled on a fixture-provisioned machine).
+  #   * `cargo test -p raw-core --features avif --test avif_corruption` — the
+  #     AVIF panic barrier (#3517). A SEPARATE step because `avif` is not in
+  #     `test-support`: without it the whole AVIF module — the sweep target
+  #     and the unit tests inside `avif_decode.rs` alike — is `#[cfg]`'d out,
+  #     so the step above compiles and runs exactly zero of them and passes.
+  #     The sweep is the regression guard for a corrupt AVIF aborting the
+  #     process, so "0 tests, green" is the one outcome it must not have.
   #   * The three grey gates (synthetic in-memory DNGs, never skip):
   #     test_synthetic_grey.sh, test_grey_adjustments.sh, test_grey_dcp.sh.
   #     They re-run their `--test` targets with `--nocapture` so the
@@ -439,6 +446,15 @@ jobs:
       - name: cargo test -p raw-core (fixture-free)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features test-support
+      # ~0.5 s: 723 single-byte corruptions plus a full truncation sweep of a
+      # 288-byte AVIF, asserting only that every one of them RETURNS. Needs
+      # `--features avif`, which the step above does not enable.
+      #
+      # Quoted: an unquoted YAML scalar treats ` #` as the start of a comment,
+      # which would silently truncate this name at the ticket reference.
+      - name: 'cargo test -p raw-core --features avif (AVIF panic barrier, #3517)'
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features avif --test avif_corruption
       # Each synthetic gate runs through tools/qualification/record.sh --check
       # (#2430): the gate itself is unchanged, and afterwards its executed /
       # failed / skipped counts are compared against the committed evidence
