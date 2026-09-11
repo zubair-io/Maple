@@ -895,9 +895,8 @@ function resolveColour(value, fallback) {
 }
 // src/builder.ts
 import * as crypto from "node:crypto";
-import * as fs5 from "node:fs/promises";
-import * as os from "node:os";
-import * as path6 from "node:path";
+import * as fs6 from "node:fs/promises";
+import * as path7 from "node:path";
 
 // src/builder-exec.ts
 import * as fs4 from "node:fs/promises";
@@ -1021,6 +1020,100 @@ async function resolveTensor(state, options) {
   };
 }
 
+// src/builder-geometry.ts
+var OPAQUE_BLACK = [0, 0, 0, 255];
+function pushRotate(state, angle, options) {
+  if (angle === undefined) {
+    state.autoOrient = true;
+    return;
+  }
+  state.ops.push({
+    op: "rotate",
+    angle,
+    background: resolveColour(options?.background, OPAQUE_BLACK)
+  });
+}
+function pushExtract(state, region) {
+  state.ops.push({
+    op: "extract",
+    left: region.left,
+    top: region.top,
+    width: region.width,
+    height: region.height
+  });
+}
+function pushExtend(state, options) {
+  const edges = typeof options === "number" ? { top: options, bottom: options, left: options, right: options } : options;
+  const opts = typeof options === "number" ? {} : options;
+  state.ops.push({
+    op: "extend",
+    top: edges.top ?? 0,
+    bottom: edges.bottom ?? 0,
+    left: edges.left ?? 0,
+    right: edges.right ?? 0,
+    extendWith: opts.extendWith ?? "background",
+    background: resolveColour(opts.background, OPAQUE_BLACK)
+  });
+}
+function pushFlip(state) {
+  state.ops.push({ op: "flip" });
+}
+function pushFlop(state) {
+  state.ops.push({ op: "flop" });
+}
+function pushTrim(state, options) {
+  state.ops.push({
+    op: "trim",
+    background: options?.background === undefined ? null : resolveColour(options.background, OPAQUE_BLACK),
+    threshold: options?.threshold ?? 10,
+    margin: options?.margin ?? 0
+  });
+}
+
+// src/builder-raw-develop.ts
+import * as fs5 from "node:fs/promises";
+import * as os from "node:os";
+import * as path6 from "node:path";
+function isRawDevelop(state) {
+  return state.inputPath !== null && (state.exportRecipe !== null || state.xmpPath !== null || state.xmpXml !== null || isRawPath(state.inputPath));
+}
+async function rawDevelopToBuffer(state, toFile) {
+  const ext = state.format ? `.${state.format === "jpeg" ? "jpg" : state.format}` : ".jpg";
+  const tmpFile = path6.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  try {
+    const fileRes = await toFile(tmpFile);
+    if (!fileRes.ok) {
+      throw new Error(fileRes.error || "Failed to develop RAW to buffer");
+    }
+    return await fs5.readFile(tmpFile);
+  } finally {
+    try {
+      await fs5.unlink(tmpFile);
+    } catch {}
+  }
+}
+async function rawDevelopToFile(state, outputPath) {
+  const rawPath = state.inputPath;
+  if (state.exportRecipe) {
+    return exportRecipe({
+      rawPath,
+      xmpXml: state.xmpXml ?? undefined,
+      recipe: state.exportRecipe,
+      filmPath: state.filmPath,
+      outPath: outputPath
+    });
+  }
+  return exportImage({
+    rawPath,
+    xmpPath: state.xmpPath,
+    format: state.format ?? undefined,
+    quality: state.quality,
+    colorSpace: state.colorSpace,
+    maxLongEdge: state.maxLongEdge || lastResizeWidth(state),
+    outPath: outputPath
+  });
+}
+
 // src/builder.ts
 class MapleImageBuilder {
   s;
@@ -1052,8 +1145,28 @@ class MapleImageBuilder {
     });
     return this;
   }
-  rotate() {
-    this.s.autoOrient = true;
+  rotate(angle, options) {
+    pushRotate(this.s, angle, options);
+    return this;
+  }
+  extract(region) {
+    pushExtract(this.s, region);
+    return this;
+  }
+  extend(options) {
+    pushExtend(this.s, options);
+    return this;
+  }
+  flip() {
+    pushFlip(this.s);
+    return this;
+  }
+  flop() {
+    pushFlop(this.s);
+    return this;
+  }
+  trim(options) {
+    pushTrim(this.s, options);
     return this;
   }
   toFormat(format, options) {
@@ -1181,77 +1294,38 @@ class MapleImageBuilder {
     if (meta.orientation <= 1) {
       return true;
     }
-    const ext = path6.extname(this.s.inputPath) || ".jpg";
+    const ext = path7.extname(this.s.inputPath) || ".jpg";
     const tempOut = `${this.s.inputPath}.orient_tmp.${Date.now()}.${crypto.randomUUID()}${ext}`;
     const targetFmt = this.s.format || meta.format || "jpeg";
     const res = await this.rotate().format(targetFmt).toFile(tempOut);
     if (!res.ok) {
       try {
-        await fs5.unlink(tempOut);
+        await fs6.unlink(tempOut);
       } catch {}
       throw new Error(res.error || "Failed to normalize orientation");
     }
-    await fs5.rename(tempOut, this.s.inputPath);
+    await fs6.rename(tempOut, this.s.inputPath);
     return true;
   }
   async toRawRgb(options) {
     return resolveTensor(this.s, options);
   }
-  isRawDevelop() {
-    return this.s.inputPath !== null && (this.s.exportRecipe !== null || this.s.xmpPath !== null || this.s.xmpXml !== null || isRawPath(this.s.inputPath));
-  }
-  async rawDevelopToBuffer() {
-    const ext = this.s.format ? `.${this.s.format === "jpeg" ? "jpg" : this.s.format}` : ".jpg";
-    const tmpFile = path6.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
-    try {
-      const fileRes = await this.toFile(tmpFile);
-      if (!fileRes.ok) {
-        throw new Error(fileRes.error || "Failed to develop RAW to buffer");
-      }
-      return await fs5.readFile(tmpFile);
-    } finally {
-      try {
-        await fs5.unlink(tmpFile);
-      } catch {}
-    }
-  }
-  async rawDevelopToFile(outputPath) {
-    const rawPath = this.s.inputPath;
-    if (this.s.exportRecipe) {
-      return exportRecipe({
-        rawPath,
-        xmpXml: this.s.xmpXml ?? undefined,
-        recipe: this.s.exportRecipe,
-        filmPath: this.s.filmPath,
-        outPath: outputPath
-      });
-    }
-    return exportImage({
-      rawPath,
-      xmpPath: this.s.xmpPath,
-      format: this.s.format ?? undefined,
-      quality: this.s.quality,
-      colorSpace: this.s.colorSpace,
-      maxLongEdge: this.s.maxLongEdge || lastResizeWidth(this.s),
-      outPath: outputPath
-    });
-  }
   async toBuffer() {
-    if (this.isRawDevelop()) {
-      return await this.rawDevelopToBuffer();
+    if (isRawDevelop(this.s)) {
+      return await rawDevelopToBuffer(this.s, (outputPath) => this.toFile(outputPath));
     }
     const bytes = await inputBytes(this.s);
     return runPipeline(this.s, bytes, stateToOutput(this.s, "jpeg")).buffer;
   }
   async toFile(outputPath) {
-    if (this.isRawDevelop()) {
-      return await this.rawDevelopToFile(outputPath);
+    if (isRawDevelop(this.s)) {
+      return await rawDevelopToFile(this.s, outputPath);
     }
-    await fs5.mkdir(path6.dirname(outputPath), { recursive: true });
+    await fs6.mkdir(path7.dirname(outputPath), { recursive: true });
     try {
       const bytes = await inputBytes(this.s);
       const out = runPipeline(this.s, bytes, stateToOutput(this.s, formatForPath(outputPath)));
-      await fs5.writeFile(outputPath, out.buffer);
+      await fs6.writeFile(outputPath, out.buffer);
       return { ok: true, outPath: outputPath };
     } catch (error) {
       return {
@@ -1269,8 +1343,8 @@ function maple(input) {
   return new MapleImageBuilder(input);
 }
 // src/cli.ts
-import * as fs6 from "node:fs/promises";
-import * as path7 from "node:path";
+import * as fs7 from "node:fs/promises";
+import * as path8 from "node:path";
 function printHelp() {
   console.log(`
 maple - Professional RAW photo development and export engine by Just Maple
@@ -1384,7 +1458,7 @@ async function runCli(argv) {
     console.log(`Exporting ${rawPath} -> ${outPath}...`);
     const start = Date.now();
     if (recipePath) {
-      const recipeContent = await fs6.readFile(recipePath, "utf-8");
+      const recipeContent = await fs7.readFile(recipePath, "utf-8");
       const res = await exportRecipe({
         rawPath,
         recipe: recipeContent,
@@ -1411,7 +1485,7 @@ async function runCli(argv) {
       }
     }
     const elapsed = ((Date.now() - start) / 1000).toFixed(2);
-    const stat2 = await fs6.stat(outPath);
+    const stat2 = await fs7.stat(outPath);
     console.log(`✓ Exported: ${outPath} (${(stat2.size / 1024).toFixed(1)} KB in ${elapsed}s)`);
     return 0;
   }
@@ -1439,16 +1513,16 @@ async function runCli(argv) {
       console.error("Error: No photo files specified for batch recipe export.");
       return 1;
     }
-    const recipeContent = await fs6.readFile(recipePath, "utf-8");
+    const recipeContent = await fs7.readFile(recipePath, "utf-8");
     const recipe = JSON.parse(recipeContent);
-    await fs6.mkdir(outDir, { recursive: true });
+    await fs7.mkdir(outDir, { recursive: true });
     console.log(`Batch exporting ${photoFiles.length} photo(s) with recipe "${recipe.name}"...`);
     let succeeded = 0;
     let failed = 0;
     for (const file of photoFiles) {
-      const stem = path7.basename(file, path7.extname(file));
+      const stem = path8.basename(file, path8.extname(file));
       const ext = recipe.format === "tiff" ? "tif" : recipe.format === "png" ? "png" : "jpg";
-      const dest = path7.join(outDir, `${stem}.${ext}`);
+      const dest = path8.join(outDir, `${stem}.${ext}`);
       process.stdout.write(`  Rendering ${stem}... `);
       const res = await exportRecipe({
         rawPath: file,
@@ -1549,7 +1623,7 @@ async function runCli(argv) {
       return 1;
     }
     const elapsed = ((Date.now() - start) / 1000).toFixed(2);
-    const stat2 = await fs6.stat(outPath);
+    const stat2 = await fs7.stat(outPath);
     console.log(`✓ Resized: ${outPath} (${(stat2.size / 1024).toFixed(1)} KB in ${elapsed}s)`);
     return 0;
   }
