@@ -186,6 +186,22 @@ export function getFfiSymbols(FFIType: Record<string, string | number>) {
       ],
       returns: FFIType.i32,
     },
+    maple_raster_pipeline_buf: {
+      args: [
+        FFIType.ptr, // input_bytes
+        FFIType.u64, // input_len
+        FFIType.cstring, // recipe_json
+        FFIType.ptr, // aux
+        FFIType.u64, // aux_len
+        FFIType.ptr, // out_buf
+        FFIType.u64, // out_cap
+        FFIType.ptr, // out_len (u64*)
+        FFIType.ptr, // out_width (u32*)
+        FFIType.ptr, // out_height (u32*)
+        FFIType.ptr, // out_channels (u32*)
+      ],
+      returns: FFIType.i32,
+    },
     maple_last_error: {
       args: [],
       returns: FFIType.cstring,
