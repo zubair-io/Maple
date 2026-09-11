@@ -825,6 +825,9 @@ struct AppShell: View {
       macShell
         .environment(\.mapleLayout, MapleLayout.from(width: proxy.size.width))
     }
+    #if os(macOS)
+      .background(WindowRelayoutNudge())
+    #endif
     // OS file/folder drop-to-mount (#2649), macOS + iPad only — iPhone
     // renders `phoneTabShell` instead of this view. Routing lives in
     // `AppShell+FolderDrop.swift`; this modifier is the only wiring.
@@ -1537,3 +1540,38 @@ struct AppShell: View {
   })
   .frame(width: 1100, height: 720)
 }
+
+#if os(macOS)
+  /// One-shot post-launch relayout (#3536). The split view's detail column
+  /// is measured while the window still has its `.defaultSize` frame; when
+  /// macOS then restores the saved (larger) frame, AppKit does not re-measure
+  /// the column, which stays 1280×800-shaped and bottom-anchored — the grid's
+  /// empty state and the Photos-permission panel land below the window edge
+  /// until the user resizes by hand. Bumping the frame by one point and back
+  /// once the window is on screen is exactly that resize, done for them.
+  private struct WindowRelayoutNudge: NSViewRepresentable {
+    func makeNSView(context: Context) -> NudgeView { NudgeView() }
+    func updateNSView(_ nsView: NudgeView, context: Context) {}
+
+    final class NudgeView: NSView {
+      private var nudged = false
+
+      override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard !nudged, let window else { return }
+        nudged = true
+        // After the current run-loop turn: the frame restore lands in the
+        // same turn `viewDidMoveToWindow` fires in, and the nudge must follow
+        // it, not precede it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak window] in
+          guard let window else { return }
+          let frame = window.frame
+          window.setFrame(
+            NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + 1),
+            display: true)
+          window.setFrame(frame, display: true)
+        }
+      }
+    }
+  }
+#endif

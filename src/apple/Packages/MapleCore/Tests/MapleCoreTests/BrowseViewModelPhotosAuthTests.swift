@@ -30,4 +30,22 @@ struct BrowseViewModelPhotosAuthTests {
         #expect(vm.currentSource == nil)
         #expect(!vm.isLoading)
     }
+
+    @Test("loadFolder(url:) on an empty folder clears a leftover Photos-permission state (#3536)")
+    func loadFolderClearsPhotosAuth() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("maple-photos-auth-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let vm = BrowseViewModel()
+        vm.setPhotosAuthNeeded(canRequest: true)
+
+        vm.loadFolder(url: dir)
+
+        #expect(vm.assets.isEmpty)
+        #expect(vm.subfolders.isEmpty)
+        #expect(!vm.photosAuthNeeded)
+        #expect(vm.loadError == nil)
+    }
 }

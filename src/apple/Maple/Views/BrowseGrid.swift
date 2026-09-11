@@ -165,6 +165,22 @@ struct BrowseGrid: View {
           }
           .background(MapleTokens.bg)
           .opacity(isEmpty ? 0 : 1)
+          // Empty state — only when the folder has zero folders AND zero
+          // images. An OVERLAY of the scroll view, not a ZStack sibling
+          // (#3536): on macOS the split view's detail column is hosted in a
+          // scroll container that sizes the column to the content's IDEAL
+          // height, and a free-floating `maxHeight: .infinity` sibling has no
+          // honest ideal — the Photos empty state grew the column to twice
+          // the viewport and the panel (with its Connect button) centred
+          // below the window. The scroll view is always viewport-sized, so
+          // its overlay is too.
+          .overlay {
+            if isEmpty {
+              BrowseEmptyState(vm: vm, onGrantPhotosAccess: onGrantPhotosAccess)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(MapleTokens.bg)
+            }
+          }
           .onChange(of: vm.selectedID) { _, newID in
             // Minimum scroll — bring the cell into view only when it's
             // outside the viewport. `.center` re-centered every click,
@@ -186,13 +202,6 @@ struct BrowseGrid: View {
           .padding(8)
         }
 
-        // Empty state overlay — only when the folder has zero folders AND
-        // zero images.
-        if isEmpty {
-          BrowseEmptyState(vm: vm, onGrantPhotosAccess: onGrantPhotosAccess)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(MapleTokens.bg)
-        }
       }
 
       if let controller = clipboard?.batchTransfers {

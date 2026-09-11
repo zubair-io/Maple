@@ -68,7 +68,7 @@ enum BrowseGridVM {
             // original. Keeps the non-destructive promise without implying a
             // file placement that isn't true here.
             ? "Maple reads the photos and RAW files in your library so you can browse and edit them here. Your originals are never modified — Maple keeps its edits separately."
-            : "Maple was declined access to your photo library, and iOS won't ask again. You can turn it back on in Settings."
+            : "Maple was declined access to your photo library, and the system won't ask again. You can turn it back on under Privacy & Security → Photos in Settings."
     }
 
     /// Label for the panel's action button.
