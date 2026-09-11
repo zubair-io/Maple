@@ -77,6 +77,7 @@ pub mod raster_geometry;
 pub mod raster_lab;
 mod raster_orient;
 pub mod raster_recipe;
+pub(crate) mod raster_recipe_colour;
 pub mod raster_recipe_exec;
 mod raster_recipe_geometry;
 mod raster_recipe_resize;

@@ -1,6 +1,9 @@
-//! Tests for `raster_recipe`'s schema/parsing — split out of `raster_recipe.rs`
-//! to keep that file under budget, same pattern as `raster.rs` /
-//! `raster_tests.rs`.
+//! Unit tests for [`super`] — the recipe schema's parsing, defaults and
+//! stray-key rejection. Split out of `raster_recipe.rs` under the 400-line
+//! file-size budget (#3501 geometry ops, then #3503 Task D6's eight colour
+//! `Op` variants, both pushed the schema file over); same `#[path]` sibling
+//! pattern `view/encode.rs` / `stages/blur.rs` use. Contents moved verbatim,
+//! `super` is `raster_recipe`.
 
 use super::*;
 
@@ -208,6 +211,38 @@ fn every_variant_of_every_recipe_enum_rejects_a_stray_key() {
         (
             "op:trim",
             r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"trim","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:greyscale",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"greyscale","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:gamma",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"gamma","exponent":2.0,"zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:linear",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"linear","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:negate",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"negate","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:normalise",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"normalise","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:modulate",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"modulate","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:tint",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"tint","rgb":[0,0,0],"zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:toColourspace",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"toColourspace","space":"srgb","zzzStray":1}],"output":{"format":"png"}}"#,
         ),
         // Output
         (
