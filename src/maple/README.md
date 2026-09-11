@@ -117,19 +117,19 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 
 ## sharp parity
 
-| sharp method    | Maple | Notes                                                                                                                            |
-| :-------------- | :---- | :------------------------------------------------------------------------------------------------------------------------------- |
-| `extract()`     | ✅    | `{ left, top, width, height }`                                                                                                   |
-| `extend()`      | ✅    | background only — `extendWith: 'copy' \| 'repeat' \| 'mirror'` throws by name                                                    |
-| `rotate(angle)` | ✅    | 90/180/270 exact; other angles bilinear into the rotated box                                                                     |
-| `rotate()`      | ✅    | no argument = EXIF auto-orient, as in sharp                                                                                      |
-| `flip()`        | ✅    |                                                                                                                                  |
-| `flop()`        | ✅    |                                                                                                                                  |
-| `trim()`        | ✅    | `{ background, threshold, margin }`; `lineArt` throws by name; an all-background image is returned unchanged, where sharp throws |
-| `composite()`   | ✅    | `over`, `multiply`, `screen`, `add`, `darken`, `lighten`, `dest-in`, `dest-out`                                                  |
-| `flatten()`     | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                             |
-| `ensureAlpha()` | ✅    |                                                                                                                                  |
-| `removeAlpha()` | ✅    |                                                                                                                                  |
+| sharp method    | Maple | Notes                                                                                                                                                                                       |
+| :-------------- | :---- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `extract()`     | ✅    | `{ left, top, width, height }`                                                                                                                                                              |
+| `extend()`      | ✅    | background only — `extendWith: 'copy' \| 'repeat' \| 'mirror'` throws by name                                                                                                               |
+| `rotate(angle)` | ✅    | 90/180/270 exact; other angles bilinear into the rotated box                                                                                                                                |
+| `rotate()`      | ✅    | no argument = EXIF auto-orient, as in sharp                                                                                                                                                 |
+| `flip()`        | ✅    |                                                                                                                                                                                             |
+| `flop()`        | ✅    |                                                                                                                                                                                             |
+| `trim()`        | ✅    | `{ background, threshold, margin }` — `margin` is a Maple extension, not in sharp's `trim` options; `lineArt` throws by name; an all-background image is returned unchanged, matching sharp |
+| `composite()`   | ✅    | `over`, `multiply`, `screen`, `add`, `darken`, `lighten`, `dest-in`, `dest-out`                                                                                                             |
+| `flatten()`     | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                        |
+| `ensureAlpha()` | ✅    |                                                                                                                                                                                             |
+| `removeAlpha()` | ✅    |                                                                                                                                                                                             |
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
