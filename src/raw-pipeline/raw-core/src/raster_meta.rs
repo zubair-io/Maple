@@ -382,5 +382,14 @@ fn read_webp(bytes: &[u8]) -> RasterSidecars {
 }
 
 #[cfg(test)]
+#[path = "raster_meta_jpeg_tests.rs"]
+mod jpeg_tests;
+#[cfg(test)]
+#[path = "raster_meta_png_tests.rs"]
+mod png_tests;
+#[cfg(test)]
 #[path = "raster_meta_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "raster_meta_tiff_webp_tests.rs"]
+mod tiff_webp_tests;
