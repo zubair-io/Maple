@@ -103,7 +103,10 @@ pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
             height: probe.height,
             format: "avif".to_string(),
             channels: if probe.has_alpha { 4 } else { 3 },
-            orientation: 1,
+            // Real orientation from the container's irot/imir transform
+            // properties (#3507). Before this, `.rotate()` on an AVIF source
+            // was a silent no-op.
+            orientation: crate::avif_boxes::read_avif_boxes(bytes).orientation,
         });
     }
 
@@ -319,6 +322,14 @@ pub fn extract_tensor(
     })
 }
 
+/// Read the EXIF Orientation tag out of a bare TIFF block (the form an AVIF
+/// `Exif` item and a JPEG APP1 payload both carry) — #3507, so
+/// `raster_meta::read_sidecars`'s AVIF `exif` field can be checked against a
+/// real Orientation tag, not just proven non-empty.
+pub fn exif_orientation_from_block(block: &[u8]) -> Option<u16> {
+    raster_exif::parse_tiff_exif_orientation(block)
+}
+
 /// ISO-BMFF `ftyp` box carrying an AVIF-family brand (`avif`, `avis` for
 /// image sequences, or `mif1` for a MIAF-conformant still) among the first
 /// 32 bytes. Single-sourced here — compiled unconditionally, regardless of
@@ -326,7 +337,9 @@ pub fn extract_tensor(
 /// as the real decoder instead of a looser "any ftyp box" heuristic that
 /// would misreport other ISO-BMFF containers (HEIC, MP4, MOV) as AVIF.
 /// `avif_decode::is_avif` (kept `pub` for Task 1's own tests) delegates here.
-pub(crate) fn is_avif(bytes: &[u8]) -> bool {
+/// `pub` (not `pub(crate)`) since `crate::raster_meta::read_sidecars`
+/// (#3507, Task G2) also dispatches on it.
+pub fn is_avif(bytes: &[u8]) -> bool {
     bytes.len() >= 12
         && &bytes[4..8] == b"ftyp"
         && bytes[8..bytes.len().min(32)]

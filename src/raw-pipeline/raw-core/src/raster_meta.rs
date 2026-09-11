@@ -15,9 +15,13 @@
 //!   TIFF type (BYTE/ASCII/UNDEFINED) is trusted to mean "the declared count
 //!   is a byte length".
 //! * WebP: the `EXIF`, `ICCP` and `XMP ` RIFF chunks.
-//!
-//! AVIF is handled separately (Task G2) — its metadata lives in ISO-BMFF
-//! item boxes, not in a chunk stream.
+//! * AVIF: the `Exif` and `mime` (XMP) items `crate::avif_boxes` reads out of
+//!   the container's `meta`/`iinf`/`iloc` item boxes — a completely
+//!   different shape from the chunk/segment streams above, so it dispatches
+//!   straight to that module rather than growing a fifth walker here. No ICC
+//!   here either: it would live in a `colr` box of type `prof`, which
+//!   `avif-serialize` (what backs this crate's own AVIF encoder) cannot
+//!   write and Maple therefore does not read back (Tier 2 plan decision D5).
 //!
 //! Everything here is READ-ONLY and allocation-light: a container with no
 //! metadata costs one linear scan of its header. Every offset comes from
@@ -51,6 +55,18 @@ const PNG_XMP_KEYWORD: &[u8] = b"XML:com.adobe.xmp\0";
 /// stream for EXIF, ICC, XMP and pixel density. Anything unrecognised, or
 /// too short to carry a valid header, reports every field `None`.
 pub fn read_sidecars(bytes: &[u8]) -> RasterSidecars {
+    if crate::raster::is_avif(bytes) {
+        let boxes = crate::avif_boxes::read_avif_boxes(bytes);
+        return RasterSidecars {
+            exif: boxes.exif,
+            xmp: boxes.xmp,
+            // See the module doc: `colr`/`prof` ICC is a real AVIF
+            // possibility this crate's own encoder never writes, so there is
+            // nothing to read back yet.
+            icc: None,
+            density: None,
+        };
+    }
     if bytes.starts_with(&[0xFF, 0xD8]) {
         return read_jpeg(bytes);
     }
