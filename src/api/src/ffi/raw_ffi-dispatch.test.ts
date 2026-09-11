@@ -39,7 +39,9 @@ describe('handleFfiRequest', () => {
     expect(res.ok).toBe(false);
     expect(res.id).toBe(41);
     expect(res.type).toBe('renderBitmapThumb');
-    expect(res.error).toMatch(/unknown request type/i);
+    // `error` is not on every reply variant (`validateAvif` carries `reason`),
+    // so reach for it through the union.
+    expect('error' in res ? res.error : undefined).toMatch(/unknown request type/i);
     expect(calls).toEqual([]);
   });
 

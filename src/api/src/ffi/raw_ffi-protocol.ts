@@ -78,6 +78,30 @@ export interface RenderPreviewJpegRequest {
   quality: number;
 }
 
+/** Render a non-RAW bitmap (JPEG/PNG/WebP/TIFF/AVIF/HEIC/PSD/HDR) to a resized
+ *  AVIF or JPEG on disk — the #3499 replacement for the sharp-based
+ *  imgdecode child, now dispatched onto this same FFI child pool instead of
+ *  a second isolated process family. `ext` is the lowercase source
+ *  extension without dot; `format` defaults to `'avif'` in the child. */
+export interface RenderBitmapRequest {
+  type: 'renderBitmap';
+  id: number;
+  srcPath: string;
+  outPath: string;
+  maxPx: number;
+  quality: number;
+  ext: string;
+  format?: 'avif' | 'jpeg';
+}
+
+/** Decode-validate an AVIF this pipeline just wrote (`thumbs/avif-checks.ts`). */
+export interface ValidateAvifRequest {
+  type: 'validateAvif';
+  id: number;
+  filePath: string;
+  expectedLongEdgePx: number;
+}
+
 export interface ExportRecipeRequest {
   type: 'exportRecipe';
   id: number;
@@ -107,7 +131,9 @@ export type FfiRequest =
   | RenderThumbRequest
   | HistogramRequest
   | RenderDevelopRequest
-  | RenderPreviewJpegRequest;
+  | RenderPreviewJpegRequest
+  | RenderBitmapRequest
+  | ValidateAvifRequest;
 
 /** Every `type` the child dispatches. Kept as a value (not just the union)
  *  so the wire guard below can check an incoming payload against it. */
@@ -119,6 +145,8 @@ export const FFI_REQUEST_TYPES = [
   'histogram',
   'renderDevelop',
   'renderPreviewJpeg',
+  'renderBitmap',
+  'validateAvif',
 ] as const satisfies readonly FfiRequest['type'][];
 
 /**
@@ -167,6 +195,20 @@ export interface RenderPreviewJpegResponse {
   error?: string;
 }
 
+export interface RenderBitmapResponse {
+  type: 'renderBitmap';
+  id: number;
+  ok: boolean;
+  error?: string;
+}
+
+export interface ValidateAvifResponse {
+  type: 'validateAvif';
+  id: number;
+  ok: boolean;
+  reason?: string;
+}
+
 export type FfiResponse =
   | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
   | AsShotResponse
@@ -174,7 +216,9 @@ export type FfiResponse =
   | RenderThumbResponse
   | HistogramResponse
   | RenderDevelopResponse
-  | RenderPreviewJpegResponse;
+  | RenderPreviewJpegResponse
+  | RenderBitmapResponse
+  | ValidateAvifResponse;
 
 /** Reply to a request the child could not dispatch: the (unrecognised) `type`
  *  is echoed so the pool can name it when it rejects the caller. Deliberately
