@@ -8,7 +8,7 @@
 # packages. None of that touches main, so package.json and the Xcode project
 # drift behind what was actually shipped. This workflow runs once BOTH of
 # those workflows have succeeded for the same tag, runs the same sync by
-# hand (tools/sync-release-version.sh), and opens
+# hand (tools/sync-release-version.sh), rebuilds the committed dist/, and opens
 # `chore(release): sync versions to vX.Y.Z`. It is a no-op when there is
 # nothing to change or the PR already exists, and it never runs for a
 # prerelease tag (v1.2.3-test.1): main should not claim a test version.
@@ -60,7 +60,7 @@ jobs:
           for wf in release.yml publish-package.yml; do
             conclusion="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$wf" --event push \
               --json headSha,status,conclusion \
-              --jq "[.[] | select(.headSha == \"$TAG_SHA\")] | first | \"\(.status):\(.conclusion)\"")"
+              --jq "[.[] | select(.headSha == \"$TAG_SHA\")] | first | if . then \"\(.status):\(.conclusion)\" else \"none\" end")"
             echo "$wf for $TAG ($TAG_SHA): ${conclusion:-no run}"
             if [ "$conclusion" != "completed:success" ]; then
               echo "waiting=true" >> "$GITHUB_OUTPUT"
@@ -96,6 +96,9 @@ jobs:
         run: |
           set -euo pipefail
           tools/sync-release-version.sh "$TAG"
+          # dist/ is committed (src/api consumes it), so it has to carry the
+          # new MAPLE_VERSION too or main's bundle would still print the old one.
+          (cd src/maple && bun install && bun run build)
           if git diff --quiet; then
             echo "Committed versions already match $TAG; nothing to do."
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -112,7 +115,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add src/maple/package.json src/maple/npm/*/package.json src/maple/src/version.ts src/apple/Maple.xcodeproj/project.pbxproj
+          git add src/maple/package.json src/maple/npm/*/package.json src/maple/src/version.ts src/maple/dist src/apple/Maple.xcodeproj/project.pbxproj
           git commit \
             -m "chore(release): sync versions to $TAG" \
             -m "Release $TAG shipped from $TAG_SHA with the tag stamped into every artifact; this brings the committed version fields in line with it. Opened automatically by version-sync.yml (#3486)."
