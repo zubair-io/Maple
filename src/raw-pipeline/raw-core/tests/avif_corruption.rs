@@ -88,47 +88,82 @@ impl std::fmt::Display for Tally {
     }
 }
 
-/// Runs `call` on every single-byte corruption of a valid AVIF — each offset
-/// against three replacement values (all bits clear, all bits set, and the top
-/// bit flipped, which perturbs a byte without landing on a common sentinel) —
-/// and fails, naming the offending byte, the moment anything escapes as a
-/// panic instead of a return value.
-fn sweep(label: &str, call: impl Fn(&[u8]) -> Result<(), String>) -> Tally {
+/// Runs `call` over a labelled list of damaged files, failing — and naming the
+/// case — the moment anything escapes as a panic instead of a return value.
+fn drive(
+    label: &str,
+    cases: Vec<(String, Vec<u8>)>,
+    call: impl Fn(&[u8]) -> Result<(), String>,
+) -> Tally {
     quieten_provoked_panics();
-    let base = tiny_avif();
+    let expected = cases.len();
     let mut tally = Tally::default();
     let mut escaped = None;
-    'sweep: for (off, &orig) in base.iter().enumerate() {
+    for (case, bytes) in cases {
+        match catch_unwind(AssertUnwindSafe(|| call(&bytes))) {
+            Ok(outcome) => tally.record(outcome),
+            Err(_) => {
+                escaped = Some(case);
+                break;
+            }
+        }
+    }
+    eprintln!("{label}: {tally}");
+    if let Some(case) = escaped {
+        panic!(
+            "{label} unwound out to its caller on {case} — a corrupt AVIF must come back \
+             as Ok or Err, never as an unwind"
+        );
+    }
+    assert_eq!(
+        tally.total(),
+        expected,
+        "{label}: not every case was recorded"
+    );
+    tally
+}
+
+/// Every single-byte corruption of a valid AVIF: each offset against three
+/// replacement values (all bits clear, all bits set, and the top bit flipped,
+/// which perturbs a byte without landing on a common sentinel).
+fn substitution_cases() -> Vec<(String, Vec<u8>)> {
+    let base = tiny_avif();
+    let mut cases = Vec::new();
+    for (off, &orig) in base.iter().enumerate() {
         for repl in [0x00u8, 0xFF, orig ^ 0x80] {
             if repl == orig {
                 continue;
             }
             let mut bytes = base.clone();
             bytes[off] = repl;
-            match catch_unwind(AssertUnwindSafe(|| call(&bytes))) {
-                Ok(outcome) => tally.record(outcome),
-                Err(_) => {
-                    escaped = Some((off, repl));
-                    break 'sweep;
-                }
-            }
+            cases.push((
+                format!("byte {off} (of {}) set to 0x{repl:02X}", base.len()),
+                bytes,
+            ));
         }
     }
-    eprintln!("{label}: {tally}");
-    if let Some((off, repl)) = escaped {
-        panic!(
-            "{label} unwound out to its caller on byte {off} (of {}) set to 0x{repl:02X} \
-             — a corrupt AVIF must come back as Ok or Err, never as an unwind",
-            base.len()
-        );
-    }
-    assert!(
-        tally.total() >= 2 * base.len(),
-        "sweep covered only {} of ~{} corruptions",
-        tally.total(),
-        3 * base.len()
-    );
-    tally
+    cases
+}
+
+/// Every prefix of a valid AVIF, from empty to one byte short of whole.
+/// Truncation is the corruption that actually happens in the field — an
+/// interrupted write, a short read, a half-finished upload — and no
+/// single-byte substitution reproduces it: the container's box lengths stay
+/// self-consistent while the bytes they point at simply run out.
+fn truncation_cases() -> Vec<(String, Vec<u8>)> {
+    let base = tiny_avif();
+    (0..base.len())
+        .map(|len| {
+            (
+                format!("the first {len} bytes (of {})", base.len()),
+                base[..len].to_vec(),
+            )
+        })
+        .collect()
+}
+
+fn sweep(label: &str, call: impl Fn(&[u8]) -> Result<(), String>) -> Tally {
+    drive(label, substitution_cases(), call)
 }
 
 #[test]
@@ -170,4 +205,33 @@ fn every_single_byte_corruption_returns_from_the_probe() {
         "no corruption reached avif-parse's asserting path, so this sweep no longer \
          exercises the container barrier: {tally}"
     );
+}
+
+#[test]
+fn every_truncation_returns_from_decode() {
+    let tally = drive("decode_avif (truncated)", truncation_cases(), |bytes| {
+        raw_core::avif_decode::decode_avif(bytes)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
+    // Half of these (144 of 288, measured) trip `avif-parse`'s parser-state
+    // assertion rather than returning a parse error — truncation is where that
+    // barrier earns its keep, far more than single-byte substitution does.
+    // None may decode: a truncated file is never a valid image.
+    assert_eq!(
+        tally.decoded, 0,
+        "a truncated AVIF must never decode successfully: {tally}"
+    );
+}
+
+#[test]
+fn every_truncation_returns_from_the_probe() {
+    drive("probe_avif (truncated)", truncation_cases(), |bytes| {
+        if !raw_core::avif_decode::is_avif(bytes) {
+            return Err("not avif".into());
+        }
+        raw_core::avif_decode::probe_avif(bytes)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    });
 }
