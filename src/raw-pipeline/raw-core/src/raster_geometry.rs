@@ -1,6 +1,8 @@
-//! Geometry ops on `RasterImage` (#3501): extract a window, mirror it, pad it,
-//! rotate it. Every op is channel-agnostic — it moves whole pixels, so a
-//! 4-channel image comes out 4-channel with its alpha in the right places.
+//! Geometry ops on `RasterImage` (#3501): extract a window, mirror it, pad
+//! it. Every op is channel-agnostic — it moves whole pixels, so a 4-channel
+//! image comes out 4-channel with its alpha in the right places. `rotate`
+//! lives in the sibling `raster_rotate` module — this file was already near
+//! budget without it.
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
