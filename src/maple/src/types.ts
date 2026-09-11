@@ -36,6 +36,37 @@ export interface RawPixels {
   channels: 3;
 }
 
+/** Native-size pixels with whatever channel count the source carried. */
+export interface RawPixelsAny {
+  data: Uint8Array;
+  width: number;
+  height: number;
+  channels: 3 | 4;
+}
+
+/** `{ r, g, b, alpha }`, each 0-255 for r/g/b and 0-1 for alpha. */
+export type Colour = { r: number; g: number; b: number; alpha?: number };
+
+export interface CompositeLayer {
+  /** Encoded image bytes, or a raw pixel buffer. */
+  input: Uint8Array | Buffer | RawPixelInput;
+  left?: number;
+  top?: number;
+  gravity?:
+    | 'centre'
+    | 'center'
+    | 'north'
+    | 'northeast'
+    | 'east'
+    | 'southeast'
+    | 'south'
+    | 'southwest'
+    | 'west'
+    | 'northwest';
+  blend?: 'over' | 'multiply' | 'screen' | 'add' | 'darken' | 'lighten' | 'dest-in' | 'dest-out';
+  tile?: boolean;
+}
+
 export interface EncodeOptions {
   quality?: number;
   /** AVIF only: 0 (fastest) … 9 (slowest), sharp's scale. */
