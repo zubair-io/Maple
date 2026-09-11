@@ -14,12 +14,52 @@ export interface ImageMetadata {
   isRaw?: boolean;
 }
 
+/** sharp's `position` spellings, on top of the nine gravity names. */
+export type ResizePosition =
+  | 'centre'
+  | 'center'
+  | 'north'
+  | 'northeast'
+  | 'east'
+  | 'southeast'
+  | 'south'
+  | 'southwest'
+  | 'west'
+  | 'northwest'
+  | 'top'
+  | 'right top'
+  | 'right'
+  | 'right bottom'
+  | 'bottom'
+  | 'left bottom'
+  | 'left'
+  | 'left top';
+
+export type ResizeKernel =
+  | 'nearest'
+  | 'linear'
+  | 'bilinear'
+  | 'cubic'
+  | 'mitchell'
+  | 'lanczos2'
+  | 'lanczos3';
+
 export interface ResizeOptions {
-  width?: number;
-  height?: number;
-  fit?: 'inside' | 'fill' | 'cover';
+  width?: number | null;
+  height?: number | null;
+  fit?: 'inside' | 'fill' | 'cover' | 'contain' | 'outside';
+  /** Where the source sits inside the target box for `cover` and `contain`. Alias: `gravity`. */
+  position?: ResizePosition;
+  gravity?: ResizePosition;
+  /** Letterbox colour for `fit: 'contain'`. */
+  background?: Colour | string;
+  /** sharp's name for the resampling kernel. */
+  kernel?: ResizeKernel;
+  /** Maple's Tier 1 name for the same option. `kernel` wins when both are set. */
+  filter?: ResizeKernel;
+  /** NOTE: defaults to `true` here, where sharp defaults it to `false`. */
   withoutEnlargement?: boolean;
-  filter?: 'lanczos3' | 'bilinear' | 'nearest';
+  withoutReduction?: boolean;
 }
 
 export interface RawPixelInput {
