@@ -162,7 +162,9 @@ pub fn export_from_raw_with_film(
         (ExportFormat::Avif, ExportPixels::Eight(rgb)) => {
             encode_avif(width, height, &rgb, options.quality)?
         }
-        (ExportFormat::Webp, ExportPixels::Eight(rgb)) => encode_webp(width, height, &rgb)?,
+        (ExportFormat::Webp, ExportPixels::Eight(rgb)) => {
+            encode_webp(width, height, &rgb, options.target)?
+        }
         // `ExportFormat::depth` is what chose the buffer, so the pairings above
         // are exhaustive in practice; this keeps that invariant loud rather
         // than letting a future format land on a silently wrong encoder.
@@ -278,12 +280,29 @@ pub fn encode_avif_with_speed(
     ))
 }
 
-pub fn encode_webp(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
+/// Lossless WebP. `image`'s `WebPEncoder` only writes an `ICCP` chunk when
+/// [`ImageEncoder::set_icc_profile`] is called before encoding, so a sRGB
+/// request skips that call entirely and produces the exact bytes this crate
+/// shipped before #3503 — sRGB WebP output stays untagged (every viewer
+/// already assumes sRGB for an untagged file). A Display P3 request embeds
+/// [`icc::profile_for`] so the file says what it actually carries, same as
+/// the JPEG/PNG/TIFF paths.
+pub fn encode_webp(
+    width: u32,
+    height: u32,
+    rgb: &[u8],
+    primaries: crate::view::encode::TargetPrimaries,
+) -> Result<Vec<u8>> {
     check_len(width, height, rgb.len())?;
     let mut out: Vec<u8> = Vec::new();
-    let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+    let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+    if primaries == crate::view::encode::TargetPrimaries::P3 {
+        encoder
+            .set_icc_profile(icc::profile_for(primaries))
+            .map_err(|e| Error::Png(e.to_string()))?;
+    }
     encoder
-        .encode(rgb, width, height, ExtendedColorType::Rgb8)
+        .write_image(rgb, width, height, ExtendedColorType::Rgb8)
         .map_err(|e| Error::Png(e.to_string()))?;
     Ok(out)
 }
@@ -310,7 +329,7 @@ pub fn encode_raster(
 /// Display-P3-rotated raster into that untagged container would silently
 /// reproduce the double-stretch defect `icc.rs` exists to prevent, so the
 /// combination is rejected by name instead.
-fn reject_untagged_avif_p3(
+pub(crate) fn reject_untagged_avif_p3(
     format: ExportFormat,
     primaries: crate::view::encode::TargetPrimaries,
 ) -> Result<()> {
@@ -351,7 +370,7 @@ pub fn encode_raster_rgb(
         ExportFormat::Avif => {
             encode_avif_with_speed(raster.width, raster.height, &rgb, quality, avif_speed)
         }
-        ExportFormat::Webp => encode_webp(raster.width, raster.height, &rgb),
+        ExportFormat::Webp => encode_webp(raster.width, raster.height, &rgb, primaries),
     }
 }
 
@@ -505,9 +524,47 @@ mod tests {
     #[test]
     fn webp_lossless_encodes_valid_riff_header() {
         let rgb = ramp_u8(8, 8);
-        let webp_bytes = encode_webp(8, 8, &rgb).unwrap();
+        let webp_bytes = encode_webp(8, 8, &rgb, TargetPrimaries::Srgb).unwrap();
         assert_eq!(&webp_bytes[..4], b"RIFF");
         assert_eq!(&webp_bytes[8..12], b"WEBP");
+    }
+
+    /// Pinned against the pre-#3503-fix-round-1 encoder (no `set_icc_profile`
+    /// call at all for sRGB): `encode_webp(8, 8, ramp_u8(8, 8), Srgb)` used to
+    /// produce exactly 160 bytes hashing to this blake3 digest. sRGB WebP
+    /// output must stay untagged and byte-identical — only Display P3 output
+    /// gains an `ICCP` chunk (below).
+    #[test]
+    fn srgb_webp_output_is_byte_identical_to_before_the_icc_fix() {
+        let rgb = ramp_u8(8, 8);
+        let bytes = encode_webp(8, 8, &rgb, TargetPrimaries::Srgb).unwrap();
+        assert_eq!(bytes.len(), 160, "sRGB WebP length drifted");
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().as_str(),
+            "612bac6112c52a10b11db072f595bac8a810a89feea1b2696a404dac933ced44",
+            "sRGB WebP bytes drifted from the pre-fix encoder"
+        );
+        assert!(
+            !bytes.windows(4).any(|w| w == b"ICCP"),
+            "sRGB WebP must stay untagged"
+        );
+    }
+
+    #[test]
+    fn p3_webp_output_carries_the_display_p3_icc_profile() {
+        let rgb = ramp_u8(8, 8);
+        let bytes = encode_webp(8, 8, &rgb, TargetPrimaries::P3).unwrap();
+        let profile = icc::profile_for(TargetPrimaries::P3);
+        assert!(
+            bytes.windows(4).any(|w| w == b"ICCP"),
+            "Display P3 WebP is missing its ICCP chunk"
+        );
+        assert!(
+            bytes
+                .windows(profile.len())
+                .any(|w| w == profile.as_slice()),
+            "the embedded chunk does not match icc::profile_for(P3)"
+        );
     }
 
     #[test]
