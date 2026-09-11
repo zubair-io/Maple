@@ -7,8 +7,8 @@ use rav1d::include::dav1d::dav1d::{Dav1dContext, Dav1dSettings};
 use rav1d::include::dav1d::headers::Dav1dSequenceHeader;
 use rav1d::include::dav1d::picture::Dav1dPicture;
 use rav1d::src::lib::{
-    dav1d_close, dav1d_data_create, dav1d_default_settings, dav1d_get_picture, dav1d_open,
-    dav1d_parse_sequence_header, dav1d_picture_unref, dav1d_send_data,
+    dav1d_close, dav1d_data_create, dav1d_data_unref, dav1d_default_settings, dav1d_get_picture,
+    dav1d_open, dav1d_parse_sequence_header, dav1d_picture_unref, dav1d_send_data,
 };
 use std::io::Cursor;
 use std::mem::MaybeUninit;
@@ -117,104 +117,174 @@ fn copy_plane(base: *const u8, stride: isize, w: usize, h: usize, bpc: i32) -> V
     out
 }
 
-fn decode_obu(obu: &[u8]) -> Result<Yuv> {
-    // SAFETY: every pointer handed to dav1d is either a live local or a
-    // buffer dav1d allocated; the context is closed on every exit path.
-    unsafe {
-        let mut settings = MaybeUninit::<Dav1dSettings>::uninit();
-        dav1d_default_settings(NonNull::new(settings.as_mut_ptr()).unwrap());
-        let mut settings = settings.assume_init();
-        settings.n_threads = 1;
+/// Closes the dav1d decoding context when dropped — on the normal return
+/// below, on an early `?` return, or on a panic unwinding through
+/// `decode_obu`. A plain `unsafe { ... dav1d_close(...) }` at the end of a
+/// function is *not* run on those last two paths, which is what let the
+/// context leak whenever a step in between returned an error.
+struct DecodeContext(Option<Dav1dContext>);
+
+impl DecodeContext {
+    fn open(settings: &mut Dav1dSettings) -> Result<Self> {
         let mut ctx: Option<Dav1dContext> = None;
-        let rc = dav1d_open(NonNull::new(&mut ctx), NonNull::new(&mut settings));
+        // SAFETY: `ctx` and `settings` are valid, live locals for the call.
+        let rc = unsafe { dav1d_open(NonNull::new(&mut ctx), NonNull::new(settings)) };
         if rc.0 != 0 {
             return Err(err(format!("dav1d_open failed ({})", rc.0)));
         }
-        let result = (|| {
-            let mut data = MaybeUninit::<Dav1dData>::zeroed();
-            let dst = dav1d_data_create(NonNull::new(data.as_mut_ptr()), obu.len());
-            if dst.is_null() {
-                return Err(err("dav1d_data_create returned null"));
-            }
-            std::ptr::copy_nonoverlapping(obu.as_ptr(), dst, obu.len());
-            let mut data = data.assume_init();
-            let mut pic = MaybeUninit::<Dav1dPicture>::zeroed();
-            let mut rc = dav1d_send_data(ctx, NonNull::new(&mut data));
-            if rc.0 != 0 && rc.0 != EAGAIN {
-                return Err(err(format!("dav1d_send_data failed ({})", rc.0)));
-            }
-            rc = dav1d_get_picture(ctx, NonNull::new(pic.as_mut_ptr()));
-            let mut attempts = 0;
-            while rc.0 == EAGAIN && attempts < 16 {
-                if data.sz > 0 {
-                    let _ = dav1d_send_data(ctx, NonNull::new(&mut data));
-                }
-                rc = dav1d_get_picture(ctx, NonNull::new(pic.as_mut_ptr()));
-                attempts += 1;
-            }
-            if rc.0 != 0 {
-                return Err(err(format!("dav1d_get_picture failed ({})", rc.0)));
-            }
-            let mut pic = pic.assume_init();
-            let (w, h) = (pic.p.w as usize, pic.p.h as usize);
-            let layout = pic.p.layout;
-            let bpc = pic.p.bpc;
-            let (ssx, ssy) = match layout {
-                1 => (1, 1),
-                2 => (1, 0),
-                _ => (0, 0),
-            };
-            let (cw, ch) = ((w + ssx) >> ssx, (h + ssy) >> ssy);
-            let y = copy_plane(
-                pic.data[0].unwrap().as_ptr() as *const u8,
-                pic.stride[0],
-                w,
-                h,
-                bpc,
-            );
-            let (u, v) = if layout == 0 {
-                (Vec::new(), Vec::new())
-            } else {
-                (
-                    copy_plane(
-                        pic.data[1].unwrap().as_ptr() as *const u8,
-                        pic.stride[1],
-                        cw,
-                        ch,
-                        bpc,
-                    ),
-                    copy_plane(
-                        pic.data[2].unwrap().as_ptr() as *const u8,
-                        pic.stride[1],
-                        cw,
-                        ch,
-                        bpc,
-                    ),
-                )
-            };
-            let seq = pic.seq_hdr.map(|p| p.as_ref());
-            let (full_range, matrix) = seq
-                .map(|s| (s.color_range != 0, s.mtrx as u32))
-                .unwrap_or((false, 2));
-            dav1d_picture_unref(NonNull::new(&mut pic));
-            Ok(Yuv {
-                width: w,
-                height: h,
-                layout,
-                full_range,
-                matrix,
-                y,
-                u,
-                v,
-            })
-        })();
-        dav1d_close(NonNull::new(&mut ctx));
-        result
+        Ok(Self(ctx))
     }
+}
+
+impl Drop for DecodeContext {
+    fn drop(&mut self) {
+        // SAFETY: `self.0` is a context from `dav1d_open` (this type is only
+        // ever constructed after `dav1d_open` succeeds) that has not yet
+        // been passed to `dav1d_close`.
+        unsafe { dav1d_close(NonNull::new(&mut self.0)) };
+    }
+}
+
+/// Releases dav1d's reference on an input buffer when dropped, on every
+/// exit path from `decode_obu`. `dav1d_data_unref` on an already-unreffed
+/// (zeroed) buffer is a no-op, so this is safe even after `rav1d_send_data`
+/// fully consumed the buffer itself (which zeroes it in place).
+struct DataGuard(Dav1dData);
+
+impl Drop for DataGuard {
+    fn drop(&mut self) {
+        // SAFETY: `self.0` was fully initialised by `dav1d_data_create`.
+        unsafe { dav1d_data_unref(NonNull::new(&mut self.0)) };
+    }
+}
+
+/// Releases dav1d's reference on a decoded picture when dropped, on every
+/// exit path from `decode_obu` — including the "picture has a missing
+/// plane" error below, which previously `unwrap()`-panicked past the
+/// cleanup entirely.
+struct PictureGuard(Dav1dPicture);
+
+impl Drop for PictureGuard {
+    fn drop(&mut self) {
+        // SAFETY: `self.0` was fully initialised by a successful `dav1d_get_picture`
+        // (this type is only ever constructed from one).
+        unsafe { dav1d_picture_unref(NonNull::new(&mut self.0)) };
+    }
+}
+
+fn decode_obu(obu: &[u8]) -> Result<Yuv> {
+    let mut settings = MaybeUninit::<Dav1dSettings>::uninit();
+    // SAFETY: `settings` is a valid, writable location.
+    unsafe { dav1d_default_settings(NonNull::new(settings.as_mut_ptr()).unwrap()) };
+    // SAFETY: `dav1d_default_settings` unconditionally initialises `settings`.
+    let mut settings = unsafe { settings.assume_init() };
+    settings.n_threads = 1;
+
+    // `ctx` closes on every exit below (`?`, panic, or the `Ok` at the end).
+    let ctx = DecodeContext::open(&mut settings)?;
+
+    let mut data = MaybeUninit::<Dav1dData>::zeroed();
+    // SAFETY: `data` is a valid, writable location.
+    let dst = unsafe { dav1d_data_create(NonNull::new(data.as_mut_ptr()), obu.len()) };
+    if dst.is_null() {
+        return Err(err("dav1d_data_create returned null"));
+    }
+    // SAFETY: `dst` is a dav1d-allocated buffer of `obu.len()` bytes (the
+    // null case, the only way it could be smaller or absent, returned above);
+    // `obu` has `obu.len()` bytes to copy from.
+    unsafe { std::ptr::copy_nonoverlapping(obu.as_ptr(), dst, obu.len()) };
+    // SAFETY: `dav1d_data_create` fully wrote `data` before returning non-null.
+    // Wrapped in `DataGuard` so every exit from here on releases the ref.
+    let mut data = DataGuard(unsafe { data.assume_init() });
+
+    let mut pic = MaybeUninit::<Dav1dPicture>::zeroed();
+    // SAFETY: `ctx.0` is an open context; `data.0` and `pic` are valid locals.
+    let mut rc = unsafe { dav1d_send_data(ctx.0, NonNull::new(&mut data.0)) };
+    if rc.0 != 0 && rc.0 != EAGAIN {
+        return Err(err(format!("dav1d_send_data failed ({})", rc.0)));
+    }
+    // SAFETY: same as above.
+    rc = unsafe { dav1d_get_picture(ctx.0, NonNull::new(pic.as_mut_ptr())) };
+    let mut attempts = 0;
+    while rc.0 == EAGAIN && attempts < 16 {
+        if data.0.sz > 0 {
+            // SAFETY: same as above.
+            let _ = unsafe { dav1d_send_data(ctx.0, NonNull::new(&mut data.0)) };
+        }
+        // SAFETY: same as above.
+        rc = unsafe { dav1d_get_picture(ctx.0, NonNull::new(pic.as_mut_ptr())) };
+        attempts += 1;
+    }
+    if rc.0 != 0 {
+        return Err(err(format!("dav1d_get_picture failed ({})", rc.0)));
+    }
+    // Input is fully consumed (or intentionally abandoned on `EAGAIN`
+    // exhaustion) either way — release dav1d's ref before touching output.
+    drop(data);
+
+    // SAFETY: `rc.0 == 0` means dav1d fully populated `pic`.
+    // Wrapped in `PictureGuard` so every exit from here on releases the ref.
+    let pic = PictureGuard(unsafe { pic.assume_init() });
+    let (w, h) = (pic.0.p.w as usize, pic.0.p.h as usize);
+    let layout = pic.0.p.layout;
+    let bpc = pic.0.p.bpc;
+    let (ssx, ssy) = match layout {
+        1 => (1, 1),
+        2 => (1, 0),
+        _ => (0, 0),
+    };
+    let (cw, ch) = ((w + ssx) >> ssx, (h + ssy) >> ssy);
+    let y_plane =
+        pic.0.data[0].ok_or_else(|| err("dav1d returned a picture with a missing luma plane"))?;
+    let y = copy_plane(y_plane.as_ptr() as *const u8, pic.0.stride[0], w, h, bpc);
+    let (u, v) = if layout == 0 {
+        (Vec::new(), Vec::new())
+    } else {
+        let u_plane = pic.0.data[1]
+            .ok_or_else(|| err("dav1d returned a picture with a missing chroma plane"))?;
+        let v_plane = pic.0.data[2]
+            .ok_or_else(|| err("dav1d returned a picture with a missing chroma plane"))?;
+        (
+            copy_plane(u_plane.as_ptr() as *const u8, pic.0.stride[1], cw, ch, bpc),
+            copy_plane(v_plane.as_ptr() as *const u8, pic.0.stride[1], cw, ch, bpc),
+        )
+    };
+    // SAFETY: dav1d keeps `seq_hdr` alive for as long as `pic` is (`pic` is
+    // still alive here — its `PictureGuard` hasn't dropped yet).
+    let seq = pic.0.seq_hdr.map(|p| unsafe { p.as_ref() });
+    let (full_range, matrix) = seq
+        .map(|s| (s.color_range != 0, s.mtrx as u32))
+        .unwrap_or((false, 2));
+
+    Ok(Yuv {
+        width: w,
+        height: h,
+        layout,
+        full_range,
+        matrix,
+        y,
+        u,
+        v,
+    })
+    // `pic` drops here (unrefs the picture), then `ctx` drops (closes the
+    // context) — reverse declaration order, matching the original explicit
+    // unref-then-close sequence.
 }
 
 fn clamp8(v: f32) -> u8 {
     v.round().clamp(0.0, 255.0) as u8
+}
+
+/// Expands a limited/studio-range 8-bit sample (16-235, AV1's `color_range =
+/// 0`) to full range (0-255); a full-range sample passes through unchanged.
+/// Used for both monochrome luma and alpha-item samples, which dav1d reports
+/// coded range for identically via `Dav1dSequenceHeader::color_range`.
+fn expand_range(sample: u8, full_range: bool) -> u8 {
+    if full_range {
+        sample
+    } else {
+        clamp8((sample as f32 - 16.0) * 255.0 / 219.0)
+    }
 }
 
 /// BT.601/709/2020 constant-luminance-free conversion (Kr, Kb pairs).
@@ -231,12 +301,7 @@ fn yuv_to_rgb(yuv: &Yuv) -> Vec<u8> {
     let mut rgb = Vec::with_capacity(w * h * 3);
     if yuv.layout == 0 {
         for &y in &yuv.y {
-            let l = if yuv.full_range {
-                y as f32
-            } else {
-                (y as f32 - 16.0) * 255.0 / 219.0
-            };
-            let v = clamp8(l);
+            let v = expand_range(y, yuv.full_range);
             rgb.extend_from_slice(&[v, v, v]);
         }
         return rgb;
@@ -298,10 +363,27 @@ pub fn decode_avif(bytes: &[u8]) -> Result<RasterImage> {
             "avif alpha item dimensions differ from the colour item",
         ));
     }
+    // The alpha item is itself a coded monochrome AV1 image, so a
+    // limited-range encode (`color_range = 0`) needs the same 16-235 → 0-255
+    // expansion as luma before the sample is a usable opacity value.
+    let premultiplied = data.premultiplied_alpha;
     let rgba = rgb
         .chunks_exact(3)
         .zip(&alpha.y)
-        .flat_map(|(px, &a)| [px[0], px[1], px[2], a])
+        .flat_map(|(px, &raw_a)| {
+            let a = expand_range(raw_a, alpha.full_range);
+            if premultiplied && a > 0 {
+                // MIAF `prem`: stored RGB is `straight * alpha / 255`, so
+                // recover the straight (un-premultiplied) value here — a
+                // dark, alpha-scaled RGB triple is not what a semi-
+                // transparent pixel should render as.
+                let unmultiply =
+                    |c: u8| (((c as u32 * 255) + (a as u32 / 2)) / a as u32).min(255) as u8;
+                [unmultiply(px[0]), unmultiply(px[1]), unmultiply(px[2]), a]
+            } else {
+                [px[0], px[1], px[2], a]
+            }
+        })
         .collect();
     Ok(RasterImage::new_rgba(w, h, rgba))
 }
@@ -376,5 +458,15 @@ mod tests {
     fn rejects_non_avif_bytes() {
         assert!(!is_avif(b"\x89PNG\r\n\x1a\n"));
         assert!(decode_avif(b"not an avif at all").is_err());
+    }
+
+    #[test]
+    fn limited_range_alpha_expands_to_full_range() {
+        // The `image`-crate AVIF encoder always produces full-range alpha,
+        // so this can't be exercised through an encoded fixture — test the
+        // range-expansion helper directly instead, per its own contract.
+        assert_eq!(expand_range(16, false), 0);
+        assert_eq!(expand_range(235, false), 255);
+        assert_eq!(expand_range(128, true), 128);
     }
 }
