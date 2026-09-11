@@ -29,6 +29,10 @@ pub struct RasterEncodeOptions {
     pub quality: u8,
     /// rav1e speed 1 (slowest) ..= 10 (fastest).
     pub avif_speed: u8,
+    /// Which ICC profile the container is tagged with. The pixels must
+    /// already be in this space — `RasterImage::to_colourspace` moves them
+    /// (#3503).
+    pub primaries: TargetPrimaries,
 }
 
 /// Composite a raster over an opaque background, returning a 3-channel
@@ -82,6 +86,17 @@ pub(crate) fn container_supports_alpha(format: ExportFormat) -> bool {
 /// [`JPEG_FLATTEN_BACKGROUND`] first when it does not (JPEG, TIFF) or the
 /// raster has no alpha to begin with.
 pub fn encode_raster_opts(raster: &RasterImage, opts: &RasterEncodeOptions) -> Result<Vec<u8>> {
+    // AVIF's `colr` box is not written yet (#3503) — a P3-tagged raster
+    // encoded to AVIF would come out byte-correct but silently untagged, so
+    // this combination is rejected by name rather than shipping a file a
+    // viewer will re-stretch as sRGB.
+    if opts.format == ExportFormat::Avif && opts.primaries == TargetPrimaries::P3 {
+        return Err(crate::error::Error::UnsupportedFormat(
+            "AVIF export cannot carry a Display P3 ICC profile yet (#3503) — export sRGB, \
+             or choose JPEG/PNG/TIFF/WebP for a Display P3 deliverable"
+                .into(),
+        ));
+    }
     let keeps_alpha = raster.channels == 4 && container_supports_alpha(opts.format);
     let quality = if opts.quality == 0 {
         85
@@ -90,10 +105,16 @@ pub fn encode_raster_opts(raster: &RasterImage, opts: &RasterEncodeOptions) -> R
     };
     if !keeps_alpha {
         let flat = composite_over_background(raster, JPEG_FLATTEN_BACKGROUND);
-        return crate::export::encode_raster_rgb(&flat, opts.format, quality, opts.avif_speed);
+        return crate::export::encode_raster_rgb(
+            &flat,
+            opts.format,
+            quality,
+            opts.avif_speed,
+            opts.primaries,
+        );
     }
     match opts.format {
-        ExportFormat::Png => encode_png_rgba(raster, icc::profile_for(TargetPrimaries::Srgb)),
+        ExportFormat::Png => encode_png_rgba(raster, icc::profile_for(opts.primaries)),
         ExportFormat::Webp => encode_webp_rgba(raster),
         ExportFormat::Avif => crate::export::encode_avif_rgba_with_speed(
             raster.width,
@@ -154,6 +175,7 @@ mod tests {
             format,
             quality: 90,
             avif_speed: 10,
+            primaries: TargetPrimaries::Srgb,
         }
     }
 
@@ -227,5 +249,76 @@ mod tests {
         let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
         assert_eq!(decoded.channels, 3);
         assert_eq!(decoded.data, vec![10, 20, 30, 40, 50, 60]);
+    }
+
+    #[test]
+    fn the_encode_primaries_choose_the_embedded_profile() {
+        let img = RasterImage::new_rgb(4, 4, vec![100; 48]);
+        let srgb = encode_raster_opts(
+            &img,
+            &RasterEncodeOptions {
+                primaries: crate::view::encode::TargetPrimaries::Srgb,
+                ..opts(ExportFormat::Jpeg)
+            },
+        )
+        .unwrap();
+        let p3 = encode_raster_opts(
+            &img,
+            &RasterEncodeOptions {
+                primaries: crate::view::encode::TargetPrimaries::P3,
+                ..opts(ExportFormat::Jpeg)
+            },
+        )
+        .unwrap();
+        assert!(srgb.windows(12).any(|w| w == b"ICC_PROFILE\0"));
+        assert_ne!(srgb, p3, "the two profiles must produce different bytes");
+    }
+
+    /// The ICC bytes embedded for a P3-tagged raster must actually describe
+    /// Display P3, not merely differ from the sRGB profile by coincidence —
+    /// `icc::profile_for` writes the description into a `desc` tag as plain
+    /// ASCII, so a byte search for it is a direct check that the RIGHT
+    /// profile landed in the container.
+    #[test]
+    fn the_p3_jpeg_embeds_a_profile_naming_display_p3() {
+        let img = RasterImage::new_rgb(4, 4, vec![100; 48]);
+        let bytes = encode_raster_opts(
+            &img,
+            &RasterEncodeOptions {
+                primaries: crate::view::encode::TargetPrimaries::P3,
+                ..opts(ExportFormat::Jpeg)
+            },
+        )
+        .unwrap();
+        assert!(
+            bytes
+                .windows(b"Display P3".len())
+                .any(|w| w == b"Display P3"),
+            "P3 JPEG's embedded ICC profile does not name Display P3"
+        );
+    }
+
+    #[test]
+    fn avif_rejects_display_p3_by_name_rather_than_shipping_it_untagged() {
+        let img = RasterImage::new_rgb(2, 2, vec![10; 12]);
+        let err = encode_raster_opts(
+            &img,
+            &RasterEncodeOptions {
+                primaries: crate::view::encode::TargetPrimaries::P3,
+                ..opts(ExportFormat::Avif)
+            },
+        )
+        .unwrap_err();
+        assert!(
+            format!("{err}").to_lowercase().contains("avif"),
+            "expected the AVIF/P3 combination to be named in the error, got: {err}"
+        );
+    }
+
+    #[cfg(feature = "avif")]
+    #[test]
+    fn avif_still_encodes_when_tagged_srgb() {
+        let img = RasterImage::new_rgb(2, 2, vec![10; 12]);
+        assert!(encode_raster_opts(&img, &opts(ExportFormat::Avif)).is_ok());
     }
 }
