@@ -151,17 +151,21 @@ fn scale_then_frame(
                 ExtendEdges {
                     left,
                     top,
+                    // `saturating_sub` guards a float-rounding edge only:
+                    // `scaled` is sized from the same scale factor used to
+                    // place it, so `scaled.width + left` cannot exceed `tw`
+                    // by construction — this never actually saturates.
                     right: tw.saturating_sub(scaled.width + left),
                     bottom: th.saturating_sub(scaled.height + top),
                 },
                 options.background,
             )
         }
-        // `scale_then_frame` is only reached from the Cover and Contain arms.
-        other => Err(Error::Decode {
-            path: "<memory>".into(),
-            reason: format!("{other:?} does not frame after scaling"),
-        }),
+        // `resize_raster` only calls `scale_then_frame` for Cover and
+        // Contain, so every other `ResizeFit` is unreachable here.
+        ResizeFit::Inside | ResizeFit::Fill | ResizeFit::Outside => {
+            unreachable!("scale_then_frame only handles Cover and Contain")
+        }
     }
 }
 
