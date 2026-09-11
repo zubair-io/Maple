@@ -66,7 +66,11 @@ pub(crate) fn composite_over_background(raster: &RasterImage, background: [u8; 3
 }
 
 /// `true` when this container can carry an alpha channel at all.
-fn container_supports_alpha(format: ExportFormat) -> bool {
+///
+/// `pub(crate)`: shared with `raster_recipe_exec::encode` (#3505 fix-round-1)
+/// so the recipe executor's reported `RecipeResult::channels` never disagrees
+/// with what this function actually wrote to the container.
+pub(crate) fn container_supports_alpha(format: ExportFormat) -> bool {
     matches!(
         format,
         ExportFormat::Png | ExportFormat::Webp | ExportFormat::Avif

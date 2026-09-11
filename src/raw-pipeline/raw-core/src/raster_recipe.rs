@@ -21,6 +21,7 @@ pub const RECIPE_VERSION: u32 = 1;
 
 /// A `{ off, len }` window into the flat `aux` buffer passed beside the recipe.
 #[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuxRef {
     pub off: usize,
     pub len: usize,
@@ -50,6 +51,7 @@ impl AuxRef {
 
 /// Dimensions for a caller-decoded pixel buffer.
 #[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawSpec {
     pub width: u32,
     pub height: u32,
@@ -57,7 +59,7 @@ pub struct RawSpec {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum RecipeInput {
     /// The input buffer is a JPEG/PNG/WebP/TIFF/AVIF file.
     Encoded,
@@ -70,6 +72,7 @@ pub enum RecipeInput {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Layer {
     pub aux: AuxRef,
     /// Present when the layer is raw pixels rather than an encoded file.
@@ -107,9 +110,15 @@ fn one() -> f64 {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "op", rename_all = "camelCase")]
+#[serde(tag = "op", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Op {
     AutoOrient,
+    /// Only the three Tier-1 fits (`cover`/`fill`/`inside`) and the three
+    /// Tier-1 kernels are wired up (see `raster_recipe_exec::apply_op`).
+    /// sharp's `position`, `withoutReduction` and `background` fields are
+    /// deliberately NOT part of this v1 schema — PR-C (#3502) re-adds them
+    /// once `raster::ResizeOptions` can honour them; adding a field here is
+    /// backward-compatible, so there is no version cost to waiting.
     #[serde(rename_all = "camelCase")]
     Resize {
         #[serde(default)]
@@ -118,18 +127,16 @@ pub enum Op {
         height: u32,
         #[serde(default = "cover")]
         fit: String,
-        #[serde(default = "centre")]
-        position: String,
         #[serde(default = "lanczos3")]
         kernel: String,
         #[serde(default)]
         without_enlargement: bool,
-        #[serde(default)]
-        without_reduction: bool,
-        #[serde(default = "opaque_black")]
-        background: [u8; 4],
     },
     Flatten {
+        /// The alpha byte (index 3) is ignored: `flatten` always yields an
+        /// opaque result (sharp does the same — `background` there is a
+        /// 3-channel colour too; this schema keeps it 4-wide only so it
+        /// shares a wire type with `Layer`/other `background` fields).
         #[serde(default = "opaque_black")]
         background: [u8; 4],
     },
@@ -144,7 +151,7 @@ pub enum Op {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(tag = "format", rename_all = "lowercase")]
+#[serde(tag = "format", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Output {
     Jpeg {
         #[serde(default)]
@@ -166,6 +173,7 @@ pub enum Output {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Recipe {
     pub v: u32,
     pub input: RecipeInput,
@@ -231,18 +239,23 @@ mod tests {
                 fit,
                 kernel,
                 without_enlargement,
-                without_reduction,
-                position,
                 ..
             } => {
                 assert_eq!(fit, "cover");
                 assert_eq!(kernel, "lanczos3");
-                assert_eq!(position, "centre");
                 assert!(!without_enlargement);
-                assert!(!without_reduction);
             }
             other => panic!("expected a resize op, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_typo_d_field_is_named_in_the_error() {
+        let err = parse_recipe(
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"resize","wdth":10}],"output":{"format":"png"}}"#,
+        )
+        .unwrap_err();
+        assert!(format!("{err}").contains("wdth"), "got: {err}");
     }
 
     #[test]
