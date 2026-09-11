@@ -347,6 +347,13 @@ public final class CanvasZoomController {
     wheelPanCommitTask?.cancel()
     wheelPanCommitTask = nil
     guard viewportPoints.width > 0, viewportPoints.height > 0 else { return }
+    // Same rule for the image extent: before the metadata seed lands,
+    // `CanvasMath` resolves fit to 1, so a commit here would write a
+    // literal 100% into `session.pixelScale` — sizing the seed thumbnail
+    // and the CPU backdrop at full native and arming native-detail for an
+    // image that should open at fit (#3540). The seed's
+    // `nativeImageSizeChanged` commits the real fit the moment it lands.
+    guard context.nativeImageSize != .zero else { return }
     let math = context.canvasMath(
       pixelScale: model.pixelScale,
       panOffset: model.panOffset

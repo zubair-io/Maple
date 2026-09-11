@@ -163,6 +163,14 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       .onChange(of: geo.size) { _, newSize in
         controller.viewportChanged(points: newSize, displayScale: displayScale)
       }
+      .onChange(of: ObjectIdentifier(controller)) { _, _ in
+        // The host kept its identity but was handed a different controller
+        // (the editor rebuilt its state for the same asset). `.onAppear` will
+        // not fire again, and a controller that never learns the viewport
+        // resolves fit to 1 — the image frames at 100% and cannot zoom out
+        // (#3540). Report the live viewport to the newcomer.
+        controller.viewportChanged(points: geo.size, displayScale: displayScale)
+      }
       .onChange(of: displayScale) { _, newScale in
         // Window dragged to a display with a different backing
         // scale — same points, different real pixels. Re-resolve
