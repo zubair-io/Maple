@@ -32,13 +32,12 @@ pub struct AvifProbe {
     pub bit_depth: u8,
 }
 
-/// `ftyp` box with an AVIF-family brand in the first 32 bytes.
+/// `ftyp` box with an AVIF-family brand in the first 32 bytes. Delegates to
+/// `raster::is_avif`, the single source of truth also used by the
+/// feature-off dispatch path in `raster.rs` so both builds agree on what
+/// counts as AVIF.
 pub fn is_avif(bytes: &[u8]) -> bool {
-    bytes.len() >= 12
-        && &bytes[4..8] == b"ftyp"
-        && bytes[8..bytes.len().min(32)]
-            .windows(4)
-            .any(|w| w == b"avif" || w == b"avis" || w == b"mif1")
+    crate::raster::is_avif(bytes)
 }
 
 fn err(reason: impl Into<String>) -> Error {
