@@ -54,7 +54,7 @@ const log = child('workers:status-counts');
 // the pending / dead `countDocuments` below is meaningless for them — and the
 // `version: { $exists: false }` branch would match the ENTIRE collection. Gate
 // the counts to real claim stages; everything else reports pending/dead 0.
-export const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
+const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
 
 /**
  * Canonical set of every worker name the status endpoint should surface,
@@ -85,7 +85,7 @@ const CLAIM_FILTER_BY_STAGE = new Map(stageManifest.map((s) => [s.name, s.claimF
  * runner actually claims (a media-only stage must not count the whole library
  * as pending).
  */
-export function stageCountQueries(
+function stageCountQueries(
   name: string,
   tv: number,
   deps: Parameters<typeof buildClaimQuery>[2],
@@ -251,7 +251,7 @@ export async function runMigrationCountsPass(
 // ── Cadence ─────────────────────────────────────────────────────────────────
 
 /** How often the refresher checks the demand flag. */
-export const REFRESH_POLL_MS = 2_000;
+const REFRESH_POLL_MS = 2_000;
 /** Stage counts while watched: at least this often … */
 export const STAGE_COUNTS_MIN_INTERVAL_MS = 5_000;
 /** … and at most this rarely, however slow the last pass was. */
@@ -259,7 +259,7 @@ export const STAGE_COUNTS_MAX_INTERVAL_MS = 120_000;
 /** Stage counts while nobody is watching. */
 export const STAGE_COUNTS_IDLE_INTERVAL_MS = 10 * 60_000;
 export const MIGRATION_COUNTS_MIN_INTERVAL_MS = 30_000;
-export const MIGRATION_COUNTS_MAX_INTERVAL_MS = 300_000;
+const MIGRATION_COUNTS_MAX_INTERVAL_MS = 300_000;
 /** A pass that took T ms earns a rest of BACKOFF_FACTOR × T (clamped). */
 export const BACKOFF_FACTOR = 3;
 

@@ -100,26 +100,22 @@ async function remainingAfterBatch(
   return migration.countRemaining();
 }
 
-async function runMigrationOnce(
+/** Count outstanding work before a batch and persist it (#3491). Null for
+ * cursor-backed migrations, which self-report completion instead. */
+async function countRemainingBefore(migration: Migration, nowIso: string): Promise<number | null> {
+  if (migration.selfReportsCompletion) return null;
+  const remaining = await migration.countRemaining();
+  if (remaining > 0) await patchMigrationState(migration.id, remainingPatch(remaining, nowIso));
+  return remaining;
+}
+
+async function recordBatch(
   migration: Migration,
-  batchSize: number,
+  state: MigrationState,
+  batch: MigrationBatchResult,
+  remaining: number,
   nowIso: string,
-): Promise<number> {
-  const state = await loadMigrationState(migration.id);
-  if (!state.enabled || state.status === 'done') return 0;
-
-  const remainingBefore = migration.selfReportsCompletion ? null : await migration.countRemaining();
-  if (remainingBefore !== null && remainingBefore > 0) {
-    await patchMigrationState(migration.id, remainingPatch(remainingBefore, nowIso));
-  }
-  if (remainingBefore === 0) {
-    await markMigrationDone(migration, nowIso);
-    return 0;
-  }
-
-  const batch = await runMigrationBatchSafely(migration, batchSize);
-  if (!batch) return 0;
-  const remaining = await remainingAfterBatch(migration, batch);
+): Promise<void> {
   const complete = remaining === 0;
   await patchMigrationState(migration.id, {
     processed: state.processed + batch.processed,
@@ -130,12 +126,27 @@ async function runMigrationOnce(
     ...(complete ? { enabled: false, finished_at: nowIso } : {}),
   });
   log.info({ migration: migration.id, ...batch, remaining }, 'migration batch complete');
+}
+
+async function runMigrationOnce(
+  migration: Migration,
+  batchSize: number,
+  nowIso: string,
+): Promise<number> {
+  const state = await loadMigrationState(migration.id);
+  if (!state.enabled || state.status === 'done') return 0;
+
+  if ((await countRemainingBefore(migration, nowIso)) === 0) {
+    await markMigrationDone(migration, nowIso);
+    return 0;
+  }
+
+  const batch = await runMigrationBatchSafely(migration, batchSize);
+  if (!batch) return 0;
+  await recordBatch(migration, state, batch, await remainingAfterBatch(migration, batch), nowIso);
   return batch.processed;
 }
 
-/** Run every enabled, not-yet-done migration for one bounded batch. Returns the
- * total items processed this tick (so the caller can record throughput).
- * Exported for tests; the interval loop calls it each tick. */
 export async function runMigrationTickOnce(batchSize: number, nowIso: string): Promise<number> {
   let processedThisTick = 0;
   for (const migration of MIGRATIONS) {

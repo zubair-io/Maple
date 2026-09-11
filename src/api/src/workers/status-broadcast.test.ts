@@ -3,8 +3,6 @@ import type { Db } from 'mongodb';
 import { WorkersStatusBroadcaster, type WorkersStatusFrame } from './status-broadcast.ts';
 import type { WorkersStatusPayload } from './routes.ts';
 import { closeDb, getDb } from '../db/client.ts';
-import { writeWorkerStatus } from './worker-status.repo.ts';
-import type { StageStatusSnapshot } from './registry.ts';
 import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
