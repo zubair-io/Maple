@@ -294,7 +294,7 @@ pub fn encode_raster(
     format: ExportFormat,
     quality: u8,
 ) -> Result<Vec<u8>> {
-    encode_raster_with(raster, format, quality, 6)
+    encode_raster_rgb(raster, format, quality, 6)
 }
 
 /// RGB-only raster encode. Callers with a possibly-4-channel raster go through
@@ -320,18 +320,6 @@ pub fn encode_raster_rgb(
         }
         ExportFormat::Webp => encode_webp(raster.width, raster.height, &rgb),
     }
-}
-
-/// Back-compatible name kept for the Tier 1 FFI entries in
-/// `raw-ffi/src/raster_v2.rs`, whose behaviour must not change: they render
-/// opaque output and always did.
-pub fn encode_raster_with(
-    raster: &crate::raster::RasterImage,
-    format: ExportFormat,
-    quality: u8,
-    avif_speed: u8,
-) -> Result<Vec<u8>> {
-    encode_raster_rgb(raster, format, quality, avif_speed)
 }
 
 /// RGBA AVIF. `image`'s `AvifEncoder` accepts `ExtendedColorType::Rgba8` and

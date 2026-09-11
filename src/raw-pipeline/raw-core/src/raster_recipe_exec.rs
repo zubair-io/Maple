@@ -303,7 +303,13 @@ mod tests {
                 "output":{"format":"raw"}}"#,
         )
         .unwrap();
-        assert!(run_recipe(&recipe, &[0, 0, 0, 255], &[1, 2, 3]).is_err());
+        // Like `an_unknown_blend_mode_is_named` below, the error must name the
+        // offending values, not just fail generically — here the requested
+        // window and the actual aux buffer size.
+        let err = run_recipe(&recipe, &[0, 0, 0, 255], &[1, 2, 3]).unwrap_err();
+        let message = format!("{err}");
+        assert!(message.contains("99"), "got: {message}");
+        assert!(message.contains("3-byte"), "got: {message}");
     }
 
     #[test]

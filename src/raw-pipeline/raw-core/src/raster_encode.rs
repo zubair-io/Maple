@@ -1,6 +1,6 @@
 //! Alpha-aware encode for `RasterImage` (#3505).
 //!
-//! `export::encode_raster_with` flattened every raster to RGB before encoding,
+//! `export::encode_raster_rgb` flattened every raster to RGB before encoding,
 //! so a 4-channel input and the alpha item of a decoded AVIF were both thrown
 //! away at the last step. Here PNG, WebP and AVIF write the alpha channel, and
 //! JPEG and TIFF — containers with no alpha — composite over black, which is
