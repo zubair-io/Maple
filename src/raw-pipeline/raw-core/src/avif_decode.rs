@@ -216,6 +216,36 @@ struct DecodeSlots {
     ctx: Option<DecodeContext>,
 }
 
+impl DecodeSlots {
+    /// Releases each resource under its OWN panic barrier, in reverse
+    /// acquisition order.
+    ///
+    /// Cleanup is a second place a rav1d panic can reach us: every one of
+    /// these destructors calls back into the decoder
+    /// (`dav1d_picture_unref` → `dav1d_data_unref` → `dav1d_close`), and they
+    /// run on ordinary `Err` returns too — including the `EAGAIN`-exhaustion
+    /// path, which walks away from a half-consumed stream. One barrier around
+    /// all three would not help: the second destructor still runs inside that
+    /// closure, so a panic there would be a panic raised while already
+    /// unwinding, which Rust turns into an unconditional `abort()`. A barrier
+    /// each means a failure to release one resource costs that resource and
+    /// nothing else — the remaining two are still attempted.
+    ///
+    /// The `drop(...)` inside each closure is load-bearing. Returning the
+    /// taken `Option` instead would move the guard OUT of the closure and run
+    /// its destructor at the end of the statement — outside the barrier,
+    /// defeating the whole arrangement.
+    fn release(&mut self) {
+        // Destructured rather than field-accessed so that adding a fourth
+        // resource to this struct fails to compile here instead of silently
+        // leaking on every decode.
+        let Self { pic, data, ctx } = self;
+        let _ = catch_unwind(AssertUnwindSafe(|| drop(pic.take())));
+        let _ = catch_unwind(AssertUnwindSafe(|| drop(data.take())));
+        let _ = catch_unwind(AssertUnwindSafe(|| drop(ctx.take())));
+    }
+}
+
 fn decode_obu(obu: &[u8]) -> Result<Yuv> {
     decode_obu_with_limit(obu, AVIF_MAX_FRAME_PIXELS)
 }
@@ -238,6 +268,13 @@ fn decode_obu(obu: &[u8]) -> Result<Yuv> {
 /// context, input buffer and picture (`ManuallyDrop` with no matching drop).
 /// One leak per corrupt file, on a path that also logs an error, is a price
 /// worth paying to keep the process alive.
+///
+/// Catching the panic does NOT silence it: Rust runs the panic hook before
+/// unwinding starts, so rav1d's message and backtrace still reach stderr even
+/// though the caller only sees an `Err`. That is deliberate — a library has no
+/// business installing a global `panic::set_hook`, which would apply to the
+/// whole process, and the message is the only clue to where the stream went
+/// bad. A caller that decodes many corrupt files should expect the noise.
 fn decode_obu_with_limit(obu: &[u8], frame_size_limit: u32) -> Result<Yuv> {
     let mut slots = ManuallyDrop::new(DecodeSlots::default());
     // `let`, not a `match` scrutinee: a temporary in a scrutinee lives to the
@@ -247,9 +284,9 @@ fn decode_obu_with_limit(obu: &[u8], frame_size_limit: u32) -> Result<Yuv> {
     }));
     match outcome {
         Ok(result) => {
-            // SAFETY: `slots` is live and has not been dropped — this is the
-            // only drop, and only the non-panicking path reaches it.
-            unsafe { ManuallyDrop::drop(&mut slots) };
+            // Empties every slot under its own barrier. Nothing is left for
+            // the `ManuallyDrop` to hold, so not dropping it leaks nothing.
+            slots.release();
             result
         }
         Err(payload) => Err(panicked(
@@ -472,6 +509,27 @@ mod tests {
             (probe.width, probe.height, probe.has_alpha, probe.bit_depth),
             (40, 30, false, 8)
         );
+    }
+
+    #[test]
+    fn an_empty_obu_is_rejected_before_it_reaches_rav1d() {
+        // This guard is load-bearing, not defensive: rav1d's `validate_input!`
+        // calls `std::process::abort()` outright in a debug build, so handing
+        // either entry point a zero-length payload kills the process with no
+        // panic for any barrier to catch. Both call sites are covered here
+        // because both rav1d functions reject `sz == 0`.
+        let Err(decoded) = decode_obu(&[]) else {
+            panic!("an empty OBU must never reach dav1d_send_data");
+        };
+        let Err(probed) = sequence_header(&[]) else {
+            panic!("an empty OBU must never reach dav1d_parse_sequence_header");
+        };
+        for e in [decoded, probed] {
+            assert!(
+                e.to_string().contains("avif item carries no AV1 payload"),
+                "unexpected error: {e}"
+            );
+        }
     }
 
     #[test]
