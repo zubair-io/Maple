@@ -42,13 +42,17 @@ fn cover_crops_to_the_exact_box() {
 fn contain_letterboxes_to_the_exact_box() {
     let out = resize_raster(&wide(), &opts(10, 10, ResizeFit::Contain)).unwrap();
     assert_eq!((out.width, out.height), (10, 10));
-    // Rows 0-2 and 8-9 are the blue letterbox; rows 3-7 are the image.
+    // Scaled source is 10x5; centring rounds the 5px of slack down, so the
+    // top band gets 2 rows and the bottom band gets 3: rows 0-1 and 7-9 are
+    // the blue letterbox, rows 2-6 are the image.
     let px = |x: u32, y: u32| {
         let i = ((y * out.width + x) * out.channels as u32) as usize;
         [out.data[i], out.data[i + 1], out.data[i + 2]]
     };
     assert_eq!(px(5, 0), [0, 0, 255]);
+    assert_eq!(px(5, 1), [0, 0, 255], "last row of the top band");
     assert_eq!(px(5, 5), [255, 0, 0]);
+    assert_eq!(px(5, 7), [0, 0, 255], "first row of the bottom band");
     assert_eq!(px(5, 9), [0, 0, 255]);
 }
 
