@@ -30,7 +30,7 @@ fn bad(reason: String) -> Error {
 
 fn decode_input(recipe: &Recipe, input: &[u8]) -> Result<RasterImage> {
     match recipe.input {
-        RecipeInput::Encoded => crate::raster::decode_raster(input, None),
+        RecipeInput::Encoded {} => crate::raster::decode_raster(input, None),
         RecipeInput::Raw {
             width,
             height,
@@ -69,7 +69,7 @@ fn kernel_from_wire(s: &str) -> Result<FilterAlg> {
 
 fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
     match op {
-        Op::AutoOrient => {
+        Op::AutoOrient {} => {
             let mut oriented = image;
             oriented.auto_orient();
             Ok(oriented)
@@ -96,7 +96,7 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
         Op::EnsureAlpha { alpha } => {
             Ok(image.ensure_alpha((alpha.clamp(0.0, 1.0) * 255.0).round() as u8))
         }
-        Op::RemoveAlpha => Ok(image.remove_alpha()),
+        Op::RemoveAlpha {} => Ok(image.remove_alpha()),
         Op::Composite { layers } => {
             let decoded = layers
                 .iter()
@@ -153,11 +153,11 @@ fn encode(image: &RasterImage, output: Output) -> Result<(Vec<u8>, u8)> {
         Ok((bytes, channels_written(image, format)))
     };
     match output {
-        Output::Raw => Ok((image.data.clone(), image.channels)),
+        Output::Raw {} => Ok((image.data.clone(), image.channels)),
         Output::Jpeg { quality } => encode_as(ExportFormat::Jpeg, quality, 6),
-        Output::Png => encode_as(ExportFormat::Png, 100, 6),
-        Output::Webp => encode_as(ExportFormat::Webp, 100, 6),
-        Output::Tiff => encode_as(ExportFormat::Tiff16, 100, 6),
+        Output::Png {} => encode_as(ExportFormat::Png, 100, 6),
+        Output::Webp {} => encode_as(ExportFormat::Webp, 100, 6),
+        Output::Tiff {} => encode_as(ExportFormat::Tiff16, 100, 6),
         Output::Avif { quality, effort } => {
             encode_as(ExportFormat::Avif, quality, avif_speed(effort))
         }
