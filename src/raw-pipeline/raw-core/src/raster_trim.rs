@@ -13,7 +13,7 @@
 //! sharp's `lineArt` option selects a different libvips algorithm and is NOT
 //! in #3501; the recipe layer rejects it by name rather than ignoring it.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 
 /// sharp's `trim` options, minus `lineArt` (see the module doc).
@@ -37,6 +37,20 @@ impl Default for TrimOptions {
 
 impl RasterImage {
     pub fn trim(&self, options: &TrimOptions) -> Result<Self> {
+        // A non-finite threshold (NaN in particular) makes every `>`
+        // comparison in `is_content` false, which silently returns the image
+        // unchanged instead of erroring; a negative one would classify pixels
+        // that exactly match the background as content. Both are caller bugs
+        // to report, not behaviours to guess through.
+        if !options.threshold.is_finite() || options.threshold < 0.0 {
+            return Err(Error::Decode {
+                path: "<memory>".into(),
+                reason: format!(
+                    "trim threshold must be a finite, non-negative number (got {})",
+                    options.threshold
+                ),
+            });
+        }
         let c = self.channels as usize;
         let top_left: [u8; 4] = {
             let mut px = [0u8, 0, 0, 255];
@@ -159,6 +173,77 @@ mod tests {
         let img = RasterImage::new_rgb(3, 3, vec![120; 27]);
         let out = img.trim(&TrimOptions::default()).unwrap();
         assert_eq!((out.width, out.height), (3, 3));
+    }
+
+    #[test]
+    fn trim_rejects_a_nan_threshold() {
+        let img = RasterImage::new_rgb(2, 2, vec![0; 12]);
+        let err = img
+            .trim(&TrimOptions {
+                threshold: f64::NAN,
+                ..TrimOptions::default()
+            })
+            .unwrap_err();
+        assert!(format!("{err}").contains("NaN"), "got: {err}");
+    }
+
+    #[test]
+    fn trim_rejects_a_negative_threshold() {
+        let img = RasterImage::new_rgb(2, 2, vec![0; 12]);
+        let err = img
+            .trim(&TrimOptions {
+                threshold: -1.0,
+                ..TrimOptions::default()
+            })
+            .unwrap_err();
+        assert!(format!("{err}").contains("-1"), "got: {err}");
+    }
+
+    #[test]
+    fn content_touching_the_top_edge_is_not_trimmed_on_that_side() {
+        // 4x4 white border, 2x2 black block starting at row 0 — the content
+        // already reaches the top edge, so trim must not eat into it there.
+        let img = framed(4, 4, [255, 255, 255], 1, 0, 2, 2, [0, 0, 0]);
+        let out = img.trim(&TrimOptions::default()).unwrap();
+        assert_eq!((out.width, out.height), (2, 2));
+        assert_eq!(out.data, vec![0u8; 12]);
+    }
+
+    #[test]
+    fn content_in_the_bottom_right_corner_is_found() {
+        let img = framed(4, 4, [255, 255, 255], 2, 2, 2, 2, [0, 0, 0]);
+        let out = img.trim(&TrimOptions::default()).unwrap();
+        assert_eq!((out.width, out.height), (2, 2));
+        assert_eq!(out.data, vec![0u8; 12]);
+    }
+
+    #[test]
+    fn a_margin_wider_than_the_border_clamps_to_the_image() {
+        // The content sits 2px in from every edge; asking for a margin of 10
+        // must clamp back to the full 6x6 image rather than underflow or run
+        // past its bounds.
+        let img = framed(6, 6, [255, 255, 255], 2, 2, 2, 2, [0, 0, 0]);
+        let out = img
+            .trim(&TrimOptions {
+                margin: 10,
+                ..TrimOptions::default()
+            })
+            .unwrap();
+        assert_eq!((out.width, out.height), (6, 6));
+        assert_eq!(out.data, img.data);
+    }
+
+    #[test]
+    fn trim_of_a_1x1_image_is_a_no_op() {
+        let img = RasterImage::new_rgb(1, 1, vec![10, 20, 30]);
+        let out = img
+            .trim(&TrimOptions {
+                background: Some([0, 0, 0, 255]),
+                ..TrimOptions::default()
+            })
+            .unwrap();
+        assert_eq!((out.width, out.height), (1, 1));
+        assert_eq!(out.data, vec![10, 20, 30]);
     }
 
     #[test]
