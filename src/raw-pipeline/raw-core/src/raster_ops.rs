@@ -62,7 +62,9 @@ impl RasterImage {
     /// `RasterImage`. Errors if the window is empty or exceeds the source
     /// bounds.
     pub fn crop(&self, x: u32, y: u32, w: u32, h: u32) -> Result<Self> {
-        if w == 0 || h == 0 || x + w > self.width || y + h > self.height {
+        let x_out_of_bounds = x.checked_add(w).map_or(true, |xe| xe > self.width);
+        let y_out_of_bounds = y.checked_add(h).map_or(true, |ye| ye > self.height);
+        if w == 0 || h == 0 || x_out_of_bounds || y_out_of_bounds {
             return Err(Error::Decode {
                 path: "<memory>".into(),
                 reason: format!(

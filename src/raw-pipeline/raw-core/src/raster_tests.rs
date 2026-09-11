@@ -219,5 +219,6 @@ mod cover_fit {
         assert_eq!((c.width, c.height), (2, 2));
         assert_eq!(c.data, vec![3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17]);
         assert!(src.crop(2, 0, 2, 2).is_err());
+        assert!(src.crop(u32::MAX, 0, 2, 2).is_err());
     }
 }
