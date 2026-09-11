@@ -7,7 +7,14 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { _createFfiPoolForTests, type PoolWorker, type WorkerFactory } from './ffi-pool.ts';
+import {
+  _createFfiPoolForTests,
+  _resetFfiPoolForTests,
+  _setFfiPoolForTests,
+  ffiPool,
+  type PoolWorker,
+  type WorkerFactory,
+} from './ffi-pool.ts';
 
 /** A posted request as the fake worker records it. `type` is a plain string
  * rather than `'renderThumb'`: the pool posts several request types and the
@@ -292,5 +299,23 @@ describe('FfiWorkerPool — bitmap ops', () => {
       ok: false,
       reason: 'dimensions 900x10 exceed expected long edge 512',
     });
+  });
+});
+
+describe('ffiPool() — self-heal after shutdown (#3524)', () => {
+  it('builds a fresh, live pool instead of handing out a shut-down one', () => {
+    const previous = _setFfiPoolForTests(null);
+    try {
+      const first = ffiPool();
+      first.shutdown();
+      expect(first.isShutDown).toBe(true);
+
+      const second = ffiPool();
+      expect(second).not.toBe(first);
+      expect(second.isShutDown).toBe(false);
+    } finally {
+      _resetFfiPoolForTests();
+      if (previous) _setFfiPoolForTests(previous);
+    }
   });
 });
