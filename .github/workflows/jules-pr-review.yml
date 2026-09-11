@@ -41,3 +41,6 @@ jobs:
         with:
           jules_api_key: ${{ secrets.JULES_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Large diffs (~120 KB+) routinely exceed the 30-minute default and fail
+          # the required check with "did not return a review in time".
+          timeout_minutes: 60
