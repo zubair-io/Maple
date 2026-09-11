@@ -1,6 +1,9 @@
 //! sRGB <-> CIELAB (D65) <-> CIELCh, for the colour ops sharp performs in a
-//! perceptual space: `tint` (keep L*, take the tint's a*/b*), `modulate`
-//! (scale L* and C*, rotate h) and `normalise` (stretch L*).
+//! perceptual space: `tint` (reduce to luminance, then look each grey up in
+//! a Lab table whose a*/b* are the tint colour's own, weighted by
+//! `1 - 4*(l - 0.5)^2` so the chroma peaks at mid-grey and vanishes at black
+//! and white), `modulate` (scale L* and C*, rotate h) and `normalise`
+//! (stretch L*).
 //!
 //! This is the one place in the raster surface that genuinely linearises: Lab
 //! is defined on linear-light tristimulus values, so the sRGB EOTF
