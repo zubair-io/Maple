@@ -137,6 +137,21 @@ const badged = await maple(photo)
   .toBuffer();
 ```
 
+**Op order.** Maple executes ops in the order you call them — the ops list
+_is_ the pipeline — with `autoOrient`/`rotate()` always hoisted to run first
+regardless of where it appears in the chain. sharp instead applies a fixed
+internal order (rotate → resize → composite → flatten → …) no matter how you
+call its methods. In practice: `.resize().composite().flatten()` matches
+sharp, because that's also sharp's fixed order. `.flatten().resize()` flattens
+before resampling — identical to sharp for an opaque source, but the two can
+differ slightly at soft/antialiased transparent edges, where flattening
+before vs. after the resample blends against a background at a different
+resolution. `.composite().resize()` composites the overlay at full size and
+then scales the composited result, where sharp always resizes the base first
+and composites onto the resized box (and rejects an overlay wider or taller
+than the resized base outright); call `.resize()` before `.composite()` if
+you want sharp's placement semantics.
+
 ## Native Core & Linux Support
 
 `@justmaple/maple` connects to `libraw_ffi` via `bun:ffi`.
