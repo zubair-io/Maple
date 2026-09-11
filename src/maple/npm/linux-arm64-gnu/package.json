@@ -1,6 +1,6 @@
 {
   "name": "@justmaple/maple-linux-arm64-gnu",
-  "version": "0.1.0",
+  "version": "0.0.5",
   "description": "Native binary for @justmaple/maple on Linux ARM64 (glibc)",
   "main": "libraw_ffi.so",
   "files": [
