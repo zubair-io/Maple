@@ -27,9 +27,9 @@
  * camera embedded — acceptable for the VLM, which gracefully handles
  * smaller inputs.
  *
- * For non-RAW files: same sharp + heic-convert pipeline as the thumb path,
+ * For non-RAW files: same FFI child pool (Maple) pipeline as the thumb path,
  * AVIF-encoded. PSD/PSB/HDR route through the same `ag-psd`/`hdr` decode +
- * sharp resize chain as `thumbnailer.ts` (see `thumbs/psd-hdr-decode.ts`).
+ * Maple resize chain as `thumbnailer.ts` (see `thumbs/psd-hdr-decode.ts`).
  *
  * If libraw_ffi is unavailable (Linux without the .so), RAW previews are
  * logged as deferred and skipped — the rest of the pipeline still
@@ -45,7 +45,7 @@ import { replicatePath } from '../fs/mirrored.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from './media-types.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
-import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
+import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { child as childLogger } from '../log.ts';

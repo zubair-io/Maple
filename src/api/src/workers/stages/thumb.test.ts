@@ -2,12 +2,39 @@ import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import sharp from 'sharp';
+import { maple } from 'maple';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import thumbStage from './thumb.ts';
 import { resolveThumbPath, resolveThumbPathForAsset, sha256Prefix16 } from '../../fs/xmp.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
 import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { solidJpeg } from '../../test-support/synth-image.ts';
+
+/**
+ * Minimal APP1 EXIF segment carrying a single IFD0 entry: Orientation
+ * (tag 0x0112, SHORT) = `orientation`. Spliced in right after the SOI
+ * marker, which is where a camera writes it. Copied from
+ * `src/maple/test/raster-v2.test.ts`'s `withExifOrientation` (also copied
+ * into `thumbs/apply-orientation.test.ts` / `workers/stages/preview.test.ts`)
+ * — the same hand-spliced-EXIF trick, not shared production code.
+ */
+function withExifOrientation(jpeg: Buffer, orientation: number): Buffer {
+  const tiff = Buffer.alloc(26);
+  tiff.write('II', 0, 'ascii'); // little-endian TIFF header
+  tiff.writeUInt16LE(0x2a, 2);
+  tiff.writeUInt32LE(8, 4); // IFD0 starts right after the header
+  tiff.writeUInt16LE(1, 8); // one entry
+  tiff.writeUInt16LE(0x0112, 10); // Orientation
+  tiff.writeUInt16LE(3, 12); // type SHORT
+  tiff.writeUInt32LE(1, 14); // count
+  tiff.writeUInt16LE(orientation, 18); // inline value
+  tiff.writeUInt32LE(0, 22); // no next IFD
+  const header = Buffer.alloc(4);
+  header.writeUInt16BE(0xffe1, 0); // APP1
+  header.writeUInt16BE(2 + 6 + tiff.length, 2); // segment length
+  const app1 = Buffer.concat([header, Buffer.from('Exif\0\0', 'binary'), tiff]);
+  return Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]);
+}
 
 // --- shared test-DB harness for the path-keyed cache-path block below ---
 const TEST_DB = withTestDb(`maple_test_thumb_stage_${process.pid}`);
@@ -117,16 +144,7 @@ describe('thumb handler — bitmap path', () => {
 
   it('generates a thumb for a JPEG and marks the stage as wrote', async () => {
     const file = path.join(dir, 'photo.jpg');
-    const buf = await sharp({
-      create: {
-        width: 800,
-        height: 600,
-        channels: 3,
-        background: { r: 100, g: 150, b: 200 },
-      },
-    })
-      .jpeg()
-      .toBuffer();
+    const buf = await solidJpeg(800, 600, [100, 150, 200]);
     await writeFile(file, buf);
 
     const doc = makeDoc(file, libraryId, dir);
@@ -240,17 +258,8 @@ describe('thumb handler — bitmap path', () => {
     const file = path.join(dir, 'rotated.jpg');
     // Create a 16x8 JPEG tagged as orientation 6 (90° CW). After the orientation
     // fix (Plan 0), the on-disk thumb must be 8 wide × 16 tall.
-    const buf = await sharp({
-      create: {
-        width: 16,
-        height: 8,
-        channels: 3,
-        background: { r: 200, g: 50, b: 50 },
-      },
-    })
-      .jpeg()
-      .withMetadata({ orientation: 6 })
-      .toBuffer();
+    const plain = await solidJpeg(16, 8, [200, 50, 50]);
+    const buf = withExifOrientation(plain, 6);
     await writeFile(file, buf);
 
     const doc = makeDoc(file, libraryId, dir, null, 'e'.repeat(32));
@@ -261,7 +270,7 @@ describe('thumb handler — bitmap path', () => {
       new Map([[libraryId.toHexString(), dir]]),
     );
     expect(thumbPath).not.toBeNull();
-    const meta = await sharp(thumbPath as string).metadata();
+    const meta = await maple(thumbPath as string).metadata();
     // After orientation bake-in, the stored thumb is upright.
     expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
   });
@@ -360,16 +369,7 @@ describe('thumb handler — path-keyed cache path', () => {
     await rm(sub, { recursive: true, force: true });
     await import('node:fs/promises').then(({ mkdir }) => mkdir(sub, { recursive: true }));
     const file = path.join(sub, 'IMG_001.jpg');
-    const buf = await sharp({
-      create: {
-        width: 800,
-        height: 600,
-        channels: 3,
-        background: { r: 50, g: 50, b: 50 },
-      },
-    })
-      .jpeg()
-      .toBuffer();
+    const buf = await solidJpeg(800, 600, [50, 50, 50]);
     await writeFile(file, buf);
 
     const mapleId = 'e'.repeat(32);
@@ -455,16 +455,7 @@ describe('thumb handler — resets cf-thumb-sync stage state on rewrite', () => 
   it('resets a previously-synced cf-thumb-sync stage state back to unprocessed', async () => {
     if (!mongoReachable) return;
     const file = path.join(dir, 'reset-me.jpg');
-    const buf = await sharp({
-      create: {
-        width: 400,
-        height: 300,
-        channels: 3,
-        background: { r: 1, g: 2, b: 3 },
-      },
-    })
-      .jpeg()
-      .toBuffer();
+    const buf = await solidJpeg(400, 300, [1, 2, 3]);
     await writeFile(file, buf);
 
     const mapleId = 'f'.repeat(32);

@@ -49,7 +49,7 @@ import { RAW_EXTENSIONS, browseRoots, isUnderRoot } from '../fs/browse.ts';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { VIDEO_EXTS } from '../indexer/media-types.ts';
-import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
+import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { ffmpegBinary, extractVideoPosterJpeg } from '../thumbs/video-poster.ts';

@@ -19,7 +19,7 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath, readdir, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import sharp from 'sharp';
+import { maple } from 'maple';
 import { fsThumbsRoutes } from './fs-thumbs.ts';
 import * as videoPosterModule from '../thumbs/video-poster.ts';
 
@@ -126,8 +126,8 @@ describe('GET /api/fs/thumb — video', () => {
 
     // Decode-verified, not merely non-empty: serving undecodable bytes under
     // `image/avif` is the exact failure mode the thumb caches guard against.
-    const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
-    expect(meta.format).toBe('heif');
+    const meta = await maple(Buffer.from(await res.arrayBuffer())).metadata();
+    expect(meta.format).toBe('avif');
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(512);
   });
 
@@ -146,8 +146,8 @@ describe('GET /api/fs/thumb — video', () => {
     const res = await get(video);
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('image/avif');
-    const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
-    expect(meta.format).toBe('heif');
+    const meta = await maple(Buffer.from(await res.arrayBuffer())).metadata();
+    expect(meta.format).toBe('avif');
   });
 
   it('leaves no intermediate poster JPEG in the thumb cache dir', async () => {
