@@ -1,6 +1,6 @@
 {
   "name": "@justmaple/maple-linux-x64-musl",
-  "version": "0.1.0",
+  "version": "0.0.5",
   "description": "Native binary for @justmaple/maple on Linux x64 (musl)",
   "main": "libraw_ffi.so",
   "files": [

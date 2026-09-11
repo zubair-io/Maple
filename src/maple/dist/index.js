@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 // src/version.ts
-var MAPLE_VERSION = "0.1.0";
+var MAPLE_VERSION = "0.0.5";
 // src/platform.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -694,17 +694,17 @@ class MapleImageBuilder {
   async metadata() {
     const native = loadNativeBinding();
     if (this._inputBytes) {
-      const res2 = native.rasterProbeMetadataBuf(this._inputBytes);
-      if (!res2.ok || !res2.metadata) {
-        throw new Error(res2.error || "Failed to probe metadata");
+      const res = native.rasterProbeMetadataBuf(this._inputBytes);
+      if (!res.ok || !res.metadata) {
+        throw new Error(res.error || "Failed to probe metadata");
       }
       return {
-        width: res2.metadata.width,
-        height: res2.metadata.height,
-        format: res2.metadata.format,
-        channels: res2.metadata.channels,
-        orientation: res2.metadata.orientation,
-        isRaw: res2.metadata.format === "dng"
+        width: res.metadata.width,
+        height: res.metadata.height,
+        format: res.metadata.format,
+        channels: res.metadata.channels,
+        orientation: res.metadata.orientation,
+        isRaw: res.metadata.format === "dng"
       };
     }
     if (!this._inputPath) {
@@ -1182,23 +1182,23 @@ Maple Image Inspection: ${inputPath}`);
   return 1;
 }
 export {
-  validateFilename,
-  runCli,
-  resolvePlatformPackageLib,
-  renderThumbnail,
-  renderPreview,
-  renderFilenameTemplate,
-  nativeLibFilename,
-  maple,
-  loadNativeBinding,
-  isRawPath,
-  isNativeAvailable,
-  isMusl,
-  getPlatformPackageName,
-  getPlatformBinaryFilename,
-  findNativeLib,
-  exportRecipe,
-  exportImage,
+  MAPLE_VERSION,
   MapleImageBuilder,
-  MAPLE_VERSION
+  exportImage,
+  exportRecipe,
+  findNativeLib,
+  getPlatformBinaryFilename,
+  getPlatformPackageName,
+  isMusl,
+  isNativeAvailable,
+  isRawPath,
+  loadNativeBinding,
+  maple,
+  nativeLibFilename,
+  renderFilenameTemplate,
+  renderPreview,
+  renderThumbnail,
+  resolvePlatformPackageLib,
+  runCli,
+  validateFilename
 };
