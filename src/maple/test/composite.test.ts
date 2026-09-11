@@ -102,4 +102,33 @@ describe('Alpha pipeline and composite', () => {
         .toBuffer(),
     ).rejects.toThrow(/soft-light/);
   });
+
+  it('composite() throws when a layer sets exactly one of left/top', async () => {
+    const base = await maple(solid(2, 2, [0, 0, 0, 255]))
+      .toFormat('png')
+      .toBuffer();
+    const overlay = solid(1, 1, [255, 255, 255, 255]);
+    expect(() => maple(base).composite([{ input: overlay, left: 1 }])).toThrow(
+      'composite: a layer must set both left and top, or neither',
+    );
+    expect(() => maple(base).composite([{ input: overlay, top: 1 }])).toThrow(
+      'composite: a layer must set both left and top, or neither',
+    );
+  });
+
+  it('flatten() flattens a fully transparent pixel over a hex background', async () => {
+    const png = await maple(solid(1, 1, [0, 0, 0, 0]))
+      .flatten({ background: '#ff8000' })
+      .toFormat('png')
+      .toBuffer();
+    const raw = await maple(png).toRawAlpha();
+    expect(raw.channels).toBe(3);
+    expect([raw.data[0], raw.data[1], raw.data[2]]).toEqual([255, 128, 0]);
+  });
+
+  it('flatten() throws on a malformed hex background', () => {
+    expect(() => maple(solid(1, 1, [0, 0, 0, 0])).flatten({ background: '#12' })).toThrow(
+      /Unrecognised colour/,
+    );
+  });
 });
