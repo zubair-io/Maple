@@ -117,12 +117,19 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 
 ## sharp parity
 
-| sharp method    | Maple | Notes                                                                           |
-| :-------------- | :---- | :------------------------------------------------------------------------------ |
-| `composite()`   | ✅    | `over`, `multiply`, `screen`, `add`, `darken`, `lighten`, `dest-in`, `dest-out` |
-| `flatten()`     | ✅    | background as `{r,g,b}` or `#rrggbb`                                            |
-| `ensureAlpha()` | ✅    |                                                                                 |
-| `removeAlpha()` | ✅    |                                                                                 |
+| sharp method    | Maple | Notes                                                                                                                            |
+| :-------------- | :---- | :------------------------------------------------------------------------------------------------------------------------------- |
+| `extract()`     | ✅    | `{ left, top, width, height }`                                                                                                   |
+| `extend()`      | ✅    | background only — `extendWith: 'copy' \| 'repeat' \| 'mirror'` throws by name                                                    |
+| `rotate(angle)` | ✅    | 90/180/270 exact; other angles bilinear into the rotated box                                                                     |
+| `rotate()`      | ✅    | no argument = EXIF auto-orient, as in sharp                                                                                      |
+| `flip()`        | ✅    |                                                                                                                                  |
+| `flop()`        | ✅    |                                                                                                                                  |
+| `trim()`        | ✅    | `{ background, threshold, margin }`; `lineArt` throws by name; an all-background image is returned unchanged, where sharp throws |
+| `composite()`   | ✅    | `over`, `multiply`, `screen`, `add`, `darken`, `lighten`, `dest-in`, `dest-out`                                                  |
+| `flatten()`     | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                             |
+| `ensureAlpha()` | ✅    |                                                                                                                                  |
+| `removeAlpha()` | ✅    |                                                                                                                                  |
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
@@ -150,7 +157,10 @@ resolution. `.composite().resize()` composites the overlay at full size and
 then scales the composited result, where sharp always resizes the base first
 and composites onto the resized box (and rejects an overlay wider or taller
 than the resized base outright); call `.resize()` before `.composite()` if
-you want sharp's placement semantics.
+you want sharp's placement semantics. The same rule covers `extract`,
+`extend`, `rotate(angle)`, `flip`, `flop` and `trim`: each runs at the
+position where you call it, where sharp always runs `extract` before
+`resize` and `trim` after it, regardless of call order.
 
 ## Native Core & Linux Support
 

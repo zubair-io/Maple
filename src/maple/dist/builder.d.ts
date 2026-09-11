@@ -4,7 +4,7 @@
  * Provides a unified chaining interface for RAW photo development,
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
-import type { Colour, CompositeLayer, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ImageMetadata, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, TensorOptions, TensorResult } from './types';
+import type { Colour, CompositeLayer, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, TensorOptions, TensorResult, TrimOptions } from './types';
 export declare class MapleImageBuilder {
     private readonly s;
     constructor(input: string | Uint8Array | Buffer | RawPixelInput);
@@ -16,8 +16,22 @@ export declare class MapleImageBuilder {
     xmpContent(xml: string): this;
     /** Configure SIMD resampling dimensions and framing */
     resize(optionsOrWidth: ResizeOptions | number | null, height?: number | null): this;
-    /** Automatically rotate according to EXIF orientation */
-    rotate(): this;
+    /**
+     * With no angle: auto-orient from the EXIF Orientation tag (the Tier 1
+     * behaviour, and sharp's backwards-compatible default). With an angle:
+     * rotate clockwise by that many degrees, padding with `background`.
+     */
+    rotate(angle?: number, options?: RotateOptions): this;
+    /** Extract/crop a region (sharp's `extract`). */
+    extract(region: ExtractRegion): this;
+    /** Pad one or more edges with a background colour (sharp's `extend`). */
+    extend(options: ExtendOptions | number): this;
+    /** Mirror about the horizontal axis. */
+    flip(): this;
+    /** Mirror about the vertical axis. */
+    flop(): this;
+    /** Crop a border of pixels similar to `background` (sharp's `trim`). */
+    trim(options?: TrimOptions): this;
     /** Set output container format and optional quality/effort */
     toFormat(format: ExportFormat, options?: EncodeOptions): this;
     /** Encode as AVIF (sugar for `toFormat('avif', options)`) */
@@ -64,15 +78,6 @@ export declare class MapleImageBuilder {
     normalizeOrientationInPlace(): Promise<boolean>;
     /** Extract raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace) */
     toRawRgb(options?: TensorOptions): Promise<TensorResult>;
-    /**
-     * True when this builder describes a RAW develop rather than a bitmap
-     * transform: a recipe, an XMP sidecar, or a RAW file path as input.
-     */
-    private isRawDevelop;
-    /** Saved-recipe or XMP-driven RAW development, rendered to a tmp file and read back. */
-    private rawDevelopToBuffer;
-    /** Saved-recipe or XMP-driven RAW development, written straight to `outputPath`. */
-    private rawDevelopToFile;
     /** Render or resize image directly to an in-memory Buffer */
     toBuffer(): Promise<Buffer>;
     /** Execute export or resize and write to output file */
