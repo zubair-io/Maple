@@ -135,8 +135,9 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
 
   if (ok) {
     _rendered++;
-    // The AVIF was written by an FFI worker / imgdecode child straight to disk,
-    // so the mirror-aware fs drop-in never saw it. Hand the committed path to
+    // The AVIF was written by the FFI child (Maple, or raw-ffi for RAW)
+    // straight to disk, so the mirror-aware fs drop-in never saw it. Hand
+    // the committed path to
     // the mirror explicitly so a backup disk holds the derived cache too and can
     // serve reads without regenerating (#926).
     replicatePath(thumbPath);
@@ -218,9 +219,9 @@ async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<b
   log.debug({ rawPath, extractError }, 'thumb extraction failed — trying demosaic fallback');
   return await developRawThumbToFile(rawPath, outPath, extractError);
   // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
-  // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
-  // decode time. No inline orientation post-process needed — keeping sharp
-  // out of worker-main's address space for isolation.
+  // no EXIF. Bitmap paths (via the FFI child pool) call Maple's .rotate() at
+  // decode time. No inline orientation post-process needed — keeping the
+  // native bitmap decoder out of worker-main's address space for isolation.
 }
 
 /**
@@ -234,8 +235,8 @@ async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<b
  * `previewer.ts`.
  *
  * Decode + demosaic through `raw-core` instead (null adjustments = neutral),
- * then hand the JPEG to the same imgdecode child pool every bitmap goes
- * through, exactly like the video poster-frame path below. Two hops so the
+ * then hand the JPEG to the same FFI child pool every bitmap goes through,
+ * exactly like the video poster-frame path below. Two hops so the
  * resize maths, AVIF settings and orientation handling stay literally the
  * bitmap path rather than a second encoder that could drift from it.
  */
@@ -285,7 +286,7 @@ async function developRawThumbToFile(
 
 /**
  * Video containers: pull a poster frame out with ffmpeg, then hand the
- * resulting JPEG to the SAME imgdecode child pool every bitmap goes through
+ * resulting JPEG to the SAME FFI child pool every bitmap goes through
  * (#1649). Two hops rather than asking ffmpeg for a resized AVIF directly,
  * because this way the thumb's resize maths, AVIF encoder settings, quality,
  * and orientation handling are literally the bitmap path — there is no second
@@ -338,14 +339,14 @@ async function renderBitmapThumbToFile(
     );
     if (!result.ok) {
       log.warn(
-        { srcPath, err: result.error ?? 'imgdecode failed' },
-        'imgdecode child returned error',
+        { srcPath, err: result.error ?? 'FFI bitmap render failed' },
+        'FFI child returned error',
       );
       return false;
     }
     return true;
   } catch (e) {
-    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'imgdecode pool threw');
+    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'FFI pool threw');
     return false;
   }
 }
