@@ -49,6 +49,14 @@ class FakeWorker implements PoolWorker {
   crash(message = 'boom'): void {
     this.errCb?.({ message });
   }
+
+  /** Reply to the most-recently-posted call with an arbitrary message body
+   * (the `id` is filled in) — simulates a child answering with the WRONG
+   * response type. */
+  respondWith(body: Record<string, unknown>): void {
+    const last = this.posted[this.posted.length - 1];
+    this.msgCb?.({ data: { ...body, id: last.id } });
+  }
 }
 
 function freshFactory(): { factory: WorkerFactory; workers: FakeWorker[] } {
@@ -233,5 +241,25 @@ describe('FfiWorkerPool — crash isolation', () => {
     expect(pool.stats().spawned).toBe(1);
     workers[1].respond(true);
     await expect(b).resolves.toBe(true);
+  });
+});
+
+describe('FfiWorkerPool — protocol mismatch', () => {
+  // Regression: a child that answered a renderThumb with a histogram-typed
+  // reply (the old unguarded fallthrough in raw_ffi.child.ts) released the
+  // worker slot but never settled the caller's promise — it hung forever.
+  it('rejects the caller when the reply type does not match the request', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+    const p = render(pool);
+
+    workers[0].respondWith({ type: 'histogram', ok: false, error: 'render-failed' });
+
+    const hung = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('caller promise hung')), 100),
+    );
+    await expect(Promise.race([p, hung])).rejects.toThrow(/mismatched response type/);
+    // The slot is still released so the next request is not starved.
+    expect(pool.stats().busy).toBe(0);
   });
 });
