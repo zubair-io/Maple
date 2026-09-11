@@ -805,12 +805,19 @@ function isRawPath(filePath) {
   const ext = path4.extname(filePath).toLowerCase();
   return RAW_EXTENSIONS.has(ext);
 }
-function kernelFromFilter(filter) {
-  if (filter === "bilinear")
-    return "linear";
-  if (filter === "nearest")
-    return "nearest";
-  return "lanczos3";
+var POSITION_TO_GRAVITY = {
+  top: "north",
+  "right top": "northeast",
+  right: "east",
+  "right bottom": "southeast",
+  bottom: "south",
+  "left bottom": "southwest",
+  left: "west",
+  "left top": "northwest",
+  center: "centre"
+};
+function resolveGravity(value) {
+  return value === undefined ? "centre" : POSITION_TO_GRAVITY[value] ?? value;
 }
 function createBuilderState(input) {
   const base = {
@@ -1155,15 +1162,18 @@ class MapleImageBuilder {
     return this;
   }
   resize(optionsOrWidth, height) {
-    const opts = typeof optionsOrWidth === "number" || optionsOrWidth === null ? { width: optionsOrWidth ?? 0, height: height ?? 0 } : optionsOrWidth;
+    const opts = typeof optionsOrWidth === "number" || optionsOrWidth === null || optionsOrWidth === undefined ? { width: optionsOrWidth ?? 0, height: height ?? 0 } : optionsOrWidth;
     this.s.ops = this.s.ops.filter((op) => op.op !== "resize");
     this.s.ops.push({
       op: "resize",
       width: Math.max(0, opts.width ?? 0),
       height: Math.max(0, opts.height ?? 0),
       fit: opts.fit ?? "inside",
-      kernel: kernelFromFilter(opts.filter),
-      withoutEnlargement: opts.withoutEnlargement ?? true
+      position: resolveGravity(opts.position ?? opts.gravity),
+      kernel: opts.kernel ?? opts.filter ?? "lanczos3",
+      withoutEnlargement: opts.withoutEnlargement ?? true,
+      withoutReduction: opts.withoutReduction ?? false,
+      background: resolveColour(opts.background, [0, 0, 0, 255])
     });
     return this;
   }
@@ -1693,7 +1703,6 @@ export {
   isMusl,
   isNativeAvailable,
   isRawPath,
-  kernelFromFilter,
   lastResizeWidth,
   loadNativeBinding,
   maple,
@@ -1702,6 +1711,7 @@ export {
   renderPreview,
   renderThumbnail,
   resolveColour,
+  resolveGravity,
   resolvePlatformPackageLib,
   runCli,
   stateToOutput,
