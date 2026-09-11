@@ -20,6 +20,8 @@ rawler = "0.7"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp"] }
 # Pure-Rust AV1 decoder (memorysafety.org port of dav1d). No asm/nasm: the
 # Linux zero-dependency audit forbids C toolchains in the publish build.
+# Resolved through the `[patch.crates-io]` override at the bottom of this file
+# — see third_party/rav1d/MAPLE-PATCH.md (#3517).
 rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
 # ISO-BMFF walker for the AVIF container (primary/alpha item OBUs).
 avif-parse = "2"
@@ -81,3 +83,21 @@ sha2 = "0.10"
 # maple-pano/models.toml manifest parsing. 0.8 is already in the lockfile
 # (and vendored) via cbindgen's dependency tree.
 toml = "0.8"
+
+# rav1d carries one Maple patch: the nine `dav1d_*` C shims raw-core calls are
+# declared `extern "C-unwind"` instead of `extern "C"`, so a decoder panic on a
+# corrupt AV1 stream unwinds into raw-core's `catch_unwind` instead of aborting
+# the process (#3517). rav1d's own Rust-ABI entry points are `pub(crate)`, so
+# the C shims are the only surface available and patching their ABI is the only
+# way to make the panic catchable.
+#
+# The patched copy lives in-tree at third_party/rav1d (not vendor/, which is
+# `cargo vendor` output and gets regenerated). A `[patch]` here — rather than
+# only a vendor-dir substitution — is what makes EVERY build use it: the Linux
+# API/server build, the Windows DLL, the WASM build, and the Apple offline
+# xcframework build alike. `cargo vendor` no longer emits rav1d at all, because
+# a patched path dependency is not a registry source.
+#
+# See third_party/rav1d/MAPLE-PATCH.md for the delta and the upgrade recipe.
+[patch.crates-io]
+rav1d = { path = "third_party/rav1d" }
