@@ -85,6 +85,52 @@ fn contain_respects_position_for_the_pad_side() {
     );
 }
 
+/// A source whose red channel names its own column (`x * 6 + 3`), so an
+/// output pixel says which source column it came from.
+fn columns(w: u32, h: u32) -> RasterImage {
+    let data = (0..h)
+        .flat_map(|_| (0..w).flat_map(|x| [(x * 6 + 3) as u8, 0, 0]))
+        .collect();
+    RasterImage::new_rgb(w, h, data)
+}
+
+/// sharp centres a CROP by rounding the slack up — `CalculateCrop` in
+/// `src/common.cc` is `(in - out + 1) / 2`. Measured against sharp 0.34.5 /
+/// libvips 8.17.3: a 20x10 source covered into a 9x10 box needs no scaling
+/// (the height already matches and cover takes the smaller shrink), so the
+/// crop does all the work, and the first output column is source x = 6.
+/// Rounding the 11px slack down gives 5.
+#[test]
+fn cover_centres_an_odd_slack_crop_by_rounding_up() {
+    let out = resize_raster(&columns(20, 10), &opts(9, 10, ResizeFit::Cover)).unwrap();
+    assert_eq!((out.width, out.height), (9, 10));
+    assert_eq!(out.data[0], 6 * 6 + 3, "first column must be source x = 6");
+}
+
+/// The same bias on a source that really is resampled. 400x200 covered into
+/// 63x63 scales by 63/200, giving a 126x63 intermediate, and the crop keeps
+/// 63 of those 126 columns — 63px of slack, odd. sharp: left = 32.
+#[test]
+fn cover_rounds_up_the_crop_offset_on_a_downscaled_source() {
+    let src = columns(400, 200);
+    let cover = resize_raster(&src, &opts(63, 63, ResizeFit::Cover)).unwrap();
+    assert_eq!((cover.width, cover.height), (63, 63));
+    let scaled = resize_raster(&src, &opts(126, 63, ResizeFit::Fill)).unwrap();
+    assert_eq!((scaled.width, scaled.height), (126, 63));
+    assert_eq!(cover.data, scaled.crop(32, 0, 63, 63).unwrap().data);
+    assert_ne!(cover.data, scaled.crop(31, 0, 63, 63).unwrap().data);
+}
+
+/// An even slack rounds the same way either side of the fix, so this case
+/// pins that the change is confined to odd slack: 20x10 into a 10x10 cover
+/// box leaves 10px of slack and starts at source x = 5 both ways.
+#[test]
+fn an_even_slack_cover_crop_is_unmoved() {
+    let out = resize_raster(&columns(20, 10), &opts(10, 10, ResizeFit::Cover)).unwrap();
+    assert_eq!((out.width, out.height), (10, 10));
+    assert_eq!(out.data[0], 5 * 6 + 3, "first column must be source x = 5");
+}
+
 #[test]
 fn cover_respects_position_for_the_crop_side() {
     // 4x2 source, left half red and right half green; a 2x2 cover crop at

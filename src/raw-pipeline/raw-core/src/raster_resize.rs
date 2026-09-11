@@ -144,13 +144,13 @@ fn scale_then_frame(
             let ch = th.min(scaled.height);
             let (x, y) = options
                 .position
-                .place((scaled.width, scaled.height), (cw, ch));
+                .place_crop((scaled.width, scaled.height), (cw, ch));
             scaled.crop(x.max(0) as u32, y.max(0) as u32, cw, ch)
         }
         ResizeFit::Contain => {
             let (x, y) = options
                 .position
-                .place((tw, th), (scaled.width, scaled.height));
+                .place_pad((tw, th), (scaled.width, scaled.height));
             let left = x.max(0) as u32;
             let top = y.max(0) as u32;
             scaled.extend(

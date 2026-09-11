@@ -99,12 +99,36 @@ impl Gravity {
         }
     }
 
-    /// Top-left corner at which an `inner` box sits inside an `outer` box.
-    /// Centring rounds down, matching libvips' integer arithmetic.
-    pub fn place(self, outer: (u32, u32), inner: (u32, u32)) -> (i64, i64) {
+    /// Top-left corner at which an `inner` box sits inside an `outer` box,
+    /// for a CROP: the window a `cover` resize keeps, and where a
+    /// `composite` overlay lands. sharp's `CalculateCrop` (`src/common.cc`)
+    /// centres a crop by rounding the slack UP — `(outer - inner + 1) / 2` —
+    /// so an odd number of pixels of slack is biased to the leading edge.
+    /// A 20px-wide source cropped to 9px therefore starts at x = 6, not 5.
+    pub fn place_crop(self, outer: (u32, u32), inner: (u32, u32)) -> (i64, i64) {
+        self.offsets(outer, inner, 1)
+    }
+
+    /// Top-left corner at which an `inner` box sits inside an `outer` box,
+    /// for a PAD: where a `contain` resize's scaled image sits on its
+    /// letterboxed canvas. sharp's `CalculateEmbedPosition` centres by
+    /// rounding the slack DOWN — `(outer - inner) / 2` — the opposite bias
+    /// to a crop, so the two cannot share one helper. Offsets may be
+    /// negative when the image is larger than the box it is placed in.
+    pub fn place_pad(self, outer: (u32, u32), inner: (u32, u32)) -> (i64, i64) {
+        self.offsets(outer, inner, 0)
+    }
+
+    /// The nine placements, with `bias` added to the slack before halving:
+    /// `1` for a crop (round up), `0` for a pad (round down). Only the
+    /// centred axis of each gravity sees the bias — a flush edge is exact.
+    /// Truncating division matches the C++ original for positive slack, and
+    /// the pad path (`bias == 0`) is exact for negative slack too, since
+    /// `(a - b) / 2` truncates toward zero in both languages.
+    fn offsets(self, outer: (u32, u32), inner: (u32, u32), bias: i64) -> (i64, i64) {
         let (ow, oh) = (outer.0 as i64, outer.1 as i64);
         let (iw, ih) = (inner.0 as i64, inner.1 as i64);
-        let (mid_x, mid_y) = ((ow - iw) / 2, (oh - ih) / 2);
+        let (mid_x, mid_y) = ((ow - iw + bias) / 2, (oh - ih + bias) / 2);
         match self {
             Self::Centre => (mid_x, mid_y),
             Self::North => (mid_x, 0),
@@ -211,7 +235,7 @@ pub fn composite(base: &RasterImage, layers: &[CompositeLayer<'_>]) -> Result<Ra
             (Some(x), Some(y)) => (x, y),
             (None, None) => layer
                 .gravity
-                .place((out.width, out.height), (src.width, src.height)),
+                .place_crop((out.width, out.height), (src.width, src.height)),
             (Some(_), None) | (None, Some(_)) => {
                 return Err(Error::Decode {
                     path: "<memory>".into(),
