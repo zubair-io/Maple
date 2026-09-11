@@ -91,6 +91,7 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
                 fit: fit_from_wire(fit)?,
                 filter: kernel_from_wire(kernel)?,
                 without_enlargement: *without_enlargement,
+                ..Default::default()
             },
         ),
         Op::Flatten { background } => {

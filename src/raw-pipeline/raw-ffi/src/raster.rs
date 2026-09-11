@@ -91,6 +91,7 @@ pub unsafe extern "C" fn maple_raster_resize_to_file(
         fit: resize_fit,
         filter: FilterAlg::Lanczos3,
         without_enlargement,
+        ..Default::default()
     };
 
     let resized = match resize_raster(&raster, &resize_opts) {
@@ -252,6 +253,7 @@ pub unsafe extern "C" fn maple_raster_extract_tensor_buf(
             fit: ResizeFit::Fill,
             filter: FilterAlg::Bilinear,
             without_enlargement: false,
+            ..Default::default()
         };
         match resize_raster(&raster, &resize_opts) {
             Ok(r) => r,
@@ -354,6 +356,7 @@ pub unsafe extern "C" fn maple_raster_resize_to_buf(
         fit: resize_fit,
         filter: FilterAlg::Lanczos3,
         without_enlargement,
+        ..Default::default()
     };
     let resized = match resize_raster(&raster, &resize_opts) {
         Ok(r) => r,
