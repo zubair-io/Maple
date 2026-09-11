@@ -133,6 +133,15 @@ describe('validateAvifOutput', () => {
 
     const result = await validateAvifOutput(file, 1280);
     expect(result.ok).toBe(false);
+    // Deliberately `/decode failed/i`, not a more specific phrase: 50%
+    // truncation can surface either as a header/metadata-probe failure
+    // (`"metadata decode failed: …"`) or, for a smaller cut, a pixel-decode
+    // failure (`"pixel decode failed (truncated or corrupt)"`) — see
+    // `avif-checks.test.ts`'s own truncation case, which deliberately
+    // doesn't pin an exact message for the same reason. Both real failure
+    // shapes contain "decode failed", so this still asserts real content
+    // (not just `ok: false`) without depending on which stage caught it.
+    if (!result.ok) expect(result.reason).toMatch(/decode failed/i);
   });
 
   it('rejects dimensions that exceed the tier target beyond tolerance', async () => {
