@@ -8,10 +8,16 @@
 //! - `median` ranks every band, alpha included — a median has no special
 //!   alpha handling in libvips (`vips_rank`), and the lone-transparent-pixel
 //!   test below depends on alpha being ranked alongside colour to erase it.
-//! - `convolve` is colour-only (alpha passes through unfiltered), matching
-//!   `colour_only: true` elsewhere in this file family — a caller convolving
-//!   with an edge detector does not want alpha convolved into noise.
-//! - `threshold` never touches alpha at all, in either mode.
+//! - `convolve` filters every band, alpha included — libvips' `vips_conv`
+//!   has no band exclusion either; a lone-transparent-pixel "hole" in an
+//!   otherwise-opaque alpha channel spreads under a 3x3 box exactly like any
+//!   other band (measured against sharp 0.34.5: a single 0 surrounded by
+//!   255 comes out 226 at every cell the box's 3x3 support touches —
+//!   `(8*255 + 1*0) / 9 = 226.67`, truncated).
+//! - `threshold` thresholds alpha too, but directly against `value` (a plain
+//!   `alpha >= value` comparison, in both `greyscale` modes) rather than
+//!   through the luma computation — matching sharp, whose underlying
+//!   `>=` comparison runs over every band of the image, alpha included.
 //!
 //! **Integer vs float convolution.** libvips picks between `vips_convi`
 //! (integer coefficients, truncating division) and `vips_convf` (float
@@ -29,15 +35,14 @@
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 use crate::raster_filter::clamp_index;
+use crate::view::encode::{srgb_degamma, srgb_gamma};
 
 /// Rec.709 luma weights ([ITU-R BT.709] luminance coefficients: `Y' =
-/// 0.2126 R' + 0.7152 G' + 0.0722 B'`), used by `threshold`'s greyscale mode.
-/// `raster_colour` (the module the task brief names as the source of this
-/// constant) is not present on this branch, mirroring `raster_sharpen.rs`'s
-/// own note about `raster_lab.rs` (plan lane D1) — so it's defined locally
-/// here rather than blocking on that lane. `255 * 0.2126 = 54.2` (pure red)
-/// and `255 * 0.7152 = 182.4` (pure green) are the two values pinned in
-/// `threshold_binarises_through_greyscale_by_default` below.
+/// 0.2126 R' + 0.7152 G' + 0.0722 B'`), used by [`bw_luma`]. `raster_colour`
+/// (the module the task brief names as the source of this constant) is not
+/// present on this branch, mirroring `raster_sharpen.rs`'s own note about
+/// `raster_lab.rs` (plan lane D1) — so it's defined locally here rather than
+/// blocking on that lane.
 pub(crate) const REC709_LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
 
 /// Largest median window `size` this crate accepts — sharp validates
@@ -45,6 +50,31 @@ pub(crate) const REC709_LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
 /// window is an O(size²) rank-sort per pixel; 1000 is a generous, explicit
 /// cap rather than an unbounded one (values named in the error either way).
 const MAX_MEDIAN_SIZE: u32 = 1000;
+
+/// sharp's documented `convolve` kernel dimension contract: both `width` and
+/// `height` must be integers in `[3, 1001]` — even sizes are accepted (a
+/// 4x4 kernel is a valid, real sharp input), only the floor and ceiling are
+/// enforced.
+const MIN_KERNEL_DIM: u32 = 3;
+const MAX_KERNEL_DIM: u32 = 1001;
+
+/// sharp's `threshold({greyscale: true})` (the default) does not take a
+/// weighted sum of the gamma-encoded 8-bit channels — it runs libvips'
+/// standard `toColourspace('b-w')` conversion: decode each channel from the
+/// sRGB transfer curve to linear light, take the Rec.709-weighted linear
+/// luminance, then re-encode with the sRGB OETF and round to a byte.
+/// Measured against sharp 0.34.5: pure red -> 127, pure green -> 220,
+/// `(100, 200, 50)` -> 178 (a naive weighted sum of the encoded bytes would
+/// give 54 / 182 / 168 instead — visibly wrong for red and green, and close
+/// enough elsewhere to hide the bug, which is why it needs pinning here
+/// rather than only through `threshold`'s black/white outcomes).
+pub(crate) fn bw_luma(rgb: [u8; 3]) -> u8 {
+    let linear = rgb.map(|v| srgb_degamma(v as f32 / 255.0));
+    let luma_linear: f32 = (0..3).map(|i| linear[i] * REC709_LUMA[i] as f32).sum();
+    (srgb_gamma(luma_linear) as f64 * 255.0)
+        .round()
+        .clamp(0.0, 255.0) as u8
+}
 
 impl RasterImage {
     /// Square median (rank) filter: window `size` x `size`, `size` odd and
@@ -85,24 +115,25 @@ impl RasterImage {
     }
 
     /// Binarise at `value` (sharp's default is 128). With `greyscale` (the
-    /// default in sharp's own JS API) the decision is made once on the
-    /// Rec.709 luma and the same 0/255 result is written to all three
-    /// colour channels; without it, each colour channel is thresholded
-    /// independently. Alpha is always left untouched.
+    /// default in sharp's own JS API) the colour decision is made once on
+    /// [`bw_luma`] and the same 0/255 result is written to all three colour
+    /// channels; without it, each colour channel is thresholded
+    /// independently. Alpha is thresholded too either way, via a direct
+    /// `alpha >= value` comparison — see the module doc.
     pub fn threshold(&self, value: u8, greyscale: bool) -> Self {
         let c = self.channels as usize;
+        let on = |v: u8| if v >= value { 255 } else { 0 };
         let data = self
             .data
             .chunks_exact(c)
             .flat_map(|px| {
                 let colour: [u8; 3] = if greyscale {
-                    let luma: f64 = (0..3).map(|i| px[i] as f64 * REC709_LUMA[i]).sum();
-                    let on = if luma.round() >= value as f64 { 255 } else { 0 };
-                    [on, on, on]
+                    let luma = on(bw_luma([px[0], px[1], px[2]]));
+                    [luma, luma, luma]
                 } else {
-                    [0, 1, 2].map(|i| if px[i] >= value { 255 } else { 0 })
+                    [0, 1, 2].map(|i| on(px[i]))
                 };
-                colour.into_iter().chain(px.get(3).copied())
+                colour.into_iter().chain(px.get(3).map(|&a| on(a)))
             })
             .collect();
         Self {
@@ -112,11 +143,13 @@ impl RasterImage {
     }
 
     /// Arbitrary `width` x `height` convolution: `out = round_or_truncate(sum(kernel
-    /// * neighbourhood) / divisor) + offset`, clamped to `[0, 255]`.
-    /// `scale == 0.0` means "use the kernel's own sum" (sharp's documented
-    /// default), falling back to `1.0` for a zero-sum kernel such as a
-    /// Sobel operator. Colour bands only — alpha passes through unchanged
-    /// (see the module doc). Clamp-to-edge addressing at the boundary.
+    /// * neighbourhood) / divisor) + offset`, clamped to `[0, 255]`. `width`
+    /// and `height` must each be in `[3, 1001]` (sharp's own kernel-size
+    /// contract; even sizes are accepted). `scale == 0.0` means "use the
+    /// kernel's own sum" (sharp's documented default), falling back to
+    /// `1.0` for a zero-sum kernel such as a Sobel operator. Every band is
+    /// filtered, alpha included (see the module doc). Clamp-to-edge
+    /// addressing at the boundary.
     ///
     /// See the module doc for the integer-vs-float path this picks between.
     pub fn convolve(
@@ -127,8 +160,15 @@ impl RasterImage {
         scale: f64,
         offset: f64,
     ) -> Result<Self> {
+        if !(MIN_KERNEL_DIM..=MAX_KERNEL_DIM).contains(&width)
+            || !(MIN_KERNEL_DIM..=MAX_KERNEL_DIM).contains(&height)
+        {
+            return Err(Error::Pipeline(format!(
+                "convolve kernel is {width}x{height}; both dimensions must be in [{MIN_KERNEL_DIM}, {MAX_KERNEL_DIM}]"
+            )));
+        }
         let expected = width as usize * height as usize;
-        if width == 0 || height == 0 || kernel.len() != expected {
+        if kernel.len() != expected {
             return Err(Error::Pipeline(format!(
                 "convolve kernel has {} values, expected {expected} for {width}x{height}",
                 kernel.len()
@@ -153,7 +193,6 @@ impl RasterImage {
 
         let (rx, ry) = ((width / 2) as i64, (height / 2) as i64);
         let c = self.channels as usize;
-        let bands = c.min(3);
         let (w, h) = (self.width as usize, self.height as usize);
         let int_kernel: Vec<i64> = kernel.iter().map(|v| *v as i64).collect();
         let int_kernel: &[i64] = &int_kernel;
@@ -162,10 +201,6 @@ impl RasterImage {
             .flat_map(|y| {
                 (0..w).flat_map(move |x| {
                     (0..c).map(move |band| {
-                        let here = self.data[(y * w + x) * c + band];
-                        if band >= bands {
-                            return here;
-                        }
                         let taps = (0..height as i64).flat_map(|ky| {
                             (0..width as i64).map(move |kx| {
                                 let sy = clamp_index(y as i64 + ky - ry, h);
