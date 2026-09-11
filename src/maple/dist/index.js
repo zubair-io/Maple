@@ -1022,11 +1022,17 @@ async function resolveTensor(state, options) {
 
 // src/builder-geometry.ts
 var OPAQUE_BLACK = [0, 0, 0, 255];
+function assertFinite(op, field, value) {
+  if (!Number.isFinite(value)) {
+    throw new Error(`${op}: ${field} must be finite (got ${value})`);
+  }
+}
 function pushRotate(state, angle, options) {
   if (angle === undefined) {
     state.autoOrient = true;
     return;
   }
+  assertFinite("rotate", "angle", angle);
   state.ops.push({
     op: "rotate",
     angle,
@@ -1034,6 +1040,10 @@ function pushRotate(state, angle, options) {
   });
 }
 function pushExtract(state, region) {
+  assertFinite("extract", "left", region.left);
+  assertFinite("extract", "top", region.top);
+  assertFinite("extract", "width", region.width);
+  assertFinite("extract", "height", region.height);
   state.ops.push({
     op: "extract",
     left: region.left,
@@ -1045,6 +1055,12 @@ function pushExtract(state, region) {
 function pushExtend(state, options) {
   const edges = typeof options === "number" ? { top: options, bottom: options, left: options, right: options } : options;
   const opts = typeof options === "number" ? {} : options;
+  for (const field of ["top", "bottom", "left", "right"]) {
+    const value = edges[field];
+    if (value !== undefined) {
+      assertFinite("extend", field, value);
+    }
+  }
   state.ops.push({
     op: "extend",
     top: edges.top ?? 0,
@@ -1062,11 +1078,17 @@ function pushFlop(state) {
   state.ops.push({ op: "flop" });
 }
 function pushTrim(state, options) {
+  const threshold = options?.threshold ?? 10;
+  assertFinite("trim", "threshold", threshold);
+  if (options?.margin !== undefined) {
+    assertFinite("trim", "margin", options.margin);
+  }
   state.ops.push({
     op: "trim",
     background: options?.background === undefined ? null : resolveColour(options.background, OPAQUE_BLACK),
-    threshold: options?.threshold ?? 10,
-    margin: options?.margin ?? 0
+    threshold,
+    margin: options?.margin ?? 0,
+    lineArt: options?.lineArt ?? false
   });
 }
 
