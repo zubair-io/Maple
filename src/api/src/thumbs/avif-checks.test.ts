@@ -16,6 +16,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { maple } from 'maple';
 import { checkAvifOutput } from './avif-checks.ts';
 import { solidAvif, solidJpeg } from '../test-support/synth-image.ts';
 
@@ -61,5 +62,34 @@ describe('checkAvifOutput (maple)', () => {
       await writeFile(p, full.subarray(0, Math.floor(full.length * 0.6)));
       const r = await checkAvifOutput(p, 256);
       expect(r.ok).toBe(false);
+    }));
+
+  // #2011/#2014 ordering guard: the cheap dimension check must reject BEFORE
+  // the expensive full pixel decode ever runs — otherwise a wildly-oversized
+  // AVIF (the exact class of resize bug this validator exists to catch) gets
+  // fully decoded into memory before being rejected, an OOM/DoS risk. Build
+  // an AVIF larger than the expected long edge, then corrupt its tail
+  // (same length, so the container/`ispe` header still parses) — if the
+  // dimension check ran AFTER (or instead of) the pixel-decode check, this
+  // file would surface a decode-failure reason instead of a dimensions one.
+  it('rejects an oversized AVIF on dimensions even when its tail is corrupted', () =>
+    withDir(async (dir) => {
+      const full = await solidAvif(300, 50, [5, 5, 5]);
+      const corrupted = Buffer.from(full);
+      corrupted.fill(0, corrupted.length - 40, corrupted.length);
+      const p = join(dir, 'big-corrupt.avif');
+      await writeFile(p, corrupted);
+
+      // Sanity check the premise: the header/`ispe` probe must still
+      // succeed despite the tail corruption, or this test isn't actually
+      // exercising the ordering guard (it'd just be re-testing "rejects a
+      // truncated AVIF on the pixel-decode check" above under a different
+      // name).
+      const probed = await maple(p).metadata();
+      expect(probed.width).toBeGreaterThan(0);
+
+      const r = await checkAvifOutput(p, 256);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toContain('exceed expected long edge');
     }));
 });

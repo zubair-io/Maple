@@ -43,7 +43,15 @@ function errMessage(e: unknown): string {
  *     `.rotate()`) and never carries an orientation tag forward — see
  *     `thumbs/apply-orientation.ts`'s module doc. A tag other than `1` here
  *     means some path landed a cache entry that still depends on a tag no
- *     reader (server route, Apple, web) applies.
+ *     reader (server route, Apple, web) applies. NOTE: this check is
+ *     currently structurally dead in practice — Maple's AVIF metadata probe
+ *     hardcodes `orientation: 1` unconditionally (no irot/imir/EXIF handling
+ *     yet in `avif_decode.rs`), and this pipeline's own AVIF encoder never
+ *     writes an orientation box either, so `meta.orientation` is always `1`
+ *     for every `.avif` file this function sees today. It's kept as
+ *     defence-in-depth and will start actually engaging once the probe
+ *     learns to read AVIF orientation (#3507) — until then it only ever
+ *     protects formats whose probe reads EXIF/orientation metadata.
  *  4. Integrity: a full pixel decode must succeed. `.metadata()` alone is
  *     NOT sufficient — it can return a plausible width/height read straight
  *     from the AVIF's meta/header box even when the pixel payload is
