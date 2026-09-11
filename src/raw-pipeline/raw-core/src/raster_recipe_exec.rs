@@ -10,6 +10,7 @@ use crate::export::ExportFormat;
 use crate::raster::{resize_raster, FilterAlg, ResizeFit, ResizeOptions};
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
 use crate::raster_encode::{container_supports_alpha, encode_raster_opts, RasterEncodeOptions};
+use crate::raster_recipe_geometry::apply_geometry_op;
 
 /// What a recipe produced: the encoded bytes (or raw pixels for
 /// `Output::Raw`) plus the dimensions actually written.
@@ -21,7 +22,9 @@ pub struct RecipeResult {
     pub bytes: Vec<u8>,
 }
 
-fn bad(reason: String) -> Error {
+/// `pub(crate)` — shared with `raster_recipe_geometry`, which reports its own
+/// unsupported-option errors (`extendWith`, `trim.lineArt`) the same way.
+pub(crate) fn bad(reason: String) -> Error {
     Error::Decode {
         path: "<recipe>".into(),
         reason,
@@ -120,6 +123,12 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
                 .collect::<Result<Vec<_>>>()?;
             composite(&image, &specs)
         }
+        Op::Extract { .. }
+        | Op::Extend { .. }
+        | Op::Rotate { .. }
+        | Op::Flip {}
+        | Op::Flop {}
+        | Op::Trim { .. } => apply_geometry_op(image, op),
     }
 }
 
