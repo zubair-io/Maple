@@ -6,10 +6,6 @@
  * and restarting. A hostname the server is NOT serving stays rejected — the
  * allowlist follows the live listener, not anything a client claims.
  */
-process.env.MAPLE_RP_ID = 'maple.test';
-process.env.MAPLE_ORIGIN = 'https://maple.test';
-process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-
 import { describe, it, expect, beforeEach, afterAll, spyOn } from 'bun:test';
 import { buildApp } from '../../src/index.ts';
 import {
@@ -21,7 +17,17 @@ import {
 } from '../../src/db/client.ts';
 import { OWNER_CLAIM_ID } from '../../src/auth/server_claim.ts';
 import { managedHttps } from '../../src/network/managed-https.ts';
+import { withTestDb, withTestEnv } from '../../src/db/test-db.test-helpers.ts';
 import { buildRegistrationResponse, type SoftAuthenticator } from './helpers/soft-authn.ts';
+
+// Suite-scoped env + per-file database (#2900/#2904 convention): claimed in
+// beforeAll, restored in afterAll, so these settings never leak into a sibling
+// suite. The auth stack reads them at request time, so `buildApp` at module
+// scope is fine.
+withTestEnv('MAPLE_RP_ID', 'maple.test');
+withTestEnv('MAPLE_ORIGIN', 'https://maple.test');
+withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
+withTestDb(`maple_test_managed_hostname_${process.pid}`);
 
 const RP_ID = 'maple.test';
 const PUBLIC_ORIGIN = 'https://maple.test';
