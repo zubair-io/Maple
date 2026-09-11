@@ -173,9 +173,12 @@ fn no_argument_sharpen_pushes_a_step_edge_apart() {
     // edge, worked out by hand with clamp-to-edge addressing at (7, 2) and
     // (8, 2) (both interior rows, so only the x clamp ever matters):
     //   (7,2): -3*60 (x=6) + 30*60 (x=7) + -3*200 (x=8) = 1020; /24 = 42.5
-    //          -> 43 (round-half-away-from-zero, `f64::round`'s convention)
     //   (8,2): -3*60 (x=7) + 30*200 (x=8) + -3*200 (x=9) = 5220; /24 = 217.5
-    //          -> 218
+    // Both are exact halves, and libvips' integer convolution path
+    // truncates rather than rounds — sharp 0.34.5 measures 42/217 here,
+    // confirmed two independent ways (`.sharpen()` and an equivalent
+    // `.convolve()` call with this exact kernel), not `f64::round`'s
+    // round-half-away-from-zero 43/218.
     let src = step_edge(16, 4);
     let out = src
         .sharpen(&SharpenOptions {
@@ -183,10 +186,36 @@ fn no_argument_sharpen_pushes_a_step_edge_apart() {
             ..SharpenOptions::default()
         })
         .unwrap();
-    assert_eq!(at(&out, 7, 2), 43, "dark side did not deepen as expected");
-    assert_eq!(at(&out, 8, 2), 218, "bright side did not lift as expected");
+    assert_eq!(at(&out, 7, 2), 42, "dark side did not deepen as expected");
+    assert_eq!(at(&out, 8, 2), 217, "bright side did not lift as expected");
     assert!(at(&out, 7, 2) < at(&src, 7, 2));
     assert!(at(&out, 8, 2) > at(&src, 8, 2));
+}
+
+#[test]
+fn no_argument_sharpen_truncates_a_non_half_sum_too() {
+    // A non-tie case, to pin that the truncating divide doesn't disturb an
+    // ordinary fraction — both truncation and round-to-nearest land on the
+    // same integer here, unlike the exact-.5 cases above.
+    //
+    // A 3x3 image, centre pixel 201, the 8 neighbours all 50: applying the
+    // kernel at the centre (no clamping needed, every tap is in-bounds):
+    //   -1*50 (three times, top row) + -1*50 (left) + 32*201 (centre)
+    //     + -1*50 (right) + -1*50 (three times, bottom row)
+    //   = 32*201 - 8*50 = 6432 - 400 = 6032; /24 = 251.33... -> 251
+    let mut data = vec![50u8; 3 * 3 * 3];
+    let centre = ((1 * 3 + 1) * 3) as usize;
+    data[centre] = 201;
+    data[centre + 1] = 201;
+    data[centre + 2] = 201;
+    let img = RasterImage::new_rgb(3, 3, data);
+    let out = img
+        .sharpen(&SharpenOptions {
+            sigma: None,
+            ..SharpenOptions::default()
+        })
+        .unwrap();
+    assert_eq!(at(&out, 1, 1), 251);
 }
 
 #[test]
