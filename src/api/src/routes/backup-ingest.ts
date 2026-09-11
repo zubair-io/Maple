@@ -36,12 +36,11 @@ import {
 } from '../backup/fs-util.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
-import { updateLiveLocationCount } from '../indexer/images.repo.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { classifyMediaType } from '../indexer/media-types.ts';
+import { appendBackupLocation, insertBackupAsset } from './backup-ingest.assets.ts';
 
 const log = childLogger('backup-ingest');
 
@@ -401,23 +400,12 @@ export const backupIngestRoutes = new Elysia().post(
         }
       }
 
-      const relDirRaw = path.dirname(resolvedTargetRelPath);
-      const relDir =
-        relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(path.sep).join('/');
-      const newFileInfo = {
-        path: relDir,
+      await appendBackupLocation(a, existing._id, {
+        resolvedTargetRelPath,
         filename,
-        library_id: libraryId,
-        deleted_at: null,
-      };
-
-      const update: Record<string, any> = { $push: { fileinfo: newFileInfo } };
-      if (!alreadyLinked) {
-        update.$push = { fileinfo: newFileInfo, phasset_links: link };
-      }
-      await a.updateOne({ _id: existing._id }, update);
-      // Recompute live count after adding a new live fileinfo entry.
-      await updateLiveLocationCount(a, existing._id);
+        libraryId,
+        link: alreadyLinked ? null : link,
+      });
 
       await uploadSessions.complete({
         sessionId: session._id,
@@ -528,43 +516,14 @@ export const backupIngestRoutes = new Elysia().post(
       resolvedRelPath: resolvedTargetRelPath,
     });
 
-    // fileinfo[0] mirrors the resolved target path split into
-    // (directory relative to library, filename, library_id). Both the dir and
-    // the filename come from `resolvedTargetRelPath` (NOT the request header)
-    // so a disambiguated `-N` name is what downstream `abs_path` reconstruction
-    // sees. FileInfo.path is documented as POSIX-separated; normalize sep so a
-    // host with `\` as path.sep doesn't store backslashes.
-    const relDirRaw = path.posix.dirname(resolvedTargetRelPath);
-    const relDir = relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw;
-    const relFilename = path.posix.basename(resolvedTargetRelPath);
-    await a.insertOne({
-      _id: new ObjectId(),
-      fileinfo: [
-        {
-          path: relDir,
-          filename: relFilename,
-          library_id: libraryId,
-          deleted_at: null,
-        },
-      ],
-      // One live fileinfo entry on insert.
-      live_location_count: 1,
-      media_kind: classifyMediaType(relFilename),
-      size: totalBytes,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      maple_id: mapleId,
-      // Seed the screenshot flag from the same filename heuristic that chose
-      // the `<year>/Screenshot` folder, so the row matches its on-disk home
-      // before the EXIF stage runs. The EXIF stage re-affirms it (now with
-      // camera_make) and the describe stage refines it with the vision verdict.
-      is_screenshot: isScreenshot,
-      phasset_links: [link],
-      deleted_from_photos: false,
-    } as any);
+    await insertBackupAsset(a, {
+      resolvedTargetRelPath,
+      libraryId,
+      totalBytes,
+      mapleId,
+      isScreenshot,
+      link,
+    });
 
     // Update per-device backup progress summary.
     await backupSessionsRepo.upsertProgress({
