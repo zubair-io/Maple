@@ -262,6 +262,14 @@ fn convolve_rounds_a_non_integer_kernel() {
 fn convolve_filters_alpha_too() {
     // Three identical rows of three RGBA columns — see the previous test
     // for why a 3x3 shape stands in for a conceptually 1-D case.
+    //
+    // Colour is premultiplied by alpha before convolving (#3504 task E4 /
+    // controller ruling on the E3 re-review), so the centre's colour is NOT
+    // a plain (60 + 90 + 120) * 3 / 9 = 90 average of the stored bytes:
+    // premultiplying rounds each column to 60*10/255=2, 90*50/255=18,
+    // 120*30/255=14; the box averages those (integer path, truncating) to
+    // (2 + 18 + 14) * 3 / 9 = 11; unpremultiplying by the centre's own
+    // convolved alpha (30, computed below) gives round(11 * 255 / 30) = 94.
     let row = [
         60u8, 60, 60, 10, // colour 60, alpha 10
         90, 90, 90, 50, // colour 90, alpha 50
@@ -270,12 +278,47 @@ fn convolve_filters_alpha_too() {
     let data = row.repeat(3);
     let img = RasterImage::new_rgba(3, 3, data);
     let out = img.convolve(3, 3, &[1.0; 9], 0.0, 0.0).unwrap();
-    // Colour at the centre: (60 + 90 + 120) * 3 rows / 9 = 90.
-    assert_eq!(at(&out, 1, 1), 90);
+    assert_eq!(at(&out, 1, 1), 94);
     // Alpha at the centre is convolved too, not passed through: (10 + 50 +
-    // 30) * 3 rows / 9 = 30 — NOT the original centre value of 50.
+    // 30) * 3 rows / 9 = 30 — NOT the original centre value of 50. Alpha
+    // itself is never premultiplied, only colour, so this is unaffected by
+    // the premultiply change above.
     let alpha_at = |x: u32, y: u32| out.data[((y * 3 + x) * 4 + 3) as usize];
     assert_eq!(alpha_at(1, 1), 30);
+}
+
+#[test]
+fn convolve_resamples_premultiplied_like_blur() {
+    // A 3x3 RGBA image: an opaque red pixel at the centre-left, a
+    // transparent pixel with stored green next to it, everything else
+    // opaque black. A straight-alpha (non-premultiplied) box convolve would
+    // average the transparent neighbour's stored green straight into the
+    // red pixel's result; premultiplying first (#3504 task E4 / controller
+    // ruling on the E3 re-review) scales that stored green by its own zero
+    // alpha before averaging, so it contributes exactly 0 regardless of the
+    // weights clamp-to-edge assigns — the red pixel's green channel must
+    // come back at 0, not some fraction of 255.
+    let opaque_black = [0u8, 0, 0, 255];
+    let opaque_red = [255u8, 0, 0, 255];
+    let transparent_green = [0u8, 255, 0, 0];
+    let px = |x: u32, y: u32| -> [u8; 4] {
+        match (x, y) {
+            (0, 1) => opaque_red,
+            (1, 1) => transparent_green,
+            _ => opaque_black,
+        }
+    };
+    let data = (0..3u32)
+        .flat_map(|y| (0..3u32).flat_map(move |x| px(x, y)))
+        .collect();
+    let img = RasterImage::new_rgba(3, 3, data);
+    let out = img.convolve(3, 3, &[1.0; 9], 9.0, 0.0).unwrap();
+    let green_at = |x: u32, y: u32| out.data[((y * 3 + x) * 4 + 1) as usize];
+    assert!(
+        green_at(0, 1) <= 1,
+        "the red pixel's green must stay ~0, got {}",
+        green_at(0, 1)
+    );
 }
 
 #[test]
