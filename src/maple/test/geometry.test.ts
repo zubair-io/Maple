@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
+import { loadNativeBinding } from '../src/native.ts';
 
 /** Gate for #3501: geometry ops through the real FFI, closed-form. */
 describe('Geometry', () => {
@@ -132,5 +133,38 @@ describe('Geometry', () => {
     expect(() => maple(coords(2, 2)).trim({ threshold: Infinity })).toThrow(
       /threshold must be finite/,
     );
+  });
+
+  it('the legacy raster_v2 render path composites transparent pixels over black for JPEG', async () => {
+    // #3501 fix-round-3: raster_v2's render_into (rasterFromRawRenderBuf /
+    // maple_raster_from_raw_render_buf) used to call encode_raster_rgb
+    // directly, which drops alpha without compositing — a fully-transparent
+    // red pixel kept its red channel instead of blending to black. This
+    // FFI entry isn't reachable through the fluent builder (toFormat/
+    // toBuffer always take the v3 recipe pipeline, which was already
+    // correct), but it's still a real, callable part of the native ABI, so
+    // it gets pinned directly against the freshly-built dylib.
+    const pixels = new Uint8Array([255, 0, 0, 0, 0, 0, 0, 255]); // transparent red, opaque black
+    const res = loadNativeBinding().rasterFromRawRenderBuf(
+      pixels,
+      2,
+      1,
+      4,
+      0,
+      0,
+      0,
+      0,
+      'jpeg',
+      90,
+      0,
+    );
+    expect(res.ok).toBe(true);
+    // Decode the JPEG bytes back through the package's own pipeline rather
+    // than reading the encoded bytes directly.
+    const raw = await maple(Buffer.from(res.buffer!)).toRawAlpha();
+    const [r, g, b] = raw.data.subarray(0, 3);
+    expect(r).toBeLessThan(24);
+    expect(g).toBeLessThan(24);
+    expect(b).toBeLessThan(24);
   });
 });
