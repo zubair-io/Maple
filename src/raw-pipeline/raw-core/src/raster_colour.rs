@@ -30,8 +30,11 @@ fn map_colour(src: &RasterImage, f: impl Fn([u8; 3]) -> [u8; 3]) -> RasterImage 
         })
         .collect();
     RasterImage {
+        width: src.width,
+        height: src.height,
+        channels: src.channels,
         data,
-        ..src.clone()
+        orientation: src.orientation,
     }
 }
 
@@ -87,8 +90,11 @@ impl RasterImage {
             })
             .collect();
         Self {
+            width: self.width,
+            height: self.height,
+            channels: self.channels,
             data,
-            ..self.clone()
+            orientation: self.orientation,
         }
     }
 }
@@ -123,6 +129,12 @@ mod tests {
     fn gamma_one_is_identity() {
         let img = RasterImage::new_rgb(1, 1, vec![7, 99, 200]);
         assert_eq!(img.gamma(1.0).data, img.data);
+    }
+
+    #[test]
+    fn gamma_leaves_alpha_untouched() {
+        let img = RasterImage::new_rgba(1, 1, vec![128, 255, 0, 77]);
+        assert_eq!(img.gamma(2.0).data, vec![64, 255, 0, 77]);
     }
 
     #[test]
