@@ -75,6 +75,7 @@ pub mod raster_geometry;
 mod raster_orient;
 pub mod raster_recipe;
 pub mod raster_recipe_exec;
+pub mod raster_rotate;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
