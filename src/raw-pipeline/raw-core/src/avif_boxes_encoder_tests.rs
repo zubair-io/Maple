@@ -22,6 +22,7 @@
 //! helper touches is re-derived from that real file rather than assumed,
 //! except where noted.
 
+#[cfg(feature = "avif")]
 use super::tests::bx;
 use super::*;
 
@@ -334,4 +335,26 @@ fn an_avif_probe_no_longer_hardcodes_orientation_one() {
         .and_then(crate::raster::exif_orientation_from_block)
         .unwrap_or(1);
     assert_eq!(orientation, 6, "the EXIF item's Orientation tag was lost");
+}
+
+/// Companion to `avif_boxes_fixture_tests.rs`'s `garbage_and_truncation_never_panic`
+/// and `raster_meta_tests.rs`'s `truncating_any_fixture_at_any_length_never_panics`
+/// — this one truncates a real, fully-muxed fixture (irot + imir + Exif +
+/// mime, not just a hand-built one) at every possible length, since a real
+/// encoder's box layout (multi-item `ipma`, wider offset/length fields,
+/// version-2 `infe`) is a meaningfully different shape from the minimal
+/// hand-built streams the sibling sweep uses.
+#[cfg(feature = "avif")]
+#[test]
+fn truncating_a_real_muxed_fixture_at_any_length_never_panics() {
+    let rgb: Vec<u8> = vec![77u8; 16 * 16 * 3];
+    let base = crate::avif::encode(16, 16, &rgb, 60).unwrap();
+    let exif = b"II\x2a\x00\x08\x00\x00\x00\x00\x00".to_vec();
+    let xmp = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"/>"#.to_vec();
+    let bytes = mux_avif(&base, Some(1), Some(0), Some(&exif), Some(&xmp));
+    for len in 0..=bytes.len() {
+        let slice = &bytes[..len];
+        let outcome = std::panic::catch_unwind(|| read_avif_boxes(slice));
+        assert!(outcome.is_ok(), "panicked at truncation length {len}");
+    }
 }

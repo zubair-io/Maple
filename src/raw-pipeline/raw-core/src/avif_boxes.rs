@@ -7,16 +7,44 @@
 //! an AVIF source and left the server's AVIF orientation checks structurally
 //! dead.
 //!
-//! This walks `meta` -> `iprp` -> `ipco` for the transform properties and
-//! `meta` -> `iinf` + `iloc` for the metadata items. It never allocates for a
-//! file that has neither, and it is total: a malformed box stream stops the
-//! walk rather than panicking. Same discipline `raster_meta.rs` uses, for the
-//! same reason — every offset comes from `get(..)`, and every addition that
-//! could overflow goes through `checked_add`, so a hostile or truncated file
-//! (including a declared box size near `u32::MAX`) yields `None`/default
-//! fields rather than a panic or, on the 32-bit `usize` of the wasm32 target
-//! this crate also builds for, a silent wraparound into an in-bounds-but-
-//! wrong read.
+//! `meta`'s children are a fixed, shallow shape —
+//! `pitm`, `iloc`, `iinf{infe...}`, `iprp{ipco{...}, ipma}` — so rather than
+//! one generic recursive box visitor, this reads each of those directly:
+//! `pitm` for the primary item, `iprp`/`ipco`/`ipma` for which transform
+//! properties apply to *that* item (not just any item in the file), and
+//! `iinf`/`iloc` for the `Exif` and XMP metadata items. It never allocates
+//! for a file that has neither, and it is total: a malformed box stops the
+//! read at that point rather than panicking. Same discipline `raster_meta.rs`
+//! uses, for the same reason — every offset comes from `get(..)`, and every
+//! addition that could overflow goes through `checked_add`, so a hostile or
+//! truncated file (including a declared box size near `u32::MAX`) yields
+//! `None`/default fields rather than a panic or, on the 32-bit `usize` of
+//! the wasm32 target this crate also builds for, a silent wraparound into an
+//! in-bounds-but-wrong read.
+//!
+//! ## Only the primary item's own properties count
+//!
+//! A property in `ipco` only applies to an item if that item's `ipma` entry
+//! associates it — a file can carry more than one image item (e.g. a
+//! thumbnail alongside the main image), each with its own transform, and
+//! this must never read one item's rotation as if it were another's. So
+//! orientation comes from: find the primary item (`pitm`'s item_ID, or item
+//! 1 when `pitm` is absent — the ISO/IEC 23008-12 fallback), find that
+//! item's association list in `ipma`, and apply only the `irot`/`imir`
+//! properties `ipma` actually lists for it. An association naming a
+//! property index `ipco` doesn't have is ignored (that one association
+//! contributes nothing; every other valid association in the list still
+//! applies); a corrupt or truncated `ipma` yields no associations at all,
+//! so the primary item keeps its default orientation (1).
+//!
+//! ISO/IEC 23008-12 also defines a fixed application order for
+//! transformative item properties — clean-aperture crop, then rotation,
+//! then mirror — independent of the order those properties are stored in
+//! `ipco` or listed in `ipma`. Since this walker only tracks rotation and
+//! mirror, that reduces to "rotate, then mirror" no matter which of the two
+//! a file's `ipma` happens to list first, which is exactly what looking
+//! both up into the single static `ORIENTATION_TABLE[rotation][mirror]`
+//! already encodes — there's no per-file reordering to do.
 //!
 //! ## irot/imir to EXIF orientation
 //!
@@ -31,16 +59,17 @@
 //! ambiguous phrasing available: "'axis' specifies how the mirroring is
 //! performed: 0 indicates that the top and bottom parts of the image are
 //! exchanged; 1 specifies that the left and right parts are exchanged." This
-//! file follows that: axis 0 is a top/bottom (vertical) flip — EXIF 4 alone
-//! — axis 1 is a left/right (horizontal) flip — EXIF 2 alone. Some
-//! HEIF-derived write-ups instead name the axis of reflection ("axis 0 = the
-//! vertical axis") rather than the effect, which is easy to invert: a
+//! file follows libavif's convention: axis 0 is a top/bottom (vertical) flip
+//! — EXIF 4 alone — axis 1 is a left/right (horizontal) flip — EXIF 2 alone.
+//! Some HEIF-derived write-ups instead name the axis of reflection ("axis 0
+//! = the vertical axis") rather than the effect, which is easy to invert: a
 //! reflection across a *vertical* line swaps left and right, not top and
 //! bottom, so reading that phrasing as "axis 0 -> top/bottom" is backwards.
 //! This is exactly the "older docs swap this" trap — this file follows
-//! libavif's effect-first wording (and matches sharp/libvips' `heif` loader,
-//! which maps the same two properties to EXIF orientation the same way)
-//! rather than the axis-name phrasing.
+//! libavif's effect-first wording rather than the axis-name phrasing. This
+//! has NOT been independently verified against libheif's or sharp/libvips'
+//! `heif` loader source (neither was reachable while writing this) — see
+//! #3507 if that verification becomes possible.
 //!
 //! The eight EXIF orientations are exactly the eight combinations of a
 //! 90-degree-step rotation and an optional mirror, so `ORIENTATION_TABLE` is
@@ -58,7 +87,9 @@ pub struct AvifBoxes {
 /// `[rotation_steps][mirror]`, where mirror is 0 = none, 1 = axis 0
 /// (top/bottom exchanged), 2 = axis 1 (left/right exchanged). Rotation is
 /// counter-clockwise in 90-degree steps, as `irot` defines it — see the
-/// module doc for the source and the axis-convention caveat.
+/// module doc for the source, the axis-convention caveat, and why a static
+/// rotation-then-mirror table is the right shape regardless of a file's own
+/// storage/association order.
 const ORIENTATION_TABLE: [[u16; 3]; 4] = [
     [1, 4, 2], // no rotation
     [8, 7, 5], // 90 CCW
@@ -66,128 +97,113 @@ const ORIENTATION_TABLE: [[u16; 3]; 4] = [
     [6, 5, 7], // 270 CCW
 ];
 
-/// Call `visit` for every top-level box in `data`, depth-first into the
-/// containers named in `recurse_into`. Stops cleanly at the first malformed
-/// header, truncated payload, or arithmetic overflow rather than panicking.
-fn walk(data: &[u8], recurse_into: &[&[u8; 4]], visit: &mut impl FnMut(&[u8; 4], &[u8])) {
-    let mut idx = 0usize;
+#[path = "avif_boxes_transform.rs"]
+mod transform;
+
+/// Read one box header at `data[idx..]`, with every sibling box in this
+/// scan bounded by `bound` (not necessarily `data.len()` — callers often
+/// scan a slice that is itself another box's payload). Returns `(kind,
+/// payload_start, box_end)`. `None` on a truncated header, an overflowing
+/// or out-of-bounds size, or a `largesize` box (`size == 1`) — no box this
+/// module reads ever uses one.
+fn box_header(data: &[u8], idx: usize, bound: usize) -> Option<([u8; 4], usize, usize)> {
+    let payload_start = idx.checked_add(8)?;
+    if payload_start > bound {
+        return None;
+    }
+    let size_start = idx.checked_add(4)?;
+    let size_bytes = data.get(idx..size_start)?;
+    let size =
+        u32::from_be_bytes([size_bytes[0], size_bytes[1], size_bytes[2], size_bytes[3]]) as usize;
+    let kind_bytes = data.get(size_start..payload_start)?;
+    let kind = [kind_bytes[0], kind_bytes[1], kind_bytes[2], kind_bytes[3]];
+    // `size == 0` means "box runs to the end of the buffer it's in"; `size
+    // == 1` means a 64-bit largesize follows, which no box here ever uses.
+    let box_end = match size {
+        0 => bound,
+        1 => return None,
+        n if n < 8 => return None,
+        n => idx.checked_add(n)?,
+    };
+    if box_end > bound {
+        return None;
+    }
+    Some((kind, payload_start, box_end))
+}
+
+/// Find the first top-level (sibling-scanned, never recursing) box of type
+/// `kind` in `data[start..end]`, returning its payload (header stripped).
+/// `None` on a malformed header, a truncated/overflowing size, or a
+/// missing box.
+fn find_child_box<'a>(
+    data: &'a [u8],
+    start: usize,
+    end: usize,
+    kind: &[u8; 4],
+) -> Option<&'a [u8]> {
+    let mut idx = start;
     loop {
-        let Some(header_end) = idx.checked_add(8) else {
-            return;
-        };
-        if header_end > data.len() {
-            return;
+        let (this_kind, payload_start, box_end) = box_header(data, idx, end)?;
+        if this_kind == *kind {
+            return data.get(payload_start..box_end);
         }
-        let size =
-            u32::from_be_bytes([data[idx], data[idx + 1], data[idx + 2], data[idx + 3]]) as usize;
-        let kind: [u8; 4] = [data[idx + 4], data[idx + 5], data[idx + 6], data[idx + 7]];
-        // `size == 0` means "box runs to the end of the buffer it's in";
-        // `size == 1` means a 64-bit largesize follows, which no box this
-        // walk cares about ever uses — treated as unsupported.
-        let Some(end) = (match size {
-            0 => Some(data.len()),
-            1 => None,
-            n if n < 8 => None,
-            n => idx.checked_add(n),
-        }) else {
-            return;
-        };
-        let Some(payload) = data.get(header_end..end.min(data.len())) else {
-            return;
-        };
-        if recurse_into.contains(&&kind) {
-            // `meta` is a FullBox (version+flags, 4 bytes) and `iinf` is a
-            // FullBox followed by its own 2-byte entry_count — both prefix
-            // their children with fields this walk doesn't need. `iprp` and
-            // `ipco` are plain boxes whose payload is immediately children.
-            let children = if &kind == b"meta" {
-                payload.get(4..).unwrap_or(&[])
-            } else if &kind == b"iinf" {
-                payload.get(6..).unwrap_or(&[])
-            } else {
-                payload
-            };
-            walk(children, recurse_into, visit);
-        } else {
-            visit(&kind, payload);
-        }
-        idx = end;
+        idx = box_end;
     }
 }
 
-/// Walk `bytes` for `irot`/`imir` transform properties and `Exif`/`mime`
-/// (XMP) metadata items, returning the real EXIF orientation and the raw
-/// item payloads. A file with none of these — or that isn't a well-formed
-/// ISO-BMFF stream at all — reports orientation `1` and no items.
-pub fn read_avif_boxes(bytes: &[u8]) -> AvifBoxes {
-    let mut rotation = 0usize;
-    let mut mirror = 0usize;
-    let mut item_types: Vec<(u16, [u8; 4])> = Vec::new();
-    let mut item_offsets: Vec<(u16, usize, usize)> = Vec::new();
-
-    walk(
-        bytes,
-        &[b"meta", b"iprp", b"ipco", b"iinf"],
-        &mut |kind, payload| match kind {
-            b"irot" => {
-                if let Some(&byte) = payload.first() {
-                    rotation = (byte & 0b11) as usize;
-                }
-            }
-            b"imir" => {
-                if let Some(&byte) = payload.first() {
-                    mirror = (byte & 1) as usize + 1;
-                }
-            }
-            b"infe" => {
+/// `ItemInfoBox`: FullBox; `entry_count` is 16 bits at version 0, 32 bits
+/// at version 1. A version ≥2 `ItemInfoBox` (32-bit item_ID, defined in the
+/// wider ISO/IEC 14496-12 spec) degrades to "no items" here rather than
+/// guessing at a layout this hasn't verified — the file's `irot`/`imir`
+/// orientation is unaffected either way, since that comes from
+/// `iprp`/`ipco`/`ipma`, not here.
+fn parse_iinf(iinf: &[u8]) -> Vec<(u16, [u8; 4])> {
+    let Some(&version) = iinf.first() else {
+        return Vec::new();
+    };
+    let children_start = match version {
+        0 => 6usize, // version/flags(4) + entry_count(2)
+        1 => 8usize, // version/flags(4) + entry_count(4)
+        _ => return Vec::new(),
+    };
+    let Some(children) = iinf.get(children_start..) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut idx = 0usize;
+    while let Some((kind, payload_start, box_end)) = box_header(children, idx, children.len()) {
+        if &kind == b"infe" {
+            if let Some(payload) = children.get(payload_start..box_end) {
                 // FullBox; version 2 (what every real-world AVIF muxer with
                 // this few items writes) lays out: version/flags(4),
-                // item_ID(2), item_protection_index(2), item_type(4), then a
-                // NUL-terminated item_name this walker doesn't need. Version
-                // 0/1 has no item_type field at all, so only version 2 (and
-                // 3, which this doesn't special-case since a handful of
+                // item_ID(2), item_protection_index(2), item_type(4), then
+                // a NUL-terminated item_name this doesn't need. Version
+                // 0/1 has no item_type field at all, so only version 2
+                // (and 3, which isn't special-cased since a handful of
                 // items never needs a 32-bit item_ID) is trusted.
                 if payload.first() == Some(&2) {
                     if let (Some(id_bytes), Some(type_bytes)) =
                         (payload.get(4..6), payload.get(8..12))
                     {
                         let id = u16::from_be_bytes([id_bytes[0], id_bytes[1]]);
-                        let item_kind =
-                            [type_bytes[0], type_bytes[1], type_bytes[2], type_bytes[3]];
-                        item_types.push((id, item_kind));
+                        out.push((
+                            id,
+                            [type_bytes[0], type_bytes[1], type_bytes[2], type_bytes[3]],
+                        ));
                     }
                 }
             }
-            b"iloc" => item_offsets = parse_iloc(payload),
-            _ => {}
-        },
-    );
-
-    let block_for = |wanted: &[u8; 4]| -> Option<Vec<u8>> {
-        let id = item_types
-            .iter()
-            .find(|(_, kind)| kind == wanted)
-            .map(|(id, _)| *id)?;
-        let (_, offset, length) = item_offsets.iter().find(|(i, _, _)| *i == id)?;
-        let end = offset.checked_add(*length)?;
-        bytes.get(*offset..end).map(|s| s.to_vec())
-    };
-
-    // An `Exif` item's payload is prefixed by a 4-byte offset to the TIFF
-    // header (almost always zero), per ISO/IEC 23008-12 Annex A.2.1.
-    let exif = block_for(b"Exif").and_then(|raw| raw.get(4..).map(|s| s.to_vec()));
-    let xmp = block_for(b"mime");
-
-    AvifBoxes {
-        orientation: ORIENTATION_TABLE[rotation][mirror],
-        exif,
-        xmp,
+        }
+        idx = box_end;
     }
+    out
 }
 
 /// `iloc` version 0 or 1, construction method 0 (file offsets), one extent
 /// per item — which is what every AVIF muxer in practice writes for a
-/// metadata item. Returns `(item_id, offset, length)`.
+/// metadata item. A version-2 `iloc` (32-bit item_ID, defined in the wider
+/// ISO/IEC 14496-12 spec) degrades to "no items" here, the same way
+/// `parse_iinf`'s version ≥2 does. Returns `(item_id, offset, length)`.
 fn parse_iloc(payload: &[u8]) -> Vec<(u16, usize, usize)> {
     let Some(&version) = payload.first() else {
         return Vec::new();
@@ -195,15 +211,23 @@ fn parse_iloc(payload: &[u8]) -> Vec<(u16, usize, usize)> {
     if version > 1 || payload.len() < 8 {
         return Vec::new();
     }
-    let sizes = payload[4];
+    let Some(&sizes) = payload.get(4) else {
+        return Vec::new();
+    };
     let (offset_size, length_size) = ((sizes >> 4) as usize, (sizes & 0xF) as usize);
-    let base_size = (payload[5] >> 4) as usize;
+    let Some(&base_and_index) = payload.get(5) else {
+        return Vec::new();
+    };
+    let base_size = (base_and_index >> 4) as usize;
     let index_size = if version == 1 {
-        (payload[5] & 0xF) as usize
+        (base_and_index & 0xF) as usize
     } else {
         0
     };
-    let count = u16::from_be_bytes([payload[6], payload[7]]) as usize;
+    let Some(count_bytes) = payload.get(6..8) else {
+        return Vec::new();
+    };
+    let count = u16::from_be_bytes([count_bytes[0], count_bytes[1]]) as usize;
     let read_be = |slice: &[u8]| slice.iter().fold(0usize, |acc, &b| (acc << 8) | b as usize);
 
     let mut at = 8usize;
@@ -247,88 +271,56 @@ fn parse_iloc(payload: &[u8]) -> Vec<(u16, usize, usize)> {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Walk `bytes` for the primary item's `irot`/`imir` transform and the
+/// `Exif`/`mime` (XMP) metadata items, returning the real EXIF orientation
+/// and the raw item payloads. A file with none of these — or that isn't a
+/// well-formed ISO-BMFF stream at all — reports orientation `1` and no
+/// items.
+pub fn read_avif_boxes(bytes: &[u8]) -> AvifBoxes {
+    let meta_children = find_child_box(bytes, 0, bytes.len(), b"meta")
+        .and_then(|payload| payload.get(4..)) // skip meta's own FullBox version/flags
+        .unwrap_or(&[]);
 
-    /// Build a box: 4-byte big-endian size, 4-byte type, payload. `pub(super)`
-    /// so the sibling `encoder_tests` module (a descendant of `avif_boxes`,
-    /// same as this one) can reach it as `super::tests::bx`.
-    pub(super) fn bx(kind: &[u8; 4], payload: &[u8]) -> Vec<u8> {
-        let size = (8 + payload.len()) as u32;
-        [&size.to_be_bytes()[..], kind, payload].concat()
-    }
+    let primary_item = find_child_box(meta_children, 0, meta_children.len(), b"pitm")
+        .and_then(transform::parse_pitm)
+        .unwrap_or(1); // ISO/IEC 23008-12 fallback: no `pitm` means item 1.
 
-    /// A minimal AVIF-shaped file: ftyp + meta{iprp{ipco{...}}}.
-    fn avif_with_ipco(props: &[u8]) -> Vec<u8> {
-        let ftyp = bx(b"ftyp", b"avif\0\0\0\0avifmif1");
-        let ipco = bx(b"ipco", props);
-        let iprp = bx(b"iprp", &ipco);
-        // `meta` is a FullBox: one version byte plus three flag bytes.
-        let meta = bx(b"meta", &[&[0u8, 0, 0, 0][..], &iprp].concat());
-        [ftyp, meta].concat()
-    }
+    let (rotation, mirror) = find_child_box(meta_children, 0, meta_children.len(), b"iprp")
+        .map(|iprp| transform::resolve_transform(iprp, primary_item))
+        .unwrap_or((0, 0));
 
-    #[test]
-    fn no_transform_properties_means_orientation_one() {
-        let file = avif_with_ipco(&[]);
-        assert_eq!(read_avif_boxes(&file).orientation, 1);
-    }
+    let item_types = find_child_box(meta_children, 0, meta_children.len(), b"iinf")
+        .map(parse_iinf)
+        .unwrap_or_default();
+    let item_offsets = find_child_box(meta_children, 0, meta_children.len(), b"iloc")
+        .map(parse_iloc)
+        .unwrap_or_default();
 
-    #[test]
-    fn irot_maps_onto_the_exif_rotations() {
-        // irot payload is one byte whose low two bits are the CCW step count.
-        for (step, expected) in [(0u8, 1u16), (1, 8), (2, 3), (3, 6)] {
-            let file = avif_with_ipco(&bx(b"irot", &[step]));
-            assert_eq!(
-                read_avif_boxes(&file).orientation,
-                expected,
-                "irot {step} should be EXIF {expected}"
-            );
-        }
-    }
+    let block_for = |wanted: &[u8; 4]| -> Option<Vec<u8>> {
+        let id = item_types
+            .iter()
+            .find(|(_, kind)| kind == wanted)
+            .map(|(id, _)| *id)?;
+        let (_, offset, length) = item_offsets.iter().find(|(i, _, _)| *i == id)?;
+        let end = offset.checked_add(*length)?;
+        bytes.get(*offset..end).map(|s| s.to_vec())
+    };
 
-    #[test]
-    fn imir_maps_onto_the_exif_mirrors() {
-        // axis 0 = top/bottom exchanged -> EXIF 4; axis 1 = left/right
-        // exchanged -> EXIF 2 (libavif's `avif.h`; see the module doc).
-        assert_eq!(
-            read_avif_boxes(&avif_with_ipco(&bx(b"imir", &[0]))).orientation,
-            4
-        );
-        assert_eq!(
-            read_avif_boxes(&avif_with_ipco(&bx(b"imir", &[1]))).orientation,
-            2
-        );
-    }
+    // An `Exif` item's payload is prefixed by a 4-byte offset to the TIFF
+    // header (almost always zero), per ISO/IEC 23008-12 Annex A.2.1.
+    let exif = block_for(b"Exif").and_then(|raw| raw.get(4..).map(|s| s.to_vec()));
+    let xmp = block_for(b"mime");
 
-    #[test]
-    fn irot_and_imir_together_map_onto_the_transposed_orientations() {
-        let props = [bx(b"irot", &[1]), bx(b"imir", &[1])].concat();
-        // 90 CCW plus a left-right mirror is EXIF 5 (transpose).
-        assert_eq!(read_avif_boxes(&avif_with_ipco(&props)).orientation, 5);
-    }
-
-    #[test]
-    fn garbage_and_truncation_never_panic() {
-        for input in [
-            &b""[..],
-            b"\0\0\0\x08ftyp",
-            b"\xff\xff\xff\xffftypavif",
-            &avif_with_ipco(&bx(b"irot", &[]))[..],
-        ] {
-            let _ = read_avif_boxes(input);
-        }
-    }
-
-    #[test]
-    fn a_probe_reports_the_real_orientation() {
-        let file = avif_with_ipco(&bx(b"irot", &[1]));
-        // `probe_raster_metadata` cannot decode this synthetic container's
-        // pixels, but `read_avif_boxes` is what feeds it the orientation.
-        assert_eq!(read_avif_boxes(&file).orientation, 8);
+    AvifBoxes {
+        orientation: ORIENTATION_TABLE[rotation][mirror],
+        exif,
+        xmp,
     }
 }
+
+#[cfg(test)]
+#[path = "avif_boxes_fixture_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "avif_boxes_encoder_tests.rs"]
