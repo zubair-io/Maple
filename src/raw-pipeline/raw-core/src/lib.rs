@@ -45,6 +45,9 @@ pub mod jpeg;
 #[cfg(feature = "avif")]
 pub mod avif;
 
+#[cfg(feature = "avif")]
+pub mod avif_decode;
+
 pub mod tiff;
 
 /// ICC profiles for the export color spaces (#943).

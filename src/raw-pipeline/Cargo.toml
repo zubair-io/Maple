@@ -18,6 +18,13 @@ license = "Proprietary"
 [workspace.dependencies]
 rawler = "0.7"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp"] }
+# Pure-Rust AV1 decoder (memorysafety.org port of dav1d). No asm/nasm: the
+# Linux zero-dependency audit forbids C toolchains in the publish build.
+rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+# ISO-BMFF walker for the AVIF container (primary/alpha item OBUs).
+avif-parse = "2"
+# Direct dep so raster decode can turn strict mode OFF (image's wrapper cannot).
+zune-jpeg = "0.5"
 fast_image_resize = { version = "5.5", default-features = false, features = ["image", "rayon"] }
 png = "0.17"
 quick-xml = "0.37"
