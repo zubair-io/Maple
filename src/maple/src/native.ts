@@ -6,12 +6,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getFfiSymbols } from './ffi-symbols';
+import { createRasterV2Binding } from './native-raster-v2';
+import type { RasterV2Binding } from './native-raster-v2';
 import { resolvePlatformPackageLib } from './platform';
 import type { FilenameResult, FilenameTemplateArgs } from './types';
 
 const RENDER_OUT_CAP = 1024;
 
-export interface NativeBinding {
+export interface NativeBinding extends RasterV2Binding {
   exportDevelopedToFile(
     rawPath: string,
     xmpPath: string | null,
@@ -441,6 +443,8 @@ export function loadNativeBinding(): NativeBinding {
 
       return { ok: true, tensor: floatArr };
     },
+
+    ...createRasterV2Binding(lib, ptr, getLastError),
 
     renderFilenameTemplate(args) {
       const templateBuf = Buffer.from(args.template + '\0', 'utf-8');

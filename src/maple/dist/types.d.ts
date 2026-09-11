@@ -18,6 +18,23 @@ export interface ResizeOptions {
     withoutEnlargement?: boolean;
     filter?: 'lanczos3' | 'bilinear' | 'nearest';
 }
+export interface RawPixelInput {
+    data: Uint8Array;
+    width: number;
+    height: number;
+    channels: 1 | 3 | 4;
+}
+export interface RawPixels {
+    data: Uint8Array;
+    width: number;
+    height: number;
+    channels: 3;
+}
+export interface EncodeOptions {
+    quality?: number;
+    /** AVIF only: 0 (fastest) … 9 (slowest), sharp's scale. */
+    effort?: number;
+}
 export interface TensorOptions {
     targetSize?: number;
     layout?: 'nchw' | 'hwc';

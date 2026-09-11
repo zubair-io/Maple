@@ -11,12 +11,16 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { exportImage, exportRecipe } from './export';
 import { loadNativeBinding } from './native';
+import type { NativeBinding } from './native';
 import type {
+  EncodeOptions,
   ExportColorSpace,
   ExportFormat,
   ExportRecipe,
   ExportResult,
   ImageMetadata,
+  RawPixelInput,
+  RawPixels,
   ResizeOptions,
   TensorOptions,
   TensorResult,
@@ -54,6 +58,7 @@ export function isRawPath(filePath: string): boolean {
 export class MapleImageBuilder {
   private _inputPath: string | null = null;
   private _inputBytes: Uint8Array | null = null;
+  private _rawInput: RawPixelInput | null = null;
 
   private _xmpPath: string | null = null;
   private _xmpXml: string | null = null;
@@ -67,16 +72,22 @@ export class MapleImageBuilder {
   // Raster resize options
   private _resizeWidth = 0;
   private _resizeHeight = 0;
-  private _resizeFit: 'inside' | 'fill' = 'inside';
+  private _resizeFit: 'inside' | 'fill' | 'cover' = 'inside';
   private _withoutEnlargement = true;
   private _autoOrient = false;
   private _removeAlpha = false;
+  private _filter: 0 | 1 | 2 = 0;
+  private _effort = 0;
 
-  constructor(input: string | Uint8Array | Buffer) {
+  constructor(input: string | Uint8Array | Buffer | RawPixelInput) {
     if (typeof input === 'string') {
       this._inputPath = input;
+    } else if ('data' in input && 'width' in input) {
+      this._rawInput = input;
+    } else if (input instanceof Uint8Array) {
+      this._inputBytes = input;
     } else {
-      this._inputBytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+      this._inputBytes = new Uint8Array(input);
     }
   }
 
@@ -107,10 +118,14 @@ export class MapleImageBuilder {
       this._resizeWidth = Math.max(0, optionsOrWidth.width ?? 0);
       this._resizeHeight = Math.max(0, optionsOrWidth.height ?? 0);
       if (optionsOrWidth.fit) {
-        this._resizeFit = optionsOrWidth.fit === 'fill' ? 'fill' : 'inside';
+        this._resizeFit = optionsOrWidth.fit;
       }
       if (optionsOrWidth.withoutEnlargement !== undefined) {
         this._withoutEnlargement = optionsOrWidth.withoutEnlargement;
+      }
+      if (optionsOrWidth.filter) {
+        this._filter =
+          optionsOrWidth.filter === 'bilinear' ? 1 : optionsOrWidth.filter === 'nearest' ? 2 : 0;
       }
     }
     return this;
@@ -122,13 +137,36 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Set output container format and optional quality */
-  toFormat(format: ExportFormat, options?: { quality?: number }): this {
+  /** Set output container format and optional quality/effort */
+  toFormat(format: ExportFormat, options?: EncodeOptions): this {
     this._format = format;
     if (options?.quality !== undefined) {
       this._quality = Math.max(1, Math.min(100, options.quality));
     }
+    if (options?.effort !== undefined) {
+      this._effort = Math.max(0, Math.min(9, options.effort));
+    }
     return this;
+  }
+
+  /** Encode as AVIF (sugar for `toFormat('avif', options)`) */
+  avif(options?: EncodeOptions): this {
+    return this.toFormat('avif', options);
+  }
+
+  /** Encode as JPEG (sugar for `toFormat('jpeg', options)`) */
+  jpeg(options?: EncodeOptions): this {
+    return this.toFormat('jpeg', options);
+  }
+
+  /** Encode as PNG (sugar for `toFormat('png')`) */
+  png(): this {
+    return this.toFormat('png');
+  }
+
+  /** Encode as WebP (sugar for `toFormat('webp', options)`) */
+  webp(options?: EncodeOptions): this {
+    return this.toFormat('webp', options);
   }
 
   /** Set output container format */
@@ -189,9 +227,26 @@ export class MapleImageBuilder {
     return this;
   }
 
+  /** Bitmask for the v2 raster entry points: bit0 fill, bit1 auto-orient, bit2 allow
+   * enlargement, bit3 cover (wins over fill). */
+  private flags(): number {
+    const fit = this._resizeFit === 'cover' ? 8 : this._resizeFit === 'fill' ? 1 : 0;
+    return fit | (this._autoOrient ? 2 : 0) | (this._withoutEnlargement ? 0 : 4);
+  }
+
   /** Inspect image dimensions, format, orientation without full decode */
   async metadata(): Promise<ImageMetadata> {
     const native = loadNativeBinding();
+
+    if (this._rawInput) {
+      return {
+        width: this._rawInput.width,
+        height: this._rawInput.height,
+        format: 'raw',
+        channels: this._rawInput.channels,
+        orientation: 1,
+      };
+    }
 
     if (this._inputBytes) {
       const res = native.rasterProbeMetadataBuf(this._inputBytes);
@@ -297,6 +352,27 @@ export class MapleImageBuilder {
   async toBuffer(): Promise<Buffer> {
     const native = loadNativeBinding();
 
+    if (this._rawInput) {
+      const r = this._rawInput;
+      const res = native.rasterFromRawRenderBuf(
+        r.data,
+        r.width,
+        r.height,
+        r.channels,
+        this._resizeWidth,
+        this._resizeHeight,
+        this.flags(),
+        this._filter,
+        this._format || 'jpeg',
+        this._quality,
+        this._effort,
+      );
+      if (!res.ok || !res.buffer) {
+        throw new Error(res.error || 'Failed to encode raw pixels');
+      }
+      return res.buffer;
+    }
+
     // Non-RAW bitmap in-memory path
     let bytes = this._inputBytes;
     if (!bytes && this._inputPath && !isRawPath(this._inputPath)) {
@@ -304,19 +380,15 @@ export class MapleImageBuilder {
     }
 
     if (bytes) {
-      // Build fit bitmask: bit 0 = Fill, bit 1 = auto_orient, bit 2 = allow enlargement
-      let fitMask = this._resizeFit === 'fill' ? 1 : 0;
-      if (this._autoOrient) fitMask |= 2;
-      if (!this._withoutEnlargement) fitMask |= 4;
-
-      const formatStr = this._format || 'jpeg';
-      const res = native.rasterResizeToBuf(
+      const res = native.rasterRenderBuf(
         bytes,
         this._resizeWidth,
         this._resizeHeight,
-        fitMask,
-        formatStr,
+        this.flags(),
+        this._filter,
+        this._format || 'jpeg',
         this._quality,
+        this._effort,
       );
 
       if (!res.ok || !res.buffer) {
@@ -381,51 +453,103 @@ export class MapleImageBuilder {
     const parentDir = path.dirname(outputPath);
     await fs.mkdir(parentDir, { recursive: true });
 
-    let fitMask = this._resizeFit === 'fill' ? 1 : 0;
-    if (this._autoOrient) fitMask |= 2;
-    if (!this._withoutEnlargement) fitMask |= 4;
+    const targetFormat = this._format || 'jpeg';
 
-    const targetFormat = this._format || null;
-
-    if (this._inputPath) {
-      const res = native.rasterResizeToFile(
-        path.resolve(this._inputPath),
-        path.resolve(outputPath),
+    if (this._rawInput) {
+      const r = this._rawInput;
+      const res = native.rasterFromRawRenderBuf(
+        r.data,
+        r.width,
+        r.height,
+        r.channels,
         this._resizeWidth,
         this._resizeHeight,
-        fitMask,
+        this.flags(),
+        this._filter,
         targetFormat,
         this._quality,
+        this._effort,
       );
-      if (!res.ok) {
+      if (!res.ok || !res.buffer) {
         return { ok: false, outPath: outputPath, error: res.error };
       }
+      await fs.writeFile(outputPath, res.buffer);
       return { ok: true, outPath: outputPath };
     }
 
-    if (this._inputBytes) {
-      const bufRes = native.rasterResizeToBuf(
-        this._inputBytes,
+    let bytes = this._inputBytes;
+    if (!bytes && this._inputPath) {
+      bytes = await fs.readFile(this._inputPath);
+    }
+
+    if (bytes) {
+      const res = native.rasterRenderBuf(
+        bytes,
         this._resizeWidth,
         this._resizeHeight,
-        fitMask,
+        this.flags(),
+        this._filter,
         targetFormat,
         this._quality,
+        this._effort,
       );
-      if (!bufRes.ok || !bufRes.buffer) {
-        return { ok: false, outPath: outputPath, error: bufRes.error };
+      if (!res.ok || !res.buffer) {
+        return { ok: false, outPath: outputPath, error: res.error };
       }
-      await fs.writeFile(outputPath, bufRes.buffer);
+      await fs.writeFile(outputPath, res.buffer);
       return { ok: true, outPath: outputPath };
     }
 
     return { ok: false, outPath: outputPath, error: 'No input provided' };
+  }
+
+  /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
+  async toRaw(): Promise<RawPixels> {
+    const native = loadNativeBinding();
+    if (this._rawInput) {
+      const r = this._rawInput;
+      const png = native.rasterFromRawRenderBuf(
+        r.data,
+        r.width,
+        r.height,
+        r.channels,
+        0,
+        0,
+        0,
+        0,
+        'png',
+        0,
+        0,
+      );
+      if (!png.ok || !png.buffer) {
+        throw new Error(png.error || 'Failed to normalise raw pixels');
+      }
+      return this.decodeRgb8(native, png.buffer);
+    }
+    const bytes = this._inputBytes ?? (this._inputPath ? await fs.readFile(this._inputPath) : null);
+    if (!bytes || bytes.length === 0) {
+      throw new Error('Input image is empty');
+    }
+    return this.decodeRgb8(native, bytes);
+  }
+
+  private decodeRgb8(native: NativeBinding, bytes: Uint8Array): RawPixels {
+    const res = native.rasterDecodeRgb8Buf(bytes, this._autoOrient);
+    if (!res.ok || !res.buffer || res.width === undefined || res.height === undefined) {
+      throw new Error(res.error || 'Failed to decode to RGB8');
+    }
+    return {
+      data: new Uint8Array(res.buffer.buffer, res.buffer.byteOffset, res.buffer.byteLength),
+      width: res.width,
+      height: res.height,
+      channels: 3,
+    };
   }
 }
 
 /**
  * Entry function to create a Maple image operation.
  */
-export function maple(input: string | Uint8Array | Buffer): MapleImageBuilder {
+export function maple(input: string | Uint8Array | Buffer | RawPixelInput): MapleImageBuilder {
   return new MapleImageBuilder(input);
 }
