@@ -268,6 +268,64 @@ class FfiWorkerPool {
     });
   }
 
+  /** Render a non-RAW bitmap (JPEG/PNG/WebP/TIFF/AVIF/HEIC/PSD/HDR) to a
+   * resized AVIF or JPEG on disk inside the FFI child. Resolves the child's
+   * `{ ok, error }` (never rejects on a render failure — only on infra
+   * failure), matching what the retired imgdecode pool returned so call
+   * sites keep their error handling. */
+  async renderBitmapThumbToFile(
+    srcPath: string,
+    outPath: string,
+    maxPx: number,
+    quality: number,
+    ext: string,
+    format?: 'avif' | 'jpeg',
+  ): Promise<{ ok: boolean; error?: string }> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) => {
+      this.enqueue({
+        id,
+        post: (w) =>
+          w.postMessage({
+            type: 'renderBitmap',
+            id,
+            srcPath,
+            outPath,
+            maxPx,
+            quality,
+            ext,
+            format,
+          }),
+        onResponse: (msg) => {
+          if (msg.type !== 'renderBitmap') return false;
+          resolve({ ok: msg.ok, error: msg.error });
+          return true;
+        },
+        onError: reject,
+      });
+    });
+  }
+
+  /** Decode-validate an AVIF this pipeline just wrote (see `thumbs/avif-checks.ts`). */
+  async validateAvif(
+    filePath: string,
+    expectedLongEdgePx: number,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) => {
+      this.enqueue({
+        id,
+        post: (w) => w.postMessage({ type: 'validateAvif', id, filePath, expectedLongEdgePx }),
+        onResponse: (msg) => {
+          if (msg.type !== 'validateAvif') return false;
+          resolve({ ok: msg.ok, reason: msg.reason });
+          return true;
+        },
+        onError: reject,
+      });
+    });
+  }
+
   /** Read camera as-shot white balance in the isolated child process.
    * Rejects if the native library or the RAW's baseline is unavailable. */
   async asShotWhiteBalance(rawPath: string): Promise<{ temperature: number; tint: number }> {

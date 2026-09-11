@@ -9,8 +9,11 @@
 import { describe, it, expect } from 'bun:test';
 import { _createFfiPoolForTests, type PoolWorker, type WorkerFactory } from './ffi-pool.ts';
 
-interface RenderMsg {
-  type: 'renderThumb';
+/** A posted request as the fake worker records it. `type` is a plain string
+ * rather than `'renderThumb'`: the pool posts several request types and the
+ * bitmap-ops test below asserts on the one it got. */
+interface PostedMsg {
+  type: string;
   id: number;
 }
 
@@ -19,7 +22,7 @@ interface RenderMsg {
 class FakeWorker implements PoolWorker {
   static all: FakeWorker[] = [];
   terminated = false;
-  posted: RenderMsg[] = [];
+  posted: PostedMsg[] = [];
   private msgCb: ((e: { data: unknown }) => void) | null = null;
   private errCb: ((e: { message?: string }) => void) | null = null;
 
@@ -28,7 +31,7 @@ class FakeWorker implements PoolWorker {
   }
 
   postMessage(msg: unknown): void {
-    this.posted.push(msg as RenderMsg);
+    this.posted.push(msg as PostedMsg);
   }
 
   terminate(): void {
@@ -261,5 +264,33 @@ describe('FfiWorkerPool — protocol mismatch', () => {
     await expect(Promise.race([p, hung])).rejects.toThrow(/mismatched response type/);
     // The slot is still released so the next request is not starved.
     expect(pool.stats().busy).toBe(0);
+  });
+});
+
+describe('FfiWorkerPool — bitmap ops', () => {
+  // #3499: the bitmap thumbnail + AVIF-validation ops the retired sharp-backed
+  // imgdecode pool used to own now ride this pool. `respondWith` stands in for
+  // the child's reply so each op's own response shape (`{ ok, error }` for the
+  // render, `{ ok, reason }` for the validation) is pinned at the wire level.
+  it('dispatches renderBitmap and validateAvif and resolves their result shapes', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+
+    const renderResult = pool.renderBitmapThumbToFile('/a.jpg', '/a.avif', 512, 55, 'jpg');
+    expect(workers[0].posted[0]?.type).toBe('renderBitmap');
+    workers[0].respondWith({ type: 'renderBitmap', ok: true });
+    await expect(renderResult).resolves.toEqual({ ok: true });
+
+    const validateResult = pool.validateAvif('/a.avif', 512);
+    expect(workers[0].posted[1]?.type).toBe('validateAvif');
+    workers[0].respondWith({
+      type: 'validateAvif',
+      ok: false,
+      reason: 'dimensions 900x10 exceed expected long edge 512',
+    });
+    await expect(validateResult).resolves.toEqual({
+      ok: false,
+      reason: 'dimensions 900x10 exceed expected long edge 512',
+    });
   });
 });

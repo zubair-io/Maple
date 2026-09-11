@@ -14,6 +14,8 @@ import type { FfiRejectedResponse, FfiRequest, FfiResponse } from './raw_ffi-pro
 import { readFile } from '../fs/mirrored.ts';
 import { clearLensProfiles, registerLensProfile } from '../lens-profiles/native.ts';
 import { restoreLensProfile } from '../lens-profiles/restore.ts';
+import { renderImageThumbToFile } from '../thumbs/render.ts';
+import { checkAvifOutput } from '../thumbs/avif-checks.ts';
 
 /**
  * Dispatch one IPC request against the loaded native binding. One arm per
@@ -78,6 +80,51 @@ export async function handleFfiRequest(
   if (req.type === 'renderDevelop' || req.type === 'histogram') {
     const xml = req.xmpPath ? await readFile(req.xmpPath, 'utf8') : null;
     await restoreLensProfile(req.rawPath, xml);
+  }
+
+  if (req.type === 'renderBitmap') {
+    // Non-RAW bitmap thumbnail (#3499). Unlike every arm around it this one
+    // does not call into `ffi`: the resize/encode runs in `thumbs/render.ts`
+    // on the Maple bitmap engine. It still lives in this child so a decoder
+    // crash on a malformed JPEG/PSD takes down only the child, exactly as it
+    // does for RAW.
+    try {
+      const ok = await renderImageThumbToFile(
+        req.srcPath,
+        req.outPath,
+        req.maxPx,
+        req.ext,
+        req.quality,
+        req.format,
+      );
+      return { type: 'renderBitmap', id: req.id, ok };
+    } catch (e) {
+      return {
+        type: 'renderBitmap',
+        id: req.id,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+  if (req.type === 'validateAvif') {
+    // Wrapped like `renderBitmap` above: an uncaught throw here would fall
+    // through to the child's `process.on('message', …)` catch, which replies
+    // `{ type: req.type, id, ok: false, error }` — off-contract for this
+    // response type (`ValidateAvifResponse` carries `reason`, not `error`).
+    try {
+      const result = await checkAvifOutput(req.filePath, req.expectedLongEdgePx);
+      return result.ok
+        ? { type: 'validateAvif', id: req.id, ok: true }
+        : { type: 'validateAvif', id: req.id, ok: false, reason: result.reason };
+    } catch (e) {
+      return {
+        type: 'validateAvif',
+        id: req.id,
+        ok: false,
+        reason: e instanceof Error ? e.message : String(e),
+      };
+    }
   }
 
   if (req.type === 'renderThumb') {

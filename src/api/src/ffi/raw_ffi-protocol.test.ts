@@ -20,7 +20,7 @@ describe('coerceFfiRequest', () => {
     }
   });
 
-  it('lists all seven request types the child dispatches', () => {
+  it('lists every request type the child dispatches', () => {
     const listed: string[] = [...FFI_REQUEST_TYPES].sort();
     expect(listed).toEqual(
       [
@@ -28,9 +28,11 @@ describe('coerceFfiRequest', () => {
         'exportRecipe',
         'histogram',
         'registerLensProfile',
+        'renderBitmap',
         'renderDevelop',
         'renderPreviewJpeg',
         'renderThumb',
+        'validateAvif',
       ].sort(),
     );
   });
