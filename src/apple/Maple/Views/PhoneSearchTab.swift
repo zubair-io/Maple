@@ -47,6 +47,15 @@ struct PhoneSearchTab: View {
     /// (populating `sessions` with a CloudSidecarStore-backed EditSession)
     /// plus the `CloudSource` Preview needs for its image tiers.
     let resolveAsset: (SearchAsset, URL) -> ResolvedCloudAsset
+    /// The containing-folder sibling list for a tapped result (#3551) —
+    /// `AppShell.searchPreviewSiblingAssets`. Async: it lists the folder on
+    /// the server, so Preview is pushed with the tapped asset alone first and
+    /// the strip fills in when the listing lands.
+    let loadSiblingAssets: (AssetRef, URL) async -> [AssetRef]
+    /// Prime a real `EditSession` (with a `CloudSidecarStore`) for a sibling
+    /// the moment it becomes the shown asset, so a later Edit tap on it
+    /// doesn't fall back to `EditorDestination`'s no-remote-store session.
+    let onPrimeSession: (AssetRef) -> Void
 
     @State private var session: PhoneSearchSession?
     @State private var didLoad = false
@@ -60,6 +69,10 @@ struct PhoneSearchTab: View {
     /// without it there is no display tier and the thumbnail tier falls back to
     /// downloading the entire RAW through `bytesProvider` (#2376).
     @State private var previewSource: (any ImageSource)?
+    /// Preview's swipe/filmstrip domain for the pushed result: `[ref]` at push
+    /// time, replaced by the containing folder's listing (with `ref` spliced
+    /// in at its own position) once `loadSiblingAssets` returns (#3551).
+    @State private var previewAssets: [AssetRef] = []
     @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
@@ -77,20 +90,19 @@ struct PhoneSearchTab: View {
                         case .preview(let ref):
                             PreviewDestination(
                                 asset: ref,
-                                // A search result is a single-asset preview:
-                                // the result set is this tab's own grid, not a
-                                // folder listing, so there is no sibling list
-                                // to hand the filmstrip. Same shape the Library
-                                // tab uses for cloud / search taps.
-                                assets: [ref],
+                                // The result's containing folder (#3551), once
+                                // listed; the tapped asset alone until then and
+                                // whenever the listing doesn't contain it.
+                                assets: previewAssets.contains(ref) ? previewAssets : [ref],
                                 source: previewSource,
                                 sessions: $sessions,
                                 onClose: popWithoutAnimation,
                                 onEdit: { path.append(.edit($0)) },
-                                // Prev/next can't move within a one-asset list,
-                                // so there is no selection to propagate — the
-                                // search grid owns its own selection state.
-                                onSelectionChanged: { _ in }
+                                // A sibling became the shown asset: give it a
+                                // real session so Edit on it persists to the
+                                // server. The search grid keeps its own
+                                // selection state.
+                                onSelectionChanged: onPrimeSession
                             )
                         case .edit(let ref):
                             EditorDestination(asset: ref, sessions: $sessions)
@@ -190,7 +202,17 @@ struct PhoneSearchTab: View {
                 onSelectAsset: { asset in
                     let resolved = resolveAsset(asset, session.server)
                     previewSource = resolved.source
+                    previewAssets = [resolved.ref]
                     path.append(.preview(resolved.ref))
+                    let server = session.server
+                    Task { @MainActor in
+                        let siblings = await loadSiblingAssets(resolved.ref, server)
+                        // Still previewing the result this listing was for —
+                        // not a later tap's, and not popped back to the grid.
+                        guard case .preview(let shown)? = path.first, shown.id == resolved.ref.id
+                        else { return }
+                        previewAssets = siblings
+                    }
                 }
             )
         } else if !didLoad {

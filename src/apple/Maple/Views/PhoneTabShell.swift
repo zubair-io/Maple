@@ -154,6 +154,9 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// #2299: resolves the iPhone Preview sibling list for a Timeline-opened
     /// asset — forwarded straight through to `PhoneLibraryView`.
     let timelinePreviewSiblingAssets: (AssetRef) -> [AssetRef]
+    /// #3551: resolves the iPhone Preview sibling list for a Search-opened
+    /// asset — its containing folder on the asset's server.
+    let searchPreviewSiblingAssets: (AssetRef, URL) async -> [AssetRef]
     /// M2: triggers panorama merge view when the user taps "Merge to Panorama…".
     var onMergePanorama: (() -> Void)? = nil
     /// M4: triggers batch metadata editor when the user taps "Edit Metadata…".
@@ -280,7 +283,9 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     pendingSeed: $pendingSearchSeed,
                     serverKey: phoneSearchServerKey,
                     makeSession: makePhoneSearchSession,
-                    resolveAsset: resolveSearchAsset
+                    resolveAsset: resolveSearchAsset,
+                    loadSiblingAssets: searchPreviewSiblingAssets,
+                    onPrimeSession: onPrimeSession
                 )
             }
 
