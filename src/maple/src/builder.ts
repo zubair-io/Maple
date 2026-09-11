@@ -178,6 +178,9 @@ export class MapleImageBuilder {
   /** Composite overlay image(s) over the processed image (sharp's `composite`). */
   composite(layers: CompositeLayer[]): this {
     const wire = layers.map((layer) => {
+      if ((layer.left === undefined) !== (layer.top === undefined)) {
+        throw new Error('composite: a layer must set both left and top, or neither');
+      }
       const raw =
         'data' in layer.input
           ? {
