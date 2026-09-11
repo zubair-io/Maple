@@ -114,4 +114,23 @@ describe('Geometry', () => {
         .toBuffer(),
     ).rejects.toThrow(/mirror/);
   });
+
+  it('rejects trim lineArt by name', async () => {
+    await expect(
+      maple(await png(coords(2, 2)))
+        .trim({ lineArt: true as never })
+        .toFormat('png')
+        .toBuffer(),
+    ).rejects.toThrow(/lineArt/);
+  });
+
+  it('rejects a non-finite rotate angle before it reaches the recipe', () => {
+    expect(() => maple(coords(2, 2)).rotate(NaN)).toThrow(/angle must be finite/);
+  });
+
+  it('rejects a non-finite trim threshold before it reaches the recipe', () => {
+    expect(() => maple(coords(2, 2)).trim({ threshold: Infinity })).toThrow(
+      /threshold must be finite/,
+    );
+  });
 });
