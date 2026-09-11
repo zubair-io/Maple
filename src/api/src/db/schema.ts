@@ -9,6 +9,7 @@
  */
 
 import type { ObjectId, WithId } from 'mongodb';
+import type { MediaKind } from '../indexer/media-types.ts';
 
 // ---------------------------------------------------------------------------
 // Folder
@@ -759,6 +760,21 @@ export interface AssetDoc {
    * badge until the migration runs.
    */
   live_location_count?: number;
+  /**
+   * Coarse media class (`image` | `video` | `audio`) of the asset: `video`
+   * if ANY location's extension is a video, else `audio` if any is audio,
+   * else `image` (`mediaKindOfFilenames` / `mediaKindExpression`). Set at
+   * every asset creation site, recomputed by `updateLiveLocationCount`
+   * whenever a location is appended, and backfilled once at boot
+   * (`db/media-kind.ts`), which also maintains the `media_kind_av` partial
+   * index over the video/audio rows.
+   * The `transcribe` / `video-describe` claim filters and the video-scoped
+   * migrations select on it (#3492): a case-insensitive filename regex inside
+   * `fileinfo.$elemMatch` is never filtered at a multikey index, so every such
+   * query used to fetch the entire library. Optional only because the boot
+   * backfill runs before any stage does; readers may treat absent as `image`.
+   */
+  media_kind?: MediaKind;
   /** True iff an XMP sidecar exists on disk next to this asset. Populated
    * by the XMP write/delete handlers (Phase 5b). Optional because legacy
    * rows pre-date the flag; readers should treat missing as `false`. */

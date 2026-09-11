@@ -35,7 +35,8 @@ export type MigrationId =
   | 'repair-captured-year-month-2026-06-07'
   | 'drop-legacy-location-fields-2026-06-11'
   | 'backfill-folder-slugs-2026-06-16'
-  | 'backfill-person-face-count-2026-06-27';
+  | 'backfill-person-face-count-2026-06-27'
+  | 'backfill-media-kind-2026-09-11';
 
 interface MigrationDoc {
   _id: MigrationId;

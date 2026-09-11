@@ -35,6 +35,7 @@ import { realpathJailCheck } from '../library/address.ts';
 import { assetAbsPath, updateLiveLocationCount } from '../indexer/images.repo.ts';
 import type { AssetWithId } from '../db/schema.ts';
 import { stageManifest, blankStagesSkeleton } from '../workers/stages/manifest.ts';
+import { classifyMediaType } from '../indexer/media-types.ts';
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
 // duplicate upload whose content is byte-identical to the file being
@@ -882,6 +883,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
                 // $setOnInsert (not $set) so an existing-doc update arm
                 // never overwrites a count that was already maintained.
                 live_location_count: 1,
+                media_kind: classifyMediaType(filename),
                 rating: 0,
                 flag: 0,
                 color_label: '',

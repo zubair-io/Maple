@@ -41,6 +41,7 @@ import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { classifyMediaType } from '../indexer/media-types.ts';
 
 const log = childLogger('backup-ingest');
 
@@ -548,6 +549,7 @@ export const backupIngestRoutes = new Elysia().post(
       ],
       // One live fileinfo entry on insert.
       live_location_count: 1,
+      media_kind: classifyMediaType(relFilename),
       size: totalBytes,
       mtime: Date.now(),
       rating: 0,
