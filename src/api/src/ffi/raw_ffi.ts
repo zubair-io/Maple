@@ -60,7 +60,7 @@ type FilenameTemplateResult =
   | { ok: true; name: string }
   | { ok: false; code: number; error: string };
 
-interface RawFfi {
+export interface RawFfi {
   /** Null means success; errors carry the native encoder's actionable message. */
   exportRecipeToFile?(
     rawPath: string,

@@ -109,6 +109,35 @@ export type FfiRequest =
   | RenderDevelopRequest
   | RenderPreviewJpegRequest;
 
+/** Every `type` the child dispatches. Kept as a value (not just the union)
+ *  so the wire guard below can check an incoming payload against it. */
+export const FFI_REQUEST_TYPES = [
+  'asShot',
+  'exportRecipe',
+  'registerLensProfile',
+  'renderThumb',
+  'histogram',
+  'renderDevelop',
+  'renderPreviewJpeg',
+] as const satisfies readonly FfiRequest['type'][];
+
+/**
+ * Wire-format guard the child applies to every IPC message before dispatch.
+ * Returns the payload typed as `FfiRequest` when it is an object carrying a
+ * known `type` and a numeric `id`, else null. The child's dispatch is a chain
+ * of `if` arms, and without this guard a payload of any other shape used to
+ * fall through to whichever arm came last (the histogram renderer) and be
+ * answered with that arm's `type` — which the pool's caller then ignored,
+ * hanging its promise. Field-level validation stays with each arm; this only
+ * guarantees the arm is the one the sender asked for.
+ */
+export function coerceFfiRequest(raw: unknown): FfiRequest | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const { type, id } = raw as { type?: unknown; id?: unknown };
+  const known = (FFI_REQUEST_TYPES as readonly unknown[]).includes(type);
+  return known && typeof id === 'number' && Number.isFinite(id) ? (raw as FfiRequest) : null;
+}
+
 export interface RenderThumbResponse {
   type: 'renderThumb';
   id: number;
@@ -146,3 +175,26 @@ export type FfiResponse =
   | HistogramResponse
   | RenderDevelopResponse
   | RenderPreviewJpegResponse;
+
+/** Reply to a request the child could not dispatch: the (unrecognised) `type`
+ *  is echoed so the pool can name it when it rejects the caller. Deliberately
+ *  NOT a member of `FfiResponse` — a `string` discriminant there would stop
+ *  the pool's per-type narrowing. */
+export interface FfiRejectedResponse {
+  type: string;
+  id: number;
+  ok: false;
+  error: string;
+}
+
+/** The reply for a payload `coerceFfiRequest` rejected: echoes its `type`
+ *  under its `id` so the pool rejects exactly that caller. Null when the
+ *  payload carries no numeric `id` — there is then nobody to answer. */
+export function rejectedFfiReply(raw: unknown): FfiRejectedResponse | null {
+  const { type, id } = (raw && typeof raw === 'object' ? raw : {}) as {
+    type?: unknown;
+    id?: unknown;
+  };
+  if (typeof id !== 'number') return null;
+  return { type: String(type), id, ok: false, error: `unknown request type '${String(type)}'` };
+}

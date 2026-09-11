@@ -390,13 +390,7 @@ class FfiWorkerPool {
 
     const slot: WorkerSlot = { worker: w, inFlight: null, surplus: false };
 
-    w.addEventListener('message', (event) => {
-      const msg = event.data as FfiResponse;
-      const req = slot.inFlight;
-      if (!req || msg?.id !== req.id) return;
-      req.onResponse(msg);
-      this.releaseSlot(slot);
-    });
+    w.addEventListener('message', (event) => this.onWorkerMessage(slot, event.data as FfiResponse));
 
     w.addEventListener('error', (event) => {
       // Reject only THIS worker's in-flight call; sibling workers are fine.
@@ -421,6 +415,26 @@ class FfiWorkerPool {
 
     this.slots.push(slot);
     return slot;
+  }
+
+  /** A reply arrived on a worker: settle the in-flight request it answers.
+   * `onResponse` returns false when the reply's `type` is not the one the
+   * request expects — a child dispatch bug (the child answered with a
+   * different arm, or rejected an unrecognised type). Settle the caller with
+   * an error rather than leave its promise pending: nothing else (no timeout)
+   * would ever resolve it. */
+  private onWorkerMessage(slot: WorkerSlot, msg: FfiResponse): void {
+    const req = slot.inFlight;
+    if (!req || msg?.id !== req.id) return;
+    if (!req.onResponse(msg)) {
+      req.onError(
+        new Error(
+          `ffi-pool: mismatched response type '${String(msg.type)}' for request ${req.id}` +
+            (msg.error ? ` — ${msg.error}` : ''),
+        ),
+      );
+    }
+    this.releaseSlot(slot);
   }
 
   /** A worker finished its call. Terminate it if it was retired on a shrink,

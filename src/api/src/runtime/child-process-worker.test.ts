@@ -80,6 +80,29 @@ describe('ChildProcessWorker — real Bun child transport', () => {
   }, 20000);
 });
 
+describe('ChildProcessWorker — FFI child wire guard (#3518)', () => {
+  // Pins the FFI child's wire guard (#3518): a request of a type the child does
+  // not dispatch must come back as an error under ITS OWN type and id — never
+  // fall through to the histogram arm and be answered as `type: 'histogram'`,
+  // which the pool's caller would ignore and hang on.
+  it('answers an unknown request type with an error reply, not a histogram', async () => {
+    const w = new ChildProcessWorker(CHILD, { label: 'test', nice: 10 });
+    try {
+      const got = nextMessage(w);
+      w.postMessage({ type: 'renderBitmapThumb', id: 9, rawPath: '/no/such/file.dng' });
+      const msg = (await got) as { type: string; id: number; ok: boolean; error?: string };
+      expect(msg).toEqual({
+        type: 'renderBitmapThumb',
+        id: 9,
+        ok: false,
+        error: "unknown request type 'renderBitmapThumb'",
+      });
+    } finally {
+      w.terminate();
+    }
+  }, 20000);
+});
+
 describe('StderrRing — bounded tail buffer (#899)', () => {
   it('retains everything pushed while under capacity', () => {
     const ring = new StderrRing(64);
