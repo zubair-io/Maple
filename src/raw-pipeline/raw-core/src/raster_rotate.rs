@@ -76,12 +76,15 @@ impl RasterImage {
         let theta = degrees.to_radians();
         let (sin, cos) = theta.sin_cos();
         let (sw, sh) = (src.width as f64, src.height as f64);
-        // `.ceil()`, not `.round()`: the bounding box must fully contain the
-        // rotated rectangle, so a fractional pixel of overhang (e.g. 10x10 at
-        // 45° needs 14.14px and must round up to 15, not down to 14) rounds
-        // up rather than to the nearest integer.
-        let out_w = (sw * cos.abs() + sh * sin.abs()).ceil().max(1.0);
-        let out_h = (sw * sin.abs() + sh * cos.abs()).ceil().max(1.0);
+        // `.round()`, matching libvips: the rotated extent is rounded to the
+        // nearest integer, not grown to fully contain the fractional overhang
+        // (e.g. 10x10 at 45° needs 14.14px, which rounds to 14, not up to
+        // 15). `f64::round` is half-away-from-zero where libvips rounds
+        // half-to-even; the two only disagree at an exact `.5` extent, which
+        // no integer source size × rotation angle combination we support
+        // produces.
+        let out_w = (sw * cos.abs() + sh * sin.abs()).round().max(1.0);
+        let out_h = (sw * sin.abs() + sh * cos.abs()).round().max(1.0);
         if out_w > u32::MAX as f64 || out_h > u32::MAX as f64 {
             return Err(Error::Decode {
                 path: "<memory>".into(),
@@ -258,13 +261,36 @@ mod tests {
     fn an_arbitrary_angle_grows_the_bounding_box_and_fills_with_background() {
         let src = RasterImage::new_rgb(10, 10, vec![200; 10 * 10 * 3]);
         let out = src.rotate(45.0, [7, 8, 9, 255]).unwrap();
-        // A 10x10 square rotated 45° needs a 15x15 box (10·√2 ≈ 14.14 → 15).
-        assert_eq!((out.width, out.height), (15, 15));
+        // A 10x10 square rotated 45° needs 10·√2 ≈ 14.14px, which rounds to
+        // 14 — matching libvips/sharp, not the old ceil-to-15 behaviour.
+        assert_eq!((out.width, out.height), (14, 14));
         // The top-left corner is outside the rotated square: background.
         assert_eq!(&out.data[..3], &[7, 8, 9]);
         // The centre is inside it: the source value.
-        let centre = ((7 * 15 + 7) * 3) as usize;
+        let centre = ((7 * 14 + 7) * 3) as usize;
         assert_eq!(&out.data[centre..centre + 3], &[200, 200, 200]);
+    }
+
+    #[test]
+    fn bounding_box_rounds_to_nearest_like_libvips() {
+        // Measured against sharp 0.34.5 (libvips): the rotated bounding box
+        // is the nearest-integer extent, not the smallest box that fully
+        // contains the rotated rectangle.
+        let cases: [((u32, u32), f64, (u32, u32)); 4] = [
+            ((10, 10), 45.0, (14, 14)),
+            ((100, 100), 45.0, (141, 141)),
+            ((4, 4), 30.0, (5, 5)),
+            ((20, 10), 10.0, (21, 13)),
+        ];
+        for ((sw, sh), angle, (expected_w, expected_h)) in cases {
+            let src = RasterImage::new_rgb(sw, sh, vec![200; (sw * sh * 3) as usize]);
+            let out = src.rotate(angle, [0, 0, 0, 255]).unwrap();
+            assert_eq!(
+                (out.width, out.height),
+                (expected_w, expected_h),
+                "{sw}x{sh} at {angle}°"
+            );
+        }
     }
 
     #[test]
