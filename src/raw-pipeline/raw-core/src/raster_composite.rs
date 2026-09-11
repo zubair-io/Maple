@@ -188,6 +188,15 @@ pub fn composite(base: &RasterImage, layers: &[CompositeLayer<'_>]) -> Result<Ra
     let mut out = base.ensure_alpha(255);
     let (bw, bh) = (out.width as i64, out.height as i64);
     for layer in layers {
+        if layer.image.width == 0 || layer.image.height == 0 {
+            return Err(Error::Decode {
+                path: "<memory>".into(),
+                reason: format!(
+                    "composite layer has zero size ({}x{})",
+                    layer.image.width, layer.image.height
+                ),
+            });
+        }
         if layer.image.width > out.width || layer.image.height > out.height {
             return Err(Error::Decode {
                 path: "<memory>".into(),
@@ -204,20 +213,8 @@ pub fn composite(base: &RasterImage, layers: &[CompositeLayer<'_>]) -> Result<Ra
                 .gravity
                 .place((out.width, out.height), (src.width, src.height)),
         };
-        // `bw`/`bh`/`src.width`/`src.height` are always positive, so plain
-        // ceiling division is exact here (`i64::div_ceil` is unstable).
-        let steps_x: Vec<i64> = if layer.tile {
-            let tiles = (bw + src.width as i64 - 1) / src.width as i64;
-            (0..tiles).map(|i| ox + i * src.width as i64).collect()
-        } else {
-            vec![ox]
-        };
-        let steps_y: Vec<i64> = if layer.tile {
-            let tiles = (bh + src.height as i64 - 1) / src.height as i64;
-            (0..tiles).map(|i| oy + i * src.height as i64).collect()
-        } else {
-            vec![oy]
-        };
+        let steps_x = tile_steps(ox, src.width as i64, bw, layer.tile);
+        let steps_y = tile_steps(oy, src.height as i64, bh, layer.tile);
         for &ty in &steps_y {
             for &tx in &steps_x {
                 blend_at(&mut out, &src, tx, ty, layer.blend);
@@ -225,6 +222,32 @@ pub fn composite(base: &RasterImage, layers: &[CompositeLayer<'_>]) -> Result<Ra
         }
     }
     Ok(out)
+}
+
+/// Tile origins along one axis that replicate a `dim`-sized overlay to cover
+/// the WHOLE `[0, extent)` canvas, not just from the placed `origin`
+/// forward — matching sharp/libvips, which tile the overlay across the
+/// entire base regardless of gravity or offset. Origins are
+/// `origin − k·dim` for the smallest `k` that brings the first tile at or
+/// before 0, continuing rightward/downward until the far edge is covered.
+/// When `tile` is false this is just `[origin]`. `dim` is always positive —
+/// `composite` rejects a zero-size overlay before this runs.
+fn tile_steps(origin: i64, dim: i64, extent: i64, tile: bool) -> Vec<i64> {
+    if !tile {
+        return vec![origin];
+    }
+    let first = origin - ceil_div(origin, dim) * dim;
+    let count = ceil_div(extent - first, dim).max(0);
+    (0..count).map(|i| first + i * dim).collect()
+}
+
+/// `ceil(a / b)` for `b > 0`, any sign of `a` (`i64::div_ceil` is unstable).
+fn ceil_div(a: i64, b: i64) -> i64 {
+    if a >= 0 {
+        (a + b - 1) / b
+    } else {
+        a / b
+    }
 }
 
 /// Blend `src` onto `dst` with its top-left corner at `(ox, oy)`, clipping to
@@ -263,131 +286,5 @@ fn blend_at(dst: &mut RasterImage, src: &RasterImage, ox: i64, oy: i64, mode: Bl
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn solid_rgba(w: u32, h: u32, px: [u8; 4]) -> RasterImage {
-        RasterImage::new_rgba(w, h, (0..w * h).flat_map(|_| px).collect())
-    }
-
-    fn layer<'a>(image: &'a RasterImage, blend: BlendMode) -> CompositeLayer<'a> {
-        CompositeLayer {
-            image,
-            left: Some(0),
-            top: Some(0),
-            gravity: Gravity::Centre,
-            blend,
-            tile: false,
-        }
-    }
-
-    #[test]
-    fn opaque_over_replaces_the_base() {
-        let base = solid_rgba(2, 2, [10, 20, 30, 255]);
-        let over = solid_rgba(2, 2, [200, 100, 50, 255]);
-        let out = composite(&base, &[layer(&over, BlendMode::Over)]).unwrap();
-        assert_eq!(&out.data[..4], &[200, 100, 50, 255]);
-    }
-
-    #[test]
-    fn a_fully_transparent_layer_changes_nothing() {
-        let base = solid_rgba(1, 1, [10, 20, 30, 255]);
-        let over = solid_rgba(1, 1, [200, 100, 50, 0]);
-        let out = composite(&base, &[layer(&over, BlendMode::Over)]).unwrap();
-        assert_eq!(out.data, vec![10, 20, 30, 255]);
-    }
-
-    #[test]
-    fn half_alpha_over_is_the_midpoint() {
-        let base = solid_rgba(1, 1, [0, 0, 0, 255]);
-        let over = solid_rgba(1, 1, [255, 255, 255, 128]);
-        let out = composite(&base, &[layer(&over, BlendMode::Over)]).unwrap();
-        // 255·(128/255) + 0·(1 - 128/255) = 128
-        assert_eq!(&out.data[..3], &[128, 128, 128]);
-        assert_eq!(out.data[3], 255);
-    }
-
-    #[test]
-    fn multiply_screen_darken_lighten_are_closed_form_on_opaque_pixels() {
-        let base = solid_rgba(1, 1, [200, 100, 50, 255]);
-        let src = solid_rgba(1, 1, [128, 128, 128, 255]);
-        let run = |b| composite(&base, &[layer(&src, b)]).unwrap().data;
-        // multiply: 200·128/255 = 100.4 → 100, 100·128/255 = 50.2 → 50, 50·128/255 = 25.1 → 25
-        assert_eq!(&run(BlendMode::Multiply)[..3], &[100, 50, 25]);
-        // screen: cb + cs - cb·cs → 200+128-100 = 228, 100+128-50 = 178, 50+128-25 = 153
-        assert_eq!(&run(BlendMode::Screen)[..3], &[228, 178, 153]);
-        assert_eq!(&run(BlendMode::Darken)[..3], &[128, 100, 50]);
-        assert_eq!(&run(BlendMode::Lighten)[..3], &[200, 128, 128]);
-    }
-
-    #[test]
-    fn add_saturates_at_255() {
-        let base = solid_rgba(1, 1, [200, 10, 0, 255]);
-        let src = solid_rgba(1, 1, [100, 10, 0, 255]);
-        let out = composite(&base, &[layer(&src, BlendMode::Add)]).unwrap();
-        assert_eq!(&out.data[..3], &[255, 20, 0]);
-    }
-
-    #[test]
-    fn dest_in_and_dest_out_use_the_source_as_a_mask() {
-        let base = solid_rgba(1, 1, [90, 90, 90, 255]);
-        let mask = solid_rgba(1, 1, [0, 0, 0, 128]);
-        let inside = composite(&base, &[layer(&mask, BlendMode::DestIn)]).unwrap();
-        assert_eq!(inside.data[3], 128);
-        assert_eq!(&inside.data[..3], &[90, 90, 90]);
-        let outside = composite(&base, &[layer(&mask, BlendMode::DestOut)]).unwrap();
-        assert_eq!(outside.data[3], 127);
-    }
-
-    #[test]
-    fn a_smaller_layer_only_touches_its_own_rectangle() {
-        let base = solid_rgba(3, 1, [0, 0, 0, 255]);
-        let dot = solid_rgba(1, 1, [255, 255, 255, 255]);
-        let placed = CompositeLayer {
-            left: Some(1),
-            top: Some(0),
-            ..layer(&dot, BlendMode::Over)
-        };
-        let out = composite(&base, &[placed]).unwrap();
-        assert_eq!(&out.data[..4], &[0, 0, 0, 255]);
-        assert_eq!(&out.data[4..8], &[255, 255, 255, 255]);
-        assert_eq!(&out.data[8..12], &[0, 0, 0, 255]);
-    }
-
-    #[test]
-    fn gravity_places_the_layer_when_left_and_top_are_absent() {
-        assert_eq!(Gravity::Centre.place((10, 10), (4, 4)), (3, 3));
-        assert_eq!(Gravity::NorthWest.place((10, 10), (4, 4)), (0, 0));
-        assert_eq!(Gravity::SouthEast.place((10, 10), (4, 4)), (6, 6));
-        assert_eq!(Gravity::East.place((10, 10), (4, 4)), (6, 3));
-        assert_eq!(Gravity::South.place((10, 10), (4, 4)), (3, 6));
-    }
-
-    #[test]
-    fn tile_repeats_the_layer_across_the_base() {
-        let base = solid_rgba(4, 1, [0, 0, 0, 255]);
-        let dot = solid_rgba(2, 1, [255, 0, 0, 255]);
-        let tiled = CompositeLayer {
-            tile: true,
-            ..layer(&dot, BlendMode::Over)
-        };
-        let out = composite(&base, &[tiled]).unwrap();
-        assert!(out.data.chunks_exact(4).all(|px| px[0] == 255));
-    }
-
-    #[test]
-    fn a_layer_larger_than_the_base_is_rejected() {
-        let base = solid_rgba(2, 2, [0, 0, 0, 255]);
-        let big = solid_rgba(4, 4, [0, 0, 0, 255]);
-        assert!(composite(&base, &[layer(&big, BlendMode::Over)]).is_err());
-    }
-
-    #[test]
-    fn wire_spellings_round_trip() {
-        assert_eq!(BlendMode::from_wire("dest-in"), Some(BlendMode::DestIn));
-        assert_eq!(BlendMode::from_wire("overlay"), None);
-        assert_eq!(Gravity::from_wire("center"), Some(Gravity::Centre));
-        assert_eq!(Gravity::from_wire("northeast"), Some(Gravity::NorthEast));
-        assert_eq!(Gravity::from_wire("entropy"), None);
-    }
-}
+#[path = "raster_composite_tests.rs"]
+mod tests;
