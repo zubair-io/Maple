@@ -55,6 +55,47 @@ fn multiply_screen_darken_lighten_are_closed_form_on_opaque_pixels() {
 }
 
 #[test]
+fn compositing_onto_a_3_channel_base_yields_a_4_channel_result() {
+    let base = RasterImage::new_rgb(1, 1, vec![10, 20, 30]);
+    let overlay = solid_rgba(1, 1, [200, 100, 50, 255]);
+    let out = composite(&base, &[layer(&overlay, BlendMode::Over)]).unwrap();
+    assert_eq!(out.channels, 4);
+    assert_eq!(out.data.len(), 4);
+}
+
+#[test]
+fn multiply_blends_a_half_transparent_overlay_against_the_base() {
+    // Multiply is separable: Co = (1-As)·Cb·Ab + As·Ab·(Cb·Cs) + (1-Ab)·Cs·As;
+    // with an opaque base (Ab=1) that's Co = (1-As)·Cb + As·(Cb·Cs). A
+    // half-transparent BLACK overlay (Cs=0) collapses the multiply term to
+    // 0, leaving Co = (1-As)·Cb — the opaque white base darkened by exactly
+    // the overlay's alpha: (1 - 128/255)·255 = 127 exactly, alpha stays 255
+    // (opaque base, opaque result).
+    let base = solid_rgba(1, 1, [255, 255, 255, 255]);
+    let overlay = solid_rgba(1, 1, [0, 0, 0, 128]);
+    let out = composite(&base, &[layer(&overlay, BlendMode::Multiply)]).unwrap();
+    assert_eq!(&out.data[..3], &[127, 127, 127]);
+    assert_eq!(out.data[3], 255);
+}
+
+/// A tiled layer's offset comes straight off the wire recipe — untrusted.
+/// `ceil_div`'s `a + b - 1` step is the one that can overflow: with
+/// `origin = i64::MAX - 1` and a 3px-wide overlay, `origin + (3 - 1)`
+/// overflows `i64::MAX` by one. Must return an error, not wrap or panic.
+#[test]
+fn a_near_i64_max_tile_offset_is_rejected_not_overflowed() {
+    let base = solid_rgba(5, 5, [0, 0, 0, 255]);
+    let dot = solid_rgba(3, 3, [255, 0, 0, 255]);
+    let placed = CompositeLayer {
+        tile: true,
+        left: Some(i64::MAX - 1),
+        top: Some(0),
+        ..layer(&dot, BlendMode::Over)
+    };
+    assert!(composite(&base, &[placed]).is_err());
+}
+
+#[test]
 fn add_saturates_at_255() {
     let base = solid_rgba(1, 1, [200, 10, 0, 255]);
     let src = solid_rgba(1, 1, [100, 10, 0, 255]);

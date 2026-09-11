@@ -219,8 +219,8 @@ pub fn composite(base: &RasterImage, layers: &[CompositeLayer<'_>]) -> Result<Ra
                 });
             }
         };
-        let steps_x = tile_steps(ox, src.width as i64, bw, layer.tile);
-        let steps_y = tile_steps(oy, src.height as i64, bh, layer.tile);
+        let steps_x = tile_steps(ox, src.width as i64, bw, layer.tile)?;
+        let steps_y = tile_steps(oy, src.height as i64, bh, layer.tile)?;
         for &ty in &steps_y {
             for &tx in &steps_x {
                 blend_at(&mut out, &src, tx, ty, layer.blend);
@@ -230,29 +230,57 @@ pub fn composite(base: &RasterImage, layers: &[CompositeLayer<'_>]) -> Result<Ra
     Ok(out)
 }
 
+/// A caller-supplied `left`/`top` on a `tile: true` layer is untrusted input
+/// (it comes straight off the wire recipe) — this names the arithmetic that
+/// would otherwise silently wrap or panic on an offset near `i64::MIN`/`MAX`.
+fn offset_overflow(origin: i64, dim: i64, extent: i64) -> Error {
+    Error::Decode {
+        path: "<memory>".into(),
+        reason: format!(
+            "composite: tiled layer offset {origin} (dim {dim}, extent {extent}) overflows i64 arithmetic"
+        ),
+    }
+}
+
 /// Tile origins along one axis that replicate a `dim`-sized overlay to cover
 /// the WHOLE `[0, extent)` canvas, not just from the placed `origin`
 /// forward — matching sharp/libvips, which tile the overlay across the
 /// entire base regardless of gravity or offset. Origins are
 /// `origin − k·dim` for the smallest `k` that brings the first tile at or
 /// before 0, continuing rightward/downward until the far edge is covered.
-/// When `tile` is false this is just `[origin]`. `dim` is always positive —
-/// `composite` rejects a zero-size overlay before this runs.
-fn tile_steps(origin: i64, dim: i64, extent: i64, tile: bool) -> Vec<i64> {
+/// When `tile` is false this is just `[origin]` — no arithmetic, so an
+/// out-of-range `origin` alone can't overflow here (`blend_at` clips it).
+/// `dim` is always positive — `composite` rejects a zero-size overlay before
+/// this runs. Every step uses checked arithmetic and returns an error
+/// instead of wrapping or panicking on a hostile `origin` (#3505).
+fn tile_steps(origin: i64, dim: i64, extent: i64, tile: bool) -> Result<Vec<i64>> {
     if !tile {
-        return vec![origin];
+        return Ok(vec![origin]);
     }
-    let first = origin - ceil_div(origin, dim) * dim;
-    let count = ceil_div(extent - first, dim).max(0);
-    (0..count).map(|i| first + i * dim).collect()
+    let overflow = || offset_overflow(origin, dim, extent);
+    let k = ceil_div(origin, dim).ok_or_else(overflow)?;
+    let offset = k.checked_mul(dim).ok_or_else(overflow)?;
+    let first = origin.checked_sub(offset).ok_or_else(overflow)?;
+    let span = extent.checked_sub(first).ok_or_else(overflow)?;
+    let count = ceil_div(span, dim).ok_or_else(overflow)?.max(0);
+    (0..count)
+        .map(|i| {
+            i.checked_mul(dim)
+                .and_then(|step| first.checked_add(step))
+                .ok_or_else(overflow)
+        })
+        .collect()
 }
 
 /// `ceil(a / b)` for `b > 0`, any sign of `a` (`i64::div_ceil` is unstable).
-fn ceil_div(a: i64, b: i64) -> i64 {
+/// `None` on overflow rather than wrapping or panicking — `a + b - 1` is the
+/// one step that can overflow, since `b` (a layer dimension) is always small
+/// relative to `i64`, but `a` is a caller-supplied offset that may not be.
+fn ceil_div(a: i64, b: i64) -> Option<i64> {
     if a >= 0 {
-        (a + b - 1) / b
+        a.checked_add(b - 1).map(|sum| sum / b)
     } else {
-        a / b
+        Some(a / b)
     }
 }
 
