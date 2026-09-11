@@ -109,12 +109,16 @@ unsafe fn render_into(
     // when that landed. `encode_raster_opts` keeps alpha for PNG/WebP/AVIF
     // and composites over black for JPEG/TIFF, matching every other encode
     // path in the crate.
+    //
+    // The C ABI has no colourspace parameter yet (#3503) — every render
+    // through this entry point stays sRGB, byte-identical to before.
     let bytes = match encode_raster_opts(
         &resized,
         &RasterEncodeOptions {
             format: p.format,
             quality,
             avif_speed: avif_speed_from(p.effort),
+            primaries: raw_core::view::encode::TargetPrimaries::Srgb,
         },
     ) {
         Ok(b) => b,
