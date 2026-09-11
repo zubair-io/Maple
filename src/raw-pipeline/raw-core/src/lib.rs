@@ -68,6 +68,10 @@ pub use raster::{
     decode_raster, extract_tensor, probe_raster_metadata, resize_raster, FilterAlg, RasterImage,
     RasterMetadata, ResizeFit, ResizeOptions, TensorData, TensorLayout, TensorNormalize,
 };
+/// AVIF's own ISO-BMFF `irot`/`imir` orientation and `Exif`/XMP item reader
+/// (#3507, Task G2) — the piece `avif-parse` doesn't provide. Compiles
+/// unconditionally; only its real-encoder tests need the `avif` feature.
+pub mod avif_boxes;
 pub mod raster_alpha;
 pub mod raster_colour;
 pub mod raster_colour_lab;
