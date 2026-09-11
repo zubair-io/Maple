@@ -10,10 +10,13 @@ use rav1d::src::lib::{
     dav1d_close, dav1d_data_create, dav1d_data_unref, dav1d_default_settings, dav1d_get_picture,
     dav1d_open, dav1d_parse_sequence_header, dav1d_picture_unref, dav1d_send_data,
 };
+use std::any::Any;
 use std::io::Cursor;
-use std::mem::MaybeUninit;
+use std::mem::{ManuallyDrop, MaybeUninit};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr::NonNull;
 
+use crate::avif_yuv::{copy_plane, expand_range, yuv_to_rgb, Yuv};
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 
@@ -57,30 +60,81 @@ fn err(reason: impl Into<String>) -> Error {
     }
 }
 
+/// Reports a caught panic as an ordinary decode error.
+///
+/// Both halves of this decoder panic outright on some corrupt inputs: rav1d
+/// unwraps a `None` deep in tile decoding (#3517), and `avif-parse` trips a
+/// parser-state assertion on a truncated box. A panic is not a usable failure
+/// mode for the callers here — a thumbnail or preview path has to reject one
+/// bad file, not take the process down with it — so every entry point below
+/// runs its fallible work under `catch_unwind` and funnels the payload here.
+/// The panic message is carried through when it is a plain string (which
+/// covers `panic!`, `unwrap`, and `assert!`), because it is the only clue to
+/// *where* the stream went bad.
+fn panicked(what: &str, payload: Box<dyn Any + Send>) -> Error {
+    match payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+    {
+        Some(detail) => err(format!("{what}: {detail}")),
+        None => err(what.to_owned()),
+    }
+}
+
 fn parse_container(bytes: &[u8]) -> Result<avif_parse::AvifData> {
-    avif_parse::read_avif(&mut Cursor::new(bytes)).map_err(|e| err(format!("avif container: {e}")))
+    catch_unwind(|| avif_parse::read_avif(&mut Cursor::new(bytes)))
+        .map_err(|p| panicked("avif container parse panicked (corrupt stream)", p))?
+        .map_err(|e| err(format!("avif container: {e}")))
+}
+
+/// Guards every rav1d call against an argument rav1d itself refuses.
+///
+/// rav1d validates its C-shim arguments with a macro whose failure path calls
+/// `std::process::abort()` outright in a debug build (`validate_input!` →
+/// `debug_abort`) — not a panic, so no barrier can contain it. The only
+/// argument we derive from the file rather than control directly is the OBU
+/// length, and `dav1d_send_data` / `dav1d_parse_sequence_header` both require
+/// it to be non-zero. A corrupt container that parses but leaves the primary
+/// (or alpha) item empty is therefore rejected here, before rav1d sees it.
+fn non_empty_obu(obu: &[u8]) -> Result<&[u8]> {
+    if obu.is_empty() {
+        return Err(err("avif item carries no AV1 payload"));
+    }
+    Ok(obu)
+}
+
+/// `dav1d_parse_sequence_header` behind a panic barrier. Holds no rav1d
+/// resource — the sequence header is written out by value — so unlike
+/// `decode_obu_with_limit` there is nothing to leak when the call panics.
+fn sequence_header(obu: &[u8]) -> Result<Dav1dSequenceHeader> {
+    let obu = non_empty_obu(obu)?;
+    catch_unwind(|| {
+        let mut hdr = MaybeUninit::<Dav1dSequenceHeader>::zeroed();
+        // SAFETY: `hdr` is a valid, writable location; `obu` outlives the call
+        // and is non-empty, so the pointer is to a real `obu.len()`-byte slice.
+        let rc = unsafe {
+            dav1d_parse_sequence_header(
+                NonNull::new(hdr.as_mut_ptr()),
+                NonNull::new(obu.as_ptr() as *mut u8),
+                obu.len(),
+            )
+        };
+        if rc.0 != 0 {
+            return Err(err(format!(
+                "avif sequence header parse failed (dav1d rc {})",
+                rc.0
+            )));
+        }
+        // SAFETY: rc == 0 means dav1d fully initialised the header.
+        Ok(unsafe { hdr.assume_init() })
+    })
+    .map_err(|p| panicked("AVIF sequence-header parse panicked inside rav1d", p))?
 }
 
 pub fn probe_avif(bytes: &[u8]) -> Result<AvifProbe> {
     let data = parse_container(bytes)?;
-    let obu: &[u8] = &data.primary_item;
-    let mut hdr = MaybeUninit::<Dav1dSequenceHeader>::zeroed();
-    // SAFETY: `hdr` is a valid, writable location; `obu` outlives the call.
-    let rc = unsafe {
-        dav1d_parse_sequence_header(
-            NonNull::new(hdr.as_mut_ptr()),
-            NonNull::new(obu.as_ptr() as *mut u8),
-            obu.len(),
-        )
-    };
-    if rc.0 != 0 {
-        return Err(err(format!(
-            "avif sequence header parse failed (dav1d rc {})",
-            rc.0
-        )));
-    }
-    // SAFETY: rc == 0 means dav1d fully initialised the header.
-    let hdr = unsafe { hdr.assume_init() };
+    let hdr = sequence_header(&data.primary_item)?;
     Ok(AvifProbe {
         width: hdr.max_width as u32,
         height: hdr.max_height as u32,
@@ -93,37 +147,6 @@ pub fn probe_avif(bytes: &[u8]) -> Result<AvifProbe> {
             12
         },
     })
-}
-
-/// One decoded AV1 frame with planes copied out to 8-bit.
-struct Yuv {
-    width: usize,
-    height: usize,
-    /// 0 = I400, 1 = I420, 2 = I422, 3 = I444 (dav1d layout numbering).
-    layout: u32,
-    /// 0 = limited (studio) range, 1 = full range.
-    full_range: bool,
-    /// AV1 matrix_coefficients: 0 identity, 1 BT.709, 5/6 BT.601, 9 BT.2020 NCL, 2 unspecified.
-    matrix: u32,
-    y: Vec<u8>,
-    u: Vec<u8>,
-    v: Vec<u8>,
-}
-
-fn copy_plane(base: *const u8, stride: isize, w: usize, h: usize, bpc: i32) -> Vec<u8> {
-    let mut out = Vec::with_capacity(w * h);
-    let shift = (bpc - 8).max(0) as u32;
-    for row in 0..h {
-        // SAFETY: dav1d guarantees `h` rows of at least `w` samples at `stride` spacing.
-        let row_ptr = unsafe { base.offset(row as isize * stride) };
-        if bpc == 8 {
-            out.extend_from_slice(unsafe { std::slice::from_raw_parts(row_ptr, w) });
-        } else {
-            let samples = unsafe { std::slice::from_raw_parts(row_ptr as *const u16, w) };
-            out.extend(samples.iter().map(|&s| (s >> shift) as u8));
-        }
-    }
-    out
 }
 
 /// Closes the dav1d decoding context when dropped — on the normal return
@@ -181,6 +204,18 @@ impl Drop for PictureGuard {
     }
 }
 
+/// Every rav1d resource one decode acquires, in one owner.
+///
+/// Declaration order IS drop order in Rust, and these must be released in
+/// reverse acquisition order: the picture's ref, then dav1d's ref on the input
+/// buffer, then the context itself.
+#[derive(Default)]
+struct DecodeSlots {
+    pic: Option<PictureGuard>,
+    data: Option<DataGuard>,
+    ctx: Option<DecodeContext>,
+}
+
 fn decode_obu(obu: &[u8]) -> Result<Yuv> {
     decode_obu_with_limit(obu, AVIF_MAX_FRAME_PIXELS)
 }
@@ -188,7 +223,47 @@ fn decode_obu(obu: &[u8]) -> Result<Yuv> {
 /// `decode_obu` with the frame-size ceiling as a parameter, so the tests can
 /// prove the limit is actually wired into the decoder by setting it below a
 /// known-good image's pixel count.
+///
+/// The decode itself runs under `catch_unwind` because rav1d panics on some
+/// corrupt streams (#3517) and, reached through its `extern "C-unwind"` shims,
+/// that panic would otherwise escape into whatever called us.
+///
+/// The resources live in `slots` OUT HERE, not inside the closure, and they
+/// are deliberately **not** released when the closure panics. Their
+/// destructors call back into rav1d (`dav1d_picture_unref`, `dav1d_data_unref`,
+/// `dav1d_close`), and doing that to a context rav1d just aborted a decode
+/// halfway through risks a second panic — one raised *while already
+/// unwinding*, which Rust turns into an unconditional `abort()`, the exact
+/// process kill this barrier exists to prevent. So the panic path leaks the
+/// context, input buffer and picture (`ManuallyDrop` with no matching drop).
+/// One leak per corrupt file, on a path that also logs an error, is a price
+/// worth paying to keep the process alive.
 fn decode_obu_with_limit(obu: &[u8], frame_size_limit: u32) -> Result<Yuv> {
+    let mut slots = ManuallyDrop::new(DecodeSlots::default());
+    // `let`, not a `match` scrutinee: a temporary in a scrutinee lives to the
+    // end of the match, and the closure's `&mut slots` borrow with it.
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        decode_into(obu, frame_size_limit, &mut slots)
+    }));
+    match outcome {
+        Ok(result) => {
+            // SAFETY: `slots` is live and has not been dropped — this is the
+            // only drop, and only the non-panicking path reaches it.
+            unsafe { ManuallyDrop::drop(&mut slots) };
+            result
+        }
+        Err(payload) => Err(panicked(
+            "AVIF decode panicked inside rav1d (corrupt stream)",
+            payload,
+        )),
+    }
+}
+
+/// The body of `decode_obu_with_limit`, with every rav1d resource parked in
+/// `slots` so its caller decides whether to release or leak them.
+fn decode_into(obu: &[u8], frame_size_limit: u32, slots: &mut DecodeSlots) -> Result<Yuv> {
+    let obu = non_empty_obu(obu)?;
+
     let mut settings = MaybeUninit::<Dav1dSettings>::uninit();
     // SAFETY: `settings` is a valid, writable location.
     unsafe { dav1d_default_settings(NonNull::new(settings.as_mut_ptr()).unwrap()) };
@@ -197,51 +272,54 @@ fn decode_obu_with_limit(obu: &[u8], frame_size_limit: u32) -> Result<Yuv> {
     settings.n_threads = 1;
     settings.frame_size_limit = frame_size_limit;
 
-    // `ctx` closes on every exit below (`?`, panic, or the `Ok` at the end).
-    let ctx = DecodeContext::open(&mut settings)?;
-
-    let mut data = MaybeUninit::<Dav1dData>::zeroed();
-    // SAFETY: `data` is a valid, writable location.
-    let dst = unsafe { dav1d_data_create(NonNull::new(data.as_mut_ptr()), obu.len()) };
-    if dst.is_null() {
-        return Err(err("dav1d_data_create returned null"));
-    }
-    // SAFETY: `dst` is a dav1d-allocated buffer of `obu.len()` bytes (the
-    // null case, the only way it could be smaller or absent, returned above);
-    // `obu` has `obu.len()` bytes to copy from.
-    unsafe { std::ptr::copy_nonoverlapping(obu.as_ptr(), dst, obu.len()) };
-    // SAFETY: `dav1d_data_create` fully wrote `data` before returning non-null.
-    // Wrapped in `DataGuard` so every exit from here on releases the ref.
-    let mut data = DataGuard(unsafe { data.assume_init() });
+    let ctx = slots.ctx.insert(DecodeContext::open(&mut settings)?).0;
 
     let mut pic = MaybeUninit::<Dav1dPicture>::zeroed();
-    // SAFETY: `ctx.0` is an open context; `data.0` and `pic` are valid locals.
-    let mut rc = unsafe { dav1d_send_data(ctx.0, NonNull::new(&mut data.0)) };
-    if rc.0 != 0 && rc.0 != EAGAIN {
-        return Err(err(format!("dav1d_send_data failed ({})", rc.0)));
-    }
-    // SAFETY: same as above.
-    rc = unsafe { dav1d_get_picture(ctx.0, NonNull::new(pic.as_mut_ptr())) };
-    let mut attempts = 0;
-    while rc.0 == EAGAIN && attempts < 16 {
-        if data.0.sz > 0 {
-            // SAFETY: same as above.
-            let _ = unsafe { dav1d_send_data(ctx.0, NonNull::new(&mut data.0)) };
+    let rc = {
+        let mut raw = MaybeUninit::<Dav1dData>::zeroed();
+        // SAFETY: `raw` is a valid, writable location.
+        let dst = unsafe { dav1d_data_create(NonNull::new(raw.as_mut_ptr()), obu.len()) };
+        if dst.is_null() {
+            return Err(err("dav1d_data_create returned null"));
+        }
+        // SAFETY: `dst` is a dav1d-allocated buffer of `obu.len()` bytes (the
+        // null case, the only way it could be smaller or absent, returned
+        // above); `obu` has `obu.len()` bytes to copy from.
+        unsafe { std::ptr::copy_nonoverlapping(obu.as_ptr(), dst, obu.len()) };
+        // SAFETY: `dav1d_data_create` fully wrote `raw` before returning
+        // non-null. Parked in `slots` so every exit from here on either
+        // releases dav1d's ref or deliberately leaks it.
+        let data = &mut slots.data.insert(DataGuard(unsafe { raw.assume_init() })).0;
+
+        // SAFETY: `ctx` is an open context; `data` and `pic` are valid locals.
+        let mut rc = unsafe { dav1d_send_data(ctx, NonNull::new(&mut *data)) };
+        if rc.0 != 0 && rc.0 != EAGAIN {
+            return Err(err(format!("dav1d_send_data failed ({})", rc.0)));
         }
         // SAFETY: same as above.
-        rc = unsafe { dav1d_get_picture(ctx.0, NonNull::new(pic.as_mut_ptr())) };
-        attempts += 1;
-    }
+        rc = unsafe { dav1d_get_picture(ctx, NonNull::new(pic.as_mut_ptr())) };
+        let mut attempts = 0;
+        while rc.0 == EAGAIN && attempts < 16 {
+            if data.sz > 0 {
+                // SAFETY: same as above.
+                let _ = unsafe { dav1d_send_data(ctx, NonNull::new(&mut *data)) };
+            }
+            // SAFETY: same as above.
+            rc = unsafe { dav1d_get_picture(ctx, NonNull::new(pic.as_mut_ptr())) };
+            attempts += 1;
+        }
+        rc
+    };
     if rc.0 != 0 {
         return Err(err(format!("dav1d_get_picture failed ({})", rc.0)));
     }
     // Input is fully consumed (or intentionally abandoned on `EAGAIN`
     // exhaustion) either way — release dav1d's ref before touching output.
-    drop(data);
+    slots.data = None;
 
     // SAFETY: `rc.0 == 0` means dav1d fully populated `pic`.
-    // Wrapped in `PictureGuard` so every exit from here on releases the ref.
-    let pic = PictureGuard(unsafe { pic.assume_init() });
+    // Parked in `slots` alongside the context, same contract as the input.
+    let pic = slots.pic.insert(PictureGuard(unsafe { pic.assume_init() }));
     let (w, h) = (pic.0.p.w as usize, pic.0.p.h as usize);
     let layout = pic.0.p.layout;
     let bpc = pic.0.p.bpc;
@@ -283,84 +361,9 @@ fn decode_obu_with_limit(obu: &[u8], frame_size_limit: u32) -> Result<Yuv> {
         u,
         v,
     })
-    // `pic` drops here (unrefs the picture), then `ctx` drops (closes the
-    // context) — reverse declaration order, matching the original explicit
-    // unref-then-close sequence.
-}
-
-fn clamp8(v: f32) -> u8 {
-    v.round().clamp(0.0, 255.0) as u8
-}
-
-/// Expands a limited/studio-range 8-bit sample (16-235, AV1's `color_range =
-/// 0`) to full range (0-255); a full-range sample passes through unchanged.
-/// Used for both monochrome luma and alpha-item samples, which dav1d reports
-/// coded range for identically via `Dav1dSequenceHeader::color_range`.
-fn expand_range(sample: u8, full_range: bool) -> u8 {
-    if full_range {
-        sample
-    } else {
-        clamp8((sample as f32 - 16.0) * 255.0 / 219.0)
-    }
-}
-
-/// BT.601/709/2020 constant-luminance-free conversion (Kr, Kb pairs).
-fn kr_kb(matrix: u32) -> (f32, f32) {
-    match matrix {
-        1 => (0.2126, 0.0722),
-        9 => (0.2627, 0.0593),
-        _ => (0.299, 0.114), // 5, 6 (BT.601) and 2 (unspecified) — libavif's default
-    }
-}
-
-fn yuv_to_rgb(yuv: &Yuv) -> Vec<u8> {
-    let (w, h) = (yuv.width, yuv.height);
-    let mut rgb = Vec::with_capacity(w * h * 3);
-    if yuv.layout == 0 {
-        for &y in &yuv.y {
-            let v = expand_range(y, yuv.full_range);
-            rgb.extend_from_slice(&[v, v, v]);
-        }
-        return rgb;
-    }
-    let (ssx, ssy) = match yuv.layout {
-        1 => (1, 1),
-        2 => (1, 0),
-        _ => (0, 0),
-    };
-    let cw = (w + ssx) >> ssx;
-    if yuv.matrix == 0 {
-        // Identity: planes are G, B, R.
-        for row in 0..h {
-            for col in 0..w {
-                let i = row * w + col;
-                let ci = (row >> ssy) * cw + (col >> ssx);
-                rgb.extend_from_slice(&[yuv.v[ci], yuv.y[i], yuv.u[ci]]);
-            }
-        }
-        return rgb;
-    }
-    let (kr, kb) = kr_kb(yuv.matrix);
-    let kg = 1.0 - kr - kb;
-    let (y_scale, y_off, c_scale) = if yuv.full_range {
-        (1.0, 0.0, 1.0)
-    } else {
-        (255.0 / 219.0, 16.0, 255.0 / 224.0)
-    };
-    for row in 0..h {
-        for col in 0..w {
-            let i = row * w + col;
-            let ci = (row >> ssy) * cw + (col >> ssx);
-            let yv = (yuv.y[i] as f32 - y_off) * y_scale;
-            let cb = (yuv.u[ci] as f32 - 128.0) * c_scale;
-            let cr = (yuv.v[ci] as f32 - 128.0) * c_scale;
-            let r = yv + 2.0 * (1.0 - kr) * cr;
-            let b = yv + 2.0 * (1.0 - kb) * cb;
-            let g = (yv - kr * r - kb * b) / kg;
-            rgb.extend_from_slice(&[clamp8(r), clamp8(g), clamp8(b)]);
-        }
-    }
-    rgb
+    // `slots` still holds the picture and the context; `decode_obu_with_limit`
+    // releases them (picture first, then context) now that the caller is back
+    // on the non-panicking path.
 }
 
 /// Decode an AVIF still image to RGB8 (or RGBA8 when the container carries an
@@ -491,30 +494,5 @@ mod tests {
             panic!("a 1,024-pixel ceiling must reject a 3,072-pixel frame");
         };
         assert!(format!("{e}").contains("dav1d"), "unexpected error: {e}");
-    }
-
-    #[test]
-    fn ten_bit_samples_down_convert_to_eight_bit() {
-        // `image` 0.25's `AvifEncoder` is the only AVIF encoder in this
-        // build, and it converts every input colour type — `Rgb16` included
-        // — to `Rgba8` before handing pixels to ravif, so nothing here can
-        // emit a 10-bit AV1 bitstream to round-trip through `decode_avif`.
-        // The 10/12-bit branch is covered directly instead, on a plane
-        // shaped exactly like dav1d's high-bit-depth output: `u16` samples
-        // addressed through a byte stride.
-        let samples: Vec<u16> = vec![0, 512, 1023, 256, 64, 960];
-        let stride = 3 * std::mem::size_of::<u16>() as isize;
-        let out = copy_plane(samples.as_ptr() as *const u8, stride, 3, 2, 10);
-        assert_eq!(out, vec![0, 128, 255, 64, 16, 240]);
-    }
-
-    #[test]
-    fn limited_range_alpha_expands_to_full_range() {
-        // The `image`-crate AVIF encoder always produces full-range alpha,
-        // so this can't be exercised through an encoded fixture — test the
-        // range-expansion helper directly instead, per its own contract.
-        assert_eq!(expand_range(16, false), 0);
-        assert_eq!(expand_range(235, false), 255);
-        assert_eq!(expand_range(128, true), 128);
     }
 }

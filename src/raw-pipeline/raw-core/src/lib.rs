@@ -47,6 +47,8 @@ pub mod avif;
 
 #[cfg(feature = "avif")]
 pub mod avif_decode;
+#[cfg(feature = "avif")]
+mod avif_yuv;
 
 pub mod tiff;
 
