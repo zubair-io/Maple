@@ -304,7 +304,20 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
 
     let (dst_w_calc, dst_h_calc) = match options.fit {
         ResizeFit::Cover => {
-            let (tw, th) = (options.width.max(1), options.height.max(1));
+            // A 0 width/height means "keep the source dimension", the same
+            // as in the `Fill` and `Inside` arms — clamping it to 1px
+            // instead (the old `.max(1)`) turned `cover` with one axis
+            // unspecified into a 1-pixel sliver.
+            let tw = if options.width == 0 {
+                src.width
+            } else {
+                options.width
+            };
+            let th = if options.height == 0 {
+                src.height
+            } else {
+                options.height
+            };
             let scale = (tw as f64 / src.width as f64).max(th as f64 / src.height as f64);
             let scale = if options.without_enlargement {
                 scale.min(1.0)

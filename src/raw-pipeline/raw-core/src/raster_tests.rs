@@ -79,6 +79,27 @@ mod avif_dispatch {
         );
         assert_eq!(meta.orientation, 1);
     }
+
+    /// An AVIF carrying a separate alpha item must probe as 4 channels —
+    /// the container-level `has_alpha` fact, read without decoding either
+    /// item's pixels.
+    #[test]
+    fn probe_reports_four_channels_for_an_avif_with_an_alpha_item() {
+        use image::{codecs::avif::AvifEncoder, ExtendedColorType, ImageEncoder};
+        let (w, h) = (16u32, 8u32);
+        let rgba: Vec<u8> = (0..(w * h))
+            .flat_map(|i| [10u8, 120, 240, if i % 3 == 0 { 255 } else { 0 }])
+            .collect();
+        let mut bytes = Vec::new();
+        AvifEncoder::new_with_speed_quality(&mut bytes, 8, 90)
+            .write_image(&rgba, w, h, ExtendedColorType::Rgba8)
+            .unwrap();
+        let meta = probe_raster_metadata(&bytes).unwrap();
+        assert_eq!(
+            (meta.width, meta.height, meta.format.as_str(), meta.channels),
+            (w, h, "avif", 4)
+        );
+    }
 }
 
 // Only compiles (and is meaningful) without the `avif` feature: verifies the
@@ -210,6 +231,30 @@ mod cover_fit {
         )
         .unwrap();
         assert_eq!((out.width, out.height), (50, 40));
+    }
+
+    #[test]
+    fn cover_treats_a_zero_dimension_as_the_source_dimension() {
+        let cover = |w, h| {
+            resize_raster(
+                &img(400, 200),
+                &ResizeOptions {
+                    width: w,
+                    height: h,
+                    fit: ResizeFit::Cover,
+                    filter: FilterAlg::Bilinear,
+                    without_enlargement: true,
+                },
+            )
+            .unwrap()
+        };
+        // Height unspecified: the box is 100 x (source height), so the
+        // result is a 100px-wide centre crop at full height — not the
+        // 100x1 sliver a 1px height ceiling used to produce.
+        let by_width = cover(100, 0);
+        assert_eq!((by_width.width, by_width.height), (100, 200));
+        let by_height = cover(0, 100);
+        assert_eq!((by_height.width, by_height.height), (400, 100));
     }
 
     #[test]

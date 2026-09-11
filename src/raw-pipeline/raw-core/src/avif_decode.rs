@@ -23,6 +23,16 @@ use crate::raster::RasterImage;
 // the same `libc` crate rather than hard-coded for one OS.
 const EAGAIN: i32 = -(libc::EAGAIN as i32);
 
+/// Ceiling on the pixel count of a single decoded AV1 frame (rav1d's
+/// `frame_size_limit` is a pixel count, not a byte count). dav1d's own
+/// default is 0 = unlimited, so without this a hostile AVIF that *declares*
+/// 65535x65535 in its frame header makes the decoder allocate multi-GB
+/// planes — and `copy_plane` then allocates as much again — before anything
+/// notices. 268 MP is ~13x the largest sensor Maple decodes (100 MP) and
+/// ~65x the biggest derivative it writes, so no real input comes near it,
+/// while an absurd declaration fails as a clean `Err` instead of an OOM.
+const AVIF_MAX_FRAME_PIXELS: u32 = 268_000_000;
+
 /// Container-level facts, read without decoding any pixel data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AvifProbe {
@@ -172,12 +182,20 @@ impl Drop for PictureGuard {
 }
 
 fn decode_obu(obu: &[u8]) -> Result<Yuv> {
+    decode_obu_with_limit(obu, AVIF_MAX_FRAME_PIXELS)
+}
+
+/// `decode_obu` with the frame-size ceiling as a parameter, so the tests can
+/// prove the limit is actually wired into the decoder by setting it below a
+/// known-good image's pixel count.
+fn decode_obu_with_limit(obu: &[u8], frame_size_limit: u32) -> Result<Yuv> {
     let mut settings = MaybeUninit::<Dav1dSettings>::uninit();
     // SAFETY: `settings` is a valid, writable location.
     unsafe { dav1d_default_settings(NonNull::new(settings.as_mut_ptr()).unwrap()) };
     // SAFETY: `dav1d_default_settings` unconditionally initialises `settings`.
     let mut settings = unsafe { settings.assume_init() };
     settings.n_threads = 1;
+    settings.frame_size_limit = frame_size_limit;
 
     // `ctx` closes on every exit below (`?`, panic, or the `Ok` at the end).
     let ctx = DecodeContext::open(&mut settings)?;
@@ -457,6 +475,37 @@ mod tests {
     fn rejects_non_avif_bytes() {
         assert!(!is_avif(b"\x89PNG\r\n\x1a\n"));
         assert!(decode_avif(b"not an avif at all").is_err());
+    }
+
+    #[test]
+    fn frame_size_limit_rejects_frames_larger_than_the_ceiling() {
+        let rgb = gradient_rgb(64, 48);
+        let bytes = crate::avif::encode(64, 48, &rgb, 60).unwrap();
+        let data = parse_container(&bytes).unwrap();
+        // Control: the shipped ceiling decodes this 3,072-pixel frame.
+        assert!(decode_obu_with_limit(&data.primary_item, AVIF_MAX_FRAME_PIXELS).is_ok());
+        // A ceiling below the frame's pixel count fails as a clean `Err`
+        // rather than allocating the planes — which is what protects us from
+        // an AVIF whose frame header declares an absurd size.
+        let Err(e) = decode_obu_with_limit(&data.primary_item, 1024) else {
+            panic!("a 1,024-pixel ceiling must reject a 3,072-pixel frame");
+        };
+        assert!(format!("{e}").contains("dav1d"), "unexpected error: {e}");
+    }
+
+    #[test]
+    fn ten_bit_samples_down_convert_to_eight_bit() {
+        // `image` 0.25's `AvifEncoder` is the only AVIF encoder in this
+        // build, and it converts every input colour type — `Rgb16` included
+        // — to `Rgba8` before handing pixels to ravif, so nothing here can
+        // emit a 10-bit AV1 bitstream to round-trip through `decode_avif`.
+        // The 10/12-bit branch is covered directly instead, on a plane
+        // shaped exactly like dav1d's high-bit-depth output: `u16` samples
+        // addressed through a byte stride.
+        let samples: Vec<u16> = vec![0, 512, 1023, 256, 64, 960];
+        let stride = 3 * std::mem::size_of::<u16>() as isize;
+        let out = copy_plane(samples.as_ptr() as *const u8, stride, 3, 2, 10);
+        assert_eq!(out, vec![0, 128, 255, 64, 16, 240]);
     }
 
     #[test]
