@@ -137,3 +137,37 @@ mod avif_feature_off {
         );
     }
 }
+
+mod raw_input {
+    use crate::raster::RasterImage;
+
+    #[test]
+    fn from_raw_accepts_rgb_and_rgba() {
+        let rgb = RasterImage::from_raw(2, 1, 3, vec![1, 2, 3, 4, 5, 6]).unwrap();
+        assert_eq!((rgb.channels, rgb.data.len()), (3, 6));
+        let rgba = RasterImage::from_raw(1, 1, 4, vec![9, 9, 9, 255]).unwrap();
+        assert_eq!(rgba.channels, 4);
+    }
+
+    #[test]
+    fn from_raw_expands_grey_to_rgb() {
+        let img = RasterImage::from_raw(2, 1, 1, vec![10, 200]).unwrap();
+        assert_eq!(img.channels, 3);
+        assert_eq!(img.data, vec![10, 10, 10, 200, 200, 200]);
+    }
+
+    #[test]
+    fn from_raw_rejects_bad_lengths_and_channels() {
+        assert!(RasterImage::from_raw(2, 2, 3, vec![0; 11]).is_err());
+        assert!(RasterImage::from_raw(1, 1, 2, vec![0; 2]).is_err());
+        assert!(RasterImage::from_raw(0, 1, 3, vec![]).is_err());
+    }
+
+    #[test]
+    fn into_rgb8_drops_alpha() {
+        let img = RasterImage::from_raw(1, 1, 4, vec![7, 8, 9, 0])
+            .unwrap()
+            .into_rgb8();
+        assert_eq!((img.channels, img.data), (3, vec![7, 8, 9]));
+    }
+}
