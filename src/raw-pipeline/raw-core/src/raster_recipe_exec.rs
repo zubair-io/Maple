@@ -193,6 +193,21 @@ mod tests {
         (0..8).flat_map(|_| [255u8, 0, 0, 255]).collect()
     }
 
+    /// sharp `effort` 0 (fastest) ..= 9 (slowest) → rav1e speed 10 ..= 1,
+    /// i.e. `speed = 10 - effort`. Must equal Tier 1's `avif_speed_from` in
+    /// `raw-ffi/src/raster_v2.rs` (its wire is one-based — `wire_effort =
+    /// effort + 1`, mapped by `11 - wire_effort.min(10)` — which reduces to
+    /// the same `10 - effort` for every sharp effort value 0..=9), so a
+    /// recipe-driven AVIF encode and the direct FFI path pick the same
+    /// rav1e speed for the same effort.
+    #[test]
+    fn avif_speed_maps_effort_0_through_9_to_speed_10_through_1() {
+        let expected: [u8; 10] = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+        for (effort, &speed) in expected.iter().enumerate() {
+            assert_eq!(avif_speed(effort as u8), speed, "effort {effort}");
+        }
+    }
+
     #[test]
     fn raw_in_raw_out_is_a_round_trip() {
         let out = run(
