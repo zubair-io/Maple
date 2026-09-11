@@ -6,8 +6,9 @@
  * version also checked `space`/ICC, which our encoder never writes, so those
  * checks are gone with it.
  *
- * `raw_ffi.child.ts` is this module's only PIXEL-WORK consumer — it's
- * imported at module scope there so no production code in the API parent
+ * The FFI child's dispatch (`ffi/raw_ffi-dispatch.ts`) is this module's only
+ * PIXEL-WORK consumer — imported at module scope there, inside the isolated
+ * decode child, so no production code in the API parent
  * process ever runs a decode or encode on the native bitmap bindings; a
  * crash stays contained to the isolated child. The parent process does
  * still load the bindings for lightweight metadata reads: `routes/fs-

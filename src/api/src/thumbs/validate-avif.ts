@@ -21,7 +21,8 @@
  * input most likely to trip a native decoder crash — inside the HTTP server
  * (see `ffi/ffi-pool.ts`'s "Why off-process" module doc). The actual check
  * semantics (format/dimensions/orientation/full-decode) now live in
- * `thumbs/avif-checks.ts`, imported only by the child (`ffi/raw_ffi.child.ts`)
+ * `thumbs/avif-checks.ts`, imported only by the decode child's dispatch
+ * (`ffi/raw_ffi-dispatch.ts`)
  * — this file stays importable from the parent without pulling Maple's
  * native decoder into its address space.
  *
