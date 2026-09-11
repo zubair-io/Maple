@@ -7,17 +7,23 @@ use fast_image_resize as fr;
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
+use crate::raster_composite::Gravity;
+use crate::raster_geometry::ExtendEdges;
 
-/// Sizing and framing strategy for resizing.
+/// Sizing and framing strategy, matching sharp's `fit`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ResizeFit {
-    /// Scale image to fit inside target bounding box, preserving aspect ratio.
+    /// As large as possible while both dimensions stay <= the target.
     #[default]
     Inside,
-    /// Scale image to exactly target width and height, distorting aspect ratio if needed.
+    /// Exactly the target, aspect ratio ignored.
     Fill,
-    /// Scale so the target box is fully covered (aspect preserved), then centre-crop to it.
+    /// Cover the target (aspect preserved), then crop to it at `position`.
     Cover,
+    /// Fit inside the target, then pad to it with `background` at `position`.
+    Contain,
+    /// As small as possible while both dimensions stay >= the target.
+    Outside,
 }
 
 /// Filter kernel for resampling.
@@ -37,6 +43,14 @@ pub struct ResizeOptions {
     pub fit: ResizeFit,
     pub filter: FilterAlg,
     pub without_enlargement: bool,
+    /// sharp's `withoutReduction`: never scale DOWN. Cover and contain still
+    /// crop or pad afterwards to reach the exact box.
+    pub without_reduction: bool,
+    /// Where the source sits inside the target box for `cover` and `contain`.
+    pub position: Gravity,
+    /// Letterbox colour for `contain`. An alpha below 255 promotes the result
+    /// to 4 channels.
+    pub background: [u8; 4],
 }
 
 impl Default for ResizeOptions {
@@ -47,7 +61,107 @@ impl Default for ResizeOptions {
             fit: ResizeFit::Inside,
             filter: FilterAlg::Lanczos3,
             without_enlargement: true,
+            without_reduction: false,
+            position: Gravity::Centre,
+            background: [0, 0, 0, 255],
         }
+    }
+}
+
+/// Target dimension on one axis: `0` means "keep the source".
+fn target(requested: u32, source: u32) -> u32 {
+    if requested == 0 {
+        source
+    } else {
+        requested
+    }
+}
+
+/// Apply `withoutEnlargement` / `withoutReduction` to a scale factor.
+fn clamp_scale(scale: f64, options: &ResizeOptions) -> f64 {
+    let no_up = if options.without_enlargement {
+        scale.min(1.0)
+    } else {
+        scale
+    };
+    if options.without_reduction {
+        no_up.max(1.0)
+    } else {
+        no_up
+    }
+}
+
+/// Resample to exactly `(width, height)` with no fit arithmetic.
+fn resample_exact(
+    src: &RasterImage,
+    width: u32,
+    height: u32,
+    filter: FilterAlg,
+) -> Result<RasterImage> {
+    resize_raster(
+        src,
+        &ResizeOptions {
+            width,
+            height,
+            fit: ResizeFit::Fill,
+            filter,
+            without_enlargement: false,
+            without_reduction: false,
+            position: Gravity::Centre,
+            background: [0, 0, 0, 255],
+        },
+    )
+}
+
+/// Scale by an aspect-preserving factor, then either crop (`cover`) or pad
+/// (`contain`) to the exact box at `position`.
+fn scale_then_frame(
+    src: &RasterImage,
+    options: &ResizeOptions,
+    pick: fn(f64, f64) -> f64,
+) -> Result<RasterImage> {
+    let tw = target(options.width, src.width);
+    let th = target(options.height, src.height);
+    let scale = clamp_scale(
+        pick(tw as f64 / src.width as f64, th as f64 / src.height as f64),
+        options,
+    );
+    let scaled = resample_exact(
+        src,
+        (src.width as f64 * scale).round().max(1.0) as u32,
+        (src.height as f64 * scale).round().max(1.0) as u32,
+        options.filter,
+    )?;
+    match options.fit {
+        ResizeFit::Cover => {
+            let cw = tw.min(scaled.width);
+            let ch = th.min(scaled.height);
+            let (x, y) = options
+                .position
+                .place((scaled.width, scaled.height), (cw, ch));
+            scaled.crop(x.max(0) as u32, y.max(0) as u32, cw, ch)
+        }
+        ResizeFit::Contain => {
+            let (x, y) = options
+                .position
+                .place((tw, th), (scaled.width, scaled.height));
+            let left = x.max(0) as u32;
+            let top = y.max(0) as u32;
+            scaled.extend(
+                ExtendEdges {
+                    left,
+                    top,
+                    right: tw.saturating_sub(scaled.width + left),
+                    bottom: th.saturating_sub(scaled.height + top),
+                },
+                options.background,
+            )
+        }
+        // `scale_then_frame` is only reached from the Cover and Contain arms.
+        other => Err(Error::Decode {
+            path: "<memory>".into(),
+            reason: format!("{other:?} does not frame after scaling"),
+        }),
     }
 }
 
@@ -60,87 +174,71 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
         });
     }
 
-    let (dst_w_calc, dst_h_calc) = match options.fit {
-        ResizeFit::Cover => {
-            // A 0 width/height means "keep the source dimension", the same
-            // as in the `Fill` and `Inside` arms — clamping it to 1px
-            // instead (the old `.max(1)`) turned `cover` with one axis
-            // unspecified into a 1-pixel sliver.
-            let tw = if options.width == 0 {
-                src.width
-            } else {
-                options.width
+    let (dst_w, dst_h) = match options.fit {
+        ResizeFit::Cover => return scale_then_frame(src, options, f64::max),
+        ResizeFit::Contain => return scale_then_frame(src, options, f64::min),
+        ResizeFit::Fill => (
+            target(options.width, src.width),
+            target(options.height, src.height),
+        ),
+        ResizeFit::Inside | ResizeFit::Outside => {
+            let sx = match options.width {
+                0 => None,
+                w => Some(w as f64 / src.width as f64),
             };
-            let th = if options.height == 0 {
-                src.height
-            } else {
-                options.height
+            let sy = match options.height {
+                0 => None,
+                h => Some(h as f64 / src.height as f64),
             };
-            let scale = (tw as f64 / src.width as f64).max(th as f64 / src.height as f64);
-            let scale = if options.without_enlargement {
-                scale.min(1.0)
-            } else {
-                scale
-            };
-            let scaled = resize_raster(
-                src,
-                &ResizeOptions {
-                    width: (src.width as f64 * scale).round().max(1.0) as u32,
-                    height: (src.height as f64 * scale).round().max(1.0) as u32,
-                    fit: ResizeFit::Fill,
-                    filter: options.filter,
-                    without_enlargement: false,
-                },
-            )?;
-            let cw = tw.min(scaled.width);
-            let ch = th.min(scaled.height);
-            return scaled.crop((scaled.width - cw) / 2, (scaled.height - ch) / 2, cw, ch);
-        }
-        ResizeFit::Fill => {
-            let w = if options.width == 0 {
-                src.width
-            } else {
-                options.width
-            };
-            let h = if options.height == 0 {
-                src.height
-            } else {
-                options.height
-            };
-            (w, h)
-        }
-        ResizeFit::Inside => {
-            let scale = match (options.width, options.height) {
-                (0, 0) => 1.0,
-                (w, 0) => w as f64 / src.width as f64,
-                (0, h) => h as f64 / src.height as f64,
-                (w, h) => {
-                    let sx = w as f64 / src.width as f64;
-                    let sy = h as f64 / src.height as f64;
-                    sx.min(sy)
+            let raw_scale = match (sx, sy) {
+                (None, None) => 1.0,
+                (Some(x), None) => x,
+                (None, Some(y)) => y,
+                (Some(x), Some(y)) => {
+                    if options.fit == ResizeFit::Outside {
+                        x.max(y)
+                    } else {
+                        x.min(y)
+                    }
                 }
             };
-            let mut final_scale = scale;
-            if options.without_enlargement && final_scale >= 1.0 {
-                final_scale = 1.0;
-            }
-            let w = (src.width as f64 * final_scale).round().max(1.0) as u32;
-            let h = (src.height as f64 * final_scale).round().max(1.0) as u32;
-            (w, h)
+            let scale = clamp_scale(raw_scale, options);
+            (
+                (src.width as f64 * scale).round().max(1.0) as u32,
+                (src.height as f64 * scale).round().max(1.0) as u32,
+            )
         }
     };
 
-    if dst_w_calc == src.width && dst_h_calc == src.height {
+    if dst_w == src.width && dst_h == src.height {
         return Ok(src.clone());
     }
+    resample(src, dst_w, dst_h, options.filter)
+}
 
-    if dst_w_calc == 0 || dst_h_calc == 0 {
-        return Err(Error::Decode {
-            path: "<memory>".into(),
-            reason: "target dimensions must be non-zero".into(),
-        });
-    }
-
+/// The `fast_image_resize` call itself.
+///
+/// `mul_div_alpha: true` (#3548) is the crate's own premultiplied-alpha
+/// resampling path: for a pixel type that carries alpha (`U8x4` here), it
+/// multiplies colour by alpha before the resize kernel runs and divides it
+/// back out after, internally, via the same `MulDiv` machinery the crate
+/// exposes standalone — see `resample_convolution` in
+/// `fast_image_resize::resizer`. Without it a fully transparent neighbour
+/// still contributes its raw colour to the kernel's weighted sum, so a
+/// resize can bleed colour from pixels that carry none of their own
+/// opacity — e.g. an opaque red pixel next to a transparent green one,
+/// downscaled together, would otherwise turn pink instead of staying red.
+/// It is the crate's default already (confirmed empirically: forcing it to
+/// `false` is what makes `downscaling_rgba_premultiplies_so_transparent_
+/// colour_does_not_bleed` fail below); it is spelled out here so the
+/// intent survives a future change to that default, and so a second,
+/// hand-rolled premultiply is never added on top — doing that would
+/// double-premultiply through this path and be wrong for anything but the
+/// 0/255 alpha extremes. 3-channel sources have no alpha channel, so
+/// `MulDiv::is_supported` reports `U8x3` unsupported and the crate falls
+/// through to the unchanged straight convolution — no separate branch is
+/// needed here to keep that path untouched.
+fn resample(src: &RasterImage, dst_w: u32, dst_h: u32, filter: FilterAlg) -> Result<RasterImage> {
     let pixel_type = match src.channels {
         3 => fr::PixelType::U8x3,
         4 => fr::PixelType::U8x4,
@@ -159,9 +257,9 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
                 reason: format!("fast_image_resize source creation error: {e}"),
             })?;
 
-    let mut dst_image = fr::images::Image::new(dst_w_calc, dst_h_calc, pixel_type);
+    let mut dst_image = fr::images::Image::new(dst_w, dst_h, pixel_type);
 
-    let alg = match options.filter {
+    let alg = match filter {
         FilterAlg::Lanczos3 => fr::ResizeAlg::Convolution(fr::FilterType::Lanczos3),
         FilterAlg::Bilinear => fr::ResizeAlg::Convolution(fr::FilterType::Bilinear),
         FilterAlg::Nearest => fr::ResizeAlg::Nearest,
@@ -169,6 +267,7 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
 
     let fr_opts = fr::ResizeOptions {
         algorithm: alg,
+        mul_div_alpha: true,
         ..Default::default()
     };
 
@@ -181,10 +280,14 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
         })?;
 
     Ok(RasterImage {
-        width: dst_w_calc,
-        height: dst_h_calc,
+        width: dst_w,
+        height: dst_h,
         channels: src.channels,
         data: dst_image.into_vec(),
         orientation: src.orientation,
     })
 }
+
+#[cfg(test)]
+#[path = "raster_resize_tests.rs"]
+mod tests;
