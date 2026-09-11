@@ -1,0 +1,104 @@
+rav1d 1.1.0 — declare the nine dav1d_* shims Maple calls as `extern "C-unwind"`.
+
+Maple issue #3517. rav1d's decoder panics on some corrupt AV1 streams (e.g.
+`Option::unwrap()` at src/decode.rs:4997 for a truncated OBU). Its Rust-ABI
+entry points are `pub(crate)`, so raw-core has to call the `pub unsafe extern
+"C" fn dav1d_*` shims in src/lib.rs — and since Rust 1.81 a panic that reaches
+a plain `extern "C"` frame aborts the process instead of unwinding. That kills
+the whole API FFI child (and the test binary) before raw-ffi's `catch_panic_rc`
+barrier can turn it into an error.
+
+`extern "C-unwind"` keeps the identical C calling convention and symbol names —
+C callers of the staticlib are unaffected — while permitting a Rust panic to
+unwind back out through the shim, where raw-core's `catch_unwind` in
+`avif_decode.rs` maps it to a decode error.
+
+Only the nine shims raw-core actually calls are changed; the rest of the C API
+is left alone so the delta stays minimal and reviewable.
+
+Apply from src/raw-pipeline/third_party/rav1d:
+    patch -p1 < ../../patches/rav1d-1.1.0-c-unwind.patch
+
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -135,7 +135,7 @@
+ ///   The former contents of `s` are not [`drop`]ped and it may be uninitialized.
+ #[no_mangle]
+ #[cold]
+-pub unsafe extern "C" fn dav1d_default_settings(s: NonNull<Dav1dSettings>) {
++pub unsafe extern "C-unwind" fn dav1d_default_settings(s: NonNull<Dav1dSettings>) {
+     let settings = Rav1dSettings::default().into();
+     // SAFETY: `s` is safe to `ptr::write` to.
+     unsafe { s.as_ptr().write(settings) };
+@@ -320,7 +320,7 @@
+ /// * `s`, if [`NonNull`], is valid to [`ptr::read`] from.
+ #[no_mangle]
+ #[cold]
+-pub unsafe extern "C" fn dav1d_open(
++pub unsafe extern "C-unwind" fn dav1d_open(
+     c_out: Option<NonNull<Option<Dav1dContext>>>,
+     s: Option<NonNull<Dav1dSettings>>,
+ ) -> Dav1dResult {
+@@ -346,7 +346,7 @@
+ /// * `out`, if [`NonNull`], is valid to [`ptr::write`] to.
+ /// * `ptr`, if [`NonNull`], is the start of a `&[u8]` slice of length `sz`.
+ #[no_mangle]
+-pub unsafe extern "C" fn dav1d_parse_sequence_header(
++pub unsafe extern "C-unwind" fn dav1d_parse_sequence_header(
+     out: Option<NonNull<Dav1dSequenceHeader>>,
+     ptr: Option<NonNull<u8>>,
+     sz: usize,
+@@ -540,7 +540,7 @@
+ /// * `c`, if [`NonNull`], must be from [`dav1d_open`] and not be passed to [`dav1d_close`] yet.
+ /// * `r#in`, if [`NonNull`], must be valid to [`ptr::read`] from and [`ptr::write`] to.
+ #[no_mangle]
+-pub unsafe extern "C" fn dav1d_send_data(
++pub unsafe extern "C-unwind" fn dav1d_send_data(
+     c: Option<Dav1dContext>,
+     r#in: Option<NonNull<Dav1dData>>,
+ ) -> Dav1dResult {
+@@ -581,7 +581,7 @@
+ /// * `c`, if [`NonNull`], must be from [`dav1d_open`] and not be passed to [`dav1d_close`] yet.
+ /// * `out`, if [`NonNull`], must be valid to [`ptr::write`] to.
+ #[no_mangle]
+-pub unsafe extern "C" fn dav1d_get_picture(
++pub unsafe extern "C-unwind" fn dav1d_get_picture(
+     c: Option<Dav1dContext>,
+     out: Option<NonNull<Dav1dPicture>>,
+ ) -> Dav1dResult {
+@@ -739,7 +739,7 @@
+ ///   The `Dav1dContext` pointed to by `c_out` must be from [`dav1d_open`].
+ #[no_mangle]
+ #[cold]
+-pub unsafe extern "C" fn dav1d_close(c_out: Option<NonNull<Option<Dav1dContext>>>) {
++pub unsafe extern "C-unwind" fn dav1d_close(c_out: Option<NonNull<Option<Dav1dContext>>>) {
+     let Ok(mut c_out) = validate_input!(c_out.ok_or(())) else {
+         return;
+     };
+@@ -820,7 +820,7 @@
+ ///
+ /// * `p`, if [`NonNull`], must be valid to [`ptr::read`] from and [`ptr::write`] to.
+ #[no_mangle]
+-pub unsafe extern "C" fn dav1d_picture_unref(p: Option<NonNull<Dav1dPicture>>) {
++pub unsafe extern "C-unwind" fn dav1d_picture_unref(p: Option<NonNull<Dav1dPicture>>) {
+     let Ok(p) = validate_input!(p.ok_or(())) else {
+         return;
+     };
+@@ -838,7 +838,7 @@
+ /// * `buf`, if [`NonNull`], is valid to [`ptr::write`] to.
+ ///   After this call, `buf.data` will be an allocated slice of length `sz`.
+ #[no_mangle]
+-pub unsafe extern "C" fn dav1d_data_create(buf: Option<NonNull<Dav1dData>>, sz: usize) -> *mut u8 {
++pub unsafe extern "C-unwind" fn dav1d_data_create(buf: Option<NonNull<Dav1dData>>, sz: usize) -> *mut u8 {
+     || -> Rav1dResult<*mut u8> {
+         let buf = validate_input!(buf.ok_or(EINVAL))?;
+         validate_input!((sz <= usize::MAX / 2, EINVAL))?;
+@@ -916,7 +916,7 @@
+ ///
+ /// * `buf`, if [`NonNull`], is safe to [`ptr::read`] from and [`ptr::write`] from.
+ #[no_mangle]
+-pub unsafe extern "C" fn dav1d_data_unref(buf: Option<NonNull<Dav1dData>>) {
++pub unsafe extern "C-unwind" fn dav1d_data_unref(buf: Option<NonNull<Dav1dData>>) {
+     let buf = validate_input!(buf.ok_or(()));
+     let Ok(mut buf) = buf else { return };
+     // SAFETY: `buf` is safe to read from and write to.

@@ -40,6 +40,13 @@ pre-commit:
     # root install. Soft-skips if neither is found.
     prettier:
       glob: '*.{ts,tsx,js,jsx,html,scss,css,json,yaml,yml,md,graphql}'
+      # Upstream crate sources carry their own READMEs, CI YAML and JSON —
+      # not ours to reformat. Glob patterns, NOT a regex: lefthook v2 matches
+      # `exclude` as globs, so the `vendor/.*` regex this used to be silently
+      # matched nothing (#3517).
+      exclude:
+        - '**/vendor/**'
+        - '**/third_party/**'
       run: |
         if command -v prettier >/dev/null 2>&1; then
           prettier --config src/web/.prettierrc --check {staged_files}
@@ -50,9 +57,12 @@ pre-commit:
         fi
 
     # --- rustfmt (matches Rust 2021 edition used by raw-pipeline). ---
+    # `exclude` takes glob patterns, not a regex (see the prettier note above).
     rustfmt:
       glob: '*.rs'
-      exclude: 'vendor/.*'
+      exclude:
+        - '**/vendor/**'
+        - '**/third_party/**'
       run: |
         if command -v rustfmt >/dev/null 2>&1; then
           rustfmt --edition 2021 --config skip_children=true --check {staged_files}

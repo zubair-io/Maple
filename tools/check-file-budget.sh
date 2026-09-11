@@ -17,7 +17,9 @@
 # Scope: *.rs *.swift *.ts *.tsx *.js *.py *.cs — source code only. Generated
 # dirs (node_modules/, target/, dist/, .angular/, pkg/, DerivedData/,
 # .build/, src/windows/*/bin/, src/windows/*/obj/), vendored upstream crate
-# sources (raw-pipeline/vendor/, committed by `cargo vendor` — not our code),
+# sources (raw-pipeline/vendor/, committed by `cargo vendor`, and
+# raw-pipeline/third_party/, the hand-maintained patched crate copies — neither
+# is our code),
 # and generated wasm bindings under raw-wasm/pkg/ are skipped. `.cs` (#2747)
 # lives entirely under src/windows today; `src/windows/*/bin|obj/` are
 # dotnet's own build-output dirs (already gitignored, `**/bin/` / `**/obj/`),
@@ -105,7 +107,7 @@ collect_files() {
         f="$REPO_ROOT/$f"
       fi
       case "$f" in
-        */vendor/*|*/node_modules/*|*/target/*|*/dist/*|*/.git/*|*/.angular/*|*/.build/*|*/DerivedData/*|*/pkg/*) continue ;;
+        */vendor/*|*/third_party/*|*/node_modules/*|*/target/*|*/dist/*|*/.git/*|*/.angular/*|*/.build/*|*/DerivedData/*|*/pkg/*) continue ;;
       esac
       case "$f" in
         *.rs|*.swift|*.ts|*.tsx|*.js|*.py|*.cs) printf '%s\n' "$f" ;;
@@ -118,6 +120,7 @@ collect_files() {
       -not -path '*/node_modules/*' \
       -not -path '*/target/*' \
       -not -path '*/vendor/*' \
+      -not -path '*/third_party/*' \
       -not -path '*/.git/*' \
       -not -path '*/dist/*' \
       -not -path '*/.angular/*' \

@@ -1,0 +1,6 @@
+# Hand-maintained copies of upstream crates carrying a Maple patch (see each
+# crate's MAPLE-PATCH.md). Marked vendored so GitHub keeps them out of language
+# statistics. Unlike vendor/, diffs are NOT suppressed here: the whole point of
+# this directory is that a small, reviewable Maple delta lives on top of the
+# upstream source, and that delta has to be visible in a PR.
+* linguist-vendored

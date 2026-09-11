@@ -1,0 +1,14 @@
+# These crate sources are committed verbatim apart from the documented Maple
+# patch, and cargo compiles them straight from this directory — a single
+# dropped file breaks every build on a fresh clone. Override every inherited
+# ignore (the repo's `target/` and `**/bin/` rules in particular) so the tree
+# is always complete.
+!*
+
+# …but never let local-only junk in. `!*` above re-enables every inherited
+# ignore, so re-ignore the usual editor/OS artifacts here. No published crate
+# ships these names, so this can't drop a real source file.
+.DS_Store
+*.swp
+*.swo
+*~
