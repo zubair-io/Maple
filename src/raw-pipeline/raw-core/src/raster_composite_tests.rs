@@ -131,11 +131,47 @@ fn a_smaller_layer_only_touches_its_own_rectangle() {
 
 #[test]
 fn gravity_places_the_layer_when_left_and_top_are_absent() {
-    assert_eq!(Gravity::Centre.place((10, 10), (4, 4)), (3, 3));
-    assert_eq!(Gravity::NorthWest.place((10, 10), (4, 4)), (0, 0));
-    assert_eq!(Gravity::SouthEast.place((10, 10), (4, 4)), (6, 6));
-    assert_eq!(Gravity::East.place((10, 10), (4, 4)), (6, 3));
-    assert_eq!(Gravity::South.place((10, 10), (4, 4)), (3, 6));
+    // 6px of slack on each axis — even, so the crop bias is invisible here.
+    assert_eq!(Gravity::Centre.place_crop((10, 10), (4, 4)), (3, 3));
+    assert_eq!(Gravity::NorthWest.place_crop((10, 10), (4, 4)), (0, 0));
+    assert_eq!(Gravity::SouthEast.place_crop((10, 10), (4, 4)), (6, 6));
+    assert_eq!(Gravity::East.place_crop((10, 10), (4, 4)), (6, 3));
+    assert_eq!(Gravity::South.place_crop((10, 10), (4, 4)), (3, 6));
+}
+
+/// A composite overlay is placed by sharp's `CalculateCrop`, which rounds an
+/// odd slack UP. Measured against sharp 0.34.5 / libvips 8.17.3: a 3x3
+/// overlay at `gravity: 'centre'` on a 10x10 base lands at left = top = 4,
+/// covering columns and rows 4..6 — not the 3 that rounding down gives.
+#[test]
+fn an_odd_slack_centre_gravity_rounds_the_overlay_towards_the_far_edge() {
+    assert_eq!(Gravity::Centre.place_crop((10, 10), (3, 3)), (4, 4));
+
+    let base = solid_rgba(10, 10, [0, 0, 0, 255]);
+    let dot = solid_rgba(3, 3, [255, 255, 255, 255]);
+    let placed = CompositeLayer {
+        left: None,
+        top: None,
+        ..layer(&dot, BlendMode::Over)
+    };
+    let out = composite(&base, &[placed]).unwrap();
+    let lit = |x: u32, y: u32| out.data[((y * 10 + x) * 4) as usize] == 255;
+    assert!(!lit(3, 5), "column 3 must stay base");
+    assert!(lit(4, 5), "column 4 is the overlay's first column");
+    assert!(lit(6, 5), "column 6 is the overlay's last column");
+    assert!(!lit(7, 5), "column 7 must stay base");
+}
+
+/// The pad centring is the other bias: an odd slack rounds DOWN, so the two
+/// helpers disagree by one pixel on the same numbers. sharp's
+/// `CalculateEmbedPosition` is what makes `contain` letterbox this way.
+#[test]
+fn pad_centring_rounds_the_opposite_way_from_crop_centring() {
+    assert_eq!(Gravity::Centre.place_pad((10, 10), (3, 3)), (3, 3));
+    assert_eq!(Gravity::Centre.place_crop((10, 10), (3, 3)), (4, 4));
+    // An even slack agrees.
+    assert_eq!(Gravity::Centre.place_pad((10, 10), (4, 4)), (3, 3));
+    assert_eq!(Gravity::Centre.place_crop((10, 10), (4, 4)), (3, 3));
 }
 
 #[test]
