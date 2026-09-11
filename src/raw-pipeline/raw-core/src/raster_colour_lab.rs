@@ -35,9 +35,12 @@ fn map_colour(src: &RasterImage, f: impl Fn([u8; 3]) -> [u8; 3]) -> RasterImage 
     }
 }
 
-/// Rec.709 luma of the encoded samples, rounded and clamped — the same
-/// reduction `RasterImage::greyscale` performs. sharp's `Tint` mixes to
-/// luminance before placing each grey on the Lab table.
+/// Rec.709 luma of the encoded samples, rounded and clamped. sharp's `Tint`
+/// mixes to luminance before placing each grey on the Lab table — on the
+/// ENCODED values, unlike `RasterImage::greyscale` (#3503 controller
+/// ruling), which reduces in linear light (`raster_colour::bw_luma`). The
+/// two are deliberately different reductions for two deliberately different
+/// ops; this one is not shared.
 fn luma(px: [u8; 3]) -> u8 {
     let y = (0..3).map(|i| px[i] as f64 * REC709_LUMA[i]).sum::<f64>();
     y.round().clamp(0.0, 255.0) as u8
