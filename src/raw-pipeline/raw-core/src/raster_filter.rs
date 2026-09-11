@@ -26,9 +26,11 @@
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 
-/// sharp's documented sigma range for `blur`.
-const MIN_SIGMA: f64 = 0.3;
-const MAX_SIGMA: f64 = 1000.0;
+/// sharp's documented sigma range for `blur`. Also reused by `sharpen`
+/// (`raster_sharpen.rs`), which shares the same domain rather than
+/// redefining it.
+pub(crate) const MIN_SIGMA: f64 = 0.3;
+pub(crate) const MAX_SIGMA: f64 = 1000.0;
 
 /// libvips' `vips_gaussmat` default amplitude cutoff (its `min_ampl`): the
 /// kernel is truncated at the last tap whose value is still >= this
@@ -71,7 +73,7 @@ fn clamp_index(i: i64, len: usize) -> usize {
 /// the far edge and are simply never written, which is a real (if small)
 /// loss of mass on top of the rounding bias, and together are why that
 /// radius failed conservation outright.
-fn gaussian_kernel(sigma: f64) -> Vec<f64> {
+pub(crate) fn gaussian_kernel(sigma: f64) -> Vec<f64> {
     let radius = kernel_radius(sigma);
     let raw: Vec<f64> = (-radius..=radius)
         .map(|i| (-(i as f64 * i as f64) / (2.0 * sigma * sigma)).exp())
