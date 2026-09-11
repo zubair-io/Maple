@@ -7,7 +7,6 @@
 
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   inputBytes,
@@ -17,16 +16,22 @@ import {
   runPipeline,
 } from './builder-exec';
 import {
+  pushExtend,
+  pushExtract,
+  pushFlip,
+  pushFlop,
+  pushRotate,
+  pushTrim,
+} from './builder-geometry';
+import {
   createBuilderState,
   formatForPath,
-  isRawPath,
   kernelFromFilter,
-  lastResizeWidth,
   resolveColour,
   stateToOutput,
 } from './builder-state';
 import type { BuilderState } from './builder-state';
-import { exportImage, exportRecipe } from './export';
+import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
 import type {
   Colour,
   CompositeLayer,
@@ -35,13 +40,17 @@ import type {
   ExportFormat,
   ExportRecipe,
   ExportResult,
+  ExtendOptions,
+  ExtractRegion,
   ImageMetadata,
   RawPixelInput,
   RawPixels,
   RawPixelsAny,
   ResizeOptions,
+  RotateOptions,
   TensorOptions,
   TensorResult,
+  TrimOptions,
 } from './types';
 
 export class MapleImageBuilder {
@@ -96,9 +105,43 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Automatically rotate according to EXIF orientation */
-  rotate(): this {
-    this.s.autoOrient = true;
+  /**
+   * With no angle: auto-orient from the EXIF Orientation tag (the Tier 1
+   * behaviour, and sharp's backwards-compatible default). With an angle:
+   * rotate clockwise by that many degrees, padding with `background`.
+   */
+  rotate(angle?: number, options?: RotateOptions): this {
+    pushRotate(this.s, angle, options);
+    return this;
+  }
+
+  /** Extract/crop a region (sharp's `extract`). */
+  extract(region: ExtractRegion): this {
+    pushExtract(this.s, region);
+    return this;
+  }
+
+  /** Pad one or more edges with a background colour (sharp's `extend`). */
+  extend(options: ExtendOptions | number): this {
+    pushExtend(this.s, options);
+    return this;
+  }
+
+  /** Mirror about the horizontal axis. */
+  flip(): this {
+    pushFlip(this.s);
+    return this;
+  }
+
+  /** Mirror about the vertical axis. */
+  flop(): this {
+    pushFlop(this.s);
+    return this;
+  }
+
+  /** Crop a border of pixels similar to `background` (sharp's `trim`). */
+  trim(options?: TrimOptions): this {
+    pushTrim(this.s, options);
     return this;
   }
 
@@ -290,67 +333,10 @@ export class MapleImageBuilder {
     return resolveTensor(this.s, options);
   }
 
-  /**
-   * True when this builder describes a RAW develop rather than a bitmap
-   * transform: a recipe, an XMP sidecar, or a RAW file path as input.
-   */
-  private isRawDevelop(): boolean {
-    return (
-      this.s.inputPath !== null &&
-      (this.s.exportRecipe !== null ||
-        this.s.xmpPath !== null ||
-        this.s.xmpXml !== null ||
-        isRawPath(this.s.inputPath))
-    );
-  }
-
-  /** Saved-recipe or XMP-driven RAW development, rendered to a tmp file and read back. */
-  private async rawDevelopToBuffer(): Promise<Buffer> {
-    const ext = this.s.format ? `.${this.s.format === 'jpeg' ? 'jpg' : this.s.format}` : '.jpg';
-    const tmpFile = path.join(
-      os.tmpdir(),
-      `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`,
-    );
-    try {
-      const fileRes = await this.toFile(tmpFile);
-      if (!fileRes.ok) {
-        throw new Error(fileRes.error || 'Failed to develop RAW to buffer');
-      }
-      return await fs.readFile(tmpFile);
-    } finally {
-      try {
-        await fs.unlink(tmpFile);
-      } catch {}
-    }
-  }
-
-  /** Saved-recipe or XMP-driven RAW development, written straight to `outputPath`. */
-  private async rawDevelopToFile(outputPath: string): Promise<ExportResult> {
-    const rawPath = this.s.inputPath as string;
-    if (this.s.exportRecipe) {
-      return exportRecipe({
-        rawPath,
-        xmpXml: this.s.xmpXml ?? undefined,
-        recipe: this.s.exportRecipe,
-        filmPath: this.s.filmPath,
-        outPath: outputPath,
-      });
-    }
-    return exportImage({
-      rawPath,
-      xmpPath: this.s.xmpPath,
-      format: this.s.format ?? undefined,
-      quality: this.s.quality,
-      colorSpace: this.s.colorSpace,
-      maxLongEdge: this.s.maxLongEdge || lastResizeWidth(this.s),
-      outPath: outputPath,
-    });
-  }
-
   /** Render or resize image directly to an in-memory Buffer */
   async toBuffer(): Promise<Buffer> {
-    if (this.isRawDevelop()) {
-      return await this.rawDevelopToBuffer();
+    if (isRawDevelop(this.s)) {
+      return await rawDevelopToBuffer(this.s, (outputPath) => this.toFile(outputPath));
     }
     const bytes = await inputBytes(this.s);
     return runPipeline(this.s, bytes, stateToOutput(this.s, 'jpeg')).buffer;
@@ -358,8 +344,8 @@ export class MapleImageBuilder {
 
   /** Execute export or resize and write to output file */
   async toFile(outputPath: string): Promise<ExportResult> {
-    if (this.isRawDevelop()) {
-      return await this.rawDevelopToFile(outputPath);
+    if (isRawDevelop(this.s)) {
+      return await rawDevelopToFile(this.s, outputPath);
     }
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     try {

@@ -73,6 +73,34 @@ export interface EncodeOptions {
   effort?: number;
 }
 
+export interface ExtractRegion {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface ExtendOptions {
+  top?: number;
+  bottom?: number;
+  left?: number;
+  right?: number;
+  /** Only `'background'` is implemented; anything else throws by name. */
+  extendWith?: 'background';
+  background?: Colour | string;
+}
+
+export interface RotateOptions {
+  background?: Colour | string;
+}
+
+export interface TrimOptions {
+  /** Defaults to the colour of the top-left pixel, as in sharp. */
+  background?: Colour | string;
+  threshold?: number;
+  margin?: number;
+}
+
 export interface TensorOptions {
   targetSize?: number;
   layout?: 'nchw' | 'hwc';
