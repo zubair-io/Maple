@@ -51,8 +51,10 @@ fn png_error(e: impl std::fmt::Display) -> Error {
 /// has exactly three non-deprecated variants (`Fast`, `Default`, `Best`,
 /// mapping respectively to `flate2::Compression::{fast,default,best}`), so
 /// sharp's scale is bucketed into thirds: 0 is fastest/largest, 1-5 sits on
-/// zlib's own default, and 6-9 (including this module's default of 6) is the
-/// smallest/slowest tier.
+/// zlib's own default, and 6-9 is the smallest/slowest tier. Note that
+/// [`PngOptions::default`]'s `compression_level: 6` already lands in that
+/// top tier — `Compression::Best`, i.e. `flate2::Compression::best()`
+/// (zlib level 9) — not some intermediate level 6.
 fn compression_for(level: u8) -> Compression {
     match level {
         0 => Compression::Fast,
@@ -72,6 +74,15 @@ pub fn encode_png_opts(
         return Err(png_error(format!(
             "palette colours {} must be between 2 and 256",
             options.colours
+        )));
+    }
+    // `RangeInclusive::contains` compares NaN as neither `<=` nor `>=` its
+    // bounds, so a NaN `dither` is rejected by this same check — no separate
+    // `is_finite` test needed.
+    if !(0.0..=1.0).contains(&options.dither) {
+        return Err(png_error(format!(
+            "dither {} must be between 0.0 and 1.0",
+            options.dither
         )));
     }
     let mut out: Vec<u8> = Vec::new();
@@ -130,9 +141,10 @@ pub fn encode_png_opts(
 /// Floyd-Steinberg error diffusion. Returns the palette (RGBA) and one index
 /// per pixel.
 ///
-/// Median cut, not k-means: it is O(n log k), deterministic, and exact when
-/// the image already has `colours` or fewer distinct colours — which is the
-/// case a palette PNG is actually chosen for.
+/// Median cut, not k-means: it is O(n log n) worst case (each of the O(log
+/// colours) split rounds re-sorts the box it splits), deterministic, and
+/// exact when the image already has `colours` or fewer distinct colours —
+/// which is the case a palette PNG is actually chosen for.
 pub(crate) fn quantise(raster: &RasterImage, colours: u16, dither: f64) -> (Vec<[u8; 4]>, Vec<u8>) {
     let c = raster.channels as usize;
     let pixels: Vec<[u8; 4]> = raster
@@ -249,198 +261,5 @@ pub(crate) fn quantise(raster: &RasterImage, colours: u16, dither: f64) -> (Vec<
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A `n`x`n` image using exactly `k` distinct colours, in a repeating
-    /// pattern so a quantiser cannot get lucky.
-    fn palette_art(n: u32, k: u32) -> RasterImage {
-        let data = (0..n * n)
-            .flat_map(|i| {
-                let c = (i % k) as u8;
-                [c * 40, 255 - c * 40, 128]
-            })
-            .collect();
-        RasterImage::new_rgb(n, n, data)
-    }
-
-    fn opts() -> PngOptions {
-        PngOptions {
-            compression_level: 6,
-            adaptive_filtering: false,
-            palette: false,
-            colours: 256,
-            dither: 1.0,
-        }
-    }
-
-    #[test]
-    fn encodes_a_truecolour_png_that_round_trips() {
-        let src = palette_art(16, 5);
-        let bytes = encode_png_opts(&src, &opts(), None, None, None).unwrap();
-        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
-        let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
-        assert_eq!(decoded.data, src.data, "truecolour PNG must be lossless");
-    }
-
-    #[test]
-    fn rgba_round_trips_losslessly() {
-        let src = RasterImage::new_rgba(2, 1, vec![10, 20, 30, 255, 40, 50, 60, 0]);
-        let bytes = encode_png_opts(&src, &opts(), None, None, None).unwrap();
-        let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
-        assert_eq!((decoded.channels, decoded.data), (4, src.data));
-    }
-
-    #[test]
-    fn a_higher_compression_level_produces_a_smaller_file() {
-        let src = palette_art(64, 7);
-        let fast = encode_png_opts(
-            &src,
-            &PngOptions {
-                compression_level: 1,
-                ..opts()
-            },
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        let best = encode_png_opts(
-            &src,
-            &PngOptions {
-                compression_level: 9,
-                ..opts()
-            },
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        assert!(
-            best.len() <= fast.len(),
-            "level 9 ({}) vs level 1 ({})",
-            best.len(),
-            fast.len()
-        );
-    }
-
-    #[test]
-    fn a_palette_png_is_indexed_and_smaller() {
-        let src = palette_art(64, 6);
-        let truecolour = encode_png_opts(&src, &opts(), None, None, None).unwrap();
-        let indexed = encode_png_opts(
-            &src,
-            &PngOptions {
-                palette: true,
-                colours: 16,
-                ..opts()
-            },
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        assert!(indexed.windows(4).any(|w| w == b"PLTE"), "no palette chunk");
-        assert!(indexed.len() < truecolour.len());
-    }
-
-    #[test]
-    fn a_palette_png_is_exact_when_the_image_fits_the_palette() {
-        // 6 distinct colours into a 16-entry palette: no loss is possible.
-        let src = palette_art(32, 6);
-        let bytes = encode_png_opts(
-            &src,
-            &PngOptions {
-                palette: true,
-                colours: 16,
-                dither: 0.0,
-                ..opts()
-            },
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
-        assert_eq!(decoded.to_rgb_bytes(), src.data);
-    }
-
-    #[test]
-    fn a_palette_png_keeps_transparency() {
-        let data = (0..16u32)
-            .flat_map(|i| [200u8, 40, 40, if i % 2 == 0 { 255 } else { 0 }])
-            .collect();
-        let src = RasterImage::new_rgba(4, 4, data);
-        let bytes = encode_png_opts(
-            &src,
-            &PngOptions {
-                palette: true,
-                colours: 8,
-                dither: 0.0,
-                ..opts()
-            },
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        assert!(
-            bytes.windows(4).any(|w| w == b"tRNS"),
-            "no transparency chunk"
-        );
-        let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
-        assert_eq!(decoded.channels, 4);
-        assert_eq!(decoded.data[3], 255);
-        assert_eq!(decoded.data[7], 0);
-    }
-
-    #[test]
-    fn the_metadata_chunks_are_embedded() {
-        let icc = crate::icc::profile_for(crate::view::encode::TargetPrimaries::Srgb);
-        let exif = b"II\x2a\x00\x08\x00\x00\x00\x00\x00".to_vec();
-        let xmp = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"/>"#.to_vec();
-        let bytes = encode_png_opts(
-            &palette_art(8, 3),
-            &opts(),
-            Some(&icc),
-            Some(&exif),
-            Some(&xmp),
-        )
-        .unwrap();
-        assert!(bytes.windows(4).any(|w| w == b"iCCP"), "no iCCP chunk");
-        assert!(bytes.windows(4).any(|w| w == b"eXIf"), "no eXIf chunk");
-        assert!(
-            bytes.windows(4).any(|w| w == b"iTXt"),
-            "no iTXt chunk for XMP"
-        );
-    }
-
-    #[test]
-    fn an_out_of_range_colour_count_is_rejected() {
-        let src = palette_art(8, 3);
-        assert!(encode_png_opts(
-            &src,
-            &PngOptions {
-                palette: true,
-                colours: 1,
-                ..opts()
-            },
-            None,
-            None,
-            None
-        )
-        .is_err());
-        assert!(encode_png_opts(
-            &src,
-            &PngOptions {
-                palette: true,
-                colours: 300,
-                ..opts()
-            },
-            None,
-            None,
-            None
-        )
-        .is_err());
-    }
-}
+#[path = "raster_encode_png_tests.rs"]
+mod tests;
