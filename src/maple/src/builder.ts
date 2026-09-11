@@ -55,6 +55,21 @@ export function isRawPath(filePath: string): boolean {
   return RAW_EXTENSIONS.has(ext);
 }
 
+const FORMAT_BY_EXT: Record<string, ExportFormat> = {
+  jpg: 'jpeg',
+  jpeg: 'jpeg',
+  png: 'png',
+  webp: 'webp',
+  avif: 'avif',
+  tif: 'tiff',
+  tiff: 'tiff',
+};
+
+/** Infer the output container format from a file path's extension, defaulting to JPEG. */
+function formatForPath(outputPath: string): ExportFormat {
+  return FORMAT_BY_EXT[path.extname(outputPath).slice(1).toLowerCase()] ?? 'jpeg';
+}
+
 export class MapleImageBuilder {
   private _inputPath: string | null = null;
   private _inputBytes: Uint8Array | null = null;
@@ -453,7 +468,7 @@ export class MapleImageBuilder {
     const parentDir = path.dirname(outputPath);
     await fs.mkdir(parentDir, { recursive: true });
 
-    const targetFormat = this._format || 'jpeg';
+    const targetFormat = this._format ?? formatForPath(outputPath);
 
     if (this._rawInput) {
       const r = this._rawInput;

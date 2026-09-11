@@ -275,6 +275,22 @@ describe('Maple Native Binding', () => {
       const meta = await maple(out).metadata();
       expect([meta.width, meta.height]).toEqual([32, 24]);
     });
+
+    it('infers the toFile output format from the extension when none is set', async () => {
+      const png = await maple(solid(8, 8, [50, 60, 70]))
+        .toFormat('png')
+        .toBuffer();
+      const outPath = `/tmp/maple_infer_${Date.now()}_${Math.random().toString(36).slice(2)}.webp`;
+      try {
+        const res = await maple(png).resize(4, 4).toFile(outPath);
+        expect(res.ok).toBe(true);
+        const meta = await maple(outPath).metadata();
+        expect(meta.format).toBe('webp');
+      } finally {
+        const fs = await import('node:fs/promises');
+        await fs.unlink(outPath).catch(() => {});
+      }
+    });
   });
 
   describe('CLI Command Execution', () => {

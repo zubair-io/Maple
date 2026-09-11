@@ -691,6 +691,18 @@ function isRawPath(filePath) {
   const ext = path4.extname(filePath).toLowerCase();
   return RAW_EXTENSIONS.has(ext);
 }
+var FORMAT_BY_EXT = {
+  jpg: "jpeg",
+  jpeg: "jpeg",
+  png: "png",
+  webp: "webp",
+  avif: "avif",
+  tif: "tiff",
+  tiff: "tiff"
+};
+function formatForPath(outputPath) {
+  return FORMAT_BY_EXT[path4.extname(outputPath).slice(1).toLowerCase()] ?? "jpeg";
+}
 
 class MapleImageBuilder {
   _inputPath = null;
@@ -983,7 +995,7 @@ class MapleImageBuilder {
     const native = loadNativeBinding();
     const parentDir = path4.dirname(outputPath);
     await fs4.mkdir(parentDir, { recursive: true });
-    const targetFormat = this._format || "jpeg";
+    const targetFormat = this._format ?? formatForPath(outputPath);
     if (this._rawInput) {
       const r = this._rawInput;
       const res = native.rasterFromRawRenderBuf(r.data, r.width, r.height, r.channels, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, targetFormat, this._quality, this._effort);
