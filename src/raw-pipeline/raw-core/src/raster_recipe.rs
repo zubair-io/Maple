@@ -127,12 +127,11 @@ pub enum Op {
     /// Empty struct variant rather than unit — see `RecipeInput::Encoded`'s
     /// doc for why (#3505 fix-round-2).
     AutoOrient {},
-    /// Only the three Tier-1 fits (`cover`/`fill`/`inside`) and the three
-    /// Tier-1 kernels are wired up (see `raster_recipe_exec::apply_op`).
-    /// sharp's `position`, `withoutReduction` and `background` fields are
-    /// deliberately NOT part of this v1 schema — PR-C (#3502) re-adds them
-    /// once `raster::ResizeOptions` can honour them; adding a field here is
-    /// backward-compatible, so there is no version cost to waiting.
+    /// All five fits, all nine positions and the six kernels are wired up
+    /// (see `raster_recipe_exec::apply_op`). sharp's `entropy`/`attention`
+    /// position strategies and `mks2013`/`mks2021` kernels are not
+    /// implemented — a recipe naming one of those fails by name at
+    /// execution rather than silently falling back to something else.
     #[serde(rename_all = "camelCase")]
     Resize {
         #[serde(default)]
@@ -141,10 +140,16 @@ pub enum Op {
         height: u32,
         #[serde(default = "cover")]
         fit: String,
+        #[serde(default = "centre")]
+        position: String,
         #[serde(default = "lanczos3")]
         kernel: String,
         #[serde(default)]
         without_enlargement: bool,
+        #[serde(default)]
+        without_reduction: bool,
+        #[serde(default = "opaque_black")]
+        background: [u8; 4],
     },
     Flatten {
         /// The alpha byte (index 3) is ignored: `flatten` always yields an

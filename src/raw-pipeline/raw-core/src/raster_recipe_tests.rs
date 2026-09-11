@@ -41,13 +41,19 @@ fn resize_defaults_match_sharp() {
     match &r.ops[0] {
         Op::Resize {
             fit,
+            position,
             kernel,
             without_enlargement,
+            without_reduction,
+            background,
             ..
         } => {
             assert_eq!(fit, "cover");
+            assert_eq!(position, "centre");
             assert_eq!(kernel, "lanczos3");
             assert!(!without_enlargement);
+            assert!(!without_reduction);
+            assert_eq!(background, &[0, 0, 0, 255]);
         }
         other => panic!("expected a resize op, got {other:?}"),
     }
