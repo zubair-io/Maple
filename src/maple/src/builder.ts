@@ -26,8 +26,10 @@ import {
 import {
   createBuilderState,
   formatForPath,
-  kernelFromFilter,
+  isRawPath,
+  lastResizeWidth,
   resolveColour,
+  resolveGravity,
   stateToOutput,
 } from './builder-state';
 import type { BuilderState } from './builder-state';
@@ -78,10 +80,10 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Configure SIMD resampling dimensions and framing */
+  /** Configure SIMD resampling dimensions and framing (sharp's `resize`) */
   resize(optionsOrWidth: ResizeOptions | number | null, height?: number | null): this {
     const opts: ResizeOptions =
-      typeof optionsOrWidth === 'number' || optionsOrWidth === null
+      typeof optionsOrWidth === 'number' || optionsOrWidth === null || optionsOrWidth === undefined
         ? { width: optionsOrWidth ?? 0, height: height ?? 0 }
         : optionsOrWidth;
     // NOTE: `withoutEnlargement` defaults to `true` here — sharp defaults to
@@ -99,8 +101,11 @@ export class MapleImageBuilder {
       width: Math.max(0, opts.width ?? 0),
       height: Math.max(0, opts.height ?? 0),
       fit: opts.fit ?? 'inside',
-      kernel: kernelFromFilter(opts.filter),
+      position: resolveGravity(opts.position ?? opts.gravity),
+      kernel: opts.kernel ?? opts.filter ?? 'lanczos3',
       withoutEnlargement: opts.withoutEnlargement ?? true,
+      withoutReduction: opts.withoutReduction ?? false,
+      background: resolveColour(opts.background, [0, 0, 0, 255]),
     });
     return this;
   }

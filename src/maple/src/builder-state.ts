@@ -38,11 +38,22 @@ export function isRawPath(filePath: string): boolean {
   return RAW_EXTENSIONS.has(ext);
 }
 
-/** `ResizeOptions.filter` → the recipe's `resize` op `kernel` wire value. */
-export function kernelFromFilter(filter?: 'lanczos3' | 'bilinear' | 'nearest'): string {
-  if (filter === 'bilinear') return 'linear';
-  if (filter === 'nearest') return 'nearest';
-  return 'lanczos3';
+/** sharp's `position` spellings collapsed onto the nine wire gravity names. */
+const POSITION_TO_GRAVITY: Record<string, string> = {
+  top: 'north',
+  'right top': 'northeast',
+  right: 'east',
+  'right bottom': 'southeast',
+  bottom: 'south',
+  'left bottom': 'southwest',
+  left: 'west',
+  'left top': 'northwest',
+  center: 'centre',
+};
+
+/** Translate a `position` or `gravity` value to its wire spelling. */
+export function resolveGravity(value: string | undefined): string {
+  return value === undefined ? 'centre' : (POSITION_TO_GRAVITY[value] ?? value);
 }
 
 export interface BuilderState {

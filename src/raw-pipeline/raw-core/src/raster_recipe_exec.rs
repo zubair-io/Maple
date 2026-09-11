@@ -55,8 +55,10 @@ fn decode_layer(layer: &Layer, aux: &[u8]) -> Result<RasterImage> {
 fn fit_from_wire(s: &str) -> Result<ResizeFit> {
     match s {
         "cover" => Ok(ResizeFit::Cover),
+        "contain" => Ok(ResizeFit::Contain),
         "fill" => Ok(ResizeFit::Fill),
         "inside" => Ok(ResizeFit::Inside),
+        "outside" => Ok(ResizeFit::Outside),
         other => Err(bad(format!("unsupported resize fit '{other}'"))),
     }
 }
@@ -64,9 +66,15 @@ fn fit_from_wire(s: &str) -> Result<ResizeFit> {
 fn kernel_from_wire(s: &str) -> Result<FilterAlg> {
     match s {
         "lanczos3" => Ok(FilterAlg::Lanczos3),
-        "linear" => Ok(FilterAlg::Bilinear),
+        "lanczos2" => Ok(FilterAlg::Lanczos2),
+        "cubic" => Ok(FilterAlg::CatmullRom),
+        "mitchell" => Ok(FilterAlg::Mitchell),
+        // `bilinear` is Maple's Tier 1 spelling; `linear` is sharp's.
+        "linear" | "bilinear" => Ok(FilterAlg::Bilinear),
         "nearest" => Ok(FilterAlg::Nearest),
-        other => Err(bad(format!("unsupported resize kernel '{other}'"))),
+        other => Err(bad(format!(
+            "unsupported resize kernel '{other}' (nearest, linear, cubic, mitchell, lanczos2, lanczos3)"
+        ))),
     }
 }
 
@@ -81,17 +89,27 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
             width,
             height,
             fit,
+            position,
             kernel,
             without_enlargement,
+            without_reduction,
+            background,
         } => resize_raster(
             &image,
             &ResizeOptions {
-                width: if *width == 0 { image.width } else { *width },
-                height: if *height == 0 { image.height } else { *height },
+                width: *width,
+                height: *height,
                 fit: fit_from_wire(fit)?,
                 filter: kernel_from_wire(kernel)?,
                 without_enlargement: *without_enlargement,
-                ..Default::default()
+                without_reduction: *without_reduction,
+                position: Gravity::from_wire(position).ok_or_else(|| {
+                    bad(format!(
+                        "unsupported resize position '{position}' \
+                         (the entropy and attention strategies are not implemented)"
+                    ))
+                })?,
+                background: *background,
             },
         ),
         Op::Flatten { background } => {
@@ -358,5 +376,75 @@ mod tests {
         .unwrap();
         let err = run_recipe(&recipe, &[0, 0, 0, 255], &[9, 9, 9, 255]).unwrap_err();
         assert!(format!("{err}").contains("soft-light"), "got: {err}");
+    }
+
+    #[test]
+    fn contain_letterboxes_through_the_recipe() {
+        let out = run(
+            r#"{"v":1,"input":{"kind":"raw","width":4,"height":2,"channels":4},
+                "ops":[{"op":"resize","width":4,"height":4,"fit":"contain",
+                        "background":[0,0,255,255],"kernel":"nearest"}],
+                "output":{"format":"raw"}}"#,
+            &red_rgba(),
+            &[],
+        );
+        assert_eq!((out.width, out.height), (4, 4));
+        assert_eq!(
+            &out.bytes[..4],
+            &[0, 0, 255, 255],
+            "top row must be letterbox"
+        );
+    }
+
+    #[test]
+    fn position_moves_the_cover_crop() {
+        // 4x2 where the left half is red and the right half is green; a 2x2
+        // cover crop at 'west' keeps red, at 'east' keeps green.
+        let src: Vec<u8> = (0..2u32)
+            .flat_map(|_| {
+                (0..4u32).flat_map(|x| {
+                    if x < 2 {
+                        [255u8, 0, 0, 255]
+                    } else {
+                        [0, 255, 0, 255]
+                    }
+                })
+            })
+            .collect();
+        let recipe = |position: &str| {
+            format!(
+                r#"{{"v":1,"input":{{"kind":"raw","width":4,"height":2,"channels":4}},
+                    "ops":[{{"op":"resize","width":2,"height":2,"fit":"cover",
+                             "position":"{position}","kernel":"nearest"}}],
+                    "output":{{"format":"raw"}}}}"#
+            )
+        };
+        let west = run(&recipe("west"), &src, &[]);
+        let east = run(&recipe("east"), &src, &[]);
+        assert_eq!(&west.bytes[..4], &[255, 0, 0, 255]);
+        assert_eq!(&east.bytes[..4], &[0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn an_unsupported_fit_or_kernel_is_named() {
+        for (json, needle) in [
+            (r#"{"op":"resize","width":2,"fit":"squash"}"#, "squash"),
+            (r#"{"op":"resize","width":2,"kernel":"mks2013"}"#, "mks2013"),
+            (
+                r#"{"op":"resize","width":2,"fit":"cover","position":"entropy"}"#,
+                "entropy",
+            ),
+        ] {
+            let recipe = parse_recipe(&format!(
+                r#"{{"v":1,"input":{{"kind":"raw","width":2,"height":2,"channels":3}},
+                     "ops":[{json}],"output":{{"format":"raw"}}}}"#
+            ))
+            .unwrap();
+            let err = run_recipe(&recipe, &[0u8; 12], &[]).unwrap_err();
+            assert!(
+                format!("{err}").contains(needle),
+                "expected {needle}, got: {err}"
+            );
+        }
     }
 }
