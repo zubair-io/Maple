@@ -95,7 +95,7 @@ pub struct RasterMetadata {
 
 /// Quick probing of raster image dimensions and format from raw bytes.
 pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
-    if avif_decode_gate::is_avif(bytes) {
+    if is_avif(bytes) {
         let probe = avif_decode_gate::probe(bytes)?;
         return Ok(RasterMetadata {
             width: probe.width,
@@ -171,7 +171,7 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
         ext_hint.map(|e| e.to_ascii_lowercase()).as_deref(),
         Some("avif")
     );
-    if hinted_avif || avif_decode_gate::is_avif(bytes) {
+    if hinted_avif || is_avif(bytes) {
         return avif_decode_gate::decode(bytes);
     }
 
@@ -454,6 +454,21 @@ pub fn extract_tensor(
     })
 }
 
+/// ISO-BMFF `ftyp` box carrying an AVIF-family brand (`avif`, `avis` for
+/// image sequences, or `mif1` for a MIAF-conformant still) among the first
+/// 32 bytes. Single-sourced here — compiled unconditionally, regardless of
+/// the `avif` feature — so a feature-off build applies the same brand check
+/// as the real decoder instead of a looser "any ftyp box" heuristic that
+/// would misreport other ISO-BMFF containers (HEIC, MP4, MOV) as AVIF.
+/// `avif_decode::is_avif` (kept `pub` for Task 1's own tests) delegates here.
+pub(crate) fn is_avif(bytes: &[u8]) -> bool {
+    bytes.len() >= 12
+        && &bytes[4..8] == b"ftyp"
+        && bytes[8..bytes.len().min(32)]
+            .windows(4)
+            .any(|w| w == b"avif" || w == b"avis" || w == b"mif1")
+}
+
 /// Feature gate so the AVIF branch compiles to a clean error when raw-core is
 /// built without `avif` (raw-wasm), and to the real decoder otherwise.
 mod avif_decode_gate {
@@ -466,15 +481,6 @@ mod avif_decode_gate {
         pub width: u32,
         pub height: u32,
         pub has_alpha: bool,
-    }
-
-    #[cfg(feature = "avif")]
-    pub(crate) fn is_avif(bytes: &[u8]) -> bool {
-        crate::avif_decode::is_avif(bytes)
-    }
-    #[cfg(not(feature = "avif"))]
-    pub(crate) fn is_avif(bytes: &[u8]) -> bool {
-        bytes.len() >= 12 && &bytes[4..8] == b"ftyp"
     }
 
     #[cfg(feature = "avif")]

@@ -80,3 +80,60 @@ mod avif_dispatch {
         assert_eq!(meta.orientation, 1);
     }
 }
+
+// Only compiles (and is meaningful) without the `avif` feature: verifies the
+// feature-off dispatch path in `decode_raster` uses the same brand check as
+// the real decoder, rather than a looser "any ftyp box" heuristic that would
+// misreport other ISO-BMFF containers (HEIC, MP4, MOV) as needing the `avif`
+// feature.
+#[cfg(not(feature = "avif"))]
+mod avif_feature_off {
+    use crate::raster::decode_raster;
+
+    /// Minimal ISO-BMFF `ftyp` box: 4-byte size, "ftyp", 4-byte major brand,
+    /// 4-byte minor version, then compatible brands, zero-padded to 32 bytes
+    /// total (the window `is_avif` scans).
+    fn ftyp_box(major_brand: &[u8; 4], compatible_brands: &[&[u8; 4]]) -> Vec<u8> {
+        let mut bytes = vec![0u8; 32];
+        bytes[0..4].copy_from_slice(&[0, 0, 0, 24]);
+        bytes[4..8].copy_from_slice(b"ftyp");
+        bytes[8..12].copy_from_slice(major_brand);
+        // bytes[12..16] left zeroed: the minor_version field.
+        let mut offset = 16;
+        for brand in compatible_brands {
+            assert!(
+                offset + 4 <= 32,
+                "test fixture has too many compatible brands for a 32-byte box"
+            );
+            bytes[offset..offset + 4].copy_from_slice(*brand);
+            offset += 4;
+        }
+        bytes
+    }
+
+    #[test]
+    fn non_avif_isobmff_container_is_not_misreported_as_needing_the_avif_feature() {
+        // A real single-image HEIC ftyp box: major brand "heic", and no
+        // avif/avis/mif1 brand anywhere in the compatible-brands list. Checks
+        // for the exact reason text the feature-off gate emits (backticks
+        // included) — a looser substring like "avif feature" (no backticks)
+        // never appears in that reason at all, so it can't tell a fixed
+        // build apart from the pre-fix "any ftyp box is AVIF" bug.
+        let bytes = ftyp_box(b"heic", &[b"heic", b"hevc", b"heix"]);
+        let err = decode_raster(&bytes, None).unwrap_err().to_string();
+        assert!(
+            !err.contains("requires the `avif` feature"),
+            "a non-AVIF ISO-BMFF container must not be misreported as needing the avif feature: {err}"
+        );
+    }
+
+    #[test]
+    fn avif_isobmff_container_reports_the_missing_feature() {
+        let bytes = ftyp_box(b"avif", &[b"mif1", b"miaf"]);
+        let err = decode_raster(&bytes, None).unwrap_err().to_string();
+        assert!(
+            err.contains("requires the `avif` feature"),
+            "an AVIF container should report the missing feature, got: {err}"
+        );
+    }
+}
