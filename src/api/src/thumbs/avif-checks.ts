@@ -89,7 +89,18 @@ export async function checkAvifOutput(
       reason: `unexpected orientation tag ${meta.orientation} — this pipeline bakes rotation into pixels and writes no orientation tag`,
     };
   }
-  const intact = await image.validateIntegrity();
+  // `validateIntegrity()` on the plain `image` builder would decode AND
+  // re-encode the full image as JPEG q92 (its default), and that output
+  // overflows the encoder's first output buffer on anything but a tiny
+  // source, so the encode runs a second time internally — measured 90ms vs
+  // 35ms decode-only on a 1280px preview. A fresh builder targeting a 1x1
+  // q1 JPEG still forces the same full decode (integrity's only actual
+  // requirement) but makes the encode step negligible. Package-side fix
+  // tracked as #3525 (an integrity mode that skips the re-encode entirely).
+  const intact = await maple(filePath)
+    .resize({ width: 1, height: 1, fit: 'inside', withoutEnlargement: false })
+    .toFormat('jpeg', { quality: 1 })
+    .validateIntegrity();
   return intact
     ? { ok: true }
     : { ok: false, reason: 'pixel decode failed (truncated or corrupt)' };
