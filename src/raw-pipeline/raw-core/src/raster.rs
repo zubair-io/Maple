@@ -73,38 +73,11 @@ impl RasterImage {
         self.data.clone()
     }
 
-    /// Rotate / orient according to EXIF orientation tag, resetting orientation to Normal.
-    ///
-    /// A 4-channel raster keeps its alpha channel through the rotation
-    /// (`raster_orient::apply_orientation_rgba_u8`); anything else goes
-    /// through the 3-channel RGB path, which also normalizes a stray
-    /// non-3/4-channel image down to RGB via `to_rgb_bytes()`.
+    /// Rotate / orient per the EXIF tag, resetting orientation to Normal.
+    /// See `raster_orient::auto_orient` — split out to keep this file under
+    /// budget (#3505).
     pub fn auto_orient(&mut self) {
-        if self.orientation == ExifOrientation::Normal {
-            return;
-        }
-        if self.channels == 4 {
-            let (nw, nh, rotated) = crate::raster_orient::apply_orientation_rgba_u8(
-                &self.data,
-                self.width,
-                self.height,
-                self.orientation,
-            );
-            self.width = nw;
-            self.height = nh;
-            self.channels = 4;
-            self.data = rotated;
-            self.orientation = ExifOrientation::Normal;
-            return;
-        }
-        let rgb = self.to_rgb_bytes();
-        let (nw, nh, rotated) =
-            crate::image::apply_orientation(&rgb, self.width, self.height, self.orientation);
-        self.width = nw;
-        self.height = nh;
-        self.channels = 3;
-        self.data = rotated;
-        self.orientation = ExifOrientation::Normal;
+        crate::raster_orient::auto_orient(self);
     }
 }
 

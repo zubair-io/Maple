@@ -9,6 +9,33 @@
 //! 4-channel raster keeps its alpha channel through every orientation.
 
 use crate::image::{transpose, ExifOrientation};
+use crate::raster::RasterImage;
+
+/// Rotate / orient `image` per its EXIF tag, resetting orientation to
+/// Normal. A 4-channel raster keeps its alpha channel through the rotation
+/// (`apply_orientation_rgba_u8`); anything else goes through the 3-channel
+/// RGB path (`image::apply_orientation`), which also normalizes a stray
+/// non-3/4-channel image down to RGB via `to_rgb_bytes()`.
+pub(crate) fn auto_orient(image: &mut RasterImage) {
+    if image.orientation == ExifOrientation::Normal {
+        return;
+    }
+    let (nw, nh, data, channels) = if image.channels == 4 {
+        let (w, h, d) =
+            apply_orientation_rgba_u8(&image.data, image.width, image.height, image.orientation);
+        (w, h, d, 4)
+    } else {
+        let rgb = image.to_rgb_bytes();
+        let (w, h, d) =
+            crate::image::apply_orientation(&rgb, image.width, image.height, image.orientation);
+        (w, h, d, 3)
+    };
+    image.width = nw;
+    image.height = nh;
+    image.channels = channels;
+    image.data = data;
+    image.orientation = ExifOrientation::Normal;
+}
 
 /// Apply EXIF orientation to a packed `u8` RGBA buffer. Returns `(new_w,
 /// new_h, rotated_samples)`, alpha bytes carried through untouched.
