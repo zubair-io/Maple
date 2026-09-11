@@ -94,6 +94,11 @@ mod id;
 mod mask_registry;
 mod model;
 mod raster;
+// Second-generation raster C ABI (#3498): one general render entry point
+// (fit, filter, orientation, format, quality, AVIF effort) plus a
+// caller-pixels variant and a native-size RGB8 decode. Additive — the
+// first-generation entries in `raster.rs` keep their signatures.
+mod raster_v2;
 mod render;
 mod render_develop;
 // Film-look sibling of `maple_render_file` (epic #2683, Task 8) — split out
@@ -192,6 +197,12 @@ pub use error::maple_last_error;
 // the developed-preview extern directly; the `#[no_mangle]` C-ABI export is
 // unaffected either way.
 pub use render_develop::maple_render_develop_jpeg_to_file;
+// Re-exported so the `raster_v2` integration test (#3498) can call these
+// externs directly, same pattern as `maple_render_develop_jpeg_to_file`
+// above; the `#[no_mangle]` C-ABI exports are unaffected either way.
+pub use raster_v2::{
+    maple_raster_decode_rgb8_buf, maple_raster_from_raw_render_buf, maple_raster_render_buf,
+};
 
 // Tests are split per-topic so each file stays well under the 600-LOC
 // per-file budget; the `#[path]` references keep them as plain siblings
