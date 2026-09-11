@@ -142,10 +142,14 @@ fn channels_written(image: &RasterImage, format: ExportFormat) -> u8 {
 }
 
 fn encode(image: &RasterImage, output: Output) -> Result<(Vec<u8>, u8)> {
+    // The recipe pipeline has no colourspace op yet (#3503 tracks
+    // `toColourspace` on `RasterImage`; recipe wiring is a follow-up) — every
+    // recipe output stays sRGB, unchanged from before.
     let opts = |format, quality, speed| RasterEncodeOptions {
         format,
         quality,
         avif_speed: speed,
+        primaries: crate::view::encode::TargetPrimaries::Srgb,
     };
     let encode_as = |format: ExportFormat, quality: u8, speed: u8| -> Result<(Vec<u8>, u8)> {
         let bytes = encode_raster_opts(image, &opts(format, quality, speed))?;

@@ -258,3 +258,60 @@ fn the_percentile_bounds_clip_the_extremes() {
     let clipped = img.normalise(5.0, 95.0);
     assert_eq!(clipped.data, img.data, "sharp returns this image unchanged");
 }
+
+#[test]
+fn white_and_black_are_fixed_points_of_the_p3_rotation() {
+    let img = RasterImage::new_rgb(2, 1, vec![255, 255, 255, 0, 0, 0]);
+    let p3 = img.to_colourspace(TargetPrimaries::Srgb, TargetPrimaries::P3);
+    assert_eq!(
+        &p3.data[..3],
+        &[255, 255, 255],
+        "both spaces share D65 white"
+    );
+    assert_eq!(&p3.data[3..], &[0, 0, 0]);
+}
+
+#[test]
+fn saturated_srgb_red_shrinks_inside_p3() {
+    // P3 is the wider gamut, so the same stimulus needs LESS red and a
+    // little green/blue to be expressed in it.
+    let img = RasterImage::new_rgb(1, 1, vec![255, 0, 0]);
+    let p3 = img.to_colourspace(TargetPrimaries::Srgb, TargetPrimaries::P3);
+    assert!(
+        p3.data[0] > 200 && p3.data[0] <= 255,
+        "R was {}",
+        p3.data[0]
+    );
+    assert!(p3.data[1] > 0, "G should gain a little, was {}", p3.data[1]);
+}
+
+#[test]
+fn srgb_to_srgb_is_identity() {
+    let img = RasterImage::new_rgb(1, 1, vec![33, 144, 210]);
+    assert_eq!(
+        img.to_colourspace(TargetPrimaries::Srgb, TargetPrimaries::Srgb)
+            .data,
+        img.data
+    );
+}
+
+#[test]
+fn the_colourspace_rotation_round_trips() {
+    let img = RasterImage::new_rgb(1, 1, vec![120, 90, 200]);
+    let back = img
+        .to_colourspace(TargetPrimaries::Srgb, TargetPrimaries::P3)
+        .to_colourspace(TargetPrimaries::P3, TargetPrimaries::Srgb);
+    for i in 0..3 {
+        assert!(back.data[i].abs_diff(img.data[i]) <= 2, "{:?}", back.data);
+    }
+}
+
+#[test]
+fn to_colourspace_leaves_alpha_alone() {
+    let img = RasterImage::new_rgba(1, 1, vec![255, 0, 0, 44]);
+    assert_eq!(
+        img.to_colourspace(TargetPrimaries::Srgb, TargetPrimaries::P3)
+            .data[3],
+        44
+    );
+}

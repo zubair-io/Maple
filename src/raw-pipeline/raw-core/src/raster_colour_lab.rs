@@ -9,9 +9,11 @@
 //! rotates h by `hue` — `sharp::Modulate`, which is a `vips_linear` in LCh
 //! space. Both leave the alpha channel unchanged.
 
+use crate::color::matrices::M_SRGB_TO_P3;
 use crate::raster::RasterImage;
 use crate::raster_colour::REC709_LUMA;
 use crate::raster_lab::{lab_to_lch, lab_to_srgb, lch_to_lab, srgb_to_lab};
+use crate::view::encode::{srgb_degamma, srgb_gamma, TargetPrimaries};
 
 /// Rewrite the colour samples of every pixel, leaving alpha untouched.
 fn map_colour(src: &RasterImage, f: impl Fn([u8; 3]) -> [u8; 3]) -> RasterImage {
@@ -141,6 +143,31 @@ impl RasterImage {
             data,
             ..self.clone()
         }
+    }
+
+    /// Rotate the primaries from `from` to `to`, keeping the sRGB transfer
+    /// function (which is what Display P3 uses too). The rotation is a
+    /// linear-light matrix, so the samples are de-gamma'd, rotated and
+    /// re-gamma'd.
+    ///
+    /// The ENCODE step is what tags the file — an untagged P3 file is read as
+    /// sRGB by every colour-managed viewer and gets stretched a second time,
+    /// which is exactly the defect `icc.rs` exists to prevent. Pair this with
+    /// `RasterEncodeOptions::primaries`.
+    pub fn to_colourspace(&self, from: TargetPrimaries, to: TargetPrimaries) -> Self {
+        let matrix = match (from, to) {
+            (TargetPrimaries::Srgb, TargetPrimaries::Srgb)
+            | (TargetPrimaries::P3, TargetPrimaries::P3) => return self.clone(),
+            (TargetPrimaries::Srgb, TargetPrimaries::P3) => M_SRGB_TO_P3,
+            (TargetPrimaries::P3, TargetPrimaries::Srgb) => M_SRGB_TO_P3
+                .inverse()
+                .expect("M_SRGB_TO_P3 is non-singular"),
+        };
+        map_colour(self, |px| {
+            let linear = [0, 1, 2].map(|i| srgb_degamma(px[i] as f32 / 255.0));
+            let rotated = matrix.mul_vec(linear);
+            [0, 1, 2].map(|i| (srgb_gamma(rotated[i]) * 255.0).round().clamp(0.0, 255.0) as u8)
+        })
     }
 }
 

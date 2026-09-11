@@ -288,26 +288,59 @@ pub fn encode_webp(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Encode a non-RAW RasterImage into the requested container format.
+/// Encode a non-RAW RasterImage into the requested container format, tagged
+/// sRGB — the Tier 1 entry point, byte-identical to its pre-#3503 behaviour.
 pub fn encode_raster(
     raster: &crate::raster::RasterImage,
     format: ExportFormat,
     quality: u8,
 ) -> Result<Vec<u8>> {
-    encode_raster_rgb(raster, format, quality, 6)
+    encode_raster_rgb(
+        raster,
+        format,
+        quality,
+        6,
+        crate::view::encode::TargetPrimaries::Srgb,
+    )
+}
+
+/// AVIF's `colr` box (the ICC/CICP tag) is not written by this crate yet
+/// (#3503 Tier 2 leaves it out of scope) — every AVIF this crate emits is
+/// implicitly read back as sRGB by a colour-managed viewer. Encoding a
+/// Display-P3-rotated raster into that untagged container would silently
+/// reproduce the double-stretch defect `icc.rs` exists to prevent, so the
+/// combination is rejected by name instead.
+fn reject_untagged_avif_p3(
+    format: ExportFormat,
+    primaries: crate::view::encode::TargetPrimaries,
+) -> Result<()> {
+    if format == ExportFormat::Avif && primaries == crate::view::encode::TargetPrimaries::P3 {
+        return Err(Error::UnsupportedFormat(
+            "AVIF export cannot carry a Display P3 ICC profile yet (#3503) — export sRGB, \
+             or choose JPEG/PNG/TIFF/WebP for a Display P3 deliverable"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// RGB-only raster encode. Callers with a possibly-4-channel raster go through
 /// [`crate::raster_encode::encode_raster_opts`], which decides per container
-/// whether to keep the alpha channel or flatten first (#3505).
+/// whether to keep the alpha channel or flatten first (#3505). `primaries`
+/// says which space the SAMPLES are already in (set via
+/// [`crate::raster::RasterImage::to_colourspace`]) — the ICC profile embedded
+/// is [`icc::profile_for`] of that same value, so the tag always matches the
+/// bytes.
 pub fn encode_raster_rgb(
     raster: &crate::raster::RasterImage,
     format: ExportFormat,
     quality: u8,
     avif_speed: u8,
+    primaries: crate::view::encode::TargetPrimaries,
 ) -> Result<Vec<u8>> {
+    reject_untagged_avif_p3(format, primaries)?;
     let rgb = raster.to_rgb_bytes();
-    let profile = icc::profile_for(crate::view::encode::TargetPrimaries::Srgb);
+    let profile = icc::profile_for(primaries);
     match format {
         ExportFormat::Jpeg => encode_jpeg(raster.width, raster.height, &rgb, quality, profile),
         ExportFormat::Png => encode_png(raster.width, raster.height, &rgb, profile),
