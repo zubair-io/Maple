@@ -16,12 +16,18 @@
  * I/O). This module is loaded exclusively inside `ffi/raw_ffi.child.ts`, an
  * isolated child process, so the WASM decode and any native decoder crash
  * are contained to the child — the parent HTTP server is unaffected.
+ *
+ * `heic-convert` is imported lazily (inside `renderHeicThumbToFile`, not at
+ * module scope) rather than statically here: this module is loaded by every
+ * FFI child at every spawn/respawn — including RAW-only work that never
+ * touches a HEIC file — and a static import would eagerly pull in and
+ * instantiate its embedded ~1MB libheif WASM (a ~1.4MB JS bundle) on every
+ * one of those spawns.
  */
 
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { maple } from 'maple';
-import heicConvert from 'heic-convert';
 import { decodePsdComposite } from './psd-hdr-decode.ts';
 import { decodeHdrIsolated } from './hdr-decode-isolated.ts';
 
@@ -119,6 +125,10 @@ export async function renderHeicThumbToFile(
   format: ThumbOutputFormat = 'avif',
 ): Promise<void> {
   const inputBuffer = await readFile(srcPath);
+  // Lazy import: see the module doc above — this keeps the ~1.4MB
+  // heic-convert bundle (and its embedded libheif WASM) out of every FFI
+  // child spawn that never touches a HEIC file.
+  const heicConvert = (await import('heic-convert')).default;
   // heic-convert → JPEG quality 0.9 (its own intermediate-decode scale, not
   // the thumb's output quality); the subsequent Maple resize re-encodes at
   // the caller-specified quality so the intermediate doesn't bloat the cache.
