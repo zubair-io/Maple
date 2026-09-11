@@ -96,17 +96,19 @@ async function writeAtomic(thumbPath: string, buf: Buffer): Promise<void> {
   await rename(tmp, thumbPath);
 }
 
-/**
- * Unlike the retired sharp path (`failOn: 'none', unlimited: true`), Maple
- * has no single "decode leniency" switch — behaviour differs by format.
- * JPEG (zune-jpeg, non-strict parsing) and AVIF (rav1d) decode
- * truncated/malformed input leniently and carry no allocation cap. TIFF/PNG/
- * WebP still go through the `image` crate with its default `Limits` (a
- * 512 MiB single-allocation cap) and no truncation leniency — a truncated or
- * pathologically large file in one of those formats still errors out here
- * exactly as it did under sharp's stricter defaults. See #3516 (filed to
- * bring the `image`-crate path's leniency/limits in line with JPEG/AVIF).
- */
+// Unlike the retired sharp path (`failOn: 'none', unlimited: true`), Maple
+// has no single "decode leniency" switch — behaviour differs by format.
+// JPEG (zune-jpeg, non-strict parsing) and AVIF (rav1d) decode
+// truncated/malformed input leniently and carry no allocation cap. TIFF/PNG/
+// WebP still go through the `image` crate with its default `Limits` (a
+// 512 MiB single-allocation cap) and no truncation leniency — a truncated or
+// pathologically large file in one of those formats still errors out here
+// exactly as it did under sharp's stricter defaults. See #3516 (filed to
+// bring the `image`-crate path's leniency/limits in line with JPEG/AVIF).
+// Applies to `renderImageThumbToFile`'s generic bitmap branch below, which
+// decodes JPEG/PNG/WEBP/TIFF/AVIF directly via Maple — NOT to the HEIC
+// (`heic-convert`) or PSD/HDR (`ag-psd`/`hdr`) branches, which front-end
+// through their own separate decoders before ever reaching Maple.
 
 /**
  * The canonical HEIC/HEIF chain: read the source, decode it to an

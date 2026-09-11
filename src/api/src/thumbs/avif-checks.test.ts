@@ -69,9 +69,14 @@ describe('checkAvifOutput (maple)', () => {
   // AVIF (the exact class of resize bug this validator exists to catch) gets
   // fully decoded into memory before being rejected, an OOM/DoS risk. Build
   // an AVIF larger than the expected long edge, then corrupt its tail
-  // (same length, so the container/`ispe` header still parses) — if the
-  // dimension check ran AFTER (or instead of) the pixel-decode check, this
-  // file would surface a decode-failure reason instead of a dimensions one.
+  // (same length, so the container/`ispe` header still parses). This proves
+  // TODAY's order — dimensions before pixel-decode — rejects for the right
+  // reason on this fixture; it is NOT a general reordering sentinel. A
+  // tail-corrupted AVIF is not guaranteed to fail decode: the AV1 decoder
+  // can accept leniently-corrupted tail bytes as "valid" (garbage-pixel)
+  // output rather than erroring, so a hypothetically reordered validator
+  // could still land on this same dimensions reason by coincidence, or on a
+  // different reason, rather than reliably failing this specific assertion.
   it('rejects an oversized AVIF on dimensions even when its tail is corrupted', () =>
     withDir(async (dir) => {
       const full = await solidAvif(300, 50, [5, 5, 5]);
