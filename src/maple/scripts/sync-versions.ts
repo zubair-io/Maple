@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * sync-versions.ts — Synchronize package versions across root @justmaple/maple
- * and its 7 platform-specific npm packages.
+ * its 7 platform-specific npm packages, and the MAPLE_VERSION constant in src/version.ts.
  *
  * Usage:
  *   bun scripts/sync-versions.ts [0.1.0]
@@ -54,7 +54,21 @@ if (rootPkg.optionalDependencies) {
 fs.writeFileSync(rootPkgPath, JSON.stringify(rootPkg, null, 2) + '\n', 'utf-8');
 console.log(`Updated root package: ${rootPkgPath}`);
 
-// 3. Update all platform packages under src/maple/npm/
+// 3. Update the version constant compiled into the CLI / library
+const versionTsPath = path.join(mapleDir, 'src', 'version.ts');
+const versionTs = fs.readFileSync(versionTsPath, 'utf-8');
+const versionTsNext = versionTs.replace(
+  /export const MAPLE_VERSION = '[^']*';/,
+  `export const MAPLE_VERSION = '${targetVersion}';`,
+);
+if (versionTsNext === versionTs && !versionTs.includes(`'${targetVersion}'`)) {
+  console.error(`Could not find the MAPLE_VERSION constant in ${versionTsPath}`);
+  process.exit(1);
+}
+fs.writeFileSync(versionTsPath, versionTsNext, 'utf-8');
+console.log(`Updated version constant: ${versionTsPath}`);
+
+// 4. Update all platform packages under src/maple/npm/
 if (fs.existsSync(npmDir)) {
   const platformDirs = fs.readdirSync(npmDir);
   for (const dirName of platformDirs) {
