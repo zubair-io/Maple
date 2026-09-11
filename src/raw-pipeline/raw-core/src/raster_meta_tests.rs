@@ -1,4 +1,6 @@
-//! Fixtures for `raster_meta`'s round-trip and truncation tests (#3507).
+//! Shared fixtures for `raster_meta`'s round-trip and truncation tests
+//! (#3507) plus the container-agnostic cases (no metadata, garbage input,
+//! the truncation sweep).
 //!
 //! There is no `raster_encode_jpeg`/`_png`/`_tiff` module in this crate that
 //! writes EXIF/ICC/XMP alongside pixels, so every fixture here is a baseline
@@ -6,23 +8,32 @@
 //! `png` crate directly, `image`'s WebP encoder, or — for TIFF, which has no
 //! metadata-aware encoder at all — a hand-built IFD0) with the metadata
 //! segments/chunks hand-spliced in. No binary fixture files are committed.
+//!
+//! The per-container tests live in the sibling files `raster_meta_jpeg_tests.rs`,
+//! `raster_meta_png_tests.rs` and `raster_meta_tiff_webp_tests.rs` — split out
+//! once this file grew past the 400-line soft budget (CONTRIBUTING.md
+//! § "File-size budget"), same `#[path]` sibling pattern `stages/hsl.rs`
+//! uses. Every builder below is `pub(super)` so those siblings can reach it
+//! as `super::tests::name(..)` — they are all descendants of the same
+//! `raster_meta` module this file's `use super::*` pulls from, so a
+//! `pub(super)` item here is visible from any of them.
 
 use super::*;
 use crate::raster::RasterImage;
 
-const EXIF_TIFF: &[u8] = b"II\x2a\x00\x08\x00\x00\x00\x00\x00";
-const XMP_PACKET: &[u8] = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"/>"#;
+pub(super) const EXIF_TIFF: &[u8] = b"II\x2a\x00\x08\x00\x00\x00\x00\x00";
+pub(super) const XMP_PACKET: &[u8] = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"/>"#;
 
-fn icc() -> Vec<u8> {
+pub(super) fn icc() -> Vec<u8> {
     crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3)
 }
 
-fn ramp() -> RasterImage {
+pub(super) fn ramp() -> RasterImage {
     RasterImage::new_rgb(8, 8, (0..8 * 8 * 3).map(|i| (i % 251) as u8).collect())
 }
 
 /// One JPEG marker segment: `FF <marker> <len-hi> <len-lo> <payload>`.
-fn jpeg_segment(marker: u8, payload: &[u8]) -> Vec<u8> {
+pub(super) fn jpeg_segment(marker: u8, payload: &[u8]) -> Vec<u8> {
     let length = (payload.len() + 2) as u16;
     let mut seg = vec![0xFF, marker];
     seg.extend_from_slice(&length.to_be_bytes());
@@ -32,7 +43,7 @@ fn jpeg_segment(marker: u8, payload: &[u8]) -> Vec<u8> {
 
 /// A baseline JPEG from the crate's own encoder, with `extra` raw marker
 /// segment bytes spliced in right after the SOI marker.
-fn jpeg_with_extra(extra: &[u8]) -> Vec<u8> {
+pub(super) fn jpeg_with_extra(extra: &[u8]) -> Vec<u8> {
     let img = ramp();
     let base = crate::jpeg::encode(img.width, img.height, &img.data, 90).unwrap();
     let mut out = base[..2].to_vec();
@@ -43,7 +54,7 @@ fn jpeg_with_extra(extra: &[u8]) -> Vec<u8> {
 
 /// One numbered APP2 ICC chunk segment: `ICC_PROFILE\0` + sequence + total
 /// count + this chunk's slice of the profile.
-fn icc_app2_segment(sequence: u8, count: u8, data: &[u8]) -> Vec<u8> {
+pub(super) fn icc_app2_segment(sequence: u8, count: u8, data: &[u8]) -> Vec<u8> {
     let mut payload = ICC_INTRO.to_vec();
     payload.push(sequence);
     payload.push(count);
@@ -53,7 +64,7 @@ fn icc_app2_segment(sequence: u8, count: u8, data: &[u8]) -> Vec<u8> {
 
 /// A baseline JPEG with APP1 EXIF, APP1 XMP and a single-chunk APP2 ICC
 /// segment hand-spliced in right after the SOI marker.
-fn jpeg_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
+pub(super) fn jpeg_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
     let mut extra = Vec::new();
     if let Some(exif) = exif {
         let mut payload = EXIF_INTRO.to_vec();
@@ -74,7 +85,7 @@ fn jpeg_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> 
 /// A baseline PNG from the `png` crate's own writer, with `chunks` (type,
 /// payload) spliced in via the public `Writer::write_chunk` (which computes
 /// the CRC) before the image data.
-fn png_fixture_raw(chunks: &[(png::chunk::ChunkType, Vec<u8>)]) -> Vec<u8> {
+pub(super) fn png_fixture_raw(chunks: &[(png::chunk::ChunkType, Vec<u8>)]) -> Vec<u8> {
     let img = ramp();
     let mut out: Vec<u8> = Vec::new();
     {
@@ -91,7 +102,7 @@ fn png_fixture_raw(chunks: &[(png::chunk::ChunkType, Vec<u8>)]) -> Vec<u8> {
 }
 
 /// An uncompressed (compression flag 0) `iTXt` XMP chunk payload.
-fn png_itxt_xmp_payload(xmp: &[u8]) -> Vec<u8> {
+pub(super) fn png_itxt_xmp_payload(xmp: &[u8]) -> Vec<u8> {
     let mut payload = PNG_XMP_KEYWORD.to_vec();
     payload.push(0); // compression flag: uncompressed
     payload.push(0); // compression method
@@ -101,7 +112,7 @@ fn png_itxt_xmp_payload(xmp: &[u8]) -> Vec<u8> {
     payload
 }
 
-fn png_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
+pub(super) fn png_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
     let mut chunks: Vec<(png::chunk::ChunkType, Vec<u8>)> = Vec::new();
     if let Some(icc) = icc {
         let mut payload = b"maple\0".to_vec();
@@ -122,7 +133,7 @@ fn png_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> V
 /// per metadata block given, and the value blobs appended right after the
 /// IFD. There are no pixel/strip tags — `read_sidecars` never decodes
 /// pixels, it only walks IFD0 for the ICC (34675) and XMP (700) tags.
-fn tiff_fixture(icc: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
+pub(super) fn tiff_fixture(icc: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
     let mut entries: Vec<(u16, &[u8])> = Vec::new();
     if let Some(icc) = icc {
         entries.push((34675, icc));
@@ -156,7 +167,7 @@ fn tiff_fixture(icc: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
 }
 
 /// One padded RIFF chunk: `<fourcc><len (LE u32)><payload>[pad]`.
-fn riff_chunk(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+pub(super) fn riff_chunk(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
     let mut chunk = fourcc.to_vec();
     chunk.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     chunk.extend_from_slice(payload);
@@ -169,7 +180,7 @@ fn riff_chunk(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
 /// A baseline lossless WebP from `image`'s own encoder, with `ICCP`, `EXIF`
 /// and `XMP ` RIFF chunks hand-spliced in after the `WEBP` FourCC, and the
 /// top-level RIFF size field corrected to match.
-fn webp_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
+pub(super) fn webp_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> Vec<u8> {
     let img = ramp();
     let mut base: Vec<u8> = Vec::new();
     image::codecs::webp::WebPEncoder::new_lossless(&mut base)
@@ -200,60 +211,22 @@ fn webp_fixture(icc: Option<&[u8]>, exif: Option<&[u8]>, xmp: Option<&[u8]>) -> 
     out
 }
 
-#[test]
-fn reads_all_three_blocks_back_out_of_a_jpeg() {
-    let bytes = jpeg_fixture(Some(&icc()), Some(EXIF_TIFF), Some(XMP_PACKET));
-    let found = read_sidecars(&bytes);
-    assert_eq!(found.exif.as_deref(), Some(EXIF_TIFF));
-    assert_eq!(found.icc.as_deref(), Some(icc().as_slice()));
-    assert_eq!(found.xmp.as_deref(), Some(XMP_PACKET));
-}
-
-#[test]
-fn reads_all_three_blocks_back_out_of_a_png() {
-    let bytes = png_fixture(Some(&icc()), Some(EXIF_TIFF), Some(XMP_PACKET));
-    let found = read_sidecars(&bytes);
-    assert_eq!(found.exif.as_deref(), Some(EXIF_TIFF));
-    assert_eq!(found.icc.as_deref(), Some(icc().as_slice()));
-    assert_eq!(found.xmp.as_deref(), Some(XMP_PACKET));
-}
-
-#[test]
-fn reads_all_three_blocks_back_out_of_a_webp() {
-    let bytes = webp_fixture(Some(&icc()), Some(EXIF_TIFF), Some(XMP_PACKET));
-    let found = read_sidecars(&bytes);
-    assert_eq!(found.exif.as_deref(), Some(EXIF_TIFF));
-    assert_eq!(found.icc.as_deref(), Some(icc().as_slice()));
-    assert_eq!(found.xmp.as_deref(), Some(XMP_PACKET));
-}
-
-#[test]
-fn reads_the_icc_profile_back_out_of_a_tiff() {
-    let bytes = tiff_fixture(Some(&icc()), Some(XMP_PACKET));
-    let found = read_sidecars(&bytes);
-    assert_eq!(found.icc.as_deref(), Some(icc().as_slice()));
-    assert_eq!(found.xmp.as_deref(), Some(XMP_PACKET));
-    // The whole file stands in as the EXIF block for a TIFF.
-    assert_eq!(found.exif.as_deref(), Some(bytes.as_slice()));
-}
-
-#[test]
-fn a_tiff_icc_tag_with_a_non_byte_sized_type_is_ignored() {
-    // tag 34675, type 3 (SHORT). The declared count would mean `count * 2`
-    // bytes, not `count` bytes, so this must not be read as if it were.
-    let mut ifd = Vec::new();
-    ifd.extend_from_slice(&1u16.to_le_bytes()); // one entry
-    ifd.extend_from_slice(&34675u16.to_le_bytes());
-    ifd.extend_from_slice(&3u16.to_le_bytes()); // type = SHORT
-    ifd.extend_from_slice(&1u32.to_le_bytes()); // count
-    ifd.extend_from_slice(&0u32.to_le_bytes()); // value/offset, never read
-    ifd.extend_from_slice(&0u32.to_le_bytes()); // no next IFD
-
-    let mut bytes = b"II\x2a\x00".to_vec();
-    bytes.extend_from_slice(&8u32.to_le_bytes()); // IFD0 offset
-    bytes.extend(ifd);
-
-    assert_eq!(read_sidecars(&bytes).icc, None);
+/// A minimal JPEG carrying only an APP0 JFIF segment, terminated with EOI —
+/// enough for `read_jpeg` to reach the density field without needing a real
+/// encoded image.
+pub(super) fn jpeg_with_jfif_density(units: u8, density: u16) -> Vec<u8> {
+    let mut payload = b"JFIF\0".to_vec();
+    payload.push(1); // version major
+    payload.push(1); // version minor
+    payload.push(units);
+    payload.extend_from_slice(&density.to_be_bytes()); // X density
+    payload.extend_from_slice(&density.to_be_bytes()); // Y density (unread)
+    payload.push(0); // thumbnail width
+    payload.push(0); // thumbnail height
+    let mut bytes = vec![0xFF, 0xD8];
+    bytes.extend(jpeg_segment(0xE0, &payload));
+    bytes.extend_from_slice(&[0xFF, 0xD9]);
+    bytes
 }
 
 #[test]
@@ -273,134 +246,6 @@ fn garbage_never_panics_and_reports_nothing() {
     ] {
         assert_eq!(read_sidecars(input), RasterSidecars::default());
     }
-}
-
-#[test]
-fn a_truncated_jpeg_segment_length_does_not_read_past_the_buffer() {
-    // An APP1 claiming 60000 bytes in a 40-byte file.
-    let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xE1, 0xEA, 0x60];
-    bytes.extend_from_slice(b"Exif\0\0II\x2a\x00\x08\x00\x00\x00");
-    assert_eq!(read_sidecars(&bytes).exif, None);
-}
-
-#[test]
-fn skips_fill_bytes_and_standalone_markers_before_finding_exif() {
-    // SOI, a standalone RST0 marker (no length field), three 0xFF fill
-    // bytes, then the real APP1 EXIF marker code.
-    let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xD0, 0xFF, 0xFF];
-    let mut exif_payload = EXIF_INTRO.to_vec();
-    exif_payload.extend_from_slice(EXIF_TIFF);
-    bytes.extend(jpeg_segment(0xE1, &exif_payload));
-    bytes.extend_from_slice(&[0xFF, 0xD9]); // EOI
-    assert_eq!(read_sidecars(&bytes).exif.as_deref(), Some(EXIF_TIFF));
-}
-
-#[test]
-fn reassembles_a_two_chunk_icc_profile_in_order() {
-    let profile = icc();
-    let (a, b) = profile.split_at(profile.len() / 2);
-    let mut extra = Vec::new();
-    extra.extend(icc_app2_segment(1, 2, a));
-    extra.extend(icc_app2_segment(2, 2, b));
-    let bytes = jpeg_with_extra(&extra);
-    assert_eq!(
-        read_sidecars(&bytes).icc.as_deref(),
-        Some(profile.as_slice())
-    );
-}
-
-#[test]
-fn reassembles_a_two_chunk_icc_profile_arriving_out_of_order() {
-    let profile = icc();
-    let (a, b) = profile.split_at(profile.len() / 2);
-    let mut extra = Vec::new();
-    extra.extend(icc_app2_segment(2, 2, b));
-    extra.extend(icc_app2_segment(1, 2, a));
-    let bytes = jpeg_with_extra(&extra);
-    assert_eq!(
-        read_sidecars(&bytes).icc.as_deref(),
-        Some(profile.as_slice())
-    );
-}
-
-#[test]
-fn a_missing_icc_chunk_reports_no_profile() {
-    let profile = icc();
-    let (a, _b) = profile.split_at(profile.len() / 2);
-    // Declares 2 total chunks but only chunk 1 is ever present.
-    let extra = icc_app2_segment(1, 2, a);
-    let bytes = jpeg_with_extra(&extra);
-    assert_eq!(read_sidecars(&bytes).icc, None);
-}
-
-#[test]
-fn a_duplicate_icc_sequence_number_reports_no_profile() {
-    let profile = icc();
-    let (a, _b) = profile.split_at(profile.len() / 2);
-    let mut extra = Vec::new();
-    extra.extend(icc_app2_segment(1, 2, a));
-    extra.extend(icc_app2_segment(1, 2, a)); // duplicate seq 1, no seq 2 ever
-    let bytes = jpeg_with_extra(&extra);
-    assert_eq!(read_sidecars(&bytes).icc, None);
-}
-
-#[test]
-fn reads_a_zlib_compressed_itxt_xmp_packet() {
-    let mut payload = PNG_XMP_KEYWORD.to_vec();
-    payload.push(1); // compression flag: compressed
-    payload.push(0); // compression method: deflate
-    payload.push(0); // language tag: empty, NUL-terminated
-    payload.push(0); // translated keyword: empty, NUL-terminated
-    payload.extend(miniz_oxide::deflate::compress_to_vec_zlib(XMP_PACKET, 6));
-    let bytes = png_fixture_raw(&[(png::chunk::iTXt, payload)]);
-    assert_eq!(read_sidecars(&bytes).xmp.as_deref(), Some(XMP_PACKET));
-}
-
-#[test]
-fn reads_an_uncompressed_itxt_xmp_packet() {
-    let bytes = png_fixture_raw(&[(png::chunk::iTXt, png_itxt_xmp_payload(XMP_PACKET))]);
-    assert_eq!(read_sidecars(&bytes).xmp.as_deref(), Some(XMP_PACKET));
-}
-
-/// A minimal JPEG carrying only an APP0 JFIF segment, terminated with EOI —
-/// enough for `read_jpeg` to reach the density field without needing a real
-/// encoded image.
-fn jpeg_with_jfif_density(units: u8, density: u16) -> Vec<u8> {
-    let mut payload = b"JFIF\0".to_vec();
-    payload.push(1); // version major
-    payload.push(1); // version minor
-    payload.push(units);
-    payload.extend_from_slice(&density.to_be_bytes()); // X density
-    payload.extend_from_slice(&density.to_be_bytes()); // Y density (unread)
-    payload.push(0); // thumbnail width
-    payload.push(0); // thumbnail height
-    let mut bytes = vec![0xFF, 0xD8];
-    bytes.extend(jpeg_segment(0xE0, &payload));
-    bytes.extend_from_slice(&[0xFF, 0xD9]);
-    bytes
-}
-
-#[test]
-fn jfif_density_in_inches_reports_dpi_directly() {
-    let bytes = jpeg_with_jfif_density(1, 72);
-    assert_eq!(read_sidecars(&bytes).density, Some(72.0));
-}
-
-#[test]
-fn jfif_density_in_centimetres_converts_to_dpi() {
-    let bytes = jpeg_with_jfif_density(2, 28);
-    let density = read_sidecars(&bytes).density.expect("density");
-    assert!((density - 71.12).abs() < 0.01, "got {density}");
-}
-
-#[test]
-fn png_phys_density_converts_metres_to_dpi() {
-    let mut payload = 2835u32.to_be_bytes().to_vec();
-    payload.extend_from_slice(&2835u32.to_be_bytes()); // Y (unread)
-    payload.push(1); // unit specifier: metre
-    let bytes = png_fixture_raw(&[(png::chunk::pHYs, payload)]);
-    let density = read_sidecars(&bytes).density.expect("density");
-    assert!((density - 72.009).abs() < 0.01, "got {density}");
 }
 
 /// Every prefix of every metadata-bearing fixture must return, never panic.
