@@ -87,6 +87,7 @@ unsafe fn render_into(
         fit: fit_from(p.flags),
         filter: filter_from(p.filter),
         without_enlargement: p.flags & FLAG_ALLOW_ENLARGE == 0,
+        ..Default::default()
     };
     let resized = match resize_raster(&raster, &opts) {
         Ok(r) => r,

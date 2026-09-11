@@ -20,6 +20,7 @@ fn test_synthetic_raster_resize() {
             fit: ResizeFit::Inside,
             filter: FilterAlg::Lanczos3,
             without_enlargement: true,
+            ..Default::default()
         },
     )
     .expect("resize should succeed");
@@ -211,6 +212,7 @@ mod cover_fit {
                 fit: ResizeFit::Cover,
                 filter: FilterAlg::Bilinear,
                 without_enlargement: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -227,6 +229,7 @@ mod cover_fit {
                 fit: ResizeFit::Cover,
                 filter: FilterAlg::Bilinear,
                 without_enlargement: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -244,6 +247,7 @@ mod cover_fit {
                     fit: ResizeFit::Cover,
                     filter: FilterAlg::Bilinear,
                     without_enlargement: true,
+                    ..Default::default()
                 },
             )
             .unwrap()
