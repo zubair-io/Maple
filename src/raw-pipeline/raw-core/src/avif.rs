@@ -19,6 +19,18 @@ const AVIF_SPEED: u8 = 6;
 /// Embeds no ICC profile (color-managed viewers assume sRGB for untagged
 /// AVIF, matching `jpeg::encode`'s convention).
 pub fn encode(width: u32, height: u32, rgb: &[u8], quality: u8) -> Result<Vec<u8>> {
+    encode_with_speed(width, height, rgb, quality, AVIF_SPEED)
+}
+
+/// `speed` is rav1e's 1 (slowest, smallest) … 10 (fastest); sharp's `effort`
+/// runs the other way (0 fastest … 9 slowest) and the package maps it.
+pub fn encode_with_speed(
+    width: u32,
+    height: u32,
+    rgb: &[u8],
+    quality: u8,
+    speed: u8,
+) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
         return Err(Error::Png(format!(
@@ -30,7 +42,7 @@ pub fn encode(width: u32, height: u32, rgb: &[u8], quality: u8) -> Result<Vec<u8
     let mut out: Vec<u8> = Vec::new();
     // `write_image` asserts `data.len() == expected_buffer_len` internally —
     // the length check above guards the FFI boundary before that assert.
-    AvifEncoder::new_with_speed_quality(&mut out, AVIF_SPEED, quality)
+    AvifEncoder::new_with_speed_quality(&mut out, speed.clamp(1, 10), quality)
         .write_image(rgb, width, height, ExtendedColorType::Rgb8)
         .map_err(|e| Error::Png(e.to_string()))?;
     Ok(out)
@@ -52,5 +64,21 @@ mod tests {
     #[test]
     fn wrong_length_errors() {
         assert!(encode(2, 2, &[0u8; 10], 55).is_err());
+    }
+
+    #[test]
+    fn faster_speed_still_produces_an_avif() {
+        let rgb: Vec<u8> = (0..(8 * 8 * 3)).map(|i| (i % 256) as u8).collect();
+        let fast = encode_with_speed(8, 8, &rgb, 55, 10).unwrap();
+        let slow = encode_with_speed(8, 8, &rgb, 55, 1).unwrap();
+        assert_eq!(&fast[4..8], b"ftyp");
+        assert_eq!(&slow[4..8], b"ftyp");
+    }
+
+    #[test]
+    fn speed_is_clamped_to_the_encoder_range() {
+        let rgb = vec![0u8; 2 * 2 * 3];
+        assert!(encode_with_speed(2, 2, &rgb, 55, 0).is_ok());
+        assert!(encode_with_speed(2, 2, &rgb, 55, 99).is_ok());
     }
 }
