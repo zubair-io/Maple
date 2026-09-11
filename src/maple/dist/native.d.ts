@@ -1,9 +1,10 @@
 /**
  * Native bindings loader for Maple via bun:ffi.
  */
+import type { RasterPipelineBinding } from './native-raster-pipeline';
 import type { RasterV2Binding } from './native-raster-v2';
 import type { FilenameResult, FilenameTemplateArgs } from './types';
-export interface NativeBinding extends RasterV2Binding {
+export interface NativeBinding extends RasterV2Binding, RasterPipelineBinding {
     exportDevelopedToFile(rawPath: string, xmpPath: string | null, format: string, quality: number, colorSpace: string, maxLongEdge: number, outPath: string): {
         ok: boolean;
         error?: string;

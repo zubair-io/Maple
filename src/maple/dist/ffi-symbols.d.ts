@@ -62,6 +62,10 @@ export declare function getFfiSymbols(FFIType: Record<string, string | number>):
         args: (string | number)[];
         returns: string | number;
     };
+    maple_raster_pipeline_buf: {
+        args: (string | number)[];
+        returns: string | number;
+    };
     maple_last_error: {
         args: never[];
         returns: string | number;
