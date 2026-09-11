@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import {
   loadNativeBinding,
   findNativeLib,
@@ -260,34 +260,51 @@ describe('Maple Native Binding', () => {
       const { readFileSync } = await import('node:fs');
       const pkg = JSON.parse(readFileSync(path.resolve(__dirname, '../package.json'), 'utf-8'));
       expect(MAPLE_VERSION).toBe(pkg.version);
-      const lines: string[] = [];
-      const original = console.log;
-      console.log = (...args: unknown[]) => {
-        lines.push(args.join(' '));
-      };
+      const log = spyOn(console, 'log').mockImplementation(() => {});
       try {
         expect(await runCli(['bun', 'maple', 'version'])).toBe(0);
+        const printed = log.mock.calls.map((args) => args.join(' ')).join('\n');
+        expect(printed).toContain(`maple ${MAPLE_VERSION}`);
       } finally {
-        console.log = original;
+        log.mockRestore();
       }
-      expect(lines.join('\n')).toContain(`maple ${MAPLE_VERSION}`);
     });
 
     it('sync-versions.ts rewrites the MAPLE_VERSION constant along with package.json', async () => {
-      const { readFileSync } = await import('node:fs');
+      // The script locates the package relative to its own file, so it runs
+      // against a throwaway copy of the package layout, never the workspace.
+      const fs = await import('node:fs');
+      const os = await import('node:os');
       const { spawnSync } = await import('node:child_process');
-      const script = path.resolve(__dirname, '../scripts/sync-versions.ts');
-      const versionTs = path.resolve(__dirname, '../src/version.ts');
-      const pkgJson = path.resolve(__dirname, '../package.json');
-      const original = JSON.parse(readFileSync(pkgJson, 'utf-8')).version as string;
+      const mapleDir = path.resolve(__dirname, '..');
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'maple-sync-versions-'));
       try {
-        expect(spawnSync('bun', [script, '9.9.9']).status).toBe(0);
-        expect(readFileSync(versionTs, 'utf-8')).toContain("MAPLE_VERSION = '9.9.9'");
-        expect(JSON.parse(readFileSync(pkgJson, 'utf-8')).version).toBe('9.9.9');
+        for (const rel of ['package.json', 'src/version.ts', 'scripts/sync-versions.ts']) {
+          fs.mkdirSync(path.dirname(path.join(tmp, rel)), { recursive: true });
+          fs.copyFileSync(path.join(mapleDir, rel), path.join(tmp, rel));
+        }
+        const platformDir = path.join(tmp, 'npm', 'darwin-arm64');
+        fs.mkdirSync(platformDir, { recursive: true });
+        fs.copyFileSync(
+          path.join(mapleDir, 'npm', 'darwin-arm64', 'package.json'),
+          path.join(platformDir, 'package.json'),
+        );
+
+        const res = spawnSync('bun', [path.join(tmp, 'scripts', 'sync-versions.ts'), '9.9.9']);
+        expect(res.status).toBe(0);
+        expect(fs.readFileSync(path.join(tmp, 'src', 'version.ts'), 'utf-8')).toContain(
+          "MAPLE_VERSION = '9.9.9'",
+        );
+        const root = JSON.parse(fs.readFileSync(path.join(tmp, 'package.json'), 'utf-8'));
+        expect(root.version).toBe('9.9.9');
+        expect(root.optionalDependencies['@justmaple/maple-darwin-arm64']).toBe('9.9.9');
+        const platform = JSON.parse(
+          fs.readFileSync(path.join(platformDir, 'package.json'), 'utf-8'),
+        );
+        expect(platform.version).toBe('9.9.9');
       } finally {
-        expect(spawnSync('bun', [script, original]).status).toBe(0);
+        fs.rmSync(tmp, { recursive: true, force: true });
       }
-      expect(readFileSync(versionTs, 'utf-8')).toContain(`MAPLE_VERSION = '${original}'`);
     });
 
     it('returns error code 1 for unknown commands', async () => {
