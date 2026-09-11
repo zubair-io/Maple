@@ -22,6 +22,16 @@ avif-parse = { workspace = true, optional = true }
 # defines it is crate-private, so `avif_decode` pulls the same well-known
 # `libc` crate directly rather than hard-coding a platform-specific number.
 libc = { version = "0.2", optional = true }
+# Direct dep so the AVIF encoder's own options (EXIF item, chroma subsampling,
+# alpha quality) are reachable — `image`'s AvifEncoder wrapper exposes only
+# speed and quality. Same version `image/avif` already resolves; matching
+# `image`'s own `default-features = false` on `ravif`/`rgb` keeps the enabled
+# feature set (and so the vendor tree and Cargo.lock) unchanged too — ravif's
+# own defaults turn on `asm`/`threading`, which would newly pull nasm/cc build
+# tooling into the graph for a resolver artifact, not a real requirement.
+ravif = { version = "0.13", optional = true, default-features = false }
+rgb = { version = "0.8", optional = true, default-features = false }
+imgref = { version = "1", optional = true }
 zune-jpeg.workspace = true
 jpeg-encoder.workspace = true
 # GPU resource core (epic #925), feature-gated and OFF by default. All GPU code
@@ -70,7 +80,7 @@ gpu = ["dep:raw-gpu"]
 # only ever needs raw-core's JPEG/decode path — never pulls ravif/rav1e into
 # the wasm32 build; raw-ffi and maple-pano opt in explicitly since they're
 # the only real consumers of `raw_core::avif::encode`.
-avif = ["image/avif", "dep:rav1d", "dep:avif-parse", "dep:libc"]
+avif = ["image/avif", "dep:rav1d", "dep:avif-parse", "dep:libc", "dep:ravif", "dep:rgb", "dep:imgref"]
 
 [[example]]
 name = "synth-grey"
