@@ -79,7 +79,6 @@ fn container_supports_alpha(format: ExportFormat) -> bool {
 /// raster has no alpha to begin with.
 pub fn encode_raster_opts(raster: &RasterImage, opts: &RasterEncodeOptions) -> Result<Vec<u8>> {
     let keeps_alpha = raster.channels == 4 && container_supports_alpha(opts.format);
-    let profile = icc::profile_for(TargetPrimaries::Srgb);
     let quality = if opts.quality == 0 {
         85
     } else {
@@ -90,7 +89,7 @@ pub fn encode_raster_opts(raster: &RasterImage, opts: &RasterEncodeOptions) -> R
         return crate::export::encode_raster_rgb(&flat, opts.format, quality, opts.avif_speed);
     }
     match opts.format {
-        ExportFormat::Png => encode_png_rgba(raster, profile),
+        ExportFormat::Png => encode_png_rgba(raster, icc::profile_for(TargetPrimaries::Srgb)),
         ExportFormat::Webp => encode_webp_rgba(raster),
         ExportFormat::Avif => crate::export::encode_avif_rgba_with_speed(
             raster.width,
