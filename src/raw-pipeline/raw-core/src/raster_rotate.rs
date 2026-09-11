@@ -131,12 +131,9 @@ impl RasterImage {
                         background[..c].to_vec()
                     } else if has_alpha {
                         let corners = corner_weights(sx, sy);
-                        let alphas: Vec<f64> = corners
-                            .iter()
-                            .map(|&(xi, yi, _)| {
-                                at(xi, yi, alpha_ch).unwrap_or(background[3] as f64)
-                            })
-                            .collect();
+                        let alphas: [f64; 4] = corners.map(|(xi, yi, _)| {
+                            at(xi, yi, alpha_ch).unwrap_or(background[3] as f64)
+                        });
                         let alpha_sum: f64 = corners
                             .iter()
                             .zip(&alphas)
