@@ -10,6 +10,7 @@ import {
   type VerifiedAuthenticationResponse,
 } from '@simplewebauthn/server';
 import { challengesCollection, credentialsCollection } from '../db/client.ts';
+import { allowedBrowserOrigins } from '../runtime/allowed-origins.ts';
 import type { ChallengePurpose, CredentialDoc } from '../db/schema.ts';
 
 const RP_NAME = 'Maple';
@@ -17,21 +18,9 @@ function rpID(): string {
   return process.env.MAPLE_RP_ID ?? 'localhost';
 }
 
-// Allowed WebAuthn origins. SimpleWebAuthn accepts an array — useful in dev,
-// where the bun API runs on :3000 and the Angular dev server runs on :4201
-// (or :4200 for hosted). MAPLE_ORIGIN can be a single origin or a
-// comma-separated list. The default covers both common dev ports so the
-// passkey ceremony works whether the user hits the bun-served bundle or
-// ng-serve directly.
-function origin(): string[] {
-  const raw = process.env.MAPLE_ORIGIN;
-  if (raw)
-    return raw
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-  return ['http://localhost:3000', 'http://localhost:4200', 'http://localhost:4201'];
-}
+// Allowed WebAuthn origins come from `runtime/allowed-origins.ts`:
+// MAPLE_ORIGIN (or the dev localhost ports) plus the managed LAN HTTPS
+// hostname while that listener is serving. SimpleWebAuthn accepts the array.
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
@@ -134,7 +123,7 @@ async function verifyRegistration(args: {
   return verifyRegistrationResponse({
     response: args.response,
     expectedChallenge: args.expectedChallenge,
-    expectedOrigin: origin(),
+    expectedOrigin: allowedBrowserOrigins(),
     expectedRPID: rpID(),
     requireUserVerification: false,
   });
@@ -211,7 +200,7 @@ export async function verifyAuthentication(args: {
   return verifyAuthenticationResponse({
     response: args.response,
     expectedChallenge: args.expectedChallenge,
-    expectedOrigin: origin(),
+    expectedOrigin: allowedBrowserOrigins(),
     expectedRPID: rpID(),
     // Match the "preferred" client-side policy in `buildAuthenticationOptions`
     // — accept assertions whether UV happened or not. SimpleWebAuthn defaults

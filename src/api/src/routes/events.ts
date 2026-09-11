@@ -21,6 +21,7 @@ import { Elysia } from 'elysia';
 import { stageRegistry } from '../workers/registry.ts';
 import { workersStatusBroadcaster } from '../workers/status-broadcast.ts';
 import { verifyAccessToken } from '../auth/tokens.ts';
+import { allowedBrowserOrigins } from '../runtime/allowed-origins.ts';
 
 /** Snapshot of all live stage statuses, keyed by stage name. */
 function supervisorState(): ReturnType<typeof stageRegistry.statuses> {
@@ -122,22 +123,15 @@ const WS_AUTH_TIMEOUT_MS = 10_000;
 
 /**
  * Origins allowed to open the events WebSocket (#863, cross-site WebSocket
- * hijack defense). Mirrors the WebAuthn origin allowlist: `MAPLE_ORIGIN`
- * (comma-separated) or the dev localhost ports. A browser always sends `Origin`;
- * a non-browser client (no `Origin`) is allowed through — CSWSH is browser-only.
+ * hijack defense). Shares `runtime/allowed-origins.ts` with the WebAuthn
+ * allowlist so live updates work at every origin a user can sign in at,
+ * including the managed LAN HTTPS hostname (#3519). A browser always sends
+ * `Origin`; a non-browser client (no `Origin`) is allowed through — CSWSH is
+ * browser-only.
  */
-function allowedWsOrigins(): string[] {
-  const raw = process.env.MAPLE_ORIGIN;
-  if (raw)
-    return raw
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-  return ['http://localhost:3000', 'http://localhost:4200', 'http://localhost:4201'];
-}
 export function isWsOriginAllowed(origin: string | undefined | null): boolean {
   if (!origin) return true; // non-browser client; not subject to CSWSH
-  return allowedWsOrigins().includes(origin);
+  return allowedBrowserOrigins().includes(origin);
 }
 
 function parseFrame(message: unknown): Record<string, unknown> | null {
