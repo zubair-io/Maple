@@ -2,15 +2,23 @@
 //! every op in order, encode the result. One function, one pass, no hidden
 //! state — the ops list IS the pipeline.
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::raster::RasterImage;
+/// Re-exported `pub(crate)` — `raster_recipe_geometry` and
+/// `raster_recipe_resize` reach it as `raster_recipe_exec::bad`, while
+/// `raster_recipe_colour` reaches the same function straight from
+/// `raster_recipe`, where it now lives (shared by all three op families so
+/// every validation error in the pipeline is reported the same way).
+pub(crate) use crate::raster_recipe::bad;
 use crate::raster_recipe::{Layer, Op, Output, Recipe, RecipeInput};
+use crate::raster_recipe_colour::{apply_colour_op, output_primaries};
 
 use crate::export::ExportFormat;
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
 use crate::raster_encode::{container_supports_alpha, encode_raster_opts, RasterEncodeOptions};
 use crate::raster_recipe_geometry::apply_geometry_op;
 use crate::raster_recipe_resize::{apply_resize_op, ResizeOpArgs};
+use crate::view::encode::TargetPrimaries;
 
 /// What a recipe produced: the encoded bytes (or raw pixels for
 /// `Output::Raw`) plus the dimensions actually written.
@@ -20,17 +28,6 @@ pub struct RecipeResult {
     pub height: u32,
     pub channels: u8,
     pub bytes: Vec<u8>,
-}
-
-/// `pub(crate)` — shared with `raster_recipe_geometry` and
-/// `raster_recipe_resize`, which report their own unsupported-option errors
-/// (`extendWith`, `trim.lineArt`, unsupported fit/kernel/position) the same
-/// way.
-pub(crate) fn bad(reason: String) -> Error {
-    Error::Decode {
-        path: "<recipe>".into(),
-        reason,
-    }
 }
 
 fn decode_input(recipe: &Recipe, input: &[u8]) -> Result<RasterImage> {
@@ -119,6 +116,14 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
         | Op::Flip {}
         | Op::Flop {}
         | Op::Trim { .. } => apply_geometry_op(image, op),
+        Op::Greyscale {}
+        | Op::Gamma { .. }
+        | Op::Linear { .. }
+        | Op::Negate { .. }
+        | Op::Normalise { .. }
+        | Op::Modulate { .. }
+        | Op::Tint { .. }
+        | Op::ToColourspace { .. } => apply_colour_op(image, op),
     }
 }
 
@@ -141,15 +146,16 @@ fn channels_written(image: &RasterImage, format: ExportFormat) -> u8 {
     }
 }
 
-fn encode(image: &RasterImage, output: Output) -> Result<(Vec<u8>, u8)> {
-    // The recipe pipeline has no colourspace op yet (#3503 tracks
-    // `toColourspace` on `RasterImage`; recipe wiring is a follow-up) — every
-    // recipe output stays sRGB, unchanged from before.
+fn encode(
+    image: &RasterImage,
+    output: Output,
+    primaries: TargetPrimaries,
+) -> Result<(Vec<u8>, u8)> {
     let opts = |format, quality, speed| RasterEncodeOptions {
         format,
         quality,
         avif_speed: speed,
-        primaries: crate::view::encode::TargetPrimaries::Srgb,
+        primaries,
     };
     let encode_as = |format: ExportFormat, quality: u8, speed: u8| -> Result<(Vec<u8>, u8)> {
         let bytes = encode_raster_opts(image, &opts(format, quality, speed))?;
@@ -173,7 +179,7 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
         .ops
         .iter()
         .try_fold(decoded, |image, op| apply_op(image, op, aux))?;
-    let (bytes, channels) = encode(&processed, recipe.output)?;
+    let (bytes, channels) = encode(&processed, recipe.output, output_primaries(recipe)?)?;
     Ok(RecipeResult {
         width: processed.width,
         height: processed.height,
