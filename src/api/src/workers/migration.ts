@@ -27,11 +27,9 @@ import {
   type MigrationBatchResult,
 } from './migration/types.ts';
 import {
-  loadAllMigrationStates,
   loadMigrationState,
   patchMigrationState,
   pruneUnknownMigrationStates,
-  defaultMigrationState,
   type MigrationState,
 } from './migration-config.repo.ts';
 
@@ -44,28 +42,6 @@ const DEFAULT_INTERVAL_MS = 5_000;
 /** Items per migration per tick. Moves are file-I/O heavy, so this is far
  * smaller than the reaper's pure-Mongo batch. */
 const DEFAULT_BATCH = 50;
-
-/** Sum of remaining work across all ENABLED migrations — surfaced as the
- * worker's `pending` count in `/api/workers/status`. */
-export async function migrationPendingCount(): Promise<number> {
-  // Load all per-migration state in ONE read, then only count enabled ones.
-  let states: Record<string, MigrationState>;
-  try {
-    states = await loadAllMigrationStates();
-  } catch {
-    return 0; // best-effort for the status pill
-  }
-  let total = 0;
-  for (const m of MIGRATIONS) {
-    if (!(states[m.id] ?? defaultMigrationState()).enabled) continue;
-    try {
-      total += await m.countRemaining();
-    } catch {
-      /* best-effort */
-    }
-  }
-  return total;
-}
 
 export interface MigrationHandle {
   stop: () => void;
@@ -83,11 +59,18 @@ function resolveBatchSize(migration: Migration, defaultBatchSize: number): numbe
   return migration.preferredBatchSize ?? defaultBatchSize;
 }
 
+/** Persisted `remaining` fields — the Workers page reads these instead of
+ * running `countRemaining()` itself (#3491). */
+function remainingPatch(remaining: number, nowIso: string): Partial<MigrationState> {
+  return { remaining, remaining_at: nowIso };
+}
+
 async function markMigrationDone(migration: Migration, nowIso: string): Promise<void> {
   await patchMigrationState(migration.id, {
     status: 'done',
     enabled: false,
     finished_at: nowIso,
+    ...remainingPatch(0, nowIso),
   });
   log.info({ migration: migration.id }, 'migration complete — nothing remaining, auto-disabled');
 }
@@ -126,6 +109,9 @@ async function runMigrationOnce(
   if (!state.enabled || state.status === 'done') return 0;
 
   const remainingBefore = migration.selfReportsCompletion ? null : await migration.countRemaining();
+  if (remainingBefore !== null && remainingBefore > 0) {
+    await patchMigrationState(migration.id, remainingPatch(remainingBefore, nowIso));
+  }
   if (remainingBefore === 0) {
     await markMigrationDone(migration, nowIso);
     return 0;
@@ -140,6 +126,7 @@ async function runMigrationOnce(
     errors: state.errors + batch.errors,
     status: complete ? 'done' : 'running',
     last_error: null,
+    ...remainingPatch(remaining, nowIso),
     ...(complete ? { enabled: false, finished_at: nowIso } : {}),
   });
   log.info({ migration: migration.id, ...batch, remaining }, 'migration batch complete');

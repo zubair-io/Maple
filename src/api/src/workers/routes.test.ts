@@ -191,6 +191,89 @@ describe('GET /api/workers/status', () => {
     }
   });
 
+  it('serves the counts the worker persisted, stamped with countsAt (#3491)', async () => {
+    if (!dbReachable) return;
+    const { writeStatusCounts } = await import('./worker-status.repo.ts');
+    await writeWorkerStatus(
+      {
+        exif: {
+          status: 'running',
+          inFlight: 0,
+          throughput: 0,
+          targetVersion: 2,
+          dependsOn: [],
+          lastError: null,
+        },
+      },
+      Date.now(),
+    );
+    const computedAt = Date.now();
+    await writeStatusCounts({
+      pending: { exif: 12, 'missing-reaper': 3 },
+      ready: { exif: 5, 'missing-reaper': 3 },
+      dead: { exif: 1 },
+      damaged: 4,
+      newly_hidden: 2,
+      computed_at: computedAt,
+      duration_ms: 17,
+    });
+    // No assets in the DB at all — every number below must come from the
+    // persisted snapshot, never from a live countDocuments.
+    const app = new Elysia().use(workerRoutes());
+    const res = await app.handle(new Request('http://localhost/api/workers/status'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const byName = new Map(
+      (body.stages as Array<{ name: string } & Record<string, unknown>>).map((s) => [s.name, s]),
+    );
+    expect(byName.get('exif')).toMatchObject({ pending: 12, ready: 5, blocked: 7, dead: 1 });
+    expect(byName.get('missing-reaper')).toMatchObject({ pending: 3, ready: 3, blocked: 0 });
+    expect(body.damaged).toBe(4);
+    expect(body.newlyHiddenTotal).toBe(2);
+    expect(body.countsAt).toBe(computedAt);
+  });
+
+  it('reports countsAt: null before the worker has ever counted', async () => {
+    if (!dbReachable) return;
+    const app = new Elysia().use(workerRoutes());
+    const body = await (
+      await app.handle(new Request('http://localhost/api/workers/status'))
+    ).json();
+    expect(body.countsAt).toBeNull();
+  });
+
+  it('pokes the worker demand flag so counts refresh while the page is watched', async () => {
+    if (!dbReachable) return;
+    const { _resetDemandThrottleForTests, COUNTS_DEMAND_WINDOW_MS } =
+      await import('./routes-status.ts');
+    const { readStatusCountsDemand } = await import('./worker-status.repo.ts');
+    _resetDemandThrottleForTests();
+    const before = Date.now();
+    const app = new Elysia().use(workerRoutes());
+    await app.handle(new Request('http://localhost/api/workers/status'));
+    const until = await readStatusCountsDemand();
+    expect(until).toBeGreaterThanOrEqual(before + COUNTS_DEMAND_WINDOW_MS);
+  });
+
+  it("the migration row's pending is the enabled migrations' persisted remaining", async () => {
+    if (!dbReachable) return;
+    const { patchMigrationState } = await import('./migration-config.repo.ts');
+    await patchMigrationState('refile-backups', { enabled: true, remaining: 40 });
+    await patchMigrationState('refile-legacy-daydir', { enabled: false, remaining: 99 });
+    try {
+      const app = new Elysia().use(workerRoutes());
+      const body = await (
+        await app.handle(new Request('http://localhost/api/workers/status'))
+      ).json();
+      const row = (body.stages as Array<{ name: string; pending: number }>).find(
+        (s) => s.name === 'migration',
+      );
+      expect(row?.pending).toBe(40);
+    } finally {
+      await (await getDb()).collection('app_settings').deleteOne({ _id: 'migration' as never });
+    }
+  });
+
   it("surfaces a stage as 'error' when written that way by the worker", async () => {
     if (!dbReachable) return;
     const snapshot: Record<string, StageStatusSnapshot> = {
@@ -380,10 +463,10 @@ describe('PATCH /api/workers/:name/config', () => {
 });
 
 // --- #1290: deduplicate ready/pending count must be live-aware ---
-// fetchStatusDbState's deduplicate count must exclude assets where the 2nd
+// computeStatusCounts's deduplicate count must exclude assets where the 2nd
 // fileinfo entry is tombstoned (missing_since or deleted_at set), so the
 // badge reflects what the worker can actually act on (and can reach 0).
-describe('deduplicate count — fetchStatusDbState (#1290)', () => {
+describe('deduplicate count — computeStatusCounts (#1290)', () => {
   it('does NOT count an asset with 1 live + 1 missing_since sibling', async () => {
     if (!dbReachable) return;
     const db = await getDb();
@@ -413,11 +496,10 @@ describe('deduplicate count — fetchStatusDbState (#1290)', () => {
       live_location_count: 1,
     } as never);
 
-    const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');
-    _resetStatusCacheForTests();
-    const state = await fetchStatusDbState(['deduplicate'], {});
-    const pending = state.pendingByStage.get('deduplicate') ?? 0;
-    const ready = state.readyByStage.get('deduplicate') ?? 0;
+    const { computeStatusCounts } = await import('./status-counts.ts');
+    const counts = await computeStatusCounts(['deduplicate'], {});
+    const pending = counts.pending['deduplicate'] ?? 0;
+    const ready = counts.ready['deduplicate'] ?? 0;
     expect(pending).toBe(0);
     expect(ready).toBe(0);
   });
@@ -448,11 +530,10 @@ describe('deduplicate count — fetchStatusDbState (#1290)', () => {
       live_location_count: 1,
     } as never);
 
-    const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');
-    _resetStatusCacheForTests();
-    const state = await fetchStatusDbState(['deduplicate'], {});
-    const pending = state.pendingByStage.get('deduplicate') ?? 0;
-    const ready = state.readyByStage.get('deduplicate') ?? 0;
+    const { computeStatusCounts } = await import('./status-counts.ts');
+    const counts = await computeStatusCounts(['deduplicate'], {});
+    const pending = counts.pending['deduplicate'] ?? 0;
+    const ready = counts.ready['deduplicate'] ?? 0;
     expect(pending).toBe(0);
     expect(ready).toBe(0);
   });
@@ -478,11 +559,10 @@ describe('deduplicate count — fetchStatusDbState (#1290)', () => {
       live_location_count: 2,
     } as never);
 
-    const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');
-    _resetStatusCacheForTests();
-    const state = await fetchStatusDbState(['deduplicate'], {});
-    const pending = state.pendingByStage.get('deduplicate') ?? 0;
-    const ready = state.readyByStage.get('deduplicate') ?? 0;
+    const { computeStatusCounts } = await import('./status-counts.ts');
+    const counts = await computeStatusCounts(['deduplicate'], {});
+    const pending = counts.pending['deduplicate'] ?? 0;
+    const ready = counts.ready['deduplicate'] ?? 0;
     expect(pending).toBe(1);
     expect(ready).toBe(1);
   });
@@ -512,6 +592,39 @@ describe('migration routes', () => {
       enabled: expect.any(Boolean),
       status: expect.any(String),
     });
+  });
+
+  it('GET /migration/migrations serves persisted remaining counts, null before the first count (#3491)', async () => {
+    if (!dbReachable) return;
+    const { patchMigrationState } = await import('./migration-config.repo.ts');
+    const { _resetDemandThrottleForTests } = await import('./routes-status.ts');
+    const { readStatusCountsDemand } = await import('./worker-status.repo.ts');
+    const at = new Date().toISOString();
+    await patchMigrationState('refile-backups', { remaining: 7, remaining_at: at });
+    await patchMigrationState('backfill-meilisearch-vectors', { failed_permanently: 2 });
+    _resetDemandThrottleForTests();
+    try {
+      const res = await app.handle(
+        new Request('http://localhost/api/workers/migration/migrations'),
+      );
+      const body = await res.json();
+      const byId = new Map(
+        (body.migrations as Array<{ id: string } & Record<string, unknown>>).map((m) => [m.id, m]),
+      );
+      expect(byId.get('refile-backups')).toMatchObject({ remaining: 7, remaining_at: at });
+      // Never counted → null, not a fabricated 0.
+      expect(byId.get('refile-legacy-daydir')).toMatchObject({
+        remaining: null,
+        remaining_at: null,
+      });
+      expect(byId.get('backfill-meilisearch-vectors')).toMatchObject({ failedPermanently: 2 });
+      // Migrations without a dead-letter queue never carry the field.
+      expect('failedPermanently' in byId.get('refile-backups')!).toBe(false);
+      // Listing is a demand signal too — the worker refreshes while it's watched.
+      expect(await readStatusCountsDemand()).toBeGreaterThan(Date.now());
+    } finally {
+      await (await getDb()).collection('app_settings').deleteOne({ _id: 'migration' as never });
+    }
   });
 
   it('PATCH /migration/migrations/:id → 404 for an unknown migration', async () => {

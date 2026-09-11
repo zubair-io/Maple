@@ -56,8 +56,8 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
   DEAD_LIST_LIMIT_DEFAULT,
   DEAD_LIST_LIMIT_MAX,
-  invalidateStatusCache,
   computeWorkersStatus,
+  requestStatusCounts,
 } from './routes-status.ts';
 
 /**
@@ -147,6 +147,10 @@ export function workerRoutes(): Elysia {
       // ── Status ─────────────────────────────────────────────────────────────
 
       .get('/status', async () => {
+        // Cheap by construction: the counts come from the snapshot the worker
+        // persists (#3491). Poking demand is what makes the worker refresh
+        // that snapshot quickly while someone is looking.
+        await requestStatusCounts();
         return computeWorkersStatus();
       })
 
@@ -206,43 +210,35 @@ export function workerRoutes(): Elysia {
 
       .get('/migration/migrations', async ({ set }) => {
         try {
-          // One DB read for all per-migration state, indexed by id below.
+          await requestStatusCounts();
+          // One DB read for all per-migration state, indexed by id below. The
+          // `remaining` / `failedPermanently` counts are the worker's persisted
+          // values (#3491): most `countRemaining()` filters are full-collection
+          // scans, so they are never run on the request path. Null until the
+          // worker has counted a migration for the first time.
           const states = await loadAllMigrationStates();
-          const migrations = await Promise.all(
-            MIGRATIONS.map(async (m) => {
-              const state = states[m.id] ?? defaultMigrationState();
-              let remaining = 0;
-              try {
-                remaining = await m.countRemaining();
-              } catch {
-                /* best-effort — surface 0 if the count query fails */
-              }
+          const migrations = MIGRATIONS.map((m) => {
+            const state = states[m.id] ?? defaultMigrationState();
+            return {
+              id: m.id,
+              title: m.title,
+              description: m.description,
+              enabled: state.enabled,
+              status: state.status,
+              processed: state.processed,
+              errors: state.errors,
+              remaining: state.remaining ?? null,
+              remaining_at: state.remaining_at ?? null,
               // Only migrations that implement `countFailedPermanently` (a
               // migration-specific dead-letter queue) surface the field at all.
-              let failedPermanently: number | undefined;
-              if (m.countFailedPermanently) {
-                try {
-                  failedPermanently = await m.countFailedPermanently();
-                } catch {
-                  /* best-effort — omit the field if the count query fails */
-                }
-              }
-              return {
-                id: m.id,
-                title: m.title,
-                description: m.description,
-                enabled: state.enabled,
-                status: state.status,
-                processed: state.processed,
-                errors: state.errors,
-                remaining,
-                ...(failedPermanently !== undefined ? { failedPermanently } : {}),
-                last_error: state.last_error,
-                started_at: state.started_at,
-                finished_at: state.finished_at,
-              };
-            }),
-          );
+              ...(m.countFailedPermanently
+                ? { failedPermanently: state.failed_permanently ?? null }
+                : {}),
+              last_error: state.last_error,
+              started_at: state.started_at,
+              finished_at: state.finished_at,
+            };
+          });
           return { migrations };
         } catch (err) {
           set.status = 500;
@@ -407,7 +403,6 @@ export function workerRoutes(): Elysia {
             const result = await images.updateMany(filter, {
               $set: stageResets,
             });
-            invalidateStatusCache();
             return { ok: true, cleared: result.modifiedCount };
           } catch (err) {
             set.status = 500;
@@ -442,7 +437,6 @@ export function workerRoutes(): Elysia {
               },
             },
           );
-          invalidateStatusCache();
           return { ok: true, reset: result.modifiedCount };
         } catch (err) {
           set.status = 500;
@@ -489,7 +483,6 @@ export function workerRoutes(): Elysia {
             if (params.name === 'preview' && savedConfig) {
               previewOndemandLimiter().setLimit(savedConfig.concurrency);
             }
-            invalidateStatusCache();
             return { ok: true, config: savedConfig };
           } catch (err) {
             set.status = 500;

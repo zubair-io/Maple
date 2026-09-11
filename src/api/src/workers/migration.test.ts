@@ -181,6 +181,15 @@ describe('migration end-to-end (restructure)', () => {
       expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.HEIC'), 'utf8')).toBe('pixels');
       expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.xmp'), 'utf8')).toBe('edits');
       await expect(fs.stat(path.join(dir, oldRel))).rejects.toThrow();
+
+      // The worker persists `remaining` as it goes (#3491) — the Workers page
+      // reads that instead of running countRemaining() on every load. One
+      // candidate, moved in this batch → remaining 0, migration done.
+      const { loadMigrationState } = await import('./migration-config.repo.ts');
+      const state = await loadMigrationState('refile-backups');
+      expect(state.status).toBe('done');
+      expect(state.remaining).toBe(0);
+      expect(typeof state.remaining_at).toBe('string');
     } finally {
       await assets.deleteOne({ _id });
       await resetMigrationState('refile-backups');

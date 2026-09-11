@@ -1,10 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import type { Db } from 'mongodb';
-import {
-  WorkersStatusBroadcaster,
-  cheapStatus,
-  type WorkersStatusFrame,
-} from './status-broadcast.ts';
+import { WorkersStatusBroadcaster, type WorkersStatusFrame } from './status-broadcast.ts';
 import type { WorkersStatusPayload } from './routes.ts';
 import { closeDb, getDb } from '../db/client.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
@@ -63,45 +59,12 @@ const fakePayload: WorkersStatusPayload = {
   ],
   damaged: 0,
   newlyHiddenTotal: 0,
+  countsAt: 1_700_000_000_000,
 };
 
-describe('cheapStatus', () => {
-  it('returns empty stages when worker_status has no doc', async () => {
-    // No writeWorkerStatus call → readWorkerStatus returns null → empty stages.
-    const payload = await cheapStatus();
-    expect(Array.isArray(payload.stages)).toBe(true);
-    expect(payload.stages).toHaveLength(0);
-    expect(payload.damaged).toBe(0);
-  });
-
-  it('derives rows from worker_status with zeroed counts', async () => {
-    if (!dbReachable) return;
-    const snapshot: Record<string, StageStatusSnapshot> = {
-      thumb: {
-        status: 'running',
-        inFlight: 2,
-        throughput: 5,
-        targetVersion: 1,
-        dependsOn: [],
-        lastError: null,
-      },
-    };
-    await writeWorkerStatus(snapshot, Date.now());
-
-    const payload = await cheapStatus();
-    const row = payload.stages.find((s) => s.name === 'thumb');
-    expect(row).toBeDefined();
-    // Counts are the expensive half — must be zero in the cheap snapshot.
-    expect(row!.pending).toBe(0);
-    expect(row!.ready).toBe(0);
-    expect(row!.blocked).toBe(0);
-    expect(row!.dead).toBe(0);
-    // Live fields flow through from worker_status.
-    expect(row!.status).toBe('running');
-    expect(row!.inFlight).toBe(2);
-    expect(row!.throughput).toBe(5);
-  });
-});
+/** Every broadcaster under test gets a no-op demand poke — the real one
+ * writes to Mongo, which these unit tests don't need. */
+const noPoke = async () => {};
 
 describe('WorkersStatusBroadcaster — subscription gating', () => {
   it('does not run counts (no count source call) when there are no subscribers', async () => {
@@ -109,7 +72,7 @@ describe('WorkersStatusBroadcaster — subscription gating', () => {
     const b = new WorkersStatusBroadcaster(async () => {
       counts++;
       return fakePayload;
-    });
+    }, noPoke);
     b._resetForTests();
     expect(b.isCounting).toBe(false);
     // A tick with zero subscribers must not call the count source.
@@ -118,26 +81,62 @@ describe('WorkersStatusBroadcaster — subscription gating', () => {
     expect(b.subscriberCount).toBe(0);
   });
 
-  it('sends a cheap (counted:false) frame on subscribe', async () => {
-    // cheapStatus is now async (reads worker_status Mongo). Use a never-settling
-    // computeStatus so the only frame that can land is the cheap push.
-    const b = new WorkersStatusBroadcaster(() => new Promise<WorkersStatusPayload>(() => {}));
+  it('a late joiner immediately receives the last broadcast frame (no extra status read)', async () => {
+    let computes = 0;
+    const b = new WorkersStatusBroadcaster(async () => {
+      computes++;
+      return fakePayload;
+    }, noPoke);
+    b._resetForTests();
+    const first: WorkersStatusFrame[] = [];
+    b.subscribe((f) => first.push(f));
+    await Promise.resolve();
+    await b._tickForTests();
+    expect(first.length).toBeGreaterThanOrEqual(1);
+    const computesBefore = computes;
+
+    const late: WorkersStatusFrame[] = [];
+    b.subscribe((f) => late.push(f));
+    // Synchronous replay of the last frame, and no status recompute for it.
+    expect(late).toHaveLength(1);
+    expect(late[0]).toBe(first[first.length - 1]!);
+    expect(computes).toBe(computesBefore);
+    b._resetForTests();
+  });
+
+  it('marks frames counted only when the worker has persisted counts (countsAt set)', async () => {
+    const b = new WorkersStatusBroadcaster(
+      async () => ({ ...fakePayload, countsAt: null }),
+      noPoke,
+    );
     b._resetForTests();
     const frames: WorkersStatusFrame[] = [];
     b.subscribe((f) => frames.push(f));
-    // No frame yet — the cheap push is async.
-    expect(frames).toHaveLength(0);
-    // Flush the cheapStatus promise (readWorkerStatus → a few microtask hops).
-    await new Promise((r) => setTimeout(r, 10));
-    // Exactly one frame: the cheap snapshot.
-    expect(frames).toHaveLength(1);
-    expect(frames[0]!.type).toBe('workers-status');
+    await Promise.resolve();
+    await b._tickForTests();
+    expect(frames.length).toBeGreaterThanOrEqual(1);
     expect(frames[0]!.counted).toBe(false);
     b._resetForTests();
   });
 
+  it('pokes the worker demand flag on every tick while subscribed', async () => {
+    let pokes = 0;
+    const b = new WorkersStatusBroadcaster(
+      async () => fakePayload,
+      async () => {
+        pokes++;
+      },
+    );
+    b._resetForTests();
+    b.subscribe(() => {});
+    await Promise.resolve();
+    await b._tickForTests();
+    expect(pokes).toBeGreaterThanOrEqual(1);
+    b._resetForTests();
+  });
+
   it('arms the shared count timer only while ≥1 subscriber is present', () => {
-    const b = new WorkersStatusBroadcaster(async () => fakePayload);
+    const b = new WorkersStatusBroadcaster(async () => fakePayload, noPoke);
     b._resetForTests();
     expect(b.isCounting).toBe(false);
     const off1 = b.subscribe(() => {});
@@ -160,7 +159,7 @@ describe('WorkersStatusBroadcaster — single broadcast to N subscribers', () =>
     const b = new WorkersStatusBroadcaster(async () => {
       counts++;
       return fakePayload;
-    });
+    }, noPoke);
     b._resetForTests();
 
     const a: WorkersStatusFrame[] = [];
@@ -203,13 +202,14 @@ describe('WorkersStatusBroadcaster — single broadcast to N subscribers', () =>
       return new Promise<WorkersStatusPayload>((res) => {
         resolveCount = res;
       });
-    });
+    }, noPoke);
     b._resetForTests();
     const frames: WorkersStatusFrame[] = [];
     // Subscribe WITHOUT letting the auto-tick settle (its promise is pending).
     b.subscribe((f) => frames.push(f));
-    // subscribe pushes one cheap frame synchronously; drop it.
-    frames.length = 0;
+    // The demand poke is awaited before the status compute — let it settle.
+    await Promise.resolve();
+    await Promise.resolve();
 
     // The auto-tick from subscribe is already in flight (calls === 1, unresolved).
     expect(calls).toBe(1);
@@ -231,7 +231,7 @@ describe('WorkersStatusBroadcaster — single broadcast to N subscribers', () =>
   });
 
   it('a failing send to one subscriber does not abort the fan-out', async () => {
-    const b = new WorkersStatusBroadcaster(async () => fakePayload);
+    const b = new WorkersStatusBroadcaster(async () => fakePayload, noPoke);
     b._resetForTests();
     const good: WorkersStatusFrame[] = [];
     b.subscribe(() => {

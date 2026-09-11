@@ -22,6 +22,7 @@ import sidecarMetadataIndexStage from './sidecar-metadata-index.ts';
 import cfThumbSyncStage from './cf-thumb-sync.ts';
 import transcribeStage from './transcribe.ts';
 import videoDescribeStage from './video-describe.ts';
+import { ALL_STAGE_NAMES, type StageName } from './stage-names.ts';
 
 export const stageManifest = [
   exifStage,
@@ -38,22 +39,7 @@ export const stageManifest = [
   videoDescribeStage,
 ];
 
-export const ALL_STAGE_NAMES = [
-  'exif',
-  'thumb',
-  'preview',
-  'face-detect',
-  'face-embed',
-  'describe',
-  'geocode',
-  'meili',
-  'sidecar-metadata-index',
-  'cf-thumb-sync',
-  'transcribe',
-  'video-describe',
-] as const;
-
-export type StageName = (typeof ALL_STAGE_NAMES)[number];
+export { ALL_STAGE_NAMES, type StageName } from './stage-names.ts';
 
 /**
  * Build the blank `stages` skeleton that discover writes on every new image doc.

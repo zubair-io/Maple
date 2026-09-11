@@ -518,6 +518,14 @@ export function formatBytes(bytes: number | undefined | null): string {
 }
 
 /** Format an ISO 8601 string as a locale-aware date+time. Empty for null. */
+/** Header note for the worker-computed counts (#3491): pending / ready / dead
+ * are counted by the worker on its own cadence and persisted, so the page
+ * says when they were taken instead of pretending they are live. */
+export function countsAsOfLabel(countsAt: number | null | undefined): string {
+  if (countsAt == null) return 'Counting…';
+  return `Counts as of ${new Date(countsAt).toLocaleTimeString()}`;
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return '';
   return new Date(iso).toLocaleString();

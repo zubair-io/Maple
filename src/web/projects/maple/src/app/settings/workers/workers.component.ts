@@ -70,6 +70,7 @@ import {
   pauseReason,
   formatBytes,
   formatDate,
+  countsAsOfLabel,
   runtimeFormToPatch,
   describeCapacity,
   describeFormToPatch,
@@ -158,6 +159,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   >(() => groupStagesByPipeline(this.stages()));
   protected readonly summary = computed(() => summarizeStages(this.stages()));
   protected readonly damagedCount = computed(() => this.status()?.damaged ?? 0);
+  protected readonly countsNote = computed(() => countsAsOfLabel(this.status()?.countsAt));
 
   private statusSub: Subscription | null = null;
   private fallbackSub: Subscription | null = null;

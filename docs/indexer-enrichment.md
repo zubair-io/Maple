@@ -228,7 +228,7 @@ The pure clustering core is isolated in `people/cluster-embeddings.ts` so it can
 
 ## Operator surface
 
-`GET /api/workers/status` (`workers/routes-status.ts`) is the one endpoint the Settings → Workers page polls, every 2 s. Per worker it reports:
+`GET /api/workers/status` (`workers/routes-status.ts`) — and the WS `workers-status` frame the Settings → Workers page actually consumes — reports, per worker:
 
 | Field                                           | Source                                                                                           |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -239,7 +239,7 @@ The pure clustering core is isolated in `people/cluster-embeddings.ts` so it can
 | `dead`                                          | assets at `dead: true` for this stage                                                            |
 | `config`, `batchSize`                           | `worker_config`, with `batchSize` derived as 5 × concurrency                                     |
 
-Plus collection-level `damaged` and `newlyHiddenTotal` counts. The DB half is cached for 2 s, keyed on the stage-name + target-version signature; the registry half is recomposed on every call. The response always covers the full known set (`ALL_STAGE_NAMES` plus the reaper, migration, deduplicate, and discover), so rows never vanish when the worker process restarts — an absent worker simply reports `stopped`.
+Plus collection-level `damaged` and `newlyHiddenTotal` counts and a `countsAt` timestamp. None of the counts are computed on the request path (#3491): the worker's count refresher (`workers/status-counts.ts`) runs them one query at a time and persists the result as `worker_status.counts`, and the route reads that with the same `findOne` that fetches the registry snapshot. The refresher is demand-aware — the status and migration routes and the WS broadcaster bump `worker_status.counts_wanted_until`, and only while that is in the future does it refresh quickly (backing off to 3× the last pass's duration, between 5 s and 2 min); idle, stage counts refresh every 10 min and migration counts not at all. That matters because several counts are inherently full-collection scans (`transcribe` / `video-describe` claim by a case-insensitive filename regex that no multikey index can filter, and most migration `countRemaining()` filters use `$ne` done-markers or `$exists: false`) — on a 335k-asset library those took 4–7 s each and used to run 38-wide in parallel on every page load. Each migration's `remaining` is persisted the same way on its state doc (`migrations.<id>.remaining` / `remaining_at`), by the refresher and by the migration worker itself on every tick of an enabled migration; `GET /api/workers/migration/migrations` returns `null` for a migration the worker has not counted yet. The response always covers the full known set (`ALL_STAGE_NAMES` plus the reaper, migration, deduplicate, and discover), so rows never vanish when the worker process restarts — an absent worker simply reports `stopped`.
 
 The rest of the surface (see [server API](server-api.md) for the full reference):
 
