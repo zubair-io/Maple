@@ -113,9 +113,29 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 
 `fit` accepts `'inside' | 'fill' | 'cover'`; `filter` accepts `'lanczos3' | 'bilinear' | 'nearest'`. AVIF `effort` is 0 (fastest) to 9 (slowest), as in sharp. AVIF inputs decode (pure-Rust AV1 decoder); a JPEG truncated in its scan data decodes to the rows that survived.
 
-**Alpha is accepted on input but dropped on encode.** `channels: 4` input (and the alpha item of a decoded AVIF) is read correctly, then flattened to RGB by the encoder, so every output this package writes today is opaque — don't route transparent images through it expecting transparency. Alpha-preserving encodes are tracked in [#3505](https://github.com/zubair-io/Maple/issues/3505).
-
 **`withoutEnlargement` defaults to `true`** here, where sharp defaults it to `false`. A source smaller than the requested box is therefore left at its own size, and in particular `fit: 'cover'` never upscales to fill the box unless you pass `withoutEnlargement: false`. A `width` or `height` of `0` means "keep the source dimension on this axis".
+
+## sharp parity
+
+| sharp method    | Maple | Notes                                                                           |
+| :-------------- | :---- | :------------------------------------------------------------------------------ |
+| `composite()`   | ✅    | `over`, `multiply`, `screen`, `add`, `darken`, `lighten`, `dest-in`, `dest-out` |
+| `flatten()`     | ✅    | background as `{r,g,b}` or `#rrggbb`                                            |
+| `ensureAlpha()` | ✅    |                                                                                 |
+| `removeAlpha()` | ✅    |                                                                                 |
+
+Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
+AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
+no alpha channel, so they composite over black — the same thing libvips does —
+unless you call `flatten({ background })` first.
+
+```typescript
+const badged = await maple(photo)
+  .composite([{ input: logoPng, gravity: 'southeast' }])
+  .flatten({ background: '#ffffff' })
+  .toFormat('jpeg', { quality: 88 })
+  .toBuffer();
+```
 
 ## Native Core & Linux Support
 
