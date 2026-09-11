@@ -25,11 +25,14 @@
  */
 
 import { tryGetRawFfi } from './raw_ffi.ts';
-import type { FfiRequest, FfiResponse } from './raw_ffi-protocol.ts';
+import {
+  coerceFfiRequest,
+  rejectedFfiReply,
+  type FfiRejectedResponse,
+  type FfiResponse,
+} from './raw_ffi-protocol.ts';
+import { handleFfiRequest } from './raw_ffi-dispatch.ts';
 import { installChildHardening } from '../runtime/child-process-worker.ts';
-import { readFile } from '../fs/mirrored.ts';
-import { clearLensProfiles, registerLensProfile } from '../lens-profiles/native.ts';
-import { restoreLensProfile } from '../lens-profiles/restore.ts';
 
 // Lower CPU priority (so the HTTP server's event loop wins under indexer load)
 // + self-exit if the parent dies. Shared with the face child; see runtime.
@@ -37,130 +40,30 @@ installChildHardening('ffi-decode');
 
 const ffi = tryGetRawFfi();
 
-function send(msg: FfiResponse): void {
+function send(msg: FfiResponse | FfiRejectedResponse): void {
   // `process.send` exists only when spawned with an IPC channel (always true in
   // production via the pool). The optional-chain keeps a stray direct `bun
   // raw_ffi.child.ts` invocation from throwing.
   process.send?.(msg);
 }
 
-// Adding renderDevelop (#1950) is a third FFI message type over the original
-// two; the extra dispatch arm is inherent to the message-type count.
-// fallow-ignore-next-line complexity
-async function handle(req: FfiRequest): Promise<FfiResponse> {
-  if (!ffi) {
-    return {
-      type: req.type,
-      id: req.id,
-      ok: false,
-      error: 'raw-ffi dylib not loaded in child',
-    };
-  }
-
-  if (req.type === 'exportRecipe') {
-    // The export snapshot carries its sidecar inline; restore the profile it
-    // selects exactly as the develop/histogram paths below do, so a queued
-    // export renders the same optical correction the editor showed.
-    await restoreLensProfile(req.rawPath, req.xmp || null);
-    const error =
-      ffi.exportRecipeToFile?.(req.rawPath, req.xmp, req.recipeJson, req.filmPath, req.outPath) ??
-      (ffi.exportRecipeToFile ? null : 'Rebuild raw-ffi: recipe encoder unavailable');
-    return {
-      type: req.type,
-      id: req.id,
-      ok: !error,
-      error: error ?? undefined,
-    };
-  }
-  if (req.type === 'asShot') {
-    const baseline = ffi.asShotWhiteBalance(req.rawPath);
-    return baseline
-      ? { type: 'asShot', id: req.id, ok: true, baseline }
-      : {
-          type: 'asShot',
-          id: req.id,
-          ok: false,
-          error: 'Cannot decode camera as-shot white balance',
-        };
-  }
-
-  if (req.type === 'registerLensProfile') {
-    clearLensProfiles();
-    const inventory = registerLensProfile(await readFile(req.profilePath));
-    return { type: req.type, id: req.id, ok: true, inventory };
-  }
-  if (req.type === 'renderDevelop' || req.type === 'histogram') {
-    const xml = req.xmpPath ? await readFile(req.xmpPath, 'utf8') : null;
-    await restoreLensProfile(req.rawPath, xml);
-  }
-
-  if (req.type === 'renderThumb') {
-    const ok = ffi.renderThumbnailAvifToFile(req.rawPath, req.outPath, req.maxPx, req.quality);
-    return {
-      type: 'renderThumb',
-      id: req.id,
-      ok,
-      error: ok ? undefined : 'render-failed (see child stderr)',
-    };
-  }
-
-  if (req.type === 'renderPreviewJpeg') {
-    const ok = ffi.renderThumbnailPreviewJpegToFile(
-      req.rawPath,
-      req.outPath,
-      req.maxPx,
-      req.quality,
-    );
-    return {
-      type: 'renderPreviewJpeg',
-      id: req.id,
-      ok,
-      error: ok ? undefined : 'render-failed (see child stderr)',
-    };
-  }
-
-  if (req.type === 'renderDevelop') {
-    // Full develop with the sidecar applied → JPEG to disk. Like renderThumb,
-    // the heavy pixel buffer never crosses the FFI/IPC boundary — Rust writes
-    // the file and we return only ok/error.
-    const ok = ffi.renderDevelopJpegToFile(
-      req.rawPath,
-      req.xmpPath ?? null,
-      req.outPath,
-      req.maxPx,
-      req.quality,
-    );
-    return {
-      type: 'renderDevelop',
-      id: req.id,
-      ok,
-      error: ok ? undefined : 'render-failed (see child stderr)',
-    };
-  }
-
-  // histogram — render-with-xmp + bin entirely in Rust; only the 3×256 counts
-  // (~3 KB) come back across the FFI boundary into a JS-owned buffer (no pixel
-  // buffer ever crosses), then across IPC. See `maple_histogram_file`.
-  const bins = ffi.computeHistogramBins(req.rawPath, req.xmpPath ?? null);
-  if (!bins) {
-    return {
-      type: 'histogram',
-      id: req.id,
-      ok: false,
-      error: 'render-failed (see child stderr)',
-    };
-  }
-  return { type: 'histogram', id: req.id, ok: true, bins };
-}
-
-// Pre-existing message-loop; unchanged by this PR (only shifted down by the
-// added renderDevelop branch above).
+// Message loop: guard, dispatch, report. The try/catch is what turns a thrown
+// JS error into a reply the pool can reject; the arm count lives in
+// `handleFfiRequest`.
 // fallow-ignore-next-line complexity
 process.on('message', async (raw: unknown) => {
-  const req = raw as FfiRequest;
-  if (!req || typeof req !== 'object') return;
+  const req = coerceFfiRequest(raw);
+  if (!req) {
+    // Not a request this child can dispatch (unknown `type`, or no routable
+    // `id`). Never fall through to an arm: answer with an error when there is
+    // an id to route the reply by, so the pool rejects that caller instead of
+    // leaving its promise pending.
+    const reply = rejectedFfiReply(raw);
+    if (reply) send(reply);
+    return;
+  }
   try {
-    send(await handle(req));
+    send(await handleFfiRequest(ffi, req));
   } catch (e) {
     // A thrown JS error (as opposed to a native crash, which kills the process
     // and is handled by the parent's exit watcher) is reported so the pool can
