@@ -258,6 +258,8 @@ pub enum ResizeFit {
     Inside,
     /// Scale image to exactly target width and height, distorting aspect ratio if needed.
     Fill,
+    /// Scale so the target box is fully covered (aspect preserved), then centre-crop to it.
+    Cover,
 }
 
 /// Filter kernel for resampling.
@@ -300,6 +302,29 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
         });
     }
 
+    if options.fit == ResizeFit::Cover {
+        let (tw, th) = (options.width.max(1), options.height.max(1));
+        let scale = (tw as f64 / src.width as f64).max(th as f64 / src.height as f64);
+        let scale = if options.without_enlargement {
+            scale.min(1.0)
+        } else {
+            scale
+        };
+        let scaled = resize_raster(
+            src,
+            &ResizeOptions {
+                width: (src.width as f64 * scale).round().max(1.0) as u32,
+                height: (src.height as f64 * scale).round().max(1.0) as u32,
+                fit: ResizeFit::Fill,
+                filter: options.filter,
+                without_enlargement: false,
+            },
+        )?;
+        let cw = tw.min(scaled.width);
+        let ch = th.min(scaled.height);
+        return scaled.crop((scaled.width - cw) / 2, (scaled.height - ch) / 2, cw, ch);
+    }
+
     let (dst_w_calc, dst_h_calc) = match options.fit {
         ResizeFit::Fill => {
             let w = if options.width == 0 {
@@ -333,6 +358,7 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
             let h = (src.height as f64 * final_scale).round().max(1.0) as u32;
             (w, h)
         }
+        ResizeFit::Cover => unreachable!("Cover is handled and returned above"),
     };
 
     if dst_w_calc == src.width && dst_h_calc == src.height {

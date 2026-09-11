@@ -172,3 +172,52 @@ mod raw_input {
         assert_eq!((img.channels, img.data), (3, vec![7, 8, 9]));
     }
 }
+
+mod cover_fit {
+    use crate::raster::{resize_raster, FilterAlg, RasterImage, ResizeFit, ResizeOptions};
+
+    fn img(w: u32, h: u32) -> RasterImage {
+        RasterImage::new_rgb(w, h, vec![128; (w * h * 3) as usize])
+    }
+
+    #[test]
+    fn cover_fills_the_box_and_centre_crops() {
+        let out = resize_raster(
+            &img(400, 200),
+            &ResizeOptions {
+                width: 100,
+                height: 100,
+                fit: ResizeFit::Cover,
+                filter: FilterAlg::Bilinear,
+                without_enlargement: true,
+            },
+        )
+        .unwrap();
+        assert_eq!((out.width, out.height), (100, 100));
+    }
+
+    #[test]
+    fn cover_without_enlargement_never_upscales() {
+        let out = resize_raster(
+            &img(50, 40),
+            &ResizeOptions {
+                width: 100,
+                height: 100,
+                fit: ResizeFit::Cover,
+                filter: FilterAlg::Bilinear,
+                without_enlargement: true,
+            },
+        )
+        .unwrap();
+        assert_eq!((out.width, out.height), (50, 40));
+    }
+
+    #[test]
+    fn crop_extracts_the_window() {
+        let src = RasterImage::new_rgb(3, 2, (0..18).collect());
+        let c = src.crop(1, 0, 2, 2).unwrap();
+        assert_eq!((c.width, c.height), (2, 2));
+        assert_eq!(c.data, vec![3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17]);
+        assert!(src.crop(2, 0, 2, 2).is_err());
+    }
+}
