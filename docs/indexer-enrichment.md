@@ -96,7 +96,7 @@ A stage is one object built with `defineStage()` (`workers/stage-config.ts`) and
 
 ### The claim query
 
-`buildClaimQuery` selects assets where `stages.<name>.version` is below target (or absent), the stage is not `dead`, the per-asset retry backoff has elapsed, at least one `fileinfo` entry is live, the asset is not tagged `damaged`, every `dependsOn` stage has reached its minimum version, and the id is not already in flight this tick. A stage's `claimFilter` is `$and`-merged on, so it cannot collide with the base query's keys — `transcribe` uses a video/audio filename regex so it never sweeps the photo library stamping "not media" skips.
+`buildClaimQuery` selects assets where `stages.<name>.version` is below target (or absent), the stage is not `dead`, the per-asset retry backoff has elapsed, at least one `fileinfo` entry is live, the asset is not tagged `damaged`, every `dependsOn` stage has reached its minimum version, and the id is not already in flight this tick. A stage's `claimFilter` is `$and`-merged on, so it cannot collide with the base query's keys — `transcribe` and `video-describe` select on the denormalised `media_kind` (`image` | `video` | `audio`, set at every asset-creation site, backfilled once at boot by `db/media-kind.ts`, and served by the `media_kind_av` partial index over the video/audio rows) so they never sweep the photo library stamping "not media" skips. A filename regex inside `fileinfo.$elemMatch` is never filtered at a multikey index, so the regex form fetched the entire library on every claim (#3492); the video-scoped migrations select the same way.
 
 ### The poll loop
 

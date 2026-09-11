@@ -44,21 +44,14 @@ describe('transcribe stage', () => {
     expect(transcriptionTimeoutMs(44 + 16_000 * 2 * 60 * 60 * 24)).toBe(6 * 60 * 60_000);
   });
 
-  it('claims only video/audio assets (no photo sweep)', () => {
+  it('claims only video/audio assets (no photo sweep) by the indexed media_kind (#3492)', () => {
     // The claim query is narrowed so the stage never sweeps the photo library
-    // stamping not-media skips. The filename regex is the load-bearing bit.
-    const re = (
-      transcribeStage.claimFilter as {
-        fileinfo: { $elemMatch: { filename: { $regex: RegExp } } };
-      }
-    ).fileinfo.$elemMatch.filename.$regex;
-    expect(re.test('clip.mp4')).toBe(true);
-    expect(re.test('IMG_3113.MOV')).toBe(true); // case-insensitive
-    expect(re.test('voice.m4a')).toBe(true);
-    expect(re.test('song.mp3')).toBe(true);
-    expect(re.test('photo.jpg')).toBe(false);
-    expect(re.test('shot.dng')).toBe(false);
+    // stamping not-media skips. An equality on the denormalised `media_kind`
+    // (partial index `media_kind_av`) replaced the filename regex, which a
+    // multikey index can never filter — it fetched the whole library.
+    expect(transcribeStage.claimFilter).toEqual({ media_kind: { $in: ['video', 'audio'] } });
   });
+
   it('skips non-media and silent video', async () => {
     inject();
     expect(await transcribeStage.handler(asset('photo.jpg') as never, {} as never)).toEqual({

@@ -42,6 +42,7 @@ export function videoAsset(
     color_label: '',
     indexed_at: new Date().toISOString(),
     deleted_at: null,
+    media_kind: 'video',
     fileinfo: [
       {
         path: 'videos',
@@ -106,6 +107,7 @@ export function photoAsset(
     color_label: '',
     indexed_at: new Date().toISOString(),
     deleted_at: null,
+    media_kind: 'image',
     fileinfo: [
       {
         path: 'photos',

@@ -25,6 +25,7 @@ import { buildFileinfoEntry } from './types.ts';
 import { refusesReservedTreeEvent } from './reserved-trees.ts';
 import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
 import { appendOrRefreshLocation } from './dedup-location.ts';
+import { classifyMediaType } from '../../indexer/media-types.ts';
 
 const log = child('discover');
 
@@ -399,6 +400,7 @@ export async function handleEvent(
       fileinfo: [{ ...fileinfoEntry, deleted_at: null }],
       // One live fileinfo entry on insert.
       live_location_count: 1,
+      media_kind: classifyMediaType(fileinfoEntry.filename),
       rating: 0,
       flag: 0,
       color_label: '',

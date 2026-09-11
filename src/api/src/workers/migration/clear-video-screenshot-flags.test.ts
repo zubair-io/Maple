@@ -108,6 +108,7 @@ function videoDoc(overrides: Record<string, unknown> = {}) {
   return {
     _id: new ObjectId(),
     maple_id: `clear-video-${n}`,
+    media_kind: 'video',
     fileinfo: [
       {
         path: '2024/Screenshot',
@@ -128,6 +129,7 @@ function stillDoc(overrides: Record<string, unknown> = {}) {
   return {
     ...videoDoc(),
     maple_id: `clear-still-${n}`,
+    media_kind: 'image',
     fileinfo: [
       {
         path: '2024/Screenshot',

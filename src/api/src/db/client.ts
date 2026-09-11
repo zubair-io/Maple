@@ -9,6 +9,7 @@
 import { MongoClient, MongoServerError, type Db, type Collection, ServerApiVersion } from 'mongodb';
 import { child as childLogger } from '../log.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/stage-names.ts';
+import { ensureMediaKind } from './media-kind.ts';
 import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
 import {
   backfillFileinfo,
@@ -1655,6 +1656,9 @@ export async function ensureIndexes(): Promise<void> {
     },
   );
 
+  // media_kind backfill + partial index (#3492) — before the stages boot,
+  // since the media stages' claim filters select on it.
+  await ensureMediaKind(db, { applied: migrationApplied, record: recordMigration });
   await ensureStageIndexes(db);
 
   log.info('indexes ensured');

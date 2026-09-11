@@ -38,7 +38,7 @@ import type { AssetDoc } from '../../db/schema.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { child as childLogger } from '../../log.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
-import { liveVideoFileinfoMatch } from './video-selectors.ts';
+import { liveVideoAssetFilter } from './video-selectors.ts';
 
 import type { Migration, MigrationBatchResult } from './types.ts';
 
@@ -84,7 +84,7 @@ const REARMED_STAGES = [
  * arrived. */
 function candidateFilter(): Filter<AssetDoc> {
   return {
-    fileinfo: { $elemMatch: liveVideoFileinfoMatch() },
+    ...liveVideoAssetFilter(),
     video_poster_rearm_version: { $ne: VIDEO_POSTER_REARM_VERSION },
   } as Filter<AssetDoc>;
 }

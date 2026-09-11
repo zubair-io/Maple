@@ -43,6 +43,9 @@ function candidateFilter(): Filter<AssetDoc> {
     // and any non-string value, so only a real ISO timestamp string can enter the
     // candidate set (the donor range query relies on string comparison).
     'exif.captured_at': { $type: 'string' },
+    // `media_kind` narrows the scan to the indexed video rows (#3492); the
+    // mp4/mov regex keeps the container scope this migration was written for.
+    media_kind: 'video',
     fileinfo: {
       $elemMatch: {
         filename: { $regex: /\.(mp4|mov)$/i },

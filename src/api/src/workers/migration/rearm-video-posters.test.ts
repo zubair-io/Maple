@@ -27,6 +27,7 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { rearmVideoPosters, VIDEO_POSTER_REARM_VERSION } from './rearm-video-posters.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
 import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { classifyMediaType } from '../../indexer/media-types.ts';
 
 const TEST_DB = withTestDb(`maple_test_rearm_video_posters_${process.pid}`);
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
@@ -107,6 +108,7 @@ function makeAsset(
   return {
     _id: id,
     maple_id: id.toHexString() + '0'.repeat(32 - 24),
+    media_kind: classifyMediaType(filename),
     fileinfo: [
       {
         path: 'media',

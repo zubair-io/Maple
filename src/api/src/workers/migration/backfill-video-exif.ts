@@ -27,7 +27,7 @@ import { assetAbsPath, isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { child as childLogger } from '../../log.ts';
-import { liveVideoFileinfoMatch } from './video-selectors.ts';
+import { liveVideoAssetFilter } from './video-selectors.ts';
 
 import type { Migration, MigrationBatchResult } from './types.ts';
 
@@ -46,7 +46,7 @@ const REFILE_RESET_VERSION = 0;
 function candidateFilter(): Filter<AssetDoc> {
   return {
     'phasset_links.0': { $exists: true },
-    fileinfo: { $elemMatch: liveVideoFileinfoMatch() },
+    ...liveVideoAssetFilter(),
     video_meta_version: { $ne: VIDEO_META_VERSION },
   } as Filter<AssetDoc>;
 }

@@ -38,7 +38,7 @@ import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { child as childLogger } from '../../log.ts';
-import { liveVideoFileinfoMatch } from './video-selectors.ts';
+import { liveVideoAssetFilter } from './video-selectors.ts';
 
 import type { Migration, MigrationBatchResult } from './types.ts';
 
@@ -69,7 +69,7 @@ const REARMED_STAGES = ['describe', 'meili'] as const;
  * cleared at the current version yet. */
 function candidateFilter(): Filter<AssetDoc> {
   return {
-    fileinfo: { $elemMatch: liveVideoFileinfoMatch() },
+    ...liveVideoAssetFilter(),
     video_screenshot_clear_version: { $ne: VIDEO_SCREENSHOT_CLEAR_VERSION },
     $or: [{ is_screenshot: true }, { 'vision.is_screenshot': true }],
   } as Filter<AssetDoc>;

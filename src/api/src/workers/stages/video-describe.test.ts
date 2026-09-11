@@ -79,17 +79,8 @@ function inject(opts: InjectOptions = {}): { calls: Array<readonly Buffer[]> } {
 }
 
 describe('video-describe stage config', () => {
-  it('claims only video assets, never audio-only or photo files', () => {
-    const re = (
-      videoDescribeStage.claimFilter as {
-        fileinfo: { $elemMatch: { filename: { $regex: RegExp } } };
-      }
-    ).fileinfo.$elemMatch.filename.$regex;
-    expect(re.test('clip.mp4')).toBe(true);
-    expect(re.test('IMG_3113.MOV')).toBe(true);
-    expect(re.test('song.mp3')).toBe(false);
-    expect(re.test('voice.m4a')).toBe(false);
-    expect(re.test('photo.jpg')).toBe(false);
+  it('claims only video assets, never audio-only or photo files (#3492)', () => {
+    expect(videoDescribeStage.claimFilter).toEqual({ media_kind: 'video' });
   });
 
   it('depends on preview, starts paused-on-first-boot at concurrency 1', () => {
