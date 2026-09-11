@@ -195,4 +195,37 @@ describe('video-scoped queries use the media_kind index (#3492)', () => {
     expect(plan).toContain(MEDIA_KIND_INDEX_NAME);
     expect(await db.collection('assets').countDocuments(liveVideoAssetFilter() as never)).toBe(1);
   });
+
+  it('the migration selector requires the VIDEO location itself to be live (Jules, #3494)', async () => {
+    if (!reachable) return;
+    const db = await seeded();
+    const { liveVideoAssetFilter } = await import('../workers/migration/video-selectors.ts');
+    // A Live Photo backup whose .mov was soft-deleted: media_kind stays
+    // `video` (a video location exists) and the still is live — but there is
+    // no live video to read, so it must not be a candidate.
+    await db.collection('assets').insertOne({
+      ...asset('still.HEIC', { media_kind: 'video' }),
+      fileinfo: [
+        { path: '', filename: 'still.HEIC', library_id: lib, deleted_at: null },
+        { path: '', filename: 'clip.MOV', library_id: lib, deleted_at: '2026-01-01T00:00:00Z' },
+      ],
+    });
+    // …whereas the same row with the .mov live is one.
+    await db.collection('assets').insertOne({
+      ...asset('still2.HEIC', { media_kind: 'video' }),
+      fileinfo: [
+        { path: '', filename: 'still2.HEIC', library_id: lib, deleted_at: null },
+        { path: '', filename: 'clip2.MOV', library_id: lib, deleted_at: null },
+      ],
+    });
+    expect(await db.collection('assets').countDocuments(liveVideoAssetFilter() as never)).toBe(2);
+    const matched = await db
+      .collection('assets')
+      .find(liveVideoAssetFilter() as never, { projection: { 'fileinfo.filename': 1 } })
+      .toArray();
+    const names = matched
+      .map((d) => (d['fileinfo'] as Array<{ filename: string }>)[0]!.filename)
+      .sort();
+    expect(names).toEqual(['c.mov', 'still2.HEIC']);
+  });
 });
