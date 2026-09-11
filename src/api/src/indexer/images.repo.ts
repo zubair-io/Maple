@@ -17,6 +17,7 @@ import {
   type FileInfo,
   type Place,
 } from '../db/schema.ts';
+import { mediaKindExpression } from './media-types.ts';
 
 /**
  * Persisted face-detection result. Re-exported from the schema so existing
@@ -263,8 +264,17 @@ export async function updateLiveLocationCount(
   collection: CollectionWithUpdateOne,
   id: ObjectId,
 ): Promise<void> {
+  // `media_kind` rides along (#3492): every site that appends a location
+  // (discover dedup, cross-library backup ingest) ends here, and a still
+  // asset that gains a `.MOV` location must become `video` for the media
+  // stages and migrations to see it.
   await collection.updateOne({ _id: id as unknown }, [
-    { $set: { live_location_count: liveLocationCountExpression() } },
+    {
+      $set: {
+        live_location_count: liveLocationCountExpression(),
+        media_kind: mediaKindExpression(),
+      },
+    },
   ]);
 }
 

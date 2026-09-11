@@ -53,6 +53,9 @@ function candidateFilter(): Filter<AssetDoc> {
     // real ISO timestamp can enter the candidate set (matches the audit pass).
     'exif.captured_at': { $type: 'string' },
     geo_backfill_skipped: { $exists: false },
+    // `media_kind` narrows the scan to the indexed video rows (#3492); the
+    // mp4/mov regex keeps the container scope this migration was written for.
+    media_kind: 'video',
     fileinfo: {
       $elemMatch: {
         filename: { $regex: /\.(mp4|mov)$/i },

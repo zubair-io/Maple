@@ -62,7 +62,7 @@ import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.reso
 import type { VideoDescriptionMeta } from '../../db/schema.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { isVideoFilename, VIDEO_EXTS } from '../../indexer/media-types.ts';
+import { isVideoFilename } from '../../indexer/media-types.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { sampleVideoFrames, type SampledFrame } from '../../video/sample-frames.ts';
@@ -147,11 +147,6 @@ function degradationLadder(
 function isTerminalProviderError(err: unknown): boolean {
   return err instanceof RemoteError && !err.retryable;
 }
-
-const VIDEO_FILENAME_RE = new RegExp(
-  `\\.(${[...VIDEO_EXTS].map((e) => e.slice(1)).join('|')})$`,
-  'i',
-);
 
 // fallow-ignore-next-line complexity
 export async function videoDescribeHandler(
@@ -240,7 +235,7 @@ const videoDescribeStage = defineStage({
   dependsOn: ['preview'],
   // Never sweeps the (much larger) photo library — mirrors `transcribe`'s
   // claim-filter narrowing.
-  claimFilter: { fileinfo: { $elemMatch: { filename: { $regex: VIDEO_FILENAME_RE } } } },
+  claimFilter: { media_kind: 'video' },
   defaults: {
     concurrency: 1,
     maxAttempts: 5,

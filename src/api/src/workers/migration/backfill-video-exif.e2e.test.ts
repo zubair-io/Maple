@@ -126,6 +126,7 @@ describe('backfill-video-exif end-to-end', () => {
     await assets.insertOne({
       _id: id,
       maple_id: 'backfill-vid-' + id.toHexString(),
+      media_kind: 'video',
       fileinfo: [{ path: opts.rel, filename: opts.filename, library_id: libId, deleted_at: null }],
       phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
       backup_layout_version: 4,
@@ -232,6 +233,8 @@ describe('backfill-video-exif end-to-end', () => {
       maple_id: 'still-video-' + id.toHexString(),
       // Primary live entry is the STILL; the video is second — the migration must
       // still read the .MOV, not the .HEIC (which doesn't even exist on disk).
+      // `media_kind` is `video` because ANY location is a video (#3492).
+      media_kind: 'video',
       fileinfo: [
         { path: rel, filename: 'still.HEIC', library_id: libId, deleted_at: null },
         { path: rel, filename: 'clip.MOV', library_id: libId, deleted_at: null },
