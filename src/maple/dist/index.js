@@ -1041,6 +1041,7 @@ class MapleImageBuilder {
   }
   resize(optionsOrWidth, height) {
     const opts = typeof optionsOrWidth === "number" || optionsOrWidth === null ? { width: optionsOrWidth ?? 0, height: height ?? 0 } : optionsOrWidth;
+    this.s.ops = this.s.ops.filter((op) => op.op !== "resize");
     this.s.ops.push({
       op: "resize",
       width: Math.max(0, opts.width ?? 0),
