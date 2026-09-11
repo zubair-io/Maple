@@ -59,6 +59,14 @@ then the patch lives here.
 
 ## How to re-apply on an upgrade
 
+**Run every command below from `src/raw-pipeline`, never from inside
+`third_party/rav1d`.** That directory carries upstream's own
+`rust-toolchain.toml` pinning a nightly, and rustup resolves the toolchain by
+walking up from the working directory — so a `cargo` invocation made from
+inside it silently builds with a different compiler than the rest of the
+workspace (and downloads it first). The `cd third_party/rav1d` in step 2 is
+for `patch`, which is not cargo; step back out before building.
+
 1. Fetch the new upstream crate and replace the tree, keeping this file:
 
    ```bash
@@ -84,14 +92,28 @@ then the patch lives here.
 
    If the hunks no longer apply, redo them by hand (the change is mechanical:
    `extern "C"` → `extern "C-unwind"` on the nine functions listed above),
-   then regenerate the patch file against the pristine upstream copy:
+   then regenerate the patch file against the pristine upstream copy. The
+   prose header above the diff is the only place the _reason_ for this patch
+   is recorded next to the patch itself, so carry it over first and append the
+   fresh diff to it — do NOT `>>` into the new filename, which does not exist
+   yet and would leave you with a header-less patch:
 
    ```bash
    cd src/raw-pipeline
+   OLD=patches/rav1d-1.1.0-c-unwind.patch
+   NEW_PATCH=patches/rav1d-<new version>-c-unwind.patch
+
+   # 1. the prose header: everything above the first diff line.
+   sed -n '1,/^--- a\/src\/lib.rs$/p' "$OLD" | sed '$d' > "$NEW_PATCH"
+   # 2. the fresh diff, appended under it.
    diff -u --label a/src/lib.rs --label b/src/lib.rs \
-     "$NEW/src/lib.rs" third_party/rav1d/src/lib.rs \
-     >> patches/rav1d-<new version>-c-unwind.patch   # keep the prose header
+     "$NEW/src/lib.rs" third_party/rav1d/src/lib.rs >> "$NEW_PATCH"
+
+   git rm "$OLD"   # one patch file per pinned version, not a pile
    ```
+
+   Re-read the header afterwards and update anything it now misstates (the
+   version, the line number of the panic, the list of shims).
 
 3. Bump the version requirement in `src/raw-pipeline/Cargo.toml`
    (`[workspace.dependencies] rav1d`), update **both** `[patch.crates-io]`
