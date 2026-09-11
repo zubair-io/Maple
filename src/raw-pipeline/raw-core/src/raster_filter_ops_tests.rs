@@ -91,12 +91,27 @@ fn median_filters_alpha_too() {
 // ------------------------------------------------------------- threshold ---
 
 #[test]
+fn bw_luma_matches_sharps_black_and_white_conversion() {
+    // Measured against sharp 0.34.5's `toColourspace('b-w')` (what
+    // `threshold({greyscale: true})` actually runs): linearize each
+    // channel, take the Rec.709-weighted LINEAR luminance, then re-encode
+    // with the sRGB OETF. A naive weighted sum of the encoded bytes would
+    // give 54 / 182 / 168 for these three inputs instead of sharp's real
+    // 127 / 220 / 178 — pinning the number itself here, not just the 0/255
+    // outcome, so a regression to the naive formula can't hide.
+    assert_eq!(bw_luma([255, 0, 0]), 127);
+    assert_eq!(bw_luma([0, 255, 0]), 220);
+    assert_eq!(bw_luma([100, 200, 50]), 178);
+}
+
+#[test]
 fn threshold_binarises_through_greyscale_by_default() {
-    // Rec.709 luma of pure red is 54, which is below 128 -> black.
+    // Linear-light Rec.709 luma of pure red is 127 (see `bw_luma`'s pinned
+    // test), which is below 128 -> black.
     let img = RasterImage::new_rgb(2, 1, vec![255, 0, 0, 0, 255, 0]);
     let out = img.threshold(128, true);
     assert_eq!(&out.data[..3], &[0, 0, 0]);
-    // Luma of pure green is 182, above 128 -> white.
+    // Linear-light luma of pure green is 220, above 128 -> white.
     assert_eq!(&out.data[3..], &[255, 255, 255]);
 }
 
@@ -108,16 +123,23 @@ fn threshold_without_greyscale_binarises_each_channel() {
 
 #[test]
 fn threshold_closed_form_100_200_pair() {
-    // A neutral grey pair (equal r/g/b, so greyscale's weighted luma and a
-    // plain per-channel comparison agree): 100 < 128 -> 0, 200 >= 128 -> 255.
+    // A neutral grey pair (equal r/g/b): `bw_luma` round-trips a neutral
+    // value back to itself (the sRGB OETF/EOTF are exact inverses and the
+    // Rec.709 weights sum to 1.0), so greyscale's weighted luma and a plain
+    // per-channel comparison agree here: 100 < 128 -> 0, 200 >= 128 -> 255.
     let img = RasterImage::new_rgb(2, 1, vec![100, 100, 100, 200, 200, 200]);
     assert_eq!(img.threshold(128, true).data, vec![0, 0, 0, 255, 255, 255]);
 }
 
 #[test]
-fn threshold_leaves_alpha_alone() {
-    let img = RasterImage::new_rgba(1, 1, vec![255, 255, 255, 64]);
-    assert_eq!(img.threshold(128, true).data[3], 64);
+fn threshold_thresholds_alpha_too() {
+    // sharp's threshold is a plain `image >= value` comparison over every
+    // band, alpha included — not exempted like `convolve`'s colour-only
+    // predecessor logic, and not routed through `bw_luma` either.
+    let low = RasterImage::new_rgba(1, 1, vec![255, 255, 255, 64]);
+    assert_eq!(low.threshold(128, true).data[3], 0);
+    let high = RasterImage::new_rgba(1, 1, vec![255, 255, 255, 200]);
+    assert_eq!(high.threshold(128, true).data[3], 255);
 }
 
 // -------------------------------------------------------------- convolve ---
@@ -215,24 +237,98 @@ fn convolve_truncates_rather_than_rounds_an_integer_kernel() {
 #[test]
 fn convolve_rounds_a_non_integer_kernel() {
     // A non-integer kernel takes the float path (rounds instead of
-    // truncating). Window at x=1: 60*0.5 + 70*0 + 61*0.5 = 60.5; the kernel
-    // sums to 1.0 so the auto scale is 1.0; round(60.5) = 61 under Rust's
-    // f64::round (half away from zero) — truncation would give 60.
-    let img = RasterImage::new_rgb(3, 1, vec![60, 60, 60, 70, 70, 70, 61, 61, 61]);
-    let out = img.convolve(3, 1, &[0.5, 0.0, 0.5], 0.0, 0.0).unwrap();
-    assert_eq!(at(&out, 1, 0), 61);
+    // truncating). Three identical rows (so only the middle kernel row,
+    // which is the only one with nonzero weight, matters) of columns
+    // 60/70/61 — kernel dimensions must be >= 3 in both axes (see the
+    // MIN_KERNEL_DIM tests below), so the "1-D" shape is expressed as a 3x3
+    // kernel with zeroed top/bottom rows rather than a literal 3x1. Window
+    // at x=1: 60*0.5 + 70*0 + 61*0.5 = 60.5; the kernel sums to 1.0 so the
+    // auto scale is 1.0; round(60.5) = 61 under Rust's f64::round (half
+    // away from zero) — truncation would give 60.
+    let row = [60u8, 60, 60, 70, 70, 70, 61, 61, 61];
+    let data = row.repeat(3);
+    let img = RasterImage::new_rgb(3, 3, data);
+    #[rustfmt::skip]
+    let kernel = [
+        0.0, 0.0, 0.0,
+        0.5, 0.0, 0.5,
+        0.0, 0.0, 0.0,
+    ];
+    let out = img.convolve(3, 3, &kernel, 0.0, 0.0).unwrap();
+    assert_eq!(at(&out, 1, 1), 61);
 }
 
 #[test]
-fn convolve_leaves_alpha_untouched() {
-    let img = RasterImage::new_rgba(
-        3,
-        1,
-        vec![60, 60, 60, 10, 90, 90, 90, 20, 120, 120, 120, 30],
+fn convolve_filters_alpha_too() {
+    // Three identical rows of three RGBA columns — see the previous test
+    // for why a 3x3 shape stands in for a conceptually 1-D case.
+    let row = [
+        60u8, 60, 60, 10, // colour 60, alpha 10
+        90, 90, 90, 50, // colour 90, alpha 50
+        120, 120, 120, 30, // colour 120, alpha 30
+    ];
+    let data = row.repeat(3);
+    let img = RasterImage::new_rgba(3, 3, data);
+    let out = img.convolve(3, 3, &[1.0; 9], 0.0, 0.0).unwrap();
+    // Colour at the centre: (60 + 90 + 120) * 3 rows / 9 = 90.
+    assert_eq!(at(&out, 1, 1), 90);
+    // Alpha at the centre is convolved too, not passed through: (10 + 50 +
+    // 30) * 3 rows / 9 = 30 — NOT the original centre value of 50.
+    let alpha_at = |x: u32, y: u32| out.data[((y * 3 + x) * 4 + 3) as usize];
+    assert_eq!(alpha_at(1, 1), 30);
+}
+
+#[test]
+fn convolve_spreads_an_alpha_hole_like_any_other_band() {
+    // A single transparent "hole" (alpha 0) at the centre of an otherwise
+    // fully-opaque 5x5 field — the alpha analogue of the colour impulse
+    // fixture above, but inverted (a hole in 255 rather than a spike in 0).
+    // Measured against sharp 0.34.5 (a real `.convolve` run, alpha band
+    // included): every cell within the box's reach sees exactly 8 taps of
+    // 255 and 1 tap of 0, `(8*255 + 0) / 9 = 226.67`, truncated to 226 —
+    // confirming `convolve` no longer exempts alpha the way the
+    // colour-only draft of this function once did.
+    let n = 5u32;
+    let centre = n / 2;
+    let data = (0..n)
+        .flat_map(|y| {
+            (0..n).flat_map(move |x| {
+                let a = if x == centre && y == centre { 0u8 } else { 255 };
+                [0u8, 0, 0, a]
+            })
+        })
+        .collect();
+    let img = RasterImage::new_rgba(n, n, data);
+    let out = img.convolve(3, 3, &[1.0; 9], 9.0, 0.0).unwrap();
+    let alpha_at = |x: u32, y: u32| out.data[((y * n + x) * 4 + 3) as usize];
+    for y in 1..=3 {
+        for x in 1..=3 {
+            assert_eq!(alpha_at(x, y), 226, "alpha at ({x},{y}) should be 226");
+        }
+    }
+    assert_eq!(
+        alpha_at(0, 0),
+        255,
+        "outside the hole's spread stays opaque"
     );
-    let out = img.convolve(3, 1, &[1.0, 1.0, 1.0], 0.0, 0.0).unwrap();
-    // Colour: (60 + 90 + 120) / 3 = 90.
-    assert_eq!(at(&out, 1, 0), 90);
-    // Alpha at x=1 is untouched, not averaged with its neighbours (10, 30).
-    assert_eq!(out.data[1 * 4 + 3], 20);
+}
+
+#[test]
+fn convolve_rejects_a_kernel_below_the_3_floor() {
+    // sharp's own contract: both dimensions must be >= 3. Named by value.
+    let err_1x1 = impulse(5).convolve(1, 1, &[1.0], 1.0, 0.0).unwrap_err();
+    assert!(err_1x1.to_string().contains("1x1"));
+    let err_2x2 = impulse(5).convolve(2, 2, &[1.0; 4], 1.0, 0.0).unwrap_err();
+    assert!(err_2x2.to_string().contains("2x2"));
+}
+
+#[test]
+fn convolve_accepts_an_even_sized_kernel() {
+    // sharp accepts even kernel dimensions (measured: a 4x4 kernel is a
+    // valid real input) — only the [3, 1001] floor/ceiling is enforced, not
+    // oddness. A flat field is invariant under any normalised box kernel
+    // regardless of parity, which is what this pins.
+    let flat = RasterImage::new_rgb(6, 6, vec![50; 6 * 6 * 3]);
+    let out = flat.convolve(4, 4, &[1.0; 16], 0.0, 0.0).unwrap();
+    assert!(out.data.iter().all(|&v| v == 50));
 }
