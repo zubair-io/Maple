@@ -97,6 +97,18 @@ async function writeAtomic(thumbPath: string, buf: Buffer): Promise<void> {
 }
 
 /**
+ * Unlike the retired sharp path (`failOn: 'none', unlimited: true`), Maple
+ * has no single "decode leniency" switch — behaviour differs by format.
+ * JPEG (zune-jpeg, non-strict parsing) and AVIF (rav1d) decode
+ * truncated/malformed input leniently and carry no allocation cap. TIFF/PNG/
+ * WebP still go through the `image` crate with its default `Limits` (a
+ * 512 MiB single-allocation cap) and no truncation leniency — a truncated or
+ * pathologically large file in one of those formats still errors out here
+ * exactly as it did under sharp's stricter defaults. See #3516 (filed to
+ * bring the `image`-crate path's leniency/limits in line with JPEG/AVIF).
+ */
+
+/**
  * The canonical HEIC/HEIF chain: read the source, decode it to an
  * intermediate JPEG via `heic-convert` (quality 0.9), then resize + re-encode
  * via Maple to AVIF at `quality` and write atomically.
@@ -218,7 +230,11 @@ export async function renderImageThumbToFile(
   }
 
   const builder = maple(srcPath)
-    .rotate() // honour EXIF orientation so portraits don't render sideways
+    // Honour EXIF orientation so portraits don't render sideways. A no-op for
+    // an AVIF source today: Maple's AVIF metadata probe hardcodes
+    // `orientation: 1` (no irot/imir/EXIF handling yet), so `.rotate()` has
+    // nothing to act on until that lands (#3507).
+    .rotate()
     .resize(inside(sizePx));
   const buf = await encodeToBuffer(builder, quality, format);
   await writeAtomic(thumbPath, buf);
