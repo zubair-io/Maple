@@ -239,7 +239,13 @@ jobs:
             esac
             echo "Publishing $name@$version from $dir (dist-tag: $dist_tag)"
             if [ "$DRY_RUN" = "true" ]; then
-              npm publish "./$dir" --dry-run --access public --tag "$dist_tag"
+              # `npm publish --dry-run` still asks the registry and refuses a
+              # version that is already published, which is the normal state
+              # of a PR right after a release (the version-sync PR sets
+              # package.json to the version that just shipped). `npm pack
+              # --dry-run` packs and lists the tarball the same way without
+              # touching the registry.
+              npm pack "./$dir" --dry-run
               return
             fi
             if npm view "$name@$version" version >/dev/null 2>&1; then
