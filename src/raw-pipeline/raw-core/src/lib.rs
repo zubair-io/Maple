@@ -69,6 +69,7 @@ pub use raster::{
     RasterMetadata, ResizeFit, ResizeOptions, TensorData, TensorLayout, TensorNormalize,
 };
 pub mod raster_alpha;
+pub mod raster_composite;
 pub mod raster_encode;
 
 #[cfg(any(test, feature = "test-support"))]
