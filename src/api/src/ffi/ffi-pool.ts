@@ -364,6 +364,11 @@ class FfiWorkerPool {
     });
   }
 
+  /** True once `shutdown()` has run — `ffiPool()` uses this (#3524). */
+  get isShutDown(): boolean {
+    return this.shuttingDown;
+  }
+
   /**
    * Terminate every child and stop spawning new ones. Called from the server's
    * graceful shutdown so the isolated decode children are reaped deterministically
@@ -525,7 +530,7 @@ let _pool: FfiWorkerPool | null = null;
 
 /** Process-wide FFI pool. Lazily constructed on first call. */
 export function ffiPool(): FfiWorkerPool {
-  if (!_pool) _pool = new FfiWorkerPool();
+  if (!_pool || _pool.isShutDown) _pool = new FfiWorkerPool();
   return _pool;
 }
 
