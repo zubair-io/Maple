@@ -102,7 +102,7 @@ const filename = renderFilenameTemplate({
 import { maple } from '@justmaple/maple';
 
 // Caller-decoded pixels (e.g. from a PSD/HDR/HEIC decoder) into the same resize/encode path
-const avif = await maple({ data: rgba, width, height, channels: 4 })
+const avif = await maple({ data: rgb, width, height, channels: 3 })
   .resize({ width: 512, height: 512, fit: 'inside' })
   .toFormat('avif', { quality: 55, effort: 4 })
   .toBuffer();
@@ -112,6 +112,10 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 ```
 
 `fit` accepts `'inside' | 'fill' | 'cover'`; `filter` accepts `'lanczos3' | 'bilinear' | 'nearest'`. AVIF `effort` is 0 (fastest) to 9 (slowest), as in sharp. AVIF inputs decode (pure-Rust AV1 decoder); a JPEG truncated in its scan data decodes to the rows that survived.
+
+**Alpha is accepted on input but dropped on encode.** `channels: 4` input (and the alpha item of a decoded AVIF) is read correctly, then flattened to RGB by the encoder, so every output this package writes today is opaque — don't route transparent images through it expecting transparency. Alpha-preserving encodes are tracked in [#3505](https://github.com/zubair-io/Maple/issues/3505).
+
+**`withoutEnlargement` defaults to `true`** here, where sharp defaults it to `false`. A source smaller than the requested box is therefore left at its own size, and in particular `fit: 'cover'` never upscales to fill the box unless you pass `withoutEnlargement: false`. A `width` or `height` of `0` means "keep the source dimension on this axis".
 
 ## Native Core & Linux Support
 

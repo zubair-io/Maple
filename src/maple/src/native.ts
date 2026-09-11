@@ -444,7 +444,11 @@ export function loadNativeBinding(): NativeBinding {
       return { ok: true, tensor: floatArr };
     },
 
-    ...createRasterV2Binding(lib, ptr, getLastError),
+    // The probe is passed in (rather than reached through `this`) so the v2
+    // RGB8 decode can size its output buffer from the header and decode once.
+    ...createRasterV2Binding(lib, ptr, getLastError, (bytes) =>
+      binding.rasterProbeMetadataBuf(bytes),
+    ),
 
     renderFilenameTemplate(args) {
       const templateBuf = Buffer.from(args.template + '\0', 'utf-8');

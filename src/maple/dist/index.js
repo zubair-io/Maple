@@ -312,7 +312,18 @@ function getFfiSymbols(FFIType) {
 }
 
 // src/native-raster-v2.ts
-function createRasterV2Binding(lib, ptr, getLastError) {
+var NEED_LARGER_BUFFER = 100;
+function rgb8SizeFromProbe(probe, autoOrient) {
+  const meta = probe.ok ? probe.metadata : undefined;
+  if (!meta || meta.width <= 0 || meta.height <= 0) {
+    return 0;
+  }
+  const swapped = autoOrient && meta.orientation >= 5 && meta.orientation <= 8;
+  const width = swapped ? meta.height : meta.width;
+  const height = swapped ? meta.width : meta.height;
+  return width * height * 3;
+}
+function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
   return {
     rasterRenderBuf(inputBytes, width, height, flags, filter, format, quality, effort) {
       const fmtBuf = format ? Buffer.from(format + "\x00", "utf-8") : null;
@@ -320,8 +331,8 @@ function createRasterV2Binding(lib, ptr, getLastError) {
       const call = (outBuf) => lib.symbols.maple_raster_render_buf(ptr(inputBytes), BigInt(inputBytes.byteLength), width >>> 0, height >>> 0, flags >>> 0, filter >>> 0, fmtBuf ? ptr(fmtBuf) : null, quality & 255, effort & 255, ptr(outBuf), BigInt(outBuf.byteLength), ptr(outLenBuf));
       const first = Buffer.alloc(Math.max(65536, inputBytes.byteLength * 2));
       const rc0 = call(first);
-      const outBuf = rc0 === 100 ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
-      const rc = rc0 === 100 ? call(outBuf) : rc0;
+      const outBuf = rc0 === NEED_LARGER_BUFFER ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
+      const rc = rc0 === NEED_LARGER_BUFFER ? call(outBuf) : rc0;
       if (rc !== 0) {
         return { ok: false, error: getLastError() || `Raster render failed with code ${rc}` };
       }
@@ -333,8 +344,8 @@ function createRasterV2Binding(lib, ptr, getLastError) {
       const call = (outBuf) => lib.symbols.maple_raster_from_raw_render_buf(ptr(pixels), BigInt(pixels.byteLength), srcWidth >>> 0, srcHeight >>> 0, channels >>> 0, width >>> 0, height >>> 0, flags >>> 0, filter >>> 0, fmtBuf ? ptr(fmtBuf) : null, quality & 255, effort & 255, ptr(outBuf), BigInt(outBuf.byteLength), ptr(outLenBuf));
       const first = Buffer.alloc(Math.max(65536, pixels.byteLength));
       const rc0 = call(first);
-      const outBuf = rc0 === 100 ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
-      const rc = rc0 === 100 ? call(outBuf) : rc0;
+      const outBuf = rc0 === NEED_LARGER_BUFFER ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
+      const rc = rc0 === NEED_LARGER_BUFFER ? call(outBuf) : rc0;
       if (rc !== 0) {
         return { ok: false, error: getLastError() || `Raw raster render failed with code ${rc}` };
       }
@@ -345,21 +356,38 @@ function createRasterV2Binding(lib, ptr, getLastError) {
       const wBuf = Buffer.alloc(4);
       const hBuf = Buffer.alloc(4);
       const call = (outBuf) => lib.symbols.maple_raster_decode_rgb8_buf(ptr(inputBytes), BigInt(inputBytes.byteLength), autoOrient ? 1 : 0, outBuf ? ptr(outBuf) : null, BigInt(outBuf ? outBuf.byteLength : 0), ptr(outLenBuf), ptr(wBuf), ptr(hBuf));
-      const rc0 = call(null);
-      if (rc0 !== 100) {
-        return { ok: false, error: getLastError() || `RGB8 decode failed with code ${rc0}` };
-      }
-      const outBuf = Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0)));
-      const rc = call(outBuf);
-      if (rc !== 0) {
-        return { ok: false, error: getLastError() || `RGB8 decode failed with code ${rc}` };
-      }
-      return {
+      const needed = () => Number(outLenBuf.readBigUInt64LE(0));
+      const failed = (rc) => ({
+        ok: false,
+        error: getLastError() || `RGB8 decode failed with code ${rc}`
+      });
+      const decoded = (outBuf) => ({
         ok: true,
-        buffer: outBuf,
+        buffer: outBuf.subarray(0, needed()),
         width: wBuf.readUInt32LE(0),
         height: hBuf.readUInt32LE(0)
-      };
+      });
+      const sized = rgb8SizeFromProbe(probeMetadata(inputBytes), autoOrient);
+      if (sized > 0) {
+        const outBuf = Buffer.alloc(sized);
+        const rc = call(outBuf);
+        if (rc === 0) {
+          return decoded(outBuf);
+        }
+        if (rc !== NEED_LARGER_BUFFER) {
+          return failed(rc);
+        }
+        const grown = Buffer.alloc(needed());
+        const rcGrown = call(grown);
+        return rcGrown === 0 ? decoded(grown) : failed(rcGrown);
+      }
+      const rc0 = call(null);
+      if (rc0 !== NEED_LARGER_BUFFER) {
+        return failed(rc0);
+      }
+      const outBuf = Buffer.alloc(needed());
+      const rc = call(outBuf);
+      return rc === 0 ? decoded(outBuf) : failed(rc);
     }
   };
 }
@@ -552,7 +580,7 @@ function loadNativeBinding() {
       }
       return { ok: true, tensor: floatArr };
     },
-    ...createRasterV2Binding(lib, ptr, getLastError),
+    ...createRasterV2Binding(lib, ptr, getLastError, (bytes) => binding.rasterProbeMetadataBuf(bytes)),
     renderFilenameTemplate(args) {
       const templateBuf = Buffer.from(args.template + "\x00", "utf-8");
       const stemBuf = Buffer.from(args.originalStem + "\x00", "utf-8");
@@ -663,7 +691,31 @@ async function renderPreview(options) {
 import * as crypto from "node:crypto";
 import * as fs4 from "node:fs/promises";
 import * as os from "node:os";
+import * as path5 from "node:path";
+
+// src/builder-options.ts
 import * as path4 from "node:path";
+var FORMAT_BY_EXT = {
+  jpg: "jpeg",
+  jpeg: "jpeg",
+  png: "png",
+  webp: "webp",
+  avif: "avif",
+  tif: "tiff",
+  tiff: "tiff"
+};
+function formatForPath(outputPath) {
+  return FORMAT_BY_EXT[path4.extname(outputPath).slice(1).toLowerCase()] ?? "jpeg";
+}
+function resizeFlags(opts) {
+  const fit = opts.fit === "cover" ? 8 : opts.fit === "fill" ? 1 : 0;
+  return fit | (opts.autoOrient ? 2 : 0) | (opts.withoutEnlargement ? 0 : 4);
+}
+function avifEffortWire(effort) {
+  return effort === null ? 0 : effort + 1;
+}
+
+// src/builder.ts
 var RAW_EXTENSIONS = new Set([
   ".dng",
   ".raw",
@@ -688,20 +740,8 @@ var RAW_EXTENSIONS = new Set([
   ".fff"
 ]);
 function isRawPath(filePath) {
-  const ext = path4.extname(filePath).toLowerCase();
+  const ext = path5.extname(filePath).toLowerCase();
   return RAW_EXTENSIONS.has(ext);
-}
-var FORMAT_BY_EXT = {
-  jpg: "jpeg",
-  jpeg: "jpeg",
-  png: "png",
-  webp: "webp",
-  avif: "avif",
-  tif: "tiff",
-  tiff: "tiff"
-};
-function formatForPath(outputPath) {
-  return FORMAT_BY_EXT[path4.extname(outputPath).slice(1).toLowerCase()] ?? "jpeg";
 }
 
 class MapleImageBuilder {
@@ -723,7 +763,7 @@ class MapleImageBuilder {
   _autoOrient = false;
   _removeAlpha = false;
   _filter = 0;
-  _effort = 0;
+  _effort = null;
   constructor(input) {
     if (typeof input === "string") {
       this._inputPath = input;
@@ -833,8 +873,11 @@ class MapleImageBuilder {
     return this;
   }
   flags() {
-    const fit = this._resizeFit === "cover" ? 8 : this._resizeFit === "fill" ? 1 : 0;
-    return fit | (this._autoOrient ? 2 : 0) | (this._withoutEnlargement ? 0 : 4);
+    return resizeFlags({
+      fit: this._resizeFit,
+      autoOrient: this._autoOrient,
+      withoutEnlargement: this._withoutEnlargement
+    });
   }
   async metadata() {
     const native = loadNativeBinding();
@@ -871,7 +914,7 @@ class MapleImageBuilder {
     return {
       width: res.metadata.width,
       height: res.metadata.height,
-      format: res.metadata.format || path4.extname(this._inputPath).replace(".", "").toLowerCase(),
+      format: res.metadata.format || path5.extname(this._inputPath).replace(".", "").toLowerCase(),
       channels: res.metadata.channels,
       orientation: res.metadata.orientation,
       isRaw: isRawPath(this._inputPath) || res.metadata.format === "dng"
@@ -896,7 +939,7 @@ class MapleImageBuilder {
     if (meta.orientation <= 1) {
       return true;
     }
-    const ext = path4.extname(this._inputPath) || ".jpg";
+    const ext = path5.extname(this._inputPath) || ".jpg";
     const tempOut = `${this._inputPath}.orient_tmp.${Date.now()}.${crypto.randomUUID()}${ext}`;
     const targetFmt = this._format || meta.format || "jpeg";
     const res = await this.rotate().format(targetFmt).toFile(tempOut);
@@ -936,7 +979,7 @@ class MapleImageBuilder {
     const native = loadNativeBinding();
     if (this._rawInput) {
       const r = this._rawInput;
-      const res = native.rasterFromRawRenderBuf(r.data, r.width, r.height, r.channels, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, this._format || "jpeg", this._quality, this._effort);
+      const res = native.rasterFromRawRenderBuf(r.data, r.width, r.height, r.channels, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, this._format || "jpeg", this._quality, avifEffortWire(this._effort));
       if (!res.ok || !res.buffer) {
         throw new Error(res.error || "Failed to encode raw pixels");
       }
@@ -947,7 +990,7 @@ class MapleImageBuilder {
       bytes = await fs4.readFile(this._inputPath);
     }
     if (bytes) {
-      const res = native.rasterRenderBuf(bytes, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, this._format || "jpeg", this._quality, this._effort);
+      const res = native.rasterRenderBuf(bytes, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, this._format || "jpeg", this._quality, avifEffortWire(this._effort));
       if (!res.ok || !res.buffer) {
         throw new Error(res.error || "Failed to transcode image to buffer");
       }
@@ -955,7 +998,7 @@ class MapleImageBuilder {
     }
     if (this._inputPath) {
       const ext = this._format ? `.${this._format === "jpeg" ? "jpg" : this._format}` : ".jpg";
-      const tmpFile = path4.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+      const tmpFile = path5.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
       try {
         const fileRes = await this.toFile(tmpFile);
         if (!fileRes.ok) {
@@ -993,12 +1036,12 @@ class MapleImageBuilder {
       });
     }
     const native = loadNativeBinding();
-    const parentDir = path4.dirname(outputPath);
+    const parentDir = path5.dirname(outputPath);
     await fs4.mkdir(parentDir, { recursive: true });
     const targetFormat = this._format ?? formatForPath(outputPath);
     if (this._rawInput) {
       const r = this._rawInput;
-      const res = native.rasterFromRawRenderBuf(r.data, r.width, r.height, r.channels, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, targetFormat, this._quality, this._effort);
+      const res = native.rasterFromRawRenderBuf(r.data, r.width, r.height, r.channels, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, targetFormat, this._quality, avifEffortWire(this._effort));
       if (!res.ok || !res.buffer) {
         return { ok: false, outPath: outputPath, error: res.error };
       }
@@ -1010,7 +1053,7 @@ class MapleImageBuilder {
       bytes = await fs4.readFile(this._inputPath);
     }
     if (bytes) {
-      const res = native.rasterRenderBuf(bytes, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, targetFormat, this._quality, this._effort);
+      const res = native.rasterRenderBuf(bytes, this._resizeWidth, this._resizeHeight, this.flags(), this._filter, targetFormat, this._quality, avifEffortWire(this._effort));
       if (!res.ok || !res.buffer) {
         return { ok: false, outPath: outputPath, error: res.error };
       }
@@ -1053,7 +1096,7 @@ function maple(input) {
 }
 // src/cli.ts
 import * as fs5 from "node:fs/promises";
-import * as path5 from "node:path";
+import * as path6 from "node:path";
 function printHelp() {
   console.log(`
 maple - Professional RAW photo development and export engine by Just Maple
@@ -1229,9 +1272,9 @@ async function runCli(argv) {
     let succeeded = 0;
     let failed = 0;
     for (const file of photoFiles) {
-      const stem = path5.basename(file, path5.extname(file));
+      const stem = path6.basename(file, path6.extname(file));
       const ext = recipe.format === "tiff" ? "tif" : recipe.format === "png" ? "png" : "jpg";
-      const dest = path5.join(outDir, `${stem}.${ext}`);
+      const dest = path6.join(outDir, `${stem}.${ext}`);
       process.stdout.write(`  Rendering ${stem}... `);
       const res = await exportRecipe({
         rawPath: file,
