@@ -1,10 +1,14 @@
-//! Per-pixel colour ops that libvips performs on the ENCODED samples
-//! (#3503) — see the plan's decision D3 for why none of these linearise.
+//! Per-pixel colour ops (#3503).
 //!
-//! * `greyscale` is the Rec.709 luma matrix on the 8-bit values, which is what
-//!   `vips_colourspace(sRGB -> B_W)` does. sharp's documentation calls this
-//!   "a linear operation" in the matrix sense and recommends pairing it with
-//!   `gamma()` if you want it in linear light — exactly the behaviour here.
+//! * `greyscale` is Rec.709 luma taken in LINEAR light: de-gamma each
+//!   channel, weight, re-gamma. This is a deliberate reversal of the plan's
+//!   D3 note that these ops stay on encoded values — D3 was written before
+//!   measuring `greyscale()`/`toColourspace('b-w')` against real sharp
+//!   0.34.5 output, which round-trips through `srgb_degamma`/`srgb_gamma`
+//!   (confirmed: pure red -> 127, pure green -> 220, pure blue -> 76; an
+//!   encoded-values matrix would give 54/182/18 instead). `gamma` and
+//!   `linear` genuinely DO stay on the encoded samples — that IS what
+//!   `vips_gamma`/`vips_linear` measure — so D3 stands for those two.
 //! * `gamma(e)` is `out = 255 * (in/255)^e`, `vips_gamma`.
 //! * `linear(a, b)` is `out = a*in + b` with a uchar cast, `vips_linear`.
 //! * `negate` is `255 - in`, and touches alpha unless told not to.
@@ -13,6 +17,7 @@
 //! `negate_alpha = true`, which is sharp's documented default.
 
 use crate::raster::RasterImage;
+use crate::view::encode::{srgb_degamma, srgb_gamma};
 
 /// Rec.709 luma coefficients — the sRGB -> B_W matrix libvips uses.
 pub const REC709_LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
@@ -43,13 +48,25 @@ fn to_byte(v: f64) -> u8 {
     v.round().clamp(0.0, 255.0) as u8
 }
 
+/// Rec.709 luma in LINEAR light: de-gamma each channel, weight by
+/// [`REC709_LUMA`], re-gamma, round — what `vips_colourspace(sRGB -> B_W)`
+/// (and so sharp's `greyscale()`/`toColourspace('b-w')`) actually measures.
+/// `pub(crate)` so a future filters lane can share the same reduction rather
+/// than re-deriving it.
+pub(crate) fn bw_luma(rgb: [u8; 3]) -> u8 {
+    let linear_y = (0..3)
+        .map(|i| REC709_LUMA[i] * srgb_degamma(rgb[i] as f32 / 255.0) as f64)
+        .sum::<f64>();
+    to_byte(srgb_gamma(linear_y as f32) as f64 * 255.0)
+}
+
 impl RasterImage {
-    /// Rec.709 luma on the encoded samples, written back to all three
-    /// channels so the result stays a web-friendly sRGB image (sharp's
-    /// documented behaviour).
+    /// Rec.709 luma taken in linear light (see [`bw_luma`]), written back to
+    /// all three channels so the result stays a web-friendly sRGB image
+    /// (sharp's documented behaviour).
     pub fn greyscale(&self) -> Self {
         map_colour(self, |px| {
-            let y = to_byte((0..3).map(|i| px[i] as f64 * REC709_LUMA[i]).sum::<f64>());
+            let y = bw_luma(px);
             [y, y, y]
         })
     }
@@ -104,18 +121,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn greyscale_uses_rec709_luma_on_the_encoded_values() {
-        // 0.2126*255 = 54.2 -> 54; 0.7152*255 = 182.4 -> 182; 0.0722*255 = 18.4 -> 18.
+    fn greyscale_is_rec709_luma_in_linear_light() {
+        // Measured against real sharp 0.34.5 `greyscale()` output: de-gamma
+        // each channel, Rec.709-weight in linear light, re-gamma, round.
+        // (An encoded-values matrix — the old behaviour here — would give
+        // 54/182/18 instead; sharp measurably does not do that.)
         let img = RasterImage::new_rgb(3, 1, vec![255, 0, 0, 0, 255, 0, 0, 0, 255]);
         let grey = img.greyscale();
         assert_eq!(grey.channels, 3, "sharp keeps three identical channels");
-        assert_eq!(grey.data, vec![54, 54, 54, 182, 182, 182, 18, 18, 18]);
+        assert_eq!(grey.data, vec![127, 127, 127, 220, 220, 220, 76, 76, 76]);
+    }
+
+    #[test]
+    fn greyscale_leaves_equal_channel_greys_unchanged() {
+        // De-gamma then re-gamma is an exact round trip when every channel
+        // already carries the same value (the Rec.709 weights sum to 1.0).
+        let img = RasterImage::new_rgb(2, 1, vec![128, 128, 128, 7, 7, 7]);
+        assert_eq!(img.greyscale().data, vec![128, 128, 128, 7, 7, 7]);
     }
 
     #[test]
     fn greyscale_leaves_alpha_untouched() {
         let img = RasterImage::new_rgba(1, 1, vec![255, 0, 0, 77]);
-        assert_eq!(img.greyscale().data, vec![54, 54, 54, 77]);
+        assert_eq!(img.greyscale().data, vec![127, 127, 127, 77]);
     }
 
     #[test]
