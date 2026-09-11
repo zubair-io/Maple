@@ -1,12 +1,16 @@
 //! The colour ops sharp performs in a perceptual space (#3503).
 //!
-//! `tint(colour)` keeps the image's own L* and replaces a*/b* with the tint's
-//! — `sharp::Tint` in pipeline.cc, verbatim. `modulate` scales L* by
-//! `brightness`, adds `lightness` to it, scales C* by `saturation` and rotates
-//! h by `hue` — `sharp::Modulate`, which is a `vips_linear` in LCh space.
-//! Both leave the alpha channel unchanged.
+//! `tint(colour)` mirrors sharp's `Tint` (`lib/operations.cc`): every pixel
+//! is first reduced to luminance, then each grey level is looked up in a Lab
+//! table whose L* is the grey's own L* and whose a*/b* are the tint
+//! colour's a*/b* scaled by a luminance-dependent weight that peaks at
+//! mid-grey and falls to zero at black and white. `modulate` scales L* by
+//! `brightness`, adds `lightness` to it, scales C* by `saturation` and
+//! rotates h by `hue` — `sharp::Modulate`, which is a `vips_linear` in LCh
+//! space. Both leave the alpha channel unchanged.
 
 use crate::raster::RasterImage;
+use crate::raster_colour::REC709_LUMA;
 use crate::raster_lab::{lab_to_lch, lab_to_srgb, lch_to_lab, srgb_to_lab};
 
 /// Rewrite the colour samples of every pixel, leaving alpha untouched.
@@ -29,14 +33,29 @@ fn map_colour(src: &RasterImage, f: impl Fn([u8; 3]) -> [u8; 3]) -> RasterImage 
     }
 }
 
+/// Rec.709 luma of the encoded samples, rounded and clamped — the same
+/// reduction `RasterImage::greyscale` performs. sharp's `Tint` mixes to
+/// luminance before placing each grey on the Lab table.
+fn luma(px: [u8; 3]) -> u8 {
+    let y = (0..3).map(|i| px[i] as f64 * REC709_LUMA[i]).sum::<f64>();
+    y.round().clamp(0.0, 255.0) as u8
+}
+
 impl RasterImage {
-    /// Keep each pixel's L*, take a*/b* from `rgb`.
+    /// sharp's `Tint`: reduce each pixel to luminance, then look it up in a
+    /// 256-entry Lab table whose L* is the grey's own L* and whose a*/b*
+    /// are the tint colour's a*/b* scaled by `w = 1 - 4*(l - 0.5)^2`
+    /// (`l = L*/100`) — full tint chroma at mid-grey, zero at black and
+    /// white. The table depends only on the tint colour, so it is built
+    /// once per call and every pixel is mapped through it.
     pub fn tint(&self, rgb: [u8; 3]) -> Self {
         let tint_lab = srgb_to_lab(rgb);
-        map_colour(self, |px| {
-            let l = srgb_to_lab(px)[0];
-            lab_to_srgb([l, tint_lab[1], tint_lab[2]])
-        })
+        let lut: [[u8; 3]; 256] = std::array::from_fn(|y| {
+            let l = srgb_to_lab([y as u8, y as u8, y as u8])[0];
+            let w = 1.0 - 4.0 * (l / 100.0 - 0.5).powi(2);
+            lab_to_srgb([l, tint_lab[1] * w, tint_lab[2] * w])
+        });
+        map_colour(self, |px| lut[luma(px) as usize])
     }
 
     /// `L' = L*brightness + lightness`, `C' = C*saturation`, `h' = h + hue`.
@@ -62,7 +81,8 @@ mod tests {
 
     #[test]
     fn tinting_with_a_neutral_grey_desaturates() {
-        // Grey has a* = b* = 0, so the result keeps L* and loses all chroma.
+        // Grey has a* = b* = 0, so the result keeps L* and loses all chroma
+        // regardless of the luminance weight.
         let img = RasterImage::new_rgb(1, 1, vec![200, 40, 40]);
         let tinted = img.tint([128, 128, 128]);
         let out = px(&tinted);
@@ -74,6 +94,9 @@ mod tests {
 
     #[test]
     fn tint_preserves_the_lightness_of_each_pixel() {
+        // Grey inputs: Rec.709 luma of an R=G=B pixel reproduces the same
+        // byte exactly, so this exercises the weighted formula without the
+        // luma-reduction step itself introducing drift.
         let img = RasterImage::new_rgb(2, 1, vec![30, 30, 30, 220, 220, 220]);
         let tinted = img.tint([255, 240, 16]);
         let before = [
@@ -84,17 +107,9 @@ mod tests {
             srgb_to_lab([tinted.data[0], tinted.data[1], tinted.data[2]])[0],
             srgb_to_lab([tinted.data[3], tinted.data[4], tinted.data[5]])[0],
         ];
-        // The dark pixel (L* ~= 11) combined with this tint's high chroma
-        // (a*/b* ~= -14/90) pushes the substituted Lab triple outside the
-        // sRGB gamut — `lab_to_srgb` clamps the blue channel to 0, and
-        // re-deriving L* from that clamped byte drifts by ~2.6, verified
-        // independently against a reference sRGB<->Lab implementation.
-        // That is real 8-bit-gamut clamping, not a bug in `tint`, so the
-        // tolerance is wide enough to admit it while still catching a
-        // formula error (which would drift by tens, not single digits).
         for i in 0..2 {
             assert!(
-                (before[i] - after[i]).abs() < 3.0,
+                (before[i] - after[i]).abs() < 1.5,
                 "L* {} -> {}",
                 before[i],
                 after[i]
@@ -123,6 +138,46 @@ mod tests {
             l_before,
             lab_after[0]
         );
+    }
+
+    #[test]
+    fn black_and_white_are_unchanged_by_any_tint() {
+        // w = 1 - 4*(l - 0.5)^2 is exactly 0 at l = 0 and l = 1, so pure
+        // black and pure white keep their own value regardless of tint.
+        for v in [0u8, 255] {
+            let img = RasterImage::new_rgb(1, 1, vec![v, v, v]);
+            let out = px(&img.tint([255, 240, 16]));
+            assert!(
+                out[0].abs_diff(v) <= 1 && out[1].abs_diff(v) <= 1 && out[2].abs_diff(v) <= 1,
+                "grey {v} -> {out:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mid_grey_gains_the_most_chroma_from_a_tint() {
+        // The luminance weight peaks at L* = 50 (sRGB grey ~118-119) and
+        // falls off toward both black and white, so a mid-grey tinted red
+        // should pick up more a* than either a dark or a light grey.
+        let tint = [255, 0, 0];
+        let a_of = |v: u8| {
+            let img = RasterImage::new_rgb(1, 1, vec![v, v, v]);
+            srgb_to_lab(px(&img.tint(tint)))[1]
+        };
+        let dark = a_of(40);
+        let mid = a_of(118);
+        let light = a_of(220);
+        assert!(mid > dark, "mid a* {mid} should exceed dark a* {dark}");
+        assert!(mid > light, "mid a* {mid} should exceed light a* {light}");
+    }
+
+    #[test]
+    fn tint_leaves_a_four_channel_image_alpha_alone_across_the_luma_lut() {
+        let img = RasterImage::new_rgba(2, 1, vec![40, 40, 40, 10, 220, 220, 220, 250]);
+        let tinted = img.tint([255, 240, 16]);
+        assert_eq!(tinted.channels, 4);
+        assert_eq!(tinted.data[3], 10);
+        assert_eq!(tinted.data[7], 250);
     }
 
     #[test]
