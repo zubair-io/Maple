@@ -141,11 +141,11 @@ pub fn resolve_for_raw(raw: &RawImage, reference: &str) -> Result<Option<Resolut
                     aspect_distance * 100.0
                 ));
             }
-        } else {
-            resolution
-                .approximations
-                .push("Calibration image dimensions are missing".into());
         }
+        // No `ImageWidth`/`ImageLength` on the sample is the normal Adobe
+        // shape: the calibration is normalised by `SensorFormatFactor` and the
+        // corrected image's own dimensions, so there is nothing to compare
+        // and nothing approximate about it.
     }
     resolution.approximations.sort();
     resolution.approximations.dedup();

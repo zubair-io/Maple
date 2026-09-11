@@ -177,10 +177,54 @@ fn collect(node: &Node, samples: &mut Vec<LensSample>) -> Result<(), String> {
     Ok(())
 }
 
+/// Adobe records lens aliases as an RDF list (`<stCamera:AlternateLensNames>
+/// <rdf:Seq><rdf:li>…</rdf:li>…`). Such a list is identity metadata, not an
+/// optical model, so it becomes one property whose entries are joined with
+/// [`LIST_SEPARATOR`]. Returns `None` for anything that is not a pure list
+/// of text items. Only the two known identity lists are read this way —
+/// a piecewise coefficient list inside an optical model stays a model, so
+/// it is still reported as unsupported rather than silently flattened.
+fn rdf_list_property(child: &Node) -> Option<String> {
+    let [seq] = child.children.as_slice() else {
+        return None;
+    };
+    if seq.namespace != RDF_NS || !matches!(seq.name.as_str(), "Seq" | "Bag" | "Alt") {
+        return None;
+    }
+    let items = seq
+        .children
+        .iter()
+        .map(|item| {
+            (item.namespace == RDF_NS
+                && item.name == "li"
+                && item.children.is_empty()
+                && item.properties.is_empty())
+            .then(|| item.text.trim().to_owned())
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(items.join(LIST_SEPARATOR))
+}
+
+/// Joins the entries of an RDF list property; never appears inside a single
+/// lens or camera name.
+pub(super) const LIST_SEPARATOR: &str = "\u{1f}";
+
 fn model(node: &Node) -> Result<LensModel, String> {
     let mut properties = node.properties.clone();
     let mut children = Vec::new();
     for child in &node.children {
+        if child.namespace == CAMERA_NS
+            && child.properties.is_empty()
+            && matches!(
+                child.name.as_str(),
+                "AlternateLensNames" | "AlternateLensIDs"
+            )
+        {
+            if let Some(list) = rdf_list_property(child) {
+                insert(&mut properties, child.name.clone(), list)?;
+                continue;
+            }
+        }
         if child.namespace == CAMERA_NS
             && child.children.is_empty()
             && child.properties.is_empty()
