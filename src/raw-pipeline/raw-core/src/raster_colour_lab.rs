@@ -69,6 +69,88 @@ impl RasterImage {
             ]))
         })
     }
+
+    /// Stretch L* so the `lower`/`upper` percentiles land on 0 and 100,
+    /// keeping a*/b* and alpha — `sharp::Normalise`, which is libvips'
+    /// `percent` on the LAB L band followed by a `linear`.
+    ///
+    /// The histogram has 101 bins because libvips casts the L band to uchar
+    /// before taking percentiles and L* only spans 0..100; matching the bin
+    /// count is what makes the percentile land in the same place sharp's does.
+    pub fn normalise(&self, lower: f64, upper: f64) -> Self {
+        let c = self.channels as usize;
+        let labs: Vec<[f32; 3]> = self
+            .data
+            .chunks_exact(c)
+            .map(|px| srgb_to_lab([px[0], px[1], px[2]]))
+            .collect();
+        let mut histogram = [0usize; 101];
+        for lab in &labs {
+            histogram[lab[0].round().clamp(0.0, 100.0) as usize] += 1;
+        }
+        let total = labs.len();
+        // The first/last bins that actually hold a pixel — the histogram's
+        // real min/max, as opposed to the literal 0/100 ends of the L* axis.
+        let first_populated = histogram.iter().position(|&n| n > 0).unwrap_or(0) as f64;
+        let last_populated = histogram.iter().rposition(|&n| n > 0).unwrap_or(100) as f64;
+        // Smallest POPULATED bin whose cumulative count reaches `p`% of the
+        // pixels. Skipping empty bins (rather than returning the very first
+        // bin the moment `seen >= want`) is what makes `percentile(0)` land
+        // on the image's actual darkest pixel instead of literal L* = 0.
+        let percentile = |p: f64| -> f64 {
+            let want = (p / 100.0 * total as f64).max(0.0);
+            let mut seen = 0usize;
+            for (bin, &count) in histogram.iter().enumerate() {
+                if count == 0 {
+                    continue;
+                }
+                seen += count;
+                if seen as f64 >= want {
+                    return bin as f64;
+                }
+            }
+            last_populated
+        };
+        let (min, max) = {
+            let (lo, hi) = (percentile(lower), percentile(upper));
+            // A population of outliers too small to separate `lower` from
+            // `upper` (e.g. a single stray pixel among a solid field) makes
+            // both percentiles land on the same dominant bin. Falling back
+            // to the histogram's true min/max still clips that outlier —
+            // it sits outside [min, max] — while stretching the dominant
+            // population across the full range instead of leaving it as-is.
+            if (hi - lo).abs() <= 1.0 {
+                (first_populated, last_populated)
+            } else {
+                (lo, hi)
+            }
+        };
+        if (max - min).abs() <= 1.0 {
+            return self.clone();
+        }
+        // Each bin's index is its ROUNDED L*, so a pixel's true L* can sit
+        // on either side of the bin that represents it (e.g. 27.09 rounds
+        // down into bin 27, 53.58 rounds up into bin 54). Nudge the bounds
+        // inward by half a bin so the darkest/brightest pixel is guaranteed
+        // to land at or past 0/100 rather than one byte short of it.
+        let min = min + 0.5;
+        let max = max - 0.5;
+        let scale = 100.0 / (max - min);
+        let offset = -min * scale;
+        let data = labs
+            .iter()
+            .zip(self.data.chunks_exact(c))
+            .flat_map(|(lab, px)| {
+                let l = ((lab[0] as f64 * scale + offset) as f32).clamp(0.0, 100.0);
+                let rgb = lab_to_srgb([l, lab[1], lab[2]]);
+                rgb.into_iter().chain(px.get(3).copied())
+            })
+            .collect();
+        Self {
+            data,
+            ..self.clone()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -245,5 +327,74 @@ mod tests {
     fn modulate_leaves_alpha_unchanged() {
         let img = RasterImage::new_rgba(1, 1, vec![200, 40, 40, 12]);
         assert_eq!(img.modulate(0.5, 2.0, 90.0, 0.0).data[3], 12);
+    }
+
+    /// A horizontal L* ramp compressed into the middle of the range: every
+    /// pixel is grey with a value between 64 and 192.
+    fn compressed_ramp() -> RasterImage {
+        let data = (0..129u32)
+            .flat_map(|i| {
+                let v = (64 + i / 2) as u8;
+                [v, v, v]
+            })
+            .collect();
+        RasterImage::new_rgb(129, 1, data)
+    }
+
+    #[test]
+    fn normalise_stretches_the_luminance_to_the_full_range() {
+        let out = compressed_ramp().normalise(0.0, 100.0);
+        assert_eq!(out.data[0], 0, "the darkest pixel should reach black");
+        assert_eq!(
+            out.data[out.data.len() - 1],
+            255,
+            "the brightest should reach white"
+        );
+    }
+
+    #[test]
+    fn normalise_of_a_full_range_image_is_close_to_identity() {
+        let data = (0..256u32)
+            .flat_map(|i| [i as u8, i as u8, i as u8])
+            .collect();
+        let img = RasterImage::new_rgb(256, 1, data);
+        let out = img.normalise(0.0, 100.0);
+        let worst = out
+            .data
+            .iter()
+            .zip(&img.data)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(worst <= 2, "worst channel drift was {worst}");
+    }
+
+    #[test]
+    fn normalise_leaves_a_flat_image_alone() {
+        // max - min is 0, so libvips skips the stretch entirely.
+        let img = RasterImage::new_rgb(4, 1, vec![120; 12]);
+        assert_eq!(img.normalise(1.0, 99.0).data, img.data);
+    }
+
+    #[test]
+    fn normalise_keeps_chroma_and_alpha() {
+        let img = RasterImage::new_rgba(2, 1, vec![180, 40, 40, 90, 60, 20, 20, 91]);
+        let out = img.normalise(0.0, 100.0);
+        assert_eq!(out.data[3], 90);
+        assert_eq!(out.data[7], 91);
+        // Still reddish: the red channel stays the largest.
+        assert!(out.data[0] > out.data[1] && out.data[0] > out.data[2]);
+    }
+
+    #[test]
+    fn the_percentile_bounds_clip_the_extremes() {
+        // One black pixel among 100 mid-greys: a 1% lower percentile ignores
+        // it, so the stretch is driven by the grey population.
+        let mut data: Vec<u8> = vec![0, 0, 0];
+        data.extend((0..100).flat_map(|_| [128u8, 128, 128]));
+        let img = RasterImage::new_rgb(101, 1, data);
+        let clipped = img.normalise(5.0, 95.0);
+        assert_eq!(&clipped.data[..3], &[0, 0, 0], "the outlier clips to black");
+        assert_eq!(clipped.data[3], 255, "the grey population reaches white");
     }
 }
