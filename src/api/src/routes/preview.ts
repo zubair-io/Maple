@@ -113,7 +113,7 @@ type PreviewStepResult =
  * `previewPath`, from either input format:
  *   - `'avif'`: the body IS the AVIF — staged as-is (unchanged from #2017).
  *   - `'jpeg'`: staged to its own temp path, then transcoded via the isolated
- *     imgdecode child (`renderImageThumbToFileViaPool`) — see this file's
+ *     FFI child pool (`renderImageThumbToFileViaPool`) — see this file's
  *     module doc for why that isolation matters for an uploaded body.
  *
  * Does NOT validate or publish the result — `publishStagedPreview` does that
@@ -267,7 +267,7 @@ export const previewPathRoutes = new Elysia().put(
     detail: {
       summary: 'Upload a rendered preview (AVIF or JPEG) for an asset',
       description:
-        "Accepts either genuine AVIF (staged as-is) or JPEG (transcoded to AVIF server-side via the isolated imgdecode child, #2018 — for browsers that can't canvas-encode AVIF). Either way, validates the resulting AVIF via a real decode and atomically publishes it to the asset's single preview cache file. The path must live inside a registered library root; otherwise 403. Returns 204 on success, 422 for an invalid/unrecognized/truncated body, 400 for an empty body.",
+        "Accepts either genuine AVIF (staged as-is) or JPEG (transcoded to AVIF server-side via the isolated FFI child pool, #2018 — for browsers that can't canvas-encode AVIF). Either way, validates the resulting AVIF via a real decode and atomically publishes it to the asset's single preview cache file. The path must live inside a registered library root; otherwise 403. Returns 204 on success, 422 for an invalid/unrecognized/truncated body, 400 for an empty body.",
       tags: ['preview'],
     },
   },

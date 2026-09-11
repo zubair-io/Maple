@@ -175,7 +175,7 @@ export async function generatePreview(
 
   if (ok) {
     _rendered++;
-    // Written out-of-band (FFI worker / imgdecode child), so the mirror-aware fs
+    // Written out-of-band (the FFI child pool), so the mirror-aware fs
     // drop-in never saw these bytes — hand the committed path to the mirror
     // explicitly. See `thumbnailer.ts` and `fs/mirrored.ts:replicatePath` (#926).
     replicatePath(previewPath);
@@ -275,9 +275,9 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
   log.debug({ rawPath, extractError }, 'preview extraction failed — trying demosaic fallback');
   return await developRawPreviewToFile(rawPath, outPath, extractError);
   // Note: FFI path bakes orientation into pixels and emits a bare AVIF with
-  // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
-  // decode time. No inline orientation post-process needed — keeping sharp
-  // out of worker-main's address space for isolation.
+  // no EXIF. Bitmap paths (via the FFI child pool) call Maple's .rotate() at
+  // decode time. No inline orientation post-process needed — keeping the
+  // native bitmap decoder out of worker-main's address space for isolation.
 }
 
 /**
@@ -299,7 +299,7 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
  * than the extraction it replaces, because a full decode is roughly what
  * extraction-plus-rescale was doing anyway.
  *
- * Two hops (develop to JPEG, then the imgdecode child) rather than asking
+ * Two hops (develop to JPEG, then the FFI child pool) rather than asking
  * for an AVIF directly: the FFI has no develop-to-AVIF entry point, and
  * routing through `renderBitmapPreviewToFile` means the resize maths, AVIF
  * encoder settings and quality are literally the bitmap path — no second
@@ -343,7 +343,7 @@ async function developRawPreviewToFile(
 }
 
 /**
- * Video containers: ffmpeg poster frame → the shared imgdecode child pool
+ * Video containers: ffmpeg poster frame → the shared FFI child pool
  * (#1649). Same two-hop rationale as `renderVideoThumbToFile` in
  * `thumbnailer.ts` — see there. This tier is what the describe stage reads, so
  * it is the reason a video can now get a caption + OCR pass at all.
@@ -383,12 +383,12 @@ async function renderBitmapPreviewToFile(
     if (!result.ok) {
       return logRenderFailure(
         { srcPath },
-        result.error ?? 'imgdecode failed',
-        'imgdecode child returned error',
+        result.error ?? 'FFI bitmap render failed',
+        'FFI child returned error',
       );
     }
     return true;
   } catch (e) {
-    return logRenderFailure({ srcPath }, e, 'imgdecode pool threw');
+    return logRenderFailure({ srcPath }, e, 'FFI pool threw');
   }
 }

@@ -199,7 +199,7 @@ async function tryServeCachedThumb(
 /**
  * Render a video's poster frame to `thumbPath` at `sizePx` (#2132).
  *
- * Two hops — ffmpeg to an intermediate JPEG, then the shared imgdecode pool —
+ * Two hops — ffmpeg to an intermediate JPEG, then the shared FFI child pool —
  * for the same reason `indexer/thumbnailer.ts` does it: the resize and AVIF
  * encode stay byte-for-byte the bitmap path rather than a second encoder that
  * could drift from it.
@@ -245,7 +245,7 @@ async function renderVideoPosterThumb(
       : {
           ok: false,
           status: 500,
-          error: `imgdecode render failed: ${result.error ?? 'unknown'}`,
+          error: `FFI bitmap render failed: ${result.error ?? 'unknown'}`,
         };
   } catch (err) {
     return {
@@ -266,7 +266,7 @@ async function renderVideoPosterThumb(
 export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
   '/thumb',
   // Pre-existing CRITICAL complexity (RAW/sharp/PSD-HDR dispatch, ETag, and
-  // FFI-vs-imgdecode branches all live in this one route handler). Out of
+  // RAW-vs-bitmap FFI branches all live in this one route handler). Out of
   // scope to decompose here — this PR moves the cache-hit decision into
   // `tryServeCachedThumb` above (which shrinks this handler rather than
   // growing it) but otherwise leaves the render dispatch as-is. Worth
@@ -307,9 +307,9 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     // `renderImageThumbToFileViaPool` below — collapsed into one flag so the
     // dispatch reads as a single two-way branch.
     // Video (#2132) is a third case: ffmpeg extracts a poster frame, which
-    // then goes through the same imgdecode hop as any bitmap.
+    // then goes through the same FFI bitmap hop as any bitmap.
     const isVideo = VIDEO_EXTS.has(`.${ext}`);
-    const renderViaImgdecode = !isVideo && !RAW_EXTENSIONS.has(ext);
+    const renderViaFfiBitmapPool = !isVideo && !RAW_EXTENSIONS.has(ext);
 
     // One thumb per source file (matches Apple ThumbnailDiskCache + web
     // MapleCacheService), rendered at the single fixed `THUMB_LONG_EDGE_PX`
@@ -339,7 +339,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
         set.status = poster.status;
         return { error: poster.error };
       }
-    } else if (renderViaImgdecode) {
+    } else if (renderViaFfiBitmapPool) {
       try {
         const result = await renderImageThumbToFileViaPool(
           real,
@@ -351,13 +351,13 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
         if (!result.ok) {
           set.status = 500;
           return {
-            error: `imgdecode render failed for ${ext}: ${result.error ?? 'unknown error'}`,
+            error: `FFI bitmap render failed for ${ext}: ${result.error ?? 'unknown error'}`,
           };
         }
       } catch (err) {
         set.status = 500;
         return {
-          error: `imgdecode pool error for ${ext}: ${err instanceof Error ? err.message : String(err)}`,
+          error: `FFI bitmap pool error for ${ext}: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     } else {
