@@ -6,11 +6,10 @@
 
 export { workerRoutes } from './routes-main.ts';
 export {
-  CLAIM_STAGE_NAMES,
   sanitizeWorkerConfig,
   assembleWorkersStatus,
   computeWorkersStatus,
   requestStatusCounts,
 } from './routes-status.ts';
-export type { StageStatusRow, WorkersStatusPayload } from './routes-status.ts';
+export type { WorkersStatusPayload } from './routes-status.ts';
 export { DAMAGE_TAGGING_STAGES } from './routes-main.ts';

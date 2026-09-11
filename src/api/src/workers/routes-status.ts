@@ -10,7 +10,6 @@
  * reads are the tiny `worker_config` collection and the migration state doc.
  */
 
-import { type Document } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
@@ -25,7 +24,7 @@ import {
 import { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
 import { enabledRemainingTotal, loadAllMigrationStates } from './migration-config.repo.ts';
 
-export { ALL_KNOWN_WORKER_NAMES, CLAIM_STAGE_NAMES } from './status-counts.ts';
+export { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
 
 export const DEAD_LIST_LIMIT_DEFAULT = 50;
 export const DEAD_LIST_LIMIT_MAX = 500;
@@ -58,7 +57,7 @@ export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
 /** How long one poke keeps the worker in "watched" cadence. */
 export const COUNTS_DEMAND_WINDOW_MS = 30_000;
 /** Pokes closer together than this are dropped (one tiny write per window). */
-export const COUNTS_DEMAND_POKE_THROTTLE_MS = 5_000;
+const COUNTS_DEMAND_POKE_THROTTLE_MS = 5_000;
 let lastDemandPokeAt = 0;
 
 /**
