@@ -157,10 +157,20 @@ resolution. `.composite().resize()` composites the overlay at full size and
 then scales the composited result, where sharp always resizes the base first
 and composites onto the resized box (and rejects an overlay wider or taller
 than the resized base outright); call `.resize()` before `.composite()` if
-you want sharp's placement semantics. The same rule covers `extract`,
-`extend`, `rotate(angle)`, `flip`, `flop` and `trim`: each runs at the
-position where you call it, where sharp always runs `extract` before
-`resize` and `trim` after it, regardless of call order.
+you want sharp's placement semantics. The remaining geometry ops split
+differently: Maple always runs `extract`, `extend`, `rotate(angle)`, `flip`,
+`flop` and `trim` at the position where you call them, but sharp only does
+that for `extract` — `trim` is pinned to the input stage (it runs before
+resize no matter where you write it), and `extend`, `flip`, `flop` and a
+non-90° `rotate(angle)` are pinned to run after resize. So `.resize(10,
+10).trim()` on a 5×5 framed source resizes first in Maple, then trims the
+already-upscaled result down to 6×6, where sharp trims the 5×5 source first
+and resizes the trimmed content up to 10×10 (measured: sharp 10×10, Maple
+6×6). `.extend(5).resize(20, 20, { fit: 'fill' })` extends first in Maple,
+so 20×20 is the final size, where sharp resizes to 20×20 first and then
+extends by 5 on every side (measured: sharp 30×30, Maple 20×20). Call
+`.resize()` before `extend`/`flip`/`flop`/`rotate(angle)` and after `trim`
+if you want sharp's staging.
 
 ## Native Core & Linux Support
 
