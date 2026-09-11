@@ -4,10 +4,11 @@
 //! functions in `raster.rs` keep their signatures for existing callers.
 
 use crate::error::{catch_panic_rc, set_last_error};
-use raw_core::export::{encode_raster_rgb, ExportFormat};
+use raw_core::export::ExportFormat;
 use raw_core::raster::{
     decode_raster, resize_raster, FilterAlg, RasterImage, ResizeFit, ResizeOptions,
 };
+use raw_core::raster_encode::{encode_raster_opts, RasterEncodeOptions};
 use std::ffi::{c_char, CStr};
 
 const NEED_LARGER_BUFFER: i32 = 100;
@@ -99,7 +100,22 @@ unsafe fn render_into(
     } else {
         p.quality.clamp(1, 100)
     };
-    let bytes = match encode_raster_rgb(&resized, p.format, quality, avif_speed_from(p.effort)) {
+    // `encode_raster_opts`, not `encode_raster_rgb`: the latter drops alpha
+    // via `to_rgb_bytes` with no compositing, so a transparent pixel's
+    // stored colour (not black) leaked straight into a JPEG/TIFF encode —
+    // this symbol pre-dates the recipe pipeline's alpha-aware encode
+    // (#3505's `raster_encode::encode_raster_opts`) and was never migrated
+    // when that landed. `encode_raster_opts` keeps alpha for PNG/WebP/AVIF
+    // and composites over black for JPEG/TIFF, matching every other encode
+    // path in the crate.
+    let bytes = match encode_raster_opts(
+        &resized,
+        &RasterEncodeOptions {
+            format: p.format,
+            quality,
+            avif_speed: avif_speed_from(p.effort),
+        },
+    ) {
         Ok(b) => b,
         Err(e) => {
             set_last_error(format!("encoding raster failed: {e}"));
@@ -182,7 +198,8 @@ pub unsafe extern "C" fn maple_raster_render_buf(
 }
 
 /// Same as `maple_raster_render_buf` from caller-decoded interleaved 8-bit pixels
-/// (`channels` 1, 3 or 4; an alpha channel is accepted but dropped by the encoder — #3505).
+/// (`channels` 1, 3 or 4; a 4-channel input's alpha is kept for PNG/WebP/AVIF and
+/// composited over black for JPEG/TIFF, same as every other encode path — #3501).
 /// The auto-orient flag is ignored (no metadata). `effort` uses the same one-based wire
 /// encoding as `maple_raster_render_buf`, and a panic likewise becomes rc 99.
 #[no_mangle]
@@ -299,6 +316,69 @@ mod tests {
         assert_eq!(avif_speed_from(1), 10);
         assert_eq!(avif_speed_from(10), 1);
         assert_eq!(avif_speed_from(255), 1);
+    }
+
+    /// Regression pin (#3501): `render_into` used to call `encode_raster_rgb`
+    /// directly, which drops alpha via `to_rgb_bytes` with no compositing —
+    /// a fully-transparent red pixel came out of a JPEG encode as red, not
+    /// black, contradicting `raster_encode`'s rule (every JPEG/TIFF encode
+    /// composites alpha over black). Exercises the raw-pixel entry point
+    /// directly, the same call a caller-decoded 4-channel source takes.
+    #[test]
+    fn from_raw_render_buf_composites_transparent_pixels_over_black_for_jpeg() {
+        // 2x1: fully-transparent red, then opaque black.
+        let pixels: [u8; 8] = [255, 0, 0, 0, 0, 0, 0, 255];
+        let mut out_len = 0usize;
+        // SAFETY: every pointer borrows a live local for the call; a null
+        // out_buf/out_cap probes the required size.
+        let probe_rc = unsafe {
+            maple_raster_from_raw_render_buf(
+                pixels.as_ptr(),
+                pixels.len(),
+                2,
+                1,
+                4,
+                0,
+                0,
+                0,
+                0,
+                std::ptr::null(),
+                90,
+                0,
+                std::ptr::null_mut(),
+                0,
+                &mut out_len,
+            )
+        };
+        assert_eq!(probe_rc, NEED_LARGER_BUFFER);
+        let mut out = vec![0u8; out_len];
+        // SAFETY: `out` is sized from the probe above.
+        let rc = unsafe {
+            maple_raster_from_raw_render_buf(
+                pixels.as_ptr(),
+                pixels.len(),
+                2,
+                1,
+                4,
+                0,
+                0,
+                0,
+                0,
+                std::ptr::null(),
+                90,
+                0,
+                out.as_mut_ptr(),
+                out.len(),
+                &mut out_len,
+            )
+        };
+        assert_eq!(rc, 0);
+        let decoded = raw_core::raster::decode_raster(&out[..out_len], Some("jpeg")).unwrap();
+        let (r, g, b) = (decoded.data[0], decoded.data[1], decoded.data[2]);
+        assert!(
+            r < 24 && g < 24 && b < 24,
+            "transparent red pixel encoded as ({r},{g},{b}), expected near-black"
+        );
     }
 
     /// A panic inside an FFI body must come out as rc 99 with the message in

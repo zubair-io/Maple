@@ -278,6 +278,31 @@ mod tests {
     }
 
     #[test]
+    fn extend_with_a_transparent_background_composites_over_black_for_jpeg() {
+        // 2x2 opaque black source; extend left by 2 with a fully-transparent
+        // red background. The padded pixel is [255,0,0,0] pre-encode; JPEG
+        // has no alpha, so it must composite over black before encoding —
+        // this recipe path (raster_recipe_exec::encode -> encode_raster_opts)
+        // already did, but pins it alongside the raw-ffi regression fixed
+        // for #3501 (raster_v2's render_into took a different, alpha-dropping
+        // path to the same JPEG encoder).
+        let src: Vec<u8> = (0..4).flat_map(|_| [0u8, 0, 0, 255]).collect();
+        let out = run(
+            r#"{"v":1,"input":{"kind":"raw","width":2,"height":2,"channels":4},
+                "ops":[{"op":"extend","left":2,"background":[255,0,0,0]}],
+                "output":{"format":"jpeg","quality":95}}"#,
+            &src,
+            &[],
+        );
+        let decoded = crate::raster::decode_raster(&out.bytes, Some("jpeg")).unwrap();
+        let (r, g, b) = (decoded.data[0], decoded.data[1], decoded.data[2]);
+        assert!(
+            r < 24 && g < 24 && b < 24,
+            "padded transparent-red pixel encoded as ({r},{g},{b}), expected near-black"
+        );
+    }
+
+    #[test]
     fn resize_runs_through_the_recipe() {
         let out = run(
             r#"{"v":1,"input":{"kind":"raw","width":4,"height":2,"channels":4},
