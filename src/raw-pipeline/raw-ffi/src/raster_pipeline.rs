@@ -7,10 +7,14 @@
 //! is what keeps the `bun:ffi` argument count at 11 rather than climbing past
 //! the ~15 where Bun has historically crashed.
 //!
-//! Return codes: 0 ok, 1 null argument, 3 decode failed, 4 an op failed,
-//! 5 recipe parse/validation failed, 6 encode failed, 99 panic caught,
-//! 100 `out_buf` too small (`*out_len` and the three dimension outputs are
-//! still written, so a null-buffer call is a size probe).
+//! Return codes: 0 ok, 1 null argument, 3 reserved (unreachable from this
+//! entry point — `run_recipe` collapses a decode failure into rc 4 along
+//! with an op failure), 4 an op failed (also covers a decode failure, see
+//! rc 3), 5 recipe parse/validation failed, 6 reserved (unreachable from
+//! this entry point — `run_recipe` collapses an encode failure into rc 4
+//! too), 99 panic caught, 100 `out_buf` too small (`*out_len` and the three
+//! dimension outputs are still written, so a null-buffer call is a size
+//! probe).
 
 use crate::error::{catch_panic_rc, set_last_error};
 use raw_core::raster_recipe::parse_recipe;
