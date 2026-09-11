@@ -32,7 +32,7 @@ import { replicatePath } from '../fs/mirrored.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from './media-types.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
-import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
+import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
@@ -319,8 +319,8 @@ async function renderVideoThumbToFile(videoPath: string, outPath: string): Promi
 
 /**
  * Bitmap formats (JPEG / PNG / WEBP / TIFF / AVIF / HEIC / HEIF): decode
- * + resize via the imgdecode child pool (sharp + heic-convert in an isolated
- * process). Same output as the live `/api/fs/thumb` route on a cache miss.
+ * + resize via the FFI child pool (Maple), same isolated process as RAW.
+ * Same output as the live `/api/fs/thumb` route on a cache miss.
  * `outPath` is the caller's private temp path — see `renderRawThumbToFile`.
  */
 async function renderBitmapThumbToFile(

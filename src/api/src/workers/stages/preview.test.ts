@@ -2,25 +2,52 @@ import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import sharp from 'sharp';
+import { maple, type ImageMetadata } from 'maple';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
-import * as imgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
+import * as bitmapPoolModule from '../../thumbs/bitmap-pool.ts';
 import { checkAvifOutput } from '../../thumbs/avif-checks.ts';
 import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { solidJpeg } from '../../test-support/synth-image.ts';
 
-/** `sharp(p).metadata()` with failure context. #2032's root cause was a
+/**
+ * Minimal APP1 EXIF segment carrying a single IFD0 entry: Orientation
+ * (tag 0x0112, SHORT) = `orientation`. Spliced in right after the SOI
+ * marker, which is where a camera writes it. Copied from
+ * `src/maple/test/raster-v2.test.ts`'s `withExifOrientation` (also copied
+ * into `thumbs/apply-orientation.test.ts`) — the same hand-spliced-EXIF
+ * trick, not shared production code.
+ */
+function withExifOrientation(jpeg: Buffer, orientation: number): Buffer {
+  const tiff = Buffer.alloc(26);
+  tiff.write('II', 0, 'ascii'); // little-endian TIFF header
+  tiff.writeUInt16LE(0x2a, 2);
+  tiff.writeUInt32LE(8, 4); // IFD0 starts right after the header
+  tiff.writeUInt16LE(1, 8); // one entry
+  tiff.writeUInt16LE(0x0112, 10); // Orientation
+  tiff.writeUInt16LE(3, 12); // type SHORT
+  tiff.writeUInt32LE(1, 14); // count
+  tiff.writeUInt16LE(orientation, 18); // inline value
+  tiff.writeUInt32LE(0, 22); // no next IFD
+  const header = Buffer.alloc(4);
+  header.writeUInt16BE(0xffe1, 0); // APP1
+  header.writeUInt16BE(2 + 6 + tiff.length, 2); // segment length
+  const app1 = Buffer.concat([header, Buffer.from('Exif\0\0', 'binary'), tiff]);
+  return Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]);
+}
+
+/** `maple(p).metadata()` with failure context. #2032's root cause was a
  * sibling file's leaked `generatePreview` module mock writing literal
- * `generated-<n>` text bytes at the preview path — undecodable by sharp, and
+ * `generated-<n>` text bytes at the preview path — undecodable by Maple, and
  * invisible in the default assertion failure. On decode failure, report what
  * actually landed at `p` (header bytes, size, whether this file's own render
  * stub was ever reached, and which `generatePreview` is currently registered)
  * so any future leak of this class is self-diagnosing in CI output. */
-async function readbackMetadata(p: string): Promise<sharp.Metadata> {
+async function readbackMetadata(p: string): Promise<ImageMetadata> {
   try {
-    return await sharp(p).metadata();
+    return await maple(p).metadata();
   } catch (err) {
     const bytes = await readFile(p).then(
       (b) => b,
@@ -34,7 +61,7 @@ async function readbackMetadata(p: string): Promise<sharp.Metadata> {
       : '<unreadable>';
     const previewerNow = await import('../../indexer/previewer.ts');
     throw new Error(
-      `sharp metadata() failed for ${p}: ${err instanceof Error ? err.message : err}\n` +
+      `maple metadata() failed for ${p}: ${err instanceof Error ? err.message : err}\n` +
         `  size: ${bytes?.length ?? '<unreadable>'}\n` +
         `  head(ascii): ${headAscii}\n` +
         `  stub render calls this file: ${mockRenderCalls}\n` +
@@ -54,20 +81,18 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 /**
  * Every test below that writes a bitmap (JPEG) source drives
  * `previewStage.handler` through the REAL production path — `previewer.ts`'s
- * `renderBitmapPreviewToFile` — which dispatches to the isolated `imgdecode`
- * child process via the process-global singleton in `thumbs/imgdecode-pool.ts`
- * (one child, shared by every caller in the whole `bun test` process).
+ * `renderBitmapPreviewToFile` — which dispatches to the isolated FFI child
+ * process via the process-global singleton in `thumbs/bitmap-pool.ts` (one
+ * child, shared by every caller in the whole `bun test` process).
  *
  * The stub below replaces ONLY that subprocess boundary
- * (`renderImageThumbToFileViaPool`), transcoding in-process via sharp instead
- * — the same treatment `routes/preview.test.ts`'s JPEG-body tests got in
- * commit ed75f062b: spawning real decode children from multiple test files
- * destabilises the shared pool singleton under CI's constrained resources.
- * A genuine AVIF still lands on disk and passes the real `validateAvifOutput`
- * decode-gate inside `previewer.ts` — every assertion in this file stays
- * decode-verified, not asserted-by-mock — while the real isolated-child
- * transcode remains covered by `imgdecode-pool.test.ts`'s own integration
- * test.
+ * (`renderImageThumbToFileViaPool`), transcoding in-process via `maple`
+ * instead — the same treatment `routes/preview.test.ts`'s JPEG-body tests
+ * got in commit ed75f062b: spawning real decode children from multiple test
+ * files destabilises the shared pool singleton under CI's constrained
+ * resources. A genuine AVIF still lands on disk and passes the real
+ * `validateAvifOutput` decode-gate inside `previewer.ts` — every assertion
+ * in this file stays decode-verified, not asserted-by-mock.
  *
  * `validateAvifOutput` itself now ALSO dispatches to this same child pool
  * (#2257, moving the decode-validation gate off the API process too) — so
@@ -95,7 +120,7 @@ let renderStubSpy: { mockRestore(): void } | null = null;
 let validateStubSpy: { mockRestore(): void } | null = null;
 
 beforeAll(() => {
-  renderStubSpy = spyOn(imgdecodePoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
+  renderStubSpy = spyOn(bitmapPoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
     async (
       srcPath: string,
       outPath: string,
@@ -106,13 +131,10 @@ beforeAll(() => {
       try {
         // Mirrors `thumbs/render.ts`'s default bitmap branch: honour EXIF
         // orientation, resize without enlarging, AVIF-encode.
-        const out = await sharp(await readFile(srcPath), {
-          failOn: 'none',
-          unlimited: true,
-        })
+        const out = await maple(await readFile(srcPath))
           .rotate()
-          .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
-          .avif({ quality })
+          .resize({ width: maxPx, height: maxPx, fit: 'inside', withoutEnlargement: true })
+          .toFormat('avif', { quality })
           .toBuffer();
         await writeFile(outPath, out);
         return { ok: true };
@@ -125,7 +147,7 @@ beforeAll(() => {
     },
   );
 
-  validateStubSpy = spyOn(imgdecodePoolModule, 'validateAvifViaPool').mockImplementation(
+  validateStubSpy = spyOn(bitmapPoolModule, 'validateAvifViaPool').mockImplementation(
     (filePath: string, expectedLongEdgePx: number) => checkAvifOutput(filePath, expectedLongEdgePx),
   );
 });
@@ -245,16 +267,7 @@ describe('preview handler — bitmap path', () => {
 
   it('generates a 1280-px preview for a 2000-px JPEG and marks the stage wrote', async () => {
     const file = path.join(dir, 'wide.jpg');
-    const buf = await sharp({
-      create: {
-        width: 2000,
-        height: 1200,
-        channels: 3,
-        background: { r: 100, g: 150, b: 200 },
-      },
-    })
-      .jpeg()
-      .toBuffer();
+    const buf = await solidJpeg(2000, 1200, [100, 150, 200]);
     await writeFile(file, buf);
 
     const doc = makeDoc(file, libraryId, dir);
@@ -281,16 +294,7 @@ describe('preview handler — bitmap path', () => {
 
   it('does not enlarge a smaller source — a 600-px JPEG stays at 600', async () => {
     const file = path.join(dir, 'small.jpg');
-    const buf = await sharp({
-      create: {
-        width: 600,
-        height: 400,
-        channels: 3,
-        background: { r: 50, g: 80, b: 100 },
-      },
-    })
-      .jpeg()
-      .toBuffer();
+    const buf = await solidJpeg(600, 400, [50, 80, 100]);
     await writeFile(file, buf);
 
     const doc = makeDoc(file, libraryId, dir);
@@ -310,17 +314,8 @@ describe('preview handler — bitmap path', () => {
 
   it('bakes in EXIF orientation so the preview is upright', async () => {
     const file = path.join(dir, 'rotated.jpg');
-    const buf = await sharp({
-      create: {
-        width: 1600,
-        height: 800,
-        channels: 3,
-        background: { r: 200, g: 50, b: 50 },
-      },
-    })
-      .jpeg()
-      .withMetadata({ orientation: 6 }) // 90° CW
-      .toBuffer();
+    const plain = await solidJpeg(1600, 800, [200, 50, 50]);
+    const buf = withExifOrientation(plain, 6); // 90° CW
     await writeFile(file, buf);
 
     const doc = makeDoc(file, libraryId, dir);
@@ -339,16 +334,7 @@ describe('preview handler — bitmap path', () => {
 
   it("reuses a cached preview when its mtime is >= the source's", async () => {
     const file = path.join(dir, 'cached.jpg');
-    const buf = await sharp({
-      create: {
-        width: 2000,
-        height: 1200,
-        channels: 3,
-        background: { r: 10, g: 20, b: 30 },
-      },
-    })
-      .jpeg()
-      .toBuffer();
+    const buf = await solidJpeg(2000, 1200, [10, 20, 30]);
     await writeFile(file, buf);
 
     const doc = makeDoc(file, libraryId, dir);
@@ -539,16 +525,7 @@ describe('preview handler — path-keyed cache path', () => {
     const sub = path.join(dir, 'trip');
     await mkdir(sub, { recursive: true });
     const file = path.join(sub, 'wide.jpg');
-    const buf = await sharp({
-      create: {
-        width: 2000,
-        height: 1200,
-        channels: 3,
-        background: { r: 100, g: 150, b: 200 },
-      },
-    })
-      .jpeg()
-      .toBuffer();
+    const buf = await solidJpeg(2000, 1200, [100, 150, 200]);
     await writeFile(file, buf);
 
     const doc = {
