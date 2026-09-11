@@ -96,20 +96,6 @@ async function writeAtomic(thumbPath: string, buf: Buffer): Promise<void> {
   await rename(tmp, thumbPath);
 }
 
-// Unlike the retired sharp path (`failOn: 'none', unlimited: true`), Maple
-// has no single "decode leniency" switch — behaviour differs by format.
-// JPEG (zune-jpeg, non-strict parsing) and AVIF (rav1d) decode
-// truncated/malformed input leniently and carry no allocation cap. TIFF/PNG/
-// WebP still go through the `image` crate with its default `Limits` (a
-// 512 MiB single-allocation cap) and no truncation leniency — a truncated or
-// pathologically large file in one of those formats still errors out here
-// exactly as it did under sharp's stricter defaults. See #3516 (filed to
-// bring the `image`-crate path's leniency/limits in line with JPEG/AVIF).
-// Applies to `renderImageThumbToFile`'s generic bitmap branch below, which
-// decodes JPEG/PNG/WEBP/TIFF/AVIF directly via Maple — NOT to the HEIC
-// (`heic-convert`) or PSD/HDR (`ag-psd`/`hdr`) branches, which front-end
-// through their own separate decoders before ever reaching Maple.
-
 /**
  * The canonical HEIC/HEIF chain: read the source, decode it to an
  * intermediate JPEG via `heic-convert` (quality 0.9), then resize + re-encode
@@ -194,6 +180,19 @@ async function renderPsdOrHdrThumbToFile(
   await writeAtomic(thumbPath, buf);
 }
 
+// Unlike the retired sharp path (`failOn: 'none', unlimited: true`), Maple
+// has no single "decode leniency" switch — behaviour differs by format.
+// JPEG (zune-jpeg, non-strict parsing) and AVIF (rav1d) decode
+// truncated/malformed input leniently and carry no allocation cap. TIFF/PNG/
+// WebP still go through the `image` crate with its default `Limits` (a
+// 512 MiB single-allocation cap) and no truncation leniency — a truncated or
+// pathologically large file in one of those formats still errors out here
+// exactly as it did under sharp's stricter defaults. See #3516 (filed to
+// bring the `image`-crate path's leniency/limits in line with JPEG/AVIF).
+// Applies to this function's generic bitmap branch below, which decodes
+// JPEG/PNG/WEBP/TIFF/AVIF directly via Maple — NOT to `renderHeicThumbToFile`
+// (`heic-convert`) or the PSD/HDR branch (`ag-psd`/`hdr`) above, which
+// front-end through their own separate decoders before ever reaching Maple.
 /**
  * Render `srcPath` to `thumbPath` with the long edge ≤ `sizePx`, in `format`
  * (default AVIF — the 256px grid-thumbnail tier; the 1280px VLM
