@@ -46,3 +46,37 @@ fn test_tensor_extraction_insightface() {
     assert_eq!(tensor.data.len(), 12);
     assert!((tensor.data[0] - 0.99609375).abs() < 1e-4);
 }
+
+#[cfg(feature = "avif")]
+mod avif_dispatch {
+    use crate::raster::{decode_raster, probe_raster_metadata};
+
+    fn tiny_avif() -> Vec<u8> {
+        let rgb: Vec<u8> = (0..(24 * 16))
+            .flat_map(|i| [(i % 256) as u8, 40, 200])
+            .collect();
+        crate::avif::encode(24, 16, &rgb, 70).unwrap()
+    }
+
+    #[test]
+    fn decode_raster_accepts_avif_by_sniffing() {
+        let img = decode_raster(&tiny_avif(), None).unwrap();
+        assert_eq!((img.width, img.height, img.channels), (24, 16, 3));
+    }
+
+    #[test]
+    fn decode_raster_accepts_avif_by_hint() {
+        let img = decode_raster(&tiny_avif(), Some("avif")).unwrap();
+        assert_eq!((img.width, img.height), (24, 16));
+    }
+
+    #[test]
+    fn probe_reports_avif_dimensions_without_decoding() {
+        let meta = probe_raster_metadata(&tiny_avif()).unwrap();
+        assert_eq!(
+            (meta.width, meta.height, meta.format.as_str(), meta.channels),
+            (24, 16, "avif", 3)
+        );
+        assert_eq!(meta.orientation, 1);
+    }
+}
