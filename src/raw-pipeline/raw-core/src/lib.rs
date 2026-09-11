@@ -73,6 +73,8 @@ pub mod raster_colour;
 pub mod raster_colour_lab;
 pub mod raster_composite;
 pub mod raster_encode;
+#[cfg(feature = "avif")]
+pub mod raster_encode_avif;
 pub mod raster_encode_jpeg;
 pub mod raster_encode_png;
 pub mod raster_filter;
