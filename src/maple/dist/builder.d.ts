@@ -25,6 +25,7 @@ export declare class MapleImageBuilder {
     private _autoOrient;
     private _removeAlpha;
     private _filter;
+    /** sharp-style AVIF effort 0-9, or null for "never set" — see `avifEffortWire`. */
     private _effort;
     constructor(input: string | Uint8Array | Buffer | RawPixelInput);
     /** Specify path to XMP sidecar */
@@ -65,8 +66,7 @@ export declare class MapleImageBuilder {
     recipe(recipe: ExportRecipe | string): this;
     /** Use a saved ExportRecipe (alias) */
     exportRecipe(recipe: ExportRecipe | string): this;
-    /** Bitmask for the v2 raster entry points: bit0 fill, bit1 auto-orient, bit2 allow
-     * enlargement, bit3 cover (wins over fill). */
+    /** Bitmask for the v2 raster entry points — see `resizeFlags`. */
     private flags;
     /** Inspect image dimensions, format, orientation without full decode */
     metadata(): Promise<ImageMetadata>;

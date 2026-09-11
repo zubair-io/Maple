@@ -9,6 +9,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { avifEffortWire, formatForPath, resizeFlags } from './builder-options';
 import { exportImage, exportRecipe } from './export';
 import { loadNativeBinding } from './native';
 import type { NativeBinding } from './native';
@@ -55,21 +56,6 @@ export function isRawPath(filePath: string): boolean {
   return RAW_EXTENSIONS.has(ext);
 }
 
-const FORMAT_BY_EXT: Record<string, ExportFormat> = {
-  jpg: 'jpeg',
-  jpeg: 'jpeg',
-  png: 'png',
-  webp: 'webp',
-  avif: 'avif',
-  tif: 'tiff',
-  tiff: 'tiff',
-};
-
-/** Infer the output container format from a file path's extension, defaulting to JPEG. */
-function formatForPath(outputPath: string): ExportFormat {
-  return FORMAT_BY_EXT[path.extname(outputPath).slice(1).toLowerCase()] ?? 'jpeg';
-}
-
 export class MapleImageBuilder {
   private _inputPath: string | null = null;
   private _inputBytes: Uint8Array | null = null;
@@ -92,7 +78,8 @@ export class MapleImageBuilder {
   private _autoOrient = false;
   private _removeAlpha = false;
   private _filter: 0 | 1 | 2 = 0;
-  private _effort = 0;
+  /** sharp-style AVIF effort 0-9, or null for "never set" — see `avifEffortWire`. */
+  private _effort: number | null = null;
 
   constructor(input: string | Uint8Array | Buffer | RawPixelInput) {
     if (typeof input === 'string') {
@@ -242,11 +229,13 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Bitmask for the v2 raster entry points: bit0 fill, bit1 auto-orient, bit2 allow
-   * enlargement, bit3 cover (wins over fill). */
+  /** Bitmask for the v2 raster entry points — see `resizeFlags`. */
   private flags(): number {
-    const fit = this._resizeFit === 'cover' ? 8 : this._resizeFit === 'fill' ? 1 : 0;
-    return fit | (this._autoOrient ? 2 : 0) | (this._withoutEnlargement ? 0 : 4);
+    return resizeFlags({
+      fit: this._resizeFit,
+      autoOrient: this._autoOrient,
+      withoutEnlargement: this._withoutEnlargement,
+    });
   }
 
   /** Inspect image dimensions, format, orientation without full decode */
@@ -380,7 +369,7 @@ export class MapleImageBuilder {
         this._filter,
         this._format || 'jpeg',
         this._quality,
-        this._effort,
+        avifEffortWire(this._effort),
       );
       if (!res.ok || !res.buffer) {
         throw new Error(res.error || 'Failed to encode raw pixels');
@@ -403,7 +392,7 @@ export class MapleImageBuilder {
         this._filter,
         this._format || 'jpeg',
         this._quality,
-        this._effort,
+        avifEffortWire(this._effort),
       );
 
       if (!res.ok || !res.buffer) {
@@ -483,7 +472,7 @@ export class MapleImageBuilder {
         this._filter,
         targetFormat,
         this._quality,
-        this._effort,
+        avifEffortWire(this._effort),
       );
       if (!res.ok || !res.buffer) {
         return { ok: false, outPath: outputPath, error: res.error };
@@ -506,7 +495,7 @@ export class MapleImageBuilder {
         this._filter,
         targetFormat,
         this._quality,
-        this._effort,
+        avifEffortWire(this._effort),
       );
       if (!res.ok || !res.buffer) {
         return { ok: false, outPath: outputPath, error: res.error };
