@@ -4,6 +4,10 @@
 //! a*, b* (hue) and any alpha channel are never touched, so sharpening can't
 //! shift colour, only local contrast.
 //!
+//! `sigma: None` is a different code path entirely — sharp's real
+//! no-argument `sharpen()` skips Lab and the transfer altogether and runs a
+//! fixed 3x3 kernel directly on the colour bands (see [`fast_sharpen`]).
+//!
 //! Split out of `raster_filter.rs` — which already holds `blur` and is
 //! reused here via `convolve_separable`/`gaussian_kernel` — purely to stay
 //! under this crate's 400-line soft file-size budget. There's no functional
@@ -22,7 +26,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
-use crate::raster_filter::{convolve_separable, gaussian_kernel, MAX_SIGMA, MIN_SIGMA};
+use crate::raster_filter::{convolve_separable, gaussian_kernel};
 
 /// D65 reference white (CIE 1931 2° observer) — the white point both
 /// conversions below are normalised against.
@@ -112,25 +116,91 @@ pub(crate) fn lab_to_srgb(lab: [f32; 3]) -> [u8; 3] {
     [r, g, bl].map(linear_to_srgb_channel)
 }
 
-/// sharp's `sharpen` options. Defaults are sharp's documented defaults.
+/// Clamp-to-edge index into `0..len` (mirrors `raster_filter::clamp_index`;
+/// duplicated locally rather than shared, since it's a one-line helper and
+/// [`fast_sharpen`]'s 2-D tap pattern isn't the separable horizontal/
+/// vertical shape that module's version is written for).
+#[inline]
+fn clamp_index(i: i64, len: usize) -> usize {
+    i.clamp(0, len as i64 - 1) as usize
+}
+
+/// sharp's real fast, no-argument `sharpen()`: a fixed 3x3 sharpening
+/// kernel applied directly to the colour bands with clamp-to-edge
+/// addressing — no Lab conversion, no `m1`/`m2`/`x1`/`y2`/`y3` transfer.
+/// Mirrors sharp's own `operations.cc` (~lines 237-244 in sharp 0.34.x):
+/// kernel `[-1,-1,-1; -1,32,-1; -1,-1,-1] / 24`. The divisor equals the
+/// kernel's weight sum, so a flat region is returned unchanged. Alpha is
+/// left alone, same as the Lab path.
+fn fast_sharpen(src: &RasterImage) -> RasterImage {
+    const KERNEL: [[f64; 3]; 3] = [[-1.0, -1.0, -1.0], [-1.0, 32.0, -1.0], [-1.0, -1.0, -1.0]];
+    const DIVISOR: f64 = 24.0;
+
+    let c = src.channels as usize;
+    let bands = c.min(3);
+    let (w, h) = (src.width as usize, src.height as usize);
+    let mut data = vec![0u8; src.data.len()];
+
+    for y in 0..h {
+        for x in 0..w {
+            let base = (y * w + x) * c;
+            for band in 0..bands {
+                let acc: f64 = KERNEL
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(ky, row)| row.iter().enumerate().map(move |(kx, w)| (ky, kx, w)))
+                    .map(|(ky, kx, weight)| {
+                        let sy = clamp_index(y as i64 + ky as i64 - 1, h);
+                        let sx = clamp_index(x as i64 + kx as i64 - 1, w);
+                        src.data[(sy * w + sx) * c + band] as f64 * weight
+                    })
+                    .sum();
+                data[base + band] = (acc / DIVISOR).round().clamp(0.0, 255.0) as u8;
+            }
+            for band in bands..c {
+                data[base + band] = src.data[base + band];
+            }
+        }
+    }
+
+    RasterImage {
+        data,
+        ..src.clone()
+    }
+}
+
+/// sharp's own sigma domain for the mask-based `sharpen()` (`lib/operation.js`),
+/// distinct from `blur`'s `[0.3, 1000]`.
+const SHARPEN_MIN_SIGMA: f64 = 0.000001;
+const SHARPEN_MAX_SIGMA: f64 = 10.0;
+
+/// sharp's `sharpen` options. Non-`sigma` defaults are sharp's documented
+/// defaults for its mask-based (Lab) path.
+///
+/// `x1`, `y2` and `y3` are all on the **0..100 `L*` scale** — the same scale
+/// `srgb_to_lab` produces — not a packed-byte scale. Confirmed against sharp
+/// 0.34.5's real output on a 60/200 step edge: default options move the
+/// pixel adjacent to the edge from 60 to 18 and from 200 to 228 (matching a
+/// `y3`/`y2`-saturated CIELAB delta of ~-19.85/+9.99), and `{sigma: 2, m2:
+/// 20, y2: 2, y3: 2}` moves the same pixels to 56/206 (ΔL* ≈ ±2) — both only
+/// reproduce on this scale, not a 0..255 one.
 #[derive(Clone, Copy, Debug)]
 pub struct SharpenOptions {
-    /// `None` is the fast mild 3x3 sharpen sharp performs with no
-    /// arguments; `Some(sigma)` is a Gaussian unsharp mask, sharing
-    /// `blur`'s `[0.3, 1000]` sigma domain.
+    /// `None` is sharp's fast, argument-less `sharpen()` — [`fast_sharpen`],
+    /// no Lab, no transfer. `Some(sigma)` is the mask-based Gaussian unsharp
+    /// mask, in `[SHARPEN_MIN_SIGMA, SHARPEN_MAX_SIGMA]` (sharp's own
+    /// domain for this operation, not `blur`'s).
     pub sigma: Option<f64>,
     /// Slope applied to differences below `x1` — "flat" areas.
     pub m1: f64,
     /// Slope applied to differences above `x1` — "jagged" areas.
     pub m2: f64,
-    /// Threshold between flat and jagged, on the 0..255 packed-L scale
-    /// `sharpen` works in internally (see `sharpen`'s doc comment) — the
-    /// same scale sharp/libvips calibrate their own defaults against, not
-    /// the 0..100 L* scale.
+    /// Threshold between flat and jagged. See the struct doc comment for
+    /// the scale.
     pub x1: f64,
-    /// Maximum brightening, on the same 0..255 packed-L scale as `x1`.
+    /// Maximum brightening. See the struct doc comment for the scale.
     pub y2: f64,
-    /// Maximum darkening, on the same 0..255 packed-L scale as `x1`.
+    /// Maximum darkening. See the struct doc comment for the scale.
     pub y3: f64,
 }
 
@@ -148,7 +218,9 @@ impl Default for SharpenOptions {
 }
 
 /// The piecewise transfer libvips applies to the unsharp difference: slope
-/// `m1` up to `x1`, then slope `m2`, clipped to `+y2`/`-y3`.
+/// `m1` up to `x1`, then slope `m2`, clipped to `+y2`/`-y3`. All four of
+/// `x1`/`m1`/`m2`/`y2`/`y3` and `difference` share the 0..100 `L*` scale —
+/// see [`SharpenOptions`]'s doc comment.
 fn unsharp_transfer(difference: f64, o: &SharpenOptions) -> f64 {
     let magnitude = difference.abs();
     let boosted = if magnitude < o.x1 {
@@ -161,20 +233,26 @@ fn unsharp_transfer(difference: f64, o: &SharpenOptions) -> f64 {
 }
 
 impl RasterImage {
-    /// Unsharp mask on the L* channel in CIELAB, matching `vips_sharpen`:
-    /// blur L*, take the difference, run it through the piecewise transfer,
-    /// add it back. a*, b* and alpha are untouched, so sharpening never
-    /// shifts hue.
-    ///
-    /// The difference and the transfer run on the 0..255 packed-L scale
-    /// (`SharpenOptions::x1`'s doc comment), matching where sharp/libvips'
-    /// default `m1`/`m2`/`x1`/`y2`/`y3` are calibrated — only the final
-    /// result is rescaled back to 0..100 L* before the return to sRGB.
+    /// `sigma: None`: sharp's fast, argument-less kernel ([`fast_sharpen`]).
+    /// `sigma: Some(s)`: unsharp mask on the L* channel in CIELAB, matching
+    /// `vips_sharpen` — blur L*, take the difference, run it through the
+    /// piecewise transfer, add it back. a*, b* and alpha are untouched, so
+    /// sharpening never shifts hue.
     ///
     /// An out-of-range or `NaN` `sigma` is a caller-parameter error, not a
     /// decode failure, so — matching `blur`'s ruling in this same plan — it
     /// is reported as [`Error::Pipeline`] rather than [`Error::Decode`].
     pub fn sharpen(&self, options: &SharpenOptions) -> Result<Self> {
+        let Some(sigma) = options.sigma else {
+            return Ok(fast_sharpen(self));
+        };
+        if !(SHARPEN_MIN_SIGMA..=SHARPEN_MAX_SIGMA).contains(&sigma) {
+            return Err(Error::Pipeline(format!(
+                "sharpen sigma {sigma} is outside [{SHARPEN_MIN_SIGMA}, {SHARPEN_MAX_SIGMA}]"
+            )));
+        }
+        let kernel = gaussian_kernel(sigma);
+
         let c = self.channels as usize;
         let labs: Vec<[f32; 3]> = self
             .data
@@ -184,36 +262,23 @@ impl RasterImage {
         // Carry L* through the shared separable helper by packing it into
         // an 8-bit single-band raster scaled to 0..255; ~0.4 L* units of
         // quantisation is well inside the tolerances the transfer works at.
-        //
-        // sharp/libvips' documented `m1`/`m2`/`x1`/`y2`/`y3` are calibrated
-        // against this same 0..255 packed-L scale (the historical LabQ
-        // encoding `vips_sharpen` processes), not the 0..100 L* scale — so
-        // `difference`, the transfer, and the add-back below all stay in
-        // 0..255 units, and only the final result is rescaled back to 0..100
-        // for the Lab->sRGB step.
-        let l_bytes: Vec<u8> = labs
-            .iter()
-            .map(|lab| (lab[0] * 2.55).round().clamp(0.0, 255.0) as u8)
-            .collect();
+        // This packing is purely a mechanical requirement of reusing
+        // `convolve_separable` (which is written against `u8` data) — the
+        // difference and the transfer below immediately unpack back to the
+        // 0..100 `L*` scale `SharpenOptions` documents.
         let l_plane = RasterImage {
             width: self.width,
             height: self.height,
             channels: 1,
-            data: l_bytes.clone(),
+            data: labs
+                .iter()
+                .map(|lab| (lab[0] * 2.55).round().clamp(0.0, 255.0) as u8)
+                .collect(),
             orientation: self.orientation,
         };
-        let kernel = match options.sigma {
-            None => vec![1.0 / 3.0; 3],
-            Some(s) if (MIN_SIGMA..=MAX_SIGMA).contains(&s) => gaussian_kernel(s),
-            Some(s) => {
-                return Err(Error::Pipeline(format!(
-                    "sharpen sigma {s} is outside [{MIN_SIGMA}, {MAX_SIGMA}]"
-                )))
-            }
-        };
-        // `convolve_separable` is written against `src.channels`, so a
-        // `channels: 1` raster works without a special case — `colour_only`
-        // is irrelevant on a single-band image, so `false` is passed for
+        // `colour_only` only decides whether band 3 (alpha) is skipped;
+        // `l_plane` has exactly one band, so there's no alpha to skip and
+        // `true`/`false` are equivalent here — passed as `false` simply for
         // consistency with `blur`'s "filter every band" default.
         let blurred = convolve_separable(&l_plane, &kernel, false);
         let data = labs
@@ -221,10 +286,9 @@ impl RasterImage {
             .enumerate()
             .zip(self.data.chunks_exact(c))
             .flat_map(|((i, lab), px)| {
-                let difference = l_bytes[i] as f64 - blurred.data[i] as f64;
-                let l_byte_new =
-                    (l_bytes[i] as f64 + unsharp_transfer(difference, options)).clamp(0.0, 255.0);
-                let l = (l_byte_new / 2.55) as f32;
+                let difference = (l_plane.data[i] as f64 - blurred.data[i] as f64) / 2.55;
+                let l = (lab[0] as f64 + unsharp_transfer(difference, options)).clamp(0.0, 100.0)
+                    as f32;
                 let rgb = lab_to_srgb([l, lab[1], lab[2]]);
                 rgb.into_iter().chain(px.get(3).copied())
             })
