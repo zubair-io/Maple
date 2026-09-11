@@ -1,5 +1,7 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
+// src/version.ts
+var MAPLE_VERSION = "0.1.0";
 // src/platform.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -866,12 +868,7 @@ function maple(input) {
 }
 // src/cli.ts
 import * as fs5 from "node:fs/promises";
-import { readFileSync as readFileSync3 } from "node:fs";
 import * as path5 from "node:path";
-function packageVersion() {
-  const pkg = JSON.parse(readFileSync3(new URL("../package.json", import.meta.url), "utf-8"));
-  return String(pkg.version);
-}
 function printHelp() {
   console.log(`
 maple - Professional RAW photo development and export engine by Just Maple
@@ -940,7 +937,7 @@ async function runCli(argv) {
     return 0;
   }
   if (args.includes("-v") || args.includes("--version") || args[0] === "version") {
-    console.log(`maple ${packageVersion()} (Maple raw-core engine)`);
+    console.log(`maple ${MAPLE_VERSION} (Maple raw-core engine)`);
     return 0;
   }
   const command = args[0];
@@ -1202,5 +1199,6 @@ export {
   findNativeLib,
   exportRecipe,
   exportImage,
-  MapleImageBuilder
+  MapleImageBuilder,
+  MAPLE_VERSION
 };
