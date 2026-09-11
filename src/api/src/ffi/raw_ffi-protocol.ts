@@ -63,12 +63,12 @@ export interface RenderDevelopRequest {
   quality: number;
 }
 
-/** Render a RAW's embedded preview to a JPEG file on disk — the 1280px VLM
- *  describe/OCR preview tier (`indexer/previewer.ts`). The JPEG counterpart
- *  to `renderThumb` (which is AVIF, for the 256px grid-thumbnail tier):
- *  every describe provider hardcodes `image/jpeg` as the media type it
- *  sends upstream, so this tier must keep emitting real JPEG bytes
- *  regardless of the grid-thumbnail format. */
+/** Render a RAW's embedded preview to a JPEG file on disk. No production
+ *  caller sends this request today — `indexer/previewer.ts`'s 1280px
+ *  describe/OCR tier renders AVIF via `renderThumb` instead, and
+ *  `describe.ts` re-encodes to JPEG in memory per provider call (every
+ *  describe provider hardcodes `image/jpeg` as the media type it sends
+ *  upstream). Kept wired pending a retire-or-keep decision (#3528). */
 export interface RenderPreviewJpegRequest {
   type: 'renderPreviewJpeg';
   id: number;

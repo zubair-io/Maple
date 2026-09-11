@@ -95,10 +95,10 @@ class FfiWorkerPool {
 
   /** True iff the native lib is present. False = caller should degrade (skip
    * RAW thumb/preview/histogram). Deliberately a file-existence check, NOT a
-   * `dlopen` probe: with decode isolated in child processes, the main HTTP
-   * process must never load libraw — so a crash in the decoder can only ever
-   * take down a child. The child does the real `dlopen` and degrades cleanly
-   * (returns ok=false) if the lib is present but unloadable. */
+   * `dlopen` probe: pixel decode/encode is isolated in child processes, so a
+   * crash there only ever takes down a child — though the parent still loads
+   * these bindings for cheap metadata-only reads (`apply-orientation.ts`).
+   * The child does the real `dlopen`, degrading cleanly (ok=false) if unloadable. */
   available(): boolean {
     if (this.availableOverride !== null) return this.availableOverride;
     return nativeLibAvailable();
@@ -213,11 +213,11 @@ class FfiWorkerPool {
     });
   }
 
-  /** Render a RAW's embedded preview to JPEG on disk — the 1280px VLM
-   * describe/OCR preview tier (#1978: kept JPEG through the grid-thumbnail
-   * AVIF migration since every describe provider hardcodes `image/jpeg` as
-   * the media type it sends upstream). Resolves `true` on success; REJECTS
-   * on a render failure or infra error. */
+  /** Render a RAW's embedded preview to JPEG on disk. No production caller
+   * invokes this today — `previewer.ts` renders the 1280px describe/OCR
+   * tier as AVIF and `describe.ts` re-encodes to JPEG in memory instead;
+   * kept pending a retire-or-keep decision (#3528). Resolves `true` on
+   * success; REJECTS on a render failure or infra error. */
   async renderThumbnailPreviewJpegToFile(
     rawPath: string,
     outPath: string,

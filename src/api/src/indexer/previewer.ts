@@ -31,10 +31,14 @@
  * AVIF-encoded. PSD/PSB/HDR route through the same `ag-psd`/`hdr` decode +
  * Maple resize chain as `thumbnailer.ts` (see `thumbs/psd-hdr-decode.ts`).
  *
- * If libraw_ffi is unavailable (Linux without the .so), RAW previews are
- * logged as deferred and skipped — the rest of the pipeline still
- * advances; the describe stage will see no preview on disk and short-
- * circuit cleanly via its ENOENT path.
+ * If libraw_ffi is unavailable (Linux without the .so), EVERY preview is
+ * logged as deferred and skipped — not just RAW. Both the RAW and the
+ * bitmap branch below dispatch through `ffiPool()`, and its `requestId()`
+ * throws before a request ever reaches a child when the dylib isn't
+ * present, so a bitmap preview (JPEG/PNG/etc.) degrades the same way a RAW
+ * one does. The rest of the pipeline still advances; the describe stage
+ * will see no preview on disk and short-circuit cleanly via its ENOENT
+ * path.
  */
 
 import * as path from 'node:path';

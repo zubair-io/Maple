@@ -265,7 +265,7 @@ async function renderVideoPosterThumb(
 
 export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
   '/thumb',
-  // Pre-existing CRITICAL complexity (RAW/sharp/PSD-HDR dispatch, ETag, and
+  // Pre-existing CRITICAL complexity (RAW/Maple/PSD-HDR dispatch, ETag, and
   // RAW-vs-bitmap FFI branches all live in this one route handler). Out of
   // scope to decompose here — this PR moves the cache-hit decision into
   // `tryServeCachedThumb` above (which shrinks this handler rather than
@@ -301,9 +301,9 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     const realHit = await tryServeCachedThumb(real, ifNoneMatch);
     if (realHit) return realHit;
 
-    // Dispatch — RAW formats go through the FFI pipeline; sharp-native
+    // Dispatch — RAW formats go through the FFI pipeline; Maple-native
     // bitmaps (JPG/HEIC/PNG/WEBP/TIFF/AVIF) and PSD/PSB/HDR (first decoded
-    // via ag-psd/hdr, then handed to sharp) both go through
+    // via ag-psd/hdr, then handed to Maple) both go through
     // `renderImageThumbToFileViaPool` below — collapsed into one flag so the
     // dispatch reads as a single two-way branch.
     // Video (#2132) is a third case: ffmpeg extracts a poster frame, which

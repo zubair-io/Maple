@@ -1,9 +1,12 @@
 /**
- * Bitmap-format thumbnail rendering — shared by `/api/fs/thumb` (live), the
- * indexer's thumb stage, and (via `imgdecode-pool.ts`'s `format: 'jpeg'`
- * option) the 1280px VLM describe/OCR preview tier. Decodes
- * JPEG/PNG/WEBP/TIFF/AVIF/HEIC/HEIF and writes a resized AVIF or JPEG to
- * `thumbPath` atomically (`.tmp` + rename) — see `ThumbOutputFormat`.
+ * Bitmap-format thumbnail rendering — shared by `/api/fs/thumb` (live) and
+ * the indexer's thumb stage. Decodes JPEG/PNG/WEBP/TIFF/AVIF/HEIC/HEIF and
+ * writes a resized AVIF or JPEG to `thumbPath` atomically (`.tmp` + rename)
+ * — see `ThumbOutputFormat`. `imgdecode-pool.ts` (retired by #3499) used to
+ * be a second consumer for the 1280px VLM describe/OCR preview tier; that
+ * tier (`indexer/previewer.ts`) now renders AVIF through this same module
+ * instead, so `format: 'jpeg'` below has no current production caller —
+ * see `ThumbOutputFormat`'s doc.
  *
  * RAW formats are NOT handled here — those go through the libraw FFI worker
  * pool. Maple's bindings decode HEIC/HEIF itself, but the SIMD-only bitmap
@@ -65,15 +68,19 @@ export const THUMB_LONG_EDGE_PX = 512;
 export const THUMB_AVIF_EFFORT = 4;
 
 /** Output codec for `renderImageThumbToFile` and its two format-specific
- * helpers. `'avif'` is the 256px grid-thumbnail tier (default); `'jpeg'` is
- * the 1280px VLM describe/OCR preview tier (`indexer/previewer.ts`), which
- * must keep emitting real JPEG since every describe provider hardcodes
- * `image/jpeg` as the media type it sends upstream. */
+ * helpers. `'avif'` is the 256px grid-thumbnail tier (default) and also
+ * what the 1280px VLM describe/OCR preview tier (`indexer/previewer.ts`)
+ * renders — `describe.ts` re-encodes that AVIF to JPEG in memory per
+ * provider call instead (every describe provider hardcodes `image/jpeg` as
+ * the media type it sends upstream). No production caller passes `'jpeg'`
+ * here today; kept pending a retire-or-keep decision (#3528). */
 export type ThumbOutputFormat = 'avif' | 'jpeg';
 
-/** Encode a Maple builder to `format`. NOTE: Maple's encoder drops alpha
- * with no compositing step, so a source with real transparency (a
- * transparent PNG, or the PSD/HDR branch below) renders as opaque BLACK
+/** Encode a Maple builder to `format`. Maple's JPEG encoder is not the
+ * retired sharp path's mozjpeg — it's Maple's own encoder, and it always
+ * embeds an sRGB ICC profile (sharp did not). NOTE: Maple's encoder also
+ * drops alpha with no compositing step, so a source with real transparency
+ * (a transparent PNG, or the PSD/HDR branch below) renders as opaque BLACK
  * wherever it was transparent — not a neutral/white matte. This is a ruled
  * interim (#3505); sharp used to composite onto white/whatever matte was
  * configured. */
@@ -213,8 +220,9 @@ async function renderPsdOrHdrThumbToFile(
 // front-end through their own separate decoders before ever reaching Maple.
 /**
  * Render `srcPath` to `thumbPath` with the long edge ≤ `sizePx`, in `format`
- * (default AVIF — the 256px grid-thumbnail tier; the 1280px VLM
- * describe/OCR preview tier passes `'jpeg'`). Atomic: writes to
+ * (default AVIF — both the 256px grid-thumbnail tier and the 1280px VLM
+ * describe/OCR preview tier; see `ThumbOutputFormat`'s doc for the `'jpeg'`
+ * option's status). Atomic: writes to
  * `<thumbPath>.<pid>.tmp` first, then renames so a crash mid-write never
  * leaves a half-written cache file. Caller is responsible for ensuring the
  * parent directory exists.

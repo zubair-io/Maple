@@ -6,10 +6,14 @@
  * version also checked `space`/ICC, which our encoder never writes, so those
  * checks are gone with it.
  *
- * `raw_ffi.child.ts` is this module's only runtime consumer — it's imported
- * at module scope there so no PRODUCTION code in the API parent process
- * loads the native bitmap bindings. (Tests import it freely to exercise the
- * predicate directly.)
+ * `raw_ffi.child.ts` is this module's only PIXEL-WORK consumer — it's
+ * imported at module scope there so no production code in the API parent
+ * process ever runs a decode or encode on the native bitmap bindings; a
+ * crash stays contained to the isolated child. The parent process does
+ * still load the bindings for lightweight metadata reads: `routes/fs-
+ * thumbs.ts` imports `thumbs/apply-orientation.ts`, which calls
+ * `maple(thumbPath).metadata()` directly in-process. (Tests import this
+ * module freely to exercise the predicate directly.)
  */
 
 import { maple } from 'maple';

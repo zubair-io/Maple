@@ -9,7 +9,7 @@
  * `renderToRgb` pathway hit this every time the indexer touched its first RAW).
  *
  * For non-RAW files (JPEG / PNG / WEBP / TIFF / AVIF / HEIC): decodes via
- * sharp (and heic-convert for HEIC/HEIF) and writes a properly resized
+ * Maple (and heic-convert for HEIC/HEIF) and writes a properly resized
  * 512px AVIF to the thumb path. Earlier versions copied the source file
  * straight through — that worked for JPGs (just oversized) but produced
  * un-renderable HEIC bytes with a `.jpg` extension.
@@ -17,7 +17,7 @@
  * For PSD / PSB (Photoshop) and Radiance HDR: first-pass decoded to a
  * flattened RGBA8 raster via `ag-psd` / `hdr` (see
  * `thumbs/psd-hdr-decode.ts`), then resized + AVIF-encoded through the same
- * sharp path as the bitmap formats above.
+ * Maple path as the bitmap formats above.
  *
  * If libraw_ffi is unavailable (Linux without the .so), RAW thumbs are
  * logged as deferred and skipped gracefully — the rest of the pipeline
@@ -170,7 +170,7 @@ async function renderByFormat(
     return renderBitmapThumbToFile(absPath, tmpPath, extNoDot);
   }
   // Unknown format — fall back to copy so something is at the path (matches
-  // the prior behaviour for, e.g., a future format we haven't taught sharp
+  // the prior behaviour for, e.g., a future format we haven't taught Maple
   // about yet). Routed through the same validate-then-publish gate as every
   // other branch: a copied source that isn't actually a valid AVIF (the common
   // case, since this is the last-resort branch) fails validation and is
@@ -352,7 +352,7 @@ async function renderBitmapThumbToFile(
 }
 
 /**
- * Last-resort copy for formats sharp doesn't know about. Keeps the prior
+ * Last-resort copy for formats Maple doesn't know about. Keeps the prior
  * fallback so a future format addition doesn't silently drop on the floor
  * before we explicitly handle it. `outPath` is the caller's private temp
  * path — see `renderRawThumbToFile`. The copied bytes still have to clear
