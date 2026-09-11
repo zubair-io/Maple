@@ -234,6 +234,15 @@ describe('Raster v2 surface', () => {
     );
   });
 
+  it('a second resize() replaces the pending one instead of stacking two resamples', async () => {
+    const src = await maple(solid(64, 64, [12, 34, 56]))
+      .toFormat('png')
+      .toBuffer();
+    const stacked = await maple(src).resize(32, 32).resize(16, 16).toFormat('png').toBuffer();
+    const direct = await maple(src).resize(16, 16).toFormat('png').toBuffer();
+    expect(Buffer.from(stacked).equals(Buffer.from(direct))).toBe(true);
+  });
+
   it('infers the toFile output format from the extension when none is set', async () => {
     const png = await maple(solid(8, 8, [50, 60, 70]))
       .toFormat('png')
