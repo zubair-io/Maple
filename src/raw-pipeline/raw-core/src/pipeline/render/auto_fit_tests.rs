@@ -201,8 +201,10 @@ fn fit_is_identical_under_different_caller_models() {
 #[test]
 fn render_fit_origin_keys_on_develop_size() {
     use crate::view::auto_profile::cache::FitOrigin;
-    // 24 MP body: the standalone fit develops it at native resolution.
-    assert_eq!(render_fit_origin(6000, None), FitOrigin::Standalone);
+    // #3510: the standalone fit always develops at the proxy, so no render
+    // develop ever coincides with it — a native-resolution render keys on
+    // `Render(None)` for every sensor size, a capped one on its cap.
+    assert_eq!(render_fit_origin(6000, None), FitOrigin::Render(None));
     assert_eq!(
         render_fit_origin(6000, Some(768)),
         FitOrigin::Render(Some(768))
@@ -211,24 +213,31 @@ fn render_fit_origin_keys_on_develop_size() {
         render_fit_origin(6000, Some(1280)),
         FitOrigin::Render(Some(1280))
     );
-    assert_eq!(
-        render_fit_origin(AUTO_FIT_SIZED_SENSOR_LE, None),
-        FitOrigin::Standalone
-    );
-    // A cap at or above the sensor's long edge never downsamples, so it is
-    // the native develop — one entry, not one per requested cap.
-    assert_eq!(render_fit_origin(6000, Some(6000)), FitOrigin::Standalone);
-    assert_eq!(render_fit_origin(6000, Some(9000)), FitOrigin::Standalone);
+    // A cap at or above the sensor IS the native develop.
+    assert_eq!(render_fit_origin(6000, Some(6000)), FitOrigin::Render(None));
+    assert_eq!(render_fit_origin(6000, Some(9000)), FitOrigin::Render(None));
     assert_eq!(
         render_fit_origin(11648, Some(12000)),
         FitOrigin::Render(None)
     );
-
-    // 100 MP body: the standalone fit proxies it at 1536 px, so even a
-    // native-resolution render is its own entry.
     assert_eq!(render_fit_origin(11648, None), FitOrigin::Render(None));
     assert_eq!(
         render_fit_origin(11648, Some(1536)),
         FitOrigin::Render(Some(1536))
     );
+}
+
+#[test]
+fn standalone_fit_proxies_every_sensor_to_the_proxy_edge_3510() {
+    use crate::view::auto_profile::preview::{ExtractedPreview, JpegColorSpace};
+    let preview = |w: u32, h: u32| ExtractedPreview {
+        image: image::DynamicImage::new_rgb8(w, h),
+        color_space: JpegColorSpace::SRgb,
+    };
+    // A 6000-px body's 6000-px embedded JPEG → 1536 proxy (pre-#3510 this
+    // sensor developed at native resolution and fit 24 M pairs).
+    assert_eq!(auto_fit_max_long_edge(&preview(6000, 4000)), AUTO_FIT_PROXY_LE);
+    // A body whose embedded JPEG is smaller than the proxy fits at its size.
+    assert_eq!(auto_fit_max_long_edge(&preview(960, 640)), 960);
+    assert_eq!(auto_fit_max_long_edge(&preview(1536, 1024)), 1536);
 }

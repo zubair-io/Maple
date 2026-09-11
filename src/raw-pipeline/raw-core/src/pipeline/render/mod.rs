@@ -28,7 +28,8 @@ use crate::{
 /// FFI keep resolving `fit_profile_curve_from_raw` / `fit_auto_profile_from_raw`.
 mod auto_fit;
 pub use auto_fit::{
-    cached_auto_profile_fit, fit_auto_profile_from_raw, fit_profile_curve_from_raw,
+    cached_auto_profile_fit, fit_auto_profile_from_raw, fit_auto_profile_from_raw_at_cap,
+    fit_profile_curve_from_raw, FitCap,
 };
 
 // Sized display render + `native_render_dims` (#1101) — size-budget split.

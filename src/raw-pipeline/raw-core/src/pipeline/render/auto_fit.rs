@@ -120,30 +120,25 @@ fn develop_display_for_auto_fit(
     Ok(scene)
 }
 
-/// Sensor long edge (px) above which the standalone Auto-Profile fit develops
-/// only to the preview resolution instead of the full sensor (#1637). At and
-/// below this the fit stays full-res so its fitted curve is byte-unchanged —
-/// the memory win is only *needed*, and its small parity cost only *worth it*,
-/// on the very large RAWs (~50 MP+) that jetsam-kill iOS by holding a ~1.4 GB
-/// fit buffer concurrent with the render. ~8000 px ≈ 50 MP; it sits above every
-/// color-pipeline fixture except the 100 MP `test_0000` (12288 px).
-const AUTO_FIT_SIZED_SENSOR_LE: u32 = 8000;
-
-/// `max_long_edge` for the standalone fit develop: the preview resolution on a
-/// Proxy long edge the standalone fit develops at on a large sensor (#1647 M2).
-/// The fit needs only the joint tone distribution of (developed RAW, embedded
-/// JPEG) — a ~1.5 MP proxy is parity-equivalent (gated on `baseline_auto` ΔE)
-/// and avoids holding a large developed buffer through the fit; the JPEG is
-/// downsampled to match (`downsample_preview_for_fit`) so source bins ≥ target.
+/// Proxy long edge the standalone fit develops at — for EVERY sensor (#3510;
+/// originally #1647 M2 for the >50 MP class only). The fit needs only the
+/// joint tone distribution of (developed RAW, embedded JPEG), and the ACR
+/// solver walks the pair set several times single-threaded: against a full
+/// 24–30 MP embedded JPEG that is 10–22 s per cold open on M4 (5D IV 22.4 s,
+/// Leica M10 10.9 s), against this ~1.5 MP proxy ~1 s — the cost that made
+/// every Apple cold open's fit-to-window frame take "several seconds". The
+/// proxy was already parity-gated on `baseline_auto` ΔE for the large-sensor
+/// class; #3510 re-measured it across every fixture before widening it.
+/// The JPEG is downsampled to match (`downsample_preview_for_fit`) so source
+/// bins ≥ target.
 const AUTO_FIT_PROXY_LE: u32 = 1536;
 
-fn auto_fit_max_long_edge(raw: &RawImage, preview: &ExtractedPreview) -> Option<u32> {
-    if raw.width.max(raw.height) > AUTO_FIT_SIZED_SENSOR_LE {
-        let preview_le = preview.image.width().max(preview.image.height());
-        Some(preview_le.min(AUTO_FIT_PROXY_LE))
-    } else {
-        None
-    }
+/// `max_long_edge` for the standalone fit develop: the proxy edge, or the
+/// embedded preview's own long edge when that is smaller (a body whose
+/// embedded JPEG is only 960 px, say, fits at 960).
+fn auto_fit_max_long_edge(preview: &ExtractedPreview) -> u32 {
+    let preview_le = preview.image.width().max(preview.image.height());
+    preview_le.min(AUTO_FIT_PROXY_LE)
 }
 
 /// Downsample the embedded JPEG to `max_long_edge` (the fit's develop target) so
@@ -152,20 +147,14 @@ fn auto_fit_max_long_edge(raw: &RawImage, preview: &ExtractedPreview) -> Option<
 /// The [`FitOrigin`] a render at `max_long_edge` fits under (#3233 /
 /// #3235). [`run_auto_profile_stage`] fits from the scene it is rendering
 /// (or from a side develop at the same size), so its artifacts depend on
-/// that size; a sensor the standalone proxy fit also develops at native
-/// resolution (≤ [`AUTO_FIT_SIZED_SENSOR_LE`]) yields the same pixels for a
-/// native-resolution render, and that one case keeps sharing the
-/// [`FitOrigin::Standalone`] entry with the GPU-live / LUT-bake entries.
+/// that size. Since #3510 the standalone fit ALWAYS develops at the
+/// [`AUTO_FIT_PROXY_LE`] proxy, so no render develop coincides with it and
+/// every render keys on its own cap — `None` for a native-resolution render.
 pub(super) fn render_fit_origin(sensor_long_edge: u32, max_long_edge: Option<u32>) -> FitOrigin {
-    let native_is_canonical = sensor_long_edge <= AUTO_FIT_SIZED_SENSOR_LE;
     // The sized develop never upscales, so a cap at or above the sensor's
     // long edge IS the native develop — key it that way rather than as one
     // entry per requested cap (#3233 / #3235).
-    let effective_cap = max_long_edge.filter(|&cap| cap < sensor_long_edge);
-    match effective_cap {
-        None if native_is_canonical => FitOrigin::Standalone,
-        other => FitOrigin::Render(other),
-    }
+    FitOrigin::Render(max_long_edge.filter(|&cap| cap < sensor_long_edge))
 }
 
 fn downsample_preview_for_fit(
@@ -250,13 +239,10 @@ pub fn fit_profile_curve_from_raw(
     }
     // Extract BEFORE the multi-second develop — no preview ⇒ no fit possible.
     let preview = extract_preview_for_fit(&raw_source)?;
-    // #1637: on a very large sensor, develop the fit only to the preview's
-    // resolution (the JPEG it aligns against) — not the full sensor, a ~1.4 GB
-    // buffer that, concurrent with the render, jetsam-killed iOS. Smaller
-    // sensors keep the full-res fit (see `auto_fit_max_long_edge`).
-    let mle = auto_fit_max_long_edge(raw, &preview);
-    // #1647 M2: shrink the JPEG to the fit's proxy resolution so the pair the
-    // curve fits over is ~1.5 MP, not the full embedded preview.
+    // Develop the fit at the proxy edge (#3510; #1637/#1647 for the memory
+    // side) and shrink the JPEG to match so the pair the curve fits over is
+    // ~1.5 MP, not the full embedded preview.
+    let mle = Some(auto_fit_max_long_edge(&preview));
     let preview = downsample_preview_for_fit(preview, mle);
     let scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
     let (w, h) = (scene.width as usize, scene.height as usize);
@@ -312,19 +298,46 @@ pub fn fit_auto_profile_from_raw(
     quality: RenderQuality,
     raw_source: RawInput<'_>,
 ) -> Option<(Option<ProfileCurve>, Option<ColorLut>)> {
+    fit_auto_profile_from_raw_at_cap(raw, model, quality, raw_source, FitCap::Proxy)
+}
+
+/// How large a develop the standalone fit samples (#3510).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum FitCap {
+    /// The production choice: [`AUTO_FIT_PROXY_LE`] (or the embedded
+    /// preview's own edge when smaller).
+    Proxy,
+    /// The pre-#3510 behaviour — native-resolution develop against the full
+    /// embedded JPEG. Kept ONLY so the ΔE evidence harness
+    /// (`raw-core/examples/auto-fit-proxy-delta.rs`) can measure the proxy
+    /// against it; never cached (see below) and never used by a host.
+    Native,
+}
+
+/// [`fit_auto_profile_from_raw`] with an explicit develop cap. `Native`
+/// bypasses the artifact cache entirely — its artifacts are not what a cold
+/// fit at the RAW-identity key recomputes, so they must never be served to
+/// (or read from) the production entries.
+#[doc(hidden)]
+pub fn fit_auto_profile_from_raw_at_cap(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: RawInput<'_>,
+    cap: FitCap,
+) -> Option<(Option<ProfileCurve>, Option<ColorLut>)> {
     if model.profile != Profile::Auto {
         return None;
     }
-    let auto_cache_key = match &raw_source {
-        RawInput::Path(p) => CacheKey::from_path(p, quality),
-        RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes, quality)),
+    let auto_cache_key = match (cap, &raw_source) {
+        (FitCap::Native, _) => None,
+        (FitCap::Proxy, RawInput::Path(p)) => CacheKey::from_path(p, quality),
+        (FitCap::Proxy, RawInput::Bytes { bytes, .. }) => {
+            Some(CacheKey::from_bytes(bytes, quality))
+        }
     };
 
-    // Fast path: everything obtainable is already cached (e.g. a CPU render of
-    // the same RAW ran first) — return without the multi-second develop. The
-    // hit condition lives in [`cached_auto_profile_fit`] so the FFI entries
-    // can probe it BEFORE reading/decoding the RAW (#2035) without a second
-    // copy of the semantics.
     if let Some(pair) = cached_auto_profile_fit(model, auto_cache_key.as_ref()) {
         return Some(pair);
     }
@@ -347,11 +360,12 @@ pub fn fit_auto_profile_from_raw(
         // No embedded preview: nothing beyond the cache can be fit.
         None => (cached_curve, cached_lut),
         Some(preview) => {
-            // #1637: size the fit develop to the preview on large sensors
-            // only (see the curve-only fit above + `auto_fit_max_long_edge`).
-            let mle = auto_fit_max_long_edge(raw, &preview);
-            // #1647 M2: shrink the JPEG to the proxy so the curve+residual
-            // fit over a ~1.5 MP pair, not the full embedded preview.
+            // Proxy develop + matching JPEG shrink (#3510) — or, for the
+            // evidence harness only, the pre-#3510 native develop.
+            let mle = match cap {
+                FitCap::Proxy => Some(auto_fit_max_long_edge(&preview)),
+                FitCap::Native => None,
+            };
             let preview = downsample_preview_for_fit(preview, mle);
             let mut scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
             let (w, h) = (scene.width as usize, scene.height as usize);
