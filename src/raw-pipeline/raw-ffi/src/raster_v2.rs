@@ -3,7 +3,7 @@
 //! caller-supplied pixels, and a native-size RGB8 decode. The first-generation
 //! functions in `raster.rs` keep their signatures for existing callers.
 
-use crate::error::set_last_error;
+use crate::error::{catch_panic_rc, set_last_error};
 use raw_core::export::{encode_raster_with, ExportFormat};
 use raw_core::raster::{
     decode_raster, resize_raster, FilterAlg, RasterImage, ResizeFit, ResizeOptions,
@@ -42,12 +42,15 @@ fn filter_from(filter: u32) -> FilterAlg {
     }
 }
 
-/// sharp-style effort 0 (fastest) … 9 (slowest) → rav1e speed 10 … 1; 0 = default 6.
-fn avif_speed_from(effort: u8) -> u8 {
-    if effort == 0 {
+/// AVIF effort, one-based on the wire so "unset" is distinguishable from
+/// sharp's `effort: 0`: `0` = unset (rav1e speed 6, the encoder default),
+/// `1..=10` = sharp effort 0 (fastest) … 9 (slowest), mapped to rav1e speed
+/// `11 - wire` (10 = fastest … 1 = slowest). Values above 10 clamp to 10.
+fn avif_speed_from(wire_effort: u8) -> u8 {
+    if wire_effort == 0 {
         6
     } else {
-        (10 - effort.min(9)).max(1)
+        11 - wire_effort.min(10)
     }
 }
 
@@ -58,6 +61,7 @@ struct RenderParams {
     filter: u32,
     format: ExportFormat,
     quality: u8,
+    /// One-based wire value — see [`avif_speed_from`].
     effort: u8,
 }
 
@@ -124,8 +128,10 @@ unsafe fn parse_format(format_ptr: *const c_char) -> Result<ExportFormat, i32> {
 
 /// See module docs. `flags`: bit0 fill, bit1 auto-orient, bit2 allow enlargement, bit3 cover
 /// (bit3 wins over bit0). `filter`: 0 lanczos3, 1 bilinear, 2 nearest. `format`: C string or
-/// null (= jpeg). `effort`: 0 default, else 0-9 sharp-style, mapped to rav1e speed `10 - effort`.
-/// Returns 100 with `*out_len` set when `out_buf` is too small.
+/// null (= jpeg). `effort`: one-based AVIF effort — 0 = unset (rav1e speed 6), 1-10 = sharp
+/// effort 0-9 mapped to rav1e speed `11 - effort` (1 = fastest, 10 = slowest); above 10 clamps.
+/// Returns 100 with `*out_len` set when `out_buf` is too small, and 99 if the body panicked
+/// (message in `maple_last_error()`) — a panic must never unwind through this `extern "C"` frame.
 #[no_mangle]
 pub unsafe extern "C" fn maple_raster_render_buf(
     input: *const u8,
@@ -141,40 +147,44 @@ pub unsafe extern "C" fn maple_raster_render_buf(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    if input.is_null() || input_len == 0 || out_len.is_null() {
-        set_last_error("input buffer or out_len is null".into());
-        return 1;
-    }
-    let format = match parse_format(format_ptr) {
-        Ok(f) => f,
-        Err(rc) => return rc,
-    };
-    let raster = match decode_raster(std::slice::from_raw_parts(input, input_len), None) {
-        Ok(r) => r,
-        Err(e) => {
-            set_last_error(format!("failed to decode raster: {e}"));
-            return 3;
+    catch_panic_rc("maple_raster_render_buf", || {
+        if input.is_null() || input_len == 0 || out_len.is_null() {
+            set_last_error("input buffer or out_len is null".into());
+            return 1;
         }
-    };
-    render_into(
-        raster,
-        &RenderParams {
-            width,
-            height,
-            flags,
-            filter,
-            format,
-            quality,
-            effort,
-        },
-        out_buf,
-        out_cap,
-        out_len,
-    )
+        let format = match parse_format(format_ptr) {
+            Ok(f) => f,
+            Err(rc) => return rc,
+        };
+        let raster = match decode_raster(std::slice::from_raw_parts(input, input_len), None) {
+            Ok(r) => r,
+            Err(e) => {
+                set_last_error(format!("failed to decode raster: {e}"));
+                return 3;
+            }
+        };
+        render_into(
+            raster,
+            &RenderParams {
+                width,
+                height,
+                flags,
+                filter,
+                format,
+                quality,
+                effort,
+            },
+            out_buf,
+            out_cap,
+            out_len,
+        )
+    })
 }
 
 /// Same as `maple_raster_render_buf` from caller-decoded interleaved 8-bit pixels
-/// (`channels` 1, 3 or 4). The auto-orient flag is ignored (no metadata).
+/// (`channels` 1, 3 or 4; an alpha channel is accepted but dropped by the encoder — #3505).
+/// The auto-orient flag is ignored (no metadata). `effort` uses the same one-based wire
+/// encoding as `maple_raster_render_buf`, and a panic likewise becomes rc 99.
 #[no_mangle]
 pub unsafe extern "C" fn maple_raster_from_raw_render_buf(
     pixels: *const u8,
@@ -193,42 +203,47 @@ pub unsafe extern "C" fn maple_raster_from_raw_render_buf(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    if pixels.is_null() || pixels_len == 0 || out_len.is_null() {
-        set_last_error("pixel buffer or out_len is null".into());
-        return 1;
-    }
-    let format = match parse_format(format_ptr) {
-        Ok(f) => f,
-        Err(rc) => return rc,
-    };
-    let data = std::slice::from_raw_parts(pixels, pixels_len).to_vec();
-    let raster = match RasterImage::from_raw(src_width, src_height, channels.min(255) as u8, data) {
-        Ok(r) => r,
-        Err(e) => {
-            set_last_error(format!("invalid raw pixel input: {e}"));
-            return 3;
+    catch_panic_rc("maple_raster_from_raw_render_buf", || {
+        if pixels.is_null() || pixels_len == 0 || out_len.is_null() {
+            set_last_error("pixel buffer or out_len is null".into());
+            return 1;
         }
-    };
-    let flags = flags & !FLAG_AUTO_ORIENT;
-    render_into(
-        raster,
-        &RenderParams {
-            width,
-            height,
-            flags,
-            filter,
-            format,
-            quality,
-            effort,
-        },
-        out_buf,
-        out_cap,
-        out_len,
-    )
+        let format = match parse_format(format_ptr) {
+            Ok(f) => f,
+            Err(rc) => return rc,
+        };
+        let data = std::slice::from_raw_parts(pixels, pixels_len).to_vec();
+        let raster =
+            match RasterImage::from_raw(src_width, src_height, channels.min(255) as u8, data) {
+                Ok(r) => r,
+                Err(e) => {
+                    set_last_error(format!("invalid raw pixel input: {e}"));
+                    return 3;
+                }
+            };
+        let flags = flags & !FLAG_AUTO_ORIENT;
+        render_into(
+            raster,
+            &RenderParams {
+                width,
+                height,
+                flags,
+                filter,
+                format,
+                quality,
+                effort,
+            },
+            out_buf,
+            out_cap,
+            out_len,
+        )
+    })
 }
 
 /// Decode to native-size interleaved RGB8 (alpha dropped, grey expanded).
-/// Returns 100 with `*out_len`/`*out_width`/`*out_height` set when `out_buf` is too small.
+/// Returns 100 with `*out_len`/`*out_width`/`*out_height` set when `out_buf` is too small —
+/// so one probe call with a null `out_buf` sizes the buffer — and 99 if the body panicked
+/// (message in `maple_last_error()`).
 #[no_mangle]
 pub unsafe extern "C" fn maple_raster_decode_rgb8_buf(
     input: *const u8,
@@ -240,32 +255,64 @@ pub unsafe extern "C" fn maple_raster_decode_rgb8_buf(
     out_width: *mut u32,
     out_height: *mut u32,
 ) -> i32 {
-    if input.is_null()
-        || input_len == 0
-        || out_len.is_null()
-        || out_width.is_null()
-        || out_height.is_null()
-    {
-        set_last_error("input buffer or an out pointer is null".into());
-        return 1;
-    }
-    let mut raster = match decode_raster(std::slice::from_raw_parts(input, input_len), None) {
-        Ok(r) => r,
-        Err(e) => {
-            set_last_error(format!("failed to decode raster: {e}"));
-            return 3;
+    catch_panic_rc("maple_raster_decode_rgb8_buf", || {
+        if input.is_null()
+            || input_len == 0
+            || out_len.is_null()
+            || out_width.is_null()
+            || out_height.is_null()
+        {
+            set_last_error("input buffer or an out pointer is null".into());
+            return 1;
         }
-    };
-    if auto_orient != 0 {
-        raster.auto_orient();
+        let mut raster = match decode_raster(std::slice::from_raw_parts(input, input_len), None) {
+            Ok(r) => r,
+            Err(e) => {
+                set_last_error(format!("failed to decode raster: {e}"));
+                return 3;
+            }
+        };
+        if auto_orient != 0 {
+            raster.auto_orient();
+        }
+        let rgb = raster.into_rgb8();
+        *out_width = rgb.width;
+        *out_height = rgb.height;
+        *out_len = rgb.data.len();
+        if out_buf.is_null() || out_cap < rgb.data.len() {
+            return NEED_LARGER_BUFFER;
+        }
+        std::ptr::copy_nonoverlapping(rgb.data.as_ptr(), out_buf, rgb.data.len());
+        0
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The wire encoding reserves 0 for "unset" so sharp's `effort: 0`
+    /// (fastest) is reachable — it arrives as wire 1.
+    #[test]
+    fn avif_speed_maps_the_one_based_wire_effort() {
+        assert_eq!(avif_speed_from(0), 6);
+        assert_eq!(avif_speed_from(1), 10);
+        assert_eq!(avif_speed_from(10), 1);
+        assert_eq!(avif_speed_from(255), 1);
     }
-    let rgb = raster.into_rgb8();
-    *out_width = rgb.width;
-    *out_height = rgb.height;
-    *out_len = rgb.data.len();
-    if out_buf.is_null() || out_cap < rgb.data.len() {
-        return NEED_LARGER_BUFFER;
+
+    /// A panic inside an FFI body must come out as rc 99 with the message in
+    /// `maple_last_error()`, never as an unwind through the `extern "C"`
+    /// frame (undefined behaviour; an abort in practice).
+    #[test]
+    fn panics_become_rc_99() {
+        let rc = catch_panic_rc("raster_v2_test", || panic!("decoder invariant violated"));
+        assert_eq!(rc, 99);
+        // SAFETY: reading the thread-local message set on the panic path.
+        let msg = unsafe { crate::error::maple_last_error() };
+        assert!(!msg.is_null());
+        // SAFETY: `maple_last_error` returns a live NUL-terminated string.
+        let msg = unsafe { CStr::from_ptr(msg) }.to_string_lossy().to_string();
+        assert!(msg.contains("decoder invariant violated"), "got: {msg}");
     }
-    std::ptr::copy_nonoverlapping(rgb.data.as_ptr(), out_buf, rgb.data.len());
-    0
 }
