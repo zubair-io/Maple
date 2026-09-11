@@ -15,6 +15,9 @@ use crate::image::ExifOrientation;
 mod raster_exif;
 use raster_exif::*;
 
+#[path = "raster_jpeg.rs"]
+mod raster_jpeg;
+
 /// Representation of a decoded non-RAW raster image in memory.
 #[derive(Clone, Debug)]
 pub struct RasterImage {
@@ -173,6 +176,14 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
     );
     if hinted_avif || is_avif(bytes) {
         return avif_decode_gate::decode(bytes);
+    }
+
+    let hinted_jpeg = matches!(
+        ext_hint.map(|e| e.to_ascii_lowercase()).as_deref(),
+        Some("jpg" | "jpeg")
+    );
+    if hinted_jpeg || bytes.starts_with(&[0xFF, 0xD8]) {
+        return raster_jpeg::decode_jpeg_lenient(bytes);
     }
 
     let mut reader = ImageReader::new(Cursor::new(bytes));
