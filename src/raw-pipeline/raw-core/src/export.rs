@@ -297,7 +297,10 @@ pub fn encode_raster(
     encode_raster_with(raster, format, quality, 6)
 }
 
-pub fn encode_raster_with(
+/// RGB-only raster encode. Callers with a possibly-4-channel raster go through
+/// [`crate::raster_encode::encode_raster_opts`], which decides per container
+/// whether to keep the alpha channel or flatten first (#3505).
+pub fn encode_raster_rgb(
     raster: &crate::raster::RasterImage,
     format: ExportFormat,
     quality: u8,
@@ -317,6 +320,55 @@ pub fn encode_raster_with(
         }
         ExportFormat::Webp => encode_webp(raster.width, raster.height, &rgb),
     }
+}
+
+/// Back-compatible name kept for the Tier 1 FFI entries in
+/// `raw-ffi/src/raster_v2.rs`, whose behaviour must not change: they render
+/// opaque output and always did.
+pub fn encode_raster_with(
+    raster: &crate::raster::RasterImage,
+    format: ExportFormat,
+    quality: u8,
+    avif_speed: u8,
+) -> Result<Vec<u8>> {
+    encode_raster_rgb(raster, format, quality, avif_speed)
+}
+
+/// RGBA AVIF. `image`'s `AvifEncoder` accepts `ExtendedColorType::Rgba8` and
+/// routes it to `ravif::Encoder::encode_rgba`, which writes a real alpha item.
+#[cfg(feature = "avif")]
+pub fn encode_avif_rgba_with_speed(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    quality: u8,
+    speed: u8,
+) -> Result<Vec<u8>> {
+    let expected = (width as usize) * (height as usize) * 4;
+    if rgba.len() != expected {
+        return Err(Error::Png(format!(
+            "expected {expected} bytes, got {}",
+            rgba.len()
+        )));
+    }
+    let mut out: Vec<u8> = Vec::new();
+    image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut out, speed.clamp(1, 10), quality)
+        .write_image(rgba, width, height, ExtendedColorType::Rgba8)
+        .map_err(|e| Error::Png(e.to_string()))?;
+    Ok(out)
+}
+
+#[cfg(not(feature = "avif"))]
+pub fn encode_avif_rgba_with_speed(
+    _width: u32,
+    _height: u32,
+    _rgba: &[u8],
+    _quality: u8,
+    _speed: u8,
+) -> Result<Vec<u8>> {
+    Err(Error::UnsupportedFormat(
+        "AVIF export requires the 'avif' feature".into(),
+    ))
 }
 
 #[cfg(test)]
