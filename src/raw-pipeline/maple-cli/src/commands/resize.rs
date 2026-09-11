@@ -32,6 +32,7 @@ pub fn run(
         fit,
         filter: FilterAlg::Lanczos3,
         without_enlargement: true,
+        ..Default::default()
     };
 
     let resized = resize_raster(&raster, &opts)?;
