@@ -107,10 +107,13 @@ describe('Raster v2 surface', () => {
     expect([asShot.width, asShot.height]).toEqual([24, 12]);
   });
 
-  it('calls the RGB8 decoder once when the metadata probe can size the output', async () => {
-    const { createRasterV2Binding } = await import('../src/native-raster-v2.ts');
-    // Stub the C ABI so the number of decode calls is observable. `ptr` is
-    // the identity function here, so the stub receives the real Buffers.
+  /**
+   * A stubbed RGB8 decode entry that records the capacity of every call it
+   * receives, so the number of decodes and the size of each allocation are
+   * observable. It always reports a 2x3 image (18 bytes of RGB8). `ptr` is
+   * wired to the identity function below, so the stub gets the real Buffers.
+   */
+  const decodeRecorder = () => {
     const capacities: number[] = [];
     const lib = {
       symbols: {
@@ -135,15 +138,24 @@ describe('Raster v2 surface', () => {
         },
       },
     };
-    const identity = (buf: Uint8Array) => buf;
+    return { capacities, lib };
+  };
+
+  const identity = (buf: Uint8Array) => buf;
+
+  const stubProbe = (metadata: Record<string, unknown> | null) => () =>
+    metadata
+      ? { ok: true, metadata: metadata as never }
+      : { ok: false, error: 'unsupported header' };
+
+  it('calls the RGB8 decoder once when the metadata probe can size the output', async () => {
+    const { createRasterV2Binding } = await import('../src/native-raster-v2.ts');
+    const { capacities, lib } = decodeRecorder();
     const sized = createRasterV2Binding(
       lib as never,
       identity,
       () => null,
-      () => ({
-        ok: true,
-        metadata: { width: 2, height: 3, channels: 3, orientation: 1, format: 'png' },
-      }),
+      stubProbe({ width: 2, height: 3, channels: 3, orientation: 1, format: 'png' }),
     );
     const res = sized.rasterDecodeRgb8Buf(new Uint8Array([1, 2, 3]), false);
     expect([res.ok, res.width, res.height, res.buffer?.length]).toEqual([true, 2, 3, 18]);
@@ -152,18 +164,36 @@ describe('Raster v2 surface', () => {
     // A probe that cannot size the input falls back to the two-call
     // protocol: one null-buffer sizing call, then the real decode.
     capacities.length = 0;
-    const unsized = createRasterV2Binding(
-      lib as never,
-      identity,
-      () => null,
-      () => ({
-        ok: false,
-        error: 'unsupported header',
-      }),
-    );
+    const unsized = createRasterV2Binding(lib as never, identity, () => null, stubProbe(null));
     const fallback = unsized.rasterDecodeRgb8Buf(new Uint8Array([1, 2, 3]), false);
     expect(fallback.ok).toBe(true);
     expect(capacities).toEqual([0, 18]);
+  });
+
+  it('never allocates from an absurd or RAW header, falling back to the size probe', async () => {
+    const { createRasterV2Binding } = await import('../src/native-raster-v2.ts');
+    // Header dimensions arrive before any decoder has validated the file, so
+    // they are never trusted to size an allocation past the ceiling: 1e10
+    // pixels must not reach `Buffer.alloc`. A RAW header probes fine through
+    // the TIFF dimension parser but has no path through this decoder, so it
+    // must not pre-allocate ~300 MB on the way to an error either.
+    for (const metadata of [
+      { width: 100000, height: 100000, channels: 3, orientation: 1, format: 'tiff' },
+      { width: 11648, height: 8736, channels: 3, orientation: 1, format: 'dng' },
+    ]) {
+      const { capacities, lib } = decodeRecorder();
+      const binding = createRasterV2Binding(
+        lib as never,
+        identity,
+        () => null,
+        stubProbe(metadata),
+      );
+      const res = binding.rasterDecodeRgb8Buf(new Uint8Array([1, 2, 3]), false);
+      expect(res.ok).toBe(true);
+      // First call is the null-buffer size probe (capacity 0), not a
+      // header-sized allocation.
+      expect(capacities).toEqual([0, 18]);
+    }
   });
 
   it('encodes AVIF at both ends of the effort range', async () => {

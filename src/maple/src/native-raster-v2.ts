@@ -10,6 +10,17 @@
 const NEED_LARGER_BUFFER = 100;
 
 /**
+ * Ceiling on the pixel count `rasterDecodeRgb8Buf` will allocate for straight
+ * from a header, matching raw-core's `AVIF_MAX_FRAME_PIXELS`. The dimensions
+ * come from the file's own header, before any decoder has validated it, so
+ * without a ceiling a hostile TIFF/PNG declaring 100000x100000 would turn a
+ * documented `{ ok: false, error }` into a `RangeError` thrown out of
+ * `Buffer.alloc`. Past the ceiling the code takes the null-buffer size probe
+ * instead, which allocates nothing until the decoder agrees on a size.
+ */
+const MAX_PROBE_SIZED_PIXELS = 268_000_000;
+
+/**
  * The part of `native.ts`'s header probe that `rasterDecodeRgb8Buf` needs to
  * size its output buffer without decoding the image first.
  */
@@ -27,13 +38,23 @@ export interface RasterMetadataProbe {
 
 /**
  * Bytes of interleaved RGB8 the decode will produce, from the header probe
- * alone, or 0 when the probe can't say. EXIF orientations 5-8 swap the
- * reported dimensions under `rotate()` but not the byte count; the swap is
- * spelled out anyway so the sizing reads the same way the decoder does.
+ * alone, or 0 when the probe can't be trusted to size the allocation — an
+ * unreadable header, dimensions past `MAX_PROBE_SIZED_PIXELS`, or a RAW file,
+ * which probes fine through the TIFF dimension parser but has no path through
+ * this decoder at all (so sizing a 100 MP buffer for it would allocate ~300 MB
+ * only to fail). A 0 sends the caller to the null-buffer size probe, which
+ * allocates nothing on the way to the same answer.
+ *
+ * EXIF orientations 5-8 swap the reported dimensions under `rotate()` but not
+ * the byte count; the swap is spelled out anyway so the sizing reads the same
+ * way the decoder does.
  */
 function rgb8SizeFromProbe(probe: RasterMetadataProbe, autoOrient: boolean): number {
   const meta = probe.ok ? probe.metadata : undefined;
-  if (!meta || meta.width <= 0 || meta.height <= 0) {
+  if (!meta || meta.width <= 0 || meta.height <= 0 || meta.format === 'dng') {
+    return 0;
+  }
+  if (meta.width * meta.height > MAX_PROBE_SIZED_PIXELS) {
     return 0;
   }
   const swapped = autoOrient && meta.orientation >= 5 && meta.orientation <= 8;
