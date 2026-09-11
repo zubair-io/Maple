@@ -1,17 +1,22 @@
 # rav1d 1.1.0 — Maple patch
 
 This is an **in-tree copy of the upstream `rav1d` 1.1.0 crate** (unpacked from
-crates.io), carrying exactly one Maple change. The workspace resolves it
-through
+crates.io), carrying exactly one Maple change. **Two** manifests resolve it through a patch entry, because a `[patch]` only
+applies to the workspace that declares it:
 
 ```toml
-# src/raw-pipeline/Cargo.toml
+# src/raw-pipeline/Cargo.toml  — the Rust workspace
 [patch.crates-io]
 rav1d = { path = "third_party/rav1d" }
+
+# src/windows/Cargo.toml  — the Windows host, its own workspace
+[patch.crates-io]
+rav1d = { path = "../raw-pipeline/third_party/rav1d" }
 ```
 
-so every build uses it: the Linux API/server build, the Windows DLL, the WASM
-build, and the Apple offline xcframework build alike.
+Between them every build uses it: the Linux API/server build, the Windows DLL
+and native host, the WASM build, and the Apple offline xcframework build alike.
+Keep the two entries in lockstep.
 
 ## What changed
 
@@ -89,10 +94,13 @@ then the patch lives here.
    ```
 
 3. Bump the version requirement in `src/raw-pipeline/Cargo.toml`
-   (`[workspace.dependencies] rav1d`) and confirm the override is live:
+   (`[workspace.dependencies] rav1d`), update **both** `[patch.crates-io]`
+   entries if the directory name changed, and confirm the override is live in
+   each workspace:
 
    ```bash
    cargo tree -p raw-core --features avif -i rav1d   # must print the third_party path
+   grep -A2 'patch.crates-io' ../windows/Cargo.toml  # the Windows host's copy
    ```
 
 4. Re-vendor, then check the tree is complete:

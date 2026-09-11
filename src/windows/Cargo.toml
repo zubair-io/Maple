@@ -28,3 +28,15 @@ tauri-build = { version = "2.0", optional = true }
 [features]
 default = []
 tauri = ["dep:tauri-build"]
+
+# `src/windows` is its own cargo workspace, and a `[patch]` only applies to the
+# workspace that declares it — so the override in
+# `src/raw-pipeline/Cargo.toml` does NOT reach this manifest, even though
+# raw-core is a path dependency of it. Without this entry the Windows host
+# would be the one build still linking the unpatched rav1d, where a corrupt
+# AVIF aborts the process instead of returning a decode error (#3517).
+#
+# Keep the two entries in lockstep. See
+# `src/raw-pipeline/third_party/rav1d/MAPLE-PATCH.md`.
+[patch.crates-io]
+rav1d = { path = "../raw-pipeline/third_party/rav1d" }
