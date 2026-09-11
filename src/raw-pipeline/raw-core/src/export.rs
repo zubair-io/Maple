@@ -254,6 +254,30 @@ pub fn encode_avif(_width: u32, _height: u32, _rgb: &[u8], _quality: u8) -> Resu
     ))
 }
 
+#[cfg(feature = "avif")]
+pub fn encode_avif_with_speed(
+    width: u32,
+    height: u32,
+    rgb: &[u8],
+    quality: u8,
+    speed: u8,
+) -> Result<Vec<u8>> {
+    crate::avif::encode_with_speed(width, height, rgb, quality, speed)
+}
+
+#[cfg(not(feature = "avif"))]
+pub fn encode_avif_with_speed(
+    _width: u32,
+    _height: u32,
+    _rgb: &[u8],
+    _quality: u8,
+    _speed: u8,
+) -> Result<Vec<u8>> {
+    Err(Error::UnsupportedFormat(
+        "AVIF export requires the 'avif' feature".into(),
+    ))
+}
+
 pub fn encode_webp(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
     check_len(width, height, rgb.len())?;
     let mut out: Vec<u8> = Vec::new();
@@ -270,6 +294,15 @@ pub fn encode_raster(
     format: ExportFormat,
     quality: u8,
 ) -> Result<Vec<u8>> {
+    encode_raster_with(raster, format, quality, 6)
+}
+
+pub fn encode_raster_with(
+    raster: &crate::raster::RasterImage,
+    format: ExportFormat,
+    quality: u8,
+    avif_speed: u8,
+) -> Result<Vec<u8>> {
     let rgb = raster.to_rgb_bytes();
     let profile = icc::profile_for(crate::view::encode::TargetPrimaries::Srgb);
     match format {
@@ -279,7 +312,9 @@ pub fn encode_raster(
             let rgb16: Vec<u16> = rgb.iter().map(|&v| (v as u16) * 257).collect();
             encode_tiff16(raster.width, raster.height, &rgb16, profile)
         }
-        ExportFormat::Avif => encode_avif(raster.width, raster.height, &rgb, quality),
+        ExportFormat::Avif => {
+            encode_avif_with_speed(raster.width, raster.height, &rgb, quality, avif_speed)
+        }
         ExportFormat::Webp => encode_webp(raster.width, raster.height, &rgb),
     }
 }
