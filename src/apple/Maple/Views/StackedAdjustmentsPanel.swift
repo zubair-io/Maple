@@ -1,13 +1,16 @@
 // StackedAdjustmentsPanel.swift — shared Apple adjustments inspector (#3252).
-// All four groups stay in one scroll view. The host repositions this same
-// instance next to the vertical dock or above the horizontal compact dock.
+// One group at a time: the section for `state.armedGroup`, which the dock's
+// group buttons and the ↑/↓ group keys switch (#3538). Stacking all four
+// groups into one scroll view made the panel one long undifferentiated list
+// and left the dock's selection with no visible effect. The host repositions
+// this same instance next to the vertical dock or above the horizontal
+// compact dock.
 
 import MapleCore
 import SwiftUI
 
 struct StackedAdjustmentsPanel: View {
   @Bindable var state: EditorState
-  @Binding var collapsed: Set<ToolGroup>
   let showsHeader: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -24,9 +27,8 @@ struct StackedAdjustmentsPanel: View {
               .id(Tool.crop.rawValue)
             Divider()
           }
-          ForEach(ToolGroup.allCases, id: \.self) { group in
-            groupSection(group)
-          }
+          groupSection(state.armedGroup)
+            .id("group-\(state.armedGroup.rawValue)")
         }
       }
     }
@@ -57,35 +59,26 @@ struct StackedAdjustmentsPanel: View {
     .padding(.horizontal, 14)
   }
 
+  /// Section header: the group's name and its edited-tool count. A plain
+  /// label, not a disclosure — the group is chosen in the dock, and the
+  /// panel holds nothing else to collapse it against.
   private func groupSection(_ group: ToolGroup) -> some View {
-    let isCollapsed = collapsed.contains(group)
-    return VStack(spacing: 0) {
-      Button {
-        withAnimation(reduceMotion ? nil : MapleTokens.Motion.groupSwap) {
-          if isCollapsed { collapsed.remove(group) } else { collapsed.insert(group) }
-        }
-      } label: {
-        HStack(spacing: 6) {
-          Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-            .frame(width: 14)
-          Text(group.displayName.uppercased())
-          Spacer(minLength: 0)
-          let count = modifiedCount(in: group)
-          if count > 0 { Text("\(count) edited").foregroundStyle(ProTokens.accent) }
-        }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(ProTokens.textMuted)
-        .padding(.horizontal, 14)
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
+    VStack(spacing: 0) {
+      HStack(spacing: 6) {
+        Text(group.displayName.uppercased())
+        Spacer(minLength: 0)
+        let count = modifiedCount(in: group)
+        if count > 0 { Text("\(count) edited").foregroundStyle(ProTokens.accent) }
       }
-      .buttonStyle(.plain)
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(ProTokens.textMuted)
+      .padding(.horizontal, 14)
+      .frame(minHeight: 44)
+      .accessibilityElement(children: .combine)
       .accessibilityLabel("\(group.displayName) section")
-      .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
       .accessibilityIdentifier("editor-panel-section-\(group.rawValue)")
-      .id("group-\(group.rawValue)")
 
-      if !isCollapsed { groupSectionBody(group) }
+      groupSectionBody(group)
     }
   }
 

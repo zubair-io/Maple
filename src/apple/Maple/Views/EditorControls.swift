@@ -8,7 +8,6 @@ struct EditorControls: View {
   let onPresetsTap: () -> Void
   @Environment(\.mapleLayout) private var layout
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @State private var collapsed: Set<ToolGroup> = []
 
   private var isCompact: Bool { layout == .phone }
   private var arrangement: AnyLayout {
@@ -21,9 +20,7 @@ struct EditorControls: View {
       let compactPanelHeight = shortCrop ? 96 : min(360, geometry.size.height * 0.40)
       ScrollViewReader { proxy in
         arrangement {
-          StackedAdjustmentsPanel(
-            state: state, collapsed: $collapsed, showsHeader: !shortCrop
-          )
+          StackedAdjustmentsPanel(state: state, showsHeader: !shortCrop)
           .frame(width: isCompact ? nil : 320)
           // Keep a usable crop canvas in short compact windows. The
           // crop toolbar includes its own Reset and Done actions.
@@ -35,10 +32,7 @@ struct EditorControls: View {
 
           ToolDock(
             state: state, onPresetsTap: onPresetsTap,
-            onGroupTap: { group in
-              collapsed.remove(group)
-              scroll(proxy, to: "group-\(group.rawValue)")
-            })
+            onGroupTap: { group in scroll(proxy, to: "group-\(group.rawValue)") })
         }
         // Report only the fixed controls footprint. The following outer
         // alignment frame fills the editor and must never exclude its canvas.
@@ -58,22 +52,14 @@ struct EditorControls: View {
         .onChange(of: state.armedTool) { _, _ in
           revealArmedTool(proxy)
         }
-        .onChange(of: collapsed) { old, new in
-          let group = state.armedTool.group
-          if old.contains(group) && !new.contains(group) {
-            // The section now exists in the scroll view; its target could
-            // not be resolved in the update that requested expansion.
-            scroll(proxy, to: state.armedTool.rawValue)
-          }
-        }
       }
     }
   }
 
+  /// The panel only ever holds the armed group, so the armed tool's row is
+  /// always present; scrolling it to the top is enough to reveal it.
   private func revealArmedTool(_ proxy: ScrollViewProxy) {
-    if collapsed.remove(state.armedTool.group) == nil {
-      scroll(proxy, to: state.armedTool.rawValue)
-    }
+    scroll(proxy, to: state.armedTool.rawValue)
   }
 
   private func scroll<ID: Hashable>(_ proxy: ScrollViewProxy, to id: ID) {
