@@ -40,19 +40,24 @@ import XCTest
       let zoomValue = try XCTUnwrap(zoom.value as? String)
 
       for width: CGFloat in [800, 700, 1100] {
-        // A breakpoint change must reveal the armed Color tool even when
-        // its section was deliberately collapsed beforehand.
-        color.click()
-        let colorSection = app.buttons["editor-panel-section-color"]
-        XCTAssertEqual(colorSection.value as? String, "Expanded")
-        colorSection.click()
-        let collapsed = XCTNSPredicateExpectation(
-          predicate: NSPredicate(format: "value == 'Collapsed'"), object: colorSection)
-        XCTAssertEqual(XCTWaiter.wait(for: [collapsed], timeout: 5), .completed)
+        // The panel holds the armed group only (#3538): switching to Light
+        // must replace the Color section, and a breakpoint change must bring
+        // the armed Color group back with its tools intact.
+        app.buttons["editor-dock-group-light"].click()
+        let lightSection = app.descendants(matching: .any)
+          .matching(identifier: "editor-panel-section-light").firstMatch
+        XCTAssertTrue(lightSection.waitForExistence(timeout: 5))
+        let colorSection = app.descendants(matching: .any)
+          .matching(identifier: "editor-panel-section-color").firstMatch
+        XCTAssertFalse(colorSection.exists)
         XCTAssertFalse(blackWhite.exists)
+        color.click()
+        XCTAssertTrue(colorSection.waitForExistence(timeout: 5))
+        XCTAssertFalse(lightSection.exists)
         resize(window, width: width, height: 800)
         XCTAssertTrue(blackWhite.waitForExistence(timeout: 5))
-        XCTAssertEqual(colorSection.value as? String, "Expanded")
+        XCTAssertTrue(colorSection.exists)
+        XCTAssertFalse(lightSection.exists)
         let visible = XCTNSPredicateExpectation(
           predicate: NSPredicate { _, _ in blackWhite.isHittable }, object: blackWhite)
         XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed)
