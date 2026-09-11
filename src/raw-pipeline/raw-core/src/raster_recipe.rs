@@ -62,7 +62,13 @@ pub struct RawSpec {
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum RecipeInput {
     /// The input buffer is a JPEG/PNG/WebP/TIFF/AVIF file.
-    Encoded,
+    ///
+    /// An empty struct variant, not a unit variant: serde only honours
+    /// `deny_unknown_fields` on the struct-variant deserialization path, so
+    /// a bare unit variant here would silently accept
+    /// `{"kind":"encoded","extra":true}` (#3505 fix-round-2). The wire form
+    /// is unaffected — `{"kind":"encoded"}` still parses.
+    Encoded {},
     /// The input buffer is interleaved 8-bit pixels.
     Raw {
         width: u32,
@@ -112,7 +118,9 @@ fn one() -> f64 {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Op {
-    AutoOrient,
+    /// Empty struct variant rather than unit — see `RecipeInput::Encoded`'s
+    /// doc for why (#3505 fix-round-2).
+    AutoOrient {},
     /// Only the three Tier-1 fits (`cover`/`fill`/`inside`) and the three
     /// Tier-1 kernels are wired up (see `raster_recipe_exec::apply_op`).
     /// sharp's `position`, `withoutReduction` and `background` fields are
@@ -144,7 +152,9 @@ pub enum Op {
         #[serde(default = "one")]
         alpha: f64,
     },
-    RemoveAlpha,
+    /// Empty struct variant rather than unit — see `RecipeInput::Encoded`'s
+    /// doc for why (#3505 fix-round-2).
+    RemoveAlpha {},
     Composite {
         layers: Vec<Layer>,
     },
@@ -157,8 +167,10 @@ pub enum Output {
         #[serde(default)]
         quality: u8,
     },
-    Png,
-    Webp,
+    /// Empty struct variant rather than unit — see `RecipeInput::Encoded`'s
+    /// doc for why (#3505 fix-round-2).
+    Png {},
+    Webp {},
     Avif {
         #[serde(default)]
         quality: u8,
@@ -167,9 +179,9 @@ pub enum Output {
         #[serde(default)]
         effort: u8,
     },
-    Tiff,
+    Tiff {},
     /// Native-size interleaved RGB8/RGBA8 straight out — no container.
-    Raw,
+    Raw {},
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -207,7 +219,7 @@ mod tests {
     fn parses_a_minimal_encoded_to_jpeg_recipe() {
         let r = parse_recipe(r#"{"v":1,"input":{"kind":"encoded"},"ops":[],"output":{"format":"jpeg","quality":82}}"#).unwrap();
         assert_eq!(r.v, 1);
-        assert!(matches!(r.input, RecipeInput::Encoded));
+        assert!(matches!(r.input, RecipeInput::Encoded {}));
         assert!(r.ops.is_empty());
         assert!(matches!(r.output, Output::Jpeg { quality: 82 }));
     }
@@ -292,5 +304,91 @@ mod tests {
         )
         .unwrap_err();
         assert!(format!("{err}").contains("version 2"), "got: {err}");
+    }
+
+    /// Every variant of `RecipeInput`, `Op` and `Output` — unit and
+    /// struct-like alike — must reject a stray key. A unit variant that
+    /// stays a bare `Ident` (rather than `Ident {}`) silently accepts one,
+    /// because serde only enforces `deny_unknown_fields` on the
+    /// struct-variant deserialization path (#3505 fix-round-2, caught by
+    /// review after the fix-round-1 claim that the enum-level attribute
+    /// alone was enough — it wasn't, for unit variants). Table-driven so a
+    /// future variant added back as a bare unit is caught by this same test
+    /// without anyone remembering to add a case for it by hand.
+    #[test]
+    fn every_variant_of_every_recipe_enum_rejects_a_stray_key() {
+        // (wire name, full recipe JSON with "zzzStray" spliced into that
+        // variant's own object).
+        let cases: &[(&str, &str)] = &[
+            // RecipeInput
+            (
+                "input:encoded",
+                r#"{"v":1,"input":{"kind":"encoded","zzzStray":1},"ops":[],"output":{"format":"png"}}"#,
+            ),
+            (
+                "input:raw",
+                r#"{"v":1,"input":{"kind":"raw","width":1,"height":1,"channels":3,"zzzStray":1},"ops":[],"output":{"format":"png"}}"#,
+            ),
+            // Op
+            (
+                "op:autoOrient",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"autoOrient","zzzStray":1}],"output":{"format":"png"}}"#,
+            ),
+            (
+                "op:resize",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"resize","zzzStray":1}],"output":{"format":"png"}}"#,
+            ),
+            (
+                "op:flatten",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"flatten","zzzStray":1}],"output":{"format":"png"}}"#,
+            ),
+            (
+                "op:ensureAlpha",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"ensureAlpha","zzzStray":1}],"output":{"format":"png"}}"#,
+            ),
+            (
+                "op:removeAlpha",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"removeAlpha","zzzStray":1}],"output":{"format":"png"}}"#,
+            ),
+            (
+                "op:composite",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"composite","layers":[],"zzzStray":1}],"output":{"format":"png"}}"#,
+            ),
+            // Output
+            (
+                "output:jpeg",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[],"output":{"format":"jpeg","zzzStray":1}}"#,
+            ),
+            (
+                "output:png",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[],"output":{"format":"png","zzzStray":1}}"#,
+            ),
+            (
+                "output:webp",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[],"output":{"format":"webp","zzzStray":1}}"#,
+            ),
+            (
+                "output:avif",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[],"output":{"format":"avif","zzzStray":1}}"#,
+            ),
+            (
+                "output:tiff",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[],"output":{"format":"tiff","zzzStray":1}}"#,
+            ),
+            (
+                "output:raw",
+                r#"{"v":1,"input":{"kind":"encoded"},"ops":[],"output":{"format":"raw","zzzStray":1}}"#,
+            ),
+        ];
+        for (variant, json) in cases {
+            let err = match parse_recipe(json) {
+                Err(e) => e,
+                Ok(_) => panic!("{variant} silently accepted a stray key"),
+            };
+            assert!(
+                format!("{err}").contains("zzzStray"),
+                "{variant}: expected the error to name zzzStray, got: {err}"
+            );
+        }
     }
 }
