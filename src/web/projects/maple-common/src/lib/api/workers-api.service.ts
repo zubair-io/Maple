@@ -51,6 +51,12 @@ export interface WorkersStatusResponse {
    * parked out of every stage). Optional so a stale frame without it reads as
    * 0 rather than NaN. */
   damaged?: number;
+  newlyHiddenTotal?: number;
+  /** Epoch ms when the pending / ready / dead / damaged counts were computed
+   * by the worker, or null while it has never counted (every count reads 0).
+   * The counts are computed in the worker process on its own cadence and
+   * persisted — never on the request path (#3491). */
+  countsAt?: number | null;
 }
 
 /** One row in the dead-letter list — returned by GET /api/workers/:name/dead. */
@@ -164,13 +170,16 @@ export interface MigrationInfo {
   /** Items moved/deduped since last enabled. */
   processed: number;
   errors: number;
-  /** Items still needing transformation. */
-  remaining: number;
-  /** Live count of items parked in this migration's own dead-letter queue
-   * (distinct from the cumulative `errors` counter, which never decreases).
-   * Only present for migrations that track one — e.g. the Meilisearch
-   * backfill's redrivable `meilisearch_backfill_failures` collection. */
-  failedPermanently?: number;
+  /** Items still needing transformation, as last counted by the worker —
+   * null until it has counted this migration for the first time (#3491). */
+  remaining: number | null;
+  /** ISO timestamp of that count, null until counted. */
+  remaining_at: string | null;
+  /** Last counted size of this migration's own dead-letter queue (distinct
+   * from the cumulative `errors` counter, which never decreases). Only present
+   * for migrations that track one — e.g. the Meilisearch backfill's redrivable
+   * `meilisearch_backfill_failures` collection; null until counted. */
+  failedPermanently?: number | null;
   last_error: string | null;
   started_at: string | null;
   finished_at: string | null;

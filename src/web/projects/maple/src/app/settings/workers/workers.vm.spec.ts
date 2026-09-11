@@ -5,6 +5,7 @@
 // assert behaviour without spinning up TestBed — that's the whole point
 // of the split.
 
+import { countsAsOfLabel } from './workers.vm';
 import { describe, it, expect } from 'vitest';
 import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
 import {
@@ -477,5 +478,17 @@ describe('pauseReason', () => {
 
   it('is null before the stage config has been seeded', () => {
     expect(pauseReason(stage({ status: 'paused', config: null }))).toBeNull();
+  });
+});
+
+describe('countsAsOfLabel', () => {
+  it('reads "Counting…" until the worker has persisted a first snapshot', () => {
+    expect(countsAsOfLabel(null)).toBe('Counting…');
+    expect(countsAsOfLabel(undefined)).toBe('Counting…');
+  });
+
+  it('stamps the snapshot time once counts exist', () => {
+    const at = Date.UTC(2026, 8, 11, 12, 34, 56);
+    expect(countsAsOfLabel(at)).toBe(`Counts as of ${new Date(at).toLocaleTimeString()}`);
   });
 });

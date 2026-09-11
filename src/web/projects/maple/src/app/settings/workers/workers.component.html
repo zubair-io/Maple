@@ -22,9 +22,13 @@
         <span class="chip-val">{{ summary().dead | number }}</span>
         <span class="chip-label">Dead</span>
       </span>
-      <span class="chip set-chip">
+      <span
+        class="chip set-chip"
+        data-testid="counts-as-of"
+        [title]="'Pending, ready and dead are counted by the worker in the background while this page is open — the timestamp is when they were last taken'"
+      >
         <span class="chip-val">{{ summary().pending | number }}</span>
-        <span class="chip-label">Pending</span>
+        <span class="chip-label">Pending · {{ countsNote() }}</span>
       </span>
       <mui-button
         variant="ghost"
@@ -281,7 +285,17 @@
                       class="migration-progress flex items-center gap-3 text-[12px] text-[var(--s-text-mid)]"
                     >
                       <span>{{ m.processed | number }} processed</span>
-                      <span>{{ m.remaining | number }} remaining</span>
+                      @if (m.remaining === null) {
+                        <span
+                          title="Counted by the worker in the background while this page is open"
+                          [attr.data-testid]="'migration-remaining-' + m.id"
+                          >not counted yet</span
+                        >
+                      } @else {
+                        <span [attr.data-testid]="'migration-remaining-' + m.id"
+                          >{{ m.remaining | number }} remaining</span
+                        >
+                      }
                       @if (m.errors > 0) {
                         <span class="is-error text-[var(--s-err)]"
                           >{{ m.errors | number }} errors</span

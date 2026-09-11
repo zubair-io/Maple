@@ -8,6 +8,7 @@
 
 import { MongoClient, MongoServerError, type Db, type Collection, ServerApiVersion } from 'mongodb';
 import { child as childLogger } from '../log.ts';
+import { ALL_STAGE_NAMES } from '../workers/stages/stage-names.ts';
 import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
 import {
   backfillFileinfo,
@@ -259,27 +260,14 @@ export async function apnsDeviceTokensCollection(): Promise<Collection<ApnsDevic
   return (await getDb()).collection<ApnsDeviceTokenDoc>('apns_device_tokens');
 }
 
-/** Stage names whose claim-query indexes are created at startup.
+/** Stage names whose claim-query indexes are created at startup — the
+ * single-sourced claim-stage list. A hand-maintained copy here once drifted
+ * to eight of twelve stages, leaving the other four to scan the whole
+ * collection on every `/status` count (#3491).
  *
- * The `hash` stage was removed in the content-addressing migration (hashing
- * is now done inline by discover/backup-ingest), so its indexes are dropped
- * by the `drop-abs-path-2026-05-21` sentinel block in `ensureIndexes` and
- * never recreated here.
- *
- * The single `face` stage was split into `face-detect` + `face-embed`.
- * Like `hash`, the legacy `stage_face_version` / `stage_face_dead` indexes
- * are simply no longer recreated — they're harmless if left behind on a
- * deployed DB. */
-const WORKER_STAGE_NAMES = [
-  'exif',
-  'thumb',
-  'preview',
-  'face-detect',
-  'face-embed',
-  'describe',
-  'geocode',
-  'meili',
-] as const;
+ * Legacy `hash` / `face` indexes (stages removed or split) are simply no
+ * longer recreated — harmless if left behind on a deployed DB. */
+const WORKER_STAGE_NAMES: readonly string[] = ALL_STAGE_NAMES;
 
 /**
  * Creates two indexes per stage:

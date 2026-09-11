@@ -562,7 +562,7 @@ describe('live_location_count: trash/restore round-trip leaves count stable', ()
 // ---------------------------------------------------------------------------
 
 describe('deduplicate /status count uses live_location_count index', () => {
-  it('fetchStatusDbState reports deduplicate pending = countDocuments({live_location_count:{$gte:2}})', async () => {
+  it('computeStatusCounts reports deduplicate pending = countDocuments({live_location_count:{$gte:2}})', async () => {
     if (!mongoReachable) return;
 
     // Seed 2 "real" duplicates and 1 non-duplicate
@@ -570,16 +570,16 @@ describe('deduplicate /status count uses live_location_count index', () => {
     await insertAsset([liveEntry('c'), liveEntry('d'), liveEntry('e')]); // count=3 → duplicate
     await insertAsset([liveEntry('f'), tombstonedMissing('f2')]); // count=1 → not duplicate
 
-    const { fetchStatusDbState } = await import('./routes-status.ts');
+    const { computeStatusCounts } = await import('./status-counts.ts');
     const { stageRegistry } = await import('./registry.ts');
     const { DEDUPLICATE_NAME } = await import('./dedupe.ts');
 
     const stateNames = [DEDUPLICATE_NAME];
     const statuses = stageRegistry.statuses();
-    const dbState = await fetchStatusDbState(stateNames, statuses);
+    const counts = await computeStatusCounts(stateNames, statuses);
 
-    const pending = dbState.pendingByStage.get(DEDUPLICATE_NAME) ?? -1;
-    const ready = dbState.readyByStage.get(DEDUPLICATE_NAME) ?? -1;
+    const pending = counts.pending[DEDUPLICATE_NAME] ?? -1;
+    const ready = counts.ready[DEDUPLICATE_NAME] ?? -1;
 
     expect(pending).toBe(2);
     expect(ready).toBe(2);

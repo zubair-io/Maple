@@ -147,4 +147,54 @@ describe('worker-status.repo', () => {
     await writeWorkerStatus({}, 1000);
     expect((await readWorkerStatus())!.face_models).toBeUndefined();
   });
+
+  it('counts and the registry snapshot live on the same doc but have separate writers (#3491)', async () => {
+    if (!reachable) return;
+    const { writeWorkerStatus, writeStatusCounts, readWorkerStatus } =
+      await import('./worker-status.repo.ts');
+    const counts = {
+      pending: { exif: 3 },
+      ready: { exif: 1 },
+      dead: {},
+      damaged: 0,
+      newly_hidden: 0,
+      computed_at: 1_700_000_000_000,
+      duration_ms: 12,
+    };
+    // Counts written before any registry snapshot exists → doc is created.
+    await writeStatusCounts(counts);
+    expect((await readWorkerStatus())?.counts).toEqual(counts);
+    // A registry write must not clobber the counts …
+    await writeWorkerStatus({ exif: { status: 'running' } }, 5);
+    const after = await readWorkerStatus();
+    expect(after?.counts).toEqual(counts);
+    expect(after?.updated_at).toBe(5);
+    expect(after?.statuses['exif']?.status).toBe('running');
+    // … and a counts write must not clobber the registry snapshot.
+    await writeStatusCounts({ ...counts, computed_at: 1_700_000_000_001 });
+    const again = await readWorkerStatus();
+    expect(again?.statuses['exif']?.status).toBe('running');
+    expect(again?.counts?.computed_at).toBe(1_700_000_000_001);
+  });
+
+  it('reads counts as null when the worker has never counted', async () => {
+    if (!reachable) return;
+    const { writeWorkerStatus, readWorkerStatus } = await import('./worker-status.repo.ts');
+    await writeWorkerStatus({}, 1);
+    expect((await readWorkerStatus())?.counts).toBeNull();
+  });
+
+  it('demand pokes only ever move the deadline forward', async () => {
+    if (!reachable) return;
+    const { pokeStatusCountsDemand, readStatusCountsDemand } =
+      await import('./worker-status.repo.ts');
+    expect(await readStatusCountsDemand()).toBe(0);
+    await pokeStatusCountsDemand(2_000);
+    expect(await readStatusCountsDemand()).toBe(2_000);
+    // An older (smaller) poke arriving late must not shorten the window.
+    await pokeStatusCountsDemand(1_000);
+    expect(await readStatusCountsDemand()).toBe(2_000);
+    await pokeStatusCountsDemand(3_000);
+    expect(await readStatusCountsDemand()).toBe(3_000);
+  });
 });

@@ -38,6 +38,7 @@ import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-
 import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
+import { startStatusCountsRefresher, type RefresherHandle } from './status-counts.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
 import { flushPendingMirrorOps } from '../fs/mirrored.ts';
 import {
@@ -55,6 +56,7 @@ const log = childLogger('workers');
 let _discoverHandle: DiscoverHandle | null = null;
 /** Unref'd timer that publishes stageRegistry.statuses() to worker_status in Mongo. */
 let _statusInterval: ReturnType<typeof setInterval> | null = null;
+let _countsRefresher: RefresherHandle | null = null;
 
 // ---------------------------------------------------------------------------
 // startWorkers
@@ -178,6 +180,11 @@ export async function startWorkers(): Promise<void> {
     }).catch(() => {});
   }, 2000);
   _statusInterval.unref();
+
+  // The Workers page's pending / ready / dead / migration-remaining counts are
+  // computed here, in the worker, and persisted — never on the API's request
+  // path (#3491). See `status-counts.ts` for the demand-aware cadence.
+  _countsRefresher = startStatusCountsRefresher();
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +200,8 @@ export async function stopWorkers(): Promise<void> {
     clearInterval(_statusInterval);
     _statusInterval = null;
   }
+  _countsRefresher?.stop();
+  _countsRefresher = null;
 
   // Stop maintenance jobs first so their timers don't fire mid-shutdown.
   try {
