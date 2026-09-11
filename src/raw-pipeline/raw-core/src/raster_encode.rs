@@ -86,17 +86,12 @@ pub(crate) fn container_supports_alpha(format: ExportFormat) -> bool {
 /// [`JPEG_FLATTEN_BACKGROUND`] first when it does not (JPEG, TIFF) or the
 /// raster has no alpha to begin with.
 pub fn encode_raster_opts(raster: &RasterImage, opts: &RasterEncodeOptions) -> Result<Vec<u8>> {
-    // AVIF's `colr` box is not written yet (#3503) — a P3-tagged raster
-    // encoded to AVIF would come out byte-correct but silently untagged, so
-    // this combination is rejected by name rather than shipping a file a
-    // viewer will re-stretch as sRGB.
-    if opts.format == ExportFormat::Avif && opts.primaries == TargetPrimaries::P3 {
-        return Err(crate::error::Error::UnsupportedFormat(
-            "AVIF export cannot carry a Display P3 ICC profile yet (#3503) — export sRGB, \
-             or choose JPEG/PNG/TIFF/WebP for a Display P3 deliverable"
-                .into(),
-        ));
-    }
+    // Single source of truth for the AVIF+P3 rejection — see
+    // `export::reject_untagged_avif_p3`'s doc comment. `encode_raster_rgb`
+    // (below, via the flatten path) runs the same check again, so this call
+    // is what makes the RGBA/alpha-keeping branch reject the combination too,
+    // before it ever reaches `encode_avif_rgba_with_speed`.
+    crate::export::reject_untagged_avif_p3(opts.format, opts.primaries)?;
     let keeps_alpha = raster.channels == 4 && container_supports_alpha(opts.format);
     let quality = if opts.quality == 0 {
         85
@@ -115,7 +110,7 @@ pub fn encode_raster_opts(raster: &RasterImage, opts: &RasterEncodeOptions) -> R
     }
     match opts.format {
         ExportFormat::Png => encode_png_rgba(raster, icc::profile_for(opts.primaries)),
-        ExportFormat::Webp => encode_webp_rgba(raster),
+        ExportFormat::Webp => encode_webp_rgba(raster, opts.primaries),
         ExportFormat::Avif => crate::export::encode_avif_rgba_with_speed(
             raster.width,
             raster.height,
@@ -148,10 +143,19 @@ fn encode_png_rgba(raster: &RasterImage, profile: Vec<u8>) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-fn encode_webp_rgba(raster: &RasterImage) -> Result<Vec<u8>> {
+/// Mirrors `export::encode_webp`'s sRGB-stays-untagged rule: `set_icc_profile`
+/// is only called for Display P3, so an sRGB-tagged RGBA WebP keeps the exact
+/// bytes this crate shipped before #3503.
+fn encode_webp_rgba(raster: &RasterImage, primaries: TargetPrimaries) -> Result<Vec<u8>> {
     let mut out: Vec<u8> = Vec::new();
-    WebPEncoder::new_lossless(&mut out)
-        .encode(
+    let mut encoder = WebPEncoder::new_lossless(&mut out);
+    if primaries == TargetPrimaries::P3 {
+        encoder
+            .set_icc_profile(icc::profile_for(primaries))
+            .map_err(|e| crate::error::Error::Png(e.to_string()))?;
+    }
+    encoder
+        .write_image(
             &raster.data,
             raster.width,
             raster.height,
@@ -194,6 +198,35 @@ mod tests {
         let decoded = crate::raster::decode_raster(&bytes, Some("webp")).unwrap();
         assert_eq!(decoded.channels, 4, "WebP dropped the alpha channel");
         assert_eq!(decoded.data[7], 0);
+    }
+
+    #[test]
+    fn srgb_rgba_webp_stays_untagged() {
+        let bytes = encode_raster_opts(&rgba_pair(), &opts(ExportFormat::Webp)).unwrap();
+        assert!(
+            !bytes.windows(4).any(|w| w == b"ICCP"),
+            "sRGB RGBA WebP must stay untagged, matching pre-#3503 output"
+        );
+    }
+
+    #[test]
+    fn p3_rgba_webp_carries_the_display_p3_icc_profile() {
+        let bytes = encode_raster_opts(
+            &rgba_pair(),
+            &RasterEncodeOptions {
+                primaries: TargetPrimaries::P3,
+                ..opts(ExportFormat::Webp)
+            },
+        )
+        .unwrap();
+        let profile = icc::profile_for(TargetPrimaries::P3);
+        assert!(
+            bytes.windows(4).any(|w| w == b"ICCP"),
+            "Display P3 RGBA WebP is missing its ICCP chunk"
+        );
+        assert!(bytes
+            .windows(profile.len())
+            .any(|w| w == profile.as_slice()));
     }
 
     #[test]
