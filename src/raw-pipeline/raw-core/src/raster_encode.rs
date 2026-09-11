@@ -187,6 +187,22 @@ mod tests {
         );
     }
 
+    /// AVIF's alpha item is a separate code path from PNG/WebP's interleaved
+    /// alpha channel (`encode_avif_rgba_with_speed` → `ravif::Encoder::encode_rgba`,
+    /// #3505), so it needs its own round-trip pin rather than relying on the
+    /// PNG/WebP coverage above.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn avif_round_trips_the_alpha_channel() {
+        let bytes = encode_raster_opts(&rgba_pair(), &opts(ExportFormat::Avif)).unwrap();
+        let decoded = crate::raster::decode_raster(&bytes, Some("avif")).unwrap();
+        assert_eq!(decoded.channels, 4, "AVIF dropped the alpha channel");
+        assert_eq!(
+            decoded.data[7], 0,
+            "the fully-transparent pixel's alpha byte"
+        );
+    }
+
     #[test]
     fn an_rgb_raster_is_unchanged_by_the_alpha_path() {
         let rgb = RasterImage::new_rgb(2, 1, vec![10, 20, 30, 40, 50, 60]);
