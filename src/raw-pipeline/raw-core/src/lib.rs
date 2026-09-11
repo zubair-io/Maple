@@ -76,6 +76,7 @@ mod raster_orient;
 pub mod raster_recipe;
 pub mod raster_recipe_exec;
 mod raster_recipe_geometry;
+mod raster_recipe_resize;
 pub mod raster_rotate;
 pub mod raster_trim;
 
