@@ -43,6 +43,22 @@ export interface MigrationState {
   started_at: string | null;
   /** ISO timestamp the migration last reached `done`. */
   finished_at: string | null;
+  /** Items still needing transformation, as last counted by the worker
+   * (#3491) — null/absent until the first count. Never computed on the
+   * request path: most `countRemaining()` filters are full-collection scans. */
+  remaining?: number | null;
+  /** ISO timestamp of that count. */
+  remaining_at?: string | null;
+  /** Last counted size of the migration's own dead-letter queue, for the
+   * migrations that have one (`countFailedPermanently`). */
+  failed_permanently?: number | null;
+}
+
+/** The `migration` worker row's pending count: `remaining` summed over the
+ * migrations that are currently enabled (the ones the worker is actually
+ * working through). Pure — reads the persisted counts only. */
+export function enabledRemainingTotal(states: Record<string, MigrationState>): number {
+  return Object.values(states).reduce((acc, st) => acc + (st.enabled ? (st.remaining ?? 0) : 0), 0);
 }
 
 interface MigrationDoc {

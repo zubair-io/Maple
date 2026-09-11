@@ -2,28 +2,24 @@
  * Workers-status WS broadcaster (#674).
  *
  * One shared timer fans the worker-pipeline status out to every subscribed
- * client, instead of each browser tab independently polling `GET /status`
- * (which costs ~4×nStages `countDocuments` per tab per tick).
+ * client, instead of each browser tab independently polling `GET /status`.
  *
- * Split of concerns:
- *   - CHEAP registry fields (status / inFlight / throughput / lastError) come
- *     straight from the in-process `stageRegistry` — no DB, no gating. A client
- *     gets one immediately on subscribe so its UI paints without waiting.
- *   - EXPENSIVE counts (pending / ready / blocked / dead) are the
- *     `countDocuments` half. They run ONLY while ≥1 client is subscribed, on a
- *     single shared ~2s timer, and the result is broadcast ONCE to all
- *     subscribers. With zero subscribers the timer is stopped, so the counts
- *     never run. Reuses the 2s cache in `routes.ts` (`computeWorkersStatus`).
+ * Every frame is cheap to build (#3491): `computeWorkersStatus()` is one
+ * `worker_status` read (registry snapshot + the counts the worker persisted)
+ * plus the tiny `worker_config` and migration-state docs — no `countDocuments`
+ * on this path at all. What the timer does, besides fanning out, is keep the
+ * worker's demand flag fresh (`requestStatusCounts`) so the worker refreshes
+ * its persisted counts quickly for as long as ≥1 client is subscribed. With
+ * zero subscribers the timer is stopped and the flag lapses, so an idle
+ * deployment never spends DB time on display-only counts.
  *
  * The broadcaster is transport-agnostic: a subscriber is just a `send`
  * callback, so `routes/events.ts` wires WS sockets in and unit tests wire
  * plain functions in.
  */
 
-import { deriveBatchSize } from './run-stage.ts';
-import { computeWorkersStatus, type StageStatusRow, type WorkersStatusPayload } from './routes.ts';
-import { readWorkerStatus } from './worker-status.repo.ts';
 import { child } from '../log.ts';
+import { computeWorkersStatus, requestStatusCounts, type WorkersStatusPayload } from './routes.ts';
 
 const log = child('workers:status-broadcast');
 
@@ -31,102 +27,47 @@ const log = child('workers:status-broadcast');
 export interface WorkersStatusFrame {
   type: 'workers-status';
   status: WorkersStatusPayload;
-  /** True when `status` carries fresh DB-derived counts; false when it's a
-   * cheap registry-only snapshot (counts zeroed/stale). Lets the FE avoid
-   * flashing "0 pending" before the first counted tick lands. */
+  /** True when `status` carries DB-derived counts the worker has computed;
+   * false while the worker has never counted (every count reads 0). Lets the
+   * FE show "counting…" instead of a misleading "0 pending". */
   counted: boolean;
   ts: number;
 }
 
 type Send = (frame: WorkersStatusFrame) => void;
 
-/** ~2s cadence for the expensive DB counts — matches the old FE poll interval
- * and the `STATUS_CACHE_TTL_MS` in routes.ts. */
 export const COUNT_INTERVAL_MS = 2000;
-
-/**
- * Build a stage-status payload from the cross-process `worker_status` Mongo
- * snapshot. `pending`, `ready`, `blocked`, `dead`, and `damaged` are zeroed
- * (no count queries run); `config` is null because it lives in Mongo.
- * Used for the immediate on-subscribe push so the client paints without
- * waiting for the first full counted tick.
- *
- * Workers run in a separate child process; the in-process `stageRegistry` is
- * empty in the API process — read `worker_status` instead.
- */
-export async function cheapStatus(): Promise<WorkersStatusPayload> {
-  const snap = await readWorkerStatus();
-  const statuses = snap?.statuses ?? {};
-  const stages: StageStatusRow[] = Object.entries(statuses).map(([name, s]) => ({
-    name,
-    status: s.status,
-    inFlight: s.inFlight,
-    configured: 0,
-    pending: 0,
-    ready: 0,
-    blocked: 0,
-    dead: 0,
-    throughput: s.throughput,
-    lastError: s.lastError,
-    config: null,
-    batchSize: deriveBatchSize(0),
-  }));
-  // No count queries in the cheap path — the real counts land on the next
-  // counted tick (computeWorkersStatus). Zero until then, like the other counts.
-  return { stages, damaged: 0, newlyHiddenTotal: 0 };
-}
 
 class WorkersStatusBroadcaster {
   private readonly subscribers = new Set<Send>();
   private timer: ReturnType<typeof setInterval> | null = null;
-  /** True while a `tick()` is mid-flight. `setInterval` fires on a fixed
-   * cadence regardless of whether the previous async tick has settled, so a
-   * count pass that runs longer than `COUNT_INTERVAL_MS` would otherwise stack
-   * up — multiple `countDocuments` fan-outs in flight at once, defeating the
-   * shared-count guarantee. The guard makes overlapping ticks a no-op. */
   private tickInFlight = false;
+  private lastFrame: WorkersStatusFrame | null = null;
 
-  /**
-   * Source of the expensive counted payload. Defaults to the real
-   * `computeWorkersStatus` (DB + 2s cache); tests inject a fake so the gating
-   * and fan-out can be exercised without a live Mongo.
-   */
   constructor(
     private readonly computeStatus: () => Promise<WorkersStatusPayload> = computeWorkersStatus,
+    private readonly requestCounts: () => Promise<void> = requestStatusCounts,
   ) {}
 
-  /** Number of live subscribers — exposed for tests / diagnostics. */
   get subscriberCount(): number {
     return this.subscribers.size;
   }
 
-  /** Whether the shared count timer is currently armed. */
   get isCounting(): boolean {
     return this.timer !== null;
   }
 
-  /**
-   * Add a subscriber. Kicks off an async cheap snapshot from worker_status
-   * Mongo so the client paints quickly without waiting for the first full
-   * counted tick, then arms the shared count timer if it wasn't already
-   * running. Returns an unsubscribe fn.
-   */
+  /** Subscribe. A late joiner gets the most recent frame immediately (no DB
+   * round-trip) and then rides the shared timer like everyone else. */
   subscribe(send: Send): () => void {
     this.subscribers.add(send);
-    // Fire-and-forget — the cheap push is now async (reads worker_status).
-    // The subscriber gets the frame as soon as the Mongo read resolves.
-    void cheapStatus()
-      .then((status) => {
-        send({
-          type: 'workers-status',
-          status,
-          counted: false,
-          ts: Date.now(),
-        });
-      })
-      .catch(() => {
-        /* socket may already be gone or DB unavailable */
-      });
+    if (this.lastFrame && this.timer !== null) {
+      try {
+        send(this.lastFrame);
+      } catch {
+        /* a broken subscriber must not break subscribe */
+      }
+    }
     this.ensureTimer();
     return () => this.unsubscribe(send);
   }
@@ -138,8 +79,6 @@ class WorkersStatusBroadcaster {
 
   private ensureTimer(): void {
     if (this.timer !== null) return;
-    // Fire one counted tick right away so the first subscriber doesn't wait a
-    // full interval for real counts, then settle into the shared cadence.
     void this.tick();
     this.timer = setInterval(() => void this.tick(), COUNT_INTERVAL_MS);
   }
@@ -149,37 +88,34 @@ class WorkersStatusBroadcaster {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this.lastFrame = null;
   }
 
-  /**
-   * Run the expensive counts once (via the shared 2s cache) and broadcast a
-   * single counted frame to every subscriber. Guarded so a tick that races a
-   * full unsubscribe does no DB work.
-   */
   private async tick(): Promise<void> {
     if (this.subscribers.size === 0) return;
-    // In-flight guard: if a previous count pass hasn't settled yet, skip this
-    // one rather than letting two `computeStatus()` fan-outs overlap.
     if (this.tickInFlight) {
-      log.debug('workers-status count tick already in flight — skipping overlap');
+      log.debug('workers-status tick already in flight — skipping overlap');
       return;
     }
     this.tickInFlight = true;
     let status: WorkersStatusPayload;
     try {
+      await this.requestCounts();
       status = await this.computeStatus();
     } catch (err) {
-      log.warn({ err }, 'workers-status count tick failed — skipping broadcast');
+      log.warn({ err }, 'workers-status tick failed — skipping broadcast');
       return;
     } finally {
       this.tickInFlight = false;
     }
-    this.broadcast({
+    const frame: WorkersStatusFrame = {
       type: 'workers-status',
       status,
-      counted: true,
+      counted: status.countsAt !== null,
       ts: Date.now(),
-    });
+    };
+    this.lastFrame = frame;
+    this.broadcast(frame);
   }
 
   private broadcast(frame: WorkersStatusFrame): void {
@@ -187,13 +123,11 @@ class WorkersStatusBroadcaster {
       try {
         send(frame);
       } catch {
-        // A dead socket: the WS close handler removes it. Don't let one bad
-        // send abort the fan-out to the rest.
+        /* one broken socket must not abort the fan-out */
       }
     }
   }
 
-  /** Test-only: run a single counted tick now (awaits the broadcast). */
   async _tickForTests(): Promise<void> {
     await this.tick();
   }

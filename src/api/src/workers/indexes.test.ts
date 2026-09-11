@@ -40,16 +40,11 @@ function makeDbStub(): { db: Db; getIndexes: (collName: string) => IndexSpec[] }
   };
 }
 
-const STAGE_NAMES = [
-  'exif',
-  'thumb',
-  'preview',
-  'face-detect',
-  'face-embed',
-  'describe',
-  'geocode',
-  'meili',
-];
+// Every claim stage must get its indexes — a hand-maintained subset here
+// (or in client.ts) is exactly the drift that left four stages scanning the
+// whole collection on every /status call (#3491).
+import { ALL_STAGE_NAMES } from './stages/stage-names.ts';
+const STAGE_NAMES: readonly string[] = ALL_STAGE_NAMES;
 
 describe('ensureStageIndexes', () => {
   it('creates a version index for each known stage (no partial filter)', async () => {
@@ -65,6 +60,19 @@ describe('ensureStageIndexes', () => {
       );
       expect(found).toBeDefined();
       expect(found?.options['partialFilterExpression']).toBeUndefined();
+    }
+  });
+
+  it('creates a partial dead index for each known stage', async () => {
+    const { db, getIndexes } = makeDbStub();
+    const { ensureStageIndexes } = await import('../db/client.ts');
+    await ensureStageIndexes(db);
+    const indexes = getIndexes('assets');
+    for (const name of STAGE_NAMES) {
+      const found = indexes.find((idx) => idx.options['name'] === `stage_${name}_dead`);
+      expect(found).toBeDefined();
+      expect(found?.key[`stages.${name}.dead`]).toBe(1);
+      expect(found?.options['partialFilterExpression']).toEqual({ [`stages.${name}.dead`]: true });
     }
   });
 

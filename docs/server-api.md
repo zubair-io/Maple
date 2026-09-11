@@ -257,7 +257,7 @@ Pause and config changes are written to `worker_config` in Mongo; the worker chi
 
 | Method | Path                                       | Auth   | Purpose                                                                 |
 | ------ | ------------------------------------------ | ------ | ----------------------------------------------------------------------- |
-| GET    | `/api/workers/status`                      | bearer | Per-stage rows: pending, ready, dead, in-flight, throughput. Cached     |
+| GET    | `/api/workers/status`                      | bearer | Per-stage rows: pending, ready, dead, in-flight, throughput (#3491)     |
 | GET    | `/api/workers/performance`                 | bearer | FFI decode-pool size and the on-demand preview limiter                  |
 | PATCH  | `/api/workers/performance`                 | bearer | Resize the pool live, clamped to its min/max                            |
 | POST   | `/api/workers/:name/pause`                 | bearer | Pause one stage                                                         |
@@ -271,7 +271,7 @@ Pause and config changes are written to `worker_config` in Mongo; the worker chi
 | PATCH  | `/api/workers/missing-reaper/prune-window` | bearer | Change that window                                                      |
 | GET    | `/api/workers/deduplicate/config`          | bearer | Dedupe worker settings                                                  |
 | PATCH  | `/api/workers/deduplicate/config`          | bearer | Change them                                                             |
-| GET    | `/api/workers/migration/migrations`        | bearer | Every registered data migration and its enable/progress state           |
+| GET    | `/api/workers/migration/migrations`        | bearer | Every registered data migration, its enable/progress state, `remaining` |
 | PATCH  | `/api/workers/migration/migrations/:id`    | bearer | Enable, disable, or reset one                                           |
 | GET    | `/api/workers/generated-search/config`     | bearer | Generated-search worker settings                                        |
 | PATCH  | `/api/workers/generated-search/config`     | bearer | Change them                                                             |

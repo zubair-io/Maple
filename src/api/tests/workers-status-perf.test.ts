@@ -81,16 +81,10 @@ describe('ensureStageIndexes — dead partial index', () => {
     const indexes = await db.collection('assets').indexes();
     const byName = new Map(indexes.map((i) => [i.name as string, i]));
 
-    for (const name of [
-      'exif',
-      'thumb',
-      'preview',
-      'face-detect',
-      'face-embed',
-      'describe',
-      'geocode',
-      'meili',
-    ]) {
+    const { ALL_STAGE_NAMES } = await import('../src/workers/stages/stage-names.ts');
+    // Every claim stage — a hand-maintained subset here is how four stages
+    // ended up unindexed and scanning the whole collection (#3491).
+    for (const name of ALL_STAGE_NAMES) {
       const idx = byName.get(`stage_${name}_dead`);
       expect(idx).toBeDefined();
       // Partial filter must restrict to dead: true so the index stays tiny.
@@ -101,7 +95,7 @@ describe('ensureStageIndexes — dead partial index', () => {
   });
 });
 
-describe('GET /api/workers/status — counts', () => {
+describe('GET /api/workers/status — counts (worker-computed, persisted)', () => {
   it('returns correct pending + dead counts using indexed queries', async () => {
     if (!mongoReachable) return;
 
@@ -141,7 +135,8 @@ describe('GET /api/workers/status — counts', () => {
     // thrown assertion below can't leak the registration into later route
     // tests (the registry is a process-wide singleton).
     const { Elysia } = await import('elysia');
-    const { workerRoutes, _resetStatusCacheForTests } = await import('../src/workers/routes.ts');
+    const { workerRoutes } = await import('../src/workers/routes.ts');
+    const { runStatusCountsPass } = await import('../src/workers/status-counts.ts');
     const { stageRegistry } = await import('../src/workers/registry.ts');
     stageRegistry.register('exif', {
       targetVersion: tv,
@@ -163,7 +158,8 @@ describe('GET /api/workers/status — counts', () => {
       // /status caches DB-derived counts for STATUS_CACHE_TTL_MS (2s), keyed on
       // stage name + targetVersion. Another test in this file uses the same
       // `exif:3` key, so drop the cache to force a fresh count for this seed.
-      _resetStatusCacheForTests();
+      // The worker computes + persists the counts; the route only reads them.
+      await runStatusCountsPass();
       const app = new Elysia().use(workerRoutes());
       const res = await app.handle(new Request('http://localhost/api/workers/status'));
       expect(res.status).toBe(200);
@@ -212,7 +208,8 @@ describe('GET /api/workers/status — counts', () => {
     ]);
 
     const { Elysia } = await import('elysia');
-    const { workerRoutes, _resetStatusCacheForTests } = await import('../src/workers/routes.ts');
+    const { workerRoutes } = await import('../src/workers/routes.ts');
+    const { runStatusCountsPass } = await import('../src/workers/status-counts.ts');
     const { stageRegistry } = await import('../src/workers/registry.ts');
     stageRegistry.register('exif', {
       targetVersion: tv,
@@ -234,7 +231,8 @@ describe('GET /api/workers/status — counts', () => {
       // /status call sharing the same `exif:3` cache key (see the count test
       // above). Without this the inserted missing_since docs may not be
       // reflected in the returned counts.
-      _resetStatusCacheForTests();
+      // The worker computes + persists the counts; the route only reads them.
+      await runStatusCountsPass();
       const app = new Elysia().use(workerRoutes());
       const res = await app.handle(new Request('http://localhost/api/workers/status'));
       expect(res.status).toBe(200);
