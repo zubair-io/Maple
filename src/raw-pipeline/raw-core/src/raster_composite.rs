@@ -209,9 +209,15 @@ pub fn composite(base: &RasterImage, layers: &[CompositeLayer<'_>]) -> Result<Ra
         let src = layer.image.ensure_alpha(255);
         let (ox, oy) = match (layer.left, layer.top) {
             (Some(x), Some(y)) => (x, y),
-            _ => layer
+            (None, None) => layer
                 .gravity
                 .place((out.width, out.height), (src.width, src.height)),
+            (Some(_), None) | (None, Some(_)) => {
+                return Err(Error::Decode {
+                    path: "<memory>".into(),
+                    reason: "composite: a layer must set both left and top, or neither".into(),
+                });
+            }
         };
         let steps_x = tile_steps(ox, src.width as i64, bw, layer.tile);
         let steps_y = tile_steps(oy, src.height as i64, bh, layer.tile);
