@@ -30,32 +30,49 @@ use crate::raster::RasterImage;
 const MIN_SIGMA: f64 = 0.3;
 const MAX_SIGMA: f64 = 1000.0;
 
+/// libvips' `vips_gaussmat` default amplitude cutoff (its `min_ampl`): the
+/// kernel is truncated at the last tap whose value is still >= this
+/// fraction of the peak, rather than at a fixed multiple of sigma. See
+/// `vips_gaussmat`/`vips_gaussblur` in libvips.
+const MIN_AMPL: f64 = 0.2;
+
+/// Kernel radius for `MIN_AMPL`: the largest `i` such that
+/// `exp(-i²/2σ²) >= MIN_AMPL`, i.e. `i <= σ·sqrt(-2·ln(MIN_AMPL))`, rounded
+/// up so the cutoff tap is never excluded, minimum 1. This is libvips'
+/// amplitude-based sizing (see `MIN_AMPL` above), not a fixed multiple of
+/// sigma — it's what makes Maple's blur radius match sharp/libvips' for the
+/// same sigma, which earlier `sharpen` (#3504) and any caller comparing
+/// pixels against a libvips render both depend on.
+fn kernel_radius(sigma: f64) -> i64 {
+    let scale = (-2.0 * MIN_AMPL.ln()).sqrt();
+    ((sigma * scale).ceil() as i64).max(1)
+}
+
 /// Clamp-to-edge index into `0..len`.
 #[inline]
 fn clamp_index(i: i64, len: usize) -> usize {
     i.clamp(0, len as i64 - 1) as usize
 }
 
-/// Normalised 1-D Gaussian kernel, radius `floor(3·sigma)` (minimum 1).
+/// Normalised 1-D Gaussian kernel, sized by [`kernel_radius`] (libvips'
+/// amplitude cutoff, not a fixed multiple of sigma — see its doc comment).
 ///
-/// A deviation from a literal `ceil(3·sigma)`: rounding up, rather than
-/// down, adds one more tap on each side than a small image can back up with
-/// real pixels. On a 9-wide row centred on the peak, `ceil(3·1.5) = 5`
-/// reaches taps at offset ±5 that clamp-to-edge maps onto the *same* edge
-/// pixel as several neighbouring taps (over-weighting the edge) while the
-/// output positions those taps would have landed on past the far edge
-/// simply don't exist (that mass is dropped, not redistributed) — together
-/// these lose enough of a small Gaussian's mass, after 8-bit rounding, to
-/// fail energy conservation (measured: sum 246 of 255 on the impulse
-/// fixture below, outside the test's ±6 budget). `floor(3·1.5) = 4` spans
-/// the row's 9 pixels exactly (offsets −4..+4 from a centred peak), so every
-/// tap lands on a real pixel with no truncation or edge-duplication loss
-/// (measured: sum 250). The truncated tail lands a little closer to the
-/// peak than a true three-sigma cutoff — around the 3% mark rather than
-/// 0.3% — which is immaterial next to the 8-bit quantisation this filter
-/// already accepts.
+/// At sigma 1.5 (the impulse fixture below) that's radius 3, and the
+/// pre-rounding float sum across the blurred 9x9 impulse is 254.99999... —
+/// i.e. convolution at this radius loses essentially none of the impulse's
+/// mass to boundary clamping. What the *rounded* `u8` total falls slightly
+/// short of 255 by is ordinary rounding bias: the blurred impulse spreads
+/// into many small fractional values, most of them below 0.5, and rounding
+/// each one down individually loses a little energy even though the float
+/// total was exact. That bias only gets worse as the radius grows past the
+/// image's own half-width — at radius 5 (the literal `ceil(3·sigma)` this
+/// file used before this fix) taps starting reading the same clamped edge
+/// pixel more than once while their matching *output* positions fall off
+/// the far edge and are simply never written, which is a real (if small)
+/// loss of mass on top of the rounding bias, and together are why that
+/// radius failed conservation outright.
 fn gaussian_kernel(sigma: f64) -> Vec<f64> {
-    let radius = ((sigma * 3.0) as i64).max(1);
+    let radius = kernel_radius(sigma);
     let raw: Vec<f64> = (-radius..=radius)
         .map(|i| (-(i as f64 * i as f64) / (2.0 * sigma * sigma)).exp())
         .collect();
@@ -216,15 +233,23 @@ impl RasterImage {
     /// Both filter the alpha channel, as libvips does; on a 4-channel image
     /// the colour channels are premultiplied by alpha before convolving and
     /// unpremultiplied afterwards (see the module doc, #3548).
+    ///
+    /// An out-of-range sigma is a caller-parameter error, not a decode
+    /// failure, so it's reported as [`Error::Pipeline`] rather than
+    /// [`Error::Decode`] (whose message reads "rawler failed to decode
+    /// `<memory>`: …", which would be misleading here). The rest of the
+    /// `raster_*` family (`raster_composite`'s layer-size and offset checks
+    /// among them) still reports parameter errors as `Error::Decode` for the
+    /// same `"<memory>"` placeholder reason — that's a pre-existing
+    /// inconsistency this task doesn't fix crate-wide, only in this file.
     pub fn blur(&self, sigma: Option<f64>) -> Result<Self> {
         let kernel = match sigma {
             None => vec![1.0 / 3.0; 3],
             Some(s) if (MIN_SIGMA..=MAX_SIGMA).contains(&s) => gaussian_kernel(s),
             Some(s) => {
-                return Err(Error::Decode {
-                    path: "<memory>".into(),
-                    reason: format!("blur sigma {s} is outside [{MIN_SIGMA}, {MAX_SIGMA}]"),
-                })
+                return Err(Error::Pipeline(format!(
+                    "blur sigma {s} is outside [{MIN_SIGMA}, {MAX_SIGMA}]"
+                )))
             }
         };
         let premultiplied = premultiply(self);
@@ -234,119 +259,5 @@ impl RasterImage {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A single white pixel at the centre of a black `n`x`n` field.
-    fn impulse(n: u32) -> RasterImage {
-        let centre = n / 2;
-        let data = (0..n)
-            .flat_map(|y| {
-                (0..n).flat_map(move |x| {
-                    if x == centre && y == centre {
-                        [255u8, 255, 255]
-                    } else {
-                        [0, 0, 0]
-                    }
-                })
-            })
-            .collect();
-        RasterImage::new_rgb(n, n, data)
-    }
-
-    fn at(img: &RasterImage, x: u32, y: u32) -> u8 {
-        img.data[((y * img.width + x) * img.channels as u32) as usize]
-    }
-
-    #[test]
-    fn blur_spreads_an_impulse_symmetrically() {
-        let out = impulse(9).blur(Some(1.5)).unwrap();
-        assert_eq!((out.width, out.height), (9, 9));
-        assert!(at(&out, 4, 4) < 255, "the peak must fall");
-        assert!(at(&out, 4, 4) > 0);
-        // Symmetry in both axes is the strongest evidence the separable pass
-        // is wired the right way round.
-        assert_eq!(at(&out, 3, 4), at(&out, 5, 4));
-        assert_eq!(at(&out, 4, 3), at(&out, 4, 5));
-        assert_eq!(at(&out, 3, 4), at(&out, 4, 3));
-    }
-
-    #[test]
-    fn blur_conserves_total_energy() {
-        let out = impulse(9).blur(Some(1.5)).unwrap();
-        let total: u32 = out.data.iter().step_by(3).map(|&v| v as u32).sum();
-        assert!(
-            (total as i64 - 255).abs() <= 6,
-            "a normalised kernel should conserve the 255 it started with, got {total}"
-        );
-    }
-
-    #[test]
-    fn blur_with_no_sigma_is_the_3x3_box() {
-        // sharp: "performs a fast 3x3 box blur". 255/9 = 28.33 -> 28.
-        let out = impulse(5).blur(None).unwrap();
-        assert_eq!(at(&out, 2, 2), 28);
-        assert_eq!(at(&out, 1, 1), 28);
-        assert_eq!(at(&out, 0, 0), 0, "the box has a radius of one");
-    }
-
-    #[test]
-    fn blur_leaves_a_flat_field_flat() {
-        let flat = RasterImage::new_rgb(8, 8, vec![77; 8 * 8 * 3]);
-        let out = flat.blur(Some(3.0)).unwrap();
-        assert!(
-            out.data.iter().all(|&v| v == 77),
-            "clamp-to-edge must not darken the border"
-        );
-    }
-
-    #[test]
-    fn blur_filters_the_alpha_channel_too() {
-        // Half opaque, half transparent — blurring must produce a gradient in
-        // the alpha channel, which is how libvips' gaussblur behaves.
-        let data = (0..1u32)
-            .flat_map(|_| (0..8u32).flat_map(|x| [200u8, 200, 200, if x < 4 { 255 } else { 0 }]))
-            .collect();
-        let img = RasterImage::new_rgba(8, 1, data);
-        let out = img.blur(Some(1.5)).unwrap();
-        assert!(
-            out.data[4 * 4 + 3] < 255 && out.data[4 * 4 + 3] > 0,
-            "alpha did not blur"
-        );
-    }
-
-    #[test]
-    fn an_out_of_range_sigma_is_rejected() {
-        assert!(impulse(5).blur(Some(0.0)).is_err());
-        assert!(impulse(5).blur(Some(2000.0)).is_err());
-    }
-
-    #[test]
-    fn blur_zeroes_colour_where_alpha_stays_fully_transparent() {
-        // A 255-alpha impulse on a fully-transparent field: far from the
-        // impulse, alpha must stay 0 (the kernel's support is local), and
-        // colour there must be exactly 0 rather than some divided-back-out
-        // remainder of the unpremultiply.
-        let n = 9u32;
-        let centre = n / 2;
-        let data = (0..n)
-            .flat_map(|y| {
-                (0..n).flat_map(move |x| {
-                    if x == centre && y == centre {
-                        [255u8, 255, 255, 255]
-                    } else {
-                        [0, 0, 0, 0]
-                    }
-                })
-            })
-            .collect();
-        let img = RasterImage::new_rgba(n, n, data);
-        let out = img.blur(Some(0.5)).unwrap();
-        assert_eq!(at(&out, 0, 0), 0);
-        let corner_alpha = out.data[((0 * n + 0) * 4 + 3) as usize];
-        assert_eq!(
-            corner_alpha, 0,
-            "a small sigma must not spread alpha to the far corner"
-        );
-    }
-}
+#[path = "raster_filter_tests.rs"]
+mod tests;
