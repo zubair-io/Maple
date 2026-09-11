@@ -83,6 +83,24 @@ mod tests {
     }
 
     #[test]
+    fn extract_keeps_the_alpha_channel() {
+        let src = RasterImage::new_rgba(
+            3,
+            2,
+            vec![
+                1, 1, 1, 10, 2, 2, 2, 20, 3, 3, 3, 30, // row 0
+                4, 4, 4, 40, 5, 5, 5, 50, 6, 6, 6, 60, // row 1
+            ],
+        );
+        let out = src.extract(1, 0, 2, 2).unwrap();
+        assert_eq!((out.width, out.height, out.channels), (2, 2, 4));
+        assert_eq!(
+            out.data,
+            vec![2, 2, 2, 20, 3, 3, 3, 30, 5, 5, 5, 50, 6, 6, 6, 60]
+        );
+    }
+
+    #[test]
     fn flip_mirrors_vertically() {
         assert_eq!(firsts(&ramp_rgb().flip()), vec![4, 5, 6, 1, 2, 3]);
     }
