@@ -27,6 +27,12 @@ rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8",
 avif-parse = "2"
 # Direct dep so raster decode can turn strict mode OFF (image's wrapper cannot).
 zune-jpeg = "0.5"
+# Pure-Rust JPEG ENCODER with progressive scans, selectable chroma subsampling
+# and optimised Huffman tables — none of which `image`'s built-in encoder
+# offers. Zero runtime dependencies (its only dep is a dev-dependency on
+# jpeg-decoder), so the Linux zero-dependency linkage audit still passes. The
+# `simd` feature needs nightly and is deliberately NOT enabled.
+jpeg-encoder = "0.7"
 fast_image_resize = { version = "5.5", default-features = false, features = ["image", "rayon"] }
 png = "0.17"
 quick-xml = "0.37"
