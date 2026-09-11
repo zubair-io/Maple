@@ -13,16 +13,17 @@ import { mkdtemp, rm, realpath, readFile, writeFile, readdir, stat } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ObjectId } from 'mongodb';
-import sharp from 'sharp';
+import { maple } from 'maple';
 
 import { previewPathRoutes } from './preview.ts';
 import { setLibraryRootsForTests, invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import * as imgdecodePoolModule from '../thumbs/imgdecode-pool.ts';
+import * as bitmapPoolModule from '../thumbs/bitmap-pool.ts';
 import { checkAvifOutput } from '../thumbs/avif-checks.ts';
+import { solidRgb, solidJpeg } from '../test-support/synth-image.ts';
 
 /**
  * `validateAvifOutput` (called by every test below, via `publishStagedPreview`)
- * dispatches to the isolated imgdecode child pool (#2257 — moved off the API
+ * dispatches to the isolated FFI child pool (#2257/#3499 — moved off the API
  * process, same as the JPEG-transcode render call this file already stubs
  * below). Stubbed file-wide, in a top-level (not per-describe) hook, to the
  * real `checkAvifOutput` predicate in-process: still a genuine decode (every
@@ -34,7 +35,7 @@ import { checkAvifOutput } from '../thumbs/avif-checks.ts';
 let validateStubSpy: { mockRestore(): void } | null = null;
 
 beforeEach(() => {
-  validateStubSpy = spyOn(imgdecodePoolModule, 'validateAvifViaPool').mockImplementation(
+  validateStubSpy = spyOn(bitmapPoolModule, 'validateAvifViaPool').mockImplementation(
     (filePath: string, expectedLongEdgePx: number) => checkAvifOutput(filePath, expectedLongEdgePx),
   );
 });
@@ -46,14 +47,14 @@ afterEach(() => {
 
 /** A genuine, small, untagged-sRGB AVIF (≤ 1280 long edge) that passes the
  * #2014 `validateAvifOutput` gate — same encode shape as the render pipeline
- * (no ICC profile, no orientation tag, baked pixels). */
+ * (no orientation tag, baked pixels). */
 async function validAvif(): Promise<Buffer> {
   const width = 64;
   const height = 48;
   const raw = Buffer.alloc(width * height * 3);
   for (let i = 0; i < raw.length; i++) raw[i] = i % 251;
-  return sharp(raw, { raw: { width, height, channels: 3 } })
-    .avif({ quality: 60, effort: 2 })
+  return maple({ data: raw, width, height, channels: 3 })
+    .toFormat('avif', { quality: 60, effort: 2 })
     .toBuffer();
 }
 
@@ -104,10 +105,8 @@ describe('PUT /api/preview', () => {
   it('overwrites an existing preview in place (pure cache, no versioning)', async () => {
     const original = join(tmp, 'a.dng');
     const first = await validAvif();
-    const second = await sharp({
-      create: { width: 80, height: 60, channels: 3, background: { r: 10, g: 20, b: 30 } },
-    })
-      .avif({ quality: 60, effort: 2 })
+    const second = await maple(solidRgb(80, 60, [10, 20, 30]))
+      .toFormat('avif', { quality: 60, effort: 2 })
       .toBuffer();
 
     expect((await put(original, first)).status).toBe(204);
@@ -165,14 +164,13 @@ describe('PUT /api/preview', () => {
  * before publishing.
  *
  * These stub ONLY the isolated-child subprocess boundary
- * (`renderImageThumbToFileViaPool`), transcoding in-process via sharp
+ * (`renderImageThumbToFileViaPool`), transcoding in-process via `maple`
  * instead — so a genuine AVIF still lands on disk and passes the real
  * `validateAvifOutput` gate (decode-verified, not asserted-by-mock), while
  * the route's own logic (format sniffing, the validation gate, atomic
  * publish, error mapping) is exercised end-to-end. Spawning the real child
  * here too added enough child-process churn to destabilise the shared pool
- * singleton under CI's constrained resources. The real isolated-child
- * transcode is covered by `imgdecode-pool.test.ts`'s own integration test.
+ * singleton under CI's constrained resources.
  *
  * Stubbed via `spyOn` on the module namespace, NOT `mock.module` — #2032
  * proved a `mock.module` fake can leak past its restore on CI's (linux)
@@ -185,7 +183,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
   let tmp = '';
   let renderStubSpy: { mockRestore(): void } | null = null;
 
-  // `body` accepts a Buffer too (every caller below hands one in — sharp's
+  // `body` accepts a Buffer too (every caller below hands one in — Maple's
   // `.toBuffer()` and `Buffer.from()` both return `Buffer`) and re-wraps it as
   // a plain `Uint8Array`: Node's `Buffer` type doesn't structurally satisfy
   // DOM's `BodyInit` under this tsconfig even though it IS one at runtime
@@ -204,11 +202,11 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-put-preview-jpeg-')));
     setLibraryRootsForTests(new Map([[new ObjectId().toHexString(), tmp]]));
     process.env.MAPLE_ROOTS = tmp;
-    // Transcode in-process via sharp (no child subprocess) — see the block
+    // Transcode in-process via `maple` (no child subprocess) — see the block
     // doc. Mirrors the pool's contract: writes a genuine AVIF to `outPath`
     // and returns `{ ok: false }` on an undecodable source (the route maps
     // that to 422).
-    renderStubSpy = spyOn(imgdecodePoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
+    renderStubSpy = spyOn(bitmapPoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
       async (
         srcPath: string,
         outPath: string,
@@ -216,9 +214,9 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
         quality: number,
       ): Promise<{ ok: boolean; error?: string }> => {
         try {
-          const out = await sharp(await readFile(srcPath))
+          const out = await maple(await readFile(srcPath))
             .resize({ width: maxPx, height: maxPx, fit: 'inside', withoutEnlargement: true })
-            .avif({ quality })
+            .toFormat('avif', { quality })
             .toBuffer();
           await writeFile(outPath, out);
           return { ok: true };
@@ -241,21 +239,14 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
 
   it('transcodes a JPEG body to genuine AVIF on disk and returns 204', async () => {
     const original = join(tmp, 'IMG_5555.NEF');
-    const jpeg = await sharp({
-      create: { width: 200, height: 150, channels: 3, background: { r: 12, g: 200, b: 90 } },
-    })
-      .jpeg({ quality: 90 })
-      .toBuffer();
+    const jpeg = await solidJpeg(200, 150, [12, 200, 90], 90);
 
     const res = await putBody(original, jpeg);
     expect(res.status).toBe(204);
 
     const previewPath = join(tmp, '.maple', 'previews', 'IMG_5555.NEF.avif');
-    const meta = await sharp(previewPath).metadata();
-    // sharp reports AVIF as format "heif"/compression "av1" — see
-    // `validate-avif.ts`'s module doc for why.
-    expect(meta.format).toBe('heif');
-    expect(meta.compression).toBe('av1');
+    const meta = await maple(previewPath).metadata();
+    expect(meta.format).toBe('avif');
     expect(meta.width).toBeLessThanOrEqual(200);
     expect(meta.height).toBeLessThanOrEqual(150);
 
@@ -266,24 +257,20 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
 
   it('sniffs JPEG via magic bytes when Content-Type is generic/missing', async () => {
     const original = join(tmp, 'sniffed.dng');
-    const jpeg = await sharp({
-      create: { width: 64, height: 64, channels: 3, background: { r: 1, g: 2, b: 3 } },
-    })
-      .jpeg()
-      .toBuffer();
+    const jpeg = await solidJpeg(64, 64, [1, 2, 3]);
 
     const res = await putBody(original, jpeg, 'application/octet-stream');
     expect(res.status).toBe(204);
 
     const previewPath = join(tmp, '.maple', 'previews', 'sniffed.dng.avif');
-    const meta = await sharp(previewPath).metadata();
-    expect(meta.format).toBe('heif');
+    const meta = await maple(previewPath).metadata();
+    expect(meta.format).toBe('avif');
   }, 15_000);
 
   it('rejects an undecodable JPEG body with 422 and writes nothing', async () => {
     const original = join(tmp, 'bad.dng');
     // Passes the magic-byte sniff (SOI marker) but has no actual image data
-    // for sharp to decode — the transcode reports { ok: false }.
+    // for Maple's decoder to decode — the transcode reports { ok: false }.
     const corrupt = new Uint8Array([0xff, 0xd8, 0xff]);
 
     const res = await putBody(original, corrupt);
@@ -310,8 +297,8 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     const original = join(tmp, 'still-avif.dng');
     const raw = Buffer.alloc(32 * 24 * 3);
     for (let i = 0; i < raw.length; i++) raw[i] = i % 251;
-    const avif = await sharp(raw, { raw: { width: 32, height: 24, channels: 3 } })
-      .avif({ quality: 60, effort: 2 })
+    const avif = await maple({ data: raw, width: 32, height: 24, channels: 3 })
+      .toFormat('avif', { quality: 60, effort: 2 })
       .toBuffer();
 
     const res = await putBody(original, avif, 'image/avif');

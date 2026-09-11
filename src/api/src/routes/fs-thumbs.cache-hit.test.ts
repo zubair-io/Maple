@@ -47,11 +47,12 @@ import {
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import sharp from 'sharp';
+import { maple } from 'maple';
 import { fsThumbsRoutes } from './fs-thumbs.ts';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { browseRoots } from '../fs/browse.ts';
-import * as imgdecodePool from '../thumbs/imgdecode-pool.ts';
+import * as bitmapPool from '../thumbs/bitmap-pool.ts';
+import { solidRgb } from '../test-support/synth-image.ts';
 
 function get(p: string): Promise<Response> {
   const app = new Elysia().use(fsThumbsRoutes);
@@ -117,15 +118,8 @@ describe('GET /api/fs/thumb — cache hit is ONE fs op (#2258)', () => {
 
   it('falls through to the render path when no cached thumb exists', async () => {
     const rawPath = join(tmp!, 'b.jpg');
-    await sharp({
-      create: {
-        width: 8,
-        height: 8,
-        channels: 3,
-        background: { r: 200, g: 40, b: 40 },
-      },
-    })
-      .jpeg()
+    await maple(solidRgb(8, 8, [200, 40, 40]))
+      .toFormat('jpeg')
       .toFile(rawPath);
 
     const res = await get(rawPath);
@@ -134,8 +128,8 @@ describe('GET /api/fs/thumb — cache hit is ONE fs op (#2258)', () => {
     expect(res.headers.get('Content-Type')).toBe('image/avif');
 
     // Decode-verified: the render path must have produced a real AVIF.
-    const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
-    expect(meta.format).toBe('heif');
+    const meta = await maple(Buffer.from(await res.arrayBuffer())).metadata();
+    expect(meta.format).toBe('avif');
 
     // And the thumb is now on disk for the next request's fast path.
     const thumbPath = resolveThumbPath(rawPath);
@@ -169,15 +163,13 @@ describe('GET /api/fs/thumb — cache hit is ONE fs op (#2258)', () => {
     // different filename (so `resolveThumbPath`'s basename hash differs
     // between the literal request path and the realpath-resolved target).
     const realPath = join(tmp!, 'real.jpg');
-    await sharp({
-      create: { width: 8, height: 8, channels: 3, background: { r: 10, g: 200, b: 10 } },
-    })
-      .jpeg()
+    await maple(solidRgb(8, 8, [10, 200, 10]))
+      .toFormat('jpeg')
       .toFile(realPath);
     const linkPath = join(tmp!, 'link.jpg');
     await symlink(realPath, linkPath);
 
-    const renderSpy = spyOn(imgdecodePool, 'renderImageThumbToFileViaPool');
+    const renderSpy = spyOn(bitmapPool, 'renderImageThumbToFileViaPool');
     try {
       // First request: nothing cached under EITHER key, so this renders.
       const first = await get(linkPath);
@@ -238,7 +230,7 @@ describe('GET /api/fs/thumb — cache hit is ONE fs op (#2258)', () => {
     // Render is stubbed to fail so the request cannot fall through into a real
     // decode — this asserts the FAST path refused, rather than a re-render
     // happening to overwrite the symlink first.
-    const renderSpy = spyOn(imgdecodePool, 'renderImageThumbToFileViaPool').mockResolvedValue({
+    const renderSpy = spyOn(bitmapPool, 'renderImageThumbToFileViaPool').mockResolvedValue({
       ok: false,
       error: 'stubbed',
     });

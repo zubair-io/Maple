@@ -30,7 +30,6 @@ import { startDiscover, type DiscoverHandle } from './discover/index.ts';
 import { sweepOrphanedCaches } from './cache-gc.ts';
 import { bootstrapFfiPool } from '../ffi/ffi-pool-bootstrap.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { imgdecodePool } from '../thumbs/imgdecode-pool.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
 import { getFaceModelsStatus } from '../enrichment/face-models.ts';
@@ -227,18 +226,13 @@ export async function stopWorkers(): Promise<void> {
     log.warn({ err: e }, 'error stopping worker stages');
   }
 
-  // Reap the FFI decode child processes.
+  // Reap the FFI decode child processes — the same pool now also renders
+  // and validates non-RAW (JPEG/PNG/WEBP/TIFF/AVIF/HEIC/PSD/HDR) bitmap
+  // thumbnails via Maple, so a single shutdown call covers both.
   try {
     ffiPool().shutdown();
   } catch (e) {
     log.warn({ err: e }, 'error shutting down FFI decode pool');
-  }
-
-  // Reap the non-RAW (sharp + heic-convert) decode child process.
-  try {
-    imgdecodePool().shutdown();
-  } catch (e) {
-    log.warn({ err: e }, 'error shutting down imgdecode pool');
   }
 
   await Promise.all([

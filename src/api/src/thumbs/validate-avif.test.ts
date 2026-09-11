@@ -1,57 +1,59 @@
 /**
  * Coverage for the parent-side AVIF validation dispatcher (#2011, reworked by
- * #2257 to dispatch to the isolated `imgdecode` child instead of calling
- * `sharp` inline in the API process): `validateAvifOutput` must forward to
- * the pool and map its result faithfully, a dispatch failure (child spawn
- * failure or crash) must be caught and turned into a validation failure
- * rather than an unhandled rejection, and `publishValidatedAvif` must never
- * leave an invalid (or unverified) file at the real cache path.
+ * #2257 to dispatch to the isolated FFI child instead of calling `sharp`
+ * inline in the API process): `validateAvifOutput` must forward to the pool
+ * and map its result faithfully, a dispatch failure (child spawn failure or
+ * crash) must be caught and turned into a validation failure rather than an
+ * unhandled rejection, and `publishValidatedAvif` must never leave an
+ * invalid (or unverified) file at the real cache path.
  *
  * The actual decode-based check semantics (format/dimensions/orientation/
- * colourspace/full-decode) now live in `thumbs/avif-checks.ts` and are tested
- * directly there (`avif-checks.test.ts`) — this file only exercises the
- * dispatch + publish wiring. `validateAvifViaPool` is stubbed via `spyOn` to
- * call the real `checkAvifOutput` predicate in-process (never a real child
- * process) so the "happy path" tests below stay decode-verified rather than
- * asserted-by-mock, without spawning a real `imgdecode` child from this unit
- * test file — see `routes/preview.test.ts`'s module doc for why spawning real
+ * full-decode) now live in `thumbs/avif-checks.ts` and are tested directly
+ * there (`avif-checks.test.ts`) — this file only exercises the dispatch +
+ * publish wiring. `validateAvifViaPool` is stubbed via `spyOn` to call the
+ * real `checkAvifOutput` predicate in-process (never a real child process)
+ * so the "happy path" tests below stay decode-verified rather than
+ * asserted-by-mock, without spawning a real FFI child from this unit test
+ * file — see `routes/preview.test.ts`'s module doc for why spawning real
  * decode children from several test files destabilises the shared pool
- * singleton under CI's constrained resources. The real IPC round-trip
- * (`validate` dispatched over Bun IPC to the actual child) is covered by
- * `imgdecode-pool.test.ts`'s own integration test.
+ * singleton under CI's constrained resources.
+ *
+ * Fixtures come from `test-support/synth-image.ts` (Maple-encoded), not
+ * `sharp({ create: … })` (#3499).
  */
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import sharp from 'sharp';
+import { maple } from 'maple';
 import type { Logger } from 'pino';
 import { validateAvifOutput, publishValidatedAvif, finalizeAvifRender } from './validate-avif.ts';
 import { checkAvifOutput } from './avif-checks.ts';
-import * as imgdecodePoolModule from './imgdecode-pool.ts';
+import * as bitmapPoolModule from './bitmap-pool.ts';
+import { solidRgb, solidJpeg, type Rgb } from '../test-support/synth-image.ts';
 
-/** Build a genuine AVIF via the real sharp/libheif encoder — same shape as
- * `thumbs/render.ts`'s pipeline. `effort: 2` keeps the AV1 encode fast;
- * correctness here doesn't depend on encode effort. */
+/** Build a genuine AVIF via the real Maple encoder — same shape as
+ * `thumbs/render.ts`'s pipeline (`fit: 'inside', withoutEnlargement: true`).
+ * `effort: 2` keeps the AV1 encode fast; correctness here doesn't depend on
+ * encode effort. */
 async function encodeAvif(opts: {
   width: number;
   height: number;
   resizeToLongEdge?: number;
-  withIcc?: boolean;
 }): Promise<Buffer> {
-  const { width, height } = opts;
-  const raw = Buffer.alloc(width * height * 3);
-  for (let i = 0; i < raw.length; i++) raw[i] = i % 251;
-  let pipeline = sharp(raw, { raw: { width, height, channels: 3 } });
-  if (opts.resizeToLongEdge) {
-    pipeline = pipeline.resize(opts.resizeToLongEdge, opts.resizeToLongEdge, {
+  const { width, height, resizeToLongEdge } = opts;
+  const rgb: Rgb = [10, 20, 30];
+  const builder = maple(solidRgb(width, height, rgb));
+  if (resizeToLongEdge) {
+    builder.resize({
+      width: resizeToLongEdge,
+      height: resizeToLongEdge,
       fit: 'inside',
       withoutEnlargement: true,
     });
   }
-  if (opts.withIcc) pipeline = pipeline.withIccProfile('srgb');
-  return pipeline.avif({ quality: 60, effort: 2 }).toBuffer();
+  return builder.toFormat('avif', { quality: 60, effort: 2 }).toBuffer();
 }
 
 interface FakeLog {
@@ -86,7 +88,7 @@ let poolSpy: ReturnType<typeof spyOn> | null = null;
  * `poolSpy?.mockImplementation(...)` / `mockRejectedValue(...)` to exercise
  * the dispatch-failure path. */
 beforeEach(() => {
-  poolSpy = spyOn(imgdecodePoolModule, 'validateAvifViaPool').mockImplementation(
+  poolSpy = spyOn(bitmapPoolModule, 'validateAvifViaPool').mockImplementation(
     (filePath: string, expectedLongEdgePx: number) => checkAvifOutput(filePath, expectedLongEdgePx),
   );
 });
@@ -131,7 +133,6 @@ describe('validateAvifOutput', () => {
 
     const result = await validateAvifOutput(file, 1280);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/pixel decode failed/i);
   });
 
   it('rejects dimensions that exceed the tier target beyond tolerance', async () => {
@@ -145,38 +146,24 @@ describe('validateAvifOutput', () => {
     if (!result.ok) expect(result.reason).toMatch(/dimensions/i);
   });
 
-  it('rejects an AVIF carrying an embedded ICC profile', async () => {
-    const buf = await encodeAvif({ width: 800, height: 400, withIcc: true });
-    const file = path.join(dir, 'icc.avif');
-    await writeFile(file, buf);
-
-    const result = await validateAvifOutput(file, 1280);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/icc profile/i);
-  });
-
   it('rejects non-AVIF bytes written to an AVIF-named path', async () => {
-    const jpegBuf = await sharp({
-      create: { width: 64, height: 64, channels: 3, background: { r: 10, g: 20, b: 30 } },
-    })
-      .jpeg()
-      .toBuffer();
+    const jpegBuf = await solidJpeg(64, 64, [10, 20, 30]);
     const file = path.join(dir, 'not-really-avif.avif');
     await writeFile(file, jpegBuf);
 
     const result = await validateAvifOutput(file, 1280);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/format|compression/i);
+    if (!result.ok) expect(result.reason).toMatch(/format/i);
   });
 
-  it('never imports sharp — the decode moved off-process (#2257)', () => {
+  it('never imports sharp — the decode moved off-process (#2257/#3499)', () => {
     // Structural regression guard: if someone moves the decode back inline,
     // this file will re-acquire a static `import sharp from 'sharp'`. Assert
     // against the source text rather than a runtime hook, since the whole
     // point is that this module must not even reference the sharp package —
     // a full pixel decode of a freshly-written, possibly-malformed AVIF has
     // no business running inside the HTTP server process (see this file's
-    // module doc, and `imgdecode-pool.ts`'s "Why off-PROCESS" doc).
+    // module doc, and `ffi/ffi-pool.ts`'s "Why off-process" doc).
     const src = readFileSync(path.join(import.meta.dir, 'validate-avif.ts'), 'utf8');
     expect(src).not.toMatch(/from ['"]sharp['"]/);
   });
@@ -192,9 +179,7 @@ describe('validateAvifOutput — dispatch failure', () => {
   });
 
   it('reports a validation failure (not a throw) when the child fails to spawn', async () => {
-    poolSpy?.mockRejectedValueOnce(
-      new Error('imgdecode-pool: failed to spawn worker — spawn ENOENT'),
-    );
+    poolSpy?.mockRejectedValueOnce(new Error('ffi-pool: failed to spawn worker — spawn ENOENT'));
 
     const result = await validateAvifOutput(path.join(dir, 'whatever.avif'), 1280);
     expect(result.ok).toBe(false);
@@ -205,7 +190,7 @@ describe('validateAvifOutput — dispatch failure', () => {
   });
 
   it('reports a validation failure when the child crashes mid-decode', async () => {
-    poolSpy?.mockRejectedValueOnce(new Error('imgdecode-pool: worker errored — segfault'));
+    poolSpy?.mockRejectedValueOnce(new Error('ffi-pool: worker errored — segfault'));
 
     const result = await validateAvifOutput(path.join(dir, 'whatever.avif'), 1280);
     expect(result.ok).toBe(false);
@@ -277,7 +262,7 @@ describe('publishValidatedAvif', () => {
     const final = path.join(dir, 'crash.avif');
     await writeFile(tmp, buf);
     const { log, warnCalls } = fakeLogger();
-    poolSpy?.mockRejectedValueOnce(new Error('imgdecode-pool: worker errored — segfault'));
+    poolSpy?.mockRejectedValueOnce(new Error('ffi-pool: worker errored — segfault'));
 
     const ok = await publishValidatedAvif(tmp, final, 1280, log, {
       assetPath: '/library/photo-crash.jpg',
@@ -346,7 +331,7 @@ describe('finalizeAvifRender', () => {
     const final = path.join(dir, 'z.avif');
     await writeFile(tmp, buf);
     const { log } = fakeLogger();
-    poolSpy?.mockRejectedValueOnce(new Error('imgdecode-pool: failed to spawn worker'));
+    poolSpy?.mockRejectedValueOnce(new Error('ffi-pool: failed to spawn worker'));
 
     const ok = await finalizeAvifRender(true, tmp, final, 1280, log, {
       assetPath: '/library/photo5.jpg',

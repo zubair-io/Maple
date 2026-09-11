@@ -2,27 +2,28 @@
  * Decode-based validation for AVIF cache derivatives (thumbs + previews).
  *
  * `indexer/thumbnailer.ts` and `indexer/previewer.ts` both write through
- * `ffiPool().renderThumbnailAvifToFile` (Rust) or `renderImageThumbToFileViaPool`
- * (sharp, via the isolated `imgdecode` child) to encode a resized AVIF. Both
- * of those encoders already write atomically (temp file + rename) internally,
- * so a crash or `ENOSPC` mid-write can't leave a half-written file at the
- * final cache path. What neither encoder validates is the CONTENT of what it
- * successfully wrote: a completed-but-corrupt encode (a codec edge case, a
- * resize bug, a source silently mis-decoded) can still finish writing and get
- * renamed into place looking like a good cache entry.
+ * `ffiPool().renderThumbnailAvifToFile` (Rust, for RAW) or
+ * `renderImageThumbToFileViaPool` (Maple, via the isolated FFI child) to
+ * encode a resized AVIF. Both of those encoders already write atomically
+ * (temp file + rename) internally, so a crash or `ENOSPC` mid-write can't
+ * leave a half-written file at the final cache path. What neither encoder
+ * validates is the CONTENT of what it successfully wrote: a completed-but-
+ * corrupt encode (a codec edge case, a resize bug, a source silently
+ * mis-decoded) can still finish writing and get renamed into place looking
+ * like a good cache entry.
  *
  * `validateAvifOutput` closes that gap with a real decode — dispatched to the
- * isolated `imgdecode` child via `validateAvifViaPool` (#2257). It used to run
+ * same isolated FFI child via `validateAvifViaPool` (#2257). It used to run
  * `sharp(filePath)` directly in THIS (the API parent) process, which added a
  * full pixel decode to every concurrent request while the thumb/preview
  * stages were running (~300ms measured on an SMB-backed library) and, worse,
  * ran a decode of a freshly-written, possibly-malformed file — exactly the
- * input most likely to trip a libheif/libvips crash — inside the HTTP server
- * (see `imgdecode-pool.ts`'s "Why off-PROCESS" module doc). The actual check
- * semantics (format/dimensions/orientation/colourspace/full-decode) now live
- * in `thumbs/avif-checks.ts`, imported only by the child
- * (`imgdecode.child.ts`) — this file stays importable from the parent
- * without pulling sharp (and libvips/libheif) into its address space.
+ * input most likely to trip a native decoder crash — inside the HTTP server
+ * (see `ffi/ffi-pool.ts`'s "Why off-process" module doc). The actual check
+ * semantics (format/dimensions/orientation/full-decode) now live in
+ * `thumbs/avif-checks.ts`, imported only by the child (`ffi/raw_ffi.child.ts`)
+ * — this file stays importable from the parent without pulling Maple's
+ * native decoder into its address space.
  *
  * `publishValidatedAvif` is the write-side half: given bytes already encoded
  * to a private temp path, it validates them and only then renames into the
@@ -36,7 +37,7 @@
 
 import * as fs from 'node:fs/promises';
 import type { Logger } from 'pino';
-import { validateAvifViaPool } from './imgdecode-pool.ts';
+import { validateAvifViaPool } from './bitmap-pool.ts';
 import type { AvifValidationResult } from './avif-checks.ts';
 
 // Re-exported (not redefined) so the parent-side public surface keeps this
@@ -62,11 +63,10 @@ function errMessage(e: unknown): string {
 }
 
 /**
- * Decode `filePath` via the isolated imgdecode child and confirm it's a
+ * Decode `filePath` via the isolated FFI child and confirm it's a
  * genuine, complete, correctly-sized AVIF matching this pipeline's encode
  * conventions — see `thumbs/avif-checks.ts#checkAvifOutput` for the actual
- * check semantics (format/dimensions/orientation/colourspace/full-decode,
- * cheapest-first).
+ * check semantics (format/dimensions/orientation/full-decode, cheapest-first).
  *
  * A dispatch failure — the child failed to spawn, or crashed while decoding
  * this specific (possibly poison) file — is caught here and reported as a
@@ -130,7 +130,7 @@ export async function publishValidatedAvif(
 
 /**
  * Shared by `previewer.ts`/`thumbnailer.ts` after every render branch
- * (RAW-FFI, sharp bitmap, or thumbnailer's last-resort copy fallback) has
+ * (RAW-FFI, Maple bitmap, or thumbnailer's last-resort copy fallback) has
  * attempted to write `tmpPath`: if the render itself failed, discard
  * `tmpPath`; if it succeeded, hand off to `publishValidatedAvif`. Returns
  * whether a good AVIF now exists at `finalPath`.

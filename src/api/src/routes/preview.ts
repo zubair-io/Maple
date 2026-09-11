@@ -28,10 +28,10 @@
  *     #2017.
  *   - **JPEG body** (the common case today — no browser ships canvas AVIF
  *     encode): staged to a temp file and transcoded to AVIF via
- *     `renderImageThumbToFileViaPool`, the SAME isolated-child-process sharp
- *     pipeline `indexer/previewer.ts` uses for bitmap sources — so a
+ *     `renderImageThumbToFileViaPool`, the SAME isolated FFI child pool
+ *     (Maple) `indexer/previewer.ts` uses for bitmap sources — so a
  *     malformed/hostile JPEG can only crash that isolated child, never this
- *     HTTP process (see `thumbs/imgdecode-pool.ts`'s module doc for why the
+ *     HTTP process (see `thumbs/bitmap-pool.ts`'s module doc for why the
  *     isolation exists).
  *
  * Both branches converge on the same gate before publish: the resulting AVIF
@@ -52,7 +52,7 @@ import { randomBytes } from 'node:crypto';
 import { cachePathFor } from '../fs/xmp.ts';
 import { PREVIEW_CACHE_SUFFIX, PREVIEW_LONG_EDGE_PX } from '../indexer/previewer.ts';
 import { validateAvifOutput } from '../thumbs/validate-avif.ts';
-import { renderImageThumbToFileViaPool } from '../thumbs/imgdecode-pool.ts';
+import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { child as childLogger } from '../log.ts';
 

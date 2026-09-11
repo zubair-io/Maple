@@ -2,18 +2,18 @@
  * End-to-end coverage for #2011: `generateThumb`/`generatePreview` must
  * route their AVIF encode through `publishValidatedAvif` (temp path →
  * decode-validate → rename) rather than writing straight to the final cache
- * path. Exercises the real pipeline (the actual `imgdecode` child process,
- * not a fake worker) so the wiring itself — not just `validateAvifOutput` in
+ * path. Exercises the real pipeline (the actual FFI child process, not a
+ * fake worker) so the wiring itself — not just `validateAvifOutput` in
  * isolation (see `thumbs/validate-avif.test.ts`) — is proven.
  */
 import { describe, it, expect } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import sharp from 'sharp';
 import { generateThumb } from './thumbnailer.ts';
 import { generatePreview, PREVIEW_LONG_EDGE_PX } from './previewer.ts';
 import { validateAvifOutput } from '../thumbs/validate-avif.ts';
+import { solidJpeg } from '../test-support/synth-image.ts';
 
 async function makeJpeg(
   dir: string,
@@ -22,11 +22,7 @@ async function makeJpeg(
   height: number,
 ): Promise<string> {
   const file = path.join(dir, filename);
-  const buf = await sharp({
-    create: { width, height, channels: 3, background: { r: 90, g: 140, b: 200 } },
-  })
-    .jpeg({ quality: 90 })
-    .toBuffer();
+  const buf = await solidJpeg(width, height, [90, 140, 200], 90);
   await fs.writeFile(file, buf);
   return file;
 }

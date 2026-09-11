@@ -19,14 +19,15 @@ import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile, stat, readdir } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import sharp from 'sharp';
+import { maple } from 'maple';
 import { ObjectId } from 'mongodb';
 import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
-import * as imgdecodePoolModule from '../../thumbs/imgdecode-pool.ts';
+import * as bitmapPoolModule from '../../thumbs/bitmap-pool.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
 import { checkAvifOutput } from '../../thumbs/avif-checks.ts';
+import { solidRgb } from '../../test-support/synth-image.ts';
 
 let dir: string;
 let libraryId: ObjectId;
@@ -34,8 +35,8 @@ let renderStubSpy: ReturnType<typeof spyOn> | null = null;
 let validateStubSpy: ReturnType<typeof spyOn> | null = null;
 
 /**
- * Replace ONLY the imgdecode subprocess boundary, transcoding in-process via
- * sharp instead — same treatment as `preview.test.ts`, for the same reason:
+ * Replace ONLY the FFI-pool subprocess boundary, transcoding in-process via
+ * `maple` instead — same treatment as `preview.test.ts`, for the same reason:
  * spawning real decode children from several test files destabilises the
  * shared pool singleton under CI's constrained resources. Everything else,
  * including `finalizeAvifRender`'s real decode-gate, stays production code, so
@@ -51,13 +52,13 @@ let validateStubSpy: ReturnType<typeof spyOn> | null = null;
  * the order-dependent-leak class documented at length in `preview.test.ts`.
  */
 beforeAll(async () => {
-  renderStubSpy = spyOn(imgdecodePoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
+  renderStubSpy = spyOn(bitmapPoolModule, 'renderImageThumbToFileViaPool').mockImplementation(
     async (srcPath: string, outPath: string, maxPx: number, quality: number) => {
       try {
-        const out = await sharp(srcPath, { failOn: 'none', unlimited: true })
+        const out = await maple(srcPath)
           .rotate()
-          .resize(maxPx, maxPx, { fit: 'inside', withoutEnlargement: true })
-          .avif({ quality })
+          .resize({ width: maxPx, height: maxPx, fit: 'inside', withoutEnlargement: true })
+          .toFormat('avif', { quality })
           .toBuffer();
         await writeFile(outPath, out);
         return { ok: true };
@@ -67,7 +68,7 @@ beforeAll(async () => {
     },
   );
 
-  validateStubSpy = spyOn(imgdecodePoolModule, 'validateAvifViaPool').mockImplementation(
+  validateStubSpy = spyOn(bitmapPoolModule, 'validateAvifViaPool').mockImplementation(
     (filePath: string, expectedLongEdgePx: number) => checkAvifOutput(filePath, expectedLongEdgePx),
   );
 
@@ -151,10 +152,8 @@ describe('preview handler — video, ffmpeg available', () => {
     // through untouched and the dimension assertion would test nothing.
     const extractSpy = spyOn(videoPosterModule, 'extractVideoPosterJpeg').mockImplementation(
       async (_video: string, out: string) => {
-        await sharp({
-          create: { width: 1920, height: 1080, channels: 3, background: '#3060a0' },
-        })
-          .jpeg()
+        await maple(solidRgb(1920, 1080, [48, 96, 160]))
+          .toFormat('jpeg')
           .toFile(out);
         return true;
       },
@@ -168,8 +167,8 @@ describe('preview handler — video, ffmpeg available', () => {
       expect('wrote' in result).toBe(true);
 
       const previewPath = previewPathFor(doc);
-      const meta = await sharp(previewPath).metadata();
-      expect(meta.format).toBe('heif');
+      const meta = await maple(previewPath).metadata();
+      expect(meta.format).toBe('avif');
       expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(PREVIEW_LONG_EDGE_PX);
       // Aspect ratio preserved from the source frame, not squashed to square.
       expect(meta.width).toBe(1280);
@@ -187,10 +186,8 @@ describe('preview handler — video, ffmpeg available', () => {
     const ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue('/usr/bin/ffmpeg');
     const extractSpy = spyOn(videoPosterModule, 'extractVideoPosterJpeg').mockImplementation(
       async (_video: string, out: string) => {
-        await sharp({
-          create: { width: 1920, height: 1080, channels: 3, background: '#207040' },
-        })
-          .jpeg()
+        await maple(solidRgb(1920, 1080, [32, 112, 64]))
+          .toFormat('jpeg')
           .toFile(out);
         return true;
       },
