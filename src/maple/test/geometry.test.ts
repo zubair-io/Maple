@@ -69,7 +69,7 @@ describe('Geometry', () => {
     expect([meta.width, meta.height]).toEqual([4, 2]);
   });
 
-  it('flip() and flop() mirror', async () => {
+  it('flop() mirrors', async () => {
     const src = await png(coords(2, 1));
     const flopped = await maple(src).flop().toFormat('png').toBuffer();
     const raw = await maple(flopped).toRawAlpha();
