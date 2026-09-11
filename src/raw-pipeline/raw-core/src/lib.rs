@@ -72,6 +72,7 @@ pub mod raster_alpha;
 pub mod raster_composite;
 pub mod raster_encode;
 pub mod raster_geometry;
+pub mod raster_lab;
 mod raster_orient;
 pub mod raster_recipe;
 pub mod raster_recipe_exec;
