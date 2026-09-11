@@ -86,8 +86,8 @@ impl RasterImage {
         let m = options.margin;
         let x0 = left.saturating_sub(m);
         let y0 = top.saturating_sub(m);
-        let x1 = (right + m).min(self.width - 1);
-        let y1 = (bottom + m).min(self.height - 1);
+        let x1 = right.saturating_add(m).min(self.width - 1);
+        let y1 = bottom.saturating_add(m).min(self.height - 1);
         self.crop(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
     }
 }
@@ -230,6 +230,22 @@ mod tests {
         let out = img
             .trim(&TrimOptions {
                 margin: 10,
+                ..TrimOptions::default()
+            })
+            .unwrap();
+        assert_eq!((out.width, out.height), (6, 6));
+        assert_eq!(out.data, img.data);
+    }
+
+    #[test]
+    fn a_u32_max_margin_clamps_without_overflowing() {
+        // `right + margin` / `bottom + margin` must not overflow u32 when
+        // margin is at its maximum — the clamp to the image bounds has to
+        // hold via saturating arithmetic, not wrapping past it.
+        let img = framed(6, 6, [255, 255, 255], 2, 2, 2, 2, [0, 0, 0]);
+        let out = img
+            .trim(&TrimOptions {
+                margin: u32::MAX,
                 ..TrimOptions::default()
             })
             .unwrap();
