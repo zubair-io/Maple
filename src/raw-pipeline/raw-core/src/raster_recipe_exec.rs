@@ -9,7 +9,7 @@ use crate::raster_recipe::{Layer, Op, Output, Recipe, RecipeInput};
 use crate::export::ExportFormat;
 use crate::raster::{resize_raster, FilterAlg, ResizeFit, ResizeOptions};
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
-use crate::raster_encode::{encode_raster_opts, RasterEncodeOptions};
+use crate::raster_encode::{container_supports_alpha, encode_raster_opts, RasterEncodeOptions};
 
 /// What a recipe produced: the encoded bytes (or raw pixels for
 /// `Output::Raw`) plus the dimensions actually written.
@@ -80,7 +80,6 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
             fit,
             kernel,
             without_enlargement,
-            ..
         } => resize_raster(
             &image,
             &ResizeOptions {
@@ -130,24 +129,38 @@ fn avif_speed(effort: u8) -> u8 {
     10 - effort.min(9)
 }
 
-fn encode(image: &RasterImage, output: Output) -> Result<Vec<u8>> {
+/// Encode `image` per `output`, returning the bytes AND the channel count
+/// the container actually carries. `encode_raster_opts` silently flattens a
+/// 4-channel source to 3 when the container can't hold alpha (JPEG, TIFF) —
+/// `channels_written` mirrors that same decision so `RecipeResult::channels`
+/// never disagrees with the bytes it describes (#3505 fix-round-1).
+fn channels_written(image: &RasterImage, format: ExportFormat) -> u8 {
+    if image.channels == 4 && container_supports_alpha(format) {
+        4
+    } else {
+        3
+    }
+}
+
+fn encode(image: &RasterImage, output: Output) -> Result<(Vec<u8>, u8)> {
     let opts = |format, quality, speed| RasterEncodeOptions {
         format,
         quality,
         avif_speed: speed,
     };
+    let encode_as = |format: ExportFormat, quality: u8, speed: u8| -> Result<(Vec<u8>, u8)> {
+        let bytes = encode_raster_opts(image, &opts(format, quality, speed))?;
+        Ok((bytes, channels_written(image, format)))
+    };
     match output {
-        Output::Raw => Ok(image.data.clone()),
-        Output::Jpeg { quality } => {
-            encode_raster_opts(image, &opts(ExportFormat::Jpeg, quality, 6))
+        Output::Raw => Ok((image.data.clone(), image.channels)),
+        Output::Jpeg { quality } => encode_as(ExportFormat::Jpeg, quality, 6),
+        Output::Png => encode_as(ExportFormat::Png, 100, 6),
+        Output::Webp => encode_as(ExportFormat::Webp, 100, 6),
+        Output::Tiff => encode_as(ExportFormat::Tiff16, 100, 6),
+        Output::Avif { quality, effort } => {
+            encode_as(ExportFormat::Avif, quality, avif_speed(effort))
         }
-        Output::Png => encode_raster_opts(image, &opts(ExportFormat::Png, 100, 6)),
-        Output::Webp => encode_raster_opts(image, &opts(ExportFormat::Webp, 100, 6)),
-        Output::Tiff => encode_raster_opts(image, &opts(ExportFormat::Tiff16, 100, 6)),
-        Output::Avif { quality, effort } => encode_raster_opts(
-            image,
-            &opts(ExportFormat::Avif, quality, avif_speed(effort)),
-        ),
     }
 }
 
@@ -157,11 +170,11 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
         .ops
         .iter()
         .try_fold(decoded, |image, op| apply_op(image, op, aux))?;
-    let bytes = encode(&processed, recipe.output)?;
+    let (bytes, channels) = encode(&processed, recipe.output)?;
     Ok(RecipeResult {
         width: processed.width,
         height: processed.height,
-        channels: processed.channels,
+        channels,
         bytes,
     })
 }
@@ -202,6 +215,26 @@ mod tests {
         let decoded = crate::raster::decode_raster(&out.bytes, Some("png")).unwrap();
         assert_eq!(decoded.channels, 4);
         assert_eq!(decoded.data[3], 0);
+    }
+
+    #[test]
+    fn reported_channels_reflect_what_the_container_actually_wrote() {
+        // An opaque RGBA source encoded to JPEG (no alpha channel in the
+        // container) must report 3, not the source's 4 — JPEG silently
+        // flattened it. The same source to PNG (alpha-capable) reports 4.
+        let rgba = red_rgba();
+        let jpeg = run(
+            r#"{"v":1,"input":{"kind":"raw","width":4,"height":2,"channels":4},"ops":[],"output":{"format":"jpeg","quality":90}}"#,
+            &rgba,
+            &[],
+        );
+        assert_eq!(jpeg.channels, 3);
+        let png = run(
+            r#"{"v":1,"input":{"kind":"raw","width":4,"height":2,"channels":4},"ops":[],"output":{"format":"png"}}"#,
+            &rgba,
+            &[],
+        );
+        assert_eq!(png.channels, 4);
     }
 
     #[test]
