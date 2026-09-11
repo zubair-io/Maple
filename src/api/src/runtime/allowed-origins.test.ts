@@ -3,22 +3,23 @@
  * runtime setting, so it must reach the WebAuthn and WebSocket gates without
  * an operator editing `MAPLE_ORIGIN` and redeploying.
  *
- * `MAPLE_ORIGIN` is set inside each test (the helper reads it per-call) so a
- * sibling test file's top-level env mutation can't bleed in.
+ * `withTestEnv` claims MAPLE_ORIGIN in `beforeAll` and restores it in
+ * `afterAll` (#2900). Capturing it at module scope instead would record
+ * whichever sibling suite imported last, since Bun evaluates every module body
+ * before any test runs — the #2783 flake class. Individual tests reassign the
+ * variable freely inside that window; the helper reads it per call.
  */
 import { afterAll, afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { managedHttps } from '../network/managed-https.ts';
+import { withTestEnv } from '../db/test-db.test-helpers.ts';
 import { allowedBrowserOrigins, managedHttpsOrigin } from './allowed-origins.ts';
 
-const ORIGINAL_ORIGIN = process.env.MAPLE_ORIGIN;
+withTestEnv('MAPLE_ORIGIN', 'https://maple.example.com');
+
 const endpoint = spyOn(managedHttps, 'endpoint');
 
 afterEach(() => endpoint.mockReset());
-afterAll(() => {
-  endpoint.mockRestore();
-  if (ORIGINAL_ORIGIN === undefined) delete process.env.MAPLE_ORIGIN;
-  else process.env.MAPLE_ORIGIN = ORIGINAL_ORIGIN;
-});
+afterAll(() => endpoint.mockRestore());
 
 describe('allowed browser origins', () => {
   it('returns only the configured origins while no certificate is serving', () => {
