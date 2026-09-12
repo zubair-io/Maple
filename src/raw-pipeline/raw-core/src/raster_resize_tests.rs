@@ -477,3 +477,6 @@ fn every_new_kernel_premultiplies_alpha_for_a_4_channel_downscale() {
         }
     }
 }
+
+#[path = "raster_resize_fit_tests.rs"]
+mod fit;
