@@ -10,6 +10,7 @@ pub mod bundle;
 pub mod calibration;
 pub mod matcher;
 pub mod names;
+pub mod resolve;
 
 pub use bundle::{Camera, Database, DatabaseVersion, Lens, Mount};
 pub use calibration::{chromatic, distortion, frame, vignette};
@@ -22,3 +23,5 @@ mod test_support;
 mod tests_bundle;
 #[cfg(test)]
 mod tests_matcher;
+#[cfg(test)]
+mod tests_resolve;
