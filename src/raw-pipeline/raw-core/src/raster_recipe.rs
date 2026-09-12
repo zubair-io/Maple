@@ -236,10 +236,16 @@ pub enum Op {
     /// plan's D3 note for this one op; `gamma`/`linear` below genuinely do
     /// stay on the encoded samples).
     Greyscale {},
-    /// `out = 255 * (in/255)^exponent` on the encoded samples (libvips
-    /// `vips_gamma`). The builder emits this op twice around `resize` for
-    /// sharp's `gamma(g, gammaOut)` — exponent `1/g` before, `gammaOut`
-    /// after — so the schema only needs the one generic op.
+    /// `out = 255 * (in/255)^exponent` on the encoded samples — a PLAIN
+    /// power law, unlike libvips' `vips_gamma(image, exponent)`, which
+    /// computes `x ** (1/exponent)`. The builder emits this op twice around
+    /// `resize` for sharp's `gamma(g, gammaOut)`: `exponent: g` before
+    /// (nets to `x ** g` through `vips_gamma`'s reciprocal, matching
+    /// sharp's own pre-resize `Gamma(image, 1/g)` call) and
+    /// `exponent: 1/gammaOut` after (nets to `x ** (1/gammaOut)`, matching
+    /// sharp's post-resize `Gamma(image, gammaOut)` call) — see
+    /// `builder-colour.ts`'s `pushGamma` (#3503 fix-round-2). The schema
+    /// only needs the one generic op either way.
     Gamma {
         exponent: f64,
     },

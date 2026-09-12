@@ -9,7 +9,12 @@
 //!   encoded-values matrix would give 54/182/18 instead). `gamma` and
 //!   `linear` genuinely DO stay on the encoded samples — that IS what
 //!   `vips_gamma`/`vips_linear` measure — so D3 stands for those two.
-//! * `gamma(e)` is `out = 255 * (in/255)^e`, `vips_gamma`.
+//! * `gamma(e)` is `out = 255 * (in/255)^e` — a PLAIN power law, UNLIKE
+//!   libvips' own `vips_gamma`, which computes `x ** (1/e)` (a reciprocal
+//!   power law). The recipe's `gamma` op deliberately does not reproduce
+//!   that reciprocal; the builder (`builder-colour.ts`) is what reproduces
+//!   sharp's net `vips_gamma`-based effect by choosing which reciprocal to
+//!   take before handing this op its `exponent` (#3503 fix-round-2).
 //! * `linear(a, b)` is `out = a*in + b` with a uchar cast, `vips_linear`.
 //! * `negate` is `255 - in`, and touches alpha unless told not to.
 //!
@@ -71,7 +76,11 @@ impl RasterImage {
         })
     }
 
-    /// `out = 255 * (in/255)^exponent`, libvips `gamma`.
+    /// `out = 255 * (in/255)^exponent` — a PLAIN power law applied
+    /// directly to `exponent`, UNLIKE libvips' `vips_gamma(image,
+    /// exponent)`, which computes `x ** (1/exponent)`. See
+    /// `builder-colour.ts`'s `pushGamma` for how the builder reproduces
+    /// sharp's `vips_gamma`-based net effect through this simpler op.
     pub fn gamma(&self, exponent: f64) -> Self {
         // A 256-entry LUT: the power call is the expensive part and there are
         // only 256 distinct inputs.

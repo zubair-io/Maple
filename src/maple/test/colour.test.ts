@@ -48,9 +48,12 @@ describe('Colour ops', () => {
     expect(a.equals(b)).toBe(true);
   });
 
-  it('gamma() follows the libvips power law around the resize', async () => {
-    // With no resize between them, gamma(2.2) is exponent 1/2.2 then 2.2 —
-    // a net identity, which is what sharp's default pair does.
+  it('gamma() with symmetric defaults nets to near-identity with no resize', async () => {
+    // #3503 fix-round-2: with no resize between them, gamma(2.2) pushes
+    // exponent 2.2 then exponent 1/2.2 (our plain-power-law op; see
+    // `builder-colour.ts` for why this is the opposite of a naive reading
+    // of libvips' own `vips_gamma`) — algebraically a net identity, with
+    // only 8-bit intermediate-quantization rounding to absorb.
     const src = await png([40, 130, 220]);
     const out = await maple(src).gamma().toFormat('png').toBuffer();
     const [r, g, b] = await first(out);
@@ -60,12 +63,18 @@ describe('Colour ops', () => {
   });
 
   it('gamma(g, gammaOut) with different values darkens or brightens', async () => {
+    // #3503 fix-round-2: our `gamma` op is a PLAIN power law, unlike
+    // libvips' own `vips_gamma` (which computes `x ** (1/exponent)`), so
+    // the builder pushes `exponent: gamma` before the resize and
+    // `exponent: 1/gammaOut` after it (see `builder-colour.ts`). With no
+    // resize call at all here, `gamma: 1.0` before is an exact no-op
+    // (128 stays 128, no quantization loss), so this closed form is exact:
+    // (128/255)^(1/2.0) * 255 ≈ 180.7 -> rounds to 181.
     const out = await maple(await png([128, 128, 128]))
       .gamma(1.0, 2.0)
       .toFormat('png')
       .toBuffer();
-    // Net exponent gammaOut/gamma = 2: (128/255)^2 * 255 = 64.
-    expect((await first(out))[0]).toBe(64);
+    expect((await first(out))[0]).toBe(181);
   });
 
   /** Deterministic 4x4 RGB gradient, matching the fixture sharp was measured against. */
@@ -101,24 +110,51 @@ describe('Colour ops', () => {
     expect(Buffer.from(gammaFirst.data).equals(Buffer.from(plain.data))).toBe(false);
   });
 
-  it('gamma-around-resize matches sharp, kernel isolated via nearest', async () => {
-    // Same ordering check, but with `nearest` as the resize kernel so the
-    // comparison to real sharp isolates gamma placement from resize-kernel
-    // numerics: `nearest` is an exact pixel pick with no interpolation, so
-    // maple's plain `nearest` resize is already byte-identical to sharp's
-    // (verified separately) — `raw-core`'s `fast_image_resize`-based
-    // `lanczos3` is NOT bit-identical to libvips' `lanczos3`, which is a
-    // pre-existing, unrelated gap; pinning to sharp through THAT kernel
-    // would conflate the two concerns.
+  it('a decisive asymmetric gamma pins the fixed exponent direction', async () => {
+    // #3503 fix-round-2, the critical re-review finding: the exponents
+    // around resize were inverted relative to sharp. libvips' `vips_gamma`
+    // computes `x ** (1/exponent)`, so sharp's `Gamma(image, 1/gamma)`
+    // before resize nets to `x ** gamma` (darken for gamma>1) and
+    // `Gamma(image, gammaOut)` after nets to `x ** (1/gammaOut)` (brighten
+    // for gammaOut>1). `.gamma(1.5, 3.0)` on solid grey 128 with a 1x1
+    // `nearest` resize (an exact pick, no interpolation, so the resize
+    // itself contributes no numeric drift) makes the direction
+    // unambiguous — measured against real sharp 0.34.5: 180.
+    const out = await maple(solid([128, 128, 128]))
+      .gamma(1.5, 3.0)
+      .resize({ width: 1, height: 1, filter: 'nearest' })
+      .toRawAlpha();
+    expect(Math.abs(out.data[0] - 180)).toBeLessThanOrEqual(1);
+  });
+
+  it('a symmetric gamma(2.2) around a nearest resize matches sharp', async () => {
+    // Same ordering check as the lanczos3 test above, but with `nearest` as
+    // the resize kernel (an exact pixel pick, verified separately to be
+    // byte-identical between maple and sharp) so the sharp comparison
+    // isolates gamma correctness from the unrelated `fast_image_resize`
+    // vs. libvips `lanczos3` numeric gap flagged in fix-round-1. The 16
+    // grey levels span 100-255, not 0-255: sharp's OWN gamma-in/gamma-out
+    // pair already drifts by more than 1 near black through its own
+    // intermediate 8-bit quantization (independent of this fix — measured
+    // sharp's `.gamma(2.2)` alone on a 0-255 ramp drifting up to 17 near
+    // black), so a fixture in that low range would fail on sharp's own
+    // imprecision, not ours.
+    const levels = [100, 110, 121, 131, 141, 152, 162, 172, 183, 193, 203, 214, 224, 234, 245, 255];
+    const rampImage = {
+      data: new Uint8Array(levels.flatMap((v) => [v, v, v])),
+      width: 4,
+      height: 4,
+      channels: 3 as const,
+    };
     const opts = { width: 2, height: 2, filter: 'nearest' as const };
-    const gammaFirst = await maple(gradient4x4()).gamma(2.2).resize(opts).toRawAlpha();
-    const resizeFirst = await maple(gradient4x4()).resize(opts).gamma(2.2).toRawAlpha();
+    const gammaFirst = await maple(rampImage).gamma(2.2).resize(opts).toRawAlpha();
+    const resizeFirst = await maple(rampImage).resize(opts).gamma(2.2).toRawAlpha();
     expect(Buffer.from(gammaFirst.data).equals(Buffer.from(resizeFirst.data))).toBe(true);
-    // Measured against real sharp 0.34.5
-    // `.gamma(2.2).resize(2,2,{kernel:'nearest'})` on this exact gradient.
-    const sharpExpected = [83, 169, 169, 118, 135, 237, 220, 33, 185, 255, 0, 253];
+    // Measured against real sharp 0.34.5 `.gamma(2.2).resize(2,2,{kernel:
+    // 'nearest'})` on this exact 4x4 grid of levels.
+    const sharpExpected = [151, 151, 151, 171, 171, 171, 233, 233, 233, 255, 255, 255];
     Array.from(gammaFirst.data).forEach((byte, idx) => {
-      expect(Math.abs(byte - sharpExpected[idx])).toBeLessThanOrEqual(2);
+      expect(Math.abs(byte - sharpExpected[idx])).toBeLessThanOrEqual(1);
     });
   });
 
