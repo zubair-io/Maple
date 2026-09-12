@@ -1,5 +1,6 @@
 use super::*;
 use crate::raster_recipe::parse_recipe;
+use crate::view::encode::TargetPrimaries;
 
 /// A minimal IFD0 with a single Orientation entry set to 1 — the same
 /// shape `raster_meta_tests::EXIF_TIFF` uses, duplicated locally since
@@ -81,7 +82,8 @@ fn supplied_blocks_win_over_keep() {
         }),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &source, &aux, false).unwrap();
+    let resolved =
+        resolve_metadata(&metadata, &source, &aux, false, TargetPrimaries::Srgb).unwrap();
     assert_eq!(resolved.exif.as_deref(), Some(aux.as_slice()));
 }
 
@@ -93,7 +95,7 @@ fn orientation_rewrites_a_kept_exif_block() {
         orientation: Some(6),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &source, &[], false).unwrap();
+    let resolved = resolve_metadata(&metadata, &source, &[], false, TargetPrimaries::Srgb).unwrap();
     let orientation = resolved
         .exif
         .as_deref()
@@ -107,7 +109,7 @@ fn orientation_creates_an_exif_block_when_there_is_none_to_rewrite() {
         orientation: Some(3),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], &[], false).unwrap();
+    let resolved = resolve_metadata(&metadata, &[], &[], false, TargetPrimaries::Srgb).unwrap();
     let orientation = resolved
         .exif
         .as_deref()
@@ -121,7 +123,8 @@ fn an_out_of_range_aux_reference_names_the_bounds() {
         icc: Some(AuxRef { off: 0, len: 99 }),
         ..Default::default()
     };
-    let err = resolve_metadata(&metadata, &[], &[1, 2, 3], false).unwrap_err();
+    let err =
+        resolve_metadata(&metadata, &[], &[1, 2, 3], false, TargetPrimaries::Srgb).unwrap_err();
     let message = format!("{err}");
     assert!(message.contains("metadata.icc"), "got: {message}");
     assert!(message.contains("99"), "got: {message}");
@@ -134,7 +137,8 @@ fn an_out_of_range_exif_reference_names_that_field_too() {
         exif: Some(AuxRef { off: 0, len: 50 }),
         ..Default::default()
     };
-    let err = resolve_metadata(&metadata, &[], &[1, 2, 3], false).unwrap_err();
+    let err =
+        resolve_metadata(&metadata, &[], &[1, 2, 3], false, TargetPrimaries::Srgb).unwrap_err();
     assert!(format!("{err}").contains("metadata.exif"), "got: {err}");
 }
 
@@ -145,7 +149,14 @@ fn no_metadata_block_embeds_no_icc_at_all() {
     // Matches sharp's own default: sharp(png).jpeg().toBuffer() ->
     // metadata().hasProfile === false — measured in the fix round's
     // report.
-    let resolved = resolve_metadata(&RecipeMetadata::default(), &[], &[], false).unwrap();
+    let resolved = resolve_metadata(
+        &RecipeMetadata::default(),
+        &[],
+        &[],
+        false,
+        TargetPrimaries::Srgb,
+    )
+    .unwrap();
     assert!(resolved.icc.is_none());
     assert!(!resolved.icc_requested);
 }
@@ -159,8 +170,11 @@ fn keep_with_no_input_icc_adds_the_default_srgb_profile() {
         keep: true,
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &source, &[], false).unwrap();
-    assert_eq!(resolved.icc.as_deref(), Some(default_icc().as_slice()));
+    let resolved = resolve_metadata(&metadata, &source, &[], false, TargetPrimaries::Srgb).unwrap();
+    assert_eq!(
+        resolved.icc.as_deref(),
+        Some(default_icc(TargetPrimaries::Srgb).as_slice())
+    );
     // fix-round-2: the default fill is a convenience, not a request —
     // an encoder that can't carry ICC (AVIF) must be allowed to skip it
     // silently rather than error, which `require_supported` only does
@@ -188,7 +202,7 @@ fn keep_with_a_real_input_icc_copies_it_through_unchanged() {
         keep: true,
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &source, &[], false).unwrap();
+    let resolved = resolve_metadata(&metadata, &source, &[], false, TargetPrimaries::Srgb).unwrap();
     assert_eq!(resolved.icc.as_deref(), Some(icc.as_slice()));
     assert!(
         !resolved.icc_requested,
@@ -208,7 +222,7 @@ fn a_supplied_icc_is_requested() {
         }),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], &icc, false).unwrap();
+    let resolved = resolve_metadata(&metadata, &[], &icc, false, TargetPrimaries::Srgb).unwrap();
     assert_eq!(resolved.icc.as_deref(), Some(icc.as_slice()));
     assert!(resolved.icc_requested);
 }
@@ -221,8 +235,11 @@ fn icc_name_srgb_resolves_to_the_built_in_srgb_profile() {
         icc_name: Some("srgb".into()),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], &[], false).unwrap();
-    assert_eq!(resolved.icc.as_deref(), Some(default_icc().as_slice()));
+    let resolved = resolve_metadata(&metadata, &[], &[], false, TargetPrimaries::Srgb).unwrap();
+    assert_eq!(
+        resolved.icc.as_deref(),
+        Some(default_icc(TargetPrimaries::Srgb).as_slice())
+    );
     assert!(
         resolved.icc_requested,
         "an explicit iccName IS a real request"
@@ -235,7 +252,7 @@ fn icc_name_p3_resolves_to_the_built_in_p3_profile() {
         icc_name: Some("p3".into()),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], &[], false).unwrap();
+    let resolved = resolve_metadata(&metadata, &[], &[], false, TargetPrimaries::Srgb).unwrap();
     let p3 = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
     assert_eq!(resolved.icc.as_deref(), Some(p3.as_slice()));
 }
@@ -246,7 +263,7 @@ fn an_unknown_icc_name_is_a_named_error() {
         icc_name: Some("cmyk".into()),
         ..Default::default()
     };
-    let err = resolve_metadata(&metadata, &[], &[], false).unwrap_err();
+    let err = resolve_metadata(&metadata, &[], &[], false, TargetPrimaries::Srgb).unwrap_err();
     assert!(format!("{err}").contains("metadata.iccName"), "got: {err}");
 }
 
@@ -261,7 +278,7 @@ fn a_supplied_icc_aux_ref_wins_over_icc_name() {
         icc_name: Some("srgb".into()),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], &icc, false).unwrap();
+    let resolved = resolve_metadata(&metadata, &[], &icc, false, TargetPrimaries::Srgb).unwrap();
     assert_eq!(resolved.icc.as_deref(), Some(icc.as_slice()));
 }
 
@@ -293,7 +310,7 @@ fn auto_oriented_neutralises_the_kept_orientation_to_one() {
         keep: true,
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &source, &[], true).unwrap();
+    let resolved = resolve_metadata(&metadata, &source, &[], true, TargetPrimaries::Srgb).unwrap();
     assert!(
         resolved.exif.is_some(),
         "the EXIF block itself must survive"
@@ -316,7 +333,7 @@ fn an_explicit_orientation_still_wins_after_auto_orient() {
         orientation: Some(6),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &source, &[], true).unwrap();
+    let resolved = resolve_metadata(&metadata, &source, &[], true, TargetPrimaries::Srgb).unwrap();
     let orientation = resolved
         .exif
         .as_deref()
@@ -329,7 +346,14 @@ fn auto_orient_without_keep_leaves_no_exif_to_neutralise() {
     // Measured: sharp(oriented6).rotate().jpeg() (no withMetadata) ->
     // hasExif === false, orientation === undefined.
     let source = jpeg_with_exif(&exif_with_orientation(6));
-    let resolved = resolve_metadata(&RecipeMetadata::default(), &source, &[], true).unwrap();
+    let resolved = resolve_metadata(
+        &RecipeMetadata::default(),
+        &source,
+        &[],
+        true,
+        TargetPrimaries::Srgb,
+    )
+    .unwrap();
     assert!(resolved.exif.is_none());
 }
 
@@ -357,7 +381,7 @@ fn a_kept_exif_or_xmp_block_is_not_a_named_request() {
         keep: true,
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &source, &[], false).unwrap();
+    let resolved = resolve_metadata(&metadata, &source, &[], false, TargetPrimaries::Srgb).unwrap();
     assert!(resolved.exif.is_some(), "the block is still kept");
     assert!(!resolved.exif_requested);
     assert!(!resolved.xmp_requested);
@@ -373,7 +397,7 @@ fn a_supplied_exif_block_is_a_named_request() {
         }),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], exif, false).unwrap();
+    let resolved = resolve_metadata(&metadata, &[], exif, false, TargetPrimaries::Srgb).unwrap();
     assert_eq!(resolved.exif.as_deref(), Some(&exif[..]));
     assert!(resolved.exif_requested);
 }
@@ -388,7 +412,7 @@ fn a_supplied_xmp_packet_is_a_named_request() {
         }),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], xmp, false).unwrap();
+    let resolved = resolve_metadata(&metadata, &[], xmp, false, TargetPrimaries::Srgb).unwrap();
     assert_eq!(resolved.xmp.as_deref(), Some(&xmp[..]));
     assert!(resolved.xmp_requested);
 }
@@ -404,7 +428,7 @@ fn an_orientation_synthesised_exif_block_is_not_a_named_request() {
         orientation: Some(5),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], &[], false).unwrap();
+    let resolved = resolve_metadata(&metadata, &[], &[], false, TargetPrimaries::Srgb).unwrap();
     assert!(resolved.exif.is_some());
     assert!(!resolved.exif_requested);
 }
@@ -423,6 +447,7 @@ fn a_supplied_introduced_exif_block_is_canonicalised() {
         }),
         ..Default::default()
     };
-    let resolved = resolve_metadata(&metadata, &[], &introduced, false).unwrap();
+    let resolved =
+        resolve_metadata(&metadata, &[], &introduced, false, TargetPrimaries::Srgb).unwrap();
     assert_eq!(resolved.exif.as_deref(), Some(&tiff[..]));
 }
