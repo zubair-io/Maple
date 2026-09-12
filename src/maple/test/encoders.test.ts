@@ -91,6 +91,33 @@ describe('Encoder options', () => {
     ).rejects.toThrow(/lossless/);
   });
 
+  // sharp's png() implies palette from colours/colors/dither; Maple's
+  // encoder only reaches the quantiser when `palette` is set, so without the
+  // implication `png({ colours: 4 })` wrote a plain RGB PNG with no PLTE
+  // chunk while sharp wrote an indexed one.
+  it('png({ colours | colors | dither }) implies palette: true', async () => {
+    const flat = {
+      data: new Uint8Array(
+        Array.from({ length: 64 * 64 }, (_, i) => [(i % 6) * 40, 200, 128]).flat(),
+      ),
+      width: 64,
+      height: 64,
+      channels: 3 as const,
+    };
+    for (const options of [{ colours: 4 }, { colors: 4 }, { dither: 0 }]) {
+      const out = await maple(flat).png(options).toBuffer();
+      expect(out.includes(Buffer.from('PLTE'))).toBe(true);
+      // Colour type 3 (indexed) at byte 25 of the IHDR.
+      expect(out[25]).toBe(3);
+    }
+    // No implying key: plain truecolour, as before.
+    const plain = await maple(flat).png().toBuffer();
+    expect(plain.includes(Buffer.from('PLTE'))).toBe(false);
+    // An explicit palette: false wins over the implication.
+    const forced = await maple(flat).png({ colours: 4, palette: false }).toBuffer();
+    expect(forced.includes(Buffer.from('PLTE'))).toBe(false);
+  });
+
   // The `pixi` box records bits-per-channel. `ravif`'s own builder default
   // is `BitDepth::Auto` = 10, and a 10-bit AV1 bitstream is undecodable by
   // libheif's prebuilt decoders (sharp's included), so the default here must
