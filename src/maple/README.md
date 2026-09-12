@@ -149,10 +149,10 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `resize({ kernel })`                               | ✅    | `nearest`, `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3`; `filter` is an alias; `mks2013`/`mks2021` throw by name                                                                                                                                                                                                                                                |
 | `resize({ withoutReduction })`                     | ✅    | `withoutReduction` wins when both clamps are set, as in sharp                                                                                                                                                                                                                                                                                                            |
 | `jpeg()`                                           | ✅    | `quality`, `progressive`, `chromaSubsampling`, `optimiseCoding`/`optimizeCoding`; `mozjpeg`, trellis quantisation (either spelling), `overshootDeringing`, `optimiseScans`/`optimizeScans`, `quantisationTable`/`quantizationTable` and `force` throw                                                                                                                    |
-| `png()`                                            | ✅    | `compressionLevel`, `adaptiveFiltering`, `palette`, `colours`/`colors`, `dither`; `progressive` (Adam7), `quality`, `effort` and `force` throw                                                                                                                                                                                                                          |
-| `webp()`                                           | ⚠️    | lossless + alpha only — `quality`, `{ lossless: false }`, the animation-only knobs (`smartDeblock`/`loop`/`delay`/`minSize`/`mixed`) and `force` all throw                                                                                                                                                                                                              |
-| `avif()`                                           | ⚠️    | `quality`, `effort`; `chromaSubsampling` and `lossless` only take their defaults (`'4:4:4'` / `false`) — the other value throws; `bitdepth` and `force` throw; `tune` isn't a real sharp option and is a harmless no-op                                                                                                                                                |
-| `tiff()`                                           | ✅    | `compression` (none/lzw/deflate/packbits — sharp's own `'jpeg'` default throws), `bitdepth` 8/16, `predictor` (`'horizontal'`/`'none'`; `'float'` throws); tiled/pyramid/bigtiff/resolution/`quality` options throw                                                                                                                                                    |
+| `png()`                                            | ✅    | `compressionLevel`, `adaptiveFiltering`, `palette`, `colours`/`colors`, `dither` (each of those last three implies `palette: true`, as in sharp); `progressive` (Adam7), `quality`, `effort` and `force` throw                                                                                                                                                           |
+| `webp()`                                           | ⚠️    | lossless + alpha only — `quality`, `{ lossless: false }`, the animation-only knobs (`smartDeblock`/`loop`/`delay`/`minSize`/`mixed`) and `force` all throw                                                                                                                                                                                                               |
+| `avif()`                                           | ⚠️    | `quality`, `effort`, `bitdepth` (8 default, 10; sharp's 12 throws); `chromaSubsampling` and `lossless` only take their defaults (`'4:4:4'` / `false`) — the other value throws; `force` throws; `tune` isn't a real sharp option and is a harmless no-op                                                                                                                 |
+| `tiff()`                                           | ✅    | `compression` (none/lzw/deflate/packbits — sharp's own `'jpeg'` default throws), `bitdepth` 8/16, `predictor` (`'horizontal'`/`'none'`; `'float'` throws); tiled/pyramid/bigtiff/resolution/`quality` options throw                                                                                                                                                      |
 
 **\* One known gap, at heavy downscales only.** Everything about how the
 target box is chosen matches sharp: the per-axis shrink factors and how each
@@ -270,6 +270,25 @@ AVIF, survive every op and are written by PNG, WebP, AVIF and TIFF (via an
 channel, so it composites over black — the same thing libvips does — unless
 you call `flatten({ background })` first.
 
+**Per-format options on a RAW develop input.** A RAW file, an `.xmp()`
+sidecar or a `.recipe()` routes through the RAW development pipeline, whose
+export surface is container + `quality` + colourspace + long-edge cap. So
+`maple('photo.dng').jpeg({ quality: 80 })` works, and any other per-format
+option — `progressive`, `chromaSubsampling`, `palette`, `compression`,
+`effort`, … — throws by name rather than being quietly ignored (see #3579).
+Develop to a bitmap first and re-encode it if you need them.
+
+`.quality()` and the per-format methods are last-call-wins in both
+directions: `.jpeg().quality(30)` encodes at 30, while `.quality(30).jpeg()`
+encodes at `.jpeg()`'s own default of 80. Likewise `.toFormat()` naming a
+different container than an earlier `.jpeg()`/`.png()`/… discards that call's
+options, and naming the same container keeps them.
+
+On a RAW develop input specifically, calling `.jpeg()`/`.avif()` also sets the
+export `quality` to that format's own sharp-matched default (80 / 50) — a bare
+`maple('photo.dng').toFile('x.jpg')`, with no `.jpeg()`/`.quality()` call at
+all, uses the builder's own long-standing default of 92 instead.
+
 **JPEG is not mozjpeg.** Maple encodes JPEG with the pure-Rust `jpeg-encoder`
 crate — progressive scans, 4:2:0/4:4:4 chroma and optimised Huffman tables, but
 no trellis quantisation. Measured against mozjpeg at matched quality
@@ -277,6 +296,27 @@ no trellis quantisation. Measured against mozjpeg at matched quality
 case **+45.4%** at quality 75, narrowing to **+14–17%** at quality 90. Closing
 that gap would mean linking a C library, which the Linux zero-dependency build
 audit forbids.
+
+**AVIF writes 8-bit by default, and 8 is the interoperable choice.**
+`avif({ bitdepth: 10 })` produces a genuine 10-bit AV1 bitstream, but
+libheif's prebuilt decoders — sharp's included — cannot read one at all, so
+`bitdepth` defaults to `8` (as it does in sharp) and every reader in the wild
+can decode the output. sharp's third value, `12`, throws: Maple's `ravif`
+encoder has no 12-bit path.
+
+**PNG `compressionLevel` collapses onto three zlib tiers.** The pure-Rust
+`png` encoder exposes fastest / default / best, not ten levels, so sharp's
+0-9 maps as `0` → zlib 1, `1-6` → zlib 6, `7-9` → zlib 9. Within a tier the
+number is a no-op: levels 7, 8 and 9 produce byte-identical files, as do 1
+through 6. The split is chosen so sharp's own default of `6` means zlib 6 —
+asking for the default does not quietly buy you the slowest setting.
+
+**PNG palette output is always 8-bit `PLTE`.** `colours`/`colors`/`dither`
+imply `palette: true` just as they do in sharp, and the palette is capped at
+256 entries — but Maple always writes bit depth 8, where libvips derives 1, 2
+or 4 from the colour count. Measured on a 6-colour flat image: `png({ colours:
+4 })` gives Maple 137 B at depth 8 against sharp's 138 B at depth 2 — the
+depth gap is real, but it costs one byte, not a meaningfully larger file.
 
 **WebP is lossless only.** No pure-Rust lossy WebP encoder exists, so
 `webp({ lossless: false })` throws rather than silently handing back a much
@@ -290,12 +330,28 @@ default TIFF compressor is JPEG-in-TIFF; Maple has no JPEG-in-TIFF encoder (the
 `pyramid`, `bigtiff` and the resolution/quality options with no lossless
 encoder to apply them to (`quality`, `tileWidth`, `tileHeight`,
 `resolutionUnit`, `xres`, `yres`, `miniswhite`) are rejected the same way.
+**TIFF `bitdepth` shares sharp's name but not its domain.** Maple accepts `8`
+(default) and `16`; sharp accepts `1`, `2`, `4` and `8`, and reaches 16-bit
+TIFF through `toColourspace('rgb16')` instead. So `1`/`2`/`4` throw here and
+`16` is a Maple extension rather than parity. Maple's widening is `v * 257`,
+the exact full-scale map from [0, 255] to [0, 65535] (hand-parsed strip
+bytes: `20, 20, 20, 4, 1, 1` → `5140, 5140, 5140, 1028, 257, 257`); libvips'
+`rgb16` gives `5120, 5120, 5120, 1024, 511, 511`, roughly ×256 with
+rounding.
+
 `predictor` takes sharp's string form (`'horizontal'` default, `'none'`);
 `'float'` is a real sharp value the `tiff` crate cannot produce and is also a
-named rejection. A raster with an alpha channel always writes with no
-predictor regardless of this setting — the `tiff` crate's horizontal
-differencing corrupts the extra alpha sample's stride (see
-`raster_encode_tiff.rs`'s module doc for the full explanation).
+named rejection. It is a request rather than a guarantee, and is dropped in
+two cases — both of which libvips also drops it in:
+
+- **`compression: 'none'` or `'packbits'`.** TIFF defines tag 317 only for
+  LZW and Deflate; libtiff ignores it elsewhere and reads the differenced
+  bytes back as pixels, so writing it there would corrupt the image for every
+  reader. `sharp().tiff({ compression: 'none' })` omits the tag for the same
+  reason.
+- **A raster with an alpha channel.** The `tiff` crate's horizontal
+  differencing corrupts the extra alpha sample's stride (see
+  `raster_encode_tiff.rs`'s module doc for the full explanation).
 
 ```typescript
 const badged = await maple(photo)
