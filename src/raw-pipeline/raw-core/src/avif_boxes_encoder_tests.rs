@@ -238,7 +238,13 @@ fn mux_avif(
     let delta = placeholder_meta.len() as i64 - meta_size as i64;
 
     let real_image_offset = (orig_offset as i64 + delta) as u32;
-    let real_exif_offset = (base.len() as i64 + delta) as u32;
+    // The metadata payloads go after `mdat`, inside one `free` box, so the
+    // file stays a well-formed top-level box stream — `avif-parse` (which
+    // `probe_raster_metadata` and `decode_raster` both go through) rejects
+    // loose trailing bytes as an "unknown sized box", which is why the
+    // Exif-carrying fixtures used to be readable only by the box walker.
+    // The 8-byte box header shifts both item offsets.
+    let real_exif_offset = (base.len() as i64 + delta) as u32 + 8;
     let real_xmp_offset = real_exif_offset + exif_len.unwrap_or(0) as u32;
     let real_iloc = bx(
         b"iloc",
@@ -255,12 +261,18 @@ fn mux_avif(
     out.extend_from_slice(&base[..meta_start]);
     out.extend_from_slice(&real_meta);
     out.extend_from_slice(&base[meta_end..]);
-    if let Some(exif) = exif {
-        out.extend_from_slice(&[0, 0, 0, 0]);
-        out.extend_from_slice(exif);
-    }
-    if let Some(xmp) = xmp {
-        out.extend_from_slice(xmp);
+    if exif.is_some() || xmp.is_some() {
+        let mut trailer = Vec::new();
+        if let Some(exif) = exif {
+            // The 4-byte TIFF-header offset an `Exif` item payload starts
+            // with, per ISO/IEC 23008-12 Annex A.2.1.
+            trailer.extend_from_slice(&[0, 0, 0, 0]);
+            trailer.extend_from_slice(exif);
+        }
+        if let Some(xmp) = xmp {
+            trailer.extend_from_slice(xmp);
+        }
+        out.extend(bx(b"free", &trailer));
     }
     out
 }
@@ -278,15 +290,23 @@ fn a_real_avif_with_an_exif_item_yields_the_block() {
 
 #[cfg(feature = "avif")]
 #[test]
-fn a_real_avif_probe_reports_the_container_orientation() {
-    let rgb: Vec<u8> = vec![128u8; 8 * 8 * 3];
-    let base = crate::avif::encode(8, 8, &rgb, 60).unwrap();
-    // irot step 1 (90 CCW), no mirror -> EXIF 8.
+fn a_real_avif_probe_reports_the_container_transform_in_its_dimensions() {
+    let rgb: Vec<u8> = (0..(8 * 4))
+        .flat_map(|i| [(i * 7 % 251) as u8, 60, 30])
+        .collect();
+    let base = crate::avif::encode(8, 4, &rgb, 60).unwrap();
+    // irot step 1 (90 CCW) — the transform equivalent of EXIF 8.
     let muxed = mux_avif(&base, Some(1), None, None, None);
+    assert_eq!(read_avif_boxes(&muxed).transform, 8);
     let meta = crate::raster::probe_raster_metadata(&muxed).unwrap();
+    // The transform shows up as the reported (post-transform) size, the way
+    // libheif and therefore sharp report it — never as an orientation flag,
+    // since the pixels `decode_raster` hands back have already been through
+    // it (#3507 round 2).
+    assert_eq!((meta.width, meta.height), (4, 8));
     assert_eq!(
-        meta.orientation, 8,
-        "probe_raster_metadata must stop hardcoding 1"
+        meta.orientation, 1,
+        "no Exif item, so nothing is left for .rotate() to apply"
     );
 }
 
@@ -361,14 +381,15 @@ fn truncating_a_real_muxed_fixture_at_any_length_never_panics() {
 
 #[cfg(feature = "avif")]
 #[test]
-fn a_quarter_turned_avif_probes_post_transform_dimensions_and_decodes_with_the_flag() {
-    // sharp reports an AVIF's size after `irot` (libheif's handle size is
-    // post-transform): 24×16 coded with `irot 3` reads back as 16×24
-    // (measured against sharp 0.34.5). The decoded pixels stay coded-size
-    // with the orientation as a flag, which is what `auto_orient` applies —
-    // before this, the AVIF branch of `decode_raster` dropped the container
-    // transform entirely and `.rotate()` was a no-op (#3507 final fix
-    // wave, item 4).
+fn a_quarter_turned_avif_decodes_pre_transformed() {
+    // libheif applies `irot`/`imir` while decoding, so sharp's pixels for
+    // a 24×16 AVIF with `irot 3` are already the rotated 16×24 image and
+    // its `metadata()` reports that size — measured on nine hand-patched
+    // AVIFs, in every one of which sharp's default output is the
+    // transformed image and `.rotate()` changes nothing further. The
+    // transform is therefore baked in here too, and what the decoded image
+    // carries as its orientation is the `Exif` item's own tag: none here,
+    // so `1` (#3507 round 2 ruling).
     let rgb: Vec<u8> = (0..(24 * 16))
         .flat_map(|i| [(i % 251) as u8, 60, 30])
         .collect();
@@ -376,13 +397,60 @@ fn a_quarter_turned_avif_probes_post_transform_dimensions_and_decodes_with_the_f
     let muxed = mux_avif(&base, Some(3), None, None, None);
 
     let meta = crate::raster::probe_raster_metadata(&muxed).unwrap();
+    assert_eq!((meta.width, meta.height, meta.orientation), (16, 24, 1));
+
+    let mut decoded = crate::raster::decode_raster(&muxed, None).unwrap();
+    assert_eq!(
+        (decoded.width, decoded.height),
+        (16, 24),
+        "the container transform must already be in the pixels"
+    );
+    assert_eq!(decoded.orientation, crate::image::ExifOrientation::Normal);
+    // An autoOrient on top is a no-op, exactly as sharp's `.rotate()` is.
+    decoded.auto_orient();
+    assert_eq!((decoded.width, decoded.height), (16, 24));
+}
+
+#[cfg(feature = "avif")]
+#[test]
+fn an_avif_exif_orientation_survives_as_the_flag_on_top_of_the_baked_transform() {
+    // The two are independent: `irot 3` is baked into the pixels, and the
+    // `Exif` item's Orientation 6 stays as the flag `.rotate()` applies.
+    // This is what resolves #3586 — an orientation written with
+    // `withMetadata({orientation})` reads back out of `metadata()` instead
+    // of being masked by the box transform.
+    let exif = crate::raster_meta::set_exif_orientation(&[], 6);
+    let rgb: Vec<u8> = (0..(24 * 16))
+        .flat_map(|i| [(i % 251) as u8, 70, 20])
+        .collect();
+    let base = crate::avif::encode(24, 16, &rgb, 60).unwrap();
+    let muxed = mux_avif(&base, Some(3), None, Some(&exif), None);
+
+    let meta = crate::raster::probe_raster_metadata(&muxed).unwrap();
     assert_eq!((meta.width, meta.height, meta.orientation), (16, 24, 6));
 
     let mut decoded = crate::raster::decode_raster(&muxed, None).unwrap();
-    assert_eq!((decoded.width, decoded.height), (24, 16));
+    assert_eq!((decoded.width, decoded.height), (16, 24));
     assert_eq!(decoded.orientation, crate::image::ExifOrientation::Rotate90);
     decoded.auto_orient();
-    assert_eq!((decoded.width, decoded.height), (16, 24));
+    assert_eq!((decoded.width, decoded.height), (24, 16));
+}
+
+#[cfg(feature = "avif")]
+#[test]
+fn an_avif_with_only_an_exif_orientation_decodes_untransformed() {
+    let exif = crate::raster_meta::set_exif_orientation(&[], 6);
+    let rgb: Vec<u8> = (0..(24 * 16))
+        .flat_map(|i| [(i % 251) as u8, 80, 10])
+        .collect();
+    let base = crate::avif::encode(24, 16, &rgb, 60).unwrap();
+    let muxed = mux_avif(&base, None, None, Some(&exif), None);
+
+    let meta = crate::raster::probe_raster_metadata(&muxed).unwrap();
+    assert_eq!((meta.width, meta.height, meta.orientation), (24, 16, 6));
+    let decoded = crate::raster::decode_raster(&muxed, None).unwrap();
+    assert_eq!((decoded.width, decoded.height), (24, 16));
+    assert_eq!(decoded.orientation, crate::image::ExifOrientation::Rotate90);
 }
 
 #[cfg(feature = "avif")]

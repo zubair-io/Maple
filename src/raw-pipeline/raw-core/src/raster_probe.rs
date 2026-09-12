@@ -27,11 +27,11 @@ pub struct RasterMetadata {
     pub has_alpha: bool,
 }
 
-/// The EXIF orientation a container declares, wherever it keeps it: an
-/// AVIF's `irot`/`imir` transform properties, a JPEG's APP1 segment, a
-/// TIFF's own IFD0, or the `eXIf`/`EXIF` chunk of a PNG or WebP. `1` when
-/// there is none. Cheap stream reads come first — only a PNG or WebP pays
-/// for the full [`crate::raster_meta::read_sidecars`] walk.
+/// The EXIF Orientation a container's metadata declares, wherever it keeps
+/// it: a JPEG's APP1 segment, a TIFF's own IFD0, the `eXIf`/`EXIF` chunk of
+/// a PNG or WebP, or an AVIF's `Exif` item. `1` when there is none. Cheap
+/// stream reads come first — only a PNG, WebP or AVIF pays for the full
+/// [`crate::raster_meta::read_sidecars`] walk.
 ///
 /// Single-sourced here for both [`probe_raster_metadata`] and
 /// [`decode_raster`] (#3507 final fix wave, item 4). Before this, both read
@@ -40,10 +40,11 @@ pub struct RasterMetadata {
 /// no-op on exactly the containers this PR set out to fix (measured against
 /// sharp on a 24×16 source with orientation 6: sharp rotated all four
 /// containers to 16×24, Maple only the JPEG).
+///
+/// This is metadata only. An AVIF's `irot`/`imir` is a transform of the
+/// pixels themselves, baked in at decode (round 2) — never routed through
+/// here, or `.rotate()` would apply it a second time.
 pub(super) fn container_orientation(bytes: &[u8]) -> u16 {
-    if is_avif(bytes) {
-        return crate::avif_boxes::read_avif_boxes(bytes).orientation;
-    }
     if let Some(orientation) = extract_exif_orientation(bytes) {
         return orientation;
     }
@@ -58,20 +59,16 @@ pub(super) fn container_orientation(bytes: &[u8]) -> u16 {
 pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
     if is_avif(bytes) {
         let probe = avif_decode_gate::probe(bytes)?;
-        // Real orientation from the container's irot/imir transform
-        // properties (#3507). Before this, `.rotate()` on an AVIF source
-        // was a silent no-op.
-        let orientation = crate::avif_boxes::read_avif_boxes(bytes).orientation;
+        let boxes = crate::avif_boxes::read_avif_boxes(bytes);
         // AVIF is the one container whose reported dimensions are
-        // post-transform: `ispe` states the coded size, and libheif — so
-        // sharp — reports the size after `irot` (measured: sharp says 16×24
+        // post-transform, because its `irot`/`imir` is applied to the
+        // pixels rather than carried as a flag: `ispe` states the coded
+        // size, and libheif — so sharp, and so `decode_raster` — reports
+        // and hands back the transformed one (measured: sharp says 16×24
         // for a 24×16 AVIF with `irot 3`, where it says 24×16 with
-        // `orientation: 6` for the same image as a JPEG). Orientations
-        // 5..=8 are the quarter turns. Reported size only: the pixels
-        // `decode_raster` hands back are still the coded ones, with
-        // `orientation` as the flag that rotates them, so a consumer of
-        // both must not swap again.
-        let (width, height) = match orientation {
+        // `orientation: 6` for the same image as a JPEG). Transform values
+        // 5..=8 are the quarter turns, the ones that swap the axes.
+        let (width, height) = match boxes.transform {
             5..=8 => (probe.height, probe.width),
             _ => (probe.width, probe.height),
         };
@@ -80,7 +77,11 @@ pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
             height,
             format: "avif".to_string(),
             channels: if probe.has_alpha { 4 } else { 3 },
-            orientation,
+            // The `Exif` item's own Orientation tag — what is left for
+            // `.rotate()` to apply once the container transform is baked in
+            // (#3507 round 2). Reporting the transform here instead would
+            // have a consumer rotate pixels that are already rotated.
+            orientation: boxes.exif_orientation(),
             has_alpha: probe.has_alpha,
         });
     }
