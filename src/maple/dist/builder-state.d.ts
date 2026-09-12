@@ -7,14 +7,28 @@
 import { AuxBlob, type Recipe, type RecipeOp } from './recipe';
 import type { Colour, ExportColorSpace, ExportFormat, ExportRecipe, RawPixelInput } from './types';
 export declare function isRawPath(filePath: string): boolean;
-/** Translate a `position` or `gravity` value to its wire spelling. */
-export declare function resolveGravity(value: string | undefined): string;
+/** `ResizeOptions.filter` → the recipe's `resize` op `kernel` wire value. */
+export declare function kernelFromFilter(filter?: 'lanczos3' | 'bilinear' | 'nearest'): string;
+/**
+ * The `gamma(gamma, gammaOut)` op pair, held apart from `ops` because its
+ * position is resolved at ASSEMBLY time (`stateToRecipe`), not at call time
+ * — matching sharp's fixed pipeline stages, where gamma-in runs immediately
+ * before the resize stage and gamma-out immediately after it, regardless of
+ * where in the call chain `.gamma()` and `.resize()` were written relative
+ * to each other. A second `.gamma()` call replaces the pair, as sharp does.
+ */
+export interface GammaPair {
+    before: RecipeOp;
+    after: RecipeOp;
+}
 export interface BuilderState {
     inputPath: string | null;
     inputBytes: Uint8Array | null;
     rawInput: RawPixelInput | null;
-    /** Ordered recipe ops, in call order. */
+    /** Ordered recipe ops, in call order (gamma excepted — see `gammaPair`). */
     ops: RecipeOp[];
+    /** Pending `gamma()` pair, inserted around `resize` by `stateToRecipe`. */
+    gammaPair: GammaPair | null;
     aux: AuxBlob;
     format: ExportFormat | null;
     quality: number;
