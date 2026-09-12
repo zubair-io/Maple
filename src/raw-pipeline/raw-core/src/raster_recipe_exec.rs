@@ -148,11 +148,7 @@ fn apply_op(
         | Op::Modulate { .. }
         | Op::Tint { .. }
         | Op::ToColourspace { .. } => apply_colour_op(image, primaries, op),
-        Op::Blur { .. }
-        | Op::Sharpen { .. }
-        | Op::Median { .. }
-        | Op::Threshold { .. }
-        | Op::Convolve { .. } => {
+        Op::Blur(_) | Op::Sharpen(_) | Op::Median(_) | Op::Threshold(_) | Op::Convolve(_) => {
             unreachable!("apply_filter_op handles every filter op and always returns Some")
         }
     }
