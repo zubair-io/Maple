@@ -104,6 +104,14 @@ export interface AssetDetailDto {
    * endpoint at `/api/assets` returns seconds and uses its own DTO. */
   mtime: number;
   rating: number;
+  /** Monotonic sidecar edit counter (`AssetDoc.sidecar_ver`), 0 when never
+   * edited through the server. */
+  sidecar_ver: number;
+  /** Sidecar stat, attached by the metadata routes (#3563): epoch SECONDS
+   * and bytes, `null` when no `.xmp` exists on disk. Absent from callers
+   * that build the DTO without touching the filesystem. */
+  xmp_mtime?: number | null;
+  xmp_size?: number | null;
   flag: -1 | 0 | 1;
   color_label: string;
   indexed_at: string;
@@ -246,6 +254,7 @@ export function toDetailDto(
     size: doc.size,
     mtime: doc.mtime,
     rating: doc.rating,
+    sidecar_ver: doc.sidecar_ver ?? 0,
     flag: doc.flag,
     color_label: doc.color_label,
     indexed_at: doc.indexed_at,

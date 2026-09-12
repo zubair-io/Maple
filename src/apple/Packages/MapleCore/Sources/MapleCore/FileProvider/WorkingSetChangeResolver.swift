@@ -23,8 +23,10 @@ enum WorkingSetChangeResolver {
 
     private enum ChangeOutcome {
         case skip
-        case delete(NSFileProviderItemIdentifier)
-        case update(NSFileProviderItem)
+        case delete([NSFileProviderItemIdentifier])
+        /// One change can refresh several items (the RAW and its sidecar,
+        /// #3563) and retire others (a sidecar the server no longer has).
+        case update(updates: [NSFileProviderItem], deletes: [NSFileProviderItemIdentifier])
         /// The per-asset metadata GET failed because the network itself
         /// was unreachable — see `isNetworkUnreachable`. Kept separate
         /// from the generic transient-failure `.update(stub)` outcome so
@@ -175,19 +177,25 @@ enum WorkingSetChangeResolver {
             switch entry.outcome {
             case .skip, .networkUnreachable:
                 continue
-            case .delete(let ident):
-                deletes.append(ident)
-                workingSet.remove(identifier: ident.rawValue)
-            case .update(let item):
-                updates.append(item)
+            case .delete(let idents):
+                deletes.append(contentsOf: idents)
+                for ident in idents { workingSet.remove(identifier: ident.rawValue) }
+            case .update(let items, let retired):
+                updates.append(contentsOf: items)
+                deletes.append(contentsOf: retired)
+                for ident in retired { workingSet.remove(identifier: ident.rawValue) }
                 // Touch the working set so eviction reflects activity.
                 // Uses the change-feed row's own timestamp (via
                 // `changes[entry.index]`, not wall-clock "now") so
                 // `lastTouched` reflects when the server recorded the
-                // event, matching the original sequential loop.
-                workingSet.upsert(identifier: item.itemIdentifier.rawValue,
-                                  kind: .recent,
-                                  lastTouched: changes[entry.index].at)
+                // event, matching the original sequential loop. The asset
+                // item leads the fan-out and is the working-set member;
+                // its sidecar rides along with it (#3563).
+                if let lead = items.first {
+                    workingSet.upsert(identifier: lead.itemIdentifier.rawValue,
+                                      kind: .recent,
+                                      lastTouched: changes[entry.index].at)
+                }
             }
         }
         return .resolved(updates: updates, deletes: deletes)
@@ -222,14 +230,12 @@ enum WorkingSetChangeResolver {
     private static func outcomeFromBatch(assetID: String,
                                          meta: AssetMetadata?,
                                          roots: [LibraryRoot]) -> ChangeOutcome {
-        let ident = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.asset(assetID).rawValue
-        )
-        guard let meta else { return .delete(ident) }
+        guard let meta else { return .delete(AssetChangeItems.deleted(assetID: assetID)) }
         let parent = WorkingSetEnumerator.resolveParent(folderID: meta.folderID,
                                                         absPath: meta.absPath,
                                                         roots: roots)
-        return .update(MapleItem(assetMetadata: meta, parent: parent))
+        let fanOut = AssetChangeItems.resolved(meta: meta, parent: parent)
+        return .update(updates: fanOut.updates, deletes: fanOut.deletes)
     }
 
     /// Resolves a single change-feed row. Delete rows resolve
@@ -274,11 +280,8 @@ enum WorkingSetChangeResolver {
         guard let assetID = ch.assetID else {
             return await Self.resolveFileChange(ch, catalog: catalog, semaphore: semaphore, log: log)
         }
-        let ident = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.asset(assetID).rawValue
-        )
         if ch.kind == .delete {
-            return .delete(ident)
+            return .delete(AssetChangeItems.deleted(assetID: assetID))
         }
 
         var acquired = false
@@ -298,12 +301,13 @@ enum WorkingSetChangeResolver {
                 // Genuine 404: the change-feed row raced a server-side
                 // delete. Report it as a delete rather than handing the
                 // OS an item whose content will 404 forever.
-                return .delete(ident)
+                return .delete(AssetChangeItems.deleted(assetID: assetID))
             }
             let parent = WorkingSetEnumerator.resolveParent(folderID: meta.folderID,
                                                              absPath: meta.absPath,
                                                              roots: roots)
-            return .update(MapleItem(assetMetadata: meta, parent: parent))
+            let fanOut = AssetChangeItems.resolved(meta: meta, parent: parent)
+            return .update(updates: fanOut.updates, deletes: fanOut.deletes)
         } catch {
             if Self.isNetworkUnreachable(error) {
                 log.notice("network unreachable resolving \(assetID, privacy: .public) during enumerateChanges")
@@ -314,7 +318,7 @@ enum WorkingSetChangeResolver {
                                  cursor: ch.cursor,
                                  folderID: ch.folderID,
                                  relativePath: ch.relativePath)
-            return .update(stub)
+            return .update(updates: [stub], deletes: [])
         }
     }
 
@@ -344,7 +348,7 @@ enum WorkingSetChangeResolver {
             FileProviderIdentifier.file(folderID: folderID, relativePath: relativePath).rawValue
         )
         if ch.kind == .delete {
-            return .delete(ident)
+            return .delete([ident])
         }
 
         let parentRel = (relativePath as NSString).deletingLastPathComponent
@@ -364,10 +368,11 @@ enum WorkingSetChangeResolver {
                 // Genuine 404: the change-feed row raced a server-side
                 // delete/move. Report it as a delete rather than handing
                 // the OS an item whose content will 404 forever.
-                return .delete(ident)
+                return .delete([ident])
             }
-            return .update(MapleItem(file: meta, folderID: folderID,
-                                     relativePath: relativePath, parentIdentifier: parentID))
+            return .update(updates: [MapleItem(file: meta, folderID: folderID,
+                                               relativePath: relativePath, parentIdentifier: parentID)],
+                           deletes: [])
         } catch {
             if Self.isNetworkUnreachable(error) {
                 log.notice("network unreachable resolving file \(relativePath, privacy: .private) during enumerateChanges")
@@ -377,8 +382,9 @@ enum WorkingSetChangeResolver {
             let filename = (relativePath as NSString).lastPathComponent
             let ext = (filename as NSString).pathExtension.lowercased()
             let stub = FileChild(name: filename, path: "", mtime: ch.at, size: 0, ext: ext)
-            return .update(MapleItem(file: stub, folderID: folderID,
-                                     relativePath: relativePath, parentIdentifier: parentID))
+            return .update(updates: [MapleItem(file: stub, folderID: folderID,
+                                               relativePath: relativePath, parentIdentifier: parentID)],
+                           deletes: [])
         }
     }
 

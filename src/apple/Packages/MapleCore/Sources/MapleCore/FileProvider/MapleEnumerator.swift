@@ -309,9 +309,10 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
             do {
                 let page = try await catalog.listChanges(since: since,
                                                          limit: Self.changesPageLimit)
-                let split = FolderChangeMatching.partition(changes: page.changes,
-                                                           folderID: folderID,
-                                                           relativePath: relativePath)
+                let split = await FolderChangeMatching.resolve(changes: page.changes,
+                                                               folderID: folderID,
+                                                               relativePath: relativePath,
+                                                               catalog: catalog)
                 observer.didUpdate(split.updates)
                 observer.didDeleteItems(withIdentifiers: split.deletes)
                 let newAnchor = page.nextCursor.map { FolderChangeMatching.anchor($0) } ?? anchor

@@ -143,8 +143,10 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
         XCTAssertTrue(finished, "enumerateChanges did not finish in time")
         XCTAssertNil(observer.error)
         XCTAssertTrue(observer.updates.isEmpty)
+        // A 404'd RAW retires its canonical sidecar with it (#3563).
         XCTAssertEqual(observer.deletes.map(\.rawValue),
-                       [FileProviderIdentifier.asset(assetID).rawValue])
+                       [FileProviderIdentifier.asset(assetID).rawValue,
+                        MapleItem.sidecarIdentifier(assetID: assetID).rawValue])
     }
 
     /// The per-asset GET fails transiently (network/5xx). The
