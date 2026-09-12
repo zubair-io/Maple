@@ -190,27 +190,54 @@ fn crop_to(
     scaled.crop(x.max(0) as u32, y.max(0) as u32, cw, ch)
 }
 
-/// `contain`: pad the resized image out to the target box at `position`.
+/// One axis of libvips' `embed`, which is what `contain` letterboxes with:
+/// returns the first source pixel the canvas shows, how many background
+/// pixels precede it, and how much of the image is visible.
+///
+/// A POSITIVE offset pads the leading edge, which is the ordinary
+/// letterbox. A NEGATIVE one means the image is wider (or taller) than the
+/// box it was asked to fit into, so the canvas starts partway into the
+/// image and the overhang is cropped rather than padded. Both signs are
+/// reachable, so both are handled here rather than being clamped away.
+fn embed_axis(scaled: u32, canvas: u32, off: i64) -> (u32, u32, u32) {
+    let src_start = (-off).clamp(0, scaled as i64) as u32;
+    let pad_before = off.clamp(0, canvas as i64) as u32;
+    let visible = (scaled - src_start).min(canvas - pad_before);
+    (src_start, pad_before, visible)
+}
+
+/// `contain`: place the resized image on its letterbox canvas at
+/// `position`, exactly as sharp's EMBED branch does.
+///
+/// The canvas is `max(resized, target)` per axis, NOT the requested box —
+/// sharp writes `const int width = std::max(inputWidth, baton->width);`
+/// before calling `embed`. The two differ whenever a clamp held the scale
+/// back: `{ 10, 10, contain, withoutReduction }` on a 40x20 source cannot
+/// reduce, so the "letterbox" is 40x20 and the image sits on it at
+/// (-15, -5) — the centre region survives and the trailing edges become
+/// background. Measured against sharp 0.34.5 / libvips 8.17.3.
 fn pad_to(
     scaled: &RasterImage,
     (tw, th): (u32, u32),
     options: &ResizeOptions,
 ) -> Result<RasterImage> {
+    let canvas = (tw.max(scaled.width), th.max(scaled.height));
     let (x, y) = options
         .position
         .place_pad((tw, th), (scaled.width, scaled.height));
-    let left = x.max(0) as u32;
-    let top = y.max(0) as u32;
-    scaled.extend(
+    let (src_x, pad_left, vis_w) = embed_axis(scaled.width, canvas.0, x);
+    let (src_y, pad_top, vis_h) = embed_axis(scaled.height, canvas.1, y);
+    let visible = if (src_x, src_y, vis_w, vis_h) == (0, 0, scaled.width, scaled.height) {
+        scaled.clone()
+    } else {
+        scaled.crop(src_x, src_y, vis_w, vis_h)?
+    };
+    visible.extend(
         ExtendEdges {
-            left,
-            top,
-            // `saturating_sub` guards a float-rounding edge only:
-            // `scaled` is sized from the same scale factor used to
-            // place it, so `scaled.width + left` cannot exceed `tw`
-            // by construction — this never actually saturates.
-            right: tw.saturating_sub(scaled.width + left),
-            bottom: th.saturating_sub(scaled.height + top),
+            left: pad_left,
+            top: pad_top,
+            right: canvas.0 - pad_left - vis_w,
+            bottom: canvas.1 - pad_top - vis_h,
         },
         options.background,
     )
