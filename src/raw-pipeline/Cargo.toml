@@ -37,6 +37,12 @@ zune-jpeg = "0.5"
 jpeg-encoder = "0.7"
 fast_image_resize = { version = "5.5", default-features = false, features = ["image", "rayon"] }
 png = "0.17"
+# TIFF writing at the tag level. `image`'s own TIFF wrapper exposes only an
+# ICC hook, and a TIFF states its orientation as IFD0 tag 274 rather than in
+# an EXIF block, so writing one needs the underlying crate directly (#3507
+# round 5). Already in the lockfile — and vendored — as `image`'s own
+# dependency at this exact version.
+tiff = "0.11"
 quick-xml = "0.37"
 thiserror = "2"
 # IEEE 754 binary16 (f16) storage type. Already in the lockfile transitively

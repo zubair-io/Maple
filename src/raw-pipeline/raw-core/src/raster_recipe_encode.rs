@@ -197,6 +197,7 @@ fn embedded(meta: &ResolvedMetadata) -> EmbeddedMetadata<'_> {
         exif: meta.exif.as_deref(),
         xmp: meta.xmp.as_deref(),
         density: meta.density,
+        orientation: meta.orientation,
     }
 }
 
