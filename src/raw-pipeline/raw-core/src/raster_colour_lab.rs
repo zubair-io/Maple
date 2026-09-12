@@ -11,7 +11,7 @@
 
 use crate::color::matrices::M_SRGB_TO_P3;
 use crate::raster::RasterImage;
-use crate::raster_colour::REC709_LUMA;
+use crate::raster_colour::bw_luma;
 use crate::raster_lab::{lab_to_lch, lab_to_srgb, lch_to_lab, srgb_to_lab};
 use crate::view::encode::{srgb_degamma, srgb_gamma, TargetPrimaries};
 
@@ -35,17 +35,6 @@ fn map_colour(src: &RasterImage, f: impl Fn([u8; 3]) -> [u8; 3]) -> RasterImage 
     }
 }
 
-/// Rec.709 luma of the encoded samples, rounded and clamped. sharp's `Tint`
-/// mixes to luminance before placing each grey on the Lab table — on the
-/// ENCODED values, unlike `RasterImage::greyscale` (#3503 controller
-/// ruling), which reduces in linear light (`raster_colour::bw_luma`). The
-/// two are deliberately different reductions for two deliberately different
-/// ops; this one is not shared.
-fn luma(px: [u8; 3]) -> u8 {
-    let y = (0..3).map(|i| px[i] as f64 * REC709_LUMA[i]).sum::<f64>();
-    y.round().clamp(0.0, 255.0) as u8
-}
-
 impl RasterImage {
     /// sharp's `Tint`: reduce each pixel to luminance, then look it up in a
     /// 256-entry Lab table whose L* is the grey's own L* and whose a*/b*
@@ -53,6 +42,11 @@ impl RasterImage {
     /// (`l = L*/100`) — full tint chroma at mid-grey, zero at black and
     /// white. The table depends only on the tint colour, so it is built
     /// once per call and every pixel is mapped through it.
+    ///
+    /// The luminance reduction is [`bw_luma`] — the same linear-light
+    /// Rec.709 reduction `greyscale()` uses (#3503 controller ruling B):
+    /// sharp's tint preserves linear-light luminance, not a matrix applied
+    /// to the encoded samples.
     pub fn tint(&self, rgb: [u8; 3]) -> Self {
         let tint_lab = srgb_to_lab(rgb);
         let lut: [[u8; 3]; 256] = std::array::from_fn(|y| {
@@ -60,7 +54,7 @@ impl RasterImage {
             let w = 1.0 - 4.0 * (l / 100.0 - 0.5).powi(2);
             lab_to_srgb([l, tint_lab[1] * w, tint_lab[2] * w])
         });
-        map_colour(self, |px| lut[luma(px) as usize])
+        map_colour(self, |px| lut[bw_luma(px) as usize])
     }
 
     /// `L' = L*brightness + lightness`, `C' = C*saturation`, `h' = h + hue`.

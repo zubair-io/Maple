@@ -71,14 +71,40 @@ fn modulate_is_reachable_from_the_recipe() {
 
 #[test]
 fn tint_is_reachable_from_the_recipe() {
+    // Grey tint(128,128,128) on (200,40,40) -> 105 grey, measured against
+    // real sharp 0.34.5 (#3503 controller ruling B: tint reduces to
+    // luminance in LINEAR light via `bw_luma`, the same reduction
+    // `greyscale()` uses, not a matrix on the encoded samples). ±1 for the
+    // same de-gamma/re-gamma rounding slack every other closed-form
+    // assertion in this file allows.
     let out = run(
         r#"{"v":1,"input":{"kind":"raw","width":1,"height":1,"channels":3},
             "ops":[{"op":"tint","rgb":[128,128,128]}],"output":{"format":"raw"}}"#,
         &[200, 40, 40],
         &[],
     );
-    assert!((out.bytes[0] as i32 - out.bytes[1] as i32).abs() <= 1);
-    assert!((out.bytes[1] as i32 - out.bytes[2] as i32).abs() <= 1);
+    for got in &out.bytes {
+        assert!(got.abs_diff(105) <= 1, "got {:?}", out.bytes);
+    }
+}
+
+#[test]
+fn a_chromatic_tint_is_reachable_from_the_recipe() {
+    // sharp 0.34.5 `.tint({r:255,g:0,b:0})` on solid mid-grey (100,100,100)
+    // -> (216, 0, 0).
+    let out = run(
+        r#"{"v":1,"input":{"kind":"raw","width":1,"height":1,"channels":3},
+            "ops":[{"op":"tint","rgb":[255,0,0]}],"output":{"format":"raw"}}"#,
+        &[100, 100, 100],
+        &[],
+    );
+    assert!(
+        (out.bytes[0] as i32 - 216).abs() <= 1,
+        "got {:?}",
+        out.bytes
+    );
+    assert!((out.bytes[1] as i32 - 0).abs() <= 1, "got {:?}", out.bytes);
+    assert!((out.bytes[2] as i32 - 0).abs() <= 1, "got {:?}", out.bytes);
 }
 
 #[test]
