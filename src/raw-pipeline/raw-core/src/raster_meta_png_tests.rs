@@ -43,8 +43,35 @@ fn png_phys_density_converts_metres_to_dpi() {
     payload.extend_from_slice(&2835u32.to_be_bytes()); // Y (unread)
     payload.push(1); // unit specifier: metre
     let bytes = png_fixture_raw(&[(png::chunk::pHYs, payload)]);
-    let density = read_sidecars(&bytes).density.expect("density");
-    assert!((density - 72.009).abs() < 0.01, "got {density}");
+    // Reported as the rounded whole number sharp reports (#3507 final fix
+    // wave, item 7): 2835 px/m is 72.009 dpi, and sharp says 72.
+    assert_eq!(read_sidecars(&bytes).density, Some(72.0));
+}
+
+#[test]
+fn the_libvips_default_png_density_is_suppressed_like_sharp() {
+    // Every sharp-written PNG carries `pHYs` = 1000 px/m, which is libvips'
+    // own 1 px/mm default and exactly 25.4 dpi. sharp reports no density
+    // for it (its threshold is `xres > 1.0` px/mm); Maple used to report
+    // 25.4 — measured on 8 of 8 PNG fixtures.
+    let mut payload = 1000u32.to_be_bytes().to_vec();
+    payload.extend_from_slice(&1000u32.to_be_bytes());
+    payload.push(1); // unit specifier: metre
+    let bytes = png_fixture_raw(&[(png::chunk::pHYs, payload)]);
+    assert_eq!(read_sidecars(&bytes).density, None);
+}
+
+#[test]
+fn a_png_exif_resolution_wins_over_phys() {
+    // libvips reads the EXIF resolution after the `pHYs` one and
+    // overwrites it — measured: a PNG carrying a 300 dpi `pHYs` and a
+    // 25.4 dpi `eXIf` reads back through sharp as no density at all.
+    let mut phys = 11811u32.to_be_bytes().to_vec(); // 300 dpi
+    phys.extend_from_slice(&11811u32.to_be_bytes());
+    phys.push(1);
+    let exif = crate::raster_meta::set_exif_resolution(&[], 96.0);
+    let bytes = png_fixture_raw(&[(png::chunk::pHYs, phys), (png::chunk::eXIf, exif)]);
+    assert_eq!(read_sidecars(&bytes).density, Some(96.0));
 }
 
 #[test]

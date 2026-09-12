@@ -185,12 +185,25 @@ pub fn resolve_metadata(
     } else {
         exif_base
     };
-    let exif = match metadata.orientation {
+    let oriented = match metadata.orientation {
         Some(orientation) => Some(crate::raster_meta::set_exif_orientation(
             neutralised.as_deref().unwrap_or(&[]),
             orientation,
         )),
         None => neutralised,
+    };
+    // A density has to land in the EXIF block too, not only in the
+    // container's own JFIF/`pHYs` field, because libvips prefers the EXIF
+    // resolution when reading one back (#3507 final fix wave, item 7).
+    // Measured before the fix: `keepMetadata().withMetadata({density:300})`
+    // on a JPEG whose kept EXIF said 96 dpi wrote a 300 dpi JFIF segment,
+    // and sharp read 96. Only an EXIF block that already exists is
+    // rewritten — with no block to carry, the container's own field is the
+    // only place the density needs to be, and both Maple and sharp read
+    // it back correctly from there.
+    let exif = match (metadata.density, oriented) {
+        (Some(dpi), Some(block)) => Some(crate::raster_meta::set_exif_resolution(&block, dpi)),
+        (_, block) => block,
     };
     // `keep` mirrors sharp's `withMetadata()`: an ICC profile already
     // present is copied through as-is, and one that's absent gets a default

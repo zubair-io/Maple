@@ -96,7 +96,38 @@ fn jfif_density_in_inches_reports_dpi_directly() {
 
 #[test]
 fn jfif_density_in_centimetres_converts_to_dpi() {
+    // 28 px/cm is 71.12 dpi, reported as the rounded whole number sharp
+    // reports — measured: sharp says 71 for a JPEG carrying exactly this
+    // JFIF segment (#3507 final fix wave, item 7).
     let bytes = jpeg_with_jfif_density(2, 28);
-    let density = read_sidecars(&bytes).density.expect("density");
-    assert!((density - 71.12).abs() < 0.01, "got {density}");
+    assert_eq!(read_sidecars(&bytes).density, Some(71.0));
+}
+
+#[test]
+fn a_jpeg_with_no_stated_resolution_reports_the_libvips_default() {
+    // mozjpeg (what sharp encodes with) writes no JFIF density segment at
+    // all, and libvips' JPEG loader assumes 72 dpi — measured: sharp
+    // reports 72 for such a file, where Maple reported nothing.
+    let bytes = jpeg_with_extra(&[]);
+    assert_eq!(read_sidecars(&bytes).density, Some(72.0));
+}
+
+#[test]
+fn an_exif_resolution_wins_over_the_jfif_one() {
+    // libvips reads the EXIF resolution after the JFIF one and overwrites
+    // it — measured: `keepMetadata().withMetadata({density:300})` on a
+    // JPEG whose kept EXIF says 96 dpi reads back through sharp as 96.
+    let exif = crate::raster_meta::set_exif_resolution(&[], 96.0);
+    let jfif = {
+        let mut payload = b"JFIF\0".to_vec();
+        payload.extend_from_slice(&[1, 1, 1]); // version 1.1, units = inch
+        payload.extend_from_slice(&300u16.to_be_bytes()); // X density
+        payload.extend_from_slice(&300u16.to_be_bytes()); // Y density
+        payload.extend_from_slice(&[0, 0]); // no thumbnail
+        jpeg_segment(0xE0, &payload)
+    };
+    let mut extra = jfif;
+    extra.extend(jpeg_segment(0xE1, &[EXIF_INTRO, &exif].concat()));
+    let bytes = jpeg_with_extra(&extra);
+    assert_eq!(read_sidecars(&bytes).density, Some(96.0));
 }
