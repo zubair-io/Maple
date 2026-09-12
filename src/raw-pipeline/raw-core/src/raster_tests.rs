@@ -343,3 +343,91 @@ mod cover_fit {
         assert!(src.crop(u32::MAX, 0, 2, 2).is_err());
     }
 }
+
+/// The EXIF orientation a PNG or WebP declares in its own metadata chunk
+/// reaches both the probe and the decoded image (#3507 final fix wave,
+/// item 4). Before this, `extract_exif_orientation` only understood a bare
+/// TIFF header and a JPEG APP1, so `.rotate()`/`autoOrient` was a silent
+/// no-op on both containers — measured against sharp on a 24×16 source
+/// with orientation 6: sharp gave 16×24, Maple 24×16.
+mod container_orientation {
+    use super::*;
+
+    /// A little-endian EXIF block whose IFD0 says Orientation = `value`.
+    fn exif_block(value: u16) -> Vec<u8> {
+        crate::raster_meta::set_exif_orientation(&[], value)
+    }
+
+    /// An 8×4 RGB PNG carrying an `eXIf` chunk (the bare TIFF header form
+    /// PNG stores, and what libvips writes).
+    fn png_with_exif(orientation: u16) -> Vec<u8> {
+        let data = vec![90u8; 8 * 4 * 3];
+        let mut out: Vec<u8> = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut out, 8, 4);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer
+                .write_chunk(png::chunk::eXIf, &exif_block(orientation))
+                .unwrap();
+            writer.write_image_data(&data).unwrap();
+        }
+        out
+    }
+
+    /// An 8×4 RGB WebP carrying an `EXIF` RIFF chunk.
+    fn webp_with_exif(orientation: u16) -> Vec<u8> {
+        use image::ImageEncoder;
+        let data = vec![90u8; 8 * 4 * 3];
+        let mut out: Vec<u8> = Vec::new();
+        let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+        encoder.set_exif_metadata(exif_block(orientation)).unwrap();
+        encoder
+            .write_image(&data, 8, 4, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn a_png_exif_chunk_orientation_reaches_the_probe_and_the_decode() {
+        let bytes = png_with_exif(6);
+        assert_eq!(probe_raster_metadata(&bytes).unwrap().orientation, 6);
+        let mut decoded = decode_raster(&bytes, None).unwrap();
+        assert_eq!(decoded.orientation, crate::image::ExifOrientation::Rotate90);
+        decoded.auto_orient();
+        assert_eq!((decoded.width, decoded.height), (4, 8));
+    }
+
+    #[test]
+    fn a_webp_exif_chunk_orientation_reaches_the_probe_and_the_decode() {
+        let bytes = webp_with_exif(3);
+        assert_eq!(probe_raster_metadata(&bytes).unwrap().orientation, 3);
+        let decoded = decode_raster(&bytes, None).unwrap();
+        assert_eq!(
+            decoded.orientation,
+            crate::image::ExifOrientation::Rotate180
+        );
+    }
+
+    #[test]
+    fn a_container_with_no_exif_stays_at_orientation_one() {
+        let data = vec![10u8; 8 * 4 * 3];
+        let mut out: Vec<u8> = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut out, 8, 4);
+            encoder.set_color(png::ColorType::Rgb);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(&data)
+                .unwrap();
+        }
+        assert_eq!(probe_raster_metadata(&out).unwrap().orientation, 1);
+        assert_eq!(
+            decode_raster(&out, None).unwrap().orientation,
+            crate::image::ExifOrientation::Normal
+        );
+    }
+}
