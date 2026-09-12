@@ -15,7 +15,9 @@
 //!   a TIFF (see `read_tiff`). Only a byte-sized TIFF type
 //!   (BYTE/ASCII/UNDEFINED) is trusted to mean "the declared count is a byte
 //!   length".
-//! * WebP: the `EXIF`, `ICCP` and `XMP ` RIFF chunks.
+//! * WebP: the `EXIF`, `ICCP` and `XMP ` RIFF chunks. No density — libvips
+//!   reports none for a WebP however the file was written (measured), not
+//!   even from an EXIF `XResolution` the chunk carries.
 //! * AVIF: the `Exif` and `mime` (XMP) items `crate::avif_boxes` reads out of
 //!   the container's `meta`/`iinf`/`iloc` item boxes — a completely
 //!   different shape from the chunk/segment streams above, so it dispatches
@@ -98,6 +100,37 @@ pub fn canonical_exif(block: &[u8]) -> (&[u8], bool) {
     }
 }
 
+/// The density to report for a container that states `dpi`, or `None` when
+/// sharp would report none.
+///
+/// Two behaviours of libvips', both measured against sharp 0.34.5 with
+/// `withMetadata({density})` round-trips (#3507 final fix wave, item 7).
+/// It carries resolution as pixels per millimetre and reports it only when
+/// that exceeds 1.0 — exactly 25.4 dpi — so 26 reads back and 25.4 and 25
+/// read back as absent, on JPEG, PNG and TIFF alike. And what it reports is
+/// the rounded whole number: a block storing `25999/1000` reads back as 26,
+/// 150.7 as 151, 150.4 as 150, 72.5 as 73.
+fn reportable_density(dpi: f64) -> Option<f64> {
+    (dpi > MIN_REPORTED_DPI).then(|| dpi.round())
+}
+
+/// Densities at or below 25.4 dpi are not reported at all.
+///
+/// libvips carries resolution as pixels per millimetre and defaults it to
+/// 1.0, which sharp suppresses (`density` is absent unless `xres > 1.0`) —
+/// 1 px/mm is exactly 25.4 dpi. Measured on sharp 0.34.5 with
+/// `withMetadata({density})`: 26 reads back as 26, 25.4 and 25 as
+/// `undefined`, on both JPEG and PNG. That is also why every sharp-written
+/// PNG's `pHYs` of 1000 px/m reads back as no density at all, where Maple
+/// reported 25.4 on 8 of 8 PNG fixtures (#3507 final fix wave, item 7).
+const MIN_REPORTED_DPI: f64 = 25.4;
+
+/// What libvips' JPEG loader assumes when a JPEG states no resolution in
+/// either its JFIF segment or its EXIF block (measured: sharp reports 72
+/// for a mozjpeg-written JPEG that carries neither, and mozjpeg writes no
+/// JFIF density segment at all).
+const JPEG_DEFAULT_DPI: f64 = 72.0;
+
 /// Ceiling on a single metadata block, in bytes (16 MiB).
 ///
 /// Two jobs, one number (#3507 final fix wave, items 5 and 9). It bounds
@@ -157,120 +190,6 @@ pub fn read_sidecars(bytes: &[u8]) -> RasterSidecars {
         return read_webp(bytes);
     }
     RasterSidecars::default()
-}
-
-/// Walk JPEG marker segments from the SOI to the SOS, collecting APP1/APP2.
-fn read_jpeg(bytes: &[u8]) -> RasterSidecars {
-    let mut found = RasterSidecars::default();
-    let mut icc_chunks: Vec<(u8, u8, Vec<u8>)> = Vec::new();
-    let mut idx = 2usize;
-    'segments: loop {
-        if bytes.get(idx) != Some(&0xFF) {
-            break;
-        }
-        // A marker may be preceded by a run of 0xFF fill bytes (padding some
-        // encoders emit) before the real, non-0xFF code byte.
-        let mut code_idx = idx;
-        while bytes.get(code_idx) == Some(&0xFF) {
-            let Some(next) = code_idx.checked_add(1) else {
-                break 'segments;
-            };
-            code_idx = next;
-        }
-        let Some(&marker) = bytes.get(code_idx) else {
-            break;
-        };
-        if marker == 0xDA || marker == 0xD9 {
-            break;
-        }
-        // Standalone markers — restart (RST0..7) and TEM — carry no length
-        // field: they're exactly the fill bytes plus this one code byte.
-        if (0xD0..=0xD7).contains(&marker) || marker == 0x01 {
-            let Some(next) = code_idx.checked_add(1) else {
-                break;
-            };
-            idx = next;
-            continue;
-        }
-        let Some(len_start) = code_idx.checked_add(1) else {
-            break;
-        };
-        let Some(len_end) = len_start.checked_add(2) else {
-            break;
-        };
-        let Some(length_bytes) = bytes.get(len_start..len_end) else {
-            break;
-        };
-        let length = u16::from_be_bytes([length_bytes[0], length_bytes[1]]) as usize;
-        let Some(payload_start) = code_idx.checked_add(3) else {
-            break;
-        };
-        let Some(segment_end) = len_start.checked_add(length) else {
-            break;
-        };
-        let Some(payload) = bytes.get(payload_start..segment_end) else {
-            break;
-        };
-        match marker {
-            0xE0 if payload.starts_with(b"JFIF\0") && payload.len() >= 12 => {
-                // JFIF: units byte then X/Y density, big-endian.
-                let x = u16::from_be_bytes([payload[8], payload[9]]) as f64;
-                found.density = match payload[7] {
-                    1 => Some(x),        // already per inch
-                    2 => Some(x * 2.54), // per cm
-                    _ => None,           // aspect ratio only
-                };
-            }
-            0xE1 if payload.starts_with(EXIF_INTRO) => {
-                // Always introduced in a JPEG — the introducer is how the
-                // APP1 segment is told apart from the XMP one below.
-                found.exif_intro = true;
-                found
-                    .exif
-                    .get_or_insert_with(|| payload[EXIF_INTRO.len()..].to_vec());
-            }
-            0xE1 if payload.starts_with(XMP_INTRO) => {
-                found
-                    .xmp
-                    .get_or_insert_with(|| payload[XMP_INTRO.len()..].to_vec());
-            }
-            0xE2 if payload.len() > ICC_INTRO.len() + 2 && payload.starts_with(ICC_INTRO) => {
-                let sequence = payload[ICC_INTRO.len()];
-                let count = payload[ICC_INTRO.len() + 1];
-                icc_chunks.push((sequence, count, payload[ICC_INTRO.len() + 2..].to_vec()));
-            }
-            _ => {}
-        }
-        idx = segment_end;
-    }
-    found.icc = assemble_icc_chunks(icc_chunks);
-    found
-}
-
-/// Reassemble numbered JPEG APP2 ICC chunks (`sequence`, declared total
-/// `count`, chunk bytes) into one profile. Every chunk must agree on the
-/// declared count, the collected sequence numbers must be exactly
-/// `1..=count` with no duplicates, and there must be exactly `count` chunks
-/// — a dropped chunk, a duplicate, or chunks that disagree about how many
-/// there should be means the profile can't be trusted to reassemble
-/// correctly, so it is reported as absent rather than silently wrong.
-fn assemble_icc_chunks(mut chunks: Vec<(u8, u8, Vec<u8>)>) -> Option<Vec<u8>> {
-    let (_, count, _) = *chunks.first()?;
-    if chunks.iter().any(|(_, c, _)| *c != count) {
-        return None;
-    }
-    if count as usize != chunks.len() {
-        return None;
-    }
-    chunks.sort_by_key(|(sequence, _, _)| *sequence);
-    let mut expected = 1u8;
-    for (sequence, _, _) in &chunks {
-        if *sequence != expected {
-            return None;
-        }
-        expected = expected.checked_add(1)?;
-    }
-    Some(chunks.into_iter().flat_map(|(_, _, data)| data).collect())
 }
 
 /// Walk PNG chunks. `iCCP` is a NUL-terminated name, a compression byte, then
@@ -335,9 +254,13 @@ fn read_png(bytes: &[u8]) -> RasterSidecars {
                 found.xmp = Some(payload[PNG_XMP_KEYWORD.len()..].to_vec());
             }
             b"pHYs" if payload.len() >= 9 && payload[8] == 1 => {
+                // Via pixels per millimetre, the unit libvips itself
+                // carries, so the ubiquitous `pHYs` of 1000 px/m lands on
+                // exactly 25.4 dpi and is suppressed rather than landing a
+                // floating-point hair above it.
                 let per_metre =
                     u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]) as f64;
-                found.density = Some(per_metre * 0.0254);
+                found.density = Some(per_metre / 1000.0 * 25.4);
             }
             b"IDAT" | b"IEND" => break,
             _ => {}
@@ -348,6 +271,16 @@ fn read_png(bytes: &[u8]) -> RasterSidecars {
         };
         idx = next;
     }
+    // Same precedence as a JPEG's — an `eXIf` resolution wins over `pHYs`
+    // (measured: a PNG carrying a 300 dpi `pHYs` and a 25.4 dpi `eXIf`
+    // reads back as no density at all through sharp) — but with no default:
+    // a PNG that states nothing has no density.
+    found.density = found
+        .exif
+        .as_deref()
+        .and_then(exif_resolution_dpi)
+        .or(found.density)
+        .and_then(reportable_density);
     found
 }
 
@@ -407,7 +340,14 @@ fn read_tiff(bytes: &[u8]) -> RasterSidecars {
             u32::from_be_bytes([b[0], b[1], b[2], b[3]])
         })
     };
-    let mut found = RasterSidecars::default();
+    let mut found = RasterSidecars {
+        // A TIFF's IFD0 *is* its EXIF, so its own XResolution/ResolutionUnit
+        // are what sharp reports (measured: 300 for a TIFF written with
+        // `withMetadata({density:300})`, absent for a plain one whose
+        // resolution is libvips' 1 px/mm default).
+        density: exif_resolution_dpi(bytes).and_then(reportable_density),
+        ..Default::default()
+    };
     let Some(ifd) = u32_at(4).map(|v| v as usize) else {
         return found;
     };
@@ -511,11 +451,16 @@ fn read_webp(bytes: &[u8]) -> RasterSidecars {
     found
 }
 
-/// Rewrite the Orientation/resolution tags inside an EXIF block — see its
-/// own module doc for why that is a separate file from reading one.
-#[path = "raster_meta_write.rs"]
-mod write;
-pub use write::set_exif_orientation;
+/// The JPEG marker-segment walk — see its own module doc.
+#[path = "raster_meta_jpeg.rs"]
+mod jpeg;
+use jpeg::read_jpeg;
+
+/// Read and rewrite individual tags inside an EXIF block — see its own
+/// module doc for why that is a separate file from walking a container.
+#[path = "raster_meta_tags.rs"]
+mod tags;
+pub use tags::{exif_resolution_dpi, set_exif_orientation, set_exif_resolution};
 
 #[cfg(test)]
 #[path = "raster_meta_jpeg_tests.rs"]
