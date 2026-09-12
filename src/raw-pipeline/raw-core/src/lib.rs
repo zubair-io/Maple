@@ -91,6 +91,7 @@ pub(crate) mod raster_recipe_colour;
 pub mod raster_recipe_exec;
 pub mod raster_recipe_filter;
 mod raster_recipe_geometry;
+pub mod raster_recipe_output;
 mod raster_recipe_resize;
 pub mod raster_rotate;
 pub mod raster_sharpen;
