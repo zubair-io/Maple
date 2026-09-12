@@ -81,6 +81,6 @@ export function setTiffOutput(state: BuilderState, options?: TiffOutputOptions):
     format: 'tiff',
     compression: options?.compression ?? 'lzw',
     bitdepth: options?.bitdepth ?? 8,
-    predictor: options?.predictor ?? true,
+    predictor: options?.predictor ?? 'horizontal',
   };
 }
