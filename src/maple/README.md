@@ -111,7 +111,7 @@ const avif = await maple({ data: rgb, width, height, channels: 3 })
 const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 ```
 
-`fit` accepts `'inside' | 'fill' | 'cover'`; `filter` accepts `'lanczos3' | 'bilinear' | 'nearest'`. AVIF `effort` is 0 (fastest) to 9 (slowest), as in sharp. AVIF inputs decode (pure-Rust AV1 decoder); a JPEG truncated in its scan data decodes to the rows that survived.
+`fit` accepts all five of sharp's modes — `'inside' | 'fill' | 'cover' | 'contain' | 'outside'`. `kernel` (and its alias `filter`) accepts all six kernels — `'nearest' | 'linear' | 'cubic' | 'mitchell' | 'lanczos2' | 'lanczos3'`, with `'bilinear'` accepted as a second spelling of `'linear'`. AVIF `effort` is 0 (fastest) to 9 (slowest), as in sharp. AVIF inputs decode (pure-Rust AV1 decoder); a JPEG truncated in its scan data decodes to the rows that survived.
 
 **`withoutEnlargement` defaults to `true`** here, where sharp defaults it to `false`. A source smaller than the requested box is therefore left at its own size, and in particular `fit: 'cover'` never upscales to fill the box unless you pass `withoutEnlargement: false`. A `width` or `height` of `0` means "keep the source dimension on this axis". `withoutReduction` follows sharp and defaults to `false`.
 
@@ -130,10 +130,25 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `flatten()`                     | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                           |
 | `ensureAlpha()`                 | ✅    |                                                                                                                                                                                                 |
 | `removeAlpha()`                 | ✅    |                                                                                                                                                                                                 |
-| `resize({ fit })`               | ✅    | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                       |
+| `resize({ fit })`               | ✅\*  | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                       |
 | `resize({ position })`          | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                             |
 | `resize({ kernel })`            | ✅    | `nearest`, `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3`; `filter` is an alias; `mks2013`/`mks2021` throw by name                                                                      |
-| `resize({ withoutReduction })`  | ✅    |                                                                                                                                                                                                 |
+| `resize({ withoutReduction })`  | ✅    | `withoutReduction` wins when both clamps are set, as in sharp                                                                                                                                  |
+
+**\* One known gap, at heavy downscales only.** Everything about how the
+target box is chosen matches sharp: the per-axis shrink factors and how each
+canvas collapses them, the single-axis rule, both clamps and their
+precedence, the round-up bias on a centre crop and the round-down bias on a
+letterbox pad, and `contain`'s negative-offset embed when a clamp holds the
+scale back. What does not match is the last pixel of the DERIVED axis when
+the image is shrunk hard. libvips does not resize in one step — it splits
+the scale into an integer `vips_shrink` plus a residual `vips_reduce` and
+rounds at each stage — so its second axis can land a pixel below any
+single-step rounding. Across a 2560-case sweep of sources x targets x fits
+x clamps, 11 distinct shapes diverge, every one at a shrink of 6.35x or
+more and every one by exactly one pixel (for example a 400x200 source into
+an `inside` 13x13 box: sharp 13x6, Maple 13x7). Closing it means porting
+`vips_resize`'s staging rather than tuning a rounding mode.
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
