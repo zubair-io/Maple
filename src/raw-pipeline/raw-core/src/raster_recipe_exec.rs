@@ -166,10 +166,15 @@ fn apply_op(
 /// carried forward).
 fn output_supports_alpha(output: &RasterOutput) -> bool {
     match output {
-        RasterOutput::Png(_) | RasterOutput::Webp { .. } => true,
+        // TIFF belongs here: `encode_tiff_opts` writes RGB plus one
+        // unassociated alpha sample (`ExtraSamples` = 2), the same file
+        // `sharp().tiff()` produces for an RGBA input. The plan's decision
+        // D2 grouped it with JPEG as alpha-free, which was wrong — measured,
+        // `sharp(rgba).tiff()` reports 4 channels with `hasAlpha: true`.
+        RasterOutput::Png(_) | RasterOutput::Webp { .. } | RasterOutput::Tiff(_) => true,
         #[cfg(feature = "avif")]
         RasterOutput::Avif(_) => true,
-        RasterOutput::Jpeg(_) | RasterOutput::Tiff(_) | RasterOutput::Raw => false,
+        RasterOutput::Jpeg(_) | RasterOutput::Raw => false,
     }
 }
 

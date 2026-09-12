@@ -32,9 +32,10 @@
 //! The legacy `crate::tiff::encode_u16`/`encode_from_u8` (export.rs's
 //! `Tiff16` path, `container_supports_alpha`) is untouched by this change —
 //! it keeps flattening 4-channel input over black, matching the JPEG rule.
-//! F5 routes the recipe's TIFF output through `encode_tiff_opts` when
-//! options are present, at which point that call site can carry alpha
-//! straight through; only this module gained it.
+//! The recipe path does not: `raster_encode::encode_raster_output` hands a
+//! 4-channel raster here unflattened, and `raster_recipe_exec`'s
+//! `output_supports_alpha` reports TIFF as alpha-capable so the recipe's
+//! `channels` matches what the file carries.
 //!
 //! sharp's `compression: 'jpeg' | 'webp' | 'zstd' | 'jp2k' | 'ccittfax4'`
 //! and its `tile`/`pyramid`/`bigtiff` options are not implemented and are
