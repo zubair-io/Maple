@@ -553,18 +553,21 @@ fn shadows_mult(y: f32, s_amount: f32) -> f32 {
     return 1.0 + (exp2(S_GAIN_EV * s_amount) - 1.0) * (t * t);
 }
 
-fn highlights_mult(y: f32, h_amount: f32, h_denom: f32, h_expand: f32) -> f32 {
-    let g = exp2(-H_GAIN_EV * h_amount * smoothstep(H_W0, H_W1, y));
+// Adobe direction (crs:Highlights2012): positive brightens, negative recovers.
+// Mirrors raw-core `highlights_mult` verbatim — the maths runs on the
+// RECOVER amount r = -h_amount.
+fn highlights_mult(y: f32, h_amount: f32) -> f32 {
+    let recover = -h_amount;
+    let w = smoothstep(H_W0, H_W1, y);
+    let g = exp2(-H_GAIN_EV * recover * w);
+    var shape = 1.0;
     if (y > 1.0) {
         var y_new: f32;
-        if (h_amount >= 0.0) {
-            y_new = 1.0 + (y - 1.0) / h_denom;
-        } else {
-            y_new = 1.0 + (y - 1.0) * h_expand;
-        }
-        return (y_new / y) * g;
+        if (recover >= 0.0) { y_new = 1.0 + (y - 1.0) / (1.0 + 2.0 * recover); }
+        else                { y_new = 1.0 + (y - 1.0) * (1.0 + 2.0 * abs(recover)); }
+        shape = y_new / y;
     }
-    return g;
+    return shape * g;
 }
 
 fn apply_pixel(rgb: vec3<f32>, layer: Layer, w: f32) -> vec3<f32> {
@@ -600,7 +603,7 @@ fn apply_pixel(rgb: vec3<f32>, layer: Layer, w: f32) -> vec3<f32> {
     //    is already a smooth region.
     if ((present & P_HIGHLIGHTS) != 0u) {
         let h_amount = w * layer.adj0.z / 100.0;
-        p = p * highlights_mult(luma(p), h_amount, 1.0 + h_amount * 2.0, 1.0 + 2.0 * abs(h_amount));
+        p = p * highlights_mult(luma(p), h_amount);
     }
     if ((present & P_SHADOWS) != 0u) {
         p = p * shadows_mult(luma(p), w * layer.adj0.w / 100.0);
