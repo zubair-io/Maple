@@ -35,37 +35,46 @@ pub(crate) fn kernel_from_wire(s: &str) -> Result<FilterAlg> {
     }
 }
 
+/// The `resize` op's wire fields, borrowed straight off the parsed recipe.
+///
+/// A named struct rather than nine positional arguments: `fit`, `position`
+/// and `kernel` are all `&str`, so passing them positionally lets any two
+/// be transposed at the call site without the compiler noticing — and a
+/// transposed pair fails at runtime with a confusing "unsupported resize
+/// fit 'centre'" rather than at compile time.
+pub(crate) struct ResizeOpArgs<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub fit: &'a str,
+    pub position: &'a str,
+    pub kernel: &'a str,
+    pub without_enlargement: bool,
+    pub without_reduction: bool,
+    pub background: [u8; 4],
+}
+
 /// Execute the recipe's `resize` op: parse the wire strings (`fit`, `kernel`,
 /// `position`), then delegate to `resize_raster`. Called from
 /// `raster_recipe_exec::apply_op`'s `Op::Resize` match arm.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn apply_resize_op(
-    image: &RasterImage,
-    width: u32,
-    height: u32,
-    fit: &str,
-    position: &str,
-    kernel: &str,
-    without_enlargement: bool,
-    without_reduction: bool,
-    background: [u8; 4],
-) -> Result<RasterImage> {
+pub(crate) fn apply_resize_op(image: &RasterImage, args: &ResizeOpArgs<'_>) -> Result<RasterImage> {
+    let position = Gravity::from_wire(args.position).ok_or_else(|| {
+        bad(format!(
+            "unsupported resize position '{}' \
+             (the entropy and attention strategies are not implemented)",
+            args.position
+        ))
+    })?;
     resize_raster(
         image,
         &ResizeOptions {
-            width,
-            height,
-            fit: fit_from_wire(fit)?,
-            filter: kernel_from_wire(kernel)?,
-            without_enlargement,
-            without_reduction,
-            position: Gravity::from_wire(position).ok_or_else(|| {
-                bad(format!(
-                    "unsupported resize position '{position}' \
-                     (the entropy and attention strategies are not implemented)"
-                ))
-            })?,
-            background,
+            width: args.width,
+            height: args.height,
+            fit: fit_from_wire(args.fit)?,
+            filter: kernel_from_wire(args.kernel)?,
+            without_enlargement: args.without_enlargement,
+            without_reduction: args.without_reduction,
+            position,
+            background: args.background,
         },
     )
 }
