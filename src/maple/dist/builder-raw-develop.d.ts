@@ -1,8 +1,11 @@
 /**
  * Free functions for the private RAW-develop-only terminal path behind
- * `MapleImageBuilder.toBuffer`/`toFile` — split out of `builder.ts` to make
- * room for the five filter op methods `builder-filter.ts` adds (mirrors the
- * existing `builder-state.ts`/`builder-exec.ts` split; #3504 task E5).
+ * `MapleImageBuilder.toBuffer`/`toFile` — a recipe- or XMP-driven
+ * development of an actual RAW file, as opposed to the bitmap recipe
+ * pipeline in `builder-exec.ts`. Split out of `builder.ts` to make room for
+ * Tier 2's geometry methods (#3501), colour ops (#3503) and the five filter
+ * op methods `builder-filter.ts` adds (#3504 task E5) inside the file-size
+ * budget — mirrors the existing `builder-state.ts`/`builder-exec.ts` split.
  */
 import { type BuilderState } from './builder-state';
 import type { ExportResult } from './types';
