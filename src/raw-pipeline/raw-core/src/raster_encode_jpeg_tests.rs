@@ -173,6 +173,30 @@ fn the_three_metadata_segments_are_embedded() {
     );
 }
 
+/// The Exif specification wants its APP1 first in the file, and sharp writes
+/// EXIF, then XMP, then the ICC APP2 (measured: `APP1(Exif), APP1(XMP),
+/// APP2(ICC_PROFILE), SOF0`). `jpeg-encoder` emits these in call order, so
+/// the order is a property of `encode_jpeg_opts`'s three `add_*` calls and
+/// needs pinning — it was ICC first until this test existed.
+#[test]
+fn the_metadata_segments_are_written_exif_then_xmp_then_icc() {
+    let icc = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
+    let exif = b"II\x2a\x00\x08\x00\x00\x00\x00\x00".to_vec();
+    let xmp = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta/>"#.to_vec();
+    let bytes =
+        encode_jpeg_opts(&noise(16, 16), &opts(), Some(&icc), Some(&exif), Some(&xmp)).unwrap();
+    let kinds: Vec<&str> = walk_markers(&bytes)
+        .into_iter()
+        .filter_map(|(marker, payload)| match marker {
+            0xE1 if payload.starts_with(b"Exif\0\0") => Some("exif"),
+            0xE1 if payload.starts_with(b"http://ns.adobe.com/xap/1.0/\0") => Some("xmp"),
+            0xE2 if payload.starts_with(b"ICC_PROFILE\0") => Some("icc"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kinds, vec!["exif", "xmp", "icc"], "APP segment order");
+}
+
 #[test]
 fn a_four_channel_raster_is_rejected_rather_than_silently_flattened() {
     let rgba = RasterImage::new_rgba(2, 2, vec![0; 16]);
