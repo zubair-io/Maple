@@ -9,6 +9,16 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
+  pushGamma,
+  pushGreyscale,
+  pushLinear,
+  pushModulate,
+  pushNegate,
+  pushNormalise,
+  pushTint,
+  pushToColourspace,
+} from './builder-colour';
+import {
   inputBytes,
   resolveMetadata,
   resolveTensor,
@@ -200,9 +210,85 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Target colourspace (alias for colorSpace) */
-  toColourspace(space: string): this {
-    this.s.colorSpace = space === 'display-p3' || space === 'p3' ? 'display-p3' : 'srgb';
+  /**
+   * Target colourspace. For bitmaps this rotates the primaries and tags the
+   * output with the matching ICC profile; for the RAW develop path it also
+   * selects the export primaries, as it did in Tier 1.
+   */
+  toColourspace(space: 'srgb' | 'display-p3' | 'p3'): this {
+    pushToColourspace(this.s, space);
+    return this;
+  }
+
+  /** Alternative spelling of `toColourspace`. */
+  toColorspace(space: 'srgb' | 'display-p3' | 'p3'): this {
+    return this.toColourspace(space);
+  }
+
+  /** Convert to 8-bit greyscale, three identical channels. */
+  greyscale(greyscale = true): this {
+    pushGreyscale(this.s, greyscale);
+    return this;
+  }
+
+  /** Alternative spelling of `greyscale`. */
+  grayscale(grayscale = true): this {
+    return this.greyscale(grayscale);
+  }
+
+  /**
+   * sharp's `gamma(gamma, gammaOut)`: exponent `1/gamma` before the resize,
+   * exponent `gammaOut` after it. With the defaults (2.2, 2.2) the pair is a
+   * net identity and the RESIZE is what happens in the changed encoding.
+   */
+  gamma(gamma = 2.2, gammaOut?: number): this {
+    pushGamma(this.s, gamma, gammaOut);
+    return this;
+  }
+
+  /** `a * input + b`, per channel or scalar. */
+  linear(a: number | number[] = 1, b: number | number[] = 0): this {
+    pushLinear(this.s, a, b);
+    return this;
+  }
+
+  /** Produce the negative. `{ alpha: false }` spares the alpha channel. */
+  negate(options?: { alpha?: boolean }): this {
+    pushNegate(this.s, options?.alpha ?? true);
+    return this;
+  }
+
+  /** Stretch luminance between the given percentiles. */
+  normalise(options?: { lower?: number; upper?: number }): this {
+    pushNormalise(this.s, options?.lower ?? 1, options?.upper ?? 99);
+    return this;
+  }
+
+  /** Alternative spelling of `normalise`. */
+  normalize(options?: { lower?: number; upper?: number }): this {
+    return this.normalise(options);
+  }
+
+  /** Scale L* and C* and rotate hue, in CIELCh. */
+  modulate(options?: {
+    brightness?: number;
+    saturation?: number;
+    hue?: number;
+    lightness?: number;
+  }): this {
+    pushModulate(
+      this.s,
+      options?.brightness ?? 1,
+      options?.saturation ?? 1,
+      options?.hue ?? 0,
+      options?.lightness ?? 0,
+    );
+    return this;
+  }
+
+  /** Keep each pixel's lightness, take the chroma from `tint`. */
+  tint(tint: Colour | string): this {
+    pushTint(this.s, tint);
     return this;
   }
 
