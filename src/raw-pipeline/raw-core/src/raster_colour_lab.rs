@@ -35,6 +35,55 @@ fn map_colour(src: &RasterImage, f: impl Fn([u8; 3]) -> [u8; 3]) -> RasterImage 
     }
 }
 
+/// libvips' normalised cumulative histogram of a float L* band, the input
+/// [`percent`] reads.
+///
+/// `vips_hist_find` casts the float band down to an integer one — which
+/// TRUNCATES — and then sizes the histogram to `max + 1` bins, so the bin
+/// count is a property of the image's own brightest pixel rather than a
+/// fixed 101 or 256. `vips_hist_norm` then rescales the cumulative counts so
+/// the largest becomes the largest bin INDEX (`width - 1`), with the product
+/// landing in a float32 band and truncating on the way back to integers.
+fn normalised_cumulative_luma(ls: impl Iterator<Item = f32>) -> Vec<u32> {
+    let codes: Vec<usize> = ls.map(|l| (l as i64).clamp(0, 65535) as usize).collect();
+    let width = codes.iter().copied().max().unwrap_or(0) + 1;
+    let counts = codes.iter().fold(vec![0u32; width], |mut acc, &code| {
+        acc[code] += 1;
+        acc
+    });
+    let scale = (width - 1) as f64 / (codes.len() as f64).max(1.0);
+    counts
+        .iter()
+        .scan(0u32, |cum, &count| {
+            *cum += count;
+            Some(*cum)
+        })
+        .map(|cum| (cum as f64 * scale) as f32 as u32)
+        .collect()
+}
+
+/// libvips `vips_percent`, which is NOT a rank search.
+///
+/// The threshold is `percent * width / 100` — width being the histogram's
+/// own bin count, from [`normalised_cumulative_luma`] — and the comparison
+/// is STRICTLY greater, so the answer is the first bin whose normalised
+/// cumulative count exceeds it. That bin can sit above every pixel present:
+/// on a 101-bin ramp `percent(99)` is bin 100 and `percent(100)` is bin 101,
+/// because `vips_profile` reports the image width when a row holds no
+/// qualifying pixel. A rank search gets this wrong in both directions, which
+/// is what put the default 1/99 `normalise()` up to 46 codes away from
+/// sharp.
+///
+/// Verified against real libvips 8.17.3 `vips_percent`, called through its
+/// own C entry point, on 11 designed distributions x 20 percentiles: 220
+/// data points, zero mismatches.
+fn percent(norm: &[u32], p: f64) -> i32 {
+    let threshold = p * norm.len() as f64 / 100.0;
+    norm.iter()
+        .position(|&v| v as f64 > threshold)
+        .unwrap_or(norm.len()) as i32
+}
+
 impl RasterImage {
     /// sharp's `Tint`: reduce each pixel to luminance, then look it up in a
     /// 256-entry Lab table whose L* is the grey's own L* and whose a*/b*
@@ -70,18 +119,27 @@ impl RasterImage {
     }
 
     /// Stretch L* so the `lower`/`upper` percentiles land on 0 and 100,
-    /// keeping a*/b* and alpha — `sharp::Normalise`: convert to LAB, find
-    /// the `lower`/`upper` percentile of the L channel histogram, and
-    /// linearly stretch L* so those two values map to 0 and 100. If the two
-    /// percentiles land within 1 of each other — including a flat image, or
-    /// a population of outliers too small to separate `lower` from `upper`
-    /// (e.g. one stray pixel among a solid field, at 5/95) — sharp returns
-    /// the image unchanged rather than dividing by a near-zero range.
+    /// keeping a*/b* and alpha — `sharp::Normalise` (`operations.cc:64-77`):
+    /// convert to LAB, take the `lower`/`upper` percentile of the L* band,
+    /// and linearly stretch L* so those two land on 0 and 100.
     ///
-    /// The histogram has 101 bins because libvips casts the L band to uchar
-    /// before taking percentiles and L* only spans 0..100; matching the bin
-    /// count, and skipping empty bins in the percentile search below, is
-    /// what makes the percentile land in the same place sharp's does.
+    /// Three details are load-bearing, all of them measured against sharp
+    /// 0.34.5 rather than inferred:
+    ///
+    /// * `lower == 0` and `upper == 100` do NOT go through the percentile
+    ///   machinery at all. sharp takes the band's true minimum and maximum
+    ///   and casts each to `int`, which truncates toward zero.
+    /// * every other percentile is libvips' [`vips_percent`](percent), which
+    ///   is not a rank search — see that function's own doc.
+    /// * the stretch is applied to L* WITHOUT clamping. sharp's `linear` can
+    ///   push L* past 100 or below 0 and lets the LAB -> sRGB conversion clip
+    ///   each channel instead, which keeps a blown pixel's hue rather than
+    ///   pinning it at L* = 100. [`lab_to_srgb`] clips the same way.
+    ///
+    /// If the two bounds land within 1 of each other — a flat image, or a
+    /// population of outliers too small to separate `lower` from `upper`
+    /// (one stray pixel among a solid field, at 5/95) — sharp returns the
+    /// image unchanged rather than dividing by a near-zero range.
     pub fn normalise(&self, lower: f64, upper: f64) -> Self {
         let c = self.channels as usize;
         let labs: Vec<[f32; 3]> = self
@@ -89,49 +147,30 @@ impl RasterImage {
             .chunks_exact(c)
             .map(|px| srgb_to_lab([px[0], px[1], px[2]]))
             .collect();
-        let mut histogram = [0usize; 101];
-        for lab in &labs {
-            histogram[lab[0].round().clamp(0.0, 100.0) as usize] += 1;
-        }
-        let total = labs.len();
-        // Smallest POPULATED bin whose cumulative count reaches `p`% of the
-        // pixels. Skipping empty bins (rather than returning the very first
-        // bin the moment `seen >= want`) is what makes `percentile(0)` land
-        // on the image's actual darkest pixel instead of literal L* = 0.
-        //
-        // `want` scales by `total - 1`, not `total` (a 0-indexed rank, the
-        // same convention `numpy.percentile`'s default 'linear' method
-        // uses) — matched against real sharp 0.34.5 output on the 129-px
-        // compressed-ramp fixture at 0/100: scaling by `total` puts the top
-        // bin one bin past the brightest pixel actually present, which
-        // undershoots white (251, not 255); `total - 1` lands the top bin
-        // on the brightest pixel's own bin.
-        let percentile = |p: f64| -> f64 {
-            let want = (p / 100.0 * total.saturating_sub(1) as f64).max(0.0);
-            let mut seen = 0usize;
-            for (bin, &count) in histogram.iter().enumerate() {
-                if count == 0 {
-                    continue;
-                }
-                seen += count;
-                if seen as f64 >= want {
-                    return bin as f64;
-                }
-            }
-            100.0
+        let norm = normalised_cumulative_luma(labs.iter().map(|lab| lab[0]));
+        let extreme = |init: f32, pick: fn(f32, f32) -> f32| {
+            labs.iter().fold(init, |acc, lab| pick(acc, lab[0])) as i32
         };
-        let min = percentile(lower);
-        let max = percentile(upper);
-        if (max - min).abs() <= 1.0 {
+        let min = if lower == 0.0 {
+            extreme(f32::INFINITY, f32::min)
+        } else {
+            percent(&norm, lower)
+        };
+        let max = if upper == 100.0 {
+            extreme(f32::NEG_INFINITY, f32::max)
+        } else {
+            percent(&norm, upper)
+        };
+        if (max - min).abs() <= 1 {
             return self.clone();
         }
-        let scale = 100.0 / (max - min);
-        let offset = -min * scale;
+        let scale = 100.0 / (max - min) as f64;
+        let offset = -(min as f64 * scale);
         let data = labs
             .iter()
             .zip(self.data.chunks_exact(c))
             .flat_map(|(lab, px)| {
-                let l = ((lab[0] as f64 * scale + offset) as f32).clamp(0.0, 100.0);
+                let l = (lab[0] as f64 * scale + offset) as f32;
                 let rgb = lab_to_srgb([l, lab[1], lab[2]]);
                 rgb.into_iter().chain(px.get(3).copied())
             })

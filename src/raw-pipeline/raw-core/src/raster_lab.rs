@@ -17,7 +17,7 @@
 //! the sRGB primaries in the crate.
 
 use crate::color::matrices::{
-    M_REC2020_TO_SRGB, M_REC2020_TO_XYZ_D65, M_SRGB_TO_REC2020, M_XYZ_D65_TO_REC2020, XYZ_D65,
+    M_REC2020_TO_SRGB, M_REC2020_TO_XYZ_D65, M_SRGB_TO_REC2020, M_XYZ_D65_TO_REC2020,
 };
 use crate::math::Matrix3;
 use crate::view::encode::{srgb_degamma, srgb_gamma};
@@ -32,6 +32,24 @@ pub fn srgb_to_xyz_d65() -> Matrix3 {
 /// XYZ D65 -> linear sRGB.
 pub fn xyz_d65_to_srgb() -> Matrix3 {
     M_REC2020_TO_SRGB.mul_mat(&M_XYZ_D65_TO_REC2020)
+}
+
+/// The reference white the composed sRGB -> XYZ matrix actually realises.
+///
+/// Deliberately NOT the rounded [`XYZ_D65`] literal. Composing the two f32
+/// matrices raw-core single-sources lands white at `Y = 0.99998593`, 1.4e-5
+/// low, and L* is defined RELATIVE to the working space's own reference
+/// white — so dividing by the realised white is both self-consistent and
+/// what makes white come out at exactly `L* = 100`, which is what libvips
+/// gives (measured: its L* for code 255 is 100.000000, and 0 and 255 are the
+/// only two codes whose L* sits within 1e-3 of an integer).
+///
+/// `normalise` depends on that exactness: its histogram bin is `trunc(L*)`,
+/// so an L* of 99.99945 for white drops every white pixel a bin low and
+/// shifts the whole stretch. The shift for every other colour is 1.4e-5
+/// relative, far below an 8-bit code.
+fn lab_white() -> [f32; 3] {
+    srgb_to_xyz_d65().mul_vec([1.0, 1.0, 1.0])
 }
 
 /// CIE L* companding function, the cube-root with its linear toe.
@@ -57,7 +75,8 @@ fn lab_f_inv(t: f32) -> f32 {
 pub fn srgb_to_lab(rgb: [u8; 3]) -> [f32; 3] {
     let linear = [0, 1, 2].map(|i| srgb_degamma(rgb[i] as f32 / 255.0));
     let xyz = srgb_to_xyz_d65().mul_vec(linear);
-    let f = [0, 1, 2].map(|i| lab_f(xyz[i] / XYZ_D65[i]));
+    let white = lab_white();
+    let f = [0, 1, 2].map(|i| lab_f(xyz[i] / white[i]));
     [
         116.0 * f[1] - 16.0,
         500.0 * (f[0] - f[1]),
@@ -70,10 +89,11 @@ pub fn lab_to_srgb(lab: [f32; 3]) -> [u8; 3] {
     let fy = (lab[0] + 16.0) / 116.0;
     let fx = fy + lab[1] / 500.0;
     let fz = fy - lab[2] / 200.0;
+    let white = lab_white();
     let xyz = [
-        XYZ_D65[0] * lab_f_inv(fx),
-        XYZ_D65[1] * lab_f_inv(fy),
-        XYZ_D65[2] * lab_f_inv(fz),
+        white[0] * lab_f_inv(fx),
+        white[1] * lab_f_inv(fy),
+        white[2] * lab_f_inv(fz),
     ];
     let linear = xyz_d65_to_srgb().mul_vec(xyz);
     [0, 1, 2].map(|i| (srgb_gamma(linear[i]) * 255.0).round().clamp(0.0, 255.0) as u8)
@@ -151,7 +171,8 @@ mod tests {
     fn grey_round_trips_are_exact() {
         // Every 8-bit grey value round-trips with no rounding drift: R=G=B
         // collapses to a* = b* = 0 exactly (the matrix product of a scalar
-        // times XYZ_D65 stays on the neutral axis to float precision), so
+        // times the reference white stays on the neutral axis to float
+        // precision), so
         // the inverse companding recovers the same 8-bit code exactly.
         for v in 0u8..=255 {
             let back = lab_to_srgb(srgb_to_lab([v, v, v]));
