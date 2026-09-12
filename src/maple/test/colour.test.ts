@@ -183,14 +183,32 @@ describe('Colour ops', () => {
     ).rejects.toThrow(/saturation/);
   });
 
-  it('tint() keeps lightness and takes the tint chroma', async () => {
+  it('tint() with a neutral grey gives the sharp-measured 105 grey', async () => {
+    // Measured against real sharp 0.34.5 `.tint({r:128,g:128,b:128})` on
+    // solid (200,40,40): [105,105,105]. Tint reduces to luminance in
+    // LINEAR light (#3503 controller ruling B, `bw_luma` — the same
+    // reduction `greyscale()` uses), so this is not just an r≈g≈b check.
     const out = await maple(await png([200, 40, 40]))
       .tint({ r: 128, g: 128, b: 128 })
       .toFormat('png')
       .toBuffer();
     const [r, g, b] = await first(out);
-    expect(Math.abs(r - g)).toBeLessThanOrEqual(1);
-    expect(Math.abs(g - b)).toBeLessThanOrEqual(1);
+    for (const channel of [r, g, b]) {
+      expect(Math.abs(channel - 105)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('a chromatic tint() matches the sharp-measured value', async () => {
+    // Measured against real sharp 0.34.5 `.tint({r:255,g:0,b:0})` on solid
+    // mid-grey (100,100,100): [216,0,0].
+    const out = await maple(await png([100, 100, 100]))
+      .tint({ r: 255, g: 0, b: 0 })
+      .toFormat('png')
+      .toBuffer();
+    const [r, g, b] = await first(out);
+    expect(Math.abs(r - 216)).toBeLessThanOrEqual(1);
+    expect(Math.abs(g - 0)).toBeLessThanOrEqual(1);
+    expect(Math.abs(b - 0)).toBeLessThanOrEqual(1);
   });
 
   it('normalise() stretches a compressed ramp to the full range', async () => {
