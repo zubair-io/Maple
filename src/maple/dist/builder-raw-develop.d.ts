@@ -19,5 +19,13 @@ export declare function isRawDevelop(state: BuilderState): boolean;
  * accordingly, same as any other caller of `toFile`.
  */
 export declare function rawDevelopToBuffer(state: BuilderState, toFile: (outputPath: string) => Promise<ExportResult>): Promise<Buffer>;
-/** Saved-recipe or XMP-driven RAW development, written straight to `outputPath`. */
+/**
+ * Saved-recipe or XMP-driven RAW development, written straight to
+ * `outputPath`. Wrapped in its own try/catch — unlike `exportImage`'s
+ * bitmap-path counterpart in `builder.ts`, this runs before that function's
+ * try/catch even starts, so without one of its own a rejection (an FFI
+ * throw, or `fs.mkdir` failing on a read-only or nonexistent parent) would
+ * reject `toFile`'s promise instead of resolving it to `{ ok: false, error
+ * }` like every other `toFile` failure.
+ */
 export declare function rawDevelopToFile(state: BuilderState, outputPath: string): Promise<ExportResult>;

@@ -70,8 +70,10 @@ export async function rawDevelopToBuffer(
  * unblurred file and reported success (#3504 PR-E final review, finding 12).
  *
  * It is returned rather than thrown because `toFile` reports every other
- * failure the same way, as `{ ok: false, error }`. `toBuffer` still throws,
- * since it turns a failed `toFile` into an exception itself.
+ * failure the same way, as `{ ok: false, error }` — [`rawDevelopToFile`]
+ * catches its own `exportImage`/`exportRecipe` rejections for exactly that
+ * reason. `toBuffer` still throws, since it turns a failed `toFile` into an
+ * exception itself.
  */
 function unsupportedOpError(state: BuilderState): string | null {
   const unsupported = state.ops.find((op) => op.op !== 'resize');
@@ -81,29 +83,47 @@ function unsupportedOpError(state: BuilderState): string | null {
         'Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.';
 }
 
-/** Saved-recipe or XMP-driven RAW development, written straight to `outputPath`. */
-export function rawDevelopToFile(state: BuilderState, outputPath: string): Promise<ExportResult> {
+/**
+ * Saved-recipe or XMP-driven RAW development, written straight to
+ * `outputPath`. Wrapped in its own try/catch — unlike `exportImage`'s
+ * bitmap-path counterpart in `builder.ts`, this runs before that function's
+ * try/catch even starts, so without one of its own a rejection (an FFI
+ * throw, or `fs.mkdir` failing on a read-only or nonexistent parent) would
+ * reject `toFile`'s promise instead of resolving it to `{ ok: false, error
+ * }` like every other `toFile` failure.
+ */
+export async function rawDevelopToFile(
+  state: BuilderState,
+  outputPath: string,
+): Promise<ExportResult> {
   const unsupported = unsupportedOpError(state);
   if (unsupported) {
-    return Promise.resolve({ ok: false, outPath: outputPath, error: unsupported });
+    return { ok: false, outPath: outputPath, error: unsupported };
   }
   const rawPath = state.inputPath as string;
-  if (state.exportRecipe) {
-    return exportRecipe({
-      rawPath,
-      xmpXml: state.xmpXml ?? undefined,
-      recipe: state.exportRecipe,
-      filmPath: state.filmPath,
+  try {
+    return state.exportRecipe
+      ? await exportRecipe({
+          rawPath,
+          xmpXml: state.xmpXml ?? undefined,
+          recipe: state.exportRecipe,
+          filmPath: state.filmPath,
+          outPath: outputPath,
+        })
+      : await exportImage({
+          rawPath,
+          xmpPath: state.xmpPath,
+          format: state.format ?? undefined,
+          quality: state.quality,
+          colorSpace: state.colorSpace,
+          maxLongEdge: state.maxLongEdge || lastResizeWidth(state),
+          outPath: outputPath,
+        });
+  } catch (error) {
+    return {
+      ok: false,
       outPath: outputPath,
-    });
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
-  return exportImage({
-    rawPath,
-    xmpPath: state.xmpPath,
-    format: state.format ?? undefined,
-    quality: state.quality,
-    colorSpace: state.colorSpace,
-    maxLongEdge: state.maxLongEdge || lastResizeWidth(state),
-    outPath: outputPath,
-  });
 }
