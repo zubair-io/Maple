@@ -1,22 +1,23 @@
 /**
- * RAW-develop terminal path for `MapleImageBuilder` — a recipe- or
- * XMP-driven development of an actual RAW file, as opposed to the bitmap
- * recipe pipeline in `builder-exec.ts`. Split out of `builder.ts` to make
- * room for Tier 2's geometry methods (#3501) and colour ops (#3503) inside
- * the file-size budget.
+ * Free functions for the private RAW-develop-only terminal path behind
+ * `MapleImageBuilder.toBuffer`/`toFile` — a recipe- or XMP-driven
+ * development of an actual RAW file, as opposed to the bitmap recipe
+ * pipeline in `builder-exec.ts`. Split out of `builder.ts` to make room for
+ * Tier 2's geometry methods (#3501), colour ops (#3503) and the five filter
+ * op methods `builder-filter.ts` adds (#3504 task E5) inside the file-size
+ * budget — mirrors the existing `builder-state.ts`/`builder-exec.ts` split.
  */
 
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { isRawPath, lastResizeWidth } from './builder-state';
-import type { BuilderState } from './builder-state';
+import { isRawPath, lastResizeWidth, type BuilderState } from './builder-state';
 import { exportImage, exportRecipe } from './export';
 import type { ExportResult } from './types';
 
 /**
- * True when this builder describes a RAW develop rather than a bitmap
- * transform: a recipe, an XMP sidecar, or a RAW file path as input.
+ * True when `state` describes a RAW develop rather than a bitmap transform:
+ * a recipe, an XMP sidecar, or a RAW file path as input.
  */
 export function isRawDevelop(state: BuilderState): boolean {
   return (
@@ -28,7 +29,13 @@ export function isRawDevelop(state: BuilderState): boolean {
   );
 }
 
-/** Saved-recipe or XMP-driven RAW development, rendered to a tmp file and read back. */
+/**
+ * Saved-recipe or XMP-driven RAW development, rendered to a tmp file and
+ * read back. `toFile` is the builder's own public terminal, passed in
+ * rather than imported (which would make this file import back from
+ * `builder.ts`, a cycle) — it re-runs `isRawDevelop` itself and branches
+ * accordingly, same as any other caller of `toFile`.
+ */
 export async function rawDevelopToBuffer(
   state: BuilderState,
   toFile: (outputPath: string) => Promise<ExportResult>,
@@ -52,10 +59,7 @@ export async function rawDevelopToBuffer(
 }
 
 /** Saved-recipe or XMP-driven RAW development, written straight to `outputPath`. */
-export async function rawDevelopToFile(
-  state: BuilderState,
-  outputPath: string,
-): Promise<ExportResult> {
+export function rawDevelopToFile(state: BuilderState, outputPath: string): Promise<ExportResult> {
   const rawPath = state.inputPath as string;
   if (state.exportRecipe) {
     return exportRecipe({
