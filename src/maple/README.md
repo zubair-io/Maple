@@ -367,37 +367,47 @@ or any `.xmp()`/`.recipe()` input) returns/throws a named
 `"<method> is not supported when developing a RAW file yet — see #3507"`
 error rather than silently dropping the request (#3507).
 
-**Which ICC profile ends up in the file.** Four sources can supply one, and
+**Which ICC profile ends up in the file.** Five things can supply one, and
 they are tried in this order:
 
-|  #  | Source                                                                                              | Converts the pixels?        |
-| :-: | :-------------------------------------------------------------------------------------------------- | :-------------------------- |
-|  1  | `withIccProfile(bytes)` / `withIccProfile(path)`                                                    | no — tags only              |
-|  2  | `withIccProfile('srgb' \| 'p3')`                                                                    | **yes**, into that space    |
-|  3  | `keepMetadata()`/`withMetadata()` — the input's own profile, or a default fill when it carried none | no                          |
-|  4  | `toColourspace('display-p3')` — the primaries profile                                               | already converted by the op |
-|     | nothing matched → **no profile at all**                                                             | —                           |
+|  #  | Source                                                                                   | Converts the pixels?          |
+| :-: | :--------------------------------------------------------------------------------------- | :---------------------------- |
+|  1  | `withIccProfile(bytes)` / `withIccProfile(path)`                                         | no — tags only                |
+|  2  | `withIccProfile('srgb' \| 'p3')`                                                         | **yes**, into that space      |
+|  3  | `toColourspace('display-p3')` — the primaries profile, when a rotation actually happened | already converted by the op   |
+|  4  | `keepMetadata()`/`withMetadata()` — the input's own profile                              | no                            |
+|  5  | `keepMetadata()`/`withMetadata()` — the fill, when the input carried none                | no (follows the output space) |
+|     | nothing matched → **no profile at all**                                                  | —                             |
 
-Rows 1 and 2 are both "an explicit `withIccProfile`", so they outrank a
-`keep` sweep; between them, bytes win, because naming a profile AND supplying
-one is a contradiction the supplied bytes settle. Row 2 rotates the pixels
-into the named space first, so the tag and the samples agree — measured
-against sharp (which converts through lcms) the two disagree by at most **2
-of 255 codes**, mean 0.066, on a 32×32 saturated field, and by at most 1 code
-on the primaries-plus-white-plus-black strip; Maple's rotation is a 3×3
-matrix in linear light, sharp's is a full lcms transform. Row 1 cannot
+Rows 1 and 2 are both "an explicit `withIccProfile`", so they outrank
+everything else; between them, bytes win, because naming a profile AND
+supplying one is a contradiction the supplied bytes settle. Row 2 rotates the
+pixels into the named space first, so the tag and the samples agree —
+measured against sharp (which converts through lcms) the two disagree by at
+most **2 of 255 codes**, mean 0.066, on a 32×32 saturated field, and by at
+most 1 code on the primaries-plus-white-plus-black strip; Maple's rotation is
+a 3×3 matrix in linear light, sharp's is a full lcms transform. Row 1 cannot
 convert: nothing here parses an arbitrary ICC profile, so there is no source
 space to rotate from. That is the one place `withIccProfile` still parts
 company with sharp.
+
+**Row 3 outranks row 4, and that matters.** The samples decide which profile
+is true, not the source file. `keepMetadata().toColourspace('display-p3')`
+would otherwise tag Display P3 pixels with the input's sRGB profile, and a
+colour-managed reader then renders them wrong — the same mislabelling
+`withIccProfile('p3')` was a named error to avoid, arriving by a different
+route. A recipe that did NOT rotate is unaffected: `keepMetadata()` carries
+the input's own profile through byte for byte, which is what sharp's
+`keepMetadata()` is compared against.
 
 The last row is the important one for byte-for-byte round-trips: a default
 call — no `toColourspace`, no metadata methods — ships **untagged**, which is
 what sharp does. Tagging sRGB unconditionally looks more correct and is not:
 sharp colour-manages on decode as soon as any profile is present, so an
 sRGB-tagged PNG came back with 12,008 of 12,288 bytes changed instead of
-passed through. Row 4 applies to JPEG, PNG, TIFF **and WebP** alike; AVIF has
-no ICC box at all, so `toColourspace('display-p3')` with AVIF output is a
-named error rather than untagged P3 samples.
+passed through. Rows 3 and 5 apply to JPEG, PNG, TIFF **and WebP** alike;
+AVIF has no ICC box at all, so `toColourspace('display-p3')` with AVIF output
+is a named error rather than untagged P3 samples.
 
 **Metadata capability matrix.** Which blocks each output container's own
 encoder can actually carry — not a policy choice, a limit of the underlying
