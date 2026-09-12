@@ -15,6 +15,9 @@ test-fixtures/*
 # Exception: the banding second-difference budget table IS committed (CI
 # ratchet for src/scripts/test_banding.sh — #1627/#1733).
 !test-fixtures/banding_budgets.json
+# Exception: the per-luma-band tone-slider budget table IS committed (CI
+# ratchet for src/scripts/test_tone_bands.sh).
+!test-fixtures/tone_band_budgets.json
 # IS committed — harness-written evidence records for the capability
 # registry (#2430); `tools/codegen.sh` reads them and CI checks them
 # against a fresh run. See docs/testing.md § "Capability registry".

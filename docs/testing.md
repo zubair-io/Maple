@@ -167,6 +167,7 @@ It checks: the two matrices are true inverses; white round-trips exactly (P3 and
 | [`test_synthetic_grey.sh`](../src/scripts/test_synthetic_grey.sh)               | Yes, never skips                       | In-memory DNG                  | `rust-tests`              |
 | [`test_synthetic_color_chart.sh`](../src/scripts/test_synthetic_color_chart.sh) | Yes, never skips                       | Synthetic 24-patch chart       | `rust-tests`              |
 | [`test_grey_adjustments.sh`](../src/scripts/test_grey_adjustments.sh)           | Yes, never skips                       | In-memory DNG                  | `rust-tests`              |
+| [`test_tone_bands.sh`](../src/scripts/test_tone_bands.sh)                       | Yes; skips at preflight                | RAWs + ACR refs                | **not in CI**             |
 | [`test_grey_dcp.sh`](../src/scripts/test_grey_dcp.sh)                           | Yes, never skips                       | In-memory DNG                  | `rust-tests`              |
 | [`test_banding.sh`](../src/scripts/test_banding.sh)                             | Yes; tail section skips without a RAW  | Synthetic ramps                | `rust-tests`              |
 | [`test_color_pipeline.sh`](../src/scripts/test_color_pipeline.sh)               | Yes; skips at preflight                | RAWs + ACR refs                | `color-pipeline`          |
