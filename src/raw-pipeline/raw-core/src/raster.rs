@@ -141,7 +141,7 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
         reason: format!("failed to decode raster pixels: {e}"),
     })?;
 
-    let orientation = ExifOrientation::from_u16(container_orientation(bytes));
+    let orientation = ExifOrientation::from_u16(container_orientation(bytes).unwrap_or(1));
 
     let (width, height) = dyn_img.dimensions();
 
