@@ -102,6 +102,7 @@ pub mod raster_recipe_output;
 mod raster_recipe_resize;
 pub mod raster_rotate;
 pub mod raster_sharpen;
+pub mod raster_stats;
 pub mod raster_trim;
 
 #[cfg(any(test, feature = "test-support"))]
