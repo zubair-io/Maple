@@ -283,12 +283,12 @@
    },
    "highlights_max": {
     "bot": 1.5,
-    "mid": 3.0,
+    "mid": 3.8,
     "top": 3.0
    },
    "highlights_min": {
     "bot": 1.5,
-    "mid": 3.0,
+    "mid": 3.9,
     "top": 3.0
    },
    "shadows_max": {
@@ -341,7 +341,7 @@
    "highlights_min": {
     "bot": 1.5,
     "mid": 3.0,
-    "top": 3.0
+    "top": 4.5
    },
    "shadows_max": {
     "bot": 9.2,
@@ -393,7 +393,7 @@
    "highlights_min": {
     "bot": 1.5,
     "mid": 3.0,
-    "top": 3.0
+    "top": 4.4
    },
    "shadows_max": {
     "bot": 2.3,
@@ -491,13 +491,13 @@
    },
    "highlights_max": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 5.2,
+    "top": 4.3
    },
    "highlights_min": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 5.1,
+    "top": 7.1
    },
    "shadows_max": {
     "bot": 5.9,
@@ -543,13 +543,13 @@
    },
    "highlights_max": {
     "bot": 1.5,
-    "mid": 3.0,
+    "mid": 4.4,
     "top": 3.0
    },
    "highlights_min": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 4.4,
+    "top": 5.4
    },
    "shadows_max": {
     "bot": 8.7,
@@ -595,13 +595,13 @@
    },
    "highlights_max": {
     "bot": 1.5,
-    "mid": 3.0,
+    "mid": 5.1,
     "top": 3.0
    },
    "highlights_min": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 4.9,
+    "top": 3.8
    },
    "shadows_max": {
     "bot": 7.0,
@@ -647,13 +647,13 @@
    },
    "highlights_max": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 8.9,
+    "top": 5.8
    },
    "highlights_min": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 8.4,
+    "top": 8.6
    },
    "shadows_max": {
     "bot": 2.9,
@@ -751,13 +751,13 @@
    },
    "highlights_max": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 7.9,
+    "top": 13.0
    },
    "highlights_min": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 7.2,
+    "top": 10.1
    },
    "shadows_max": {
     "bot": 14.1,
@@ -855,13 +855,13 @@
    },
    "highlights_max": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 4.9,
+    "top": 7.5
    },
    "highlights_min": {
     "bot": 1.5,
-    "mid": 3.0,
-    "top": 3.0
+    "mid": 4.8,
+    "top": 3.8
    },
    "shadows_max": {
     "bot": 7.8,
@@ -908,7 +908,7 @@
    "highlights_max": {
     "bot": 1.5,
     "mid": 3.0,
-    "top": 3.0
+    "top": 5.9
    },
    "highlights_min": {
     "bot": 1.5,
