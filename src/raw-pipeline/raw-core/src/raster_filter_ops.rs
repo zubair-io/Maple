@@ -34,9 +34,9 @@
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
+use crate::raster_colour::bw_luma;
 use crate::raster_filter_chain::{run_filter_chain, FilterOp, Plane};
 use crate::raster_filter_conv::{clamp_index, conv_f64};
-use crate::raster_labs::srgb_to_bw;
 
 /// Largest median window `size` this crate accepts — sharp validates
 /// `size` as an integer in `[1, 1000]` (`lib/operation.js`'s own
@@ -51,24 +51,23 @@ const MAX_MEDIAN_SIZE: u32 = 1000;
 const MIN_KERNEL_DIM: u32 = 3;
 const MAX_KERNEL_DIM: u32 = 1001;
 
-/// sharp's `threshold({greyscale: true})` (the default) does not take a
-/// weighted sum of the gamma-encoded 8-bit channels — it runs libvips'
-/// standard `toColourspace('b-w')` conversion, which is the Rec.709-weighted
-/// luminance of the *linear* channels, re-encoded to a byte. Measured
-/// against sharp 0.34.5: pure red -> 127, pure green -> 220, `(100, 200,
-/// 50)` -> 178 (a naive weighted sum of the encoded bytes would give 54 /
-/// 182 / 168 instead — visibly wrong for red and green, and close enough
-/// elsewhere to hide the bug, which is why it needs pinning here rather than
-/// only through `threshold`'s black/white outcomes).
-///
-/// The computation lives in [`crate::raster_labs`] because it shares
-/// libvips' own transfer-curve lookups with the Lab chain; doing it with an
-/// sRGB transfer function of our own was within a code of libvips but not
-/// equal to it, and through `threshold` that one code became a full 0<->255
-/// flip (#3572).
-pub(crate) fn bw_luma(rgb: [u8; 3]) -> u8 {
-    srgb_to_bw(rgb)
-}
+// `threshold({greyscale: true})` (the default) does not take a weighted sum
+// of the gamma-encoded 8-bit channels — it runs libvips' standard
+// `toColourspace('b-w')` conversion, which is the Rec.709-weighted luminance
+// of the *linear* channels, re-encoded to a byte. Measured against sharp
+// 0.34.5: pure red -> 127, pure green -> 220, `(100, 200, 50)` -> 178 (a
+// naive weighted sum of the encoded bytes would give 54 / 182 / 168 instead
+// — visibly wrong for red and green, and close enough elsewhere to hide the
+// bug, which is why it is pinned in this file's tests rather than only
+// through `threshold`'s black/white outcomes).
+//
+// That reduction is the crate's single black-and-white luma,
+// `raster_colour::bw_luma`, shared with `greyscale`/`toColourspace('b-w')`
+// and the tint LUT; the arithmetic itself is `raster_labs::srgb_to_bw`,
+// which shares libvips' own transfer-curve lookups with the Lab chain.
+// Doing it with an sRGB transfer function of our own was within a code of
+// libvips but not equal to it, and through `threshold` that one code became
+// a full 0<->255 flip (#3572).
 
 /// One `median` over a filter run's working buffer.
 ///
