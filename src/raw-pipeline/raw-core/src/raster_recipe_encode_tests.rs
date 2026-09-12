@@ -10,8 +10,12 @@ fn meta(
     xmp: Option<&[u8]>,
     density: Option<f64>,
 ) -> ResolvedMetadata {
+    // Every existing call site here means "this icc, if any, is a real
+    // request" — the fix-round-2 default-fill-vs-request distinction gets
+    // its own dedicated tests below, not a change to this helper's meaning.
     ResolvedMetadata {
         icc: icc.map(|b| b.to_vec()),
+        icc_requested: icc.is_some(),
         exif: exif.map(|b| b.to_vec()),
         xmp: xmp.map(|b| b.to_vec()),
         density,

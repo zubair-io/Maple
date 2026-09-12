@@ -57,6 +57,14 @@ pub struct RecipeMetadata {
 pub struct ResolvedMetadata {
     pub exif: Option<Vec<u8>>,
     pub icc: Option<Vec<u8>>,
+    /// `true` when `icc` is a real caller request — an ICC profile actually
+    /// present in the input (via `keep`) or an explicit `metadata.icc` —
+    /// `false` when `icc` is `None`, or when it's only `keep`'s own default
+    /// sRGB fill added because the input carried none (fix-round-2: a
+    /// convenience, not a request, so a format that can't write ICC — AVIF
+    /// today, #3580 — must skip it silently rather than error; only an ICC
+    /// the caller actually asked to keep or supply errors by name there).
+    pub icc_requested: bool,
     pub xmp: Option<Vec<u8>>,
     pub density: Option<f64>,
 }
@@ -137,12 +145,18 @@ pub fn resolve_metadata(
     // present is copied through as-is, and one that's absent gets a default
     // sRGB profile added (see `default_icc`'s doc) — `keep: false` with no
     // supplied override means no ICC at all, matching sharp's own default.
-    let icc = supplied("icc", metadata.icc)?
-        .or_else(|| kept.icc.clone().or_else(|| metadata.keep.then(default_icc)));
+    let supplied_icc = supplied("icc", metadata.icc)?;
+    // Only an ICC the caller actually asked for — present in the input, or
+    // an explicit override — counts as requested. The default sRGB fill
+    // below is `keep`'s own convenience, not something to hold a
+    // can't-write-ICC format (AVIF, #3580) to (fix-round-2).
+    let icc_requested = supplied_icc.is_some() || kept.icc.is_some();
+    let icc = supplied_icc.or_else(|| kept.icc.clone().or_else(|| metadata.keep.then(default_icc)));
     let xmp = supplied("xmp", metadata.xmp)?.or(kept.xmp);
     Ok(ResolvedMetadata {
         exif,
         icc,
+        icc_requested,
         xmp,
         density: metadata.density,
     })
@@ -300,6 +314,7 @@ mod tests {
         // report.
         let resolved = resolve_metadata(&RecipeMetadata::default(), &[], &[], false).unwrap();
         assert!(resolved.icc.is_none());
+        assert!(!resolved.icc_requested);
     }
 
     #[test]
@@ -313,6 +328,14 @@ mod tests {
         };
         let resolved = resolve_metadata(&metadata, &source, &[], false).unwrap();
         assert_eq!(resolved.icc.as_deref(), Some(default_icc().as_slice()));
+        // fix-round-2: the default fill is a convenience, not a request —
+        // an encoder that can't carry ICC (AVIF) must be allowed to skip it
+        // silently rather than error, which `require_supported` only does
+        // when this flag is false.
+        assert!(
+            !resolved.icc_requested,
+            "keep's own default sRGB fill must not count as a caller request"
+        );
     }
 
     #[test]
@@ -334,6 +357,25 @@ mod tests {
         };
         let resolved = resolve_metadata(&metadata, &source, &[], false).unwrap();
         assert_eq!(resolved.icc.as_deref(), Some(icc.as_slice()));
+        assert!(
+            resolved.icc_requested,
+            "an ICC actually present in the input IS a real request"
+        );
+    }
+
+    #[test]
+    fn a_supplied_icc_is_requested() {
+        let icc = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
+        let metadata = RecipeMetadata {
+            icc: Some(AuxRef {
+                off: 0,
+                len: icc.len(),
+            }),
+            ..Default::default()
+        };
+        let resolved = resolve_metadata(&metadata, &[], &icc, false).unwrap();
+        assert_eq!(resolved.icc.as_deref(), Some(icc.as_slice()));
+        assert!(resolved.icc_requested);
     }
 
     // ---- item 3: autoOrient neutralises a kept Orientation tag ----

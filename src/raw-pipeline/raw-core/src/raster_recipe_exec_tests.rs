@@ -638,3 +638,64 @@ fn an_explicit_orientation_still_wins_after_auto_orient_end_to_end() {
         .and_then(crate::raster::exif_orientation_from_block);
     assert_eq!(orientation, Some(6));
 }
+
+// ---- fix-round-2: keep's default-fill ICC is not a "request" on AVIF ----
+
+#[cfg(feature = "avif")]
+#[test]
+fn keep_with_no_input_icc_succeeds_on_avif_with_no_icc_embedded() {
+    // Ruling: the sRGB default-fill `keep: true` adds when the input has no
+    // ICC is a convenience, not a caller request — on AVIF (which this
+    // crate's encoder can't tag with ICC at all, #3580) that default must be
+    // skipped silently, matching sharp: keep-metadata on a no-ICC source
+    // converted to AVIF still succeeds.
+    let source = jpeg_source(None, None); // no ICC in the input at all
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"avif","quality":60,"effort":8},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    assert!(
+        crate::raster_meta::read_sidecars(&out.bytes).icc.is_none(),
+        "AVIF has no ICC box to read back — the default fill must not have \
+         been forced in some other way"
+    );
+}
+
+#[test]
+fn keep_with_a_real_input_icc_to_avif_is_a_named_error() {
+    // An ICC actually present in the input IS a real request, unlike the
+    // default fill above — AVIF still can't carry it, so this must error.
+    let icc = p3_icc();
+    let source = jpeg_source(Some(&icc), None);
+    let err = run_err(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"avif","quality":60,"effort":8},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    assert!(
+        format!("{err}").contains("AVIF cannot embed an ICC profile"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn an_explicit_icc_to_avif_is_a_named_error() {
+    let icc = p3_icc();
+    let source = jpeg_source(None, None);
+    let recipe = format!(
+        r#"{{"v":1,"input":{{"kind":"encoded"}},"ops":[],
+            "output":{{"format":"avif","quality":60,"effort":8}},
+            "metadata":{{"icc":{{"off":0,"len":{}}}}}}}"#,
+        icc.len()
+    );
+    let err = run_err(&recipe, &source, &icc);
+    assert!(
+        format!("{err}").contains("AVIF cannot embed an ICC profile"),
+        "got: {err}"
+    );
+}
