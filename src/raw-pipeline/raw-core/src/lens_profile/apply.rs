@@ -180,6 +180,7 @@ mod tests {
                     center: [0.5; 2],
                 },
                 radial: [0.2, 0.0, 0.0],
+                radial_odd: [0.0; 2],
                 tangential: [0.0; 2],
                 scale: 1.0,
             }),
