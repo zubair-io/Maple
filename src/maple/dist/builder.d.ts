@@ -58,8 +58,13 @@ export declare class MapleImageBuilder {
     blur(options?: number | {
         sigma?: number;
     }): this;
-    /** Unsharp mask on the L* channel (sharp's `sharpen`). */
-    sharpen(options?: SharpenOptions): this;
+    /**
+     * Unsharp mask on the L* channel (sharp's `sharpen`). No argument is
+     * sharp's fast mild 3x3 kernel; a bare number is its deprecated
+     * positional `sharpen(sigma)` form — see `pushSharpen` for the one
+     * domain difference between that form and the object form.
+     */
+    sharpen(options?: number | SharpenOptions): this;
     /** Square median filter; `size` defaults to 3, sharp's own default. */
     median(size?: number): this;
     /** Binarise at `threshold`; `greyscale` decides via Rec.709 luma. */
