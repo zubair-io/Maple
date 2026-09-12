@@ -32,12 +32,20 @@
 //! round-trip exactly on smooth, low-frequency test images — it is not
 //! exact in general. Requesting it fails loudly rather than silently
 //! shipping a lossy file under a lossless label.
+//!
+//! AVIF `bitdepth` IS honoured, for the two depths `ravif` implements: 8 and
+//! 10. `Encoder::new()`'s own default is `BitDepth::Auto`, which the vendored
+//! `ravif` resolves to `Ten` — and a 10-bit AV1 bitstream is undecodable by
+//! libheif's prebuilt decoders, i.e. by sharp, which is exactly what still
+//! reads Maple's output while #3499 migrates `src/api` off it. So the
+//! encoder pins the depth explicitly on every call and defaults to 8, sharp's
+//! own `heif()` default. sharp's third value, 12, is a named error.
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 
 use imgref::Img;
-use ravif::{ColorModel, Encoder};
+use ravif::{BitDepth, ColorModel, Encoder};
 use rgb::{RGB8, RGBA8};
 
 /// AVIF chroma subsampling. sharp defaults AVIF to 4:4:4, unlike JPEG.
@@ -67,8 +75,8 @@ impl AvifChroma {
     }
 }
 
-/// sharp's `avif()` options. `bitdepth` (10/12) and `tune` are not
-/// implemented and are rejected by name at the recipe layer.
+/// sharp's `avif()` options. `tune` is not a sharp option at all; every
+/// other key `heif()` documents is honoured here.
 #[derive(Clone, Copy, Debug)]
 pub struct AvifOptions {
     pub quality: u8,
@@ -79,6 +87,12 @@ pub struct AvifOptions {
     /// is 1, not 0). See the module doc.
     pub lossless: bool,
     pub chroma_subsampling: AvifChroma,
+    /// Bits per channel inside the AV1 bitstream: 8 or 10. sharp's own
+    /// `heif()` default is 8, and 8 is what libheif's prebuilt decoders can
+    /// read (sharp itself refuses anything but 8 on a prebuilt binary), so
+    /// 8 is the default here too. 12 is a real sharp value `ravif` cannot
+    /// produce and is rejected by name — see [`bit_depth_for`].
+    pub bitdepth: u8,
 }
 
 impl Default for AvifOptions {
@@ -88,7 +102,27 @@ impl Default for AvifOptions {
             effort: 4,
             lossless: false,
             chroma_subsampling: AvifChroma::Yuv444,
+            bitdepth: 8,
         }
+    }
+}
+
+/// sharp's AVIF `bitdepth` (8 | 10 | 12) → `ravif`'s [`BitDepth`], which has
+/// exactly two real variants: `Eight` and `Ten` (its `Auto` is documented as
+/// "same as `Ten`"). 12 returns `None` so the caller can reject it by name
+/// rather than silently writing 10-bit under a 12-bit label.
+///
+/// The default MUST stay 8. `Encoder::new()` starts at `BitDepth::Auto`,
+/// which resolves to `Ten` — and a 10-bit AVIF is undecodable by libheif's
+/// prebuilt AV1 decoders, which is what sharp, and therefore everything
+/// still reading Maple's output during the #3499 migration, uses. Leaving
+/// the builder's default in place is how AVIF output silently became
+/// unreadable before this call was added.
+fn bit_depth_for(bitdepth: u8) -> Option<BitDepth> {
+    match bitdepth {
+        8 => Some(BitDepth::Eight),
+        10 => Some(BitDepth::Ten),
+        _ => None,
     }
 }
 
@@ -144,6 +178,14 @@ pub fn encode_avif_opts(
                 .into(),
         ));
     }
+    let depth = bit_depth_for(options.bitdepth).ok_or_else(|| {
+        Error::UnsupportedFormat(format!(
+            "AVIF bitdepth {} is not supported (8 or 10): the vendored ravif \
+             0.13 exposes only 8- and 10-bit AV1 output. Proposed ticket: \
+             'maple: 12-bit AVIF once ravif exposes BitDepth::Twelve'.",
+            options.bitdepth
+        ))
+    })?;
     let speed = avif_speed_for(options.effort);
     let quality = f32::from(options.quality.clamp(1, 100));
     let model = options.chroma_subsampling.color_model();
@@ -151,6 +193,7 @@ pub fn encode_avif_opts(
         .with_quality(quality)
         .with_alpha_quality(quality)
         .with_speed(speed)
+        .with_bit_depth(depth)
         .with_internal_color_model(model);
     let encoder = match exif {
         Some(block) => base.with_exif(block.to_vec()),
@@ -202,137 +245,5 @@ pub fn encode_webp_opts(raster: &RasterImage, lossless: bool) -> Result<Vec<u8>>
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn gradient(w: u32, h: u32, alpha: bool) -> RasterImage {
-        let channels = if alpha { 4 } else { 3 };
-        let data = (0..h)
-            .flat_map(|y| {
-                (0..w).flat_map(move |x| {
-                    let r = (x * 255 / (w - 1)) as u8;
-                    let g = (y * 255 / (h - 1)) as u8;
-                    let mut px = vec![r, g, 128];
-                    if alpha {
-                        px.push(if x < w / 2 { 255 } else { 64 });
-                    }
-                    px
-                })
-            })
-            .collect();
-        RasterImage {
-            width: w,
-            height: h,
-            channels,
-            data,
-            orientation: crate::image::ExifOrientation::Normal,
-        }
-    }
-
-    fn opts() -> AvifOptions {
-        AvifOptions {
-            quality: 60,
-            effort: 9,
-            lossless: false,
-            chroma_subsampling: AvifChroma::Yuv444,
-        }
-    }
-
-    #[test]
-    fn encodes_an_avif_that_decodes_back() {
-        let src = gradient(32, 24, false);
-        let bytes = encode_avif_opts(&src, &opts(), None).unwrap();
-        assert_eq!(&bytes[4..8], b"ftyp");
-        let decoded = crate::avif_decode::decode_avif(&bytes).unwrap();
-        assert_eq!((decoded.width, decoded.height), (32, 24));
-    }
-
-    #[test]
-    fn alpha_survives_an_avif_round_trip() {
-        let src = gradient(32, 24, true);
-        let bytes = encode_avif_opts(&src, &opts(), None).unwrap();
-        let decoded = crate::avif_decode::decode_avif(&bytes).unwrap();
-        assert_eq!(decoded.channels, 4);
-        assert!(decoded.data[3] > 200, "the opaque half lost its alpha");
-        let right = ((24 / 2 * 32 + 30) * 4 + 3) as usize;
-        assert!(
-            decoded.data[right] < 120,
-            "the translucent half lost its alpha"
-        );
-    }
-
-    #[test]
-    fn four_two_zero_is_a_named_error_not_a_silent_four_four_four() {
-        // The vendored ravif 0.13 has no real 4:2:0 path (see the guard's
-        // comment in `encode_avif_opts`) — requesting it must fail loudly
-        // rather than silently hand back a 4:4:4 file under a 4:2:0 label.
-        let src = gradient(32, 24, false);
-        let err = encode_avif_opts(
-            &src,
-            &AvifOptions {
-                chroma_subsampling: AvifChroma::Yuv420,
-                ..opts()
-            },
-            None,
-        )
-        .unwrap_err();
-        let message = format!("{err}");
-        assert!(message.contains("4:2:0"), "got: {message}");
-    }
-
-    #[test]
-    fn lossless_is_a_named_error_not_a_silent_lossy_encode() {
-        // The vendored rav1e can't reach qidx 0 (see the module doc and the
-        // guard's comment in `encode_avif_opts`), so `lossless: true` must
-        // fail loudly rather than silently hand back a lossy file under a
-        // lossless label.
-        let src = gradient(16, 16, false);
-        let err = encode_avif_opts(
-            &src,
-            &AvifOptions {
-                lossless: true,
-                ..opts()
-            },
-            None,
-        )
-        .unwrap_err();
-        let message = format!("{err}");
-        assert!(message.contains("lossless"), "got: {message}");
-    }
-
-    #[test]
-    fn avif_speed_for_pins_effort_to_speed() {
-        // sharp effort 0 (fastest) ..= 9 (slowest) -> rav1e speed 10 ..= 1.
-        // Must stay equal to `raster_recipe_exec::avif_speed` (Tier 1 pins
-        // this mapping) so the recipe path and this direct path agree.
-        assert_eq!(avif_speed_for(0), 10);
-        assert_eq!(avif_speed_for(4), 6);
-        assert_eq!(avif_speed_for(9), 1);
-    }
-
-    #[test]
-    fn an_exif_item_is_written_into_the_container() {
-        let exif = b"II\x2a\x00\x08\x00\x00\x00\x00\x00".to_vec();
-        let bytes = encode_avif_opts(&gradient(16, 16, false), &opts(), Some(&exif)).unwrap();
-        assert!(
-            bytes.windows(4).any(|w| w == b"Exif"),
-            "no Exif item in the AVIF"
-        );
-    }
-
-    #[test]
-    fn webp_lossless_round_trips_with_alpha() {
-        let src = gradient(16, 16, true);
-        let bytes = encode_webp_opts(&src, true).unwrap();
-        assert_eq!(&bytes[..4], b"RIFF");
-        let decoded = crate::raster::decode_raster(&bytes, Some("webp")).unwrap();
-        assert_eq!((decoded.channels, decoded.data), (4, src.data));
-    }
-
-    #[test]
-    fn webp_lossy_is_a_named_error_not_a_silent_fallback() {
-        let err = encode_webp_opts(&gradient(8, 8, false), false).unwrap_err();
-        let message = format!("{err}");
-        assert!(message.contains("lossless"), "got: {message}");
-    }
-}
+#[path = "raster_encode_avif_tests.rs"]
+mod tests;

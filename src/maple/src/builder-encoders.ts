@@ -70,6 +70,7 @@ export function setAvifOutput(state: BuilderState, options?: AvifOutputOptions):
     effort: options?.effort ?? 4,
     lossless: options?.lossless ?? false,
     chromaSubsampling: options?.chromaSubsampling ?? '4:4:4',
+    bitdepth: options?.bitdepth ?? 8,
   };
 }
 

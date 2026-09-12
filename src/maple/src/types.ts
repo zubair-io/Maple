@@ -174,6 +174,14 @@ export interface AvifOutputOptions {
   effort?: number;
   lossless?: boolean;
   chromaSubsampling?: '4:4:4' | '4:2:0';
+  /**
+   * Bits per channel in the AV1 bitstream: `8` (the default, matching
+   * sharp's own `avif()`) or `10`. sharp's third value, `12`, is rejected by
+   * name — Maple's `ravif` encoder has no 12-bit path. Note that 10-bit AVIF
+   * is unreadable by libheif's prebuilt decoders (sharp included), so `8` is
+   * the interoperable choice.
+   */
+  bitdepth?: 8 | 10;
 }
 
 export interface TiffOutputOptions {

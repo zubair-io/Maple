@@ -116,6 +116,12 @@ pub enum Output {
         lossless: bool,
         #[serde(default = "chroma_444")]
         chroma_subsampling: String,
+        /// sharp's `heif()` `bitdepth`: 8 (the default, and the only depth
+        /// libheif's prebuilt decoders read) or 10. 12 is a real sharp
+        /// value `ravif` cannot produce and is rejected by name inside
+        /// `encode_avif_opts`.
+        #[serde(default = "eight")]
+        bitdepth: u8,
     },
     #[serde(rename_all = "camelCase")]
     Tiff {
@@ -178,7 +184,8 @@ pub(crate) fn output_from_wire(output: &Output) -> Result<RasterOutput> {
             effort,
             lossless,
             chroma_subsampling,
-        } => avif_from_wire(*quality, *effort, *lossless, chroma_subsampling)?,
+            bitdepth,
+        } => avif_from_wire(*quality, *effort, *lossless, chroma_subsampling, *bitdepth)?,
         Output::Tiff {
             compression,
             bitdepth,
@@ -223,11 +230,13 @@ fn avif_from_wire(
     effort: u8,
     lossless: bool,
     chroma_subsampling: &str,
+    bitdepth: u8,
 ) -> Result<RasterOutput> {
     Ok(RasterOutput::Avif(AvifOptions {
         quality,
         effort,
         lossless,
+        bitdepth,
         chroma_subsampling: AvifChroma::from_wire(chroma_subsampling).ok_or_else(|| {
             bad(format!(
                 "unsupported AVIF chromaSubsampling '{chroma_subsampling}'"
@@ -241,6 +250,7 @@ fn avif_from_wire(
     _effort: u8,
     _lossless: bool,
     _chroma_subsampling: &str,
+    _bitdepth: u8,
 ) -> Result<RasterOutput> {
     Err(bad(
         "AVIF output requires raw-core's 'avif' feature".to_string()
@@ -305,11 +315,16 @@ mod tests {
                 effort,
                 lossless,
                 chroma_subsampling,
+                bitdepth,
             } => {
                 assert_eq!(quality, 50);
                 assert_eq!(effort, 4);
                 assert!(!lossless);
                 assert_eq!(chroma_subsampling, "4:4:4");
+                // 8, not ravif's own `BitDepth::Auto` (= 10): a 10-bit AVIF
+                // is undecodable by libheif's prebuilt decoders, and 8 is
+                // sharp's `heif()` default too.
+                assert_eq!(bitdepth, 8);
             }
             other => panic!("expected an avif output, got {other:?}"),
         }
@@ -446,6 +461,45 @@ mod tests {
         let r = parse_recipe(&output_json(r#"{"format":"tiff","compression":"zstd"}"#)).unwrap();
         let err = output_from_wire(&r.output).unwrap_err();
         assert!(format!("{err}").contains("zstd"), "got: {err}");
+    }
+
+    /// End-to-end through `run_recipe`: the wire `bitdepth` must reach the
+    /// `pixi` box in the encoded file, and 12 — a real sharp value `ravif`
+    /// cannot produce — must be a named rejection rather than a silent
+    /// 10-bit file. The default (no key at all) must land on 8: that is the
+    /// depth libheif's prebuilt decoders can read.
+    #[cfg(feature = "avif")]
+    #[test]
+    fn avif_bitdepth_reaches_the_pixi_box_and_twelve_is_named() {
+        use crate::raster_recipe_exec::run_recipe;
+
+        let pixels: Vec<u8> = (0..(16 * 16 * 3)).map(|i| (i % 251) as u8).collect();
+        let recipe_json = |body: &str| {
+            format!(
+                r#"{{"v":1,"input":{{"kind":"raw","width":16,"height":16,"channels":3}},"ops":[],"output":{body}}}"#
+            )
+        };
+        for (body, expected) in [
+            (r#"{"format":"avif"}"#, 8u8),
+            (r#"{"format":"avif","bitdepth":8}"#, 8),
+            (r#"{"format":"avif","bitdepth":10}"#, 10),
+        ] {
+            let recipe = parse_recipe(&recipe_json(body)).unwrap();
+            let bytes = run_recipe(&recipe, &pixels, &[]).unwrap().bytes;
+            let at = bytes
+                .windows(4)
+                .position(|w| w == b"pixi")
+                .unwrap_or_else(|| panic!("no pixi box for {body}"));
+            let count = bytes[at + 8] as usize;
+            let depths = &bytes[at + 9..at + 9 + count];
+            assert!(
+                depths.iter().all(|&d| d == expected),
+                "{body} wrote depths {depths:?}, expected all {expected}"
+            );
+        }
+        let recipe = parse_recipe(&recipe_json(r#"{"format":"avif","bitdepth":12}"#)).unwrap();
+        let err = run_recipe(&recipe, &pixels, &[]).unwrap_err();
+        assert!(format!("{err}").contains("12"), "got: {err}");
     }
 
     #[cfg(feature = "avif")]
