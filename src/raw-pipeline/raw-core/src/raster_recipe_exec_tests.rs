@@ -541,18 +541,52 @@ fn a_density_request_to_tiff_is_a_named_error() {
 }
 
 #[test]
-fn a_kept_exif_block_sent_to_tiff_is_a_named_error() {
-    let err = run_err(
+fn a_kept_exif_block_sent_to_tiff_is_dropped_silently() {
+    // `keep` sweeps up every block the input carries, so holding the target
+    // container to one the caller never named turned a call sharp completes
+    // into an error naming a field nobody mentioned (#3507 final fix wave,
+    // item 6; measured: sharp's own `keepMetadata().tiff()` on this shape
+    // of source succeeds, writing ICC and XMP and no EXIF). The TIFF
+    // encoder here has no EXIF setter at all, so the block is dropped.
+    let out = run(
         r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
             "output":{"format":"tiff"},
             "metadata":{"keep":true}}"#,
         &jpeg_source(None, Some(EXIF_TIFF)),
         &[],
     );
+    assert!(crate::raster_meta::read_sidecars(&out.bytes).exif.is_none());
+}
+
+#[test]
+fn an_explicitly_supplied_exif_block_sent_to_tiff_is_still_a_named_error() {
+    let recipe = format!(
+        r#"{{"v":1,"input":{{"kind":"encoded"}},"ops":[],
+            "output":{{"format":"tiff"}},
+            "metadata":{{"exif":{{"off":0,"len":{}}}}}}}"#,
+        EXIF_TIFF.len()
+    );
+    let err = run_err(&recipe, &jpeg_source(None, None), EXIF_TIFF);
     assert!(
         format!("{err}").contains("TIFF cannot embed EXIF"),
         "got: {err}"
     );
+}
+
+#[test]
+fn an_orientation_only_metadata_block_reaches_tiff_without_erroring() {
+    // `withMetadata({orientation:5})` synthesises an EXIF block to carry
+    // the value, which is not a named EXIF request either — sharp writes
+    // the orientation into the TIFF's own IFD and succeeds, so erroring
+    // here would fail a call that works everywhere else.
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"tiff"},
+            "metadata":{"keep":true,"orientation":5}}"#,
+        &jpeg_source(None, Some(EXIF_TIFF)),
+        &[],
+    );
+    assert!(!out.bytes.is_empty());
 }
 
 // ---- fix-round-1, item 3: autoOrient neutralises a kept Orientation ----
@@ -669,22 +703,22 @@ fn keep_with_no_input_icc_succeeds_on_avif_with_no_icc_embedded() {
 /// names the missing feature rather than the ICC box.
 #[cfg(feature = "avif")]
 #[test]
-fn keep_with_a_real_input_icc_to_avif_is_a_named_error() {
-    // An ICC actually present in the input IS a real request, unlike the
-    // default fill above — AVIF still can't carry it, so this must error.
+fn keep_with_a_real_input_icc_to_avif_drops_it_silently() {
+    // Swept up by `keep`, not named by the caller — so on AVIF (which this
+    // crate's encoder can't tag with ICC at all, #3580) it goes the same
+    // way as the default fill above: dropped, not an error. sharp's own
+    // `keepMetadata().avif()` on this source succeeds (#3507 final fix
+    // wave, item 6).
     let icc = p3_icc();
     let source = jpeg_source(Some(&icc), None);
-    let err = run_err(
+    let out = run(
         r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
             "output":{"format":"avif","quality":60,"effort":8},
             "metadata":{"keep":true}}"#,
         &source,
         &[],
     );
-    assert!(
-        format!("{err}").contains("AVIF cannot embed an ICC profile"),
-        "got: {err}"
-    );
+    assert!(crate::raster_meta::read_sidecars(&out.bytes).icc.is_none());
 }
 
 /// `avif`-gated: without the feature `output_from_wire` rejects an AVIF

@@ -191,8 +191,10 @@ fn keep_with_a_real_input_icc_copies_it_through_unchanged() {
     let resolved = resolve_metadata(&metadata, &source, &[], false).unwrap();
     assert_eq!(resolved.icc.as_deref(), Some(icc.as_slice()));
     assert!(
-        resolved.icc_requested,
-        "an ICC actually present in the input IS a real request"
+        !resolved.icc_requested,
+        "`keep`'s sweep of the input's own profile is not a named request \
+         (#3507 final fix wave, item 6) — a container that can't carry it \
+         drops it silently, as sharp does"
     );
 }
 
@@ -329,4 +331,98 @@ fn auto_orient_without_keep_leaves_no_exif_to_neutralise() {
     let source = jpeg_with_exif(&exif_with_orientation(6));
     let resolved = resolve_metadata(&RecipeMetadata::default(), &source, &[], true).unwrap();
     assert!(resolved.exif.is_none());
+}
+
+// ---- final fix wave, item 6: named requests vs `keep`'s own sweep ----
+
+#[test]
+fn a_kept_exif_or_xmp_block_is_not_a_named_request() {
+    // `keepMetadata()`/`withMetadata()` set `keep` for every block at once,
+    // so a block the caller never mentioned must not hold the target
+    // container to anything (#3507 final fix wave, item 6).
+    let source = {
+        let mut jpeg = crate::jpeg::encode(2, 2, &[90u8; 2 * 2 * 3], 85).unwrap();
+        let exif = [
+            b"Exif\0\0".as_slice(),
+            b"II\x2a\x00\x08\x00\x00\x00\x00\x00",
+        ]
+        .concat();
+        let mut segment = vec![0xFFu8, 0xE1];
+        segment.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
+        segment.extend_from_slice(&exif);
+        jpeg.splice(2..2, segment);
+        jpeg
+    };
+    let metadata = RecipeMetadata {
+        keep: true,
+        ..Default::default()
+    };
+    let resolved = resolve_metadata(&metadata, &source, &[], false).unwrap();
+    assert!(resolved.exif.is_some(), "the block is still kept");
+    assert!(!resolved.exif_requested);
+    assert!(!resolved.xmp_requested);
+}
+
+#[test]
+fn a_supplied_exif_block_is_a_named_request() {
+    let exif = b"II\x2a\x00\x08\x00\x00\x00\x00\x00";
+    let metadata = RecipeMetadata {
+        exif: Some(AuxRef {
+            off: 0,
+            len: exif.len(),
+        }),
+        ..Default::default()
+    };
+    let resolved = resolve_metadata(&metadata, &[], exif, false).unwrap();
+    assert_eq!(resolved.exif.as_deref(), Some(&exif[..]));
+    assert!(resolved.exif_requested);
+}
+
+#[test]
+fn a_supplied_xmp_packet_is_a_named_request() {
+    let xmp = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"/>"#;
+    let metadata = RecipeMetadata {
+        xmp: Some(AuxRef {
+            off: 0,
+            len: xmp.len(),
+        }),
+        ..Default::default()
+    };
+    let resolved = resolve_metadata(&metadata, &[], xmp, false).unwrap();
+    assert_eq!(resolved.xmp.as_deref(), Some(&xmp[..]));
+    assert!(resolved.xmp_requested);
+}
+
+#[test]
+fn an_orientation_synthesised_exif_block_is_not_a_named_request() {
+    // `withMetadata({orientation:5})` on a source with no EXIF at all
+    // still produces a block to carry the value; that block is the
+    // library's own, not the caller's, so it must not error on a container
+    // whose encoder has no EXIF setter.
+    let metadata = RecipeMetadata {
+        keep: true,
+        orientation: Some(5),
+        ..Default::default()
+    };
+    let resolved = resolve_metadata(&metadata, &[], &[], false).unwrap();
+    assert!(resolved.exif.is_some());
+    assert!(!resolved.exif_requested);
+}
+
+#[test]
+fn a_supplied_introduced_exif_block_is_canonicalised() {
+    // `withExif(sharpMetadata.exif)` is the obvious thing to write, and
+    // sharp hands out an `Exif\0\0`-introduced block for JPEG, WebP and
+    // AVIF sources (#3507 final fix wave, item 3).
+    let tiff = b"II\x2a\x00\x08\x00\x00\x00\x00\x00";
+    let introduced = [b"Exif\0\0".as_slice(), tiff].concat();
+    let metadata = RecipeMetadata {
+        exif: Some(AuxRef {
+            off: 0,
+            len: introduced.len(),
+        }),
+        ..Default::default()
+    };
+    let resolved = resolve_metadata(&metadata, &[], &introduced, false).unwrap();
+    assert_eq!(resolved.exif.as_deref(), Some(&tiff[..]));
 }

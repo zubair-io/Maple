@@ -65,16 +65,31 @@ pub struct RecipeMetadata {
 pub struct ResolvedMetadata {
     pub exif: Option<Vec<u8>>,
     pub icc: Option<Vec<u8>>,
-    /// `true` when `icc` is a real caller request — an ICC profile actually
-    /// present in the input (via `keep`) or an explicit `metadata.icc` —
-    /// `false` when `icc` is `None`, or when it's only `keep`'s own default
-    /// sRGB fill added because the input carried none (fix-round-2: a
-    /// convenience, not a request, so a format that can't write ICC — AVIF
-    /// today, #3580 — must skip it silently rather than error; only an ICC
-    /// the caller actually asked to keep or supply errors by name there).
-    pub icc_requested: bool,
     pub xmp: Option<Vec<u8>>,
     pub density: Option<f64>,
+    /// Whether `exif` is a block the caller named — an explicit
+    /// `metadata.exif` (`withExif`) — rather than one `keep` swept up out
+    /// of the input, or one synthesised to carry `metadata.orientation`.
+    /// See [`ResolvedMetadata::icc_requested`] for why the distinction
+    /// exists.
+    pub exif_requested: bool,
+    /// Whether `icc` is a profile the caller named — an explicit
+    /// `metadata.icc` or `metadata.iccName` (`withIccProfile`).
+    ///
+    /// `keep`'s own sweep is not a request (#3507 final fix wave, item 6).
+    /// `keepMetadata()`/`withMetadata()` set `keep` for every block at
+    /// once, so holding a target container to blocks the caller never
+    /// mentioned turned `withMetadata({orientation:5})` on a WebP source
+    /// into `"WebP cannot embed XMP (requested via metadata.xmp / keep)"` —
+    /// an error naming a field the caller never touched, for a call sharp
+    /// completes. A field `keep` swept up that the container cannot carry
+    /// is dropped silently instead, which is what sharp does; only a block
+    /// named by `withExif`/`withIccProfile`/`withXmp`/`withMetadata
+    /// ({density})` is an error worth raising.
+    pub icc_requested: bool,
+    /// Whether `xmp` is a packet the caller named — an explicit
+    /// `metadata.xmp` (`withXmp`) — rather than one `keep` swept up.
+    pub xmp_requested: bool,
 }
 
 /// sRGB — the profile `keep: true` adds when the input carries none, mirroring
@@ -159,9 +174,10 @@ pub fn resolve_metadata(
     // the obvious thing to write, and sharp hands out an `Exif\0\0`-
     // introduced block for three of the five containers. Every encoder
     // below wants the bare TIFF header.
-    let exif_base = supplied("exif", metadata.exif)?
-        .map(|block| crate::raster_meta::canonical_exif(&block).0.to_vec())
-        .or(kept.exif);
+    let supplied_exif = supplied("exif", metadata.exif)?
+        .map(|block| crate::raster_meta::canonical_exif(&block).0.to_vec());
+    let exif_requested = supplied_exif.is_some();
+    let exif_base = supplied_exif.or(kept.exif);
     let neutralised = if auto_oriented {
         exif_base
             .as_deref()
@@ -187,19 +203,23 @@ pub fn resolve_metadata(
             None => None,
         },
     };
-    // Only an ICC the caller actually asked for — present in the input, an
-    // explicit override, or a named built-in profile — counts as requested.
-    // The default sRGB fill below is `keep`'s own convenience, not something
-    // to hold a can't-write-ICC format (AVIF, #3580) to (fix-round-2).
-    let icc_requested = supplied_icc.is_some() || kept.icc.is_some();
+    // Only an ICC the caller named counts as requested: an explicit
+    // override or a named built-in profile. Neither `keep`'s sweep of the
+    // input's own profile nor the default sRGB fill below is something to
+    // hold a can't-write-ICC format (AVIF, #3580) to — see the field's doc.
+    let icc_requested = supplied_icc.is_some();
     let icc = supplied_icc.or_else(|| kept.icc.clone().or_else(|| metadata.keep.then(default_icc)));
-    let xmp = supplied("xmp", metadata.xmp)?.or(kept.xmp);
+    let supplied_xmp = supplied("xmp", metadata.xmp)?;
+    let xmp_requested = supplied_xmp.is_some();
+    let xmp = supplied_xmp.or(kept.xmp);
     Ok(ResolvedMetadata {
         exif,
         icc,
-        icc_requested,
         xmp,
         density: metadata.density,
+        exif_requested,
+        icc_requested,
+        xmp_requested,
     })
 }
 
