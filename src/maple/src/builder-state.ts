@@ -100,6 +100,13 @@ export interface BuilderState {
   autoOrient: boolean;
   /** `keepMetadata`/`withMetadata`/`withExif`/`withIccProfile`/`withXmp` state. */
   metadata: RecipeMetadata;
+  /**
+   * Names of the metadata methods called so far, in call order, deduped
+   * (#3507 fix-round-1, item 1) — `[]` means none were called. Used only to
+   * name the method in the "not supported when developing a RAW file yet"
+   * error; not part of the wire `Recipe` (`stateToRecipe` never emits it).
+   */
+  metadataCallsUsed: string[];
   // RAW-develop fields, unchanged from Tier 1.
   xmpPath: string | null;
   xmpXml: string | null;
@@ -123,6 +130,7 @@ export function createBuilderState(
     outputOptions: null,
     autoOrient: false,
     metadata: { keep: false },
+    metadataCallsUsed: [],
     xmpPath: null,
     xmpXml: null,
     colorSpace: 'srgb',

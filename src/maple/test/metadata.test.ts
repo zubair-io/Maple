@@ -1,3 +1,5 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
@@ -302,6 +304,110 @@ describe('Metadata and stats', () => {
     expect(meta.xmp?.toString()).toContain('buf');
   });
 
+  /**
+   * #3507 fix-round-1. Three findings from the review measured against real
+   * sharp 0.34.5 with the oracle suite running (`src/api` installed):
+   *
+   * 1. [High] The RAW-develop terminals (`export.ts` via
+   *    `rawDevelopToFile`/`rawDevelopToBuffer`) never read `state.metadata`
+   *    at all, so `maple(dng).withExif(...).jpeg()` silently produced output
+   *    without the requested EXIF. Now named-error-by-method instead.
+   * 2. [High] `withIccProfile`/`withExif` had no signature divergence
+   *    documented or enforced from sharp's own `withIccProfile(string,
+   *    opts?)` (`'srgb'|'p3'|'cmyk'`, or a filesystem path) and
+   *    `withExif({IFD0: {...}})` (an IFD object) — Maple silently accepted
+   *    only raw bytes for both. `withIccProfile` now also accepts `'srgb'`/
+   *    `'p3'` (Maple's own built-in profiles, resolved on the Rust side via
+   *    `metadata.iccName` — no second copy of the bytes in this package)
+   *    and a path (read now); `'cmyk'` and an IFD object are rejected by
+   *    name rather than silently doing the wrong thing with them.
+   * 3. [Low] `withXmp('')` now rejects with sharp's own exact message.
+   */
+  describe('fix-round-1 (#3507)', () => {
+    const exifBlockShell = () => {
+      const tiff = Buffer.alloc(26);
+      tiff.write('II', 0, 'ascii');
+      return tiff;
+    };
+
+    it('item 1: withExif() before developing a RAW file is a named "not supported yet" error on toFile()', async () => {
+      const outPath = path.join(os.tmpdir(), `g6-fix1-tofile-${Date.now()}.jpg`);
+      const res = await maple(fixtureDng).withExif(exifBlockShell()).jpeg().toFile(outPath);
+      expect(res.ok).toBe(false);
+      expect(res.error).toBe(
+        'withExif is not supported when developing a RAW file yet — see #3507',
+      );
+    });
+
+    it('item 1: withMetadata() before developing a RAW file is a named "not supported yet" error on toBuffer()', async () => {
+      await expect(
+        maple(fixtureDng).withMetadata({ orientation: 6 }).jpeg().toBuffer(),
+      ).rejects.toThrow('withMetadata is not supported when developing a RAW file yet — see #3507');
+    });
+
+    it('item 1: a RAW file with no metadata calls still develops normally', async () => {
+      const buf = await maple(fixtureDng).jpeg().toBuffer();
+      expect(buf.length).toBeGreaterThan(0);
+    });
+
+    it("item 2: withIccProfile('srgb') embeds Maple's own built-in sRGB profile", async () => {
+      // Byte-for-byte cross-check against an independent path to the exact
+      // same Rust bytes (`icc::profile_for(TargetPrimaries::Srgb)`):
+      // keepMetadata()'s default sRGB fill.
+      const named = await maple(ramp(8, 8)).withIccProfile('srgb').png().toBuffer();
+      const namedIcc = (await maple(named).metadata()).icc;
+      const kept = await maple(ramp(8, 8)).keepMetadata().png().toBuffer();
+      const keptIcc = (await maple(kept).metadata()).icc;
+      expect(namedIcc?.equals(keptIcc!)).toBe(true);
+    });
+
+    it("item 2: withIccProfile('p3') embeds Maple's own built-in Display P3 profile, distinct from srgb", async () => {
+      const p3 = await maple(ramp(8, 8)).withIccProfile('p3').png().toBuffer();
+      const p3Icc = (await maple(p3).metadata()).icc;
+      const srgb = await maple(ramp(8, 8)).withIccProfile('srgb').png().toBuffer();
+      const srgbIcc = (await maple(srgb).metadata()).icc;
+      expect(p3Icc!.length).toBeGreaterThan(0);
+      expect(p3Icc?.equals(srgbIcc!)).toBe(false);
+    });
+
+    it('item 2: withIccProfile(path) reads a real file and embeds it verbatim', async () => {
+      const srgb = await maple(ramp(8, 8)).withIccProfile('srgb').png().toBuffer();
+      const srgbIcc = (await maple(srgb).metadata()).icc!;
+      const profilePath = path.join(os.tmpdir(), `g6-fix1-profile-${Date.now()}.icc`);
+      await fs.writeFile(profilePath, srgbIcc);
+      const out = await maple(ramp(8, 8)).withIccProfile(profilePath).png().toBuffer();
+      expect((await maple(out).metadata()).icc?.equals(srgbIcc)).toBe(true);
+    });
+
+    it('item 2: withIccProfile(path) errors by name when the file is unreadable', () => {
+      expect(() => maple(ramp(8, 8)).withIccProfile('/no/such/profile.icc')).toThrow(
+        /cannot read ICC profile file/,
+      );
+    });
+
+    it("item 2: withIccProfile('cmyk') is rejected by name — Maple has no CMYK ICC support", () => {
+      expect(() => maple(ramp(8, 8)).withIccProfile('cmyk')).toThrow(/CMYK/);
+    });
+
+    it('item 2: withExif() rejects an IFD object like sharp accepts, by name', () => {
+      expect(() =>
+        maple(ramp(8, 8)).withExif({ IFD0: { Copyright: 'x' } } as unknown as Buffer),
+      ).toThrow(/IFD object/);
+    });
+
+    it('item 2: withExif() rejects any other non-Buffer value too', () => {
+      expect(() => maple(ramp(8, 8)).withExif(42 as unknown as Buffer)).toThrow(
+        'Expected a Buffer for exif but received 42 of type number',
+      );
+    });
+
+    it("item 3: withXmp('') rejects with sharp's exact message", () => {
+      expect(() => maple(ramp(8, 8)).withXmp('')).toThrow(
+        'Expected non-empty string for xmp but received  of type string',
+      );
+    });
+  });
+
   describe('sharp oracle (skips loudly if sharp is not installed at src/api)', () => {
     const apiDir = path.join(repoRoot, 'src/api');
     let sharpPath: string | null;
@@ -322,6 +428,22 @@ describe('Metadata and stats', () => {
         const sharpMeta = await sharp(jpeg).metadata();
         expect(mapleMeta.orientation).toBe(sharpMeta.orientation);
         expect(mapleMeta.hasProfile).toBe(sharpMeta.hasProfile);
+      },
+    );
+
+    it.skipIf(sharpPath === null)(
+      "fix-round-1 item 2: withIccProfile('srgb')/('p3') are real ICC profiles a real reader accepts",
+      async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const sharp = require(sharpPath as string);
+        for (const name of ['srgb', 'p3'] as const) {
+          const png = await maple(ramp(8, 8)).withIccProfile(name).png().toBuffer();
+          const mapleIcc = (await maple(png).metadata()).icc!;
+          const sharpMeta = await sharp(png).metadata();
+          expect(sharpMeta.hasProfile).toBe(true);
+          expect(Buffer.isBuffer(sharpMeta.icc)).toBe(true);
+          expect((sharpMeta.icc as Buffer).equals(mapleIcc)).toBe(true);
+        }
       },
     );
   });

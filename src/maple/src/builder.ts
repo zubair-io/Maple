@@ -514,14 +514,23 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`). */
+  /**
+   * Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`).
+   * Diverges from sharp's `withExif({IFD0: {...}})` — see the doc on
+   * `applyWithExif` in `builder-metadata.ts`.
+   */
   withExif(exif: Uint8Array | Buffer): this {
     applyWithExif(this.s, exif);
     return this;
   }
 
-  /** Embed this ICC profile. */
-  withIccProfile(icc: Uint8Array | Buffer): this {
+  /**
+   * Embed an ICC profile: `'srgb'`/`'p3'` (Maple's own built-in profiles), a
+   * filesystem path, or raw profile bytes. See the doc on
+   * `applyWithIccProfile` in `builder-metadata.ts` for the divergence from
+   * sharp's own `string`-only signature (`'cmyk'` included).
+   */
+  withIccProfile(icc: string | Uint8Array | Buffer): this {
     applyWithIccProfile(this.s, icc);
     return this;
   }

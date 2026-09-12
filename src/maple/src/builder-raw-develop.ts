@@ -76,6 +76,22 @@ export async function rawDevelopToBuffer(
 const RAW_DEVELOP_OPS = new Set(['resize', 'toColourspace']);
 
 /**
+ * `null` when no metadata method was ever called; otherwise the error
+ * message for [`rawDevelopToFile`]/[`rawDevelopToBuffer`] to return/throw
+ * (#3507 fix-round-1, item 1) — the RAW-develop path (recipe/XMP export,
+ * `export.ts`) doesn't read `state.metadata` at all yet, so
+ * `maple(dng).withExif(...).jpeg()`/`.withMetadata({orientation:6})` would
+ * otherwise silently produce output without them. Named after whichever
+ * method(s) were actually called, in call order.
+ */
+function unsupportedMetadataForRawDevelop(state: BuilderState): string | null {
+  if (state.metadataCallsUsed.length === 0) {
+    return null;
+  }
+  return `${state.metadataCallsUsed.join('/')} is not supported when developing a RAW file yet — see #3507`;
+}
+
+/**
  * The first op a RAW develop cannot carry out, as a message — or `null`.
  *
  * The RAW-develop terminal runs the develop pipeline (`exportImage` /
@@ -122,7 +138,7 @@ export async function rawDevelopToFile(
   state: BuilderState,
   outputPath: string,
 ): Promise<ExportResult> {
-  const unsupported = unsupportedOpError(state);
+  const unsupported = unsupportedOpError(state) ?? unsupportedMetadataForRawDevelop(state);
   if (unsupported) {
     return { ok: false, outPath: outputPath, error: unsupported };
   }
