@@ -376,8 +376,18 @@ encoder crate:
 | JPEG      | yes | yes  | yes | yes     |
 | PNG       | yes | yes  | yes | yes     |
 | WebP      | yes | yes  | no  | no      |
-| TIFF      | yes | no   | no  | no      |
+| TIFF      | yes | no¹  | no  | no      |
 | AVIF      | no  | yes  | no  | no      |
+
+¹ TIFF carries no EXIF block, but it does state its orientation in its own
+IFD0 (tag 274), and Maple writes it: the explicit
+`withMetadata({ orientation })` value, `1` after an `autoOrient`, or
+otherwise whatever the input container declared — even with every metadata
+field stripped, because libvips treats orientation as a property of the image
+rather than as metadata. Measured against sharp across four sources
+(JPEG o=6, PNG o=6, a plain JPEG, an AVIF) × five calls (default,
+`keepMetadata`, `keep`+orientation, orientation only, `autoOrient`+`keep`):
+all 20 agree.
 
 Naming a field a container's encoder can't carry — an explicit `withExif()`,
 `withIccProfile()`, `withXmp()` or `withMetadata({ density })` — is a named
@@ -464,9 +474,13 @@ not surfaced, the same as libvips.
 numbers, both pre-existing and out of scope for this metadata/stats pass:
 `entropy` and `sharpness` differ from sharp's own measurements because this
 crate's greyscale-luma conversion disagrees with libvips' by ±1 on a minority
-of pixels (#3572) — up to 0.06 of a bit of entropy on noise (measured 0.052
-on 40×30 RGBA noise, and 4e-8 on an already-grey source, which is what ties
-the residual to the luma step); and a
+of pixels (#3572) — up to ~0.08 of a bit of entropy on the reference noise
+fixtures (measured 0.0732 on 40×30 RGBA noise in review, and 0.0671 as the
+worst of 40 fresh random trials at that size), exactly 0 on an already-grey
+source, which is what ties the residual to the luma step. It grows on very
+small images, where one pixel's luma is a large share of the histogram:
+measured 0.168 as the worst of 40 trials at 8×8. `sharpness` tracks the same
+step, within 0.04 on all of them; and a
 greyscale-plus-alpha (`La8`) PNG or TIFF can report `hasAlpha: true` from
 `metadata()` while `stats()` decodes it as fully opaque RGB, because
 `decode_raster` currently drops that alpha channel (#3574).
