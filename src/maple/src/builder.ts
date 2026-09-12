@@ -25,7 +25,7 @@ import {
   resolveToRaw,
   runPipeline,
 } from './builder-exec';
-import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
+import { pushBlur, pushConvolve, pushMedian, pushSharpen, pushThreshold } from './builder-filter';
 import {
   pushExtend,
   pushExtract,
@@ -34,6 +34,7 @@ import {
   pushRotate,
   pushTrim,
 } from './builder-geometry';
+import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
 import {
   createBuilderState,
   formatForPath,
@@ -45,6 +46,7 @@ import type { BuilderState } from './builder-state';
 import type {
   Colour,
   CompositeLayer,
+  ConvolveKernel,
   EncodeOptions,
   ExportColorSpace,
   ExportFormat,
@@ -58,6 +60,7 @@ import type {
   RawPixelsAny,
   ResizeOptions,
   RotateOptions,
+  SharpenOptions,
   TensorOptions,
   TensorResult,
   TrimOptions,
@@ -371,6 +374,36 @@ export class MapleImageBuilder {
   /** Drop the alpha channel without compositing. */
   removeAlpha(): this {
     this.s.ops.push({ op: 'removeAlpha' });
+    return this;
+  }
+
+  /** Blur. No argument = a fast 3x3 box blur; a sigma = a Gaussian. */
+  blur(options?: number | { sigma?: number }): this {
+    pushBlur(this.s, options);
+    return this;
+  }
+
+  /** Unsharp mask on the L* channel (sharp's `sharpen`). */
+  sharpen(options?: SharpenOptions): this {
+    pushSharpen(this.s, options);
+    return this;
+  }
+
+  /** Square median filter; `size` defaults to 3, sharp's own default. */
+  median(size = 3): this {
+    pushMedian(this.s, size);
+    return this;
+  }
+
+  /** Binarise at `threshold`; `greyscale` decides via Rec.709 luma. */
+  threshold(threshold = 128, options?: { greyscale?: boolean; grayscale?: boolean }): this {
+    pushThreshold(this.s, threshold, options);
+    return this;
+  }
+
+  /** Convolve with an arbitrary kernel. */
+  convolve(kernel: ConvolveKernel): this {
+    pushConvolve(this.s, kernel);
     return this;
   }
 
