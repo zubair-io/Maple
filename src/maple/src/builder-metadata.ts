@@ -319,12 +319,27 @@ export function applyWithIccProfile(state: BuilderState, icc: string | Uint8Arra
   track(state, 'withIccProfile');
 }
 
-/** Embed this XMP packet. */
+/**
+ * Embed this XMP packet — a string, as sharp takes, or raw packet bytes (a
+ * Maple extension beyond sharp's `string`-only signature, the same one
+ * `withIccProfile` offers).
+ *
+ * Anything else is rejected with sharp's own wording. Before this only the
+ * empty string was checked, so `withXmp(42)` threw nothing at call time and
+ * failed downstream with `AuxBlob wrote NaN bytes, expected NaN`, and
+ * `withXmp(null)` with `null is not an object` (#3507 final fix wave,
+ * item 9).
+ */
 export function applyWithXmp(state: BuilderState, xmp: string | Uint8Array | Buffer): void {
-  if (typeof xmp === 'string' && xmp.length === 0) {
+  const bytes =
+    typeof xmp === 'string' && xmp.length > 0
+      ? Buffer.from(xmp, 'utf-8')
+      : xmp instanceof Uint8Array && xmp.byteLength > 0
+        ? xmp
+        : null;
+  if (bytes === null) {
     throw invalidParameter('xmp', 'non-empty string', xmp);
   }
-  const bytes = typeof xmp === 'string' ? Buffer.from(xmp, 'utf-8') : xmp;
   state.metadata.xmp = state.aux.add(bytes);
   track(state, 'withXmp');
 }

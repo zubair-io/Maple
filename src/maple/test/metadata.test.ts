@@ -58,8 +58,16 @@ describe('Metadata and stats', () => {
     return tiff;
   };
 
-  /** Read the Orientation tag back out of a 26-byte block built the same way. */
-  const orientationOf = (block: Buffer) => block.readUInt16LE(18);
+  /**
+   * Read the Orientation tag back out of a 26-byte block built the same
+   * way, tolerating the `Exif\0\0` introducer `metadata()` hands back for
+   * a JPEG, WebP or AVIF — the form sharp returns for those containers
+   * (#3507 final fix wave, item 3).
+   */
+  const orientationOf = (block: Buffer) => {
+    const tiff = block.subarray(0, 6).toString('latin1') === 'Exif\0\0' ? block.subarray(6) : block;
+    return tiff.readUInt16LE(18);
+  };
 
   it('metadata() reports the richer fields', async () => {
     const png = await maple(ramp(8, 4)).png().toBuffer();

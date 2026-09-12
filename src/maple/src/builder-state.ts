@@ -145,6 +145,17 @@ export function createBuilderState(
     return { ...base, inputPath: null, inputBytes: null, rawInput: input };
   }
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  // Rejected here, up front, exactly as sharp rejects it — and with
+  // sharp's own message. Every FFI wrapper downstream passes the buffer to
+  // `bun:ffi`'s `ptr()`, which cannot take a zero-length one and leaks
+  // `TypeError: bun:ffi cannot convert argument to 'ptr'` from whichever
+  // call happened to reach it first (#3507 final fix wave, item 9 —
+  // measured on `metadata()`, `stats()`, `png().toBuffer()` and
+  // `resize().jpeg().toBuffer()` alike). No empty buffer can succeed on
+  // any path, so there is nothing to defer.
+  if (bytes.byteLength === 0) {
+    throw new Error('Input Buffer is empty');
+  }
   return { ...base, inputPath: null, inputBytes: bytes, rawInput: null };
 }
 
