@@ -113,6 +113,24 @@ fn the_two_colour_spaces_tag_differently() {
 }
 
 #[test]
+fn avif_plus_display_p3_is_rejected_as_a_bitmap_encode_error() {
+    // The message must NOT open with "unsupported RAW format" — this is a
+    // bitmap encode path, where the only RAW in sight is the caller's own
+    // pixel buffer (#3503 review I3).
+    let err = reject_untagged_avif_p3(ExportFormat::Avif, TargetPrimaries::P3)
+        .expect_err("AVIF + P3 must be rejected");
+    let text = format!("{err}");
+    assert!(
+        text.starts_with("bitmap encode unsupported:"),
+        "got: {text}"
+    );
+    assert!(text.contains("Display P3"), "got: {text}");
+    // Every other combination still encodes.
+    assert!(reject_untagged_avif_p3(ExportFormat::Avif, TargetPrimaries::Srgb).is_ok());
+    assert!(reject_untagged_avif_p3(ExportFormat::Jpeg, TargetPrimaries::P3).is_ok());
+}
+
+#[test]
 fn webp_lossless_encodes_valid_riff_header() {
     let rgb = ramp_u8(8, 8);
     let webp_bytes = encode_webp(8, 8, &rgb, TargetPrimaries::Srgb).unwrap();

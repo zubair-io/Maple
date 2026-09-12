@@ -34,6 +34,14 @@ pub enum Error {
     #[error("unsupported RAW format: {0}")]
     UnsupportedFormat(String),
 
+    /// A bitmap (non-RAW) encode the crate cannot perform. Distinct from
+    /// [`Error::UnsupportedFormat`], whose Display prefix is "unsupported RAW
+    /// format" — RAW-decoder wording that made no sense on the
+    /// `@justmaple/maple` bitmap path, where the only RAW in sight is the
+    /// caller's own pixel buffer (#3503 review I3).
+    #[error("bitmap encode unsupported: {0}")]
+    BitmapEncode(String),
+
     #[error("DCP profile missing or unparseable: {0}")]
     Dcp(String),
 
