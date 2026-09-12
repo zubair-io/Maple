@@ -75,16 +75,16 @@
         "bias": 0.0168
       },
       "highlights_max": {
-        "mean": 8.0,
-        "p95": 15.7,
+        "mean": 6.8,
+        "p95": 11.1,
         "max": 41.3,
-        "bias": 0.0336
+        "bias": 0.0054
       },
       "highlights_min": {
         "mean": 6.3,
         "p95": 12.1,
         "max": 39.7,
-        "bias": 0.0674
+        "bias": 0.0364
       },
       "nr_color_max": {
         "mean": 6.5,
@@ -347,10 +347,10 @@
         "bias": 0.1451
       },
       "highlights_min": {
-        "mean": 21.6,
+        "mean": 20.9,
         "p95": 33.0,
         "max": 67.2,
-        "bias": 0.2091
+        "bias": 0.1802
       },
       "nr_color_max": {
         "mean": 18.0,
@@ -607,10 +607,10 @@
         "bias": 0.0745
       },
       "highlights_max": {
-        "mean": 16.9,
-        "p95": 19.9,
+        "mean": 12.8,
+        "p95": 14.8,
         "max": 40.5,
-        "bias": 0.2956
+        "bias": 0.2148
       },
       "highlights_min": {
         "mean": 8.7,
@@ -873,16 +873,16 @@
         "bias": 0.0208
       },
       "highlights_max": {
-        "mean": 8.1,
-        "p95": 15.1,
-        "max": 24.7,
-        "bias": 0.0212
+        "mean": 7.0,
+        "p95": 11.2,
+        "max": 23.3,
+        "bias": 0.0112
       },
       "highlights_min": {
-        "mean": 8.6,
+        "mean": 8.5,
         "p95": 12.9,
         "max": 22.5,
-        "bias": 0.0966
+        "bias": 0.0701
       },
       "nr_color_max": {
         "mean": 7.0,
@@ -1139,16 +1139,16 @@
         "bias": 0.0243
       },
       "highlights_max": {
-        "mean": 8.1,
-        "p95": 16.0,
-        "max": 27.1,
-        "bias": 0.0819
+        "mean": 5.9,
+        "p95": 11.3,
+        "max": 27.0,
+        "bias": 0.0404
       },
       "highlights_min": {
         "mean": 4.2,
         "p95": 9.4,
         "max": 26.8,
-        "bias": 0.0412
+        "bias": 0.0029
       },
       "nr_color_max": {
         "mean": 5.4,
@@ -1405,16 +1405,16 @@
         "bias": 0.01
       },
       "highlights_max": {
-        "mean": 12.3,
+        "mean": 10.7,
         "p95": 20.6,
         "max": 98.7,
         "bias": 0.065
       },
       "highlights_min": {
-        "mean": 14.7,
-        "p95": 23.1,
+        "mean": 12.4,
+        "p95": 22.2,
         "max": 93.7,
-        "bias": 0.1876
+        "bias": 0.1328
       },
       "nr_color_max": {
         "mean": 11.2,
@@ -1671,16 +1671,16 @@
         "bias": 0.024
       },
       "highlights_max": {
-        "mean": 9.6,
-        "p95": 19.2,
-        "max": 49.2,
-        "bias": 0.0831
+        "mean": 8.8,
+        "p95": 14.2,
+        "max": 44.9,
+        "bias": 0.0638
       },
       "highlights_min": {
         "mean": 9.4,
         "p95": 14.3,
         "max": 46.8,
-        "bias": 0.079
+        "bias": 0.0554
       },
       "nr_color_max": {
         "mean": 8.4,
@@ -1937,16 +1937,16 @@
         "bias": 0.0259
       },
       "highlights_max": {
-        "mean": 6.5,
-        "p95": 18.2,
-        "max": 52.2,
-        "bias": 0.0361
+        "mean": 5.7,
+        "p95": 13.0,
+        "max": 50.6,
+        "bias": 0.0125
       },
       "highlights_min": {
         "mean": 5.9,
         "p95": 9.3,
         "max": 37.8,
-        "bias": 0.0746
+        "bias": 0.0572
       },
       "nr_color_max": {
         "mean": 5.2,
@@ -2203,10 +2203,10 @@
         "bias": 0.0386
       },
       "highlights_max": {
-        "mean": 13.9,
+        "mean": 12.4,
         "p95": 22.5,
         "max": 100.6,
-        "bias": 0.1537
+        "bias": 0.1169
       },
       "highlights_min": {
         "mean": 8.7,
@@ -2469,16 +2469,16 @@
         "bias": 0.0108
       },
       "highlights_max": {
-        "mean": 9.0,
-        "p95": 15.6,
+        "mean": 7.9,
+        "p95": 15.4,
         "max": 28.9,
         "bias": 0.0468
       },
       "highlights_min": {
-        "mean": 11.6,
-        "p95": 19.0,
+        "mean": 10.5,
+        "p95": 18.6,
         "max": 38.5,
-        "bias": 0.1535
+        "bias": 0.1238
       },
       "nr_color_max": {
         "mean": 8.3,
@@ -2735,16 +2735,16 @@
         "bias": 0.0109
       },
       "highlights_max": {
-        "mean": 10.8,
-        "p95": 16.2,
+        "mean": 9.4,
+        "p95": 15.7,
         "max": 34.6,
-        "bias": 0.0738
+        "bias": 0.0355
       },
       "highlights_min": {
-        "mean": 12.9,
-        "p95": 18.6,
+        "mean": 11.4,
+        "p95": 17.7,
         "max": 39.2,
-        "bias": 0.0993
+        "bias": 0.0592
       },
       "nr_color_max": {
         "mean": 9.8,
@@ -3001,16 +3001,16 @@
         "bias": 0.0301
       },
       "highlights_max": {
-        "mean": 12.3,
-        "p95": 21.6,
+        "mean": 9.3,
+        "p95": 19.3,
         "max": 85.4,
-        "bias": 0.0926
+        "bias": 0.0234
       },
       "highlights_min": {
-        "mean": 9.5,
+        "mean": 7.3,
         "p95": 21.9,
-        "max": 95.4,
-        "bias": 0.1284
+        "max": 83.3,
+        "bias": 0.0507
       },
       "nr_color_max": {
         "mean": 7.3,
@@ -3267,16 +3267,16 @@
         "bias": 0.0139
       },
       "highlights_max": {
-        "mean": 11.9,
+        "mean": 10.8,
         "p95": 25.3,
         "max": 104.1,
         "bias": 0.0587
       },
       "highlights_min": {
-        "mean": 17.2,
-        "p95": 29.3,
+        "mean": 15.9,
+        "p95": 28.9,
         "max": 101.5,
-        "bias": 0.243
+        "bias": 0.2081
       },
       "nr_color_max": {
         "mean": 11.9,
@@ -3533,16 +3533,16 @@
         "bias": 0.0229
       },
       "highlights_max": {
-        "mean": 9.2,
-        "p95": 17.3,
-        "max": 27.0,
-        "bias": 0.1035
+        "mean": 7.6,
+        "p95": 12.7,
+        "max": 23.6,
+        "bias": 0.0745
       },
       "highlights_min": {
         "mean": 5.0,
         "p95": 9.1,
         "max": 27.4,
-        "bias": 0.0338
+        "bias": 0.0202
       },
       "nr_color_max": {
         "mean": 6.2,
@@ -3799,16 +3799,16 @@
         "bias": 0.0205
       },
       "highlights_max": {
-        "mean": 17.4,
+        "mean": 16.0,
         "p95": 25.1,
-        "max": 39.9,
+        "max": 37.1,
         "bias": 0.136
       },
       "highlights_min": {
-        "mean": 21.6,
+        "mean": 20.0,
         "p95": 30.8,
-        "max": 58.9,
-        "bias": 0.2769
+        "max": 53.0,
+        "bias": 0.2365
       },
       "nr_color_max": {
         "mean": 16.5,
@@ -4065,10 +4065,10 @@
         "bias": 0.0451
       },
       "highlights_max": {
-        "mean": 15.3,
+        "mean": 14.0,
         "p95": 24.7,
         "max": 51.6,
-        "bias": 0.1953
+        "bias": 0.1616
       },
       "highlights_min": {
         "mean": 9.3,
@@ -4331,16 +4331,16 @@
         "bias": 0.028
       },
       "highlights_max": {
-        "mean": 13.7,
+        "mean": 12.3,
         "p95": 28.8,
         "max": 102.2,
-        "bias": 0.0987
+        "bias": 0.0701
       },
       "highlights_min": {
-        "mean": 12.4,
-        "p95": 27.2,
+        "mean": 12.0,
+        "p95": 27.0,
         "max": 97.2,
-        "bias": 0.0958
+        "bias": 0.0678
       },
       "nr_color_max": {
         "mean": 12.1,
@@ -4597,10 +4597,10 @@
         "bias": 0.0524
       },
       "highlights_max": {
-        "mean": 16.0,
-        "p95": 20.4,
+        "mean": 14.8,
+        "p95": 20.1,
         "max": 40.3,
-        "bias": 0.21
+        "bias": 0.1908
       },
       "highlights_min": {
         "mean": 11.8,
