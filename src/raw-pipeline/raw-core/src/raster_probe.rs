@@ -51,15 +51,23 @@ pub struct RasterMetadata {
 /// sharp on a 24×16 source with orientation 6: sharp rotated all four
 /// containers to 16×24, Maple only the JPEG).
 ///
-/// This is metadata only. An AVIF's `irot`/`imir` is a transform of the
-/// pixels themselves, baked in at decode (round 2) — never routed through
-/// here, or `.rotate()` would apply it a second time.
-///
-/// `None` means the container declares nothing: no EXIF block at all, or a
-/// block whose IFD0 has no Orientation entry. That is the distinction sharp
-/// reports as `undefined` rather than `1` — see
+/// `None` means the container declares nothing a consumer should act on: no
+/// EXIF block at all, or a block whose IFD0 has no Orientation entry. That
+/// is the distinction sharp reports as `undefined` rather than `1` — see
 /// [`probe_raster_metadata`]'s TIFF exception (#3507 round 4).
-pub(super) fn container_orientation(bytes: &[u8]) -> Option<u16> {
+///
+/// An AVIF is always `None`, whatever its `Exif` item says. Its
+/// `irot`/`imir` is a transform of the pixels, baked in at decode, and
+/// libvips surfaces no orientation for a HEIF-family file even when the
+/// item carries the tag (#3507 rounds 3-5, measured). Anything that acts on
+/// an orientation must see nothing here, or it acts twice: a `.rotate()`
+/// would rotate already-rotated pixels, and a `keepMetadata()` into a
+/// container that states its own orientation would copy a value sharp
+/// writes as 1.
+pub fn container_orientation(bytes: &[u8]) -> Option<u16> {
+    if is_avif(bytes) {
+        return None;
+    }
     extract_exif_orientation(bytes).or_else(|| {
         crate::raster_meta::read_sidecars(bytes)
             .exif
