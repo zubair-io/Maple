@@ -299,10 +299,17 @@ encoder to apply them to (`quality`, `tileWidth`, `tileHeight`,
 `resolutionUnit`, `xres`, `yres`, `miniswhite`) are rejected the same way.
 `predictor` takes sharp's string form (`'horizontal'` default, `'none'`);
 `'float'` is a real sharp value the `tiff` crate cannot produce and is also a
-named rejection. A raster with an alpha channel always writes with no
-predictor regardless of this setting — the `tiff` crate's horizontal
-differencing corrupts the extra alpha sample's stride (see
-`raster_encode_tiff.rs`'s module doc for the full explanation).
+named rejection. It is a request rather than a guarantee, and is dropped in
+two cases — both of which libvips also drops it in:
+
+- **`compression: 'none'` or `'packbits'`.** TIFF defines tag 317 only for
+  LZW and Deflate; libtiff ignores it elsewhere and reads the differenced
+  bytes back as pixels, so writing it there would corrupt the image for every
+  reader. `sharp().tiff({ compression: 'none' })` omits the tag for the same
+  reason.
+- **A raster with an alpha channel.** The `tiff` crate's horizontal
+  differencing corrupts the extra alpha sample's stride (see
+  `raster_encode_tiff.rs`'s module doc for the full explanation).
 
 ```typescript
 const badged = await maple(photo)
