@@ -84,13 +84,13 @@ def convert_distortion(model: str, terms: dict, real_focal: float, crop: float, 
     if model == "poly3":
         k1 = terms["k1"]
         d = 1.0 - k1
-        return dict(scale=d, even=[k1 * s**2 / d**3, 0.0, 0.0], odd=[0.0, 0.0])
+        return dict(scale=1.0, even=[k1 * s**2 / d**3, 0.0, 0.0], odd=[0.0, 0.0])
     if model == "poly5":
         return dict(scale=1.0, even=[terms["k1"] * s**2, terms["k2"] * s**4, 0.0], odd=[0.0, 0.0])
     if model == "ptlens":
         a, b, c = terms["a"], terms["b"], terms["c"]
         d = 1.0 - a - b - c
-        return dict(scale=d, even=[b * s**2 / d**3, 0.0, 0.0], odd=[c * s / d**2, a * s**3 / d**4])
+        return dict(scale=1.0, even=[b * s**2 / d**3, 0.0, 0.0], odd=[c * s / d**2, a * s**3 / d**4])
     raise ValueError(model)
 
 

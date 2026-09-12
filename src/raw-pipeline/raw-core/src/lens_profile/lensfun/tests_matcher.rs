@@ -44,10 +44,10 @@ fn the_calibration_set_closest_to_the_sensor_wins() {
 fn slugs_round_trip_and_compatible_lists_the_mount() {
     let db = parse(&sample_bundle()).unwrap();
     let m = find(&db, "SONY", "ILCE-7RM4", "FE 24-70mm F4 ZA OSS").unwrap();
-    let (lens, mount) = by_slug(&db, &m.slug).expect("slug");
+    let (lens, mount) = by_slug(&db, &m.slug, m.camera.crop).expect("slug");
     assert!(std::ptr::eq(lens, m.lens) && std::ptr::eq(mount, m.mount));
-    assert!(by_slug(&db, "sony/nosuchlens@sonye").is_none());
-    assert!(by_slug(&db, "nonsense").is_none());
+    assert!(by_slug(&db, "sony/nosuchlens@sonye", 1.0).is_none());
+    assert!(by_slug(&db, "nonsense", 1.0).is_none());
     let list = compatible(&db, m.camera);
     assert_eq!(list.len(), 1);
     assert!(std::ptr::eq(list[0], m.lens));
