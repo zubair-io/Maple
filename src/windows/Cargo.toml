@@ -40,3 +40,4 @@ tauri = ["dep:tauri-build"]
 # `src/raw-pipeline/third_party/rav1d/MAPLE-PATCH.md`.
 [patch.crates-io]
 rav1d = { path = "../raw-pipeline/third_party/rav1d" }
+zune-jpeg = { path = "../raw-pipeline/third_party/zune-jpeg" }

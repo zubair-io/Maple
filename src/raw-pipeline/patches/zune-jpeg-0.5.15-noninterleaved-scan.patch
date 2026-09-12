@@ -1,0 +1,174 @@
+# zune-jpeg 0.5.15 — Maple #3596
+#
+# Non-interleaved multi-scan baseline JPEG decode. Applied to the in-tree copy
+# at third_party/zune-jpeg/ (a [patch.crates-io] path override), NOT to vendor/,
+# which no longer contains the crate. See third_party/zune-jpeg/MAPLE-PATCH.md
+# for the root cause and the measured before/after, and
+# scripts/re-apply-patches.sh (-> scripts/apply-zune-jpeg-patch.py) to re-apply.
+#
+# Generated with: diff -u <upstream src/mcu.rs> <patched src/mcu.rs>
+#
+--- a/src/mcu.rs
++++ b/src/mcu.rs
+@@ -198,7 +198,24 @@
+ 
+             trace!("Decoding MCU width: {mcu_width}, height: {mcu_height}");
+ 
+-            for i in 0..mcu_height {
++            // Data-unit ROWS this scan actually codes.
++            //
++            // A non-interleaved scan (Ns=1) codes its component's own data
++            // units in raster order (T.81 A.2.2), so the row count is
++            // ceil(component height / 8) — NOT the interleaved MCU row count,
++            // which is short by that component's vertical sampling factor. On
++            // a 4:2:0 image the luma component therefore had exactly half its
++            // block rows decoded and the bitstream desynchronised at the end
++            // of the scan. (Maple patch, #3596.)
++            let scan_rows = if all_components_in_first_scan {
++                mcu_height
++            } else {
++                let comp = &self.components[self.z_order[0]];
++                (usize::from(self.info.height) * comp.vertical_sample + self.v_max * 8 - 1)
++                    / (self.v_max * 8)
++            };
++
++            for i in 0..scan_rows {
+                 if stream.overread_by > 0 {
+                     pixels.get_mut(pixels_written..).map(|v| v.fill(128));
+                     if self.options.strict_mode() {
+@@ -215,6 +232,7 @@
+                     self.decode_mcu_width::<false>(
+                         mcu_width,
+                         i,
++                        false,
+                         &mut tmp,
+                         &mut stream,
+                         &mut progressive_mcus
+@@ -240,6 +258,7 @@
+                     self.decode_mcu_width::<true>(
+                         mcu_width,
+                         i,
++                        i + 1 < scan_rows,
+                         &mut tmp,
+                         &mut stream,
+                         &mut progressive_mcus
+@@ -395,8 +414,8 @@
+     }
+ 
+     fn decode_mcu_width<const PROGRESSIVE: bool>(
+-        &mut self, mcu_width: usize, mcu_height: usize, tmp: &mut [i32; 64],
+-        stream: &mut BitStream, progressive: &mut [Vec<i16>; 4]
++        &mut self, mcu_width: usize, mcu_height: usize, more_rows_in_scan: bool,
++        tmp: &mut [i32; 64], stream: &mut BitStream, progressive: &mut [Vec<i16>; 4]
+     ) -> Result<McuContinuation, DecodeErrors> {
+         let is_one_by_one = !self.scan_subsampled;
+ 
+@@ -413,6 +432,7 @@
+             self.inner_decode_mcu_width::<PROGRESSIVE, false>(
+                 mcu_width,
+                 mcu_height,
++                more_rows_in_scan,
+                 tmp,
+                 stream,
+                 progressive
+@@ -421,6 +441,7 @@
+             self.inner_decode_mcu_width::<PROGRESSIVE, true>(
+                 mcu_width,
+                 mcu_height,
++                more_rows_in_scan,
+                 tmp,
+                 stream,
+                 progressive
+@@ -434,8 +455,8 @@
+     // when `not SAMPLED` then the inner loop has exactly one iteration per component in
+     // the scan. The difference was ~1% or a bit more.
+     fn inner_decode_mcu_width<const PROGRESSIVE: bool, const SAMPLED: bool>(
+-        &mut self, mcu_width: usize, mcu_height: usize, tmp: &mut [i32; 64],
+-        stream: &mut BitStream, progressive: &mut [Vec<i16>; 4]
++        &mut self, mcu_width: usize, mcu_height: usize, more_rows_in_scan: bool,
++        tmp: &mut [i32; 64], stream: &mut BitStream, progressive: &mut [Vec<i16>; 4]
+     ) -> Result<McuContinuation, DecodeErrors> {
+         let z_order = self.z_order;
+         let z_scans = &z_order[..usize::from(self.num_scans)];
+@@ -490,8 +511,14 @@
+ 
+                 let qt_table = &component.quantization_table;
+                 let channel = if PROGRESSIVE {
+-                    let offset =
+-                        mcu_height * component.width_stride * 8 * component.vertical_sample;
++                    // `mcu_height` is the row INDEX here, and for a
++                    // non-interleaved scan it counts the component's own
++                    // data-unit rows, one block row each — so the pitch is one
++                    // block row, not the `vertical_sample` block rows an
++                    // interleaved MCU row spans. Multiplying by
++                    // `vertical_sample` left every other luma block row of a
++                    // 4:2:0 image zeroed. (Maple patch, #3596.)
++                    let offset = mcu_height * component.width_stride * 8;
+                     // Small stopgap for https://github.com/etemesi254/zune-image/issues/362
+                     if offset >= progressive[k].len(){
+                         return Err(DecodeErrors::FormatStatic("Would panic on slice iteration"))
+@@ -607,11 +634,11 @@
+             }
+         }
+ 
+-        self.check_stream_marker_after_mcu_width(stream)
++        self.check_stream_marker_after_mcu_width(stream, more_rows_in_scan)
+     }
+ 
+     fn check_stream_marker_after_mcu_width(
+-        &mut self, stream: &mut BitStream
++        &mut self, stream: &mut BitStream, more_rows_in_scan: bool
+     ) -> Result<McuContinuation, DecodeErrors> {
+         // After all interleaved components, that's an MCU
+         // handle stream markers
+@@ -640,8 +667,49 @@
+                 if self.todo == 0 {
+                     self.handle_rst(stream)?;
+                 }
++            } else if more_rows_in_scan
++                && (matches!(m, Marker::SOS | Marker::DHT | Marker::DQT | Marker::DRI | Marker::COM)
++                    || matches!(m, Marker::APP(_)))
++            {
++                // A PENDING marker is not the end of this scan.
++                //
++                // The bit reader runs up to 8 bytes ahead of the coefficients
++                // it has handed out, so a short scan — a flat chroma channel,
++                // a small image, anything whose entropy data is under ~8 bytes
++                // per data-unit row — has the NEXT scan's `SOS` (or the `DHT`
++                // libjpeg writes in front of it) sitting in `stream.marker`
++                // long before its own data units are used up. Honouring it
++                // here ended that scan after its first row and left the rest
++                // of the component at zero.
++                //
++                // The scan's own data-unit rows say when it is over, so the
++                // marker stays pending until then. `RST`, `EOI` and anything
++                // unrecognised are still handled immediately below — restart
++                // intervals are part of the scan, and an early `EOI` means the
++                // file really is truncated. (Maple patch, #3596.)
++                trace!("Deferring marker {:?} — scan still owes data-unit rows", m);
++                return Ok(McuContinuation::Ok);
+             } else if let Marker::SOS = m {
+-                self.parse_marker_inner(m)?;
++                // In non-strict mode a marker we cannot PARSE is the end of
++                // what this file can give us, not a decode failure. A JPEG
++                // truncated inside a later scan header leaves a partial `SOS`
++                // segment — and a non-interleaved file has one scan header
++                // per component, so there are three places to be cut instead
++                // of one. Propagating the parse error threw away every row
++                // that had already decoded; the sibling handling for a failed
++                // coefficient block takes the same recover-what-we-have view,
++                // as this module's own doc says ("allows even corrupt images
++                // to render something ... matching browsers").
++                // (Maple patch, #3596.)
++                if let Err(e) = self.parse_marker_inner(m) {
++                    if self.options.strict_mode() {
++                        return Err(e);
++                    }
++                    error!("{}", e);
++                    stream.marker.take();
++                    stream.reset();
++                    return Ok(McuContinuation::Terminate);
++                }
+                 stream.marker.take();
+                 stream.reset();
+                 trace!("Found SOS marker");
