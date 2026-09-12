@@ -4,7 +4,7 @@
  * Provides a unified chaining interface for RAW photo development,
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
-import type { AvifOutputOptions, Colour, CompositeLayer, ConvolveKernel, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, JpegOutputOptions, PngOutputOptions, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, SharpenOptions, TensorOptions, TensorResult, TiffOutputOptions, TrimOptions, WebpOutputOptions } from './types';
+import type { Colour, CompositeLayer, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, TensorOptions, TensorResult, TrimOptions } from './types';
 export declare class MapleImageBuilder {
     private readonly s;
     constructor(input: string | Uint8Array | Buffer | RawPixelInput);
@@ -32,47 +32,30 @@ export declare class MapleImageBuilder {
     flop(): this;
     /** Crop a border of pixels similar to `background` (sharp's `trim`). */
     trim(options?: TrimOptions): this;
-    /**
-     * Set output container format and optional quality/effort.
-     *
-     * Naming a different container than an earlier `.jpeg()`/`.png()`/… call
-     * discards that call's options — see `applyFormat`.
-     */
+    /** Set output container format and optional quality/effort */
     toFormat(format: ExportFormat, options?: EncodeOptions): this;
-    /** Encode as JPEG with sharp's options. */
-    jpeg(options?: JpegOutputOptions): this;
-    /** Encode as PNG with sharp's options. */
-    png(options?: PngOutputOptions): this;
-    /** Encode as lossless WebP. `{ lossless: false }` throws — see the README. */
-    webp(options?: WebpOutputOptions): this;
-    /** Encode as AVIF with sharp's options. */
-    avif(options?: AvifOutputOptions): this;
-    /** Encode as TIFF with sharp's options. */
-    tiff(options?: TiffOutputOptions): this;
+    /** Encode as AVIF (sugar for `toFormat('avif', options)`) */
+    avif(options?: EncodeOptions): this;
+    /** Encode as JPEG (sugar for `toFormat('jpeg', options)`) */
+    jpeg(options?: EncodeOptions): this;
+    /** Encode as PNG (sugar for `toFormat('png')`) */
+    png(): this;
+    /** Encode as WebP (sugar for `toFormat('webp', options)`) */
+    webp(options?: EncodeOptions): this;
     /** Set output container format */
     format(format: ExportFormat): this;
-    /**
-     * Set output quality (1..100). Reaches an earlier `.jpeg()`/`.avif()`
-     * call's output too; PNG, WebP and TIFF have no quality knob in Maple's
-     * encoders, so there is nothing for it to change there.
-     *
-     * Last call wins, in both directions: `.quality(30).jpeg()` encodes at
-     * `.jpeg()`'s own default of 80 (the per-format call is the later, more
-     * specific instruction), while `.jpeg().quality(30)` encodes at 30.
-     */
+    /** Set output quality (1..100) */
     quality(quality: number): this;
     /** Set target primaries / ICC profile */
     colorSpace(space: ExportColorSpace): this;
     /**
      * Target colourspace. For bitmaps this rotates the primaries and tags the
      * output with the matching ICC profile; for the RAW develop path it also
-     * selects the export primaries, as it did in Tier 1. `'b-w'` is the
-     * greyscale conversion, the same thing `greyscale()` does — which is what
-     * it means in sharp too.
+     * selects the export primaries, as it did in Tier 1.
      */
-    toColourspace(space: 'srgb' | 'display-p3' | 'p3' | 'b-w'): this;
+    toColourspace(space: 'srgb' | 'display-p3' | 'p3'): this;
     /** Alternative spelling of `toColourspace`. */
-    toColorspace(space: 'srgb' | 'display-p3' | 'p3' | 'b-w'): this;
+    toColorspace(space: 'srgb' | 'display-p3' | 'p3'): this;
     /** Convert to 8-bit greyscale, three identical channels. */
     greyscale(greyscale?: boolean): this;
     /** Alternative spelling of `greyscale`. */
@@ -89,12 +72,8 @@ export declare class MapleImageBuilder {
     gamma(gamma?: number, gammaOut?: number): this;
     /** `a * input + b`, per channel or scalar. */
     linear(a?: number | number[], b?: number | number[]): this;
-    /**
-     * Produce the negative. `{ alpha: false }` spares the alpha channel, and
-     * `negate(false)` is a no-op — sharp's own signature (and the same shape
-     * as `greyscale(false)`).
-     */
-    negate(options?: boolean | {
+    /** Produce the negative. `{ alpha: false }` spares the alpha channel. */
+    negate(options?: {
         alpha?: boolean;
     }): this;
     /** Stretch luminance between the given percentiles. */
@@ -134,33 +113,6 @@ export declare class MapleImageBuilder {
     ensureAlpha(alpha?: number): this;
     /** Drop the alpha channel without compositing. */
     removeAlpha(): this;
-    /**
-     * Blur. No argument (or `true`) = a fast 3x3 box blur; a sigma = a
-     * Gaussian; `false` = no blur, as in sharp.
-     */
-    blur(options?: number | boolean | {
-        sigma?: number;
-    }): this;
-    /**
-     * Unsharp mask on the L* channel (sharp's `sharpen`). No argument is
-     * sharp's fast mild 3x3 kernel, and so is `true`; `false` is no sharpen.
-     * A bare number is its deprecated positional `sharpen(sigma)` form — see
-     * `pushSharpen` for the one domain difference between that form and the
-     * object form.
-     */
-    sharpen(options?: number | boolean | SharpenOptions): this;
-    /** Square median filter; `size` defaults to 3, sharp's own default. */
-    median(size?: number): this;
-    /**
-     * Binarise at `threshold`; `greyscale` decides via linear-light luma. A
-     * threshold of `0` (or `false`) is a no-op, as in sharp; `true` is 128.
-     */
-    threshold(threshold?: number | boolean, options?: {
-        greyscale?: boolean;
-        grayscale?: boolean;
-    }): this;
-    /** Convolve with an arbitrary kernel. */
-    convolve(kernel: ConvolveKernel): this;
     /** Native-size interleaved pixels, alpha preserved when the source has it. */
     toRawAlpha(): Promise<RawPixelsAny>;
     /** Inspect image dimensions, format, orientation without full decode */
@@ -173,21 +125,7 @@ export declare class MapleImageBuilder {
     toRawRgb(options?: TensorOptions): Promise<TensorResult>;
     /** Render or resize image directly to an in-memory Buffer */
     toBuffer(): Promise<Buffer>;
-    /**
-     * Execute export or resize and write to output file.
-     *
-     * Both branches return `{ ok: false, error }` on failure rather than
-     * throwing — including `assertRawDevelopOutput`'s synchronous rejection of
-     * an unsupported per-format option on a RAW-develop input, which used to
-     * escape as a rejected promise while every other `toFile` failure (a
-     * native export error, a bitmap encode error) already came back this way.
-     * The RAW-develop branch's own try/catch lives inside
-     * `rawDevelopToFile` (`builder-raw-develop.ts`) — its `assertRawDevelopOutput`
-     * call sits inside that same try, so the imported function already
-     * resolves rather than rejects for this failure. `toBuffer()` on a
-     * RAW-develop input still throws: `rawDevelopToBuffer` calls `toFile`
-     * internally and re-throws on `!ok`, so that behaviour is unchanged.
-     */
+    /** Execute export or resize and write to output file */
     toFile(outputPath: string): Promise<ExportResult>;
     /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
     toRaw(): Promise<RawPixels>;
