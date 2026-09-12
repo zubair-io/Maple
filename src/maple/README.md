@@ -136,7 +136,7 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `negate()`                           | ✅    | `{ alpha: false }` spares the alpha channel                                                 |
 | `normalise()` / `normalize()`        | ✅    | percentile stretch of CIELAB L\*, chroma preserved                                          |
 | `modulate()`                         | ✅    | brightness/lightness on L\*, saturation on C\*, hue rotation, in CIELCh                     |
-| `tint()`                             | ✅    | reduces to the same linear-light luma as `greyscale`, then takes a\*/b\* from the tint      |
+| `tint()`                             | ✅    | linear-light luma as `greyscale`, then a\*/b\* from the tint; colour as `{r,g,b}` or `#rgb`/`#rrggbb`/`#rrggbbaa` (no CSS names) |
 | `toColourspace()` / `toColorspace()` | ✅    | `srgb` and `display-p3`; the output carries the matching ICC profile                        |
 | `resize({ fit })`               | ✅\*  | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                       |
 | `resize({ position })`          | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                             |

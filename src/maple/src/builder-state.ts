@@ -220,7 +220,12 @@ export function resolveColour(
   }
   const hex = value.replace(/^#/, '');
   const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
-  if (full.length !== 6 && full.length !== 8) {
+  // Length alone is not enough: `'orange'` is 6 characters, `parseInt('or',
+  // 16)` is NaN, and the NaN reached the wire as a null and surfaced as
+  // `recipe parse failed: invalid type: null, expected f64` (#3503 review
+  // I6). sharp parses CSS colour names and `rgb()` here; Maple does not, and
+  // says so by name. The leading `#` is optional.
+  if (!/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(full)) {
     throw new Error(`Unrecognised colour '${value}': expected #rgb, #rrggbb or #rrggbbaa`);
   }
   const byte = (i: number) => parseInt(full.slice(i * 2, i * 2 + 2), 16);
