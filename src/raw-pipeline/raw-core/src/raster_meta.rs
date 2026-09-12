@@ -397,6 +397,100 @@ fn read_webp(bytes: &[u8]) -> RasterSidecars {
     found
 }
 
+/// EXIF tag 0x0112, Orientation.
+const TAG_ORIENTATION: u16 = 0x0112;
+
+/// Return `block` with its IFD0 Orientation tag set to `orientation`,
+/// creating a minimal little-endian block when `block` has no usable IFD0
+/// entry for it (#3507, so the recipe's `metadata.orientation` can rewrite
+/// whichever EXIF block `resolve_metadata` resolved, or create one when
+/// there was none to begin with).
+///
+/// The block never grows: an existing entry is rewritten in place, so every
+/// other tag's offset stays valid. When there is no existing Orientation
+/// entry to rewrite — no usable TIFF header, a corrupt/truncated IFD0, or
+/// simply no such tag — a fresh minimal block is returned instead, since
+/// there is no room to insert a new 12-byte IFD entry without reflowing
+/// every other tag's offset in the original block.
+pub fn set_exif_orientation(block: &[u8], orientation: u16) -> Vec<u8> {
+    let minimal = || -> Vec<u8> {
+        let mut tiff = vec![0u8; 26];
+        tiff[..2].copy_from_slice(b"II");
+        tiff[2..4].copy_from_slice(&42u16.to_le_bytes());
+        tiff[4..8].copy_from_slice(&8u32.to_le_bytes());
+        tiff[8..10].copy_from_slice(&1u16.to_le_bytes());
+        tiff[10..12].copy_from_slice(&TAG_ORIENTATION.to_le_bytes());
+        tiff[12..14].copy_from_slice(&3u16.to_le_bytes()); // SHORT
+        tiff[14..18].copy_from_slice(&1u32.to_le_bytes()); // count
+        tiff[18..20].copy_from_slice(&orientation.to_le_bytes());
+        tiff
+    };
+    let little = block.starts_with(b"II");
+    if block.len() < 8 || (!little && !block.starts_with(b"MM")) {
+        return minimal();
+    }
+    let u16_at = |b: &[u8], i: usize| -> Option<u16> {
+        let end = i.checked_add(2)?;
+        let s = b.get(i..end)?;
+        Some(if little {
+            u16::from_le_bytes([s[0], s[1]])
+        } else {
+            u16::from_be_bytes([s[0], s[1]])
+        })
+    };
+    let u32_at = |b: &[u8], i: usize| -> Option<u32> {
+        let end = i.checked_add(4)?;
+        let s = b.get(i..end)?;
+        Some(if little {
+            u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+        } else {
+            u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+        })
+    };
+    let mut out = block.to_vec();
+    let Some(ifd) = u32_at(&out, 4).map(|v| v as usize) else {
+        return minimal();
+    };
+    let Some(count) = u16_at(&out, ifd) else {
+        return minimal();
+    };
+    let Some(entries_start) = ifd.checked_add(2) else {
+        return minimal();
+    };
+    let entry = (0..count as usize).find(|&e| {
+        e.checked_mul(12)
+            .and_then(|offset| entries_start.checked_add(offset))
+            .and_then(|at| u16_at(&out, at))
+            == Some(TAG_ORIENTATION)
+    });
+    let Some(entry) = entry else {
+        // No Orientation entry, and no room to add one without reflowing
+        // every offset in the block — hand back a minimal block instead,
+        // which is what an encoder needs to carry the value.
+        return minimal();
+    };
+    let Some(value_at) = entry
+        .checked_mul(12)
+        .and_then(|offset| entries_start.checked_add(offset))
+        .and_then(|at| at.checked_add(8))
+    else {
+        return minimal();
+    };
+    let bytes = if little {
+        orientation.to_le_bytes()
+    } else {
+        orientation.to_be_bytes()
+    };
+    let Some(value_end) = value_at.checked_add(2) else {
+        return minimal();
+    };
+    match out.get_mut(value_at..value_end) {
+        Some(slot) => slot.copy_from_slice(&bytes),
+        None => return minimal(),
+    }
+    out
+}
+
 #[cfg(test)]
 #[path = "raster_meta_jpeg_tests.rs"]
 mod jpeg_tests;
