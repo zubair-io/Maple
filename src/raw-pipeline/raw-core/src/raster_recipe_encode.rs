@@ -95,7 +95,20 @@ pub(crate) const AVIF_CAPS: Capabilities = Capabilities {
 /// cannot carry — fix-round-1, item 1. Before this the encoders simply never
 /// read the fields their container can't carry (WebP xmp/density, TIFF
 /// exif/xmp/density, AVIF icc/xmp/density), silently producing a file
-/// missing what the caller supplied.
+/// missing what the caller supplied. "Requested" means whatever
+/// `resolve_metadata` actually resolved to `Some` — for `keep: true` that is
+/// only ever a field genuinely present in the input, never one the input
+/// simply didn't carry, so a JPEG with no XMP → WebP output is still fine.
+///
+/// `icc` is the one exception (fix-round-2). Two things can fill it that are
+/// not caller requests: the default sRGB profile `resolve_metadata` adds as
+/// `keep`'s own convenience when the input carried none, and the primaries
+/// profile the output stage adds after a `toColourspace` (see
+/// `raster_recipe_exec::resolve_output_metadata`). Both are skipped silently
+/// on a format that cannot write ICC at all (AVIF today, #3580), so
+/// `keep: true` on a no-ICC JPEG → AVIF succeeds with no ICC, like sharp.
+/// [`ResolvedMetadata::icc_requested`] is what gates this check: only an ICC
+/// present in the input or explicitly supplied errors by name here.
 pub(crate) fn require_supported(
     meta: &ResolvedMetadata,
     format_name: &str,
@@ -106,7 +119,7 @@ pub(crate) fn require_supported(
             "{format_name} cannot embed EXIF (requested via metadata.exif / keep)"
         )));
     }
-    if meta.icc.is_some() && !caps.icc {
+    if meta.icc_requested && !caps.icc {
         return Err(bad(format!(
             "{format_name} cannot embed an ICC profile (requested via metadata.icc / keep)"
         )));
