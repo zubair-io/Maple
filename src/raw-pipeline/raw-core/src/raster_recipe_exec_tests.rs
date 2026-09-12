@@ -61,6 +61,39 @@ fn reported_channels_reflect_what_the_container_actually_wrote() {
     assert_eq!(png.channels, 4);
 }
 
+/// #3545's RGBA TIFF was unreachable from the recipe: the `Tiff` arm
+/// composited over black before `encode_tiff_opts` ever saw the alpha,
+/// so a correct encoder shipped behind a call site that flattened. The
+/// file must now declare 4 samples with `ExtraSamples` = 2 (unassociated
+/// alpha — the same value `sharp().tiff()` writes), and `channels` must
+/// report the 4 the container really carries.
+#[test]
+fn a_tiff_encode_keeps_the_alpha_channel() {
+    // Half-transparent green: a composite over black would turn the RGB
+    // samples into (0, 128, 0) and drop the 4th sample entirely.
+    let translucent: Vec<u8> = (0..4).flat_map(|_| [0u8, 255, 0, 128]).collect();
+    let out = run(
+        r#"{"v":1,"input":{"kind":"raw","width":2,"height":2,"channels":4},"ops":[],
+            "output":{"format":"tiff","compression":"none"}}"#,
+        &translucent,
+        &[],
+    );
+    assert_eq!(out.channels, 4, "the recipe reported a flattened TIFF");
+    let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&out.bytes)).unwrap();
+    assert_eq!(decoder.colortype().unwrap(), tiff::ColorType::RGBA(8));
+    assert_eq!(
+        decoder
+            .get_tag_u16_vec(tiff::tags::Tag::ExtraSamples)
+            .unwrap(),
+        vec![2],
+        "tag 338 must declare unassociated (straight) alpha"
+    );
+    match decoder.read_image().unwrap() {
+        tiff::decoder::DecodingResult::U8(decoded) => assert_eq!(decoded, translucent),
+        other => panic!("expected an 8-bit decode result, got {other:?}"),
+    }
+}
+
 #[test]
 fn ops_run_in_the_order_given() {
     // flatten-then-ensureAlpha leaves an OPAQUE alpha channel;
