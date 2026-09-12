@@ -282,4 +282,18 @@ describe('Colour ops', () => {
         .toBuffer(),
     ).rejects.toThrow(/cmyk/);
   });
+
+  it('toColourspace("display-p3") then ("srgb") round-trips the pixels', async () => {
+    // The executor must track the primaries the image is ACTUALLY in and
+    // use that as `from` for the next `toColourspace`, not a hardcoded
+    // sRGB — otherwise this pair applies the sRGB->P3 rotation twice
+    // instead of rotating back, and the round trip would drift far more
+    // than a rounding error.
+    const src = await png([255, 0, 0]);
+    const out = await maple(src).toColourspace('display-p3').toColourspace('srgb').toRawAlpha();
+    const original = await first(src);
+    Array.from(out.data.subarray(0, out.channels)).forEach((byte, idx) => {
+      expect(Math.abs(byte - original[idx])).toBeLessThanOrEqual(1);
+    });
+  });
 });

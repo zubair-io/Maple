@@ -58,12 +58,25 @@ fn require_finite(name: &str, v: f64) -> crate::error::Result<()> {
 
 /// Apply one of the eight colour ops. Called from
 /// `raster_recipe_exec::apply_op` for every `Op` variant this module owns.
-pub(crate) fn apply_colour_op(image: RasterImage, op: &Op) -> crate::error::Result<RasterImage> {
+///
+/// `current_primaries` is the primaries the image is ACTUALLY in right now
+/// — tracked by the caller across the whole op list, starting at sRGB (the
+/// decoder's output space) and updated on every `ToColourspace` this
+/// function returns. Every op but `ToColourspace` passes it straight
+/// through unchanged; `ToColourspace` uses it as `from` (not a hardcoded
+/// sRGB) so a second `toColourspace` call rotates from where the pixels
+/// actually are, not from where they started — without this, `[toP3,
+/// toSrgb]` would apply the sRGB->P3 matrix twice instead of rotating back.
+pub(crate) fn apply_colour_op(
+    image: RasterImage,
+    current_primaries: TargetPrimaries,
+    op: &Op,
+) -> crate::error::Result<(RasterImage, TargetPrimaries)> {
     match op {
-        Op::Greyscale {} => Ok(image.greyscale()),
+        Op::Greyscale {} => Ok((image.greyscale(), current_primaries)),
         Op::Gamma { exponent } => {
             require_finite("gamma exponent", *exponent)?;
-            Ok(image.gamma(*exponent))
+            Ok((image.gamma(*exponent), current_primaries))
         }
         Op::Linear { a, b } => {
             for (i, v) in a.iter().enumerate() {
@@ -72,9 +85,9 @@ pub(crate) fn apply_colour_op(image: RasterImage, op: &Op) -> crate::error::Resu
             for (i, v) in b.iter().enumerate() {
                 require_finite(&format!("linear b[{i}]"), *v)?;
             }
-            Ok(image.linear(*a, *b))
+            Ok((image.linear(*a, *b), current_primaries))
         }
-        Op::Negate { alpha } => Ok(image.negate(*alpha)),
+        Op::Negate { alpha } => Ok((image.negate(*alpha), current_primaries)),
         Op::Normalise { lower, upper } => {
             require_finite("normalise lower", *lower)?;
             require_finite("normalise upper", *upper)?;
@@ -83,7 +96,7 @@ pub(crate) fn apply_colour_op(image: RasterImage, op: &Op) -> crate::error::Resu
                     "normalise: expected 0 <= lower < upper <= 100, got lower={lower}, upper={upper}"
                 )));
             }
-            Ok(image.normalise(*lower, *upper))
+            Ok((image.normalise(*lower, *upper), current_primaries))
         }
         Op::Modulate {
             brightness,
@@ -105,12 +118,15 @@ pub(crate) fn apply_colour_op(image: RasterImage, op: &Op) -> crate::error::Resu
                     "modulate saturation must be >= 0, got {saturation}"
                 )));
             }
-            Ok(image.modulate(*brightness, *saturation, *hue, *lightness))
+            Ok((
+                image.modulate(*brightness, *saturation, *hue, *lightness),
+                current_primaries,
+            ))
         }
-        Op::Tint { rgb } => Ok(image.tint(*rgb)),
+        Op::Tint { rgb } => Ok((image.tint(*rgb), current_primaries)),
         Op::ToColourspace { space } => {
             let to = primaries_from_wire(space)?;
-            Ok(image.to_colourspace(TargetPrimaries::Srgb, to))
+            Ok((image.to_colourspace(current_primaries, to), to))
         }
         other => unreachable!("apply_colour_op called with a non-colour op: {other:?}"),
     }
