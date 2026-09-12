@@ -291,6 +291,48 @@ fn a_convolve_kernel_length_mismatch_is_named() {
     assert!(format!("{err}").contains("expected 9"), "got: {err}");
 }
 
+#[test]
+fn a_non_integer_convolve_scale_is_named() {
+    // sharp's own `convolve()` (`lib/operation.js`) only honours `scale`
+    // when `is.integer()` passes — a non-integer is silently replaced by
+    // the kernel's own sum instead of erroring. Measured on sharp 0.34.5:
+    // `scale: 4.5` over a flat 30 field with a box-of-9 kernel leaves the
+    // field at 30 (scale silently replaced by the kernel sum of 9, not
+    // applied as 4.5). Maple rejects rather than silently diverging.
+    let recipe = parse_recipe(
+        r#"{"v":1,"input":{"kind":"raw","width":5,"height":5,"channels":3},
+            "ops":[{"op":"convolve","width":3,"height":3,"kernel":[1,1,1,1,1,1,1,1,1],"scale":4.5}],
+            "output":{"format":"raw"}}"#,
+    )
+    .unwrap();
+    let err = run_recipe(&recipe, &vec![30u8; 5 * 5 * 3], &[]).unwrap_err();
+    assert!(format!("{err}").contains("scale"), "got: {err}");
+}
+
+#[test]
+fn a_non_integer_convolve_offset_is_named() {
+    let recipe = parse_recipe(
+        r#"{"v":1,"input":{"kind":"raw","width":5,"height":5,"channels":3},
+            "ops":[{"op":"convolve","width":3,"height":3,"kernel":[1,1,1,1,1,1,1,1,1],"offset":0.5}],
+            "output":{"format":"raw"}}"#,
+    )
+    .unwrap();
+    let err = run_recipe(&recipe, &vec![30u8; 5 * 5 * 3], &[]).unwrap_err();
+    assert!(format!("{err}").contains("offset"), "got: {err}");
+}
+
+#[test]
+fn integer_convolve_scale_and_offset_still_work() {
+    let recipe = parse_recipe(
+        r#"{"v":1,"input":{"kind":"raw","width":5,"height":5,"channels":3},
+            "ops":[{"op":"convolve","width":3,"height":3,"kernel":[1,1,1,1,1,1,1,1,1],"scale":9,"offset":0}],
+            "output":{"format":"raw"}}"#,
+    )
+    .unwrap();
+    let out = run_recipe(&recipe, &vec![30u8; 5 * 5 * 3], &[]).unwrap();
+    assert_eq!(out.bytes[(2 * 5 + 2) * 3], 30);
+}
+
 // ------------------------------------------------------- schema defaults ---
 //
 // Moved here from `raster_recipe.rs`'s own test module to keep that file
