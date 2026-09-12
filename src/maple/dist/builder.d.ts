@@ -54,21 +54,28 @@ export declare class MapleImageBuilder {
     ensureAlpha(alpha?: number): this;
     /** Drop the alpha channel without compositing. */
     removeAlpha(): this;
-    /** Blur. No argument = a fast 3x3 box blur; a sigma = a Gaussian. */
-    blur(options?: number | {
+    /**
+     * Blur. No argument (or `true`) = a fast 3x3 box blur; a sigma = a
+     * Gaussian; `false` = no blur, as in sharp.
+     */
+    blur(options?: number | boolean | {
         sigma?: number;
     }): this;
     /**
      * Unsharp mask on the L* channel (sharp's `sharpen`). No argument is
-     * sharp's fast mild 3x3 kernel; a bare number is its deprecated
-     * positional `sharpen(sigma)` form — see `pushSharpen` for the one
-     * domain difference between that form and the object form.
+     * sharp's fast mild 3x3 kernel, and so is `true`; `false` is no sharpen.
+     * A bare number is its deprecated positional `sharpen(sigma)` form — see
+     * `pushSharpen` for the one domain difference between that form and the
+     * object form.
      */
-    sharpen(options?: number | SharpenOptions): this;
+    sharpen(options?: number | boolean | SharpenOptions): this;
     /** Square median filter; `size` defaults to 3, sharp's own default. */
     median(size?: number): this;
-    /** Binarise at `threshold`; `greyscale` decides via Rec.709 luma. */
-    threshold(threshold?: number, options?: {
+    /**
+     * Binarise at `threshold`; `greyscale` decides via linear-light luma. A
+     * threshold of `0` (or `false`) is a no-op, as in sharp; `true` is 128.
+     */
+    threshold(threshold?: number | boolean, options?: {
         greyscale?: boolean;
         grayscale?: boolean;
     }): this;

@@ -77,14 +77,45 @@ fn the_float_conv_leaves_truncation_to_the_caller() {
 
 #[test]
 fn a_flat_field_survives_every_sigma_a_caller_can_ask_for() {
-    // Both integer paths preserve a flat field; a mask whose gain drifted
-    // would show up here first.
+    // A mask whose gain drifted from libvips' would show up here first.
+    // The gain is not always exactly 1 — see the note below — but at this
+    // mid-tone every sigma rounds back to the same value, in sharp too.
     let flat = RasterImage::new_rgb(8, 8, vec![123; 8 * 8 * 3]);
     for sigma in [0.3, 0.6, 1.0, 1.5, 3.0, 10.0, 50.0] {
         let out = flat.blur(Some(sigma)).unwrap();
         assert!(
             out.data.iter().all(|&v| v == 123),
             "sigma {sigma} did not preserve a flat field"
+        );
+    }
+}
+
+#[test]
+fn the_integer_mask_gain_is_not_always_exactly_one() {
+    // libvips' fixed-point mantissas sum to a power of two for most sigmas
+    // but not all: at sigma 3 they sum to 257 against an exponent of 256,
+    // a gain of about 0.8%. That is sharp's behaviour as much as ours —
+    // measured on sharp 0.34.5, a flat field at sigma 3 comes back 200 ->
+    // 202, 240 -> 242, 250 -> 252 and 254 -> 255 (clamped), while every
+    // other sigma from 0.6 to 50 leaves all four alone. Pinned so nobody
+    // "fixes" it by renormalising the mask.
+    for (input, expected) in [(200u8, 202u8), (240, 242), (250, 252), (254, 255)] {
+        let flat = RasterImage::new_rgb(8, 8, vec![input; 8 * 8 * 3]);
+        assert!(
+            flat.blur(Some(3.0))
+                .unwrap()
+                .data
+                .iter()
+                .all(|&v| v == expected),
+            "flat {input} at sigma 3 should come back {expected}"
+        );
+        assert!(
+            flat.blur(Some(5.0))
+                .unwrap()
+                .data
+                .iter()
+                .all(|&v| v == input),
+            "flat {input} at sigma 5 should be unchanged"
         );
     }
 }
