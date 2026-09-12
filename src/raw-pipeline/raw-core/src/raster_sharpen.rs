@@ -191,6 +191,13 @@ fn fast_sharpen(src: &RasterImage) -> RasterImage {
 const SHARPEN_MIN_SIGMA: f64 = 0.000001;
 const SHARPEN_MAX_SIGMA: f64 = 10.0;
 
+/// sharp's shared range for `m1`/`m2`/`x1`/`y2`/`y3` (`lib/operation.js`'s
+/// `is.inRange(value, 0, 1000000)` checks on `sharpen`'s options object,
+/// #3504 task E5 controller ruling (b)) — every one of the five transfer
+/// parameters shares this same domain.
+const SHARPEN_PARAM_MIN: f64 = 0.0;
+const SHARPEN_PARAM_MAX: f64 = 1_000_000.0;
+
 /// sharp's `sharpen` options. Non-`sigma` defaults are sharp's documented
 /// defaults for its mask-based (Lab) path.
 ///
@@ -258,8 +265,30 @@ impl RasterImage {
     ///
     /// An out-of-range or `NaN` `sigma` is a caller-parameter error, not a
     /// decode failure, so — matching `blur`'s ruling in this same plan — it
-    /// is reported as [`Error::Pipeline`] rather than [`Error::Decode`].
+    /// is reported as [`Error::Pipeline`] rather than [`Error::Decode`]. The
+    /// same holds for `m1`/`m2`/`x1`/`y2`/`y3`: each is validated to
+    /// `[SHARPEN_PARAM_MIN, SHARPEN_PARAM_MAX]` and named individually in
+    /// its error, matching sharp's own per-field `is.inRange` checks
+    /// (#3504 task E5 controller ruling (b)).
     pub fn sharpen(&self, options: &SharpenOptions) -> Result<Self> {
+        // #3504 task E5 controller ruling (b): validate every one of the
+        // five transfer parameters, named individually, before doing
+        // anything else — matching sharp's own unconditional `is.inRange`
+        // checks on `options.m1`/`m2`/`x1`/`y2`/`y3`, which run whether or
+        // not `sigma` is also given.
+        for (name, value) in [
+            ("m1", options.m1),
+            ("m2", options.m2),
+            ("x1", options.x1),
+            ("y2", options.y2),
+            ("y3", options.y3),
+        ] {
+            if !(SHARPEN_PARAM_MIN..=SHARPEN_PARAM_MAX).contains(&value) {
+                return Err(Error::Pipeline(format!(
+                    "sharpen {name} {value} is outside [{SHARPEN_PARAM_MIN}, {SHARPEN_PARAM_MAX}]"
+                )));
+            }
+        }
         let Some(sigma) = options.sigma else {
             return Ok(fast_sharpen(self));
         };
