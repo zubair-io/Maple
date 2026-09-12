@@ -7,9 +7,11 @@
 //!   `http://ns.adobe.com/xap/1.0/\0` for XMP, and the APP0 JFIF density.
 //!   Marker codes may be preceded by `0xFF` fill bytes, and standalone
 //!   markers (`RSTn`, `TEM`) carry no length field — both are handled.
-//! * PNG: `eXIf`, `iCCP` (zlib-deflated), `iTXt` with the
-//!   `XML:com.adobe.xmp` keyword (plain or zlib-compressed, per its own
-//!   compression flag), and `pHYs` for density.
+//! * PNG: `eXIf`, `iCCP` (zlib-deflated), the `XML:com.adobe.xmp` keyword
+//!   in an `iTXt` (plain or zlib-compressed, per its own compression flag),
+//!   a `tEXt` (plain — the form libvips writes) or a `zTXt` (deflated), and
+//!   `pHYs` for density. Every zlib stream here is inflated under the
+//!   [`MAX_SIDECAR_BYTES`] ceiling — see `inflate_bounded`.
 //! * TIFF: the IFD0 `InterColorProfile` (34675) and `XMLPacket` (700) tags.
 //!   No EXIF block — a TIFF's IFD0 *is* its EXIF, and sharp reports none for
 //!   a TIFF (see `read_tiff`). Only a byte-sized TIFF type
@@ -238,7 +240,7 @@ fn read_png(bytes: &[u8]) -> RasterSidecars {
                     found.icc = nul
                         .checked_add(2)
                         .and_then(|start| payload.get(start..))
-                        .and_then(|zlib| miniz_oxide::inflate::decompress_to_vec_zlib(zlib).ok());
+                        .and_then(inflate_bounded);
                 }
             }
             b"iTXt" if payload.starts_with(PNG_XMP_KEYWORD) => {
@@ -252,6 +254,17 @@ fn read_png(bytes: &[u8]) -> RasterSidecars {
             // directly.
             b"tEXt" if payload.starts_with(PNG_XMP_KEYWORD) => {
                 found.xmp = Some(payload[PNG_XMP_KEYWORD.len()..].to_vec());
+            }
+            // `zTXt` is `tEXt` with the text zlib-deflated behind a
+            // compression-method byte. sharp reads XMP out of one
+            // (measured: 313 bytes from a hand-built zTXt PNG), so this
+            // does too.
+            b"zTXt" if payload.starts_with(PNG_XMP_KEYWORD) => {
+                found.xmp = payload
+                    .get(PNG_XMP_KEYWORD.len()..)
+                    .filter(|rest| rest.first() == Some(&0))
+                    .and_then(|rest| rest.get(1..))
+                    .and_then(inflate_bounded);
             }
             b"pHYs" if payload.len() >= 9 && payload[8] == 1 => {
                 // Via pixels per millimetre, the unit libvips itself
@@ -301,9 +314,23 @@ fn parse_png_itxt_xmp(rest: &[u8]) -> Option<Vec<u8>> {
     let text = after_header.get(text_start..)?;
     match (flag, method) {
         (0, _) => Some(text.to_vec()),
-        (1, 0) => miniz_oxide::inflate::decompress_to_vec_zlib(text).ok(),
+        (1, 0) => inflate_bounded(text),
         _ => None,
     }
+}
+
+/// Inflate a zlib stream, giving up at [`MAX_SIDECAR_BYTES`].
+///
+/// PNG's compressed chunks are attacker-controlled input with an
+/// unbounded expansion ratio: measured before this, a crafted
+/// 66,516-byte PNG whose `iCCP` inflated to 64 MB made `metadata()`
+/// return a 67,108,864-byte `icc` in 1,826 ms, to be base64'd into the
+/// JSON reply at another ~85 MB (#3507 final fix wave, item 8). Over the
+/// ceiling the block is reported absent, the same as a corrupt stream —
+/// sharp rejects the same file outright ("pngload_buffer: reached
+/// chunk/cache limits"), so neither library hands the expansion back.
+fn inflate_bounded(zlib: &[u8]) -> Option<Vec<u8>> {
+    miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(zlib, MAX_SIDECAR_BYTES).ok()
 }
 
 /// IFD0 tags 34675 (`InterColorProfile`) and 700 (`XMLPacket`), and no EXIF

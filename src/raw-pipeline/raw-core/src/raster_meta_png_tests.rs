@@ -108,3 +108,50 @@ fn an_introduced_png_exif_chunk_is_canonicalised() {
     assert_eq!(found.exif.as_deref(), Some(EXIF_TIFF));
     assert!(found.exif_intro);
 }
+
+#[test]
+fn reads_a_ztxt_xmp_packet() {
+    // sharp reads XMP out of a deflated `zTXt` chunk (measured: 313 bytes
+    // from a hand-built one), so this does too — #3507 final fix wave,
+    // item 8.
+    let mut payload = PNG_XMP_KEYWORD.to_vec();
+    payload.push(0); // compression method: deflate
+    payload.extend(miniz_oxide::deflate::compress_to_vec_zlib(XMP_PACKET, 6));
+    let bytes = png_fixture_raw(&[(png::chunk::zTXt, payload)]);
+    assert_eq!(read_sidecars(&bytes).xmp.as_deref(), Some(XMP_PACKET));
+}
+
+#[test]
+fn an_iccp_chunk_that_inflates_past_the_ceiling_is_reported_absent() {
+    // A crafted 66 KB PNG inflated to 64 MB of `icc` in 1,826 ms before
+    // the ceiling landed (#3507 final fix wave, item 8). The compressed
+    // chunk here is a few KB; it is the *inflated* size that must be
+    // refused, so the file itself stays small.
+    let bomb = miniz_oxide::deflate::compress_to_vec_zlib(
+        &vec![0u8; crate::raster_meta::MAX_SIDECAR_BYTES + 1],
+        6,
+    );
+    let mut payload = b"icc\0".to_vec();
+    payload.push(0); // compression method
+    payload.extend(bomb);
+    assert!(
+        payload.len() < 1 << 20,
+        "the fixture itself must stay small: {} bytes",
+        payload.len()
+    );
+    let bytes = png_fixture_raw(&[(png::chunk::iCCP, payload)]);
+    assert_eq!(read_sidecars(&bytes).icc, None);
+}
+
+#[test]
+fn an_iccp_chunk_just_under_the_ceiling_still_inflates() {
+    let profile = vec![7u8; 1 << 20];
+    let mut payload = b"icc\0".to_vec();
+    payload.push(0);
+    payload.extend(miniz_oxide::deflate::compress_to_vec_zlib(&profile, 6));
+    let bytes = png_fixture_raw(&[(png::chunk::iCCP, payload)]);
+    assert_eq!(
+        read_sidecars(&bytes).icc.as_deref(),
+        Some(profile.as_slice())
+    );
+}
