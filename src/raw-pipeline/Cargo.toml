@@ -26,6 +26,8 @@ rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8",
 # ISO-BMFF walker for the AVIF container (primary/alpha item OBUs).
 avif-parse = "2"
 # Direct dep so raster decode can turn strict mode OFF (image's wrapper cannot).
+# Resolved through the `[patch.crates-io]` override at the bottom of this file
+# — see third_party/zune-jpeg/MAPLE-PATCH.md (#3596).
 zune-jpeg = "0.5"
 fast_image_resize = { version = "5.5", default-features = false, features = ["image", "rayon"] }
 png = "0.17"
@@ -101,3 +103,4 @@ toml = "0.8"
 # See third_party/rav1d/MAPLE-PATCH.md for the delta and the upgrade recipe.
 [patch.crates-io]
 rav1d = { path = "third_party/rav1d" }
+zune-jpeg = { path = "third_party/zune-jpeg" }
