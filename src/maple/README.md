@@ -130,6 +130,13 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `flatten()`                                        | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                                                                                                                                                                                                     |
 | `ensureAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                                                                          |
 | `removeAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                                                                          |
+| `metadata()`       | ✅    | plus `hasAlpha`/`hasProfile`/`space`/`depth`/`density`/`size`/`icc`/`exif`/`xmp`                                                                                             |
+| `stats()`          | ✅    | per-channel moments, `isOpaque`, `entropy`, `sharpness`, `dominant`                                                                                                          |
+| `keepMetadata()`   | ✅    |                                                                                                                                                                              |
+| `withMetadata()`   | ✅    | `{orientation, density}`, same validation as sharp                                                                                                                           |
+| `withExif()`       | ⚠️    | takes a raw EXIF `Buffer`, not sharp's IFD object (`{IFD0: {...}}`) — rejected by name; not yet supported when developing a RAW file (`.jpg`/etc. from a `.dng` and friends) |
+| `withIccProfile()` | ⚠️    | `'srgb'`/`'p3'` or a path, like sharp, plus raw bytes; `'cmyk'` rejected (no CMYK support); not yet supported when developing a RAW file                                     |
+| `withXmp()`        | ⚠️    | not yet supported when developing a RAW file                                                                                                                                 |
 | `blur()`                                           | ✅    | no argument = 3x3 box; a sigma = separable Gaussian. Byte-identical to sharp                                                                                                                                                                                                                                                                                             |
 | `sharpen()`                                        | ✅    | argument-less kernel and the `{sigma}` Lab mask path both byte-identical                                                                                                                                                                                                                                                                                                 |
 | `median()`                                         | ✅    | integer window 1..1000, no wider than the image, every band. Byte-identical                                                                                                                                                                                                                                                                                              |
@@ -352,6 +359,13 @@ two cases — both of which libvips also drops it in:
 - **A raster with an alpha channel.** The `tiff` crate's horizontal
   differencing corrupts the extra alpha sample's stride (see
   `raster_encode_tiff.rs`'s module doc for the full explanation).
+
+**Metadata and RAW files.** `keepMetadata()`/`withMetadata()`/`withExif()`/
+`withIccProfile()`/`withXmp()` only affect the bitmap recipe pipeline today —
+calling any of them before developing an actual RAW file (a `.dng`/etc. path,
+or any `.xmp()`/`.recipe()` input) returns/throws a named
+`"<method> is not supported when developing a RAW file yet — see #3507"`
+error rather than silently dropping the request (#3507).
 
 ```typescript
 const badged = await maple(photo)
