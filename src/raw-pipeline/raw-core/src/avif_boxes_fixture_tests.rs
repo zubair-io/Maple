@@ -74,7 +74,7 @@ fn avif_with_ipco(props: &[u8]) -> Vec<u8> {
 #[test]
 fn no_transform_properties_means_orientation_one() {
     let file = avif_with_ipco(&[]);
-    assert_eq!(read_avif_boxes(&file).orientation, 1);
+    assert_eq!(read_avif_boxes(&file).transform, 1);
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn irot_maps_onto_the_exif_rotations() {
     for (step, expected) in [(0u8, 1u16), (1, 8), (2, 3), (3, 6)] {
         let file = avif_with_ipco(&bx(b"irot", &[step]));
         assert_eq!(
-            read_avif_boxes(&file).orientation,
+            read_avif_boxes(&file).transform,
             expected,
             "irot {step} should be EXIF {expected}"
         );
@@ -95,11 +95,11 @@ fn imir_maps_onto_the_exif_mirrors() {
     // axis 0 = top/bottom exchanged -> EXIF 4; axis 1 = left/right
     // exchanged -> EXIF 2 (libavif's `avif.h`; see the module doc).
     assert_eq!(
-        read_avif_boxes(&avif_with_ipco(&bx(b"imir", &[0]))).orientation,
+        read_avif_boxes(&avif_with_ipco(&bx(b"imir", &[0]))).transform,
         4
     );
     assert_eq!(
-        read_avif_boxes(&avif_with_ipco(&bx(b"imir", &[1]))).orientation,
+        read_avif_boxes(&avif_with_ipco(&bx(b"imir", &[1]))).transform,
         2
     );
 }
@@ -111,7 +111,7 @@ fn irot_and_imir_together_map_onto_the_transposed_orientations() {
     // mirror runs on the already-rotated image, so the left/right axis it
     // exchanges is the rotated one. Measured against libheif 1.20.2 (#3507
     // final fix wave, item 1) — this assertion pinned 5 before that.
-    assert_eq!(read_avif_boxes(&avif_with_ipco(&props)).orientation, 7);
+    assert_eq!(read_avif_boxes(&avif_with_ipco(&props)).transform, 7);
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn irot_and_imir_together_map_onto_orientation_five() {
     // mirror (imir axis 0) is EXIF 5 (transpose) — measured against
     // libheif 1.20.2; this assertion pinned 7 before the fix.
     let props = [bx(b"irot", &[1]), bx(b"imir", &[0])].concat();
-    assert_eq!(read_avif_boxes(&avif_with_ipco(&props)).orientation, 5);
+    assert_eq!(read_avif_boxes(&avif_with_ipco(&props)).transform, 5);
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn every_irot_imir_combination_matches_libheif() {
             None => bx(b"irot", &[angle]),
         };
         assert_eq!(
-            read_avif_boxes(&avif_with_ipco(&props)).orientation,
+            read_avif_boxes(&avif_with_ipco(&props)).transform,
             expected,
             "irot {angle} imir {axis:?} should be EXIF {expected}"
         );
@@ -185,7 +185,7 @@ fn orientation_comes_from_the_primary_items_own_associations() {
     let file = [ftyp, meta].concat();
 
     assert_eq!(
-        read_avif_boxes(&file).orientation,
+        read_avif_boxes(&file).transform,
         8,
         "must report the primary item's own irot, not the secondary item's"
     );
@@ -196,7 +196,7 @@ fn an_ipma_association_past_the_ipco_list_is_ignored() {
     // Only one property (irot, index 1) exists; the association claims
     // index 5, which `ipco` doesn't have.
     let file = avif_with_ipco_and_associations(&bx(b"irot", &[1]), &[5]);
-    assert_eq!(read_avif_boxes(&file).orientation, 1);
+    assert_eq!(read_avif_boxes(&file).transform, 1);
 }
 
 #[test]
@@ -210,7 +210,7 @@ fn a_truncated_ipma_box_means_orientation_one() {
     let pitm = bx(b"pitm", &[0u8, 0, 0, 0, 0, 1]);
     let meta = bx(b"meta", &[vec![0u8, 0, 0, 0], pitm, iprp].concat());
     let file = [ftyp, meta].concat();
-    assert_eq!(read_avif_boxes(&file).orientation, 1);
+    assert_eq!(read_avif_boxes(&file).transform, 1);
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn a_probe_reports_the_real_orientation() {
     let file = avif_with_ipco(&bx(b"irot", &[1]));
     // `probe_raster_metadata` cannot decode this synthetic container's
     // pixels, but `read_avif_boxes` is what feeds it the orientation.
-    assert_eq!(read_avif_boxes(&file).orientation, 8);
+    assert_eq!(read_avif_boxes(&file).transform, 8);
 }
 
 /// A hand-built AVIF-shaped file whose `iloc` uses `base_offset_size = 4`:

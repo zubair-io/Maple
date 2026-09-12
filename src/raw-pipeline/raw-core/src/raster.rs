@@ -103,14 +103,7 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
         Some("avif")
     );
     if hinted_avif || is_avif(bytes) {
-        // The AVIF decoder itself never looks at `irot`/`imir`, so the
-        // container's own transform has to be attached here for
-        // `auto_orient` to have anything to apply (#3507 final fix wave,
-        // item 4).
-        return avif_decode_gate::decode(bytes).map(|image| RasterImage {
-            orientation: ExifOrientation::from_u16(container_orientation(bytes)),
-            ..image
-        });
+        return avif_decode_gate::decode(bytes).map(|image| bake_avif_transform(image, bytes));
     }
 
     let hinted_jpeg = matches!(
@@ -178,6 +171,37 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
                 orientation,
             })
         }
+    }
+}
+
+/// Apply an AVIF's own `irot`/`imir` to the decoded pixels, and carry the
+/// `Exif` item's Orientation tag as the flag `.rotate()`/`auto_orient`
+/// applies on top.
+///
+/// The AVIF decoder behind this crate reads neither box, but libheif — and
+/// so sharp — applies them while decoding, which makes them a property of
+/// the pixels rather than metadata to pass on (#3507 round 2 ruling).
+/// Measured against sharp 0.34.5 on nine hand-patched AVIFs (`irot` 0..3,
+/// `imir` 0/1, both together, with and without an `Exif` Orientation): its
+/// default output is the transformed image in every case, byte-identical to
+/// the matching EXIF transform of the source, and `.rotate()` changes
+/// nothing further. Baking it here means Maple's default output matches —
+/// before this, `decode_raster` attached the transform as a flag, so the
+/// pixels came back untransformed and only an explicit `.rotate()` put them
+/// right.
+///
+/// `auto_orient` is the same rotation/mirror machinery `.rotate()` uses, so
+/// there is one implementation of the eight transforms, not two.
+fn bake_avif_transform(image: RasterImage, bytes: &[u8]) -> RasterImage {
+    let boxes = crate::avif_boxes::read_avif_boxes(bytes);
+    let mut baked = RasterImage {
+        orientation: ExifOrientation::from_u16(boxes.transform),
+        ..image
+    };
+    baked.auto_orient();
+    RasterImage {
+        orientation: ExifOrientation::from_u16(boxes.exif_orientation()),
+        ..baked
     }
 }
 
