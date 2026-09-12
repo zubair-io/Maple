@@ -132,14 +132,16 @@ impl RasterImage {
     /// with `uchar = TRUE`.
     pub fn linear(&self, a: [f64; 3], b: [f64; 3]) -> Self {
         map_colour(self, |px| {
+            // Both coefficients and the result pass through float32 on the
+            // way through libvips, and both hops are measurable. Sweeping
+            // sharp 0.34.5 over a 0..255 ramp: rounding disagrees on 15 of
+            // 18 hand-picked coefficient pairs, pure double on 4, rounding
+            // only the result on 1, and this form on none (nor on 60 random
+            // pairs). The pair that separates the last two is
+            // `linear(0.3333333, 0.6666667)`, where `a` and `b` are f32-
+            // representable to fewer digits than their decimal literals.
             [0, 1, 2].map(|i| {
-                // `a*v + b` in double, landing in a float32 band (libvips
-                // promotes a uchar input to float for arithmetic), then
-                // clipped and truncated by the cast back down to uchar. The
-                // f32 hop is load-bearing, not cosmetic: in pure double
-                // `1.2 * 100.0 - 10.0` is a hair under 110, which would
-                // truncate to 109 where sharp gives 110.
-                let scaled = (px[i] as f64 * a[i] + b[i]) as f32;
+                let scaled = (px[i] as f64 * a[i] as f32 as f64 + b[i] as f32 as f64) as f32;
                 to_uchar_trunc(scaled as f64)
             })
         })
