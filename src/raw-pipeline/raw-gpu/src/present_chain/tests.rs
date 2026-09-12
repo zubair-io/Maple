@@ -106,7 +106,7 @@ fn aggressive_case() -> Case {
         tint: 18.0,
         exposure: 0.4,
         contrast: 35.0,
-        highlights: -40.0,
+        highlights: 40.0,
         shadows: 30.0,
         whites: 20.0,
         blacks: -15.0,
