@@ -941,6 +941,38 @@ public actor RemoteCatalog {
     /// happens when the server returned 304 to an `If-None-Match` —
     /// callers reuse their own cached bytes. `ok` carries the 200 body
     /// plus the new ETag (nil if the server didn't send one).
+    /// `GET /api/fs/preview?path=<abs>` — the developed 1280 px preview the
+    /// server keeps at `.maple/previews/<filename>.avif`, generated on demand
+    /// when stale (#3571). Path-addressed: there is no id-keyed preview
+    /// route, and the preview cache is keyed on the file, not the asset.
+    /// Same ETag revalidation as `getThumb`; the server's ETag is the
+    /// preview FILE's mtime + size, so an in-place overwrite after an edit
+    /// busts it.
+    public func getPreview(absPath: String) async throws -> Data {
+        var comps = URLComponents(url: server.appending(path: "/api/fs/preview"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "path", value: absPath)]
+        guard let url = comps.url else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        let key = url.absoluteString
+        let cached = etagCacheGet(key)
+        if let cached {
+            req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+        }
+        let (data, resp) = try await http.data(for: req)
+        let httpResp = resp as? HTTPURLResponse
+        if httpResp?.statusCode == 304,
+           let cached,
+           let bytes = cached.payload as? Data {
+            return bytes
+        }
+        try Self.check2xx(resp, data: data, url: req.url)
+        if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
+            etagCacheSet(key, ETagEntry(etag: etag, payload: data))
+        }
+        return data
+    }
+
     public enum ThumbFetchResult: Sendable, Equatable {
         case ok(data: Data, etag: String?)
         case notModified

@@ -690,6 +690,35 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         parentRelativePath: parentRelativePath,
                         parentIdentifier: parentID
                     ), nil)
+                case .maplePreviewsDir(let folderID, let parentRelativePath):
+                    let parentRaw = FileProviderIdentifier
+                        .mapleDir(folderID: folderID, parentRelativePath: parentRelativePath)
+                        .rawValue
+                    completionHandler(MapleItem(
+                        maplePreviewsDir: folderID,
+                        parentRelativePath: parentRelativePath,
+                        parentIdentifier: NSFileProviderItemIdentifier(parentRaw)
+                    ), nil)
+                case .preview(let assetID):
+                    // Mirrors `.thumb` below (#3571): metadata gives the
+                    // filename and the folder; the parent is the folder's
+                    // synthesised `.maple/previews/`.
+                    do {
+                        guard let meta = try await catalog.getAsset(assetID: assetID) else {
+                            completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                                           code: NSFileProviderError.noSuchItem.rawValue))
+                            return
+                        }
+                        let parentID = try await Self.resolveDerivedParent(
+                            meta: meta, rootCache: rootCache, kind: .previews)
+                        completionHandler(MapleDerivedKind.previews.item(
+                            assetID: assetID, rawBasename: meta.filename,
+                            modified: meta.xmpMtime ?? meta.contentModificationDate,
+                            parentIdentifier: parentID), nil)
+                    } catch {
+                        log.error("preview item(for:) failed: \(error.localizedDescription, privacy: .public)")
+                        completionHandler(nil, error)
+                    }
                 case .thumb(let assetID):
                     // Resolve via the asset metadata so we can compute
                     // the on-disk thumb filename (`sha256_prefix16` of
@@ -716,6 +745,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         completionHandler(MapleItem(
                             thumbForAsset: assetID,
                             displayFilename: thumbName,
+                            modified: meta.xmpMtime ?? meta.contentModificationDate,
                             parentIdentifier: parentID
                         ), nil)
                     } catch {
@@ -944,9 +974,32 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     let item = MapleItem(
                         thumbForAsset: assetID,
                         displayFilename: thumbName,
+                        modified: resolved.xmpMtime ?? resolved.contentModificationDate,
                         parentIdentifier: parentIdent
                     )
                     log.notice("fetchContents thumb \(assetID, privacy: .public) ok bytes=\(bytes.count, privacy: .public)")
+                    completionHandler(localURL, item, nil)
+                    return
+                case .preview(let assetID):
+                    // The preview route is path-addressed, so metadata comes
+                    // first (#3571). The server generates a missing/stale
+                    // preview on demand inside the request.
+                    guard let resolved = try await catalog.getAsset(assetID: assetID) else {
+                        log.notice("fetchContents preview \(assetID, privacy: .public) — getAsset returned nil; underlying asset gone")
+                        completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
+                                                            code: NSFileProviderError.noSuchItem.rawValue))
+                        return
+                    }
+                    let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".avif")
+                    let bytes = try await catalog.getPreview(absPath: resolved.absPath)
+                    try bytes.write(to: localURL, options: .atomic)
+                    let parentIdent = try await Self.resolveDerivedParent(
+                        meta: resolved, rootCache: self.rootCache, kind: .previews)
+                    let item = MapleDerivedKind.previews.item(
+                        assetID: assetID, rawBasename: resolved.filename,
+                        modified: resolved.xmpMtime ?? resolved.contentModificationDate,
+                        parentIdentifier: parentIdent)
+                    log.notice("fetchContents preview \(assetID, privacy: .public) ok bytes=\(bytes.count, privacy: .public)")
                     completionHandler(localURL, item, nil)
                     return
                 case .file(let folderID, let relativePath):
@@ -983,7 +1036,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                           relativePath: relativePath,
                                                           parentIdentifier: parentID), nil)
                     return
-                case .folder, .trash, .mapleDir, .mapleThumbsDir:
+                case .folder, .trash, .mapleDir, .mapleThumbsDir, .maplePreviewsDir:
                     completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                         code: NSFileProviderError.noSuchItem.rawValue))
                     return
@@ -1066,8 +1119,15 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                   folderID: folderID,
                                                   parentRelativePath: parentRelativePath,
                                                   containerIdentifier: containerItemIdentifier)
-        case .thumb:
-            // Thumbs are leaf items, not containers — cannot be enumerated.
+        case .maplePreviewsDir(let folderID, let parentRelativePath):
+            return DeferredMapleThumbsEnumerator(catalog: catalog,
+                                                  rootCache: rootCache,
+                                                  folderID: folderID,
+                                                  parentRelativePath: parentRelativePath,
+                                                  containerIdentifier: containerItemIdentifier,
+                                                  kind: .previews)
+        case .thumb, .preview:
+            // Thumbs and previews are leaf items, not containers — cannot be enumerated.
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
         }
@@ -1949,7 +2009,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         return
                     }
                     completionHandler(nil)
-                case .trash, .mapleDir, .mapleThumbsDir, .thumb:
+                case .trash, .mapleDir, .mapleThumbsDir, .thumb, .maplePreviewsDir, .preview:
                     // Synthetic `.maple/` items + thumbs are read-only —
                     // deletes are unsupported.
                     completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
@@ -2217,6 +2277,16 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     ///     same rationale, no valid parent identifier exists.
     static func resolveThumbParent(meta: AssetMetadata,
                                     rootCache: LibraryRootCache?) async throws -> NSFileProviderItemIdentifier {
+        try await resolveDerivedParent(meta: meta, rootCache: rootCache, kind: .thumbs)
+    }
+
+    /// The synthesised `.maple/<kind>/` container an asset's derived entry
+    /// belongs to (#3571) — `.mapleThumbsDir` or `.maplePreviewsDir` of the
+    /// asset's own folder. Throws on every failure mode; see
+    /// `resolveThumbParent`'s rationale.
+    static func resolveDerivedParent(meta: AssetMetadata,
+                                      rootCache: LibraryRootCache?,
+                                      kind: MapleDerivedKind) async throws -> NSFileProviderItemIdentifier {
         guard let rootCache else {
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
@@ -2231,9 +2301,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                           code: NSFileProviderError.noSuchItem.rawValue)
         }
         let parentRelative = (relative as NSString).deletingLastPathComponent
-        let parentID = FileProviderIdentifier
-            .mapleThumbsDir(folderID: meta.folderID,
-                            parentRelativePath: parentRelative)
+        let parentID: FileProviderIdentifier = {
+            switch kind {
+            case .thumbs:
+                return .mapleThumbsDir(folderID: meta.folderID, parentRelativePath: parentRelative)
+            case .previews:
+                return .maplePreviewsDir(folderID: meta.folderID, parentRelativePath: parentRelative)
+            }
+        }()
         return NSFileProviderItemIdentifier(parentID.rawValue)
     }
 
@@ -2420,18 +2495,21 @@ public final class DeferredMapleThumbsEnumerator: NSObject, NSFileProviderEnumer
     private let folderID: String
     private let parentRelativePath: String
     private let containerIdentifier: NSFileProviderItemIdentifier
+    private let kind: MapleDerivedKind
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
 
     public init(catalog: RemoteCatalog,
                 rootCache: LibraryRootCache,
                 folderID: String,
                 parentRelativePath: String,
-                containerIdentifier: NSFileProviderItemIdentifier) {
+                containerIdentifier: NSFileProviderItemIdentifier,
+                kind: MapleDerivedKind = .thumbs) {
         self.catalog = catalog
         self.rootCache = rootCache
         self.folderID = folderID
         self.parentRelativePath = parentRelativePath
         self.containerIdentifier = containerIdentifier
+        self.kind = kind
     }
 
     public func invalidate() {}
@@ -2455,7 +2533,8 @@ public final class DeferredMapleThumbsEnumerator: NSObject, NSFileProviderEnumer
                     catalog: catalog,
                     folderID: folderID,
                     parentAbsolutePath: absolutePath,
-                    containerIdentifier: containerIdentifier
+                    containerIdentifier: containerIdentifier,
+                    kind: kind
                 )
                 inner.enumerateItems(for: observer, startingAt: page)
             } catch {

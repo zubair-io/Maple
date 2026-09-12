@@ -92,7 +92,7 @@ public enum FolderChangeMatching {
                 deletes.append(contentsOf: AssetChangeItems.deleted(assetID: assetID))
                 continue
             }
-            let fanOut = AssetChangeItems.resolved(meta: meta, parent: parent)
+            let fanOut = AssetChangeItems.resolved(meta: meta, parent: parent, includeDerived: true)
             updates.append(contentsOf: fanOut.updates)
             deletes.append(contentsOf: fanOut.deletes)
         }

@@ -169,7 +169,9 @@ final class WorkingSetEnumeratorBatchResolutionTests: XCTestCase {
         XCTAssertEqual(observer.deletes,
                        [NSFileProviderItemIdentifier(
                            FileProviderIdentifier.asset(Self.ids[1]).rawValue),
-                        MapleItem.sidecarIdentifier(assetID: Self.ids[1])])
+                        MapleItem.sidecarIdentifier(assetID: Self.ids[1]),
+                        NSFileProviderItemIdentifier(FileProviderIdentifier.thumb(assetID: Self.ids[1]).rawValue),
+                        NSFileProviderItemIdentifier(FileProviderIdentifier.preview(assetID: Self.ids[1]).rawValue)])
     }
 
     func testDeleteRowsAreNotFetched() async throws {
@@ -189,8 +191,8 @@ final class WorkingSetEnumeratorBatchResolutionTests: XCTestCase {
         let observer = try await run(session)
 
         XCTAssertNil(observer.error)
-        // RAW + its canonical sidecar (#3563).
-        XCTAssertEqual(observer.deletes.count, 2)
+        // RAW, its canonical sidecar (#3563), its thumb and preview (#3571).
+        XCTAssertEqual(observer.deletes.count, 4)
         XCTAssertEqual(log.count { $0 == "POST /api/assets/batch-meta" }, 0,
                        "a page of pure deletes needs no metadata at all")
     }

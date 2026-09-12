@@ -209,4 +209,21 @@ final class ResolveThumbParentTests: XCTestCase {
                        .mapleThumbsDir(folderID: "f1",
                                         parentRelativePath: ""))
     }
+
+    /// #3571 — the previews kind lands in the folder's `.maple/previews/`.
+    func testDerivedParentForPreviewsReturnsMaplePreviewsDir() async throws {
+        let roots = [LibraryRoot(id: "f1", path: "/srv/photos/Library",
+                                  label: "Lib", fileCount: 0)]
+        let cache = LibraryRootCache(domainID: "d",
+                                     defaults: freshDefaults(),
+                                     fetcher: { roots })
+        let parent = try await FileProviderExtensionCore.resolveDerivedParent(
+            meta: makeMeta(folderID: "f1",
+                            absPath: "/srv/photos/Library/2026/Adam/IMG.dng"),
+            rootCache: cache,
+            kind: .previews
+        )
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: parent.rawValue),
+                       .maplePreviewsDir(folderID: "f1", parentRelativePath: "2026/Adam"))
+    }
 }

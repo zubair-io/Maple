@@ -19,17 +19,49 @@ enum AssetChangeItems {
     /// on the server disappears from the mount too — harmless when the OS
     /// never had that item. A server that reports neither (predates both
     /// fields) leaves any mounted sidecar untouched.
+    ///
+    /// `includeDerived` adds the asset's `.maple/thumbs/` and
+    /// `.maple/previews/` entries (#3571). The folder enumerators pass
+    /// `true`: the derived containers hang off the folder being enumerated
+    /// and a browsing client reads them next to the photos. The working set
+    /// leaves it `false` — its members are RAWs and sidecars, and tripling
+    /// every change page with derived-cache entries buys nothing there.
     static func resolved(meta: AssetMetadata,
-                         parent: NSFileProviderItemIdentifier)
+                         parent: NSFileProviderItemIdentifier,
+                         includeDerived: Bool = false)
         -> (updates: [MapleItem], deletes: [NSFileProviderItemIdentifier]) {
         let asset = MapleItem(assetMetadata: meta, parent: parent)
+        let derived = includeDerived ? derivedItems(meta: meta, parent: parent) : []
         if let sidecar = MapleItem(sidecarForAsset: meta, parent: parent) {
-            return ([asset, sidecar], [])
+            return ([asset, sidecar] + derived, [])
         }
         if meta.hasXMP == false {
-            return ([asset], [MapleItem.sidecarIdentifier(assetID: meta.id)])
+            return ([asset] + derived, [MapleItem.sidecarIdentifier(assetID: meta.id)])
         }
-        return ([asset], [])
+        return ([asset] + derived, [])
+    }
+
+    /// The asset's `.maple/thumbs/` and `.maple/previews/` entries (#3571),
+    /// re-emitted with the same version seed the derived enumerators use
+    /// (sidecar mtime, else RAW mtime) so a server-side edit — which moves
+    /// the sidecar mtime — makes the OS refetch the derived bytes. Only
+    /// when the asset's parent is a real folder: the derived containers hang
+    /// off that folder's `.maple/`; any other parent yields nothing.
+    static func derivedItems(meta: AssetMetadata,
+                             parent: NSFileProviderItemIdentifier) -> [MapleItem] {
+        guard let parsed = try? FileProviderIdentifier(rawValue: parent.rawValue),
+              case .folder(let folderID, let relativePath) = parsed else { return [] }
+        let seed = meta.xmpMtime ?? meta.contentModificationDate
+        let thumbsDir = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.mapleThumbsDir(folderID: folderID, parentRelativePath: relativePath).rawValue)
+        let previewsDir = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.maplePreviewsDir(folderID: folderID, parentRelativePath: relativePath).rawValue)
+        return [
+            MapleDerivedKind.thumbs.item(assetID: meta.id, rawBasename: meta.filename,
+                                         modified: seed, parentIdentifier: thumbsDir),
+            MapleDerivedKind.previews.item(assetID: meta.id, rawBasename: meta.filename,
+                                           modified: seed, parentIdentifier: previewsDir),
+        ]
     }
 
     /// Identifiers to delete for an asset the server no longer has: the
@@ -38,6 +70,8 @@ enum AssetChangeItems {
         [
             NSFileProviderItemIdentifier(FileProviderIdentifier.asset(assetID).rawValue),
             MapleItem.sidecarIdentifier(assetID: assetID),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.thumb(assetID: assetID).rawValue),
+            NSFileProviderItemIdentifier(FileProviderIdentifier.preview(assetID: assetID).rawValue),
         ]
     }
 }
