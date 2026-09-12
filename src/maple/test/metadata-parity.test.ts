@@ -93,18 +93,65 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     for (const format of CONTAINERS) {
       const buf = await written(format);
       const theirs = (await sharp(buf).metadata()).orientation;
-      // AVIF is the exception: libheif applies the container's transform
-      // during decode and reports no orientation at all, while Maple keeps
-      // it as the flag `.rotate()` applies (checked below).
+      // AVIF is the exception, in both directions. libvips surfaces no
+      // orientation at all for a HEIF-family file — measured `undefined`
+      // even for one whose `Exif` item says 6 — while Maple reports that
+      // item's tag, which is what makes an orientation it wrote readable
+      // again (#3586). See the AVIF cases below.
       if (format === 'avif') continue;
       expect((await maple(buf).metadata()).orientation, `${format} orientation`).toBe(theirs);
     }
   });
 
+  it.skipIf(skip)('default output matches sharp pixel for pixel, transforms included', async () => {
+    // An AVIF's `irot`/`imir` is applied to the pixels by libheif while it
+    // decodes, so it has to be baked in here too or the default output
+    // differs from sharp's by a rotation (#3507 round 2).
+    //
+    // Dimensions are compared exactly; pixels within a tolerance, since
+    // JPEG and AVIF are lossy and the two libraries' decoders are not the
+    // same code. The tolerance is nowhere near loose enough to hide a wrong
+    // transform: on this fixture the mean absolute difference between the
+    // right transform and the next-best one is 52.
+    for (const format of CONTAINERS) {
+      // sharp's `.tiff()` defaults to JPEG-in-TIFF (YCbCr), which the
+      // `image` crate's TIFF decoder refuses outright ("Unhandled TIFF
+      // color type YCbCr(8)") — a decode gap unrelated to orientation.
+      if (format === 'tiff') continue;
+      const buf = await written(format);
+      const mine = await maple(buf).toRaw();
+      const theirs = await sharp(buf).raw().toBuffer({ resolveWithObject: true });
+      expect([mine.width, mine.height], `${format} raw dimensions`).toEqual([
+        theirs.info.width,
+        theirs.info.height,
+      ]);
+      const a = Buffer.from(mine.data);
+      const b = Buffer.from(theirs.data);
+      expect(a.length, `${format} raw length`).toBe(b.length);
+      const error = a.reduce((sum, value, i) => sum + Math.abs(value - b[i]), 0) / a.length;
+      expect(error, `${format} mean absolute pixel difference`).toBeLessThan(12);
+    }
+  });
+
+  it.skipIf(skip)('an AVIF Exif Orientation round-trips through Maple', async () => {
+    // #3586: an orientation Maple writes into an AVIF now reads back.
+    // sharp cannot round-trip this at all — its own AVIF save turns the
+    // orientation into an `irot` box instead, and its loader reports no
+    // orientation for a HEIF-family file.
+    const raw = base();
+    const src = await sharp(raw.data, { raw }).png().toBuffer();
+    const avif = await maple(src).withMetadata({ orientation: 5 }).avif().toBuffer();
+    expect((await maple(avif).metadata()).orientation).toBe(5);
+    expect((await sharp(avif).metadata()).orientation).toBeUndefined();
+  });
+
   it.skipIf(skip)('.rotate() honours the container orientation like sharp', async () => {
-    // The defect this PR set out to fix: only JPEG used to rotate.
+    // The defect this PR set out to fix: only JPEG used to rotate. AVIF is
+    // excluded because its transform is already in the pixels (previous
+    // test) and its `Exif` Orientation is a flag sharp ignores.
     for (const format of CONTAINERS) {
       if (format === 'tiff') continue; // no .tiff() sugar on the builder yet
+      if (format === 'avif') continue;
       const buf = await written(format);
       const mine = await maple(buf).rotate().png().toBuffer();
       const theirs = await sharp(buf).rotate().png().toBuffer();
@@ -122,8 +169,9 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     const mine = await maple(buf).metadata();
     const theirs = await sharp(buf).metadata();
     expect([mine.width, mine.height]).toEqual([theirs.width, theirs.height]);
-    // The flag survives for `.rotate()` to apply, even though sharp's own
-    // reader has already consumed it.
+    // libvips wrote this file's orientation into BOTH the `irot` box and
+    // the `Exif` item; the box is baked into the pixels and the item's tag
+    // is reported, which is the half sharp drops.
     expect(mine.orientation).toBe(6);
   });
 
