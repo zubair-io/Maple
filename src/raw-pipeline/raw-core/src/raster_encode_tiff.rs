@@ -82,8 +82,10 @@ impl TiffCompression {
 #[derive(Clone, Copy, Debug)]
 pub struct TiffOptions {
     pub compression: TiffCompression,
-    /// 8 or 16.
-    pub bitdepth: u8,
+    /// 8 or 16. `u16`, not `u8`, so an out-of-range wire value (300) reaches
+    /// `encode_tiff_opts`'s own error message intact instead of first being
+    /// narrowed to `u8::MAX` (255) — see `raster_recipe_output.rs`.
+    pub bitdepth: u16,
     /// Horizontal differencing predictor — a big win for LZW on photographs.
     /// A request, not a guarantee: [`predictor_for`] drops it for the
     /// compressors TIFF does not define tag 317 for (`none`, `packbits`)

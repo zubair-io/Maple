@@ -266,6 +266,51 @@ fn an_unsupported_tiff_compression_is_named() {
     assert!(format!("{err}").contains("zstd"), "got: {err}");
 }
 
+/// `bitdepth` is checked inside `encode_tiff_opts`/`bit_depth_for`, not by
+/// `output_from_wire` (the comment on the `Output::Tiff` arm explains why:
+/// 8/16 has a gap a range check would have to allow), so this has to run the
+/// full recipe rather than call `output_from_wire` directly.
+///
+/// `bitdepth` is `u16` on the wire specifically so a value outside `u8`'s
+/// range reaches that "not supported (8 or 16)" message intact. Before
+/// widening the field all the way through, `output_from_wire` narrowed it
+/// with `u8::try_from(300).unwrap_or(u8::MAX)`, so the message quoted 255 —
+/// a value the caller never sent — instead of 300.
+#[test]
+fn an_out_of_range_tiff_bitdepth_names_the_value_the_caller_sent() {
+    use crate::raster_recipe_exec::run_recipe;
+
+    let pixels: Vec<u8> = (0..(4 * 4 * 3)).map(|i| (i % 251) as u8).collect();
+    let recipe = parse_recipe(&format!(
+        r#"{{"v":1,"input":{{"kind":"raw","width":4,"height":4,"channels":3}},"ops":[],"output":{{"format":"tiff","bitdepth":300}}}}"#
+    ))
+    .unwrap();
+    let err = run_recipe(&recipe, &pixels, &[]).unwrap_err();
+    let message = format!("{err}");
+    assert!(message.contains("300"), "got: {message}");
+    assert!(!message.contains("255"), "got: {message}");
+}
+
+/// AVIF's equivalent of the TIFF case above — same
+/// `u8::try_from(..).unwrap_or(u8::MAX)` bug (in `bit_depth_for`'s caller),
+/// same fix (`bitdepth: u16` all the way from the wire schema through
+/// `AvifOptions` to `bit_depth_for`).
+#[cfg(feature = "avif")]
+#[test]
+fn an_out_of_range_avif_bitdepth_names_the_value_the_caller_sent() {
+    use crate::raster_recipe_exec::run_recipe;
+
+    let pixels: Vec<u8> = (0..(4 * 4 * 3)).map(|i| (i % 251) as u8).collect();
+    let recipe = parse_recipe(&format!(
+        r#"{{"v":1,"input":{{"kind":"raw","width":4,"height":4,"channels":3}},"ops":[],"output":{{"format":"avif","bitdepth":300}}}}"#
+    ))
+    .unwrap();
+    let err = run_recipe(&recipe, &pixels, &[]).unwrap_err();
+    let message = format!("{err}");
+    assert!(message.contains("300"), "got: {message}");
+    assert!(!message.contains("255"), "got: {message}");
+}
+
 /// End-to-end through `run_recipe`: the wire `bitdepth` must reach the
 /// `pixi` box in the encoded file, and 12 — a real sharp value `ravif`
 /// cannot produce — must be a named rejection rather than a silent

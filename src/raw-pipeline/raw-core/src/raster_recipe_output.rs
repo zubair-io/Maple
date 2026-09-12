@@ -213,7 +213,12 @@ pub(crate) fn output_from_wire(output: &Output) -> Result<RasterOutput> {
             checked("effort", *effort, 0, 9)? as u8,
             *lossless,
             chroma_subsampling,
-            u8::try_from(*bitdepth).unwrap_or(u8::MAX),
+            // Passed through as the wire `u16`, not narrowed to `u8` here:
+            // `u8::try_from(300).unwrap_or(u8::MAX)` used to silently turn an
+            // out-of-range bitdepth into 255 before `bit_depth_for` ever saw
+            // it, so its error named the wrong value (255, not the caller's
+            // 300). `bit_depth_for` takes `u16` and names the real one.
+            *bitdepth,
         )?,
         Output::Tiff {
             compression,
@@ -227,8 +232,10 @@ pub(crate) fn output_from_wire(output: &Output) -> Result<RasterOutput> {
             })?,
             // 8 or 16, named by `encode_tiff_opts` — a range check would
             // have to allow the gap between them, so the encoder's
-            // membership test is the honest one.
-            bitdepth: u8::try_from(*bitdepth).unwrap_or(u8::MAX),
+            // membership test is the honest one. Passed through as the wire
+            // `u16` for the same reason as AVIF's bitdepth above: narrowing
+            // to `u8` here would report an out-of-range value (300) as 255.
+            bitdepth: *bitdepth,
             predictor: predictor_from_wire(predictor).ok_or_else(|| {
                 bad(format!(
                     "unsupported TIFF predictor '{predictor}' (horizontal, none)"
@@ -262,7 +269,7 @@ fn avif_from_wire(
     effort: u8,
     lossless: bool,
     chroma_subsampling: &str,
-    bitdepth: u8,
+    bitdepth: u16,
 ) -> Result<RasterOutput> {
     Ok(RasterOutput::Avif(AvifOptions {
         quality,
@@ -282,7 +289,7 @@ fn avif_from_wire(
     _effort: u8,
     _lossless: bool,
     _chroma_subsampling: &str,
-    _bitdepth: u8,
+    _bitdepth: u16,
 ) -> Result<RasterOutput> {
     Err(bad(
         "AVIF output requires raw-core's 'avif' feature".to_string()
