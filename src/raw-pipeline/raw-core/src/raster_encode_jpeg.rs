@@ -102,15 +102,22 @@ pub fn encode_jpeg_opts(
     encoder.set_sampling_factor(options.chroma_subsampling.sampling_factor());
     encoder.set_progressive(options.progressive);
     encoder.set_optimized_huffman_tables(options.optimise_coding);
-    if let Some(profile) = icc {
-        encoder.add_icc_profile(profile).map_err(encode_error)?;
-    }
+    // Order matters, and it is EXIF, then XMP, then ICC. `jpeg-encoder`
+    // writes these segments in call order, the Exif specification wants its
+    // APP1 first in the file, and sharp writes exactly this order
+    // (measured: `APP1(Exif), APP1(XMP), APP2(ICC_PROFILE), SOF0`). Adding
+    // ICC first — as this did — produced `APP0(JFIF), APP2(ICC_PROFILE),
+    // APP1(Exif), APP1(XMP), SOF0`, which sharp still reads but a strict
+    // Exif reader is entitled not to.
     if let Some(block) = exif {
         encoder.add_exif_metadata(block).map_err(encode_error)?;
     }
     if let Some(packet) = xmp {
         let segment = [XMP_NAMESPACE, packet].concat();
         encoder.add_app_segment(1, segment).map_err(encode_error)?;
+    }
+    if let Some(profile) = icc {
+        encoder.add_icc_profile(profile).map_err(encode_error)?;
     }
     encoder
         .encode(&raster.data, width, height, ColorType::Rgb)
