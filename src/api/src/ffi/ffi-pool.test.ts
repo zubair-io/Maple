@@ -319,3 +319,26 @@ describe('ffiPool() — self-heal after shutdown (#3524)', () => {
     }
   });
 });
+
+describe('FfiWorkerPool — requests that can never be served reject up front', () => {
+  it('rejects a request enqueued after shutdown instead of parking it forever', async () => {
+    const { factory } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+    pool.shutdown();
+    await expect(render(pool)).rejects.toThrow('ffi-pool: shutting down');
+    expect(pool.stats().queued).toBe(0);
+  });
+
+  it('rejects every later request once a spawn failure has latched with no worker left', async () => {
+    const broken = () => {
+      throw new Error('boom');
+    };
+    const pool = _createFfiPoolForTests({ workerFactory: broken });
+    // First request trips the latch and is rejected by the spawn path itself.
+    await expect(render(pool)).rejects.toThrow('failed to spawn worker');
+    // A second request must not hang in the queue behind a spawn that will
+    // never be retried.
+    await expect(render(pool)).rejects.toThrow('worker spawn failed');
+    expect(pool.stats().queued).toBe(0);
+  });
+});

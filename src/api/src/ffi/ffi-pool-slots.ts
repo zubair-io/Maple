@@ -145,6 +145,19 @@ export class WorkerSlotPool {
   }
 
   enqueue(req: PendingRequest): void {
+    // Reject up front when nothing can ever serve this request: after
+    // `shutdown()`, or once a spawn failure has latched and no worker is left.
+    // Otherwise `dispatch()` would park it in the queue forever, and the HTTP
+    // request behind it would hang.
+    const dead = this.shuttingDown
+      ? 'ffi-pool: shutting down'
+      : this.spawnFailed && this.activeCount() === 0
+        ? 'ffi-pool: worker spawn failed and no worker is available'
+        : null;
+    if (dead) {
+      req.onError(new Error(dead));
+      return;
+    }
     this.queue.push(req);
     this.dispatch();
   }
