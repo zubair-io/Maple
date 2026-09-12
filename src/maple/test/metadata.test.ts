@@ -369,13 +369,15 @@ describe('Metadata and stats', () => {
       expect(namedIcc?.equals(keptIcc!)).toBe(true);
     });
 
-    it("item 2: withIccProfile('p3') embeds Maple's own built-in Display P3 profile, distinct from srgb", async () => {
-      const p3 = await maple(ramp(8, 8)).withIccProfile('p3').png().toBuffer();
-      const p3Icc = (await maple(p3).metadata()).icc;
-      const srgb = await maple(ramp(8, 8)).withIccProfile('srgb').png().toBuffer();
-      const srgbIcc = (await maple(srgb).metadata()).icc;
-      expect(p3Icc!.length).toBeGreaterThan(0);
-      expect(p3Icc?.equals(srgbIcc!)).toBe(false);
+    it("item 2: withIccProfile('p3') is a named error pointing at toColourspace", () => {
+      // Superseded by the final fix wave, item 10: Maple tags without
+      // converting, so tagging sRGB pixels as Display P3 mislabels them —
+      // sharp converts first. This asserted the P3 profile was embedded
+      // before; now it must refuse and name the route that will do it
+      // properly (#3503).
+      expect(() => maple(ramp(8, 8)).withIccProfile('p3')).toThrow(
+        /tags the output without converting.*toColourspace\('display-p3'\)/s,
+      );
     });
 
     it('item 2: withIccProfile(path) reads a real file and embeds it verbatim', async () => {
@@ -440,11 +442,11 @@ describe('Metadata and stats', () => {
     );
 
     it.skipIf(sharpPath === null)(
-      "fix-round-1 item 2: withIccProfile('srgb')/('p3') are real ICC profiles a real reader accepts",
+      "fix-round-1 item 2: withIccProfile('srgb') is a real ICC profile a real reader accepts",
       async () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const sharp = require(sharpPath as string);
-        for (const name of ['srgb', 'p3'] as const) {
+        for (const name of ['srgb'] as const) {
           const png = await maple(ramp(8, 8)).withIccProfile(name).png().toBuffer();
           const mapleIcc = (await maple(png).metadata()).icc!;
           const sharpMeta = await sharp(png).metadata();
