@@ -69,12 +69,14 @@ describe('Colour ops', () => {
     // `exponent: 1/gammaOut` after it (see `builder-colour.ts`). With no
     // resize call at all here, `gamma: 1.0` before is an exact no-op
     // (128 stays 128, no quantization loss), so this closed form is exact:
-    // (128/255)^(1/2.0) * 255 ≈ 180.7 -> rounds to 181.
+    // (128/255)^(1/2.0) * 255 = 180.66, which libvips TRUNCATES to 180 (not
+    // 181 — measured against real sharp 0.34.5, which returns 180 for both
+    // `.gamma(1.0, 2.0)` and `.gamma(1.5, 3.0)` on solid grey 128).
     const out = await maple(await png([128, 128, 128]))
       .gamma(1.0, 2.0)
       .toFormat('png')
       .toBuffer();
-    expect((await first(out))[0]).toBe(181);
+    expect((await first(out))[0]).toBe(180);
   });
 
   /** Deterministic 4x4 RGB gradient, matching the fixture sharp was measured against. */
@@ -119,43 +121,71 @@ describe('Colour ops', () => {
     // for gammaOut>1). `.gamma(1.5, 3.0)` on solid grey 128 with a 1x1
     // `nearest` resize (an exact pick, no interpolation, so the resize
     // itself contributes no numeric drift) makes the direction
-    // unambiguous — measured against real sharp 0.34.5: 180.
+    // unambiguous — measured against real sharp 0.34.5: 180 exactly (it was
+    // within 1 of ours before the truncation fix; it is exact now).
     const out = await maple(solid([128, 128, 128]))
       .gamma(1.5, 3.0)
       .resize({ width: 1, height: 1, filter: 'nearest' })
       .toRawAlpha();
-    expect(Math.abs(out.data[0] - 180)).toBeLessThanOrEqual(1);
+    expect(out.data[0]).toBe(180);
   });
 
-  it('a symmetric gamma(2.2) around a nearest resize matches sharp', async () => {
+  /** 16 grey levels spanning the FULL 0-255 range, 4x4. */
+  const greyRamp4x4 = () => ({
+    data: new Uint8Array(
+      Array.from({ length: 16 }, (_, i) => Math.round((i * 255) / 15)).flatMap((v) => [v, v, v]),
+    ),
+    width: 4,
+    height: 4,
+    channels: 3 as const,
+  });
+
+  it('a symmetric gamma(2.2) around a nearest resize matches sharp exactly', async () => {
     // Same ordering check as the lanczos3 test above, but with `nearest` as
     // the resize kernel (an exact pixel pick, verified separately to be
     // byte-identical between maple and sharp) so the sharp comparison
     // isolates gamma correctness from the unrelated `fast_image_resize`
-    // vs. libvips `lanczos3` numeric gap flagged in fix-round-1. The 16
-    // grey levels span 100-255, not 0-255: sharp's OWN gamma-in/gamma-out
-    // pair already drifts by more than 1 near black through its own
-    // intermediate 8-bit quantization (independent of this fix — measured
-    // sharp's `.gamma(2.2)` alone on a 0-255 ramp drifting up to 17 near
-    // black), so a fixture in that low range would fail on sharp's own
-    // imprecision, not ours.
-    const levels = [100, 110, 121, 131, 141, 152, 162, 172, 183, 193, 203, 214, 224, 234, 245, 255];
-    const rampImage = {
-      data: new Uint8Array(levels.flatMap((v) => [v, v, v])),
-      width: 4,
-      height: 4,
-      channels: 3 as const,
-    };
+    // vs. libvips `lanczos3` numeric gap flagged in fix-round-1.
+    //
+    // The 16 grey levels span the FULL 0-255 range. An earlier revision of
+    // this test used 100-255 and blamed the near-black drift on "sharp's own
+    // imprecision" — that was wrong, and it hid a real bug: sharp's gamma
+    // pair does collapse the darkest codes to 0, but only because libvips
+    // TRUNCATES on the way back to uchar, and Maple was rounding (raw-core
+    // `raster_colour::to_uchar_trunc`). Rounding made `.gamma()` land 21
+    // codes off sharp near black. With truncation the whole range is
+    // byte-exact, so this asserts equality rather than a tolerance.
     const opts = { width: 2, height: 2, filter: 'nearest' as const };
-    const gammaFirst = await maple(rampImage).gamma(2.2).resize(opts).toRawAlpha();
-    const resizeFirst = await maple(rampImage).resize(opts).gamma(2.2).toRawAlpha();
+    const gammaFirst = await maple(greyRamp4x4()).gamma(2.2).resize(opts).toRawAlpha();
+    const resizeFirst = await maple(greyRamp4x4()).resize(opts).gamma(2.2).toRawAlpha();
     expect(Buffer.from(gammaFirst.data).equals(Buffer.from(resizeFirst.data))).toBe(true);
     // Measured against real sharp 0.34.5 `.gamma(2.2).resize(2,2,{kernel:
     // 'nearest'})` on this exact 4x4 grid of levels.
-    const sharpExpected = [151, 151, 151, 171, 171, 171, 233, 233, 233, 255, 255, 255];
-    Array.from(gammaFirst.data).forEach((byte, idx) => {
-      expect(Math.abs(byte - sharpExpected[idx])).toBeLessThanOrEqual(1);
-    });
+    expect(Array.from(gammaFirst.data)).toEqual([
+      83, 83, 83, 118, 118, 118, 220, 220, 220, 255, 255, 255,
+    ]);
+  });
+
+  it('gamma() truncates like libvips over the whole 0-255 range', async () => {
+    // No resize at all, so this is purely the gamma PAIR on the encoded
+    // samples. Measured against real sharp 0.34.5 `.gamma()` on the same 16
+    // levels: the two darkest codes collapse to 0 (libvips truncates the
+    // float band on the way back to uchar), and rounding instead would put
+    // 17 -> 21 here, the 21-code drift this pins against.
+    const out = await maple(greyRamp4x4()).gamma().toRawAlpha();
+    const reds = Array.from(out.data).filter((_, i) => i % 3 === 0);
+    expect(reds).toEqual([0, 0, 33, 49, 65, 83, 100, 118, 135, 152, 169, 186, 203, 220, 237, 255]);
+  });
+
+  it('linear() truncates like libvips, matching sharp byte for byte', async () => {
+    // `1.2*13 - 10 = 5.6` and `0.5*3 = 1.5`: libvips truncates the float
+    // band to 5 and 1 where rounding gives 6 and 2. Measured against real
+    // sharp 0.34.5, which disagreed with the old rounding on 996 of 3072
+    // samples of a 32x32 noise fixture at `linear(1.2, -10)` alone.
+    const out = await maple(solid([13, 3, 3]))
+      .linear([1.2, 0.5, 0.5], [-10, 0, 0])
+      .toRawAlpha();
+    expect(Array.from(out.data.subarray(0, 3))).toEqual([5, 1, 1]);
   });
 
   it('gamma() rejects an out-of-range value by name', () => {
