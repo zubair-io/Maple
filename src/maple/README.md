@@ -137,7 +137,7 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `normalise()` / `normalize()`        | ✅    | percentile stretch of CIELAB L\*, chroma preserved                                          |
 | `modulate()`                         | ✅    | brightness/lightness on L\*, saturation on C\*, hue rotation, in CIELCh                     |
 | `tint()`                             | ✅    | linear-light luma as `greyscale`, then a\*/b\* from the tint; colour as `{r,g,b}` or `#rgb`/`#rrggbb`/`#rrggbbaa` (no CSS names) |
-| `toColourspace()` / `toColorspace()` | ✅    | `srgb` and `display-p3`; the output carries the matching ICC profile                        |
+| `toColourspace()` / `toColorspace()` | ⚠️    | takes `srgb`, `display-p3`/`p3` and `b-w`; other libvips interpretation names error by name. Closer to sharp's `withIccProfile` than to its `toColourspace`, which takes interpretation names and silently ignores `display-p3` |
 | `resize({ fit })`               | ✅\*  | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                       |
 | `resize({ position })`          | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                             |
 | `resize({ kernel })`            | ✅    | `nearest`, `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3`; `filter` is an alias; `mks2013`/`mks2021` throw by name                                                                      |
@@ -174,6 +174,18 @@ same linear-light luma rather than CIELAB lightness; `modulate` and
 primaries currently are — not always from sRGB — so chaining
 `.toColourspace('display-p3').toColourspace('srgb')` round-trips the pixels
 instead of rotating twice in the same direction.
+
+**`toColourspace` is not a drop-in for sharp's.** sharp's takes libvips
+_interpretation_ names (`srgb`, `b-w`, `lab`, `cmyk`, `rgb16`, …) and
+measurably **ignores** `'display-p3'` — `AttrAsEnum` falls back to sRGB, so
+the bytes come out identical to an untouched image and nothing is tagged.
+Maple's method is closer to sharp's `withIccProfile`: it rotates primaries
+and tags the file. It takes `'srgb'`, `'display-p3'`/`'p3'` and `'b-w'` (the
+greyscale conversion — which is what that name means in sharp too, and the
+documented companion to `greyscale()`), and throws by name on any other
+interpretation name. Ported code calling `.toColourspace('display-p3')`
+therefore gets different — and actually tagged — pixels than it did under
+sharp.
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
