@@ -48,8 +48,53 @@ export declare class MapleImageBuilder {
     quality(quality: number): this;
     /** Set target primaries / ICC profile */
     colorSpace(space: ExportColorSpace): this;
-    /** Target colourspace (alias for colorSpace) */
-    toColourspace(space: string): this;
+    /**
+     * Target colourspace. For bitmaps this rotates the primaries and tags the
+     * output with the matching ICC profile; for the RAW develop path it also
+     * selects the export primaries, as it did in Tier 1.
+     */
+    toColourspace(space: 'srgb' | 'display-p3' | 'p3'): this;
+    /** Alternative spelling of `toColourspace`. */
+    toColorspace(space: 'srgb' | 'display-p3' | 'p3'): this;
+    /** Convert to 8-bit greyscale, three identical channels. */
+    greyscale(greyscale?: boolean): this;
+    /** Alternative spelling of `greyscale`. */
+    grayscale(grayscale?: boolean): this;
+    /**
+     * sharp's `gamma(gamma, gammaOut)`. Our recipe's `gamma{exponent}` op is
+     * a plain `x ** exponent` (unlike libvips' `vips_gamma`, which computes
+     * `x ** (1/exponent)`), so matching sharp's net effect means pushing
+     * `exponent: gamma` before the resize and `exponent: 1/gammaOut` after
+     * it — see `builder-colour.ts`'s `pushGamma` for the full derivation.
+     * With the defaults (2.2, 2.2) the pair is a net identity and the
+     * RESIZE is what happens in the changed encoding.
+     */
+    gamma(gamma?: number, gammaOut?: number): this;
+    /** `a * input + b`, per channel or scalar. */
+    linear(a?: number | number[], b?: number | number[]): this;
+    /** Produce the negative. `{ alpha: false }` spares the alpha channel. */
+    negate(options?: {
+        alpha?: boolean;
+    }): this;
+    /** Stretch luminance between the given percentiles. */
+    normalise(options?: {
+        lower?: number;
+        upper?: number;
+    }): this;
+    /** Alternative spelling of `normalise`. */
+    normalize(options?: {
+        lower?: number;
+        upper?: number;
+    }): this;
+    /** Scale L* and C* and rotate hue, in CIELCh. */
+    modulate(options?: {
+        brightness?: number;
+        saturation?: number;
+        hue?: number;
+        lightness?: number;
+    }): this;
+    /** Keep each pixel's lightness, take the chroma from `tint`. */
+    tint(tint: Colour | string): this;
     /** Set maximum long edge cap */
     maxLongEdge(px: number): this;
     /** Set film LUTs directory */
