@@ -34,6 +34,12 @@ export interface BuilderState {
     quality: number;
     /** sharp-style AVIF effort 0-9, or null for "never set". */
     effort: number | null;
+    /**
+     * The full per-format output object set by `.jpeg()`/`.png()`/`.webp()`/
+     * `.avif()`/`.tiff()`, or null when the caller only ever used
+     * `.toFormat()`/`.quality()`/`.format()` — see `stateToOutput`.
+     */
+    output: Record<string, unknown> | null;
     autoOrient: boolean;
     xmpPath: string | null;
     xmpXml: string | null;
@@ -45,7 +51,14 @@ export interface BuilderState {
 export declare function createBuilderState(input: string | Uint8Array | Buffer | RawPixelInput): BuilderState;
 /** Assemble the wire recipe for one terminal call. */
 export declare function stateToRecipe(state: BuilderState, output: Record<string, unknown>): Recipe;
-/** Output object for the current format/quality/effort selection. */
+/** Throw if the caller passed an option this encoder cannot honour. */
+export declare function rejectUnsupported(format: string, options: Record<string, unknown>): void;
+/**
+ * Output object for the current output selection: the full per-format
+ * object set by `.jpeg()`/`.png()`/`.webp()`/`.avif()`/`.tiff()` when one
+ * was called, otherwise the Tier 1 `.toFormat()`/`.quality()`/`.format()`
+ * fallback (format plus quality/effort where those apply).
+ */
 export declare function stateToOutput(state: BuilderState, fallback: ExportFormat): Record<string, unknown>;
 /** Infer the output container from a path extension, defaulting to JPEG. */
 export declare function formatForPath(outputPath: string): ExportFormat;
