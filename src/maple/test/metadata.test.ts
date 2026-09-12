@@ -192,12 +192,14 @@ describe('Metadata and stats', () => {
     ]);
     expect(stats.isOpaque).toBe(true);
     expect(stats.dominant).toEqual({ r: 8, g: 8, b: 8 });
-    // entropy/sharpness diverge from sharp's own numbers by a small, known
-    // margin (different entropy formula and f32 greyscale precision — see
-    // task-G3-fix1-report.md); pinned to this implementation's own measured
-    // output, not sharp's (sharp: entropy 7.90625, sharpness 15.978519926524466).
-    expect(stats.entropy).toBeCloseTo(7.9453125, 6);
-    expect(stats.sharpness).toBeCloseTo(15.972904314316978, 6);
+    // sharp's OWN numbers, to 6 decimals. They used to be pinned to this
+    // implementation's slightly different output because `stats()` carried a
+    // private greyscale-luma copy that disagreed with libvips by ±1 on a
+    // minority of pixels (#3572); it now goes through the crate's one
+    // `srgb_to_bw`, and the residual is float noise (measured 1e-7 across
+    // the reference fixtures).
+    expect(stats.entropy).toBeCloseTo(7.90625, 6);
+    expect(stats.sharpness).toBeCloseTo(15.978519926524466, 6);
   });
 
   it('stats() reports isOpaque false for a translucent image', async () => {
@@ -369,15 +371,33 @@ describe('Metadata and stats', () => {
       expect(namedIcc?.equals(keptIcc!)).toBe(true);
     });
 
-    it("item 2: withIccProfile('p3') is a named error pointing at toColourspace", () => {
-      // Superseded by the final fix wave, item 10: Maple tags without
-      // converting, so tagging sRGB pixels as Display P3 mislabels them —
-      // sharp converts first. This asserted the P3 profile was embedded
-      // before; now it must refuse and name the route that will do it
-      // properly (#3503).
-      expect(() => maple(ramp(8, 8)).withIccProfile('p3')).toThrow(
-        /tags the output without converting.*toColourspace\('display-p3'\)/s,
-      );
+    it("item 2: withIccProfile('p3') converts the pixels AND tags them", async () => {
+      // Was a named error while the bitmap pipeline had no primaries
+      // rotation — tagging sRGB pixels as Display P3 mislabels them. With
+      // `toColourspace` on the same base (#3503) it does what sharp does:
+      // rotate into Display P3, then embed the P3 profile.
+      //
+      // A SATURATED fixture, not `ramp`: the sRGB -> P3 rotation is
+      // sub-code at low sample values, so the near-black ramp comes back
+      // byte-identical and would prove nothing about the conversion.
+      const saturated = {
+        data: new Uint8Array([255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0]),
+        width: 4,
+        height: 1,
+        channels: 3 as const,
+      };
+      const tagged = await maple(saturated).withIccProfile('p3').png().toBuffer();
+      const meta = await maple(tagged).metadata();
+      expect(meta.hasProfile).toBe(true);
+      expect(meta.icc!.toString('latin1')).toContain('Display P3');
+      // The samples moved: the same source through `toColourspace` gives the
+      // same pixels, and both differ from the untouched sRGB encode.
+      const rotated = await maple(saturated).toColourspace('display-p3').png().toBuffer();
+      const plain = await maple(saturated).png().toBuffer();
+      const pixelsOf = async (png: Buffer) => Buffer.from((await maple(png).toRaw()).data);
+      const [a, b, c] = await Promise.all([pixelsOf(tagged), pixelsOf(rotated), pixelsOf(plain)]);
+      expect(a.equals(b)).toBe(true);
+      expect(a.equals(c)).toBe(false);
     });
 
     it('item 2: withIccProfile(path) reads a real file and embeds it verbatim', async () => {
