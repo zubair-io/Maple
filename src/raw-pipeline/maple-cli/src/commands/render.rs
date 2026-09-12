@@ -191,6 +191,7 @@ pub fn run(
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
     };
+    raw_core::lens_profile::set_auto_match_enabled(!lens.no_bundled_lens);
     if let Some((path, acknowledged)) = lens.selection() {
         render_lens::apply_lens_profile_selection(&mut model, path, acknowledged)?;
     }

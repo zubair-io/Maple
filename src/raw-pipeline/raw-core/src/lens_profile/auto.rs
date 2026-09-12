@@ -37,8 +37,23 @@ fn frame_size(raw: &RawImage) -> (f64, f64) {
         .unwrap_or((f64::from(raw.width), f64::from(raw.height)))
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static AUTO_MATCH_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// Turn the automatic bundled match off (or back on) for this process.
+/// Explicit selections and embedded corrections are unaffected. The colour
+/// harness uses it so a render compares against an ACR reference that was
+/// made without lens correction; nothing in the apps calls it.
+pub fn set_auto_match_enabled(enabled: bool) {
+    AUTO_MATCH_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
 /// The bundled lens the RAW's EXIF identity names, if any.
 pub fn auto_match(raw: &RawImage) -> Option<Match<'static>> {
+    if !AUTO_MATCH_ENABLED.load(Ordering::Relaxed) {
+        return None;
+    }
     let q = query_for(raw);
     matcher::find(lensfun::database(), q.make, q.camera, q.lens)
 }

@@ -144,7 +144,10 @@ echo ""
 # arg) so partial-fixture iteration is fast.
 echo "test_color_pipeline: rendering candidates (neutral) ..."
 # Neutral pass — AgX-Neutral view transform, Maple-vs-ACR fidelity signal.
-batch_args=( batch --manifest "$MANIFEST" --out-dir "$CANDIDATES_DIR" --profile neutral )
+# --no-bundled-lens: the ACR references were rendered without lens-profile
+# corrections, so the colour gate measures colour with the same geometry
+# (#3564); embedded DNG corrections still apply on both sides.
+batch_args=( batch --manifest "$MANIFEST" --out-dir "$CANDIDATES_DIR" --profile neutral --no-bundled-lens )
 if [[ -n "$FILTER" ]]; then
   batch_args+=( --cases-filter "$FILTER" )
 fi
@@ -173,7 +176,7 @@ echo "test_color_pipeline: rendering candidates (auto) ..."
 # nothing else in the manifest. If FILTER is already narrower (e.g.
 # "test_0007"), honour it; otherwise default to "baseline".
 auto_filter="${FILTER:-baseline}"
-auto_batch_args=( batch --manifest "$MANIFEST" --out-dir "$AUTO_CANDIDATES_DIR" --profile auto --cases-filter "$auto_filter" )
+auto_batch_args=( batch --manifest "$MANIFEST" --out-dir "$AUTO_CANDIDATES_DIR" --profile auto --cases-filter "$auto_filter" --no-bundled-lens )
 batch_auto_exit=0
 "$MAPLE_CLI" "${auto_batch_args[@]}" 2>&1 | sed 's/^/  /' || batch_auto_exit=$?
 if [[ "$batch_auto_exit" -ne 0 ]]; then

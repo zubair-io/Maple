@@ -30,6 +30,12 @@ pub struct LensProfileArgs {
     /// as JSON — the input of `src/scripts/lens_warp_diff.py`.
     #[arg(long, value_name = "FILE")]
     pub lens_warp_out: Option<PathBuf>,
+    /// Never apply the bundled Lensfun match (embedded corrections and
+    /// explicit selections still apply). The colour harness renders with
+    /// this so it compares against ACR references made without lens
+    /// correction.
+    #[arg(long = "no-bundled-lens")]
+    pub no_bundled_lens: bool,
 }
 
 impl LensProfileArgs {
