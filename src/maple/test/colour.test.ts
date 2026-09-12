@@ -295,7 +295,69 @@ describe('Colour ops', () => {
       .toBuffer();
     const raw = await maple(out).toRawAlpha();
     expect(raw.data[0]).toBeLessThanOrEqual(1);
-    expect(raw.data[raw.data.length - 1]).toBeGreaterThanOrEqual(254);
+    // Measured: sharp reaches 255 here, not 254 — at 0/100 the upper bound
+    // is the band's true maximum, so the brightest pixel lands on white.
+    expect(raw.data[raw.data.length - 1]).toBe(255);
+  });
+
+  it('normalise() at the default 1/99 matches sharp on a colour image', async () => {
+    // The bounds come from libvips `vips_percent`, which is not a rank
+    // search: it thresholds the cumulative histogram of trunc(L*) —
+    // rescaled so its maximum is the maximum BIN INDEX — at
+    // `percent * bins / 100`, strictly greater, and reports one past the
+    // last bin when nothing qualifies. A rank search put this fixture's
+    // default normalise up to 46 codes away from sharp on colour noise.
+    // Expected values measured against real sharp 0.34.5 on this fixture.
+    const colours = {
+      data: new Uint8Array(
+        [
+          [10, 20, 30],
+          [200, 40, 60],
+          [60, 180, 90],
+          [40, 50, 220],
+          [128, 128, 128],
+          [250, 240, 200],
+          [5, 5, 5],
+          [160, 90, 30],
+        ].flat(),
+      ),
+      width: 4,
+      height: 2,
+      channels: 3 as const,
+    };
+    const out = await maple(colours).normalise().toRawAlpha();
+    const sharpExpected = [
+      8, 18, 28, 206, 46, 64, 70, 189, 98, 46, 53, 223, 134, 134, 134, 255, 255, 214, 1, 1, 1, 165,
+      95, 35,
+    ];
+    Array.from(out.data).forEach((byte, idx) => {
+      expect(Math.abs(byte - sharpExpected[idx])).toBeLessThanOrEqual(1);
+    });
+  });
+
+  it('normalise() at 0/100 takes the true min and max, like sharp', async () => {
+    // sharp skips the percentile machinery for 0/100 and truncates the L*
+    // band's own extremes (`operations.cc:75-77`). Measured against real
+    // sharp 0.34.5 on the same fixture.
+    const ramp = {
+      data: new Uint8Array(
+        Array.from({ length: 129 }, (_, i) => {
+          const v = 64 + Math.floor(i / 2);
+          return [v, v, v];
+        }).flat(),
+      ),
+      width: 129,
+      height: 1,
+      channels: 3 as const,
+    };
+    const wide = await maple(ramp).normalise({ lower: 0, upper: 100 }).toRawAlpha();
+    expect(wide.data[0]).toBe(1);
+    expect(wide.data[wide.data.length - 1]).toBe(255);
+    // ...and at the default 1/99 the 99th percentile lands inside the
+    // populated range, so the top clips short of white: sharp gives 251.
+    const narrow = await maple(ramp).normalise().toRawAlpha();
+    expect(narrow.data[0]).toBe(1);
+    expect(narrow.data[narrow.data.length - 1]).toBe(251);
   });
 
   it('normalize() is the same method', async () => {

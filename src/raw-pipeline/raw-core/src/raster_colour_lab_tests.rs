@@ -188,6 +188,100 @@ fn compressed_ramp() -> RasterImage {
     RasterImage::new_rgb(129, 1, data)
 }
 
+/// The percentile thresholds real libvips 8.17.3 `vips_percent` returns for a
+/// designed L* distribution, measured by calling its own C entry point.
+/// `(percent, threshold)` pairs.
+fn vips_percent_reference(ls: &[f32], expected: &[(f64, i32)]) {
+    let norm = normalised_cumulative_luma(ls.iter().copied());
+    for &(p, want) in expected {
+        assert_eq!(
+            percent(&norm, p),
+            want,
+            "percent({p}) on {} samples",
+            ls.len()
+        );
+    }
+}
+
+#[test]
+fn vips_percent_matches_libvips_on_a_uniform_histogram() {
+    // One sample per bin, bins 0..=100. libvips answers `p + 1` here — a
+    // rank search would answer `p`, and at the top it runs off the end of
+    // the histogram entirely (100 -> 101, a bin above every pixel present),
+    // which is `vips_profile` reporting the image width when no bin
+    // qualifies.
+    let ls: Vec<f32> = (0..=100).map(|b| b as f32 + 0.5).collect();
+    vips_percent_reference(
+        &ls,
+        &[
+            (0.0, 1),
+            (1.0, 2),
+            (2.0, 3),
+            (5.0, 6),
+            (10.0, 11),
+            (25.0, 26),
+            (50.0, 51),
+            (75.0, 76),
+            (90.0, 91),
+            (95.0, 96),
+            (99.0, 100),
+            (100.0, 101),
+        ],
+    );
+}
+
+#[test]
+fn vips_percent_matches_libvips_on_a_skewed_histogram() {
+    // 80 near-black samples and 20 spread over the upper half: the answer
+    // sticks at the dark bin until the dark population is cleared, which is
+    // the behaviour that makes a percentile useful for `normalise`.
+    let ls: Vec<f32> = (0..80)
+        .map(|_| 1.4)
+        .chain((0..20).map(|i| 40.0 + i as f32 * 2.5))
+        .collect();
+    vips_percent_reference(
+        &ls,
+        &[
+            (0.0, 1),
+            (5.0, 1),
+            (25.0, 1),
+            (50.0, 1),
+            (75.0, 1),
+            (80.0, 42),
+            (90.0, 67),
+            (95.0, 80),
+            (98.0, 87),
+            (99.0, 88),
+            (100.0, 88),
+        ],
+    );
+}
+
+#[test]
+fn normalise_at_the_default_percentiles_matches_sharp() {
+    // 1/99, the default, on the compressed ramp. Measured against real sharp
+    // 0.34.5: 1 and 251 — NOT 255. The 99th percentile lands inside the
+    // populated range, so the brightest pixels clip short of white, and a
+    // rank-based search put the last byte at 255 instead.
+    let out = compressed_ramp().normalise(1.0, 99.0);
+    assert_eq!(out.data[0], 1);
+    assert_eq!(out.data[out.data.len() - 1], 251);
+}
+
+#[test]
+fn normalise_takes_the_true_min_and_max_at_0_and_100() {
+    // `lower == 0` / `upper == 100` skip the percentile machinery entirely
+    // (sharp `operations.cc:75-77`) and truncate the band's own extremes, so
+    // a full-range image normalises to itself byte for byte. That only holds
+    // because white is exactly L* = 100 (see `raster_lab::lab_white`) — at
+    // 99.99945 it truncates to bin 99 and the whole ramp shifts.
+    let data = (0..256u32)
+        .flat_map(|i| [i as u8, i as u8, i as u8])
+        .collect();
+    let img = RasterImage::new_rgb(256, 1, data);
+    assert_eq!(img.normalise(0.0, 100.0).data, img.data);
+}
+
 #[test]
 fn normalise_stretches_the_luminance_to_the_full_range() {
     // Measured against sharp 0.34.5 on this exact fixture: the darkest
@@ -205,26 +299,6 @@ fn normalise_stretches_the_luminance_to_the_full_range() {
         "the brightest should near white, got {}",
         out.data[out.data.len() - 1]
     );
-}
-
-#[test]
-fn normalise_of_a_full_range_image_is_close_to_identity() {
-    let data = (0..256u32)
-        .flat_map(|i| [i as u8, i as u8, i as u8])
-        .collect();
-    let img = RasterImage::new_rgb(256, 1, data);
-    let out = img.normalise(0.0, 100.0);
-    let worst = out
-        .data
-        .iter()
-        .zip(&img.data)
-        .map(|(a, b)| a.abs_diff(*b))
-        .max()
-        .unwrap();
-    // sharp 0.34.5 is byte-exact on this fixture: percentile(0) and
-    // percentile(100) land on the histogram's actual endpoints (0 and
-    // 100), so the stretch is a true no-op.
-    assert_eq!(worst, 0, "worst channel drift was {worst}");
 }
 
 #[test]
