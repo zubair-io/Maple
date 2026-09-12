@@ -49,16 +49,23 @@ fn png_error(e: impl std::fmt::Display) -> Error {
 /// Map sharp's 0-9 to the `png` crate's tiers. Unlike `flate2`, the `png`
 /// crate does not expose a raw 1-9 zlib level — 0.17's [`Compression`] enum
 /// has exactly three non-deprecated variants (`Fast`, `Default`, `Best`,
-/// mapping respectively to `flate2::Compression::{fast,default,best}`), so
-/// sharp's scale is bucketed into thirds: 0 is fastest/largest, 1-5 sits on
-/// zlib's own default, and 6-9 is the smallest/slowest tier. Note that
-/// [`PngOptions::default`]'s `compression_level: 6` already lands in that
-/// top tier — `Compression::Best`, i.e. `flate2::Compression::best()`
-/// (zlib level 9) — not some intermediate level 6.
+/// mapping respectively to `flate2::Compression::{fast,default,best}`, i.e.
+/// zlib levels 1, 6 and 9), so sharp's scale collapses onto three tiers.
+///
+/// The split is 0 / 1-6 / 7-9, chosen so that sharp's own default of 6 lands
+/// on zlib 6 — `Compression::Default` — rather than on `best()`. It used to
+/// be 0 / 1-5 / 6-9, which put the default encode on zlib 9: measured at
+/// 1024×1024 (gradient plus noise), 7901 ms for 929 732 B where zlib 6 takes
+/// 2934 ms for 962 544 B. Smaller, but 2.7× slower than the setting the
+/// caller actually asked for.
+///
+/// Within a tier the level is a no-op (levels 7, 8 and 9 produce
+/// byte-identical files, as do 1 through 6) — see the README's note on the
+/// three-tier collapse.
 fn compression_for(level: u8) -> Compression {
     match level {
         0 => Compression::Fast,
-        1..=5 => Compression::Default,
+        1..=6 => Compression::Default,
         _ => Compression::Best,
     }
 }
