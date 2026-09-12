@@ -233,3 +233,34 @@ export interface FilenameTemplateArgs {
 export type FilenameResult =
   | { ok: true; name: string }
   | { ok: false; code: number; error: string };
+
+/** `sharpen()`'s mask-based (Lab) transfer options, #3504 task E5. */
+export interface SharpenOptions {
+  /** Gaussian sigma, 0.000001-10. Omit for sharp's fast mild 3x3 sharpen. */
+  sigma?: number;
+  /** Sharpening applied to "flat" areas. Default 1.0. */
+  m1?: number;
+  /** Sharpening applied to "jagged" areas. Default 2.0. */
+  m2?: number;
+  /** Threshold between flat and jagged. Default 2.0. */
+  x1?: number;
+  /** Maximum brightening. Default 10.0. */
+  y2?: number;
+  /** Maximum darkening. Default 20.0. */
+  y3?: number;
+}
+
+/** `convolve()`'s arbitrary kernel, #3504 task E5. */
+export interface ConvolveKernel {
+  width: number;
+  height: number;
+  /** `width * height` values, row-major. */
+  kernel: number[];
+  /**
+   * Divisor for the weighted sum. Omit to use the kernel's own sum (1 for a
+   * zero-sum kernel, matching sharp) — an explicit `0` is NOT the same as
+   * omitting this: sharp clips any non-positive explicit `scale` up to 1.
+   */
+  scale?: number;
+  offset?: number;
+}
