@@ -74,105 +74,114 @@ impl Default for ResizeOptions {
     }
 }
 
-/// Target dimension on one axis: `0` means "keep the source".
-fn target(requested: u32, source: u32) -> u32 {
+/// Target dimension on one axis: `0` means "keep what the resize produced".
+///
+/// sharp resolves an unrequested axis AFTER the resize has run, against the
+/// resized dimension (`pipeline.cc`: `if (baton->width <= 0) baton->width =
+/// inputWidth;`, where `inputWidth` is re-read from the resized image). That
+/// is why a single-axis `cover` or `contain` has nothing left to crop or pad.
+fn target(requested: u32, resized: u32) -> u32 {
     if requested == 0 {
-        source
+        resized
     } else {
         requested
     }
 }
 
-/// Apply `withoutEnlargement` / `withoutReduction` to a scale factor.
-fn clamp_scale(scale: f64, options: &ResizeOptions) -> f64 {
+/// Per-axis shrink factors, following sharp's `ResolveShrink`
+/// (`src/common.cc`). A factor ABOVE 1 shrinks the axis and one below it
+/// enlarges — the inverse of a scale, which is the convention sharp and
+/// libvips work in, and worth keeping because the clamps read naturally
+/// there (`withoutReduction` is `min(1, shrink)`).
+///
+/// The part that matters most here is the single-fixed-axis branch: every
+/// canvas except `fill` copies the requested axis's factor onto the other
+/// axis, so `{ width: 10, fit: 'contain' }` on a 40x20 source scales BOTH
+/// axes by 4 and lands on 10x5 — not a 10x20 letterbox.
+fn resolve_shrink(src: &RasterImage, options: &ResizeOptions) -> (f64, f64) {
+    let (sw, sh) = (src.width as f64, src.height as f64);
+    let h_axis = (options.width > 0).then(|| sw / options.width as f64);
+    let v_axis = (options.height > 0).then(|| sh / options.height as f64);
+    let raw = match (h_axis, v_axis) {
+        (None, None) => (1.0, 1.0),
+        (Some(h), Some(v)) => match options.fit {
+            // CROP / MIN: the smaller shrink, so the result covers the box.
+            ResizeFit::Cover | ResizeFit::Outside => (h.min(v), h.min(v)),
+            // EMBED / MAX: the larger shrink, so the result fits inside it.
+            ResizeFit::Contain | ResizeFit::Inside => (h.max(v), h.max(v)),
+            // IGNORE_ASPECT: each axis keeps its own factor.
+            ResizeFit::Fill => (h, v),
+        },
+        (Some(h), None) if options.fit == ResizeFit::Fill => (h, 1.0),
+        (Some(h), None) => (h, h),
+        (None, Some(v)) if options.fit == ResizeFit::Fill => (1.0, v),
+        (None, Some(v)) => (v, v),
+    };
+    // `fill` keeps its historical clamp behaviour for now — see #3502's
+    // follow-up commit, which moves it onto the same footing as the rest.
+    if options.fit == ResizeFit::Fill {
+        return raw;
+    }
     let no_up = if options.without_enlargement {
-        scale.min(1.0)
+        (raw.0.max(1.0), raw.1.max(1.0))
     } else {
-        scale
+        raw
     };
     if options.without_reduction {
-        no_up.max(1.0)
+        (no_up.0.min(1.0), no_up.1.min(1.0))
     } else {
         no_up
     }
 }
 
-/// Resample to exactly `(width, height)` with no fit arithmetic.
-fn resample_exact(
-    src: &RasterImage,
-    width: u32,
-    height: u32,
-    filter: FilterAlg,
-) -> Result<RasterImage> {
-    resize_raster(
-        src,
-        &ResizeOptions {
-            width,
-            height,
-            fit: ResizeFit::Fill,
-            filter,
-            without_enlargement: false,
-            without_reduction: false,
-            position: Gravity::Centre,
-            background: [0, 0, 0, 255],
-        },
-    )
+/// The size one axis resizes to, from its shrink factor. Never below 1px.
+fn scaled_dim(dim: u32, shrink: f64) -> u32 {
+    (dim as f64 / shrink).round().max(1.0) as u32
 }
 
-/// Scale by an aspect-preserving factor, then either crop (`cover`) or pad
-/// (`contain`) to the exact box at `position`.
-fn scale_then_frame(
-    src: &RasterImage,
+/// `cover`: crop the resized image down to the target box at `position`.
+/// The box is clamped to what the resize produced, matching sharp
+/// (`if (baton->width > inputWidth) baton->width = inputWidth;`).
+fn crop_to(
+    scaled: &RasterImage,
+    (tw, th): (u32, u32),
     options: &ResizeOptions,
-    pick: fn(f64, f64) -> f64,
 ) -> Result<RasterImage> {
-    let tw = target(options.width, src.width);
-    let th = target(options.height, src.height);
-    let scale = clamp_scale(
-        pick(tw as f64 / src.width as f64, th as f64 / src.height as f64),
-        options,
-    );
-    let scaled = resample_exact(
-        src,
-        (src.width as f64 * scale).round().max(1.0) as u32,
-        (src.height as f64 * scale).round().max(1.0) as u32,
-        options.filter,
-    )?;
-    match options.fit {
-        ResizeFit::Cover => {
-            let cw = tw.min(scaled.width);
-            let ch = th.min(scaled.height);
-            let (x, y) = options
-                .position
-                .place_crop((scaled.width, scaled.height), (cw, ch));
-            scaled.crop(x.max(0) as u32, y.max(0) as u32, cw, ch)
-        }
-        ResizeFit::Contain => {
-            let (x, y) = options
-                .position
-                .place_pad((tw, th), (scaled.width, scaled.height));
-            let left = x.max(0) as u32;
-            let top = y.max(0) as u32;
-            scaled.extend(
-                ExtendEdges {
-                    left,
-                    top,
-                    // `saturating_sub` guards a float-rounding edge only:
-                    // `scaled` is sized from the same scale factor used to
-                    // place it, so `scaled.width + left` cannot exceed `tw`
-                    // by construction — this never actually saturates.
-                    right: tw.saturating_sub(scaled.width + left),
-                    bottom: th.saturating_sub(scaled.height + top),
-                },
-                options.background,
-            )
-        }
-        // `resize_raster` only calls `scale_then_frame` for Cover and
-        // Contain, so every other `ResizeFit` is unreachable here.
-        ResizeFit::Inside | ResizeFit::Fill | ResizeFit::Outside => {
-            unreachable!("scale_then_frame only handles Cover and Contain")
-        }
+    let cw = tw.min(scaled.width);
+    let ch = th.min(scaled.height);
+    if (cw, ch) == (scaled.width, scaled.height) {
+        return Ok(scaled.clone());
     }
+    let (x, y) = options
+        .position
+        .place_crop((scaled.width, scaled.height), (cw, ch));
+    scaled.crop(x.max(0) as u32, y.max(0) as u32, cw, ch)
+}
+
+/// `contain`: pad the resized image out to the target box at `position`.
+fn pad_to(
+    scaled: &RasterImage,
+    (tw, th): (u32, u32),
+    options: &ResizeOptions,
+) -> Result<RasterImage> {
+    let (x, y) = options
+        .position
+        .place_pad((tw, th), (scaled.width, scaled.height));
+    let left = x.max(0) as u32;
+    let top = y.max(0) as u32;
+    scaled.extend(
+        ExtendEdges {
+            left,
+            top,
+            // `saturating_sub` guards a float-rounding edge only:
+            // `scaled` is sized from the same scale factor used to
+            // place it, so `scaled.width + left` cannot exceed `tw`
+            // by construction — this never actually saturates.
+            right: tw.saturating_sub(scaled.width + left),
+            bottom: th.saturating_sub(scaled.height + top),
+        },
+        options.background,
+    )
 }
 
 /// High-performance SIMD resizing of a RasterImage using `fast_image_resize`.
@@ -184,46 +193,24 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
         });
     }
 
-    let (dst_w, dst_h) = match options.fit {
-        ResizeFit::Cover => return scale_then_frame(src, options, f64::max),
-        ResizeFit::Contain => return scale_then_frame(src, options, f64::min),
-        ResizeFit::Fill => (
-            target(options.width, src.width),
-            target(options.height, src.height),
-        ),
-        ResizeFit::Inside | ResizeFit::Outside => {
-            let sx = match options.width {
-                0 => None,
-                w => Some(w as f64 / src.width as f64),
-            };
-            let sy = match options.height {
-                0 => None,
-                h => Some(h as f64 / src.height as f64),
-            };
-            let raw_scale = match (sx, sy) {
-                (None, None) => 1.0,
-                (Some(x), None) => x,
-                (None, Some(y)) => y,
-                (Some(x), Some(y)) => {
-                    if options.fit == ResizeFit::Outside {
-                        x.max(y)
-                    } else {
-                        x.min(y)
-                    }
-                }
-            };
-            let scale = clamp_scale(raw_scale, options);
-            (
-                (src.width as f64 * scale).round().max(1.0) as u32,
-                (src.height as f64 * scale).round().max(1.0) as u32,
-            )
-        }
+    let (hshrink, vshrink) = resolve_shrink(src, options);
+    let dst_w = scaled_dim(src.width, hshrink);
+    let dst_h = scaled_dim(src.height, vshrink);
+    let scaled = if (dst_w, dst_h) == (src.width, src.height) {
+        src.clone()
+    } else {
+        resample(src, dst_w, dst_h, options.filter)?
     };
 
-    if dst_w == src.width && dst_h == src.height {
-        return Ok(src.clone());
+    let box_ = (
+        target(options.width, scaled.width),
+        target(options.height, scaled.height),
+    );
+    match options.fit {
+        ResizeFit::Cover => crop_to(&scaled, box_, options),
+        ResizeFit::Contain => pad_to(&scaled, box_, options),
+        ResizeFit::Inside | ResizeFit::Outside | ResizeFit::Fill => Ok(scaled),
     }
-    resample(src, dst_w, dst_h, options.filter)
 }
 
 /// Lanczos with a = 2 — sharp's `lanczos2`. `fast_image_resize` ships
