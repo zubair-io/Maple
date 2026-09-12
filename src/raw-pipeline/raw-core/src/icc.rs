@@ -11,8 +11,12 @@
 //! There is no ICC-writing crate in the dependency tree and the profiles we
 //! need are the simplest kind the spec defines — a matrix/TRC display
 //! profile — so we emit them directly. Both profiles share the IEC 61966-2-1
-//! transfer function (which is what [`crate::view::encode::srgb_gamma_encode`]
-//! applies for both targets) and differ only in primaries.
+//! transfer function and differ only in primaries. The pixels a reader
+//! embeds this profile alongside were encoded with
+//! [`crate::view::encode::srgb_gamma_encode`] (the OETF, linear → device);
+//! the `curv` tag itself must instead describe the *decode* direction (the
+//! EOTF, device → linear, [`crate::view::gamma::srgb_degamma`]) — that is
+//! what a CMM applies when it reads the file back.
 //!
 //! The colorant tags are DERIVED from the chromaticities below rather than
 //! copied out of an existing profile: the derivation is checked against the
@@ -151,20 +155,28 @@ fn chad_tag(matrix: &Matrix3) -> Vec<u8> {
     out
 }
 
-/// A `curveType` tag body sampling the IEC 61966-2-1 transfer function.
+/// A `curveType` tag body sampling the IEC 61966-2-1 EOTF (device → linear).
+///
+/// An ICC matrix/TRC profile's `rTRC`/`gTRC`/`bTRC` curve is read by a CMM
+/// as the map from the stored device value to linear light on the way *into*
+/// the profile connection space — the decode direction (EOTF), not the
+/// encode direction ([`crate::view::encode::srgb_gamma_encode`], the OETF,
+/// which is what Maple applied to *produce* the device values this curve now
+/// describes). Tabulating the OETF here instead double-applies the curve in
+/// every color-managed reader, which is exactly the ~2x-too-bright defect
+/// this function used to ship (#3577).
 ///
 /// The same curve serves both targets: Display P3 is defined with the sRGB
-/// TRC, and [`crate::view::encode::srgb_gamma_encode`] applies it unchanged
-/// for either set of primaries.
+/// TRC, so this table is reused unchanged for either set of primaries.
 fn trc_tag() -> Vec<u8> {
     let mut out = Vec::with_capacity(12 + TRC_ENTRIES * 2);
     out.extend_from_slice(b"curv");
     out.extend_from_slice(&[0; 4]);
     out.extend_from_slice(&(TRC_ENTRIES as u32).to_be_bytes());
     for i in 0..TRC_ENTRIES {
-        let linear = i as f32 / (TRC_ENTRIES - 1) as f32;
-        let encoded = crate::view::encode::srgb_gamma(linear);
-        out.extend_from_slice(&((encoded * 65535.0).round() as u16).to_be_bytes());
+        let device = i as f32 / (TRC_ENTRIES - 1) as f32;
+        let linear = crate::view::encode::srgb_degamma(device);
+        out.extend_from_slice(&((linear * 65535.0).round() as u16).to_be_bytes());
     }
     out
 }
@@ -378,9 +390,11 @@ mod tests {
         }
     }
 
-    /// The TRC must be the transfer function the pipeline actually applied.
+    /// The TRC must decode device values to linear (the EOTF) — the
+    /// direction a CMM actually consumes a matrix/TRC curve tag in, not the
+    /// OETF direction Maple used to encode the pixels in the first place.
     #[test]
-    fn trc_table_samples_the_srgb_transfer_function() {
+    fn trc_table_samples_the_srgb_decode_transfer_function() {
         let tag = trc_tag();
         let count = u32::from_be_bytes(tag[8..12].try_into().unwrap()) as usize;
         assert_eq!(count, TRC_ENTRIES);
@@ -388,14 +402,33 @@ mod tests {
             let at = 12 + i * 2;
             u16::from_be_bytes(tag[at..at + 2].try_into().unwrap()) as f32 / 65535.0
         };
-        assert!(entry(0).abs() < 1e-4, "0 must map to 0");
+        assert!(entry(0).abs() < 1e-4, "device 0 must map to linear 0");
         assert!(
             (entry(TRC_ENTRIES - 1) - 1.0).abs() < 1e-4,
-            "1 must map to 1"
+            "device 1 must map to linear 1"
         );
-        // Mid-scale linear light encodes to roughly 0.735 through the sRGB OETF.
-        let mid = TRC_ENTRIES / 2;
-        let expected = crate::view::encode::srgb_gamma(mid as f32 / (TRC_ENTRIES - 1) as f32);
-        assert!((entry(mid) - expected).abs() < 1e-3);
+        // A device value of 0.25 decodes to ~0.0509 linear, and 0.5 decodes
+        // to ~0.214 linear, through the sRGB EOTF (IEC 61966-2-1) — not the
+        // ~0.735 the OETF would produce at the same input, which is the
+        // wrong direction this regression test pins against (#3577).
+        let entry_at_device =
+            |device: f32| entry((device * (TRC_ENTRIES - 1) as f32).round() as usize);
+        let quarter = entry_at_device(0.25);
+        assert!(
+            (quarter - 0.0509).abs() < 1e-3,
+            "device 0.25 should decode to ~0.0509 linear, got {quarter}"
+        );
+        let mid = entry_at_device(0.5);
+        assert!(
+            (mid - 0.214).abs() < 1e-3,
+            "device 0.5 should decode to ~0.214 linear, got {mid}"
+        );
+        // Monotone increasing end to end.
+        for i in 1..TRC_ENTRIES {
+            assert!(
+                entry(i) >= entry(i - 1),
+                "TRC must be monotone increasing at entry {i}"
+            );
+        }
     }
 }
