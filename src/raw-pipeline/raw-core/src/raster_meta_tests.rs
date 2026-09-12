@@ -237,14 +237,28 @@ fn a_container_with_no_metadata_reports_none() {
 }
 
 #[test]
-fn garbage_never_panics_and_reports_nothing() {
+fn garbage_never_panics_and_reports_no_blocks() {
     for input in [
         &b""[..],
         b"\xFF\xD8",
         b"\x89PNG\r\n\x1a\n",
         b"RIFFsomething",
     ] {
-        assert_eq!(read_sidecars(input), RasterSidecars::default());
+        let found = read_sidecars(input);
+        assert_eq!(
+            (found.exif, found.icc, found.xmp),
+            (None, None, None),
+            "no block may be invented from {input:?}"
+        );
+        // `density` is the exception: a JPEG that states no resolution is
+        // 72 dpi by libvips' own default (#3507 final fix wave, item 7),
+        // and the two-byte stub above is a JPEG as far as its magic goes.
+        // Nothing reaches `metadata()` this way — a file this damaged
+        // fails the dimension probe first.
+        assert_eq!(
+            found.density,
+            input.starts_with(&[0xFF, 0xD8]).then_some(72.0)
+        );
     }
 }
 
