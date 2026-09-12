@@ -99,7 +99,7 @@ Apple's Color controls include **Pick white balance** on macOS, iPadOS, and iOS,
 
 ### Tone
 
-`exposure` is −4 … +4 EV; `brightness`, `contrast`, `highlights`, `shadows`, `whites`, `blacks` and the four parametric-curve regions (`parametricHighlights`, `parametricLights`, `parametricDarks`, `parametricShadows`) are all −100 … 100, defaulting to 0. `autoExposure` (`On` by default) anchors scene mid-gray before the view transform; the `exposure` slider stacks on top of it in EV.
+`exposure` is −4 … +4 EV; `brightness`, `contrast`, `highlights`, `shadows`, `whites`, `blacks` and the four parametric-curve regions (`parametricHighlights`, `parametricLights`, `parametricDarks`, `parametricShadows`) are all −100 … 100, defaulting to 0. `highlights` follows Adobe's direction: positive brightens bright-but-unclipped tones and expands above the clip knee; negative recovers them. `shadows`, `whites` and `blacks` are likewise positive = brighter. `autoExposure` (`On` by default) anchors scene mid-gray before the view transform; the `exposure` slider stacks on top of it in EV.
 
 Four point curves — `toneCurveLuma`, `toneCurveRed`, `toneCurveGreen`, `toneCurveBlue` — are lists of `[x, y]` control points in a 0–1 authoring domain. **The empty curve is identity**, which is what keeps a default model bit-identical on every platform. `toneCurveMode` selects `PerChannel` (three independent curves, hue shifts allowed) or `RatioPreserving` (folded through Rec.2020 luma).
 
