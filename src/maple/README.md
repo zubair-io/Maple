@@ -132,8 +132,8 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `removeAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                        |
 | `blur()`                                           | ✅    | no argument = 3x3 box; a sigma = separable Gaussian. Byte-identical to sharp                                                                                                                                                                                                                                           |
 | `sharpen()`                                        | ✅¹   | argument-less kernel byte-identical; the `{sigma}` mask path within 2 levels (see below)                                                                                                                                                                                                                               |
-| `median()`                                         | ✅    | any integer window 1..1000, every band. Byte-identical to sharp                                                                                                                                                                                                                                                        |
-| `threshold()`                                      | ✅²   | `{ greyscale }` follows sharp's literal-`true` rule; luma in linear light                                                                                                                                                                                                                                              |
+| `median()`                                         | ✅    | integer window 1..1000, no wider than the image, every band. Byte-identical                                                                                                                                                                                                                                            |
+| `threshold()`                                      | ✅²   | literal-`true` `{ greyscale }` rule; linear-light luma; `0`/`false` is a no-op                                                                                                                                                                                                                                         |
 | `convolve()`                                       | ✅    | any kernel; integer `scale` (default kernel sum) and `offset`, non-integers rejected by name                                                                                                                                                                                                                           |
 | `greyscale()` / `grayscale()`                      | ✅    | Rec.709 luma reduced in linear light (de-gamma, weight, re-gamma), three identical channels                                                                                                                                                                                                                            |
 | `gamma()`                                          | ✅    | an assembly-time pair around the `resize` op: `gamma` itself before it, `1/gammaOut` after; residual ≤1 — a single-code artefact at input 255 for `gammaOut` 1/1.5 and 1/3, where libvips' own float chain returns 254 rather than 255                                                                                 |
@@ -206,6 +206,16 @@ on RGB, 2 on partial alpha. ² `threshold`'s greyscale luma can disagree with
 libvips by one code, and a value one code either side of the threshold then
 flips a whole sample between 0 and 255 — 3 samples of 12288 on noise
 (tracked as #3572).
+
+sharp's deprecated boolean forms work here too, and mean what they mean
+there: `blur(true)`/`sharpen(true)` are the mild no-argument paths,
+`blur(false)`/`sharpen(false)` do nothing, and `threshold(true)` is 128 while
+`threshold(false)` is 0. **A threshold of 0 is a no-op**, not "whiten
+everything" — sharp gates the whole stage on `threshold != 0`, so
+`threshold(0)` returns the image untouched. `median(size)` is refused when
+the window is wider or taller than the image, as `vips_rank` refuses it
+("window too large"); clamp-to-edge would have produced a result, which is
+why it needs its own check.
 
 Argument validation is sharp's, by name, before anything reaches the native
 core: `blur(NaN)`, `blur({})`, `sharpen({ m1: 3 })` (no `sigma`),

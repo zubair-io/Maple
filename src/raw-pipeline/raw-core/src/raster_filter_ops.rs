@@ -96,6 +96,18 @@ pub(crate) fn median_plane(plane: &Plane, size: u32) -> Result<Plane> {
             "median window {size} must be an integer in [1, {MAX_MEDIAN_SIZE}]"
         )));
     }
+    // `vips_rank` refuses a window wider or taller than the image
+    // ("rank: window too large", `morphology/rank.c`), so sharp does too —
+    // measured on sharp 0.34.5, `median(5)` on a 4x4 and `median(9)` on an
+    // 8x8 both throw while `median(8)` on the 8x8 succeeds. Clamp-to-edge
+    // addressing would happily have produced a result here, which is
+    // exactly why this needs its own check.
+    if size as usize > plane.width || size as usize > plane.height {
+        return Err(Error::Pipeline(format!(
+            "median window {size} is too large for a {}x{} image (libvips' vips_rank: \"window too large\")",
+            plane.width, plane.height
+        )));
+    }
     let before = (size / 2) as i64;
     let after = size as i64 - 1 - before;
     let (w, h, c) = (plane.width, plane.height, plane.channels);
@@ -124,7 +136,18 @@ pub(crate) fn median_plane(plane: &Plane, size: u32) -> Result<Plane> {
 /// One `threshold` over a filter run's working buffer. The comparison runs
 /// on bytes (sharp thresholds a `uchar` image), so the working buffer is
 /// quantised first; the result is exact 0/255 either way.
+///
+/// **`value == 0` is a no-op, not "whiten everything".** sharp gates the
+/// whole stage on `baton->threshold != 0` (`pipeline.cc`), and its JS layer
+/// resolves `threshold(false)` to that same 0 — so `threshold(0)` returns
+/// the image untouched even though `pixel >= 0` is true everywhere.
+/// Measured on sharp 0.34.5: byte-identical to the source, where a literal
+/// comparison gives max diff 255 on 3060 of 3072 samples of a noise
+/// fixture.
 pub(crate) fn threshold_plane(plane: &Plane, value: u8, greyscale: bool) -> Plane {
+    if value == 0 {
+        return plane.clone();
+    }
     let c = plane.channels;
     let on = |v: u8| if v >= value { 255.0 } else { 0.0 };
     let data = plane
