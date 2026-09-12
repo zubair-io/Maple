@@ -72,12 +72,24 @@ function requireInteger(name: string, value: unknown, [lo, hi]: readonly [number
 
 /** Blur. No argument = a fast 3x3 box blur; a sigma = a Gaussian.
  *
+ * `true` is sharp's deprecated "apply the mild blur?" boolean and means the
+ * same thing as no argument; `false` means "don't", so nothing is pushed at
+ * all — sharp gates the stage on a non-zero sigma, which also keeps a
+ * `blur(false)` from dragging a 4-channel image through the premultiply
+ * sandwich.
+ *
  * Note that sharp's Gaussian is an **exact identity** for every sigma up to
  * 0.557, because libvips truncates the mask at 20% of the peak amplitude
  * and that leaves a 1x1 mask. `blur(0.4)` doing nothing is sharp's real
  * behaviour, not a Maple shortcut. */
-export function pushBlur(state: BuilderState, options?: number | { sigma?: number }): void {
-  if (options === undefined) {
+export function pushBlur(
+  state: BuilderState,
+  options?: number | boolean | { sigma?: number },
+): void {
+  if (options === false) {
+    return;
+  }
+  if (options === undefined || options === true) {
     state.ops.push({ op: 'blur', sigma: null });
     return;
   }
@@ -91,7 +103,9 @@ export function pushBlur(state: BuilderState, options?: number | { sigma?: numbe
 /**
  * Unsharp mask on the L* channel (sharp's `sharpen`).
  *
- * No argument is sharp's fast mild 3x3 kernel. A bare number is sharp's
+ * No argument is sharp's fast mild 3x3 kernel, and so is `true` (its
+ * deprecated boolean form); `false` pushes nothing, since sharp gates the
+ * stage on a non-zero sigma. A bare number is sharp's
  * deprecated-but-live positional form, `sharpen(sigma)`, and is accepted
  * here for the same reason `blur` accepts one — the two idioms should not
  * diverge inside one file. One deliberate narrowing: sharp's positional
@@ -101,15 +115,21 @@ export function pushBlur(state: BuilderState, options?: number | { sigma?: numbe
  * further-deprecated `sharpen(sigma, flat, jagged)` triple is not accepted;
  * pass `{ sigma, m1, m2 }`.
  */
-export function pushSharpen(state: BuilderState, options?: number | SharpenOptions): void {
+export function pushSharpen(
+  state: BuilderState,
+  options?: number | boolean | SharpenOptions,
+): void {
+  if (options === false) {
+    return;
+  }
+  const mild = options === undefined || options === true;
   const numeric = typeof options === 'number';
-  const sigma =
-    options === undefined
-      ? null
-      : numeric
-        ? requireNumber('sigma', options, SHARPEN_SIGMA)
-        : requireNumber('options.sigma', options.sigma, SHARPEN_SIGMA);
-  const params: SharpenOptions = options === undefined || numeric ? {} : options;
+  const sigma = mild
+    ? null
+    : numeric
+      ? requireNumber('sigma', options, SHARPEN_SIGMA)
+      : requireNumber('options.sigma', (options as SharpenOptions).sigma, SHARPEN_SIGMA);
+  const params: SharpenOptions = mild || numeric ? {} : (options as SharpenOptions);
   const param = (name: keyof SharpenOptions, fallback: number): number =>
     params[name] === undefined
       ? fallback
@@ -141,15 +161,25 @@ export function pushMedian(state: BuilderState, size: number): void {
  * `threshold(128, {})` is not. Measured on sharp 0.34.5, that flip is worth
  * a max diff of 255 on 31% of the samples of a 32x32 noise fixture, so it
  * is not a corner case.
+ *
+ * A threshold of **0 is a no-op**, not "whiten everything": sharp gates the
+ * stage on `threshold != 0`. `threshold(false)` resolves to that same 0 and
+ * `threshold(true)` to 128, sharp's deprecated boolean form. The zero case
+ * is enforced in raw-core rather than here, so a raw recipe gets it too.
  */
 export function pushThreshold(
   state: BuilderState,
-  threshold: number,
+  threshold: number | boolean,
   options?: { greyscale?: boolean; grayscale?: boolean },
 ): void {
   state.ops.push({
     op: 'threshold',
-    value: requireInteger('threshold', threshold, [0, 255]),
+    value:
+      typeof threshold === 'boolean'
+        ? threshold
+          ? 128
+          : 0
+        : requireInteger('threshold', threshold, [0, 255]),
     greyscale:
       typeof options !== 'object' || options.greyscale === true || options.grayscale === true,
   });

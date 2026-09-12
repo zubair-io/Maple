@@ -104,19 +104,54 @@ fn median_rejects_a_window_over_the_1000_ceiling() {
 
 #[test]
 fn median_filters_alpha_too() {
-    let data = (0..8u32)
-        .flat_map(|x| [90u8, 90, 90, if x == 4 { 0 } else { 255 }])
+    // 8x3 rather than 8x1 because `vips_rank` refuses a window taller than
+    // the image, so a 3x3 median on a single row is an error in sharp too
+    // (see `median_rejects_a_window_larger_than_the_image`).
+    let data = (0..3u32)
+        .flat_map(|y| {
+            (0..8u32).flat_map(move |x| [90u8, 90, 90, if x == 4 && y == 1 { 0 } else { 255 }])
+        })
         .collect();
-    let img = RasterImage::new_rgba(8, 1, data);
+    let img = RasterImage::new_rgba(8, 3, data);
     let out = img.median(3).unwrap();
     assert_eq!(
-        out.data[4 * 4 + 3],
+        out.data[(1 * 8 + 4) * 4 + 3],
         255,
         "the lone transparent pixel is a speck"
     );
 }
 
+#[test]
+fn median_rejects_a_window_larger_than_the_image() {
+    // `vips_rank` errors with "window too large" rather than clamping to
+    // the edge. Measured on sharp 0.34.5: `median(3)` on a 1x1 and
+    // `median(5)` on a 4x4 both throw, `median(4)` on the 4x4 does not, and
+    // on an 8x4 the cutoff is the shorter axis — `median(4)` passes,
+    // `median(5)` throws.
+    let err = RasterImage::new_rgb(1, 1, vec![7, 7, 7])
+        .median(3)
+        .unwrap_err();
+    assert!(err.to_string().contains("1x1"), "got: {err}");
+    assert!(err.to_string().contains("window too large"), "got: {err}");
+
+    let wide = RasterImage::new_rgb(8, 4, vec![7; 8 * 4 * 3]);
+    assert!(wide.median(4).is_ok());
+    assert!(wide.median(5).is_err());
+}
+
 // ------------------------------------------------------------- threshold ---
+
+#[test]
+fn threshold_zero_is_a_no_op() {
+    // sharp gates its whole threshold stage on `threshold != 0`, and its JS
+    // layer resolves `threshold(false)` to 0, so neither form touches the
+    // image. Measured on sharp 0.34.5: byte-identical to the source, where
+    // a literal `pixel >= 0` gives max diff 255 on 3060 of 3072 samples of
+    // a noise fixture.
+    let src = RasterImage::new_rgba(2, 2, (0..4).flat_map(|i| [i * 40, 7, 200, 128]).collect());
+    assert_eq!(src.threshold(0, true).unwrap().data, src.data);
+    assert_eq!(src.threshold(0, false).unwrap().data, src.data);
+}
 
 #[test]
 fn bw_luma_matches_sharps_black_and_white_conversion() {

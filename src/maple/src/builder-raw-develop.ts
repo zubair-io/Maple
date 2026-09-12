@@ -59,7 +59,7 @@ export async function rawDevelopToBuffer(
 }
 
 /**
- * Ops a RAW develop cannot carry out, named rather than dropped.
+ * The first op a RAW develop cannot carry out, as a message — or `null`.
  *
  * The RAW-develop terminal runs the develop pipeline (`exportImage` /
  * `exportRecipe`), not the bitmap recipe executor, so the only builder op it
@@ -68,22 +68,25 @@ export async function rawDevelopToBuffer(
  * `threshold`, `convolve`, `flatten`, `composite` and the rest — used to be
  * discarded in silence, so `maple('photo.dng').blur(5).toFile(out)` wrote an
  * unblurred file and reported success (#3504 PR-E final review, finding 12).
- * Throwing names the first offending op and points at the tickets tracking
- * the real fix.
+ *
+ * It is returned rather than thrown because `toFile` reports every other
+ * failure the same way, as `{ ok: false, error }`. `toBuffer` still throws,
+ * since it turns a failed `toFile` into an exception itself.
  */
-function assertNoUnsupportedOps(state: BuilderState): void {
+function unsupportedOpError(state: BuilderState): string | null {
   const unsupported = state.ops.find((op) => op.op !== 'resize');
-  if (unsupported) {
-    throw new Error(
-      `${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` +
-        'Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.',
-    );
-  }
+  return unsupported === undefined
+    ? null
+    : `${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` +
+        'Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.';
 }
 
 /** Saved-recipe or XMP-driven RAW development, written straight to `outputPath`. */
 export function rawDevelopToFile(state: BuilderState, outputPath: string): Promise<ExportResult> {
-  assertNoUnsupportedOps(state);
+  const unsupported = unsupportedOpError(state);
+  if (unsupported) {
+    return Promise.resolve({ ok: false, outPath: outputPath, error: unsupported });
+  }
   const rawPath = state.inputPath as string;
   if (state.exportRecipe) {
     return exportRecipe({
