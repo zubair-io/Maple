@@ -23,7 +23,7 @@
 //! trivially map-shaped) — so the wire format is byte-for-byte unchanged;
 //! only where the Rust field lists live moved.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 use crate::raster_recipe::{one, ten, yes, Op};
 use crate::raster_sharpen::SharpenOptions;
@@ -137,6 +137,14 @@ pub struct ConvolveOp {
 /// through as raw-core's `0.0` sentinel, `Some(v)` (explicit, sharp's rules)
 /// is clamped to `v.max(1.0)` first. See [`ConvolveOp`]'s doc comment for
 /// the wire-level rationale.
+///
+/// Before any of that: sharp's own `convolve()` (`lib/operation.js`) only
+/// honours an explicit `scale`/`offset` when `is.integer()` passes on it —
+/// a non-integer value is silently replaced (`scale` by the kernel's own
+/// sum, `offset` by `0`), with no error raised either way. Maple rejects a
+/// non-integer `scale`/`offset` by name instead of silently discarding a
+/// value the caller actually passed, so a raw recipe caller gets the same
+/// contract as `builder-filter.ts`'s `pushConvolve` on the TS side.
 pub(crate) fn apply_filter_op(image: &RasterImage, op: &Op) -> Option<Result<RasterImage>> {
     match op {
         Op::Blur(BlurOp { sigma }) => Some(image.blur(*sigma)),
@@ -166,6 +174,18 @@ pub(crate) fn apply_filter_op(image: &RasterImage, op: &Op) -> Option<Result<Ras
             scale,
             offset,
         }) => {
+            if let Some(s) = scale {
+                if s.fract() != 0.0 {
+                    return Some(Err(Error::Pipeline(format!(
+                        "convolve scale {s} must be an integer (sharp requires an integer scale)"
+                    ))));
+                }
+            }
+            if offset.fract() != 0.0 {
+                return Some(Err(Error::Pipeline(format!(
+                    "convolve offset {offset} must be an integer (sharp requires an integer offset)"
+                ))));
+            }
             let resolved_scale = scale.map_or(0.0, |s| s.max(1.0));
             Some(image.convolve(*width, *height, kernel, resolved_scale, *offset))
         }

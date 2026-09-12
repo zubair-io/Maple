@@ -68,8 +68,27 @@ export function pushThreshold(
  * from the caller still reaches the wire as `0` (sharp's own "clip up to
  * 1" case), while an omitted `scale` reaches it as `null` (`Option<f64>`'s
  * `None`, "use the kernel's own sum"). See this file's module doc.
+ *
+ * sharp's own `convolve()` (`lib/operation.js`) only honours `scale`/
+ * `offset` when `is.integer()` passes on each — a non-integer `scale` is
+ * silently replaced by the kernel's own sum, and a non-integer `offset` by
+ * `0`, with no error either way (measured on sharp 0.34.5: `scale: 4.5`
+ * over a flat 30 field with a box-of-9 kernel leaves the field at 30, i.e.
+ * `scale` was replaced by the kernel sum of 9, not applied as 4.5). Maple
+ * rejects rather than silently diverging from a value the caller actually
+ * passed.
  */
 export function pushConvolve(state: BuilderState, kernel: ConvolveKernel): void {
+  if (kernel.scale !== undefined && !Number.isInteger(kernel.scale)) {
+    throw new Error(
+      `convolve: scale ${kernel.scale} must be an integer (sharp requires an integer scale)`,
+    );
+  }
+  if (kernel.offset !== undefined && !Number.isInteger(kernel.offset)) {
+    throw new Error(
+      `convolve: offset ${kernel.offset} must be an integer (sharp requires an integer offset)`,
+    );
+  }
   state.ops.push({
     op: 'convolve',
     width: kernel.width,
