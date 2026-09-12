@@ -194,7 +194,10 @@ pub unsafe extern "C" fn maple_raster_probe_metadata(
         *out_channels = meta.channels as u32;
     }
     if !out_orientation.is_null() {
-        *out_orientation = meta.orientation as u32;
+        // `None` (an AVIF, whose transform is baked into the pixels) is
+        // reported as 1 here: this C ABI has no way to say "absent", and
+        // 1 is the value a consumer should act on either way.
+        *out_orientation = meta.orientation.unwrap_or(1) as u32;
     }
 
     0
@@ -438,7 +441,10 @@ pub unsafe extern "C" fn maple_raster_probe_metadata_buf(
         *out_channels = meta.channels as u32;
     }
     if !out_orientation.is_null() {
-        *out_orientation = meta.orientation as u32;
+        // `None` (an AVIF, whose transform is baked into the pixels) is
+        // reported as 1 here: this C ABI has no way to say "absent", and
+        // 1 is the value a consumer should act on either way.
+        *out_orientation = meta.orientation.unwrap_or(1) as u32;
     }
     if !out_format.is_null() && out_format_cap > 0 {
         let fmt_bytes = meta.format.as_bytes();

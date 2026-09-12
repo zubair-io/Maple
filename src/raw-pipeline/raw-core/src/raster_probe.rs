@@ -19,7 +19,17 @@ pub struct RasterMetadata {
     pub height: u32,
     pub format: String,
     pub channels: u8,
-    pub orientation: u16,
+    /// The EXIF Orientation the container's metadata declares, or `None`
+    /// when it declares nothing a consumer should act on.
+    ///
+    /// `None` for an AVIF, always: its `irot`/`imir` is applied to the
+    /// pixels during decode (see [`crate::avif_boxes`]), and libvips
+    /// surfaces no orientation for a HEIF-family file even when its `Exif`
+    /// item carries the tag — measured on sharp 0.34.5, `undefined` for all
+    /// nine `irot`/`imir`/`Exif`-Orientation combinations, with `.rotate()`
+    /// a no-op on every one (#3507 round 3). The tag itself is still
+    /// reachable in the `exif` block `read_sidecars` returns.
+    pub orientation: Option<u16>,
     /// Whether the container's own colour type carries an alpha channel
     /// (#3507 controller ruling). Derived from the real container header for
     /// every non-AVIF format (see [`channels_and_alpha_from_header`]); AVIF
@@ -77,11 +87,14 @@ pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
             height,
             format: "avif".to_string(),
             channels: if probe.has_alpha { 4 } else { 3 },
-            // The `Exif` item's own Orientation tag — what is left for
-            // `.rotate()` to apply once the container transform is baked in
-            // (#3507 round 2). Reporting the transform here instead would
-            // have a consumer rotate pixels that are already rotated.
-            orientation: boxes.exif_orientation(),
+            // Nothing to report: the container transform is in the pixels
+            // already, and libvips does not surface a HEIF-family file's
+            // `Exif` Orientation either (#3507 round 3 — measured
+            // `undefined` on all nine fixtures, sharp's `.rotate()` a
+            // no-op on each). Surfacing the tag here would make Maple's
+            // `.rotate()` rotate a second time on any libvips-written
+            // AVIF, which carries the orientation in both places.
+            orientation: None,
             has_alpha: probe.has_alpha,
         });
     }
@@ -133,7 +146,7 @@ pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
         }
     };
 
-    let orientation = container_orientation(bytes);
+    let orientation = Some(container_orientation(bytes));
     let (channels, has_alpha) = channels_and_alpha_from_header(bytes);
 
     Ok(RasterMetadata {

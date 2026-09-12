@@ -174,35 +174,39 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
     }
 }
 
-/// Apply an AVIF's own `irot`/`imir` to the decoded pixels, and carry the
-/// `Exif` item's Orientation tag as the flag `.rotate()`/`auto_orient`
-/// applies on top.
+/// Apply an AVIF's own `irot`/`imir` to the decoded pixels, and leave the
+/// resulting image with no orientation left to apply.
 ///
 /// The AVIF decoder behind this crate reads neither box, but libheif — and
 /// so sharp — applies them while decoding, which makes them a property of
-/// the pixels rather than metadata to pass on (#3507 round 2 ruling).
-/// Measured against sharp 0.34.5 on nine hand-patched AVIFs (`irot` 0..3,
-/// `imir` 0/1, both together, with and without an `Exif` Orientation): its
-/// default output is the transformed image in every case, byte-identical to
-/// the matching EXIF transform of the source, and `.rotate()` changes
-/// nothing further. Baking it here means Maple's default output matches —
-/// before this, `decode_raster` attached the transform as a flag, so the
-/// pixels came back untransformed and only an explicit `.rotate()` put them
-/// right.
+/// the pixels rather than metadata to pass on (#3507 round 2). Measured
+/// against sharp 0.34.5 on nine hand-patched AVIFs (`irot` 0..3, `imir`
+/// 0/1, both together, with and without an `Exif` Orientation): its default
+/// output is the transformed image in every case, byte-identical to the
+/// matching EXIF transform of the source. Baking it here means Maple's
+/// default output matches — before, `decode_raster` attached the transform
+/// as a flag, so the pixels came back untransformed and only an explicit
+/// `.rotate()` put them right.
+///
+/// The `Exif` item's own Orientation tag is deliberately NOT carried
+/// forward (#3507 round 3). libvips surfaces no orientation for a
+/// HEIF-family file even when the item plainly carries one — measured
+/// `undefined` on all nine fixtures — so sharp's `.rotate()` is a no-op on
+/// every AVIF, and Maple's now is too. It has to be: libvips' own AVIF save
+/// writes the orientation into BOTH the `irot` box and the `Exif` item, so
+/// honouring the tag on top of the baked box would rotate a sharp-written
+/// AVIF twice. The tag is still readable in `metadata().exif`.
 ///
 /// `auto_orient` is the same rotation/mirror machinery `.rotate()` uses, so
 /// there is one implementation of the eight transforms, not two.
 fn bake_avif_transform(image: RasterImage, bytes: &[u8]) -> RasterImage {
-    let boxes = crate::avif_boxes::read_avif_boxes(bytes);
+    let transform = crate::avif_boxes::read_avif_boxes(bytes).transform;
     let mut baked = RasterImage {
-        orientation: ExifOrientation::from_u16(boxes.transform),
+        orientation: ExifOrientation::from_u16(transform),
         ..image
     };
     baked.auto_orient();
-    RasterImage {
-        orientation: ExifOrientation::from_u16(boxes.exif_orientation()),
-        ..baked
-    }
+    baked
 }
 
 /// Read the EXIF Orientation tag out of a bare TIFF block (the form an AVIF
