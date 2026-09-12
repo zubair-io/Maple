@@ -250,6 +250,46 @@ if (sharp === null) {
       }
     });
 
+    /**
+     * The reverse direction, and the one #3596 was about: a JPEG Maple WROTE,
+     * read back by MAPLE. Everything else in this file reads Maple's output
+     * through sharp, which is exactly why a decoder bug could hide here —
+     * `.jpeg()`'s defaults (`optimiseCoding: true` + `chromaSubsampling:
+     * '4:2:0'`, both sharp's own) make `jpeg-encoder` write a non-interleaved
+     * file, one scan per component, and raw-core's zune-jpeg decoded that as a
+     * repeating `(0, 255, 0)` green pattern while libjpeg-turbo read it fine.
+     *
+     * Both engines' files are checked through both engines' decoders, so the
+     * four combinations pin the encoder and the decoder independently.
+     */
+    it('a JPEG Maple wrote is readable by Maple, not only by sharp (#3596)', async () => {
+      const source = { data: photo, width: W, height: H, channels: 3 as const };
+      const mine = await maple(source).jpeg({ quality: 80 }).toBuffer();
+      const theirs = await fromRaw(photo, 3)
+        .jpeg({ quality: 80, optimiseCoding: true, chromaSubsampling: '4:2:0' })
+        .toBuffer();
+
+      const viaMaple = async (jpeg: Buffer) => new Uint8Array((await maple(jpeg).toRaw()).data);
+      const viaSharp = async (jpeg: Buffer) => (await readSharp(jpeg)).raw;
+
+      for (const [label, jpeg] of [
+        ['maple-written', mine],
+        ['sharp-written optimised 4:2:0', theirs],
+      ] as const) {
+        const [ours, oracle] = await Promise.all([viaMaple(jpeg), viaSharp(jpeg)]);
+        // The two decoders agree to within IDCT rounding.
+        expect(psnr(ours, oracle)).toBeGreaterThanOrEqual(45);
+        // And both are a real decode of the source, not a green screen.
+        expect(psnr(ours, photo)).toBeGreaterThanOrEqual(30);
+        const green = [...ours]
+          .filter((_, i) => i % 3 === 1)
+          .filter((_, px) => ours[px * 3] === 0 && ours[px * 3 + 1] === 255).length;
+        expect(green, `${label} decoded as the #3596 green pattern`).toBeLessThan(
+          photo.length / 12,
+        );
+      }
+    });
+
     it('JPEG is within 0.5 dB of sharp at matched quality and chroma', async () => {
       const cases: Array<[number, '4:2:0' | '4:4:4']> = [
         [50, '4:2:0'],
