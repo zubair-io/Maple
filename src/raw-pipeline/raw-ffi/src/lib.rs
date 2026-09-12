@@ -99,6 +99,11 @@ mod raster;
 // caller-pixels variant and a native-size RGB8 decode. Additive — the
 // first-generation entries in `raster.rs` keep their signatures.
 mod raster_v2;
+// Third-generation raster C ABI (#3505): one entry point that executes a
+// whole recipe (parse + ops + encode) in a single call — new capability
+// lands as a new recipe op instead of a new C symbol. Additive to both
+// `raster.rs` and `raster_v2.rs`, whose entries keep their signatures.
+mod raster_pipeline;
 mod render;
 mod render_develop;
 // Film-look sibling of `maple_render_file` (epic #2683, Task 8) — split out

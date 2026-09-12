@@ -73,19 +73,11 @@ impl RasterImage {
         self.data.clone()
     }
 
-    /// Rotate / orient according to EXIF orientation tag, resetting orientation to Normal.
+    /// Rotate / orient per the EXIF tag, resetting orientation to Normal.
+    /// See `raster_orient::auto_orient` — split out to keep this file under
+    /// budget (#3505).
     pub fn auto_orient(&mut self) {
-        if self.orientation == ExifOrientation::Normal {
-            return;
-        }
-        let rgb = self.to_rgb_bytes();
-        let (nw, nh, rotated) =
-            crate::image::apply_orientation(&rgb, self.width, self.height, self.orientation);
-        self.width = nw;
-        self.height = nh;
-        self.channels = 3;
-        self.data = rotated;
-        self.orientation = ExifOrientation::Normal;
+        crate::raster_orient::auto_orient(self);
     }
 }
 

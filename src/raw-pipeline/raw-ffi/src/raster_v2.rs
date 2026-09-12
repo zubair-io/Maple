@@ -4,7 +4,7 @@
 //! functions in `raster.rs` keep their signatures for existing callers.
 
 use crate::error::{catch_panic_rc, set_last_error};
-use raw_core::export::{encode_raster_with, ExportFormat};
+use raw_core::export::{encode_raster_rgb, ExportFormat};
 use raw_core::raster::{
     decode_raster, resize_raster, FilterAlg, RasterImage, ResizeFit, ResizeOptions,
 };
@@ -99,7 +99,7 @@ unsafe fn render_into(
     } else {
         p.quality.clamp(1, 100)
     };
-    let bytes = match encode_raster_with(&resized, p.format, quality, avif_speed_from(p.effort)) {
+    let bytes = match encode_raster_rgb(&resized, p.format, quality, avif_speed_from(p.effort)) {
         Ok(b) => b,
         Err(e) => {
             set_last_error(format!("encoding raster failed: {e}"));

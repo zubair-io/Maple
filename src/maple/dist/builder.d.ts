@@ -4,29 +4,9 @@
  * Provides a unified chaining interface for RAW photo development,
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
-import type { EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ImageMetadata, RawPixelInput, RawPixels, ResizeOptions, TensorOptions, TensorResult } from './types';
-export declare function isRawPath(filePath: string): boolean;
+import type { Colour, CompositeLayer, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ImageMetadata, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, TensorOptions, TensorResult } from './types';
 export declare class MapleImageBuilder {
-    private _inputPath;
-    private _inputBytes;
-    private _rawInput;
-    private _xmpPath;
-    private _xmpXml;
-    private _format;
-    private _quality;
-    private _colorSpace;
-    private _maxLongEdge;
-    private _filmPath;
-    private _recipe;
-    private _resizeWidth;
-    private _resizeHeight;
-    private _resizeFit;
-    private _withoutEnlargement;
-    private _autoOrient;
-    private _removeAlpha;
-    private _filter;
-    /** sharp-style AVIF effort 0-9, or null for "never set" — see `avifEffortWire`. */
-    private _effort;
+    private readonly s;
     constructor(input: string | Uint8Array | Buffer | RawPixelInput);
     /** Specify path to XMP sidecar */
     xmp(xmpPath: string): this;
@@ -35,7 +15,7 @@ export declare class MapleImageBuilder {
     /** Specify raw XML content of XMP sidecar (alias for applyXmp) */
     xmpContent(xml: string): this;
     /** Configure SIMD resampling dimensions and framing */
-    resize(optionsOrWidth: ResizeOptions | number, height?: number): this;
+    resize(optionsOrWidth: ResizeOptions | number | null, height?: number | null): this;
     /** Automatically rotate according to EXIF orientation */
     rotate(): this;
     /** Set output container format and optional quality/effort */
@@ -56,8 +36,6 @@ export declare class MapleImageBuilder {
     colorSpace(space: ExportColorSpace): this;
     /** Target colourspace (alias for colorSpace) */
     toColourspace(space: string): this;
-    /** Strip alpha channel from image output */
-    removeAlpha(): this;
     /** Set maximum long edge cap */
     maxLongEdge(px: number): this;
     /** Set film LUTs directory */
@@ -66,8 +44,18 @@ export declare class MapleImageBuilder {
     recipe(recipe: ExportRecipe | string): this;
     /** Use a saved ExportRecipe (alias) */
     exportRecipe(recipe: ExportRecipe | string): this;
-    /** Bitmask for the v2 raster entry points — see `resizeFlags`. */
-    private flags;
+    /** Composite overlay image(s) over the processed image (sharp's `composite`). */
+    composite(layers: CompositeLayer[]): this;
+    /** Merge the alpha channel with a background and drop it. */
+    flatten(options?: {
+        background?: Colour | string;
+    }): this;
+    /** Ensure the image has an alpha channel, filled with `alpha` (0-1). */
+    ensureAlpha(alpha?: number): this;
+    /** Drop the alpha channel without compositing. */
+    removeAlpha(): this;
+    /** Native-size interleaved pixels, alpha preserved when the source has it. */
+    toRawAlpha(): Promise<RawPixelsAny>;
     /** Inspect image dimensions, format, orientation without full decode */
     metadata(): Promise<ImageMetadata>;
     /** Check if image file or buffer is valid and uncorrupted by decoding payload */
@@ -76,13 +64,21 @@ export declare class MapleImageBuilder {
     normalizeOrientationInPlace(): Promise<boolean>;
     /** Extract raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace) */
     toRawRgb(options?: TensorOptions): Promise<TensorResult>;
+    /**
+     * True when this builder describes a RAW develop rather than a bitmap
+     * transform: a recipe, an XMP sidecar, or a RAW file path as input.
+     */
+    private isRawDevelop;
+    /** Saved-recipe or XMP-driven RAW development, rendered to a tmp file and read back. */
+    private rawDevelopToBuffer;
+    /** Saved-recipe or XMP-driven RAW development, written straight to `outputPath`. */
+    private rawDevelopToFile;
     /** Render or resize image directly to an in-memory Buffer */
     toBuffer(): Promise<Buffer>;
     /** Execute export or resize and write to output file */
     toFile(outputPath: string): Promise<ExportResult>;
     /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
     toRaw(): Promise<RawPixels>;
-    private decodeRgb8;
 }
 /**
  * Entry function to create a Maple image operation.
