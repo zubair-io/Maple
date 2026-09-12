@@ -130,13 +130,13 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `flatten()`                                        | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                                                                                                                                                                                                     |
 | `ensureAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                                                                          |
 | `removeAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                                                                          |
-| `metadata()`       | ✅    | plus `hasAlpha`/`hasProfile`/`space`/`depth`/`density`/`size`/`icc`/`exif`/`xmp`; `exif` comes back in the form its container stores it, byte-identical to sharp (see below)             |
-| `stats()`          | ✅    | per-channel moments, `isOpaque`, `entropy`, `sharpness`, `dominant`                                                                                                                      |
-| `keepMetadata()`   | ✅    | never fails: each container keeps every field it can carry and drops the rest silently, as sharp does — JPEG and PNG keep all four, WebP all but XMP, TIFF ICC only, AVIF EXIF only      |
-| `withMetadata()`   | ✅    | `{orientation, density}`, same validation as sharp; `autoOrient`/`.rotate()` neutralises a kept Orientation tag to `1` unless you also pass an explicit `orientation`                    |
-| `withExif()`       | ⚠️    | takes a raw EXIF `Buffer`, not sharp's IFD object (`{IFD0: {...}}`) — rejected by name (#3588); not yet supported when developing a RAW file (`.jpg`/etc. from a `.dng` and friends)     |
-| `withIccProfile()` | ⚠️    | TAGS without converting, unlike sharp: `'srgb'`, a path, or raw bytes; `'p3'` and `'cmyk'` rejected by name; no ICC on AVIF output (#3580); not yet supported when developing a RAW file |
-| `withXmp()`        | ⚠️    | JPEG and PNG only — WebP, TIFF and AVIF have no XMP writer, and asking for one explicitly is a named error (see below); not yet supported when developing a RAW file                     |
+| `metadata()`                                       | ✅    | plus `hasAlpha`/`hasProfile`/`space`/`depth`/`density`/`size`/`icc`/`exif`/`xmp`; `exif` comes back in the form its container stores it, byte-identical to sharp (see below)                                                                                                                                                                                             |
+| `stats()`                                          | ✅    | per-channel moments, `isOpaque`, `entropy`, `sharpness`, `dominant`                                                                                                                                                                                                                                                                                                      |
+| `keepMetadata()`                                   | ✅    | never fails: each container keeps every field it can carry and drops the rest silently, as sharp does — JPEG and PNG keep all four, WebP all but XMP, TIFF ICC only, AVIF EXIF only                                                                                                                                                                                      |
+| `withMetadata()`                                   | ✅    | `{orientation, density}`, same validation as sharp; `autoOrient`/`.rotate()` neutralises a kept Orientation tag to `1` unless you also pass an explicit `orientation`                                                                                                                                                                                                    |
+| `withExif()`                                       | ⚠️    | takes a raw EXIF `Buffer`, not sharp's IFD object (`{IFD0: {...}}`) — rejected by name (#3588); not yet supported when developing a RAW file (`.jpg`/etc. from a `.dng` and friends)                                                                                                                                                                                     |
+| `withIccProfile()`                                 | ⚠️    | `'srgb'`/`'p3'` CONVERT and tag, as sharp does (max 2 codes from sharp's lcms rotation); supplied bytes or a path tag WITHOUT converting; `'cmyk'` rejected by name; no ICC on AVIF output (#3580); not yet supported when developing a RAW file                                                                                                                         |
+| `withXmp()`                                        | ⚠️    | JPEG and PNG only — WebP, TIFF and AVIF have no XMP writer, and asking for one explicitly is a named error (see below); not yet supported when developing a RAW file                                                                                                                                                                                                     |
 | `blur()`                                           | ✅    | no argument = 3x3 box; a sigma = separable Gaussian. Byte-identical to sharp                                                                                                                                                                                                                                                                                             |
 | `sharpen()`                                        | ✅    | argument-less kernel and the `{sigma}` Lab mask path both byte-identical                                                                                                                                                                                                                                                                                                 |
 | `median()`                                         | ✅    | integer window 1..1000, no wider than the image, every band. Byte-identical                                                                                                                                                                                                                                                                                              |
@@ -367,6 +367,38 @@ or any `.xmp()`/`.recipe()` input) returns/throws a named
 `"<method> is not supported when developing a RAW file yet — see #3507"`
 error rather than silently dropping the request (#3507).
 
+**Which ICC profile ends up in the file.** Four sources can supply one, and
+they are tried in this order:
+
+|  #  | Source                                                                                              | Converts the pixels?        |
+| :-: | :-------------------------------------------------------------------------------------------------- | :-------------------------- |
+|  1  | `withIccProfile(bytes)` / `withIccProfile(path)`                                                    | no — tags only              |
+|  2  | `withIccProfile('srgb' \| 'p3')`                                                                    | **yes**, into that space    |
+|  3  | `keepMetadata()`/`withMetadata()` — the input's own profile, or a default fill when it carried none | no                          |
+|  4  | `toColourspace('display-p3')` — the primaries profile                                               | already converted by the op |
+|     | nothing matched → **no profile at all**                                                             | —                           |
+
+Rows 1 and 2 are both "an explicit `withIccProfile`", so they outrank a
+`keep` sweep; between them, bytes win, because naming a profile AND supplying
+one is a contradiction the supplied bytes settle. Row 2 rotates the pixels
+into the named space first, so the tag and the samples agree — measured
+against sharp (which converts through lcms) the two disagree by at most **2
+of 255 codes**, mean 0.066, on a 32×32 saturated field, and by at most 1 code
+on the primaries-plus-white-plus-black strip; Maple's rotation is a 3×3
+matrix in linear light, sharp's is a full lcms transform. Row 1 cannot
+convert: nothing here parses an arbitrary ICC profile, so there is no source
+space to rotate from. That is the one place `withIccProfile` still parts
+company with sharp.
+
+The last row is the important one for byte-for-byte round-trips: a default
+call — no `toColourspace`, no metadata methods — ships **untagged**, which is
+what sharp does. Tagging sRGB unconditionally looks more correct and is not:
+sharp colour-manages on decode as soon as any profile is present, so an
+sRGB-tagged PNG came back with 12,008 of 12,288 bytes changed instead of
+passed through. Row 4 applies to JPEG, PNG, TIFF **and WebP** alike; AVIF has
+no ICC box at all, so `toColourspace('display-p3')` with AVIF output is a
+named error rather than untagged P3 samples.
+
 **Metadata capability matrix.** Which blocks each output container's own
 encoder can actually carry — not a policy choice, a limit of the underlying
 encoder crate:
@@ -407,8 +439,8 @@ Extending this table — WebP/TIFF/AVIF XMP, AVIF ICC, TIFF EXIF — is real
 follow-up work in the underlying `image`/`avif-serialize` crates; AVIF's ICC
 gap specifically is tracked as #3580. Where an encoder falls short of sharp,
 the content differs even though the call succeeds: a kept XMP packet is
-absent from WebP, TIFF and AVIF output, and a TIFF carries neither EXIF nor
-an orientation tag.
+absent from WebP, TIFF and AVIF output, and a TIFF carries no EXIF block at
+all (its orientation still lands in IFD0 tag 274 — see footnote ¹).
 
 **Reading metadata back.** `metadata().exif` is the block exactly as its
 container stores it — `Exif\0\0` + TIFF header for JPEG, WebP and AVIF, the
@@ -470,20 +502,20 @@ an AVIF, which is what sharp reports too. That is how #3586 closes — matching
 sharp: the container transform is baked into the pixels and the EXIF tag is
 not surfaced, the same as libvips.
 
-**`stats()` precision.** Two small, known divergences from sharp's own
-numbers, both pre-existing and out of scope for this metadata/stats pass:
-`entropy` and `sharpness` differ from sharp's own measurements because this
-crate's greyscale-luma conversion disagrees with libvips' by ±1 on a minority
-of pixels (#3572) — up to ~0.08 of a bit of entropy on the reference noise
-fixtures (measured 0.0732 on 40×30 RGBA noise in review, and 0.0671 as the
-worst of 40 fresh random trials at that size), exactly 0 on an already-grey
-source, which is what ties the residual to the luma step. It grows on very
-small images, where one pixel's luma is a large share of the histogram:
-measured 0.168 as the worst of 40 trials at 8×8. `sharpness` tracks the same
-step, within 0.04 on all of them; and a
+**`stats()` precision.** `entropy` and `sharpness` now match sharp's own
+numbers to within float noise. They did not before: `stats()` carried its
+own greyscale-luma conversion, which disagreed with libvips' by ±1 on a
+minority of pixels (#3572) and was worth up to ~0.07 of a bit of entropy on
+the reference fixtures. Both now go through the crate's single
+`srgb_to_bw` — the same `vips_col_scRGB2BW` `greyscale()`,
+`toColourspace('b-w')` and `threshold({ greyscale: true })` use — and the
+worst residual measured across a 16×16 ramp, 8×8/32×32/64×64 RGB noise,
+40×30 RGBA noise and an already-grey source is **1e-7** on both numbers
+(entropy was 0.0743 bits and sharpness 0.0096 before). One divergence
+remains, and it is a decode gap rather than a stats one: a
 greyscale-plus-alpha (`La8`) PNG or TIFF can report `hasAlpha: true` from
 `metadata()` while `stats()` decodes it as fully opaque RGB, because
-`decode_raster` currently drops that alpha channel (#3574).
+`decode_raster` drops that alpha channel (#3574).
 
 ```typescript
 const badged = await maple(photo)
