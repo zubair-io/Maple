@@ -30,5 +30,13 @@ export declare function rawDevelopToBuffer(state: BuilderState, toFile: (outputP
  * throw, or `fs.mkdir` failing on a read-only or nonexistent parent) would
  * reject `toFile`'s promise instead of resolving it to `{ ok: false, error
  * }` like every other `toFile` failure.
+ *
+ * `assertRawDevelopOutput` runs here rather than inside `.jpeg()`/`.tiff()`/…
+ * — `.xmp()`/`.recipe()` can turn a builder into a RAW develop after those
+ * per-format methods have already run, so this terminal is the first point
+ * that knows a per-format option (`progressive`, `chromaSubsampling`, …)
+ * would otherwise be silently dropped by `exportImage`/`exportRecipe`, which
+ * carry no such options at all (#3579). Its throw is caught by the try/catch
+ * below like any other rejection from this function.
  */
 export declare function rawDevelopToFile(state: BuilderState, outputPath: string): Promise<ExportResult>;
