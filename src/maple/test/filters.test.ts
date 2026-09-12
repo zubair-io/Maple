@@ -282,15 +282,35 @@ describe('Filters', () => {
   it('a RAW develop input names an op it cannot run instead of dropping it', async () => {
     // `maple('photo.dng').blur(5).toFile(out)` used to write an unblurred
     // file and report success — the RAW-develop terminal never read
-    // `state.ops`. `resize` is the one op that path really does honour.
-    // `toFile` reports it the way it reports every other failure, and
-    // `toBuffer` turns that into a throw.
+    // `state.ops`. `toFile` reports it the way it reports every other
+    // failure, and `toBuffer` turns that into a throw.
     const res = await maple('photo.dng').blur(5).toFile('/tmp/maple-never-written.jpg');
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/blur is not supported on a RAW develop input/);
     await expect(maple('photo.dng').blur(5).toBuffer()).rejects.toThrow(
       /blur is not supported on a RAW develop input/,
     );
+  });
+
+  it('a RAW develop still honours the two ops it reads off state', async () => {
+    // `resize` (read back as a long-edge limit) and `toColourspace` (which
+    // also writes `state.colorSpace`, the export space the develop pipeline
+    // takes) are the two ops the guard above lets through — both get past
+    // it and fail only on the missing file. `toColourspace('b-w')` is the
+    // exception: it pushes a `greyscale` op rather than a `toColourspace`
+    // one, and the develop pipeline has no greyscale stage, so it is named
+    // like any other unsupported op.
+    const missing = /raw read/;
+    const resized = await maple('photo.dng').resize(100).toFile('/tmp/maple-never-written-a.jpg');
+    expect(resized.error).toMatch(missing);
+    const p3 = await maple('photo.dng')
+      .toColourspace('display-p3')
+      .toFile('/tmp/maple-never-written-b.jpg');
+    expect(p3.error).toMatch(missing);
+    const bw = await maple('photo.dng')
+      .toColourspace('b-w')
+      .toFile('/tmp/maple-never-written-c.jpg');
+    expect(bw.error).toMatch(/greyscale is not supported on a RAW develop input/);
   });
 
   it('threshold(0) and threshold(false) are no-ops, as in sharp', async () => {
