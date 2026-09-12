@@ -87,12 +87,30 @@ fn blur_with_no_sigma_is_the_3x3_box() {
 }
 
 #[test]
-fn blur_leaves_a_flat_field_flat() {
+fn blur_leaves_a_flat_mid_tone_field_flat() {
+    // Flat in, flat out — the border included, which is what clamp-to-edge
+    // addressing buys. **Mid-tones only**, though: libvips' integer mask
+    // does not always have unit gain. At sigma 3 its fixed-point mantissas
+    // sum to 257 against an exponent of 256, so a flat field comes back
+    // about 0.8% brighter — measured in BOTH engines, 200 -> 202, 240 ->
+    // 242, 250 -> 252 and 254 -> 255 (clamped). At 77 the same gain rounds
+    // away, which is why this fixture is a mid-tone.
     let flat = RasterImage::new_rgb(8, 8, vec![77; 8 * 8 * 3]);
     let out = flat.blur(Some(3.0)).unwrap();
     assert!(
         out.data.iter().all(|&v| v == 77),
         "clamp-to-edge must not darken the border"
+    );
+
+    let bright = RasterImage::new_rgb(8, 8, vec![200; 8 * 8 * 3]);
+    assert!(
+        bright
+            .blur(Some(3.0))
+            .unwrap()
+            .data
+            .iter()
+            .all(|&v| v == 202),
+        "sigma 3's mask gain is sharp's too — 200 really does come back 202"
     );
 }
 
