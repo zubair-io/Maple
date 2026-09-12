@@ -47,3 +47,33 @@ fn a_tiff_icc_tag_with_a_non_byte_sized_type_is_ignored() {
 
     assert_eq!(read_sidecars(&bytes).icc, None);
 }
+
+#[test]
+fn an_introduced_webp_exif_chunk_is_canonicalised_and_handed_back_as_stored() {
+    // libvips writes the `Exif\0\0` introducer into the WebP `EXIF` chunk
+    // (measured: 186 bytes starting `Exif\0\0` in a sharp-written WebP),
+    // while this crate's own encoder writes the bare TIFF header the WebP
+    // container spec asks for. Internally both are the bare block; what
+    // `metadata()` returns is whichever form was stored, matching sharp
+    // (#3507 final fix wave, item 3 — before this, a WebP→JPEG
+    // `keepMetadata()` wrote `Exif\0\0Exif\0\0II*`, which sharp read as
+    // `orientation: undefined`).
+    let introduced = [EXIF_INTRO, EXIF_TIFF].concat();
+    let bytes = webp_fixture(None, Some(&introduced), None);
+    let found = read_sidecars(&bytes);
+    assert_eq!(found.exif.as_deref(), Some(EXIF_TIFF));
+    assert!(found.exif_intro);
+    assert_eq!(
+        found.exif_as_stored().as_deref(),
+        Some(introduced.as_slice())
+    );
+}
+
+#[test]
+fn a_bare_webp_exif_chunk_stays_bare() {
+    let bytes = webp_fixture(None, Some(EXIF_TIFF), None);
+    let found = read_sidecars(&bytes);
+    assert_eq!(found.exif.as_deref(), Some(EXIF_TIFF));
+    assert!(!found.exif_intro);
+    assert_eq!(found.exif_as_stored().as_deref(), Some(EXIF_TIFF));
+}
