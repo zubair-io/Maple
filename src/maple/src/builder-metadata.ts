@@ -12,6 +12,7 @@
  * the recipe `metadata` block the `with*`/`keep*` methods populate.
  */
 
+import * as fsSync from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
@@ -203,9 +204,21 @@ function invalidParameter(name: string, expected: string, actual: unknown): Erro
   );
 }
 
+/**
+ * Record that `method` touched the metadata block, in call order, deduped
+ * (#3507 fix-round-1, item 1) — `builder-exec.ts`'s RAW-develop terminals
+ * read this back to name the method in their "not supported yet" error.
+ */
+function track(state: BuilderState, method: string): void {
+  if (!state.metadataCallsUsed.includes(method)) {
+    state.metadataCallsUsed.push(method);
+  }
+}
+
 /** Keep every metadata block from the input (sharp's `keepMetadata`). */
 export function applyKeepMetadata(state: BuilderState): void {
   state.metadata.keep = true;
+  track(state, 'keepMetadata');
 }
 
 /** Keep most metadata and optionally set the orientation or density (sharp's `withMetadata`). */
@@ -232,20 +245,86 @@ export function applyWithMetadata(
   if (options?.density !== undefined) {
     state.metadata.density = options.density;
   }
+  track(state, 'withMetadata');
 }
 
-/** Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`). */
+/**
+ * Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`).
+ *
+ * Diverges from sharp's own `withExif(exif: {IFD0?: Record<string,string>,
+ * …})`, which takes an object of IFD tags and authors the TIFF block itself.
+ * Maple has no IFD-object authoring yet (tracked as a follow-up, #3507
+ * follow-up) — passing sharp's object shape here is rejected by name rather
+ * than silently doing the wrong thing with it.
+ */
 export function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): void {
+  if (!(exif instanceof Uint8Array)) {
+    if (typeof exif === 'object' && exif !== null) {
+      throw new Error(
+        'withExif: Maple takes a raw EXIF TIFF-header block (a Buffer), not an IFD object ' +
+          "like sharp's withExif({ IFD0: { ... } }) — IFD-object authoring is a follow-up " +
+          '(#3507 follow-up).',
+      );
+    }
+    throw invalidParameter('exif', 'a Buffer', exif);
+  }
   state.metadata.exif = state.aux.add(exif);
+  track(state, 'withExif');
 }
 
-/** Embed this ICC profile. */
-export function applyWithIccProfile(state: BuilderState, icc: Uint8Array | Buffer): void {
-  state.metadata.icc = state.aux.add(icc);
+/** `'srgb'` and `'p3'` are the only named profiles Maple has built in. */
+const NAMED_ICC_PROFILES = new Set(['srgb', 'p3']);
+
+/**
+ * Embed an ICC profile — `'srgb'`/`'p3'` (Maple's own built-in profiles, no
+ * bytes to supply), a filesystem path (read now — Maple's `aux` blob needs
+ * real bytes at call time, unlike sharp's own deferred-to-libvips read), or
+ * raw profile bytes (a Maple extension beyond sharp's `string`-only
+ * signature). `'cmyk'` is sharp's third named value; Maple has no CMYK ICC
+ * support at all, so it's rejected by name rather than silently ignored.
+ */
+export function applyWithIccProfile(state: BuilderState, icc: string | Uint8Array | Buffer): void {
+  if (icc instanceof Uint8Array) {
+    state.metadata.icc = state.aux.add(icc);
+    state.metadata.iccName = undefined;
+    track(state, 'withIccProfile');
+    return;
+  }
+  if (typeof icc !== 'string') {
+    throw invalidParameter('icc', "'srgb', 'p3', a file path, or a Buffer", icc);
+  }
+  if (icc === 'cmyk') {
+    throw new Error(
+      "withIccProfile('cmyk'): Maple has no CMYK ICC profile support — sharp accepts " +
+        "'cmyk', Maple does not.",
+    );
+  }
+  if (NAMED_ICC_PROFILES.has(icc)) {
+    state.metadata.iccName = icc as 'srgb' | 'p3';
+    state.metadata.icc = undefined;
+    track(state, 'withIccProfile');
+    return;
+  }
+  let bytes: Buffer;
+  try {
+    bytes = fsSync.readFileSync(icc);
+  } catch (error) {
+    throw new Error(
+      `withIccProfile: cannot read ICC profile file '${icc}': ` +
+        (error instanceof Error ? error.message : String(error)),
+    );
+  }
+  state.metadata.icc = state.aux.add(bytes);
+  state.metadata.iccName = undefined;
+  track(state, 'withIccProfile');
 }
 
 /** Embed this XMP packet. */
 export function applyWithXmp(state: BuilderState, xmp: string | Uint8Array | Buffer): void {
+  if (typeof xmp === 'string' && xmp.length === 0) {
+    throw invalidParameter('xmp', 'non-empty string', xmp);
+  }
   const bytes = typeof xmp === 'string' ? Buffer.from(xmp, 'utf-8') : xmp;
   state.metadata.xmp = state.aux.add(bytes);
+  track(state, 'withXmp');
 }

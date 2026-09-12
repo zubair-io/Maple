@@ -32,6 +32,13 @@ export interface RecipeMetadata {
   density?: number;
   exif?: AuxRef;
   icc?: AuxRef;
+  /**
+   * A named built-in profile (`'srgb'` | `'p3'`) instead of `icc` bytes —
+   * `withIccProfile('srgb' | 'p3')`. Resolved on the Rust side via
+   * `icc::profile_for`, so the package never ships a copy of the bytes
+   * itself (#3507 fix-round-1, item 2). Ignored when `icc` is also set.
+   */
+  iccName?: 'srgb' | 'p3';
   xmp?: AuxRef;
 }
 
