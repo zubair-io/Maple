@@ -664,6 +664,10 @@ fn keep_with_no_input_icc_succeeds_on_avif_with_no_icc_embedded() {
     );
 }
 
+/// `avif`-gated: without the feature `output_from_wire` rejects an AVIF
+/// output before the capability gate ever runs (#3506 F5), so the error
+/// names the missing feature rather than the ICC box.
+#[cfg(feature = "avif")]
 #[test]
 fn keep_with_a_real_input_icc_to_avif_is_a_named_error() {
     // An ICC actually present in the input IS a real request, unlike the
@@ -683,6 +687,10 @@ fn keep_with_a_real_input_icc_to_avif_is_a_named_error() {
     );
 }
 
+/// `avif`-gated: without the feature `output_from_wire` rejects an AVIF
+/// output before the capability gate ever runs (#3506 F5), so the error
+/// names the missing feature rather than the ICC box.
+#[cfg(feature = "avif")]
 #[test]
 fn an_explicit_icc_to_avif_is_a_named_error() {
     let icc = p3_icc();
