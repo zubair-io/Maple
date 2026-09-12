@@ -9,7 +9,17 @@
 //! `ExtraSamples::UnassociatedAlpha` (tag 338 = `[2]`) is the correct
 //! declaration, never `AssociatedAlpha`.
 //!
-//! The horizontal predictor is skipped on the alpha path. tiff 0.11.3's
+//! The horizontal predictor is written only for LZW and Deflate, because
+//! TIFF 6.0 defines tag 317 (`Predictor`) only for those two compressors.
+//! libtiff ignores the tag on an uncompressed or PackBits strip and reads
+//! the differenced bytes straight back as pixels, so writing 317=2 there
+//! corrupts the image for every decoder except the `tiff` crate itself
+//! (which un-differences whatever the tag claims). libvips narrows the same
+//! way — measured: `sharp().tiff({ compression: 'none'|'packbits' })` omits
+//! tag 317 entirely and writes 317=2 only for lzw/deflate. See
+//! `predictor_for`.
+//!
+//! The horizontal predictor is skipped on the alpha path too. tiff 0.11.3's
 //! `ImageEncoder::write_strip` differences each row at a stride equal to the
 //! base colortype's own component count (`RGB8`/`RGB16` → 3), unaware of any
 //! samples added afterward by `extra_samples()`; with the file's real
@@ -74,9 +84,9 @@ pub struct TiffOptions {
     /// 8 or 16.
     pub bitdepth: u8,
     /// Horizontal differencing predictor — a big win for LZW on photographs.
-    /// Ignored (always off) when the raster carries alpha; see the module
-    /// doc for why the crate's predictor can't be trusted with the extra
-    /// alpha sample.
+    /// A request, not a guarantee: [`predictor_for`] drops it for the
+    /// compressors TIFF does not define tag 317 for (`none`, `packbits`)
+    /// and for any raster carrying alpha. See the module doc.
     pub predictor: bool,
 }
 
@@ -92,6 +102,32 @@ impl Default for TiffOptions {
 
 fn tiff_error(e: impl std::fmt::Display) -> Error {
     Error::Png(format!("tiff encode failed: {e}"))
+}
+
+/// The predictor this encode actually writes, which is narrower than what
+/// the caller asked for in two independent cases:
+///
+/// 1. **The compressor.** TIFF 6.0 defines tag 317 only for LZW and
+///    Deflate. libtiff ignores it for the others and hands back the
+///    *differenced* bytes as pixels, so an uncompressed or PackBits file
+///    written with the horizontal predictor decodes as garbage in every
+///    reader but the one that wrote it. libvips does the same narrowing —
+///    `sharp().tiff({ compression: 'none', predictor: 'horizontal' })`
+///    omits tag 317 entirely and only writes 317=2 for lzw/deflate.
+/// 2. **Alpha.** See the module doc: tiff 0.11.3 differences each row at
+///    the base colortype's component count (3), unaware of the extra
+///    sample `extra_samples()` adds, so a 4-channel buffer written with
+///    the predictor misaligns past the first pixel.
+fn predictor_for(options: &TiffOptions, has_alpha: bool) -> Predictor {
+    let compressor_defines_it = matches!(
+        options.compression,
+        TiffCompression::Lzw | TiffCompression::Deflate
+    );
+    if options.predictor && !has_alpha && compressor_defines_it {
+        Predictor::Horizontal
+    } else {
+        Predictor::None
+    }
 }
 
 pub fn encode_tiff_opts(
@@ -112,14 +148,7 @@ pub fn encode_tiff_opts(
         )));
     }
     let has_alpha = raster.channels == 4;
-    // See the module doc: the crate's horizontal predictor corrupts data
-    // once an extra (alpha) sample is present, so the alpha path never uses
-    // it regardless of what the caller asked for.
-    let predictor = if !has_alpha && options.predictor {
-        Predictor::Horizontal
-    } else {
-        Predictor::None
-    };
+    let predictor = predictor_for(options, has_alpha);
     let mut out: Vec<u8> = Vec::new();
     {
         let mut encoder = TiffEncoder::new(std::io::Cursor::new(&mut out))
