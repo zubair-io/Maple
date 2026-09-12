@@ -168,22 +168,76 @@ export function stateToRecipe(state: BuilderState, output: Record<string, unknow
 
 /**
  * sharp options Maple's pure-Rust encoders do not implement, rejected by
- * name at call time rather than silently ignored (#3506 F5).
+ * name at call time rather than silently ignored (#3506 F5, extended F6).
+ *
+ * Cross-checked against sharp 0.34.5's `lib/output.js` (`jpeg()`, `png()`,
+ * `webp()`, `avif()`→`heif()`, `tiff()`) option by option:
+ *
+ * - `force` is a real option on every one of those methods ("force this
+ *   container, otherwise attempt to keep the input format"); Maple always
+ *   forces the container the caller named by calling `.jpeg()`/etc, so
+ *   `force: false` (asking to fall back to the input format) has no
+ *   equivalent and must not be silently accepted as a no-op.
+ * - JPEG: sharp accepts BOTH the British and American spelling of
+ *   `trellisQuantisation`/`trellisQuantization` as synonyms; F5 only ever
+ *   named the British one.
+ * - PNG: `quality`/`effort` drive sharp's palette-quantisation step (they
+ *   only take effect once `palette` is implied); Maple's PNG encoder has no
+ *   quantiser at all, so both are real, silently-droppable options.
+ * - WebP: `quality` (lossy quality, irrelevant to Maple's lossless-only
+ *   encoder) and the animation-only knobs (`smartDeblock`, `loop`, `delay`,
+ *   `minSize`, `mixed`) — Maple's WebP encoder never handles animated input.
+ * - AVIF: `tune` is not a sharp option at all (dropped, F6) — `avif()`
+ *   delegates to `heif({ ...options, compression: 'av1' })`, whose
+ *   documented surface is `quality`/`lossless`/`effort`/`chromaSubsampling`/
+ *   `bitdepth` only. `bitdepth` stays: Maple's AVIF encoder has no 8/10/12
+ *   selection.
+ * - TIFF: `quality` (sharp's JPEG-in-TIFF quality knob — moot without a
+ *   JPEG-in-TIFF encoder, see the README parity note), `tileWidth`/
+ *   `tileHeight` (meaningless without `tile`, already rejected), and
+ *   `resolutionUnit` (no xres/yres to apply it to, also already rejected).
  */
 const UNSUPPORTED: Record<string, string[]> = {
   jpeg: [
     'mozjpeg',
     'trellisQuantisation',
+    'trellisQuantization',
     'overshootDeringing',
     'optimiseScans',
     'optimizeScans',
     'quantisationTable',
     'quantizationTable',
+    'force',
   ],
-  png: ['progressive'],
-  webp: ['alphaQuality', 'nearLossless', 'smartSubsample', 'preset', 'effort'],
-  avif: ['bitdepth', 'tune'],
-  tiff: ['tile', 'pyramid', 'bigtiff', 'xres', 'yres', 'miniswhite'],
+  png: ['progressive', 'quality', 'effort', 'force'],
+  webp: [
+    'alphaQuality',
+    'nearLossless',
+    'smartSubsample',
+    'smartDeblock',
+    'preset',
+    'effort',
+    'quality',
+    'loop',
+    'delay',
+    'minSize',
+    'mixed',
+    'force',
+  ],
+  avif: ['bitdepth', 'force'],
+  tiff: [
+    'tile',
+    'pyramid',
+    'bigtiff',
+    'xres',
+    'yres',
+    'miniswhite',
+    'quality',
+    'tileWidth',
+    'tileHeight',
+    'resolutionUnit',
+    'force',
+  ],
 };
 
 /** Throw if the caller passed an option this encoder cannot honour. */
