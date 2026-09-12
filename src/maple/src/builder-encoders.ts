@@ -10,13 +10,15 @@
  * (before the value ever reaches `state.output`, let alone the wire) for a
  * real sharp option this format's pure-Rust encoder cannot honour — see
  * that function's doc in `builder-state.ts` for the full cross-checked list
- * per format (#3506 F5/F6). Values these encoders CAN accept but reject for
+ * per format (#3506 F5/F6). The three formats with numeric options then run
+ * `checkOptionRanges`, which throws in sharp's own wording for a value
+ * outside sharp's range. Values these encoders CAN accept but reject for
  * a particular setting (e.g. an unsupported `chromaSubsampling` string, or
  * WebP `lossless: false`) are validated raw-core side instead, where the
  * error already names the offending value — not duplicated here.
  */
 
-import { rejectUnsupported } from './builder-state';
+import { checkOptionRanges, rejectUnsupported } from './builder-state';
 import type { BuilderState } from './builder-state';
 import type {
   AvifOutputOptions,
@@ -30,6 +32,7 @@ import type {
 export function setJpegOutput(state: BuilderState, options?: JpegOutputOptions): void {
   const passed = (options ?? {}) as Record<string, unknown>;
   rejectUnsupported('jpeg', passed);
+  checkOptionRanges('jpeg', passed);
   state.format = 'jpeg';
   state.outputOptions = passed;
   // Also the RAW-develop field: `exportImage` reads `state.quality`, never
@@ -59,6 +62,7 @@ export function setJpegOutput(state: BuilderState, options?: JpegOutputOptions):
 export function setPngOutput(state: BuilderState, options?: PngOutputOptions): void {
   const passed = (options ?? {}) as Record<string, unknown>;
   rejectUnsupported('png', passed);
+  checkOptionRanges('png', passed);
   const impliesPalette = [options?.colours, options?.colors, options?.dither].some(
     (value) => value !== undefined,
   );
@@ -87,6 +91,7 @@ export function setWebpOutput(state: BuilderState, options?: WebpOutputOptions):
 export function setAvifOutput(state: BuilderState, options?: AvifOutputOptions): void {
   const passed = (options ?? {}) as Record<string, unknown>;
   rejectUnsupported('avif', passed);
+  checkOptionRanges('avif', passed);
   state.format = 'avif';
   state.outputOptions = passed;
   // See `setJpegOutput`: `state.quality`/`state.effort` are what the
