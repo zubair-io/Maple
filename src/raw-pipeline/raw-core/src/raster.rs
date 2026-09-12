@@ -29,6 +29,13 @@ pub use raster_resize::{resize_raster, FilterAlg, ResizeFit, ResizeOptions};
 mod raster_tensor;
 pub use raster_tensor::{extract_tensor, TensorData, TensorLayout, TensorNormalize};
 
+/// Header-only container probing (dimensions, format, channels, alpha,
+/// orientation) — see its own module doc.
+#[path = "raster_probe.rs"]
+mod raster_probe;
+use raster_probe::container_orientation;
+pub use raster_probe::{probe_raster_metadata, RasterMetadata};
+
 /// Representation of a decoded non-RAW raster image in memory.
 #[derive(Clone, Debug)]
 pub struct RasterImage {
@@ -89,127 +96,6 @@ impl RasterImage {
     }
 }
 
-/// Metadata probed from a raster image container without decoding full pixels.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RasterMetadata {
-    pub width: u32,
-    pub height: u32,
-    pub format: String,
-    pub channels: u8,
-    pub orientation: u16,
-    /// Whether the container's own colour type carries an alpha channel
-    /// (#3507 controller ruling). Derived from the real container header for
-    /// every non-AVIF format (see [`channels_and_alpha_from_header`]); AVIF
-    /// keeps its box-derived value (Task G2's `ispe`/alpha-item read).
-    pub has_alpha: bool,
-}
-
-/// Quick probing of raster image dimensions and format from raw bytes.
-pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
-    if is_avif(bytes) {
-        let probe = avif_decode_gate::probe(bytes)?;
-        return Ok(RasterMetadata {
-            width: probe.width,
-            height: probe.height,
-            format: "avif".to_string(),
-            channels: if probe.has_alpha { 4 } else { 3 },
-            // Real orientation from the container's irot/imir transform
-            // properties (#3507). Before this, `.rotate()` on an AVIF source
-            // was a silent no-op.
-            orientation: crate::avif_boxes::read_avif_boxes(bytes).orientation,
-            has_alpha: probe.has_alpha,
-        });
-    }
-
-    let cursor = Cursor::new(bytes);
-    let reader = ImageReader::new(cursor)
-        .with_guessed_format()
-        .map_err(|e| Error::Decode {
-            path: "<memory>".into(),
-            reason: format!("failed to probe image format: {e}"),
-        })?;
-
-    let format_str = match reader.format() {
-        Some(image::ImageFormat::Jpeg) => "jpeg",
-        Some(image::ImageFormat::Png) => "png",
-        Some(image::ImageFormat::WebP) => "webp",
-        Some(image::ImageFormat::Tiff) => "tiff",
-        Some(image::ImageFormat::Avif) => "avif",
-        Some(other) => return Err(Error::UnsupportedFormat(format!("{other:?}"))),
-        None => return Err(Error::UnsupportedFormat("unknown image format".into())),
-    };
-
-    let (width, height, final_format) = match reader.into_dimensions() {
-        Ok((w, h)) => {
-            let fmt = if format_str == "tiff" {
-                if let Some((_, _, is_dng)) = parse_tiff_dimensions(bytes) {
-                    if is_dng {
-                        "dng"
-                    } else {
-                        "tiff"
-                    }
-                } else {
-                    "tiff"
-                }
-            } else {
-                format_str
-            };
-            (w, h, fmt)
-        }
-        Err(_) => {
-            if let Some((w, h, is_dng)) = parse_tiff_dimensions(bytes) {
-                (w, h, if is_dng { "dng" } else { "tiff" })
-            } else {
-                return Err(Error::Decode {
-                    path: "<memory>".into(),
-                    reason: "failed to read image dimensions".into(),
-                });
-            }
-        }
-    };
-
-    // Try to extract EXIF orientation if available in the first 64KB
-    let orientation = extract_exif_orientation(bytes).unwrap_or(1);
-    let (channels, has_alpha) = channels_and_alpha_from_header(bytes);
-
-    Ok(RasterMetadata {
-        width,
-        height,
-        format: final_format.into(),
-        channels,
-        orientation,
-        has_alpha,
-    })
-}
-
-/// Real channel count and alpha presence for a non-AVIF container, read
-/// straight from its header (`image::ImageDecoder::color_type()`) rather
-/// than assumed. #3507 controller ruling: this replaces a hard-coded
-/// `channels: 3` that made `RasterMetadata` unable to ever report a real
-/// alpha channel for a JPEG/PNG/TIFF/WebP source, which is a real
-/// `metadata()` parity bug against sharp — measured against sharp 0.34.5,
-/// see `raster_tests.rs`'s `probe_channels_and_has_alpha_match_sharp_*`
-/// cases. Mirrors the header-level probe Task G4's `raster_analyze` used to
-/// carry locally (now collapsed onto this field — see that module's doc).
-///
-/// A decoder-construction failure here — after `probe_raster_metadata`
-/// already succeeded at reading dimensions above — shouldn't happen in
-/// practice; falls back to `(3, false)` rather than turning an advisory
-/// field probe into a hard error.
-fn channels_and_alpha_from_header(bytes: &[u8]) -> (u8, bool) {
-    match ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()
-        .and_then(|reader| reader.into_decoder().ok())
-    {
-        Some(decoder) => {
-            let color = decoder.color_type();
-            (color.channel_count(), color.has_alpha())
-        }
-        None => (3, false),
-    }
-}
-
 /// Decode a non-RAW bitmap (JPEG, PNG, WebP, TIFF) from in-memory bytes into a RasterImage.
 pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage> {
     let hinted_avif = matches!(
@@ -217,7 +103,14 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
         Some("avif")
     );
     if hinted_avif || is_avif(bytes) {
-        return avif_decode_gate::decode(bytes);
+        // The AVIF decoder itself never looks at `irot`/`imir`, so the
+        // container's own transform has to be attached here for
+        // `auto_orient` to have anything to apply (#3507 final fix wave,
+        // item 4).
+        return avif_decode_gate::decode(bytes).map(|image| RasterImage {
+            orientation: ExifOrientation::from_u16(container_orientation(bytes)),
+            ..image
+        });
     }
 
     let hinted_jpeg = matches!(
@@ -255,8 +148,7 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
         reason: format!("failed to decode raster pixels: {e}"),
     })?;
 
-    let orientation_val = extract_exif_orientation(bytes).unwrap_or(1);
-    let orientation = ExifOrientation::from_u16(orientation_val);
+    let orientation = ExifOrientation::from_u16(container_orientation(bytes));
 
     let (width, height) = dyn_img.dimensions();
 

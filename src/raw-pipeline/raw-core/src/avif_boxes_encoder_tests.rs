@@ -358,3 +358,38 @@ fn truncating_a_real_muxed_fixture_at_any_length_never_panics() {
         assert!(outcome.is_ok(), "panicked at truncation length {len}");
     }
 }
+
+#[cfg(feature = "avif")]
+#[test]
+fn a_quarter_turned_avif_probes_post_transform_dimensions_and_decodes_with_the_flag() {
+    // sharp reports an AVIF's size after `irot` (libheif's handle size is
+    // post-transform): 24×16 coded with `irot 3` reads back as 16×24
+    // (measured against sharp 0.34.5). The decoded pixels stay coded-size
+    // with the orientation as a flag, which is what `auto_orient` applies —
+    // before this, the AVIF branch of `decode_raster` dropped the container
+    // transform entirely and `.rotate()` was a no-op (#3507 final fix
+    // wave, item 4).
+    let rgb: Vec<u8> = (0..(24 * 16))
+        .flat_map(|i| [(i % 251) as u8, 60, 30])
+        .collect();
+    let base = crate::avif::encode(24, 16, &rgb, 60).unwrap();
+    let muxed = mux_avif(&base, Some(3), None, None, None);
+
+    let meta = crate::raster::probe_raster_metadata(&muxed).unwrap();
+    assert_eq!((meta.width, meta.height, meta.orientation), (16, 24, 6));
+
+    let mut decoded = crate::raster::decode_raster(&muxed, None).unwrap();
+    assert_eq!((decoded.width, decoded.height), (24, 16));
+    assert_eq!(decoded.orientation, crate::image::ExifOrientation::Rotate90);
+    decoded.auto_orient();
+    assert_eq!((decoded.width, decoded.height), (16, 24));
+}
+
+#[cfg(feature = "avif")]
+#[test]
+fn an_unrotated_avif_probes_coded_dimensions() {
+    let rgb: Vec<u8> = vec![70u8; 24 * 16 * 3];
+    let base = crate::avif::encode(24, 16, &rgb, 60).unwrap();
+    let meta = crate::raster::probe_raster_metadata(&base).unwrap();
+    assert_eq!((meta.width, meta.height, meta.orientation), (24, 16, 1));
+}
