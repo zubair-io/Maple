@@ -334,7 +334,7 @@ pub(crate) fn reject_untagged_avif_p3(
     primaries: crate::view::encode::TargetPrimaries,
 ) -> Result<()> {
     if format == ExportFormat::Avif && primaries == crate::view::encode::TargetPrimaries::P3 {
-        return Err(Error::UnsupportedFormat(
+        return Err(Error::BitmapEncode(
             "AVIF export cannot carry a Display P3 ICC profile yet (#3503) — export sRGB, \
              or choose JPEG/PNG/TIFF/WebP for a Display P3 deliverable"
                 .into(),
