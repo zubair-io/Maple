@@ -14,6 +14,7 @@
 use crate::error::Result;
 use crate::raster_meta::RasterSidecars;
 use crate::raster_recipe::AuxRef;
+use crate::view::encode::TargetPrimaries;
 use serde::Deserialize;
 
 /// What to do with the input's metadata.
@@ -106,19 +107,20 @@ pub struct ResolvedMetadata {
     pub xmp_requested: bool,
 }
 
-/// sRGB — the profile `keep: true` adds when the input carries none, mirroring
+/// The profile `keep: true` adds when the input carries none, mirroring
 /// sharp's `withMetadata()` (measured: `sharp(pngWithNoIcc).withMetadata()
 /// .png().toBuffer()` → `metadata().hasProfile === true`, a ~430-byte lcms
 /// sRGB profile — sharp's default `.jpeg()`/`.png()`/etc with no
 /// `withMetadata()` at all embeds nothing, per the same measurement).
 ///
-/// Hardcodes sRGB rather than the recipe's actual output primaries because
-/// this schema has no `toColourspace`/output-primaries concept yet (PR-D).
-/// Once it does, this default should follow the output's real primaries
-/// instead — the same call-site note already exists on the PR-F branch for
-/// the equivalent hardcoded-sRGB decision there; this is that same TODO.
-fn default_icc() -> Vec<u8> {
-    crate::icc::profile_for(crate::view::encode::TargetPrimaries::Srgb)
+/// It follows the recipe's OUTPUT primaries, not a hardcoded sRGB. PR-G
+/// hardcoded sRGB because its base had no `toColourspace` concept, with a
+/// note to fix it once one existed; PR-D's is on this base now. Getting it
+/// wrong is not cosmetic: `.toColourspace('display-p3').withMetadata()`
+/// would fill in an sRGB profile over Display P3 samples, which is the
+/// mislabelling `withIccProfile('p3')` was a named error to avoid.
+fn default_icc(primaries: TargetPrimaries) -> Vec<u8> {
+    crate::icc::profile_for(primaries)
 }
 
 /// Resolve `metadata.iccName` ("srgb"/"p3") to the package's own built-in
@@ -165,6 +167,7 @@ pub fn resolve_metadata(
     input: &[u8],
     aux: &[u8],
     auto_oriented: bool,
+    primaries: TargetPrimaries,
 ) -> Result<ResolvedMetadata> {
     let kept = if metadata.keep {
         crate::raster_meta::read_sidecars(input)
@@ -244,7 +247,9 @@ pub fn resolve_metadata(
     // input's own profile nor the default sRGB fill below is something to
     // hold a can't-write-ICC format (AVIF, #3580) to — see the field's doc.
     let icc_requested = supplied_icc.is_some();
-    let icc = supplied_icc.or_else(|| kept.icc.clone().or_else(|| metadata.keep.then(default_icc)));
+    let icc = supplied_icc
+        .or_else(|| kept.icc.clone())
+        .or_else(|| metadata.keep.then(|| default_icc(primaries)));
     let supplied_xmp = supplied("xmp", metadata.xmp)?;
     let xmp_requested = supplied_xmp.is_some();
     let xmp = supplied_xmp.or(kept.xmp);
