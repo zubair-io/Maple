@@ -54,9 +54,9 @@ use crate::view::encode::{srgb_degamma, srgb_gamma};
 pub(crate) const REC709_LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
 
 /// Largest median window `size` this crate accepts — sharp validates
-/// `size` as an integer >= 1 with no documented ceiling, but an unbounded
-/// window is an O(size²) rank-sort per pixel; 1000 is a generous, explicit
-/// cap rather than an unbounded one (values named in the error either way).
+/// `size` as an integer in `[1, 1000]` (`lib/operation.js`'s own
+/// `is.inRange(size, 1, 1000)`), so this crate's ceiling is sharp's, not an
+/// invented one.
 const MAX_MEDIAN_SIZE: u32 = 1000;
 
 /// sharp's documented `convolve` kernel dimension contract: both `width` and
@@ -85,25 +85,41 @@ pub(crate) fn bw_luma(rgb: [u8; 3]) -> u8 {
 }
 
 impl RasterImage {
-    /// Square median (rank) filter: window `size` x `size`, `size` odd and
-    /// in `[1, 1000]`. Every band, alpha included — see the module doc.
+    /// Square median (rank) filter: window `size` x `size`, any integer in
+    /// `[1, 1000]` — sharp/`vips_rank` accepts even windows too (#3504 task
+    /// E5 controller ruling (c); the odd-only rule this crate enforced
+    /// through task E4 was never sharp's own rule, just an unexamined
+    /// assumption). Every band, alpha included — see the module doc.
     /// Clamp-to-edge addressing at the image boundary, matching `blur`.
+    ///
+    /// **Even-size windowing.** For an odd `size` the window is symmetric:
+    /// `(size - 1) / 2` taps on each side of the centre pixel. For an even
+    /// `size` there is no exact centre, and libvips puts the extra tap on
+    /// the low side — measured against sharp 0.34.5 with a single-column
+    /// spike probe (a lone bright pixel in an otherwise flat field): with
+    /// `size: 2`, the spike shows up in the output at its own column AND
+    /// the column to its right, never the column to its left, meaning the
+    /// window at pixel `x` spans `[x-1, x]`, not `[x, x+1]`. That
+    /// generalises to `before = size / 2` taps on the low side and
+    /// `after = size - 1 - before` on the high side, which collapses to the
+    /// symmetric `(size - 1) / 2` on both sides whenever `size` is odd.
     pub fn median(&self, size: u32) -> Result<Self> {
-        if size == 0 || size % 2 == 0 || size > MAX_MEDIAN_SIZE {
+        if size == 0 || size > MAX_MEDIAN_SIZE {
             return Err(Error::Pipeline(format!(
-                "median window {size} must be an odd integer in [1, {MAX_MEDIAN_SIZE}]"
+                "median window {size} must be an integer in [1, {MAX_MEDIAN_SIZE}]"
             )));
         }
-        let radius = (size / 2) as i64;
+        let before = (size / 2) as i64;
+        let after = size as i64 - 1 - before;
         let c = self.channels as usize;
         let (w, h) = (self.width as usize, self.height as usize);
         let data = (0..h)
             .flat_map(|y| {
                 (0..w).flat_map(move |x| {
                     (0..c).map(move |band| {
-                        let mut window: Vec<u8> = (-radius..=radius)
+                        let mut window: Vec<u8> = (-before..=after)
                             .flat_map(|dy| {
-                                (-radius..=radius).map(move |dx| {
+                                (-before..=after).map(move |dx| {
                                     let sy = clamp_index(y as i64 + dy, h);
                                     let sx = clamp_index(x as i64 + dx, w);
                                     self.data[(sy * w + sx) * c + band]
