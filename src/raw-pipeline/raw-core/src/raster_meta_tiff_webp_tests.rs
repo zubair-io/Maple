@@ -25,8 +25,10 @@ fn reads_the_icc_profile_back_out_of_a_tiff() {
     let found = read_sidecars(&bytes);
     assert_eq!(found.icc.as_deref(), Some(icc().as_slice()));
     assert_eq!(found.xmp.as_deref(), Some(XMP_PACKET));
-    // The whole file stands in as the EXIF block for a TIFF.
-    assert_eq!(found.exif.as_deref(), Some(bytes.as_slice()));
+    // No EXIF block for a TIFF — its IFD0 is its EXIF, and sharp reports
+    // none (#3507 final fix wave, item 5). Returning the whole file here
+    // cost 431 ms and a 48 MB buffer on a 48 MB TIFF, against sharp's 1 ms.
+    assert_eq!(found.exif, None);
 }
 
 #[test]
