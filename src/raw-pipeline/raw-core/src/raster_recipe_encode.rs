@@ -121,7 +121,7 @@ pub(crate) fn require_supported(
     }
     if meta.icc_requested && !caps.icc {
         return Err(bad(format!(
-            "{format_name} cannot embed an ICC profile (requested via metadata.icc / keep)"
+            "{format_name} cannot embed an ICC profile (requested via metadata.icc / metadata.iccName / keep)"
         )));
     }
     if meta.xmp.is_some() && !caps.xmp {
