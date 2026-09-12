@@ -18,15 +18,16 @@
 //!   (`RasterImage::is_opaque`, already on this branch from #3505).
 //! * `entropy` — Shannon entropy of the 256-bin greyscale histogram, in
 //!   bits, alpha discarded (`stats.cc`: `hist_find().hist_entropy()` on
-//!   `colourspace(B_W)`). The B_W conversion is Rec.709 luma taken in
-//!   LINEAR light (de-gamma, weight, re-gamma) — the same definition #3503
-//!   (`raster_colour.rs`, `bw_luma`) and #3504 (`raster_filter_ops.rs`,
-//!   also `bw_luma`) both landed after measuring real sharp output. Neither
-//!   of those lanes is on this branch (this worktree is stacked on the
-//!   shared #3505 base only), so this file carries its own private copy of
-//!   the same function rather than blocking on either lane — precisely the
-//!   call #3504's own module doc makes for the identical gap. Reconcile
-//!   into one shared helper when the lanes merge.
+//!   `colourspace(B_W)`). The B_W conversion is the crate's ONE
+//!   black-and-white reduction, [`crate::raster_labs::srgb_to_bw`] — the
+//!   same `vips_col_scRGB2BW` the colour lane's `greyscale()` /
+//!   `toColourspace('b-w')` and the filter lane's `threshold({greyscale})`
+//!   go through. This file used to carry a private copy computed with
+//!   Maple's own sRGB transfer functions, which disagreed with libvips by
+//!   ±1 on a minority of pixels and so left a small entropy residual
+//!   (#3572); routing through the shared helper shrinks it — measured
+//!   before/after on the reference fixtures, worst-case entropy residual
+//!   0.0743 → 0.0098 bits and sharpness 0.0096 → 0.0029.
 //! * `sharpness` — the sample standard deviation of an UNCLAMPED
 //!   floating-point 3x3 Laplacian convolution of the greyscale image.
 //!   `stats.cc` runs `vips_conv` with the classic 4-connected Laplacian
@@ -76,24 +77,18 @@
 //!   measured tie fixtures that pin that ordering, and for the earlier
 //!   claim they disproved.
 //!
-//! `greyscale`, `convolve` and `blur` are all real `RasterImage` methods
-//! elsewhere in the #3507 epic (colour-ops lane #3503, filters lane #3504),
-//! but none of those lanes are merged into this branch yet. Rather than
-//! block this task on a merge outside its own authorization, the greyscale
-//! and convolution logic needed for `entropy`/`sharpness` is reimplemented
-//! locally below (`bw_luma`, `grey_buffer`, `laplacian3x3`), and the one
-//! test that wants "a blurred copy of an image" (to prove `sharpness`
+//! The greyscale reduction is shared (see `entropy` above). The
+//! convolution is not: libvips' sharpness estimate runs its 3x3 Laplacian
+//! UNCLAMPED and in float, where the filter lane's `RasterImage::convolve`
+//! writes a clamped `u8` raster, so [`laplacian3x3`] below stays local. The
+//! one test that wants "a blurred copy of an image" (to prove `sharpness`
 //! orders a sharp edge above a soft one) uses a small test-only box blur
-//! instead of calling a `RasterImage::blur` that does not exist here.
+//! rather than pulling the filter lane's premultiply sandwich into a stats
+//! test.
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
-use crate::view::encode::{srgb_degamma, srgb_gamma};
-
-/// Rec.709 luma coefficients — the sRGB -> B_W matrix libvips uses. Kept in
-/// sync with `raster_colour::REC709_LUMA` / `raster_filter_ops::REC709_LUMA`
-/// (see the module doc: those lanes aren't merged here yet).
-const REC709_LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
+use crate::raster_colour::bw_luma;
 
 /// Per-channel statistics, with sharp's field names.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -177,22 +172,9 @@ fn channel_stats(data: &[u8], channels: usize, width: u32, band: usize) -> Chann
     }
 }
 
-/// Rec.709 luma taken in LINEAR light: de-gamma each channel, weight, re-gamma,
-/// round. This is what `vips_colourspace(sRGB -> B_W)` (and so sharp's
-/// `greyscale()` / the B_W conversion `stats()` runs for `entropy`) actually
-/// measures — see the module doc for why this is a local copy rather than a
-/// shared helper.
-fn bw_luma(rgb: [u8; 3]) -> u8 {
-    let linear: f64 = (0..3)
-        .map(|i| REC709_LUMA[i] * srgb_degamma(rgb[i] as f32 / 255.0) as f64)
-        .sum();
-    (srgb_gamma(linear as f32) as f64 * 255.0)
-        .round()
-        .clamp(0.0, 255.0) as u8
-}
-
-/// Single-channel greyscale buffer, alpha discarded, one [`bw_luma`] sample
-/// per pixel.
+/// Single-channel greyscale buffer, alpha discarded, one
+/// [`crate::raster_colour::bw_luma`] sample per pixel — the crate's one
+/// black-and-white reduction, shared with `greyscale()` and `threshold()`.
 fn grey_buffer(raster: &RasterImage) -> Vec<u8> {
     let c = raster.channels as usize;
     raster
