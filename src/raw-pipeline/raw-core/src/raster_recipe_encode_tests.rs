@@ -19,6 +19,9 @@ fn meta(
         exif: exif.map(|b| b.to_vec()),
         xmp: xmp.map(|b| b.to_vec()),
         density,
+        // These per-encoder tests are about the blocks; the native-tag
+        // orientation (TIFF) has its own cases below.
+        orientation: None,
         exif_requested: exif.is_some(),
         icc_requested: icc.is_some(),
         xmp_requested: xmp.is_some(),
@@ -342,5 +345,93 @@ fn the_encode_path_itself_applies_the_gate() {
     assert!(
         format!("{err}").contains("TIFF cannot embed EXIF"),
         "got: {err}"
+    );
+}
+
+// ---- round 5, N2: TIFF states its orientation as IFD0 tag 274 ----
+
+/// Read IFD0 tag 274 (Orientation) out of an encoded TIFF.
+fn tiff_orientation(bytes: &[u8]) -> Option<u16> {
+    let little = bytes.starts_with(b"II");
+    let u16_at = |at: usize| -> Option<u16> {
+        let b = bytes.get(at..at.checked_add(2)?)?;
+        Some(if little {
+            u16::from_le_bytes([b[0], b[1]])
+        } else {
+            u16::from_be_bytes([b[0], b[1]])
+        })
+    };
+    let u32_at = |at: usize| -> Option<u32> {
+        let b = bytes.get(at..at.checked_add(4)?)?;
+        Some(if little {
+            u32::from_le_bytes([b[0], b[1], b[2], b[3]])
+        } else {
+            u32::from_be_bytes([b[0], b[1], b[2], b[3]])
+        })
+    };
+    let ifd = u32_at(4)? as usize;
+    let count = u16_at(ifd)? as usize;
+    (0..count).find_map(|entry| {
+        let at = ifd + 2 + entry * 12;
+        (u16_at(at)? == 0x0112).then(|| u16_at(at + 8)).flatten()
+    })
+}
+
+#[test]
+fn tiff_writes_the_resolved_orientation_as_tag_274() {
+    for orientation in [1u16, 5, 6, 8] {
+        let meta = ResolvedMetadata {
+            orientation: Some(orientation),
+            ..Default::default()
+        };
+        let bytes = encode_raster_output(
+            &rgb(2, 2, 200),
+            &RasterOutput::Tiff(TiffOptions::default()),
+            &meta,
+        )
+        .unwrap();
+        assert_eq!(
+            tiff_orientation(&bytes),
+            Some(orientation),
+            "orientation {orientation}"
+        );
+        // Still a TIFF anything can read.
+        let decoded = crate::raster::decode_raster(&bytes, Some("tiff")).unwrap();
+        assert_eq!((decoded.width, decoded.height), (2, 2));
+    }
+}
+
+#[test]
+fn tiff_writes_no_orientation_tag_when_none_is_resolved() {
+    let bytes = encode_raster_output(
+        &rgb(2, 2, 200),
+        &RasterOutput::Tiff(TiffOptions::default()),
+        &ResolvedMetadata::default(),
+    )
+    .unwrap();
+    assert_eq!(tiff_orientation(&bytes), None);
+}
+
+#[test]
+fn tiff_still_embeds_an_icc_profile_alongside_the_orientation() {
+    let icc = p3();
+    let rgb16 = vec![9000u16; 2 * 2 * 3];
+    let meta = ResolvedMetadata {
+        icc: Some(icc.clone()),
+        icc_requested: true,
+        orientation: Some(6),
+        ..Default::default()
+    };
+    let bytes = encode_raster_output(
+        &rgb(2, 2, 200),
+        &RasterOutput::Tiff(TiffOptions::default()),
+        &meta,
+    )
+    .unwrap();
+    assert_eq!(tiff_orientation(&bytes), Some(6));
+    assert_eq!(
+        read_sidecars(&bytes).icc.as_deref(),
+        Some(icc.as_slice()),
+        "the ICC tag must survive the switch to the tiff crate"
     );
 }

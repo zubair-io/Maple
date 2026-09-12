@@ -85,6 +85,11 @@ pub struct EmbeddedMetadata<'a> {
     pub exif: Option<&'a [u8]>,
     pub xmp: Option<&'a [u8]>,
     pub density: Option<f64>,
+    /// For a container that states its orientation as a native tag rather
+    /// than inside an EXIF block — TIFF's IFD0 tag 274 (#3507 round 5).
+    /// Every other encoder here ignores it: their orientation rides in
+    /// `exif`.
+    pub orientation: Option<u16>,
 }
 
 /// Composite a raster over an opaque background, returning a 3-channel

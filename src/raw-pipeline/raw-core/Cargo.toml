@@ -8,6 +8,12 @@ license.workspace = true
 [dependencies]
 rawler.workspace = true
 image.workspace = true
+# Direct dep so TIFF compression, predictor, bit depth and the IFD0
+# Orientation tag are all reachable — `image`'s TiffEncoder wrapper
+# hard-codes the first three and exposes only an ICC hook (#3506 F5, #3507
+# round 5). Same version `image/tiff` already resolves (0.11), so the vendor
+# tree is unchanged.
+tiff.workspace = true
 fast_image_resize.workspace = true
 png.workspace = true
 miniz_oxide.workspace = true
@@ -32,10 +38,6 @@ libc = { version = "0.2", optional = true }
 ravif = { version = "0.13", optional = true, default-features = false }
 rgb = { version = "0.8", optional = true, default-features = false }
 imgref = { version = "1", optional = true }
-# Direct dep so TIFF compression, predictor and bit depth are selectable —
-# `image`'s TiffEncoder wrapper hard-codes them. Same version `image/tiff`
-# already resolves (0.11), so the vendor tree is unchanged.
-tiff = "0.11"
 zune-jpeg.workspace = true
 jpeg-encoder.workspace = true
 # GPU resource core (epic #925), feature-gated and OFF by default. All GPU code
