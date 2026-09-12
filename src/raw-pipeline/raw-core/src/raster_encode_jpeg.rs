@@ -14,7 +14,8 @@
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
-use jpeg_encoder::{ColorType, Encoder, SamplingFactor};
+use crate::raster_encode::EmbeddedMetadata;
+use jpeg_encoder::{ColorType, Encoder, PixelDensity, SamplingFactor};
 
 /// sharp's `chromaSubsampling` for JPEG. Only the two values sharp documents
 /// for RGB input are offered; the CMYK spellings are out of scope.
@@ -75,12 +76,20 @@ fn encode_error(e: impl std::fmt::Display) -> Error {
     Error::Png(format!("jpeg encode failed: {e}"))
 }
 
+/// The JFIF density segment this encode writes. `None` keeps the crate's own
+/// default, which is a 1:1 pixel ASPECT RATIO with no unit at all — not
+/// "72 dpi" — so an untagged file stays untagged (#3507).
+fn density_for(dpi: Option<f64>) -> PixelDensity {
+    match dpi {
+        Some(dpi) => PixelDensity::dpi(dpi.round().clamp(1.0, f64::from(u16::MAX)) as u16),
+        None => PixelDensity::default(),
+    }
+}
+
 pub fn encode_jpeg_opts(
     raster: &RasterImage,
     options: &JpegOptions,
-    icc: Option<&[u8]>,
-    exif: Option<&[u8]>,
-    xmp: Option<&[u8]>,
+    meta: &EmbeddedMetadata<'_>,
 ) -> Result<Vec<u8>> {
     if raster.channels != 3 {
         return Err(encode_error(format!(
@@ -102,6 +111,7 @@ pub fn encode_jpeg_opts(
     encoder.set_sampling_factor(options.chroma_subsampling.sampling_factor());
     encoder.set_progressive(options.progressive);
     encoder.set_optimized_huffman_tables(options.optimise_coding);
+    encoder.set_density(density_for(meta.density));
     // Order matters, and it is EXIF, then XMP, then ICC. `jpeg-encoder`
     // writes these segments in call order, the Exif specification wants its
     // APP1 first in the file, and sharp writes exactly this order
@@ -109,14 +119,14 @@ pub fn encode_jpeg_opts(
     // ICC first — as this did — produced `APP0(JFIF), APP2(ICC_PROFILE),
     // APP1(Exif), APP1(XMP), SOF0`, which sharp still reads but a strict
     // Exif reader is entitled not to.
-    if let Some(block) = exif {
+    if let Some(block) = meta.exif {
         encoder.add_exif_metadata(block).map_err(encode_error)?;
     }
-    if let Some(packet) = xmp {
+    if let Some(packet) = meta.xmp {
         let segment = [XMP_NAMESPACE, packet].concat();
         encoder.add_app_segment(1, segment).map_err(encode_error)?;
     }
-    if let Some(profile) = icc {
+    if let Some(profile) = meta.icc {
         encoder.add_icc_profile(profile).map_err(encode_error)?;
     }
     encoder

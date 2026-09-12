@@ -10,6 +10,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
+use crate::raster_encode::EmbeddedMetadata;
 use png::{AdaptiveFilterType, BitDepth, ColorType, Compression, Encoder};
 
 /// sharp's `png()` options that a pure-Rust encoder can honour. `progressive`
@@ -70,12 +71,22 @@ fn compression_for(level: u8) -> Compression {
     }
 }
 
+/// A `pHYs` chunk from a dpi figure. libvips writes `pHYs` in pixels per
+/// METRE with `unit = 1`, which is the only unit PNG defines, so the dpi
+/// round-trips through a divide by 0.0254 (#3507).
+fn pixel_dims_for(dpi: Option<f64>) -> Option<png::PixelDimensions> {
+    let ppu = (dpi? / 0.0254).round().clamp(0.0, f64::from(u32::MAX)) as u32;
+    Some(png::PixelDimensions {
+        xppu: ppu,
+        yppu: ppu,
+        unit: png::Unit::Meter,
+    })
+}
+
 pub fn encode_png_opts(
     raster: &RasterImage,
     options: &PngOptions,
-    icc: Option<&[u8]>,
-    exif: Option<&[u8]>,
-    xmp: Option<&[u8]>,
+    meta: &EmbeddedMetadata<'_>,
 ) -> Result<Vec<u8>> {
     if options.palette && !(2..=256).contains(&options.colours) {
         return Err(png_error(format!(
@@ -99,8 +110,9 @@ pub fn encode_png_opts(
         // builder method — so the `Info` is built directly and handed to
         // `Encoder::with_info` instead of mutating an `Encoder::new` default.
         let mut info = png::Info::with_size(raster.width, raster.height);
-        info.icc_profile = icc.map(|profile| profile.to_vec().into());
-        info.exif_metadata = exif.map(|block| block.to_vec().into());
+        info.icc_profile = meta.icc.map(|profile| profile.to_vec().into());
+        info.exif_metadata = meta.exif.map(|block| block.to_vec().into());
+        info.pixel_dims = pixel_dims_for(meta.density);
         let mut encoder = Encoder::with_info(&mut out, info).map_err(png_error)?;
         encoder.set_compression(compression_for(options.compression_level));
         encoder.set_adaptive_filter(if options.adaptive_filtering {
@@ -108,7 +120,7 @@ pub fn encode_png_opts(
         } else {
             AdaptiveFilterType::NonAdaptive
         });
-        if let Some(packet) = xmp {
+        if let Some(packet) = meta.xmp {
             let text = String::from_utf8_lossy(packet).to_string();
             encoder
                 .add_itxt_chunk(XMP_KEYWORD.to_string(), text)

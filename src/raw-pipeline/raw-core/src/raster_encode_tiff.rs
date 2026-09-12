@@ -43,6 +43,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
+use crate::raster_encode::EmbeddedMetadata;
 use tiff::encoder::{colortype, compression::DeflateLevel, Compression, TiffEncoder};
 use tiff::tags::{ExtraSamples, Predictor, Tag};
 
@@ -136,7 +137,7 @@ fn predictor_for(options: &TiffOptions, has_alpha: bool) -> Predictor {
 pub fn encode_tiff_opts(
     raster: &RasterImage,
     options: &TiffOptions,
-    icc: Option<&[u8]>,
+    meta: &EmbeddedMetadata<'_>,
 ) -> Result<Vec<u8>> {
     if !matches!(raster.channels, 3 | 4) {
         return Err(tiff_error(format!(
@@ -174,7 +175,7 @@ pub fn encode_tiff_opts(
                     .extra_samples(&[ExtraSamples::UnassociatedAlpha])
                     .map_err(tiff_error)?;
             }
-            if let Some(profile) = icc {
+            if let Some(profile) = meta.icc {
                 image
                     .encoder()
                     .write_tag(Tag::IccProfile, profile)
@@ -190,7 +191,7 @@ pub fn encode_tiff_opts(
                     .extra_samples(&[ExtraSamples::UnassociatedAlpha])
                     .map_err(tiff_error)?;
             }
-            if let Some(profile) = icc {
+            if let Some(profile) = meta.icc {
                 image
                     .encoder()
                     .write_tag(Tag::IccProfile, profile)

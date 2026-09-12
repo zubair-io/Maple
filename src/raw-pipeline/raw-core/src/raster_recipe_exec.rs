@@ -16,9 +16,11 @@ use crate::raster_recipe_colour::{apply_colour_op, output_primaries};
 use crate::raster_recipe_output::output_from_wire;
 
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
-use crate::raster_encode::{encode_raster_output, EmbeddedMetadata, RasterOutput};
+use crate::raster_encode::RasterOutput;
+use crate::raster_recipe_encode::encode_raster_output;
 use crate::raster_recipe_filter::{apply_filter_run, is_filter_op};
 use crate::raster_recipe_geometry::apply_geometry_op;
+use crate::raster_recipe_meta::{resolve_metadata, ResolvedMetadata};
 use crate::raster_recipe_resize::{apply_resize_op, ResizeOpArgs};
 use crate::view::encode::TargetPrimaries;
 
@@ -207,6 +209,40 @@ fn is_avif_output(_output: &RasterOutput) -> bool {
     false
 }
 
+/// The metadata the container is actually written with: the recipe's own
+/// `metadata` block (#3507) resolved against the input, with one addition
+/// only the output stage can supply — the ICC profile that follows the
+/// primaries `toColourspace` rotated the pixels into (#3506/#3503).
+///
+/// ICC precedence, highest first:
+///
+/// 1. An explicit `withIccProfile` — `metadata.icc` bytes or
+///    `metadata.iccName` ("srgb"/"p3"). The caller named a profile; it wins.
+/// 2. `keep`'s sweep of the input's own profile, or the default fill `keep`
+///    applies when the input carried none (sharp's `withMetadata()` adds one
+///    there).
+/// 3. The primaries profile, when `toColourspace('display-p3')` actually
+///    rotated the pixels out of sRGB. Without this an explicitly-converted
+///    P3 image would ship untagged and render as sRGB.
+/// 4. Nothing. A default (no `toColourspace`, no `metadata`) recipe ships
+///    UNTAGGED, which is what sharp does and what `test/oracle.test.ts`
+///    pins: sharp colour-manages on decode as soon as any profile is
+///    present, so an sRGB-tagged PNG came back with 12 008 of 12 288 bytes
+///    changed rather than passed through.
+fn resolve_output_metadata(
+    recipe: &Recipe,
+    input: &[u8],
+    aux: &[u8],
+    primaries: TargetPrimaries,
+) -> Result<ResolvedMetadata> {
+    let resolved = resolve_metadata(&recipe.metadata, input, aux)?;
+    let icc = match resolved.icc {
+        Some(profile) => Some(profile),
+        None => (primaries != TargetPrimaries::Srgb).then(|| icc::profile_for(primaries)),
+    };
+    Ok(ResolvedMetadata { icc, ..resolved })
+}
+
 pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeResult> {
     let decoded = decode_input(recipe, input)?;
     // The decoder's output is sRGB; `apply_op` threads the ACTUAL current
@@ -233,46 +269,16 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
             },
         )?;
     let output = output_from_wire(&recipe.output)?;
-    // The ICC profile the container is tagged with follows the primaries
-    // `toColourspace` actually rotated the pixels into (`output_primaries`
-    // walks the op list for the last such call, defaulting to sRGB — the
-    // decoder's own output space, when none ran). AVIF has no ICC/CICP tag
-    // yet (#3503), so a Display P3 AVIF request is rejected by name here,
-    // matching `export::encode_raster_rgb`'s `reject_untagged_avif_p3` gate
-    // on the non-recipe encode path, rather than silently shipping
-    // untagged (and therefore mis-rendering) P3 samples.
-    //
-    // Only a NON-sRGB result gets a profile embedded at all. Tagging sRGB
-    // unconditionally looked "more correct" on paper, but the cross-decoder
-    // oracle (`test/oracle.test.ts`, which reads Maple's output back through
-    // sharp/libpng/libtiff rather than Maple's own decoder) caught the real
-    // consequence: sharp colour-manages on decode once ANY ICC profile is
-    // present, so an sRGB-tagged PNG/TIFF/JPEG came back with every sample
-    // renormalised through Maple's synthesised sRGB profile instead of
-    // passed through byte for byte — a measured 12,008-of-12,288-byte
-    // mismatch on a 64x64 RGB PNG, not a rounding-level difference. Every
-    // default (no `toColourspace`) recipe must stay byte-exact through sharp
-    // — that is what `raster_encode.rs`'s own alpha-path convention already
-    // does for sRGB WebP ("stays untagged, matching pre-#3503 output"), and
-    // this output stage now matches it for every format rather than just
-    // WebP.
-    //
-    // EXIF and XMP stay `None` here regardless: they wait on PR-G (#3507),
-    // which adds the recipe's metadata block and the `withMetadata`-shaped
-    // surface that fills it — the two fields are populated from there
-    // rather than from the recipe's output stage. Until PR-G lands, the
-    // encoder-side coverage in `raster_encode_{jpeg,png,tiff}_tests.rs` is
-    // what keeps those two paths honest.
     let primaries = output_primaries(recipe)?;
+    // AVIF carries no ICC box at all (`ravif` 0.13 writes none), so a
+    // Display P3 AVIF request is rejected by name here rather than silently
+    // shipping untagged — and therefore mis-rendering — P3 samples. Same
+    // gate `export::encode_raster_rgb` applies on the non-recipe path.
     if is_avif_output(&output) {
         crate::export::reject_untagged_avif_p3(crate::export::ExportFormat::Avif, primaries)?;
     }
-    let icc_profile = (primaries != TargetPrimaries::Srgb).then(|| icc::profile_for(primaries));
-    let metadata = EmbeddedMetadata {
-        icc: icc_profile.as_deref(),
-        ..EmbeddedMetadata::default()
-    };
-    let bytes = encode_raster_output(&processed, &output, metadata)?;
+    let metadata = resolve_output_metadata(recipe, input, aux, primaries)?;
+    let bytes = encode_raster_output(&processed, &output, &metadata)?;
     let channels = channels_written(&processed, &output);
     Ok(RecipeResult {
         width: processed.width,

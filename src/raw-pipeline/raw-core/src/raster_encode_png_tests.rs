@@ -25,7 +25,7 @@ fn opts() -> PngOptions {
 #[test]
 fn encodes_a_truecolour_png_that_round_trips() {
     let src = palette_art(16, 5);
-    let bytes = encode_png_opts(&src, &opts(), None, None, None).unwrap();
+    let bytes = encode_png_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
     let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
     assert_eq!(decoded.data, src.data, "truecolour PNG must be lossless");
@@ -34,7 +34,7 @@ fn encodes_a_truecolour_png_that_round_trips() {
 #[test]
 fn rgba_round_trips_losslessly() {
     let src = RasterImage::new_rgba(2, 1, vec![10, 20, 30, 255, 40, 50, 60, 0]);
-    let bytes = encode_png_opts(&src, &opts(), None, None, None).unwrap();
+    let bytes = encode_png_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
     assert_eq!((decoded.channels, decoded.data), (4, src.data));
 }
@@ -48,9 +48,7 @@ fn a_higher_compression_level_produces_a_smaller_file() {
             compression_level: 1,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     let best = encode_png_opts(
@@ -59,9 +57,7 @@ fn a_higher_compression_level_produces_a_smaller_file() {
             compression_level: 9,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     assert!(
@@ -87,9 +83,7 @@ fn compression_level_six_sits_on_zlibs_default_tier_not_best() {
                 compression_level,
                 ..opts()
             },
-            None,
-            None,
-            None,
+            &EmbeddedMetadata::default(),
         )
         .unwrap()
     };
@@ -111,7 +105,7 @@ fn compression_level_six_sits_on_zlibs_default_tier_not_best() {
 #[test]
 fn a_palette_png_is_indexed_and_smaller() {
     let src = palette_art(64, 6);
-    let truecolour = encode_png_opts(&src, &opts(), None, None, None).unwrap();
+    let truecolour = encode_png_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     let indexed = encode_png_opts(
         &src,
         &PngOptions {
@@ -119,9 +113,7 @@ fn a_palette_png_is_indexed_and_smaller() {
             colours: 16,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     assert!(indexed.windows(4).any(|w| w == b"PLTE"), "no palette chunk");
@@ -140,9 +132,7 @@ fn a_palette_png_is_exact_when_the_image_fits_the_palette() {
             dither: 0.0,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     let decoded = crate::raster::decode_raster(&bytes, Some("png")).unwrap();
@@ -163,9 +153,7 @@ fn a_palette_png_keeps_transparency() {
             dither: 0.0,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     assert!(
@@ -186,9 +174,12 @@ fn the_metadata_chunks_are_embedded() {
     let bytes = encode_png_opts(
         &palette_art(8, 3),
         &opts(),
-        Some(&icc),
-        Some(&exif),
-        Some(&xmp),
+        &EmbeddedMetadata {
+            icc: Some(&icc),
+            exif: Some(&exif),
+            xmp: Some(&xmp),
+            ..Default::default()
+        },
     )
     .unwrap();
     assert!(bytes.windows(4).any(|w| w == b"iCCP"), "no iCCP chunk");
@@ -209,9 +200,7 @@ fn an_out_of_range_colour_count_is_rejected() {
             colours: 1,
             ..opts()
         },
-        None,
-        None,
-        None
+        &EmbeddedMetadata::default()
     )
     .is_err());
     assert!(encode_png_opts(
@@ -221,9 +210,7 @@ fn an_out_of_range_colour_count_is_rejected() {
             colours: 300,
             ..opts()
         },
-        None,
-        None,
-        None
+        &EmbeddedMetadata::default()
     )
     .is_err());
 }
@@ -238,9 +225,7 @@ fn an_invalid_dither_is_rejected() {
                 dither: bad,
                 ..opts()
             },
-            None,
-            None,
-            None,
+            &EmbeddedMetadata::default(),
         )
         .expect_err(&format!("dither {bad} should be rejected"));
         assert!(
@@ -335,9 +320,12 @@ fn metadata_chunks_are_crc_clean_and_round_trip_exactly_before_the_first_idat() 
     let bytes = encode_png_opts(
         &palette_art(8, 3),
         &opts(),
-        Some(&icc),
-        Some(&exif),
-        Some(&xmp),
+        &EmbeddedMetadata {
+            icc: Some(&icc),
+            exif: Some(&exif),
+            xmp: Some(&xmp),
+            ..Default::default()
+        },
     )
     .unwrap();
 
