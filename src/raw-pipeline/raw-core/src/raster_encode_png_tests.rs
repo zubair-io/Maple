@@ -72,6 +72,46 @@ fn a_higher_compression_level_produces_a_smaller_file() {
     );
 }
 
+/// The `png` crate offers three zlib tiers, not ten levels, so sharp's 0-9
+/// collapses onto them — and the split has to put sharp's own default of 6 on
+/// zlib 6 (`Default`), not on `best()`. It used to sit on `best()`: measured
+/// at 1024×1024 (gradient plus noise), the default encode took 7901 ms for
+/// 929 732 B where zlib 6 takes 2934 ms for 962 544 B — 2.7× slower for
+/// 3.5% fewer bytes, with nobody having asked for it.
+///
+/// Asserted through file bytes rather than on `compression_for` directly, so
+/// the test still means something if the mapping moves behind another API.
+#[test]
+fn compression_level_six_sits_on_zlibs_default_tier_not_best() {
+    let src = palette_art(64, 7);
+    let at = |compression_level: u8| {
+        encode_png_opts(
+            &src,
+            &PngOptions {
+                compression_level,
+                ..opts()
+            },
+            None,
+            None,
+            None,
+        )
+        .unwrap()
+    };
+    // Tier boundaries: 0 alone, then 1..=6, then 7..=9.
+    assert_eq!(
+        at(1),
+        at(6),
+        "levels 1 and 6 must share zlib's default tier"
+    );
+    assert_eq!(at(7), at(9), "levels 7 and 9 must share zlib's best tier");
+    assert_ne!(
+        at(6),
+        at(7),
+        "level 7 must cross into the best tier, level 6 must not"
+    );
+    assert_ne!(at(0), at(1), "level 0 must be its own fastest tier");
+}
+
 #[test]
 fn a_palette_png_is_indexed_and_smaller() {
     let src = palette_art(64, 6);
