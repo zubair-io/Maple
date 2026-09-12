@@ -13,6 +13,21 @@ import type { BuilderState } from './builder-state';
 /** Throw if the caller passed an option this encoder cannot honour. */
 export declare function rejectUnsupported(format: string, options: Record<string, unknown>): void;
 /**
+ * Range-check one numeric encoder option, throwing in sharp's own wording.
+ *
+ * sharp's `is.invalidParameterError` produces "Expected integer between 1 and
+ * 100 for quality but received 500 of type number", and a caller migrating
+ * off sharp should see the message they already know rather than Maple's
+ * serde error naming a JSON column. `undefined` passes (the option is simply
+ * absent); a non-integer fails, as it does in sharp.
+ *
+ * Exported so `builder-state.ts`'s `applyQuality`/`applyEffort` — which back
+ * `.quality()`, `.toFormat(fmt, { quality, effort })` and the `options.quality`
+ * branch of `.toFormat()` — throw the same message rather than the silent
+ * `Math.max`/`Math.min` clamp those two used before this fix.
+ */
+export declare function checkIntegerRange(name: string, value: number | undefined, lo: number, hi: number): void;
+/**
  * Every numeric option each per-format encoder accepts, range-checked at call
  * time. Ranges are sharp's, option for option (`lib/output.js`): JPEG/AVIF
  * `quality` 1-100, PNG `compressionLevel` 0-9, PNG `colours`/`colors` 2-256,

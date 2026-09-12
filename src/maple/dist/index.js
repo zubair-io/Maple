@@ -778,6 +778,85 @@ class AuxBlob {
 }
 // src/builder-state.ts
 import * as path4 from "node:path";
+
+// src/builder-validate.ts
+var UNSUPPORTED = {
+  jpeg: [
+    "mozjpeg",
+    "trellisQuantisation",
+    "trellisQuantization",
+    "overshootDeringing",
+    "optimiseScans",
+    "optimizeScans",
+    "quantisationTable",
+    "quantizationTable",
+    "force"
+  ],
+  png: ["progressive", "quality", "effort", "force"],
+  webp: [
+    "alphaQuality",
+    "nearLossless",
+    "smartSubsample",
+    "smartDeblock",
+    "preset",
+    "effort",
+    "quality",
+    "loop",
+    "delay",
+    "minSize",
+    "mixed",
+    "force"
+  ],
+  avif: ["force"],
+  tiff: [
+    "tile",
+    "pyramid",
+    "bigtiff",
+    "xres",
+    "yres",
+    "miniswhite",
+    "quality",
+    "tileWidth",
+    "tileHeight",
+    "resolutionUnit",
+    "force"
+  ]
+};
+function rejectUnsupported(format, options) {
+  const offender = (UNSUPPORTED[format] ?? []).find((key) => options[key] !== undefined);
+  if (offender !== undefined) {
+    throw new Error(`${format}({ ${offender} }) is not supported by Maple's pure-Rust encoder. ` + `See the sharp parity table in the @justmaple/maple README.`);
+  }
+}
+function checkIntegerRange(name, value, lo, hi) {
+  if (value === undefined) {
+    return;
+  }
+  if (!Number.isInteger(value) || value < lo || value > hi) {
+    throw new Error(`Expected integer between ${lo} and ${hi} for ${name} ` + `but received ${value} of type ${typeof value}`);
+  }
+}
+function checkOptionRanges(format, options) {
+  const num = (key) => options[key];
+  if (format === "jpeg" || format === "avif") {
+    checkIntegerRange("quality", num("quality"), 1, 100);
+  }
+  if (format === "avif") {
+    checkIntegerRange("effort", num("effort"), 0, 9);
+  }
+  if (format === "png") {
+    checkIntegerRange("compressionLevel", num("compressionLevel"), 0, 9);
+    checkIntegerRange("colours", num("colours") ?? num("colors"), 2, 256);
+  }
+}
+function assertRawDevelopOutput(state) {
+  const offender = Object.keys(state.outputOptions ?? {}).find((key) => key !== "quality");
+  if (offender !== undefined) {
+    throw new Error(`${offender} is not supported on a RAW develop input yet — see #3579. ` + `Develop to a bitmap first, then re-encode it with the per-format options.`);
+  }
+}
+
+// src/builder-state.ts
 var RAW_EXTENSIONS = new Set([
   ".dng",
   ".raw",
@@ -864,19 +943,19 @@ function stateToOutput(state, fallback) {
 var QUALITY_FORMATS = new Set(["jpeg", "avif"]);
 var EFFORT_FORMATS = new Set(["avif"]);
 function applyQuality(state, quality) {
-  const clamped = Math.max(1, Math.min(100, quality));
-  state.quality = clamped;
+  checkIntegerRange("quality", quality, 1, 100);
+  state.quality = quality;
   const output = state.output;
   if (output && QUALITY_FORMATS.has(String(output.format))) {
-    output.quality = clamped;
+    output.quality = quality;
   }
 }
 function applyEffort(state, effort) {
-  const clamped = Math.max(0, Math.min(9, effort));
-  state.effort = clamped;
+  checkIntegerRange("effort", effort, 0, 9);
+  state.effort = effort;
   const output = state.output;
   if (output && EFFORT_FORMATS.has(String(output.format))) {
-    output.effort = clamped;
+    output.effort = effort;
   }
 }
 function applyFormat(state, format) {
@@ -922,82 +1001,6 @@ function resolveColour(value, fallback) {
   }
   const byte = (i) => parseInt(full.slice(i * 2, i * 2 + 2), 16);
   return [byte(0), byte(1), byte(2), full.length === 8 ? byte(3) : 255];
-}
-// src/builder-validate.ts
-var UNSUPPORTED = {
-  jpeg: [
-    "mozjpeg",
-    "trellisQuantisation",
-    "trellisQuantization",
-    "overshootDeringing",
-    "optimiseScans",
-    "optimizeScans",
-    "quantisationTable",
-    "quantizationTable",
-    "force"
-  ],
-  png: ["progressive", "quality", "effort", "force"],
-  webp: [
-    "alphaQuality",
-    "nearLossless",
-    "smartSubsample",
-    "smartDeblock",
-    "preset",
-    "effort",
-    "quality",
-    "loop",
-    "delay",
-    "minSize",
-    "mixed",
-    "force"
-  ],
-  avif: ["force"],
-  tiff: [
-    "tile",
-    "pyramid",
-    "bigtiff",
-    "xres",
-    "yres",
-    "miniswhite",
-    "quality",
-    "tileWidth",
-    "tileHeight",
-    "resolutionUnit",
-    "force"
-  ]
-};
-function rejectUnsupported(format, options) {
-  const offender = (UNSUPPORTED[format] ?? []).find((key) => options[key] !== undefined);
-  if (offender !== undefined) {
-    throw new Error(`${format}({ ${offender} }) is not supported by Maple's pure-Rust encoder. ` + `See the sharp parity table in the @justmaple/maple README.`);
-  }
-}
-function checkIntegerRange(name, value, lo, hi) {
-  if (value === undefined) {
-    return;
-  }
-  if (!Number.isInteger(value) || value < lo || value > hi) {
-    throw new Error(`Expected integer between ${lo} and ${hi} for ${name} ` + `but received ${value} of type ${typeof value}`);
-  }
-}
-function checkOptionRanges(format, options) {
-  const num = (key) => options[key];
-  if (format === "jpeg" || format === "avif") {
-    checkIntegerRange("quality", num("quality"), 1, 100);
-  }
-  if (format === "avif") {
-    checkIntegerRange("effort", num("effort"), 0, 9);
-  }
-  if (format === "png") {
-    checkIntegerRange("compressionLevel", num("compressionLevel"), 0, 9);
-    checkIntegerRange("colours", num("colours") ?? num("colors"), 2, 256);
-  }
-}
-function assertRawDevelopOutput(state) {
-  const offender = Object.keys(state.outputOptions ?? {}).find((key) => key !== "quality");
-  if (offender !== undefined) {
-    throw new Error(`${offender} is not supported on a RAW develop input yet — see #3579. ` + `Develop to a bitmap first, then re-encode it with the per-format options.`);
-  }
 }
 // src/builder.ts
 import * as crypto from "node:crypto";
@@ -1429,7 +1432,15 @@ class MapleImageBuilder {
   }
   async toFile(outputPath) {
     if (this.isRawDevelop()) {
-      return await this.rawDevelopToFile(outputPath);
+      try {
+        return await this.rawDevelopToFile(outputPath);
+      } catch (error) {
+        return {
+          ok: false,
+          outPath: outputPath,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
     }
     await fs5.mkdir(path6.dirname(outputPath), { recursive: true });
     try {
@@ -1775,6 +1786,7 @@ export {
   applyFormat,
   applyQuality,
   assertRawDevelopOutput,
+  checkIntegerRange,
   checkOptionRanges,
   createBuilderState,
   exportImage,

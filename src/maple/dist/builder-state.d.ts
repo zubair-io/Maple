@@ -75,9 +75,16 @@ export declare function stateToOutput(state: BuilderState, fallback: ExportForma
  * encoding at the `.jpeg()` default — measured before this fix at 1436 B,
  * byte-identical to a plain `.jpeg()`, against 716 B for
  * `.jpeg({ quality: 30 })`.
+ *
+ * Out of range throws in sharp's own wording (`checkIntegerRange`) rather
+ * than silently clamping — `.quality(0)` used to encode at 1 and
+ * `.quality(500)` at 100, both without a word to the caller.
  */
 export declare function applyQuality(state: BuilderState, quality: number): void;
-/** `applyQuality`'s counterpart for AVIF's `effort` (0 fastest … 9 slowest). */
+/**
+ * `applyQuality`'s counterpart for AVIF's `effort` (0 fastest … 9 slowest).
+ * Out of range throws rather than clamping — see `applyQuality`.
+ */
 export declare function applyEffort(state: BuilderState, effort: number): void;
 /**
  * Select the output container for `.format()` / `.toFormat()`.
