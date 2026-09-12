@@ -299,6 +299,13 @@ libheif's prebuilt decoders — sharp's included — cannot read one at all, so
 can decode the output. sharp's third value, `12`, throws: Maple's `ravif`
 encoder has no 12-bit path.
 
+**PNG `compressionLevel` collapses onto three zlib tiers.** The pure-Rust
+`png` encoder exposes fastest / default / best, not ten levels, so sharp's
+0-9 maps as `0` → zlib 1, `1-6` → zlib 6, `7-9` → zlib 9. Within a tier the
+number is a no-op: levels 7, 8 and 9 produce byte-identical files, as do 1
+through 6. The split is chosen so sharp's own default of `6` means zlib 6 —
+asking for the default does not quietly buy you the slowest setting.
+
 **PNG palette output is always 8-bit `PLTE`.** `colours`/`colors`/`dither`
 imply `palette: true` just as they do in sharp, and the palette is capped at
 256 entries — but Maple always writes bit depth 8, where libvips derives 1, 2
