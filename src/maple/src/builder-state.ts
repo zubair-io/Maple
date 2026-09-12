@@ -6,6 +6,7 @@
  */
 
 import * as path from 'node:path';
+import { checkIntegerRange } from './builder-validate';
 import { AuxBlob, type Recipe, type RecipeOp } from './recipe';
 import type { Colour, ExportColorSpace, ExportFormat, ExportRecipe, RawPixelInput } from './types';
 
@@ -218,23 +219,30 @@ const EFFORT_FORMATS: ReadonlySet<string> = new Set(['avif']);
  * encoding at the `.jpeg()` default — measured before this fix at 1436 B,
  * byte-identical to a plain `.jpeg()`, against 716 B for
  * `.jpeg({ quality: 30 })`.
+ *
+ * Out of range throws in sharp's own wording (`checkIntegerRange`) rather
+ * than silently clamping — `.quality(0)` used to encode at 1 and
+ * `.quality(500)` at 100, both without a word to the caller.
  */
 export function applyQuality(state: BuilderState, quality: number): void {
-  const clamped = Math.max(1, Math.min(100, quality));
-  state.quality = clamped;
+  checkIntegerRange('quality', quality, 1, 100);
+  state.quality = quality;
   const output = state.output;
   if (output && QUALITY_FORMATS.has(String(output.format))) {
-    output.quality = clamped;
+    output.quality = quality;
   }
 }
 
-/** `applyQuality`'s counterpart for AVIF's `effort` (0 fastest … 9 slowest). */
+/**
+ * `applyQuality`'s counterpart for AVIF's `effort` (0 fastest … 9 slowest).
+ * Out of range throws rather than clamping — see `applyQuality`.
+ */
 export function applyEffort(state: BuilderState, effort: number): void {
-  const clamped = Math.max(0, Math.min(9, effort));
-  state.effort = clamped;
+  checkIntegerRange('effort', effort, 0, 9);
+  state.effort = effort;
   const output = state.output;
   if (output && EFFORT_FORMATS.has(String(output.format))) {
-    output.effort = clamped;
+    output.effort = effort;
   }
 }
 
