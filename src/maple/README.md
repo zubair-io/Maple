@@ -264,6 +264,21 @@ AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
 no alpha channel, so they composite over black — the same thing libvips does —
 unless you call `flatten({ background })` first.
 
+**TIFF `compression` defaults to `'lzw'`, not sharp's `'jpeg'`.** sharp's
+default TIFF compressor is JPEG-in-TIFF; Maple has no JPEG-in-TIFF encoder (the
+`tiff` crate this pipeline drives directly supports `none`/`lzw`/`deflate`/
+`packbits` only), so `.tiff()` defaults to `'lzw'` instead and rejects
+`compression: 'jpeg'` by name rather than silently falling back. `tile`,
+`pyramid`, `bigtiff` and the resolution/quality options with no lossless
+encoder to apply them to (`quality`, `tileWidth`, `tileHeight`,
+`resolutionUnit`, `xres`, `yres`, `miniswhite`) are rejected the same way.
+`predictor` takes sharp's string form (`'horizontal'` default, `'none'`);
+`'float'` is a real sharp value the `tiff` crate cannot produce and is also a
+named rejection. A raster with an alpha channel always writes with no
+predictor regardless of this setting — the `tiff` crate's horizontal
+differencing corrupts the extra alpha sample's stride (see
+`raster_encode_tiff.rs`'s module doc for the full explanation).
+
 ```typescript
 const badged = await maple(photo)
   .composite([{ input: logoPng, gravity: 'southeast' }])

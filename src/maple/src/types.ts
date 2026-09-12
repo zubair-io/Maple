@@ -179,7 +179,14 @@ export interface AvifOutputOptions {
 export interface TiffOutputOptions {
   compression?: 'none' | 'lzw' | 'deflate' | 'packbits';
   bitdepth?: 8 | 16;
-  predictor?: boolean;
+  /**
+   * sharp's string form: `'horizontal'` (default) or `'none'`.
+   * `'float'` is a real sharp value Maple's encoder cannot produce
+   * (the `tiff` crate has no float-predictor path) and is rejected by
+   * name. Forced to `'none'` regardless of this setting when the raster
+   * carries alpha — see the README's parity notes.
+   */
+  predictor?: 'horizontal' | 'none';
 }
 
 export interface TensorOptions {
