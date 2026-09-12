@@ -407,10 +407,9 @@ fn display_code(y: f32, slope: f32) -> f32 {
 
 /// Bisect a monotone `f` over `[lo, hi]` for the argument where `f == target`.
 ///
-/// Direction is detected from the endpoints rather than assumed, because the
-/// four slider transfers are not all monotone the same way (positive
-/// `highlights` DARKENS; positive `shadows`, `whites` and `blacks` all
-/// brighten). Out-of-bracket targets return the nearer endpoint, which the
+/// Positive `highlights` brightens, like the other three endpoint sliders —
+/// `bisect` detects the direction from the endpoints rather than assuming
+/// it. Out-of-bracket targets return the nearer endpoint, which the
 /// caller's clamp then bounds.
 fn bisect(lo: f32, hi: f32, target: f32, f: impl Fn(f32) -> f32) -> f32 {
     let (f_lo, f_hi) = (f(lo), f(hi));
@@ -483,13 +482,12 @@ fn solve_contrast(a: Anchors) -> f32 {
 // The four endpoint transfers, each `(luma, slider) -> luma`. These ARE the
 // shipping stage's per-pixel math with the caller-hoisted terms folded back in,
 // so the solver treats the slider as its only free variable. Positive
-// `highlights` darkens; the other three brighten — `bisect` detects the
-// direction from the endpoints rather than assuming it.
+// `highlights` brightens, like the other three endpoint sliders — `bisect`
+// detects the direction from the endpoints rather than assuming it.
 
-/// Highlights (`p95`).
+/// Highlights (`p95`). Adobe direction: positive brightens.
 fn highlights_at(y: f32, slider: f32) -> f32 {
-    let h = slider / 100.0;
-    y * stc::highlights_mult(y, h, 1.0 + h * 2.0, 1.0 + 2.0 * h.abs())
+    y * stc::highlights_mult(y, slider / 100.0)
 }
 
 /// Shadows (`p10`).

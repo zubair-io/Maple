@@ -344,8 +344,14 @@ fn endpoint_sliders_follow_the_scene() {
         p995: 0.34,
         ..typical_anchors()
     };
-    assert!(solve(blown).highlights > 0.0, "blown frame must recover");
-    assert!(solve(murky).highlights < 0.0, "murky frame must gain");
+    assert!(
+        solve(blown).highlights < 0.0,
+        "blown frame must recover (Adobe: negative)"
+    );
+    assert!(
+        solve(murky).highlights > 0.0,
+        "murky frame must gain (Adobe: positive)"
+    );
 }
 
 /// A frame whose shadows sit well above the anchor gets them crushed; a

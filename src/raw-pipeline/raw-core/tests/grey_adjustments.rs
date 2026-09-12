@@ -511,7 +511,12 @@ fn tint_only_anchors_to_d65_not_as_shot_cct() {
             .expect("scene-linear render");
 
     // The two renders must be identical: absent temperature anchors to 6500 K.
-    for (i, (a, b)) in img_tint_only.pixels.iter().zip(img_6500.pixels.iter()).enumerate() {
+    for (i, (a, b)) in img_tint_only
+        .pixels
+        .iter()
+        .zip(img_6500.pixels.iter())
+        .enumerate()
+    {
         assert_eq!(
             a, b,
             "pixel {i}: tint-only render differs from explicit-6500K render \
@@ -527,29 +532,14 @@ fn tint_only_anchors_to_d65_not_as_shot_cct() {
 // (`dump_scene_linear_deltas`, `dump_display_means`) live in the sibling
 // `grey_adjustments_dump.rs` for the same reason.
 
-/// Highlights compresses values above 1.0. Drive scene past the knee via
-/// exposure(+EV=1) on L=0.95 → scene 1.9, then highlights(+50) → 1.45.
-/// L kept off saturation because at L=1.0 the synthetic's G-channel raw
-/// values land at exactly white_level and demosaic edge effects produce
-/// ~0.5% drift that exceeds the EPS_SCENE_LINEAR budget.
+/// Adobe direction — highlights compresses values above 1.0. Drive scene
+/// past the knee via exposure(+EV=1) on L=0.95 → scene 1.9, then
+/// highlights(-50) → 1.45. L kept off saturation because at L=1.0 the
+/// synthetic's G-channel raw values land at exactly white_level and
+/// demosaic edge effects produce ~0.5% drift that exceeds the
+/// EPS_SCENE_LINEAR budget.
 #[test]
-fn highlights_compresses_above_knee() {
-    let configure = |m: &mut AdjustmentModel| {
-        m.exposure = 1.0;
-        m.highlights = 50.0;
-    };
-    let predict = |s: f32| predict_highlights(predict_exposure(s, 1.0), 50.0);
-    assert_predicted_scene_linear(0.95, configure, predict);
-    assert_neutral_display(0.95, configure);
-}
-
-/// #1081 / #1103 — negative highlights at the OLD division pole (h = -50,
-/// where the legacy 1 + 2h denominator hit zero and the stage silently
-/// skipped). Same above-knee drive as the positive case: exposure(+1) on
-/// L=0.95 → scene 1.9, then highlights(-50) expands per the pole-free
-/// #1103 response (shape ×(1+2|h|) · gain 2^(0.7·|h|·w_h)).
-#[test]
-fn highlights_minus50_expands_above_knee() {
+fn highlights_minus50_compresses_above_knee() {
     let configure = |m: &mut AdjustmentModel| {
         m.exposure = 1.0;
         m.highlights = -50.0;
@@ -559,15 +549,32 @@ fn highlights_minus50_expands_above_knee() {
     assert_neutral_display(0.95, configure);
 }
 
-/// #1081 / #1103 — full-range negative highlights (the legacy form
-/// produced negative RGB here for any pixel above Y = 2).
+/// Adobe direction — #1081 / #1103 — positive highlights at the OLD
+/// division pole (h = +50, where the legacy 1 + 2h denominator hit zero
+/// and the stage silently skipped). Same above-knee drive as the
+/// negative case: exposure(+1) on L=0.95 → scene 1.9, then
+/// highlights(+50) expands per the pole-free #1103 response (shape
+/// ×(1+2|h|) · gain 2^(0.7·|h|·w_h)).
 #[test]
-fn highlights_minus100_expands_above_knee() {
+fn highlights_plus50_expands_above_knee() {
     let configure = |m: &mut AdjustmentModel| {
         m.exposure = 1.0;
-        m.highlights = -100.0;
+        m.highlights = 50.0;
     };
-    let predict = |s: f32| predict_highlights(predict_exposure(s, 1.0), -100.0);
+    let predict = |s: f32| predict_highlights(predict_exposure(s, 1.0), 50.0);
+    assert_predicted_scene_linear(0.95, configure, predict);
+    assert_neutral_display(0.95, configure);
+}
+
+/// Adobe direction — #1081 / #1103 — full-range positive highlights (the
+/// legacy form produced negative RGB here for any pixel above Y = 2).
+#[test]
+fn highlights_plus100_expands_above_knee() {
+    let configure = |m: &mut AdjustmentModel| {
+        m.exposure = 1.0;
+        m.highlights = 100.0;
+    };
+    let predict = |s: f32| predict_highlights(predict_exposure(s, 1.0), 100.0);
     assert_predicted_scene_linear(0.95, configure, predict);
     assert_neutral_display(0.95, configure);
 }

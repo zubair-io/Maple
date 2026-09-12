@@ -39,22 +39,23 @@ fn highlights_output(value: f32, h: f32) -> f32 {
 }
 
 // ----------------------------------------------------------------
-// Ticket #1081 (PR #1117) carried into the #1103 response: the legacy
-// form divided the above-knee excess by h_denom = 1 + 2h, which crosses
-// zero at h = -50 — silent identity at exactly -50, ~167× blowups just
-// above it, negative RGB below it. The #1103 highlights keeps the
-// sign-branched cure: h < 0 expands above the knee by ×(1 + 2|h|)
-// (pole-free), composed with the weighted gain 2^(0.7·|h|·w_h).
+// Ticket #1081 (PR #1117) carried into the #1103 response, now in Adobe
+// sign (positive brightens): the legacy form divided the above-knee
+// excess by h_denom = 1 + 2h, which crosses zero at h = +50 — silent
+// identity at exactly +50, ~167× blowups just above it, negative RGB
+// below it. The #1103 highlights keeps the sign-branched cure: h > 0
+// expands above the knee by ×(1 + 2|h|) (pole-free), composed with the
+// weighted gain 2^(0.7·|h|·w_h).
 // ----------------------------------------------------------------
 
 #[test]
-fn highlights_no_pole_around_minus_50() {
+fn highlights_no_pole_around_plus_50() {
     // Y = 1.5 across the old pole: finite, positive, smooth, monotonic.
     // Closed form: (1 + 0.5·(1 + 2|h|)) · 2^(0.7·|h|).
-    let a = highlights_output(1.5, -49.9);
-    let b = highlights_output(1.5, -50.0);
-    let c = highlights_output(1.5, -50.1);
-    for (h, v) in [(-49.9, a), (-50.0, b), (-50.1, c)] {
+    let a = highlights_output(1.5, 49.9);
+    let b = highlights_output(1.5, 50.0);
+    let c = highlights_output(1.5, 50.1);
+    for (h, v) in [(49.9, a), (50.0, b), (50.1, c)] {
         assert!(v.is_finite(), "h={} produced non-finite {}", h, v);
         assert!(v > 0.0, "h={} produced non-positive {}", h, v);
     }
@@ -62,20 +63,20 @@ fn highlights_no_pole_around_minus_50() {
     // jumped from ~167× scale to identity to sign-flipped across this range).
     assert!(
         a / b < 10.0 && b / a < 10.0,
-        "jump between -49.9 ({}) and -50 ({})",
+        "jump between 49.9 ({}) and 50 ({})",
         a,
         b
     );
     assert!(
         b / c < 10.0 && c / b < 10.0,
-        "jump between -50 ({}) and -50.1 ({})",
+        "jump between 50 ({}) and 50.1 ({})",
         b,
         c
     );
-    // Monotonic: more-negative h brightens more.
+    // Monotonic: more-positive h brightens more.
     assert!(
         c > b && b > a,
-        "not monotonic across -50: {} / {} / {}",
+        "not monotonic across +50: {} / {} / {}",
         a,
         b,
         c
@@ -84,31 +85,31 @@ fn highlights_no_pole_around_minus_50() {
     let expect_b = (1.0 + 0.5 * 2.0) * (0.7_f32 * 0.5).exp2();
     assert!(
         (b - expect_b).abs() < 1e-4,
-        "h=-50 expected {}, got {}",
+        "h=+50 expected {}, got {}",
         expect_b,
         b
     );
 }
 
 #[test]
-fn highlights_minus_100_expands_per_formula() {
-    // Y = 3 at h = -100: shape = 1 + (3−1)·3 = 7, gain = 2^0.7 → ≈ 11.37.
+fn highlights_plus_100_expands_per_formula() {
+    // Y = 3 at h = +100: shape = 1 + (3−1)·3 = 7, gain = 2^0.7 → ≈ 11.37.
     // The legacy form mapped this pixel to −1 (negative RGB). The
     // expansion stays Y-coupled (not a uniform image-wide factor).
-    let out3 = highlights_output(3.0, -100.0);
+    let out3 = highlights_output(3.0, 100.0);
     let expect3 = 7.0 * (0.7_f32).exp2();
     assert!(
         (out3 - expect3).abs() < 1e-3,
-        "Y=3 h=-100 expected {}, got {}",
+        "Y=3 h=100 expected {}, got {}",
         expect3,
         out3
     );
     assert!(out3 > 0.0, "RGB must stay positive, got {}", out3);
-    let out15 = highlights_output(1.5, -100.0);
+    let out15 = highlights_output(1.5, 100.0);
     let expect15 = (1.0 + 0.5 * 3.0) * (0.7_f32).exp2();
     assert!(
         (out15 - expect15).abs() < 1e-3,
-        "Y=1.5 h=-100 expected {}, got {}",
+        "Y=1.5 h=100 expected {}, got {}",
         expect15,
         out15
     );
@@ -123,10 +124,11 @@ fn highlights_minus_100_expands_per_formula() {
 #[test]
 fn highlights_monotonic_across_full_slider_range() {
     // Fixed Y = 2 swept across the full documented slider range. The output
-    // must be strictly monotonic (decreasing) in h — the legacy code was
-    // violently non-monotonic across h = -50 (expansion → identity →
-    // sign-flip). Both #1103 factors are decreasing in h: the shape
-    // (compress harder / expand less) and the weighted gain 2^(−0.7·h).
+    // must be strictly monotonic (increasing) in h — the legacy code was
+    // violently non-monotonic across h = +50 (expansion → identity →
+    // sign-flip). Both #1103 factors are increasing in h (Adobe direction):
+    // the shape (expand harder / compress less) and the weighted gain
+    // 2^(0.7·h).
     let sweep: &[f32] = &[-100.0, -75.0, -50.0, -25.0, 0.0, 25.0, 50.0, 75.0, 100.0];
     let mut prev: Option<(f32, f32)> = None;
     for &h in sweep {
@@ -139,8 +141,8 @@ fn highlights_monotonic_across_full_slider_range() {
         );
         if let Some((ph, pv)) = prev {
             assert!(
-                out < pv,
-                "output must strictly decrease in h: h={} → {}, h={} → {}",
+                out > pv,
+                "output must strictly increase in h: h={} → {}, h={} → {}",
                 ph,
                 pv,
                 h,
@@ -152,11 +154,11 @@ fn highlights_monotonic_across_full_slider_range() {
 }
 
 #[test]
-fn highlights_negative_preserves_hue_above_knee() {
-    // Same contract as the positive-branch hue tests: the only operation
+fn highlights_positive_preserves_hue_above_knee() {
+    // Same contract as the negative-branch hue tests: the only operation
     // on RGB is a uniform scalar multiply, so R:G:B ratios survive.
     // [2.0, 1.5, 1.5] → Y ≈ 1.6364 > 1 (the expansion branch fires).
-    let cases: &[f32] = &[-25.0, -50.0, -100.0];
+    let cases: &[f32] = &[25.0, 50.0, 100.0];
     for &h in cases {
         let mut img = fresh_img([2.0, 1.5, 1.5]);
         let mut m = model_default();
@@ -177,7 +179,7 @@ fn highlights_negative_preserves_hue_above_knee() {
             h,
             ratio_rb
         );
-        // Direction: negative h brightens above the knee.
+        // Direction: positive h brightens above the knee.
         assert!(
             p[0] > 2.0,
             "h={} should expand R above 2.0, got {}",
@@ -328,12 +330,7 @@ fn mask_uniform_field_matches_closed_form() {
         let h_amount = hgt / 100.0;
         let mut expected = 0.12_f32;
         if hgt.abs() >= 1e-3 {
-            expected *= highlights_mult(
-                expected,
-                h_amount,
-                1.0 + 2.0 * h_amount,
-                1.0 + 2.0 * h_amount.abs(),
-            );
+            expected *= highlights_mult(expected, h_amount);
         }
         if s.abs() >= 1e-3 {
             expected *= shadows_mult(expected, s / 100.0);
