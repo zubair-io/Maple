@@ -11,8 +11,13 @@ export interface ImageMetadata {
   format: string;
   channels: number;
   /**
-   * The EXIF Orientation the container's metadata declares, 1..=8, and `1`
-   * when it declares none. `.rotate()`/`autoOrient` applies this.
+   * The EXIF Orientation the container's metadata declares, 1..=8.
+   * `.rotate()`/`autoOrient` applies it.
+   *
+   * `undefined` when the container declares none — no EXIF block, or a
+   * block with no Orientation entry — which is what sharp reports for a
+   * JPEG, PNG or WebP in that state. A TIFF is the exception and reports
+   * `1`, because libvips' TIFF loader always states an orientation.
    *
    * `undefined` for an AVIF, always — matching sharp, which reports nothing
    * for a HEIF-family file. An AVIF's `irot`/`imir` transform is applied to
