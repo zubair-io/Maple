@@ -97,9 +97,10 @@ fn avif_error(e: impl std::fmt::Display) -> Error {
 }
 
 /// sharp's AVIF `effort` (0 fastest … 9 slowest) → rav1e speed (10 fastest …
-/// 1 slowest). Must equal `raster_recipe_exec::avif_speed` (Tier 1 pins this
-/// mapping) so a recipe-driven AVIF encode and this direct path pick the
-/// same rav1e speed for the same effort.
+/// 1 slowest). The recipe pipeline (`raster_recipe_output::output_from_wire`)
+/// passes `effort` straight through into [`AvifOptions`] and calls this
+/// function via `encode_avif_opts` rather than re-deriving the mapping
+/// itself, so there is exactly one place this table can drift.
 pub(crate) fn avif_speed_for(effort: u8) -> u8 {
     10 - effort.min(9)
 }
