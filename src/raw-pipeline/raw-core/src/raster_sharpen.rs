@@ -26,109 +26,21 @@
 //! blurring a byte-packed `L*` plane instead costs 4 to 24 levels and
 //! using `blur`'s 0.2 cutoff costs 28 to 42.
 //!
-//! **The Lab conversion below is local to this file, not `raster_lab.rs`.**
-//! A separate lane of this same plan (#3504, plan D1) is adding a
-//! `raster_lab` module with its own `srgb_to_lab`/`lab_to_srgb`, but that
-//! lane hasn't landed on `feat/3504-filters` yet. `sharpen` only needs a
-//! standard, invertible sRGB<->CIELAB round trip, so this file carries its
-//! own minimal D65 conversion (`srgb_to_lab`/`lab_to_srgb`) rather than
-//! block on the other lane or copy its file wholesale. When the lanes
-//! merge, these two implementations should be reconciled into one shared
-//! module — noted as a concern in this task's report, not filed as a new
-//! ticket, since it's a same-plan integration detail.
+//! **The colour chain is libvips', not a textbook one.** `sharpen({sigma})`
+//! converts through `raster_labs.rs`, which reproduces
+//! `vips_colourspace(LABS)` stage for stage — see that file for why an
+//! approximate conversion is not good enough here (its round trip has to be
+//! an exact identity, or a premultiplied image amplifies the error by
+//! `255/alpha`). A separate lane of this same plan (#3504, plan D1) is
+//! adding a `raster_lab` module of its own; when the lanes merge, the two
+//! should be reconciled — noted as a concern in this task's report rather
+//! than filed as a new ticket, since it is a same-plan integration detail.
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 use crate::raster_filter_chain::{run_filter_chain, FilterOp, Plane};
 use crate::raster_filter_conv::{conv_f64, convsep_i32, gaussmat_int};
-
-/// D65 reference white (CIE 1931 2° observer) — the white point both
-/// conversions below are normalised against.
-const WHITE_X: f64 = 0.95047;
-const WHITE_Y: f64 = 1.0;
-const WHITE_Z: f64 = 1.08883;
-
-/// sRGB gamma decode: an 8-bit channel to linear light in `[0, 1]`.
-fn srgb_channel_to_linear(c: u8) -> f64 {
-    let c = c as f64 / 255.0;
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-/// Inverse of [`srgb_channel_to_linear`]: linear light in `[0, 1]` to an
-/// 8-bit sRGB channel, rounded and clamped.
-fn linear_to_srgb_channel(c: f64) -> u8 {
-    let encoded = if c <= 0.0031308 {
-        c * 12.92
-    } else {
-        1.055 * c.powf(1.0 / 2.4) - 0.055
-    };
-    (encoded * 255.0).round().clamp(0.0, 255.0) as u8
-}
-
-/// CIELAB's forward companding function, shared by the `L*`/`a*`/`b*`
-/// derivation.
-fn lab_f(t: f64) -> f64 {
-    const DELTA: f64 = 6.0 / 29.0;
-    if t > DELTA * DELTA * DELTA {
-        t.cbrt()
-    } else {
-        t / (3.0 * DELTA * DELTA) + 4.0 / 29.0
-    }
-}
-
-/// Inverse of [`lab_f`].
-fn lab_f_inv(t: f64) -> f64 {
-    const DELTA: f64 = 6.0 / 29.0;
-    if t > DELTA {
-        t * t * t
-    } else {
-        3.0 * DELTA * DELTA * (t - 4.0 / 29.0)
-    }
-}
-
-/// 8-bit sRGB to CIELAB (D65), as `[L*, a*, b*]`. `L*` is `[0, 100]`; `a*`
-/// and `b*` are unbounded in general but small for in-gamut sRGB colours.
-pub(crate) fn srgb_to_lab(rgb: [u8; 3]) -> [f32; 3] {
-    let [r, g, b] = rgb.map(srgb_channel_to_linear);
-
-    // Linear sRGB (D65) to XYZ — IEC 61966-2-1.
-    let x = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b;
-    let y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b;
-    let z = 0.0193339 * r + 0.1191920 * g + 0.9503041 * b;
-
-    let fx = lab_f(x / WHITE_X);
-    let fy = lab_f(y / WHITE_Y);
-    let fz = lab_f(z / WHITE_Z);
-
-    [
-        (116.0 * fy - 16.0) as f32,
-        (500.0 * (fx - fy)) as f32,
-        (200.0 * (fy - fz)) as f32,
-    ]
-}
-
-/// Inverse of [`srgb_to_lab`]: CIELAB `[L*, a*, b*]` to 8-bit sRGB.
-pub(crate) fn lab_to_srgb(lab: [f32; 3]) -> [u8; 3] {
-    let [l, a, b] = lab.map(f64::from);
-    let fy = (l + 16.0) / 116.0;
-    let fx = fy + a / 500.0;
-    let fz = fy - b / 200.0;
-
-    let x = WHITE_X * lab_f_inv(fx);
-    let y = WHITE_Y * lab_f_inv(fy);
-    let z = WHITE_Z * lab_f_inv(fz);
-
-    // XYZ to linear sRGB (D65) — inverse of the matrix in `srgb_to_lab`.
-    let r = 3.2404542 * x - 1.5371385 * y - 0.4985314 * z;
-    let g = -0.9692660 * x + 1.8760108 * y + 0.0415560 * z;
-    let bl = 0.0556434 * x - 0.2040259 * y + 1.0572252 * z;
-
-    [r, g, bl].map(linear_to_srgb_channel)
-}
+use crate::raster_labs::{labs_to_srgb, srgb_to_labs, LABS_PER_L};
 
 /// sharp's real fast, argument-less `sharpen()`: a fixed 3x3 sharpening
 /// kernel applied with clamp-to-edge addressing — no Lab conversion, no
@@ -240,11 +152,6 @@ fn unsharp_transfer(difference: f64, o: &SharpenOptions) -> f64 {
 /// `blur`'s 0.2. See the module doc for the measured consequence.
 const SHARPEN_MIN_AMPL: f64 = 0.1;
 
-/// libvips' LABS scale factor: `L*` 0..100 maps to a signed 16-bit 0..32767,
-/// so one `L*` unit is 327.67 counts. `vips_sharpen` blurs, differences and
-/// transfers `L*` entirely on this scale.
-const LABS_PER_L: f64 = 327.67;
-
 /// One `sharpen` over a filter run's working buffer.
 pub(crate) fn sharpen_plane(plane: &Plane, options: &SharpenOptions) -> Result<Plane> {
     // #3504 task E5 controller ruling (b): validate every one of the five
@@ -275,42 +182,48 @@ pub(crate) fn sharpen_plane(plane: &Plane, options: &SharpenOptions) -> Result<P
     }
 
     let c = plane.channels;
-    let bytes = plane.to_u8();
-    let labs: Vec<[f32; 3]> = bytes
+    // `vips_colourspace(LABS)`: L*, a*, b* as signed 16-bit counts. a* and
+    // b* go through that packing too, and come back through it untouched —
+    // `vips_sharpen` only ever rewrites band 0.
+    let labs: Vec<[i32; 3]> = plane
+        .to_u8()
         .chunks_exact(c)
-        .map(|px| srgb_to_lab([px[0], px[1], px[2]]))
+        .map(|px| srgb_to_labs([px[0], px[1], px[2]]))
         .collect();
-    // `vips_colourspace(LABS)` then `vips_cast_short`: L* on the 0..32767
-    // scale, as signed 16-bit.
-    let l_short: Vec<i32> = labs
-        .iter()
-        .map(|lab| ((lab[0] as f64 * LABS_PER_L).round() as i32).clamp(0, 32767))
-        .collect();
+    let l_plane: Vec<i32> = labs.iter().map(|lab| lab[0]).collect();
     let (mask, scale) = gaussmat_int(sigma, SHARPEN_MIN_AMPL);
-    let blurred = convsep_i32(&l_short, plane.width, plane.height, &mask, scale);
+    let blurred = convsep_i32(&l_plane, plane.width, plane.height, &mask, scale);
     let data = labs
         .iter()
         .enumerate()
         .zip(plane.data.chunks_exact(c))
         .flat_map(|((i, lab), px)| {
-            let difference = (l_short[i] - blurred[i]) as f64 / LABS_PER_L;
             // libvips builds a 65536-entry lookup of `rint(transfer * 327.67)`
             // and adds it to the unblurred L*, clipping to the short range.
-            let lut = (unsharp_transfer(difference, options) * LABS_PER_L).round() as i32;
-            let sharpened = (l_short[i] + lut).clamp(0, 32767);
-            let rgb = srgb_from_labs(sharpened, lab[1], lab[2]);
-            rgb.into_iter()
+            //
+            // The `+ 1` is not a fudge: `vips_sharpen_generate` indexes that
+            // lookup with `diff + 32768` while `vips_sharpen_build` fills
+            // entry `i` from `(i - 32767) / 327.67`, so the difference the
+            // transfer actually sees is one LabS count higher than the
+            // difference that was measured. It is a real off-by-one in
+            // libvips, and reproducing it is worth a byte: without it every
+            // sample that disagreed with sharp 0.34.5 disagreed the same way,
+            // one code low (13 samples of 3072 on 32x32 noise at sigma 1.5,
+            // and the same bias amplified to 85 by the unpremultiply at
+            // alpha 3).
+            let difference = (lab[0] - blurred[i] + 1) as f64 / LABS_PER_L;
+            // `rint`, so ties go to even — with m1 or m2 at a half-integer
+            // the product lands exactly on .5 often enough to matter.
+            let lut = (unsharp_transfer(difference, options) * LABS_PER_L).round_ties_even() as i32;
+            let sharpened = (lab[0] + lut).clamp(0, 32767);
+            labs_to_srgb([sharpened, lab[1], lab[2]])
+                .into_iter()
                 .map(f64::from)
                 .chain(px.get(3).copied())
                 .collect::<Vec<f64>>()
         })
         .collect();
     Ok(plane.with_data(data))
-}
-
-/// A sharpened LABS `L*` plus the original `a*`/`b*`, back to 8-bit sRGB.
-fn srgb_from_labs(l_short: i32, a: f32, b: f32) -> [u8; 3] {
-    lab_to_srgb([(l_short as f64 / LABS_PER_L) as f32, a, b])
 }
 
 impl RasterImage {

@@ -126,8 +126,18 @@ fn premultiply(plane: &Plane) -> Plane {
         .data
         .chunks_exact(4)
         .flat_map(|px| {
-            let nalpha = px[3].clamp(0.0, 255.0) / 255.0;
-            [px[0] * nalpha, px[1] * nalpha, px[2] * nalpha, px[3]]
+            // `f32`, not `f64`: `vips_premultiply` writes a float image and
+            // computes `nalpha` as a float, and the difference shows. At
+            // alpha 200, `255 * (200/255)` is 200 exactly in `f64` but lands
+            // a hair under it in `f32`, so the truncating cast that follows
+            // gives 199 — which is what sharp 0.34.5 actually writes.
+            let nalpha = (px[3].clamp(0.0, 255.0) as f32) / 255.0;
+            [
+                f64::from(px[0] as f32 * nalpha),
+                f64::from(px[1] as f32 * nalpha),
+                f64::from(px[2] as f32 * nalpha),
+                px[3],
+            ]
         })
         .collect();
     plane.with_data(data)
@@ -142,15 +152,17 @@ fn unpremultiply(plane: &Plane) -> Plane {
         .data
         .chunks_exact(4)
         .flat_map(|px| {
-            let factor = if px[3].abs() < 0.01 {
+            // `f32` for the same reason [`premultiply`] uses it: libvips'
+            // `factor` and the multiply that follows are float.
+            let factor: f32 = if px[3].abs() < 0.01 {
                 0.0
             } else {
-                255.0 / px[3]
+                255.0 / px[3] as f32
             };
             [
-                px[0] * factor,
-                px[1] * factor,
-                px[2] * factor,
+                f64::from(px[0] as f32 * factor),
+                f64::from(px[1] as f32 * factor),
+                f64::from(px[2] as f32 * factor),
                 px[3].clamp(0.0, 255.0),
             ]
         })

@@ -368,12 +368,14 @@ fn transfer_parameters_at_sharps_own_boundary_values_are_accepted() {
 }
 
 #[test]
-fn lab_round_trip_is_stable_for_srgb_bytes() {
-    // Not part of the brief's test list, but the closed-form guarantee the
-    // whole filter leans on: converting to Lab and back must be
-    // (near-)lossless, or `sharpen_leaves_a_flat_field_untouched` and
-    // `m1_and_m2_zero_returns_the_source` above would be testing rounding
-    // noise instead of the transfer function.
+fn the_colour_round_trip_is_exact_not_merely_close() {
+    // The closed-form guarantee the whole mask-based path leans on, and the
+    // reason `sharpen` converts through `raster_labs` rather than a
+    // textbook CIELAB pair: a byte in comes back unchanged, so
+    // `sharpen_leaves_a_flat_field_untouched` and
+    // `m1_and_m2_zero_returns_the_source` above are testing the transfer
+    // function and not conversion noise. `raster_labs_tests.rs` sweeps the
+    // whole cube; this pins the corners through `sharpen` itself.
     for &(r, g, b) in &[
         (0u8, 0u8, 0u8),
         (255, 255, 255),
@@ -383,13 +385,13 @@ fn lab_round_trip_is_stable_for_srgb_bytes() {
         (120, 120, 120),
         (60, 90, 200),
     ] {
-        let lab = srgb_to_lab([r, g, b]);
-        let back = lab_to_srgb(lab);
-        assert!(
-            (back[0] as i16 - r as i16).abs() <= 1
-                && (back[1] as i16 - g as i16).abs() <= 1
-                && (back[2] as i16 - b as i16).abs() <= 1,
-            "Lab round trip drifted too far for ({r}, {g}, {b}): got {back:?}"
-        );
+        let flat = RasterImage::new_rgb(4, 4, [r, g, b].repeat(16));
+        let out = flat
+            .sharpen(&SharpenOptions {
+                sigma: Some(1.5),
+                ..SharpenOptions::default()
+            })
+            .unwrap();
+        assert_eq!(out.data, flat.data, "({r}, {g}, {b}) did not round trip");
     }
 }

@@ -36,15 +36,7 @@ use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 use crate::raster_filter_chain::{run_filter_chain, FilterOp, Plane};
 use crate::raster_filter_conv::{clamp_index, conv_f64};
-use crate::view::encode::{srgb_degamma, srgb_gamma};
-
-/// Rec.709 luma weights ([ITU-R BT.709] luminance coefficients: `Y' =
-/// 0.2126 R' + 0.7152 G' + 0.0722 B'`), used by [`bw_luma`]. `raster_colour`
-/// (the module the task brief names as the source of this constant) is not
-/// present on this branch, mirroring `raster_sharpen.rs`'s own note about
-/// `raster_lab.rs` (plan lane D1) — so it's defined locally here rather than
-/// blocking on that lane.
-pub(crate) const REC709_LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
+use crate::raster_labs::srgb_to_bw;
 
 /// Largest median window `size` this crate accepts — sharp validates
 /// `size` as an integer in `[1, 1000]` (`lib/operation.js`'s own
@@ -61,20 +53,21 @@ const MAX_KERNEL_DIM: u32 = 1001;
 
 /// sharp's `threshold({greyscale: true})` (the default) does not take a
 /// weighted sum of the gamma-encoded 8-bit channels — it runs libvips'
-/// standard `toColourspace('b-w')` conversion: decode each channel from the
-/// sRGB transfer curve to linear light, take the Rec.709-weighted linear
-/// luminance, then re-encode with the sRGB OETF and round to a byte.
-/// Measured against sharp 0.34.5: pure red -> 127, pure green -> 220,
-/// `(100, 200, 50)` -> 178 (a naive weighted sum of the encoded bytes would
-/// give 54 / 182 / 168 instead — visibly wrong for red and green, and close
-/// enough elsewhere to hide the bug, which is why it needs pinning here
-/// rather than only through `threshold`'s black/white outcomes).
+/// standard `toColourspace('b-w')` conversion, which is the Rec.709-weighted
+/// luminance of the *linear* channels, re-encoded to a byte. Measured
+/// against sharp 0.34.5: pure red -> 127, pure green -> 220, `(100, 200,
+/// 50)` -> 178 (a naive weighted sum of the encoded bytes would give 54 /
+/// 182 / 168 instead — visibly wrong for red and green, and close enough
+/// elsewhere to hide the bug, which is why it needs pinning here rather than
+/// only through `threshold`'s black/white outcomes).
+///
+/// The computation lives in [`crate::raster_labs`] because it shares
+/// libvips' own transfer-curve lookups with the Lab chain; doing it with an
+/// sRGB transfer function of our own was within a code of libvips but not
+/// equal to it, and through `threshold` that one code became a full 0<->255
+/// flip (#3572).
 pub(crate) fn bw_luma(rgb: [u8; 3]) -> u8 {
-    let linear = rgb.map(|v| srgb_degamma(v as f32 / 255.0));
-    let luma_linear: f32 = (0..3).map(|i| linear[i] * REC709_LUMA[i] as f32).sum();
-    (srgb_gamma(luma_linear) as f64 * 255.0)
-        .round()
-        .clamp(0.0, 255.0) as u8
+    srgb_to_bw(rgb)
 }
 
 /// One `median` over a filter run's working buffer.
