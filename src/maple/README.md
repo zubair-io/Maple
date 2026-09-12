@@ -131,13 +131,13 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `ensureAlpha()`                 | ✅    |                                                                                                                                                                                                 |
 | `removeAlpha()`                 | ✅    |                                                                                                                                                                                                 |
 | `greyscale()` / `grayscale()`        | ✅    | Rec.709 luma reduced in linear light (de-gamma, weight, re-gamma), three identical channels |
-| `gamma()`                            | ✅    | an assembly-time pair around the `resize` op: `gamma` itself before it, `1/gammaOut` after  |
-| `linear()`                           | ✅    | scalar or per-channel `a` and `b`, on the encoded samples                                   |
+| `gamma()`                            | ✅    | an assembly-time pair around the `resize` op: `gamma` itself before it, `1/gammaOut` after; residual ≤1 — a single-code artefact at input 255 for `gammaOut` 1/1.5 and 1/3, where libvips' own float chain returns 254 rather than 255 |
+| `linear()`                           | ✅    | scalar or per-channel `a` and `b`, on the encoded samples; a 4-element vector is rejected by name (sharp applies the 4th element to alpha on RGBA input — this op never touches alpha) |
 | `negate()`                           | ✅    | `{ alpha: false }` spares the alpha channel                                                 |
 | `normalise()` / `normalize()`        | ✅    | percentile stretch of CIELAB L\*, chroma preserved                                          |
 | `modulate()`                         | ✅    | brightness/lightness on L\*, saturation on C\*, hue rotation, in CIELCh                     |
-| `tint()`                             | ✅    | linear-light luma as `greyscale`, then a\*/b\* from the tint; colour as `{r,g,b}` or `#rgb`/`#rrggbb`/`#rrggbbaa` (no CSS names) |
-| `toColourspace()` / `toColorspace()` | ⚠️    | takes `srgb`, `display-p3`/`p3` and `b-w`; other libvips interpretation names error by name. Closer to sharp's `withIccProfile` than to its `toColourspace`, which takes interpretation names and silently ignores `display-p3` |
+| `tint()`                             | ✅    | linear-light luma as `greyscale`, then a\*/b\* from the tint; colour as `{r,g,b}` or `#rgb`/`#rrggbb`/`#rrggbbaa` (no CSS names); residual max 3, from the composed CIELAB matrices (#3581) |
+| `toColourspace()` / `toColorspace()` | ⚠️    | takes `srgb`, `display-p3`/`p3` and `b-w`; other libvips interpretation names error by name. Closer to sharp's `withIccProfile` than to its `toColourspace`, which takes interpretation names and silently ignores `display-p3`. `'b-w'` raw output is 3 identical bands, like `greyscale()` above — sharp's is 1 band |
 | `toFormat('avif')` + `toColourspace('display-p3')` | ❌    | rejected by name. This crate does not write AVIF's `colr` box yet, and an untagged P3 AVIF reads back as sRGB and double-stretches; sharp tags it. Export sRGB, or use JPEG/PNG/TIFF/WebP for a P3 deliverable                  |
 | `resize({ fit })`               | ✅\*  | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                       |
 | `resize({ position })`          | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                             |
@@ -253,6 +253,12 @@ have applied them, and it is the one to aim for:
 | `tint`                       | 781, after normalise                          | call order                           | see `modulate`                                                                                                                                     |
 | `toColourspace` + output ICC | 799 / 826, the output stage after every op    | call order                           | `.modulate(…).toColourspace('display-p3')` **1**, `.toColourspace('display-p3').modulate(…)` **21** (vs sharp `.modulate(…).withIccProfile('p3')`) |
 | `negate`                     | **840, last of all**, after the ICC transform | call order                           | see `linear`                                                                                                                                       |
+
+The numbers in the last column are the measured max difference on this
+README's 32x32 noise fixture specifically, not a property of the op pair
+itself — a different fixture gives different magnitudes; treat them as
+illustrative of the direction and rough scale of the divergence, not a
+budget.
 
 `gamma` is the one op whose position Maple resolves rather than takes
 literally, because its whole purpose is to move the resize into a different
