@@ -16,7 +16,7 @@ fn parses_a_minimal_encoded_to_jpeg_recipe() {
     assert_eq!(r.v, 1);
     assert!(matches!(r.input, RecipeInput::Encoded {}));
     assert!(r.ops.is_empty());
-    assert!(matches!(r.output, Output::Jpeg { quality: 82 }));
+    assert!(matches!(r.output, Output::Jpeg { quality: 82, .. }));
 }
 
 #[test]

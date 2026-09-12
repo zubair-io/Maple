@@ -15,6 +15,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster_recipe_filter::{BlurOp, ConvolveOp, MedianOp, SharpenOp, ThresholdOp};
+use crate::raster_recipe_output::Output;
 use serde::Deserialize;
 
 /// Schema version this build understands. See the module doc.
@@ -330,29 +331,12 @@ pub enum Op {
     Convolve(ConvolveOp),
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(tag = "format", rename_all = "lowercase", deny_unknown_fields)]
-pub enum Output {
-    Jpeg {
-        #[serde(default)]
-        quality: u8,
-    },
-    /// Empty struct variant rather than unit — see `RecipeInput::Encoded`'s
-    /// doc for why (#3505 fix-round-2).
-    Png {},
-    Webp {},
-    Avif {
-        #[serde(default)]
-        quality: u8,
-        /// sharp's scale, 0 (fastest) ..= 9 (slowest). Mapped to rav1e speed
-        /// `9 - effort + 1` by the executor.
-        #[serde(default)]
-        effort: u8,
-    },
-    Tiff {},
-    /// Native-size interleaved RGB8/RGBA8 straight out — no container.
-    Raw {},
-}
+// `Output` (the recipe's per-format encode settings) lives in
+// `raster_recipe_output.rs` — the PR-C convention of one `raster_recipe_
+// <family>.rs` per op/output family, applied here even though the geometry
+// and colour split files it mirrors haven't landed on this branch yet
+// (#3502/#3503 are separate in-flight lanes). See that module for the
+// schema and the wire-to-`RasterOutput` translation.
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
