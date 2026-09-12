@@ -97,7 +97,10 @@ fn target(requested: u32, resized: u32) -> u32 {
 /// The part that matters most here is the single-fixed-axis branch: every
 /// canvas except `fill` copies the requested axis's factor onto the other
 /// axis, so `{ width: 10, fit: 'contain' }` on a 40x20 source scales BOTH
-/// axes by 4 and lands on 10x5 — not a 10x20 letterbox.
+/// axes by 4 and lands on 10x5 — not a 10x20 letterbox. The two clamps are
+/// then applied per axis to whatever the canvas chose, `fill` included, so
+/// a `fill` that enlarges one axis and shrinks the other can have exactly
+/// one of them held back.
 fn resolve_shrink(src: &RasterImage, options: &ResizeOptions) -> (f64, f64) {
     let (sw, sh) = (src.width as f64, src.height as f64);
     let h_axis = (options.width > 0).then(|| sw / options.width as f64);
@@ -117,11 +120,8 @@ fn resolve_shrink(src: &RasterImage, options: &ResizeOptions) -> (f64, f64) {
         (None, Some(v)) if options.fit == ResizeFit::Fill => (1.0, v),
         (None, Some(v)) => (v, v),
     };
-    // `fill` keeps its historical clamp behaviour for now — see #3502's
-    // follow-up commit, which moves it onto the same footing as the rest.
-    if options.fit == ResizeFit::Fill {
-        return raw;
-    }
+    // Both clamps apply to every canvas, `fill` included, and per axis —
+    // `ResolveShrink` runs them after the canvas switch, on both factors.
     let no_up = if options.without_enlargement {
         (raw.0.max(1.0), raw.1.max(1.0))
     } else {
