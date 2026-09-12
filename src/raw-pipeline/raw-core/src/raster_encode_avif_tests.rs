@@ -57,7 +57,7 @@ fn pixi_bits(bytes: &[u8]) -> Vec<u8> {
 #[test]
 fn encodes_an_avif_that_decodes_back() {
     let src = gradient(32, 24, false);
-    let bytes = encode_avif_opts(&src, &opts(), None).unwrap();
+    let bytes = encode_avif_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     assert_eq!(&bytes[4..8], b"ftyp");
     let decoded = crate::avif_decode::decode_avif(&bytes).unwrap();
     assert_eq!((decoded.width, decoded.height), (32, 24));
@@ -66,7 +66,7 @@ fn encodes_an_avif_that_decodes_back() {
 #[test]
 fn alpha_survives_an_avif_round_trip() {
     let src = gradient(32, 24, true);
-    let bytes = encode_avif_opts(&src, &opts(), None).unwrap();
+    let bytes = encode_avif_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     let decoded = crate::avif_decode::decode_avif(&bytes).unwrap();
     assert_eq!(decoded.channels, 4);
     assert!(decoded.data[3] > 200, "the opaque half lost its alpha");
@@ -84,12 +84,21 @@ fn alpha_survives_an_avif_round_trip() {
 /// `pixi` box is where that is observable without a decoder.
 #[test]
 fn the_default_bit_depth_is_eight_in_the_pixi_box() {
-    let bytes = encode_avif_opts(&gradient(32, 24, false), &opts(), None).unwrap();
+    let bytes = encode_avif_opts(
+        &gradient(32, 24, false),
+        &opts(),
+        &EmbeddedMetadata::default(),
+    )
+    .unwrap();
     assert_eq!(pixi_bits(&bytes), vec![8, 8, 8]);
     // `AvifOptions::default()` (what a bare `avif()` with no options maps to)
     // must agree with the explicit 8 above, not fall back to ravif's Auto.
-    let defaulted =
-        encode_avif_opts(&gradient(32, 24, false), &AvifOptions::default(), None).unwrap();
+    let defaulted = encode_avif_opts(
+        &gradient(32, 24, false),
+        &AvifOptions::default(),
+        &EmbeddedMetadata::default(),
+    )
+    .unwrap();
     assert_eq!(pixi_bits(&defaulted), vec![8, 8, 8]);
 }
 
@@ -104,7 +113,7 @@ fn bitdepth_ten_is_honoured_and_reaches_the_pixi_box() {
             bitdepth: 10,
             ..opts()
         },
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     assert_eq!(pixi_bits(&bytes), vec![10, 10, 10]);
@@ -116,7 +125,12 @@ fn bitdepth_ten_is_honoured_and_reaches_the_pixi_box() {
 /// 10-bit colour plane does.
 #[test]
 fn the_rgba_path_also_writes_eight_bit() {
-    let bytes = encode_avif_opts(&gradient(32, 24, true), &opts(), None).unwrap();
+    let bytes = encode_avif_opts(
+        &gradient(32, 24, true),
+        &opts(),
+        &EmbeddedMetadata::default(),
+    )
+    .unwrap();
     assert!(
         pixi_bits(&bytes).iter().all(|&d| d == 8),
         "got {:?}",
@@ -135,7 +149,7 @@ fn bitdepth_twelve_is_a_named_error() {
             bitdepth: 12,
             ..opts()
         },
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap_err();
     let message = format!("{err}");
@@ -155,7 +169,7 @@ fn four_two_zero_is_a_named_error_not_a_silent_four_four_four() {
             chroma_subsampling: AvifChroma::Yuv420,
             ..opts()
         },
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap_err();
     let message = format!("{err}");
@@ -175,7 +189,7 @@ fn lossless_is_a_named_error_not_a_silent_lossy_encode() {
             lossless: true,
             ..opts()
         },
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap_err();
     let message = format!("{err}");
@@ -316,7 +330,15 @@ fn avif_speed_for_pins_effort_to_speed() {
 #[test]
 fn an_exif_item_is_written_into_the_container() {
     let exif = b"II\x2a\x00\x08\x00\x00\x00\x00\x00".to_vec();
-    let bytes = encode_avif_opts(&gradient(16, 16, false), &opts(), Some(&exif)).unwrap();
+    let bytes = encode_avif_opts(
+        &gradient(16, 16, false),
+        &opts(),
+        &EmbeddedMetadata {
+            exif: Some(&exif),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert!(
         bytes.windows(4).any(|w| w == b"Exif"),
         "no Exif item in the AVIF"
@@ -326,7 +348,7 @@ fn an_exif_item_is_written_into_the_container() {
 #[test]
 fn webp_lossless_round_trips_with_alpha() {
     let src = gradient(16, 16, true);
-    let bytes = encode_webp_opts(&src, true).unwrap();
+    let bytes = encode_webp_opts(&src, true, &EmbeddedMetadata::default()).unwrap();
     assert_eq!(&bytes[..4], b"RIFF");
     let decoded = crate::raster::decode_raster(&bytes, Some("webp")).unwrap();
     assert_eq!((decoded.channels, decoded.data), (4, src.data));
@@ -334,7 +356,8 @@ fn webp_lossless_round_trips_with_alpha() {
 
 #[test]
 fn webp_lossy_is_a_named_error_not_a_silent_fallback() {
-    let err = encode_webp_opts(&gradient(8, 8, false), false).unwrap_err();
+    let err =
+        encode_webp_opts(&gradient(8, 8, false), false, &EmbeddedMetadata::default()).unwrap_err();
     let message = format!("{err}");
     assert!(message.contains("lossless"), "got: {message}");
 }
