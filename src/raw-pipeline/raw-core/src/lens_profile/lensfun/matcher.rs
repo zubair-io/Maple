@@ -116,15 +116,24 @@ pub fn slug(lens: &Lens, mount: &Mount) -> String {
     )
 }
 
-pub fn by_slug<'a>(db: &'a Database, slug_text: &str) -> Option<(&'a Lens, &'a Mount)> {
+/// A slug names every calibration set of a lens on that mount (Lensfun
+/// lists one entry per crop factor), so the camera's crop picks the set,
+/// with the same rule `find` applies.
+pub fn by_slug<'a>(
+    db: &'a Database,
+    slug_text: &str,
+    camera_crop: f64,
+) -> Option<(&'a Lens, &'a Mount)> {
     let (_, mount_part) = slug_text.rsplit_once('@')?;
-    let mount = db
+    let mount_index = db
         .mounts
         .iter()
-        .find(|m| canonical("", &m.name) == mount_part)?;
-    let mount_index = db.mounts.iter().position(|m| std::ptr::eq(m, mount))?;
+        .position(|m| canonical("", &m.name) == mount_part)?;
+    let mount = &db.mounts[mount_index];
     db.lenses
         .iter()
-        .find(|lens| lens.mounts.contains(&mount_index) && slug(lens, mount) == slug_text)
+        .filter(|lens| lens.mounts.contains(&mount_index) && slug(lens, mount) == slug_text)
+        .filter(|lens| lens.rectilinear && camera_crop / lens.crop >= MIN_CROP_RATIO)
+        .min_by(|a, b| (camera_crop / a.crop).total_cmp(&(camera_crop / b.crop)))
         .map(|lens| (lens, mount))
 }
