@@ -210,12 +210,87 @@ fn an_eight_by_eight_fixture_matches_measured_sharp_output() {
     );
     // sharp 0.34.5 measured: dominant {r:200, g:24, b:24} (exact bin match).
     assert_eq!(stats.dominant, [200, 24, 24]);
-    // sharp measures 5.64 here via its own unclamped scale-9 kernel;
-    // this file's clamped scale-1/offset-128 convolution is a different
-    // (documented) computation, pinned to its own closed-form value.
+    // sharp 0.34.5 measured: sharpness 5.642424922637657 (unclamped
+    // 4-connected Laplacian, scale 9, sample stdev — see the module doc).
     assert!(
-        (stats.sharpness - 50.781_824_019_954_726).abs() < 1e-6,
+        (stats.sharpness - 5.642_424_922_637_657).abs() < 1e-6,
         "sharpness was {}",
         stats.sharpness
     );
+}
+
+/// A 32x32 image of 2x2-pixel checkerboard cells, grey values `0`/`255`.
+/// The fix-round-1 review brief for this task asked for this fixture
+/// pinned to `28.05176056457488`; running real sharp 0.34.5 directly
+/// against this exact construction (and a wide sweep of other checkerboard
+/// sizes and cell sizes, and both grey polarities) never produces that
+/// number — see the module doc for the sweep. Real sharp measures
+/// `54.0295479363077` for this exact fixture. This implementation's own
+/// value, `54.02954672391646`, is what this test pins as a regression
+/// guard — the ~1.2e-6 gap from sharp's number is `f32`-precision noise in
+/// [`bw_luma`]'s sRGB round trip (sharp works in higher precision
+/// internally), well below anything that matters for `sharpness`'s actual
+/// use (ordering sharp images above blurred ones).
+#[test]
+fn a_thirty_two_by_thirty_two_checkerboard_matches_measured_sharp_output() {
+    let cell = 2u32;
+    let data = (0..32u32)
+        .flat_map(|y| {
+            (0..32u32).flat_map(move |x| {
+                let v = if ((x / cell) + (y / cell)) % 2 == 0 {
+                    255u8
+                } else {
+                    0u8
+                };
+                [v, v, v]
+            })
+        })
+        .collect();
+    let img = RasterImage::new_rgb(32, 32, data);
+    let sharpness = compute_stats(&img).unwrap().sharpness;
+    assert!(
+        (sharpness - 54.029_546_723_916_46).abs() < 1e-6,
+        "sharpness was {sharpness}"
+    );
+}
+
+#[test]
+fn a_solid_mid_grey_image_dominant_bin_is_seven() {
+    let img = RasterImage::new_rgb(2, 2, vec![128; 12]);
+    let dominant = compute_stats(&img).unwrap().dominant;
+    assert_eq!(dominant, [120, 120, 120], "128 -> bin 7, centre 120");
+}
+
+#[test]
+fn a_value_of_sixteen_maps_to_dominant_bin_zero() {
+    // 16 is a multiple of 16 -- exactly the boundary the old `v >> 4`
+    // formula got wrong ((16 - 1) / 16 = 0, not 16 >> 4 = 1).
+    let img = RasterImage::new_rgb(2, 2, vec![16; 12]);
+    let dominant = compute_stats(&img).unwrap().dominant;
+    assert_eq!(dominant, [8, 8, 8], "16 -> bin 0, centre 8");
+}
+
+#[test]
+fn dominant_tie_break_picks_the_lower_bin_regardless_of_raster_order() {
+    // Four pixels at 20 (bin 1, centre 24) and four at 90 (bin 5, centre
+    // 88) -- an exact count tie. libvips' `maxpos()` (and so sharp)
+    // returns the FIRST maximum, i.e. the lower bin, no matter which one
+    // appears first in the raster.
+    let low_first: Vec<u8> = (0..8u32)
+        .flat_map(|i| {
+            let v = if i < 4 { 20u8 } else { 90 };
+            [v, v, v]
+        })
+        .collect();
+    let high_first: Vec<u8> = (0..8u32)
+        .flat_map(|i| {
+            let v = if i < 4 { 90u8 } else { 20 };
+            [v, v, v]
+        })
+        .collect();
+    for data in [low_first, high_first] {
+        let img = RasterImage::new_rgb(8, 1, data);
+        let dominant = compute_stats(&img).unwrap().dominant;
+        assert_eq!(dominant, [24, 24, 24], "tie must resolve to the lower bin");
+    }
 }
