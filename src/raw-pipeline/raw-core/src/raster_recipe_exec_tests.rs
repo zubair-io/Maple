@@ -12,6 +12,10 @@ fn run(json: &str, input: &[u8], aux: &[u8]) -> RecipeResult {
     run_recipe(&parse_recipe(json).unwrap(), input, aux).unwrap()
 }
 
+fn run_err(json: &str, input: &[u8], aux: &[u8]) -> crate::error::Error {
+    run_recipe(&parse_recipe(json).unwrap(), input, aux).unwrap_err()
+}
+
 /// 4x2 solid RGBA red, as a raw pixel buffer.
 fn red_rgba() -> Vec<u8> {
     (0..8).flat_map(|_| [255u8, 0, 0, 255]).collect()
@@ -473,4 +477,164 @@ fn metadata_survives_an_op_and_a_format_change() {
     let found = crate::raster_meta::read_sidecars(&out.bytes);
     assert!(found.exif.is_some(), "EXIF was dropped across the resize");
     assert_eq!(found.icc.as_deref(), Some(icc.as_slice()));
+}
+
+// ---- fix-round-1, item 1: unsupported-but-requested metadata errors ----
+
+/// `avif`-gated: Maple's WebP encoder lives in the `raster_encode_avif`
+/// module, so a WebP output is a named error without the feature (#3506 F6)
+/// — the capability question this test is about only arises once there IS
+/// an encoder to reach.
+#[cfg(feature = "avif")]
+#[test]
+fn keep_with_no_xmp_in_the_input_is_fine_for_webp() {
+    // "For keep: true, only fields that are actually PRESENT in the
+    // input count as requested" — this JPEG source carries no XMP, so a
+    // WebP output (which can't carry XMP at all) must still succeed.
+    let icc = p3_icc();
+    let source = jpeg_source(Some(&icc), Some(EXIF_TIFF));
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"webp"},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&out.bytes).icc.as_deref(),
+        Some(icc.as_slice())
+    );
+}
+
+#[test]
+fn a_supplied_xmp_to_webp_is_a_named_error() {
+    let xmp = b"<x:xmpmeta/>".to_vec();
+    let err = run_err(
+        &format!(
+            r#"{{"v":1,"input":{{"kind":"encoded"}},"ops":[],
+                "output":{{"format":"webp"}},
+                "metadata":{{"xmp":{{"off":0,"len":{}}}}}}}"#,
+            xmp.len()
+        ),
+        &jpeg_source(None, None),
+        &xmp,
+    );
+    assert!(
+        format!("{err}").contains("WebP cannot embed XMP"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn a_density_request_to_tiff_is_a_named_error() {
+    let err = run_err(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"tiff"},
+            "metadata":{"density":300.0}}"#,
+        &jpeg_source(None, None),
+        &[],
+    );
+    assert!(
+        format!("{err}").contains("TIFF cannot embed a pixel density"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn a_kept_exif_block_sent_to_tiff_is_a_named_error() {
+    let err = run_err(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"tiff"},
+            "metadata":{"keep":true}}"#,
+        &jpeg_source(None, Some(EXIF_TIFF)),
+        &[],
+    );
+    assert!(
+        format!("{err}").contains("TIFF cannot embed EXIF"),
+        "got: {err}"
+    );
+}
+
+// ---- fix-round-1, item 3: autoOrient neutralises a kept Orientation ----
+
+/// A JPEG with `exif` spliced in, mirroring `jpeg_source` but with a
+/// non-empty pixel grid so a 90-degree autoOrient rotation is visible.
+fn oriented_jpeg_source(width: u32, height: u32, exif: &[u8]) -> Vec<u8> {
+    let base = crate::jpeg::encode(
+        width,
+        height,
+        &vec![90u8; (width * height * 3) as usize],
+        90,
+    )
+    .unwrap();
+    let mut payload = b"Exif\0\0".to_vec();
+    payload.extend_from_slice(exif);
+    let mut segment = vec![0xFFu8, 0xE1];
+    segment.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+    segment.extend_from_slice(&payload);
+    let mut out = base[..2].to_vec();
+    out.extend_from_slice(&segment);
+    out.extend_from_slice(&base[2..]);
+    out
+}
+
+/// A minimal IFD0 with a single Orientation entry set to `value`.
+fn exif_with_orientation(value: u16) -> Vec<u8> {
+    let mut tiff = vec![0u8; 26];
+    tiff[..2].copy_from_slice(b"II");
+    tiff[2..4].copy_from_slice(&42u16.to_le_bytes());
+    tiff[4..8].copy_from_slice(&8u32.to_le_bytes());
+    tiff[8..10].copy_from_slice(&1u16.to_le_bytes());
+    tiff[10..12].copy_from_slice(&0x0112u16.to_le_bytes());
+    tiff[12..14].copy_from_slice(&3u16.to_le_bytes());
+    tiff[14..18].copy_from_slice(&1u32.to_le_bytes());
+    tiff[18..20].copy_from_slice(&value.to_le_bytes());
+    tiff
+}
+
+#[test]
+fn auto_orient_neutralises_a_kept_orientation_end_to_end() {
+    // Measured against sharp: sharp(oriented6).rotate().withMetadata()
+    // .jpeg() -> metadata().orientation === 1 (not undefined — the EXIF
+    // block itself survives).
+    let source = oriented_jpeg_source(8, 4, &exif_with_orientation(6));
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},
+            "ops":[{"op":"autoOrient"}],
+            "output":{"format":"jpeg","quality":85},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    let found = crate::raster_meta::read_sidecars(&out.bytes);
+    assert!(found.exif.is_some(), "the EXIF block itself must survive");
+    let orientation = found
+        .exif
+        .as_deref()
+        .and_then(crate::raster::exif_orientation_from_block);
+    assert_eq!(orientation, Some(1));
+    // A 90-degree rotation (Orientation 6) really did run: the pixel
+    // dimensions are swapped from the source's own 8x4.
+    assert_eq!((out.width, out.height), (4, 8));
+}
+
+#[test]
+fn an_explicit_orientation_still_wins_after_auto_orient_end_to_end() {
+    // Measured: sharp(oriented6).rotate().withMetadata({orientation:6})
+    // .jpeg() -> metadata().orientation === 6.
+    let source = oriented_jpeg_source(8, 4, &exif_with_orientation(6));
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},
+            "ops":[{"op":"autoOrient"}],
+            "output":{"format":"jpeg","quality":85},
+            "metadata":{"keep":true,"orientation":6}}"#,
+        &source,
+        &[],
+    );
+    let found = crate::raster_meta::read_sidecars(&out.bytes);
+    let orientation = found
+        .exif
+        .as_deref()
+        .and_then(crate::raster::exif_orientation_from_block);
+    assert_eq!(orientation, Some(6));
 }
