@@ -127,10 +127,15 @@ fn premultiply(plane: &Plane) -> Plane {
         .chunks_exact(4)
         .flat_map(|px| {
             // `f32`, not `f64`: `vips_premultiply` writes a float image and
-            // computes `nalpha` as a float, and the difference shows. At
-            // alpha 200, `255 * (200/255)` is 200 exactly in `f64` but lands
-            // a hair under it in `f32`, so the truncating cast that follows
-            // gives 199 — which is what sharp 0.34.5 actually writes.
+            // computes `nalpha` as a float, and the difference shows. A
+            // sweep of all 65,536 (alpha, value) pairs through this
+            // quantising cast finds 12 where `f32` and `f64` truncate to
+            // different bytes — e.g. alpha 147, value 85: `f32` rounds the
+            // product to 49, `f64` to 48. That one-byte gap survives a
+            // `blur(1.5)` round trip through this module's premultiply /
+            // unpremultiply sandwich: Maple's `f32` path lands back on 85,
+            // matching sharp 0.34.5 exactly, while a hypothetical pure-`f64`
+            // implementation would land on 83.
             let nalpha = (px[3].clamp(0.0, 255.0) as f32) / 255.0;
             [
                 f64::from(px[0] as f32 * nalpha),
