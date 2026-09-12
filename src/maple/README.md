@@ -229,6 +229,38 @@ extends by 5 on every side (measured: sharp 30×30, Maple 20×20). Call
 `.resize()` before `extend`/`flip`/`flop`/`rotate(angle)` and after `trim`
 if you want sharp's staging.
 
+Repeated `.resize()` calls are **not** a divergence: sharp has a single
+resize stage, so the last call wins, and Maple's `.resize()` drops any
+earlier `resize` op for the same reason. Measured on 32x32 noise,
+`.resize(16).resize(8)` is byte-identical to `.resize(8)` in both libraries.
+
+The colour ops are fixed stages in sharp too, and this is where call order
+bites hardest. Every one of them runs at a fixed point in sharp's pipeline
+(`src/pipeline.cc`, line numbers from sharp 0.34.5) while Maple runs it
+where you called it. The last column is the measured max per-channel
+difference vs sharp on 32x32 colour noise for each order — the "sharp's own
+order" figure is what you get by calling the ops in the order sharp would
+have applied them, and it is the one to aim for:
+
+| op                           | sharp stage                                   | Maple                                | measured, sharp's own order vs the other one                                                                                                       |
+| :--------------------------- | :-------------------------------------------- | :----------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gamma` (in)                 | 364, immediately before resize                | spliced before the first `resize` op | matches (0)                                                                                                                                        |
+| `greyscale`                  | 369, after gamma-in, still before resize      | call order                           | `.greyscale().resize(16)` **4**, `.resize(16).greyscale()` **24** (lanczos3; both 1 with `nearest`)                                                |
+| `modulate`                   | 625, after resize and composite               | call order                           | `.modulate({saturation:0}).tint(…)` **3**, `.tint(…).modulate({saturation:0})` **151**                                                             |
+| `gamma` (out)                | 743, after composite, blur and sharpen        | spliced after that same `resize` op  | `.gamma(3).resize(16).composite(…)` **89** (the composite falls between the pair in sharp; without gamma the same chain is 1)                      |
+| `linear`                     | 748, after gamma-out                          | call order                           | `.linear(1.2,-10).negate()` **0**, `.negate().linear(1.2,-10)` **31**                                                                              |
+| `normalise`                  | 755, after linear                             | call order                           | `.linear(1.6,-40).normalise()` **1**, `.normalise().linear(1.6,-40)` **42**                                                                        |
+| `tint`                       | 781, after normalise                          | call order                           | see `modulate`                                                                                                                                     |
+| `toColourspace` + output ICC | 799 / 826, the output stage after every op    | call order                           | `.modulate(…).toColourspace('display-p3')` **1**, `.toColourspace('display-p3').modulate(…)` **21** (vs sharp `.modulate(…).withIccProfile('p3')`) |
+| `negate`                     | **840, last of all**, after the ICC transform | call order                           | see `linear`                                                                                                                                       |
+
+`gamma` is the one op whose position Maple resolves rather than takes
+literally, because its whole purpose is to move the resize into a different
+encoding. Everything else is call order, so **call the colour ops in the
+stage order above** if you are porting a sharp pipeline and want the same
+pixels. Resolving the whole op list into sharp's stage order at assembly
+time, the way `gamma` already is, is tracked separately.
+
 ## Native Core & Linux Support
 
 `@justmaple/maple` connects to `libraw_ffi` via `bun:ffi`.
