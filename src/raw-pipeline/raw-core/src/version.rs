@@ -98,7 +98,9 @@
 /// - 3 — highlight-recovery sensor ceilings include BaselineExposure (#3267),
 ///   so RAWs with nonzero baseline exposure are reconstructed at their actual
 ///   saturation level rather than using the zero-exposure thresholds.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 3;
+/// - 4: highlights slider flipped to Adobe's direction (positive brightens);
+///   every stored non-zero Highlights renders differently.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 4;
 
 #[cfg(test)]
 mod tests {
