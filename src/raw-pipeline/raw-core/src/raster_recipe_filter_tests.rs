@@ -133,20 +133,40 @@ fn median_runs_through_the_recipe() {
 
 #[test]
 fn median_runs_through_the_recipe_on_a_4_channel_image() {
-    let data: Vec<u8> = (0..8u32)
-        .flat_map(|x| [90u8, 90, 90, if x == 4 { 0 } else { 255 }])
+    // 8x3, not 8x1: `vips_rank` (and so sharp) refuses a 3x3 window on a
+    // single-row image — see `RasterImage::median`'s own tests.
+    let data: Vec<u8> = (0..3u32)
+        .flat_map(|y| {
+            (0..8u32).flat_map(move |x| [90u8, 90, 90, if x == 4 && y == 1 { 0 } else { 255 }])
+        })
         .collect();
     let out = run(
-        r#"{"v":1,"input":{"kind":"raw","width":8,"height":1,"channels":4},
+        r#"{"v":1,"input":{"kind":"raw","width":8,"height":3,"channels":4},
             "ops":[{"op":"median","size":3}],"output":{"format":"raw"}}"#,
         &data,
         &[],
     );
     assert_eq!(
-        out.bytes[4 * 4 + 3],
+        out.bytes[(1 * 8 + 4) * 4 + 3],
         255,
         "the lone transparent pixel is a speck"
     );
+}
+
+#[test]
+fn a_threshold_of_zero_runs_as_a_no_op_through_the_recipe() {
+    // The wire carries `value: 0` faithfully; it is `RasterImage::threshold`
+    // that declines to act on it, matching sharp's `threshold != 0` stage
+    // gate. Pinned here as well as at the `RasterImage` layer because a
+    // recipe caller never goes through the TS builder.
+    let px: Vec<u8> = (0..4u8).flat_map(|i| [i * 40, 7, 200]).collect();
+    let out = run(
+        r#"{"v":1,"input":{"kind":"raw","width":2,"height":2,"channels":3},
+            "ops":[{"op":"threshold","value":0}],"output":{"format":"raw"}}"#,
+        &px,
+        &[],
+    );
+    assert_eq!(out.bytes, px);
 }
 
 #[test]

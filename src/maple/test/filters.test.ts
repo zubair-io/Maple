@@ -283,9 +283,78 @@ describe('Filters', () => {
     // `maple('photo.dng').blur(5).toFile(out)` used to write an unblurred
     // file and report success — the RAW-develop terminal never read
     // `state.ops`. `resize` is the one op that path really does honour.
-    await expect(maple('photo.dng').blur(5).toFile('/tmp/maple-never-written.jpg')).rejects.toThrow(
+    // `toFile` reports it the way it reports every other failure, and
+    // `toBuffer` turns that into a throw.
+    const res = await maple('photo.dng').blur(5).toFile('/tmp/maple-never-written.jpg');
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/blur is not supported on a RAW develop input/);
+    await expect(maple('photo.dng').blur(5).toBuffer()).rejects.toThrow(
       /blur is not supported on a RAW develop input/,
     );
+  });
+
+  it('threshold(0) and threshold(false) are no-ops, as in sharp', async () => {
+    // sharp gates the whole stage on `threshold != 0` (`pipeline.cc`) and
+    // resolves `threshold(false)` to 0, so neither form touches the image.
+    // Measured byte-identical to the source on sharp 0.34.5, where a
+    // literal `pixel >= 0` whitens everything (max diff 255 on 3060 of
+    // 3072 samples of a noise fixture). `threshold(true)` is 128.
+    const src = await png(stepEdge(8, 4));
+    const before = Array.from(await pixels(src));
+    const through = async (v: number | boolean) =>
+      Array.from(await pixels(await maple(src).threshold(v).toFormat('png').toBuffer()));
+    expect(await through(0)).toEqual(before);
+    expect(await through(false)).toEqual(before);
+    expect(await through(true)).not.toEqual(before);
+  });
+
+  it('blur and sharpen take sharps deprecated boolean form', async () => {
+    // `true` is the mild path, `false` is no filter at all.
+    const src = await png(stepEdge(16, 4));
+    const raw = async (b: Buffer) => Array.from(await pixels(b));
+    const before = await raw(src);
+    expect(await raw(await maple(src).blur(false).toFormat('png').toBuffer())).toEqual(before);
+    expect(await raw(await maple(src).sharpen(false).toFormat('png').toBuffer())).toEqual(before);
+    expect(await raw(await maple(src).blur(true).toFormat('png').toBuffer())).toEqual(
+      await raw(await maple(src).blur().toFormat('png').toBuffer()),
+    );
+    expect(await raw(await maple(src).sharpen(true).toFormat('png').toBuffer())).toEqual(
+      await raw(await maple(src).sharpen().toFormat('png').toBuffer()),
+    );
+  });
+
+  it('median rejects a window larger than the image, like vips_rank', async () => {
+    // Measured on sharp 0.34.5: `median(3)` on a 1x1 and `median(5)` on a
+    // 4x4 both throw "rank: window too large"; `median(4)` on the 4x4 does
+    // not.
+    const one = {
+      data: new Uint8Array([90, 90, 90]),
+      width: 1,
+      height: 1,
+      channels: 3 as const,
+    };
+    await expect(
+      maple(await png(one))
+        .median(3)
+        .toFormat('png')
+        .toBuffer(),
+    ).rejects.toThrow(/window too large/);
+    await expect(
+      maple(await png(impulse(4)))
+        .median(5)
+        .toFormat('png')
+        .toBuffer(),
+    ).rejects.toThrow(/window too large/);
+    expect(
+      (
+        await pixels(
+          await maple(await png(impulse(4)))
+            .median(4)
+            .toFormat('png')
+            .toBuffer(),
+        )
+      ).length,
+    ).toBeGreaterThan(0);
   });
 
   it('rejects a non-integer convolve scale by name', () => {
