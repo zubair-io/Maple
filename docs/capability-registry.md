@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 40
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`
-- Record: satisfied — 40 of 40 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v4, schema v5, commit `a6572b6f9f0581ac0c650eda340a539a92a41270`, recorded 2026-09-12T11:17:59Z
+- Record: satisfied — 40 of 40 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v4, schema v5, commit `76f273f47e7e93940b656703c0c7c1ab0df6d988`, recorded 2026-09-12T13:43:37Z
 
 ### `synthetic_grey`
 
