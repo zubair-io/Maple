@@ -82,6 +82,12 @@ export interface BuilderState {
   quality: number;
   /** sharp-style AVIF effort 0-9, or null for "never set". */
   effort: number | null;
+  /**
+   * The full per-format output object set by `.jpeg()`/`.png()`/`.webp()`/
+   * `.avif()`/`.tiff()`, or null when the caller only ever used
+   * `.toFormat()`/`.quality()`/`.format()` — see `stateToOutput`.
+   */
+  output: Record<string, unknown> | null;
   autoOrient: boolean;
   // RAW-develop fields, unchanged from Tier 1.
   xmpPath: string | null;
@@ -102,6 +108,7 @@ export function createBuilderState(
     format: null,
     quality: 92,
     effort: null,
+    output: null,
     autoOrient: false,
     xmpPath: null,
     xmpXml: null,
@@ -159,11 +166,50 @@ export function stateToRecipe(state: BuilderState, output: Record<string, unknow
   return { v: 1, input, ops, output };
 }
 
-/** Output object for the current format/quality/effort selection. */
+/**
+ * sharp options Maple's pure-Rust encoders do not implement, rejected by
+ * name at call time rather than silently ignored (#3506 F5).
+ */
+const UNSUPPORTED: Record<string, string[]> = {
+  jpeg: [
+    'mozjpeg',
+    'trellisQuantisation',
+    'overshootDeringing',
+    'optimiseScans',
+    'optimizeScans',
+    'quantisationTable',
+    'quantizationTable',
+  ],
+  png: ['progressive'],
+  webp: ['alphaQuality', 'nearLossless', 'smartSubsample', 'preset', 'effort'],
+  avif: ['bitdepth', 'tune'],
+  tiff: ['tile', 'pyramid', 'bigtiff', 'xres', 'yres', 'miniswhite'],
+};
+
+/** Throw if the caller passed an option this encoder cannot honour. */
+export function rejectUnsupported(format: string, options: Record<string, unknown>): void {
+  const offender = (UNSUPPORTED[format] ?? []).find((key) => options[key] !== undefined);
+  if (offender !== undefined) {
+    throw new Error(
+      `${format}({ ${offender} }) is not supported by Maple's pure-Rust encoder. ` +
+        `See the sharp parity table in the @justmaple/maple README.`,
+    );
+  }
+}
+
+/**
+ * Output object for the current output selection: the full per-format
+ * object set by `.jpeg()`/`.png()`/`.webp()`/`.avif()`/`.tiff()` when one
+ * was called, otherwise the Tier 1 `.toFormat()`/`.quality()`/`.format()`
+ * fallback (format plus quality/effort where those apply).
+ */
 export function stateToOutput(
   state: BuilderState,
   fallback: ExportFormat,
 ): Record<string, unknown> {
+  if (state.output) {
+    return state.output;
+  }
   const format = state.format ?? fallback;
   if (format === 'avif') {
     return { format, quality: state.quality, effort: state.effort ?? 4 };
