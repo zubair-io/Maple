@@ -187,10 +187,11 @@ export declare class MapleImageBuilder {
      */
     withExif(exif: Uint8Array | Buffer): this;
     /**
-     * Embed an ICC profile: `'srgb'`/`'p3'` (Maple's own built-in profiles), a
-     * filesystem path, or raw profile bytes. See the doc on
-     * `applyWithIccProfile` in `builder-metadata.ts` for the divergence from
-     * sharp's own `string`-only signature (`'cmyk'` included).
+     * Tag the output with an ICC profile: `'srgb'` (Maple's own built-in
+     * profile), a filesystem path, or raw profile bytes. This never converts
+     * pixels, which is why `'p3'` is a named error — see the doc on
+     * `applyWithIccProfile` in `builder-metadata.ts` for that and for the
+     * other divergences from sharp's own `string`-only signature.
      */
     withIccProfile(icc: string | Uint8Array | Buffer): this;
     /** Embed this XMP packet. */
