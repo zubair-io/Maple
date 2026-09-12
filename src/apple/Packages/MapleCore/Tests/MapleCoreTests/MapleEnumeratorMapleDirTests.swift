@@ -209,10 +209,56 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
         let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
         XCTAssertTrue(ok)
         let items = observer.batches.flatMap { $0 }
-        XCTAssertEqual(items.count, 1)
-        XCTAssertEqual(items[0].filename, "thumbs")
-        let parsed = try? FileProviderIdentifier(rawValue: items[0].itemIdentifier.rawValue)
-        XCTAssertEqual(parsed, .mapleThumbsDir(folderID: "f1", parentRelativePath: ""))
+        // `thumbs/` and, since #3571, `previews/`.
+        XCTAssertEqual(items.map(\.filename), ["thumbs", "previews"])
+        let parsed = items.map { try? FileProviderIdentifier(rawValue: $0.itemIdentifier.rawValue) }
+        XCTAssertEqual(parsed, [.mapleThumbsDir(folderID: "f1", parentRelativePath: ""),
+                                .maplePreviewsDir(folderID: "f1", parentRelativePath: "")])
+    }
+
+    /// #3571 — the previews listing names entries `<filename>.avif` (the
+    /// server's on-disk name) and versions each by its sidecar's mtime when
+    /// the folder listing carries one, else the RAW's mtime.
+    func testMaplePreviewsEnumeratorSurfacesPreviewPerIndexedImageWithSidecarSeed() async {
+        StubURLProtocol.handler = { _ in
+            let json = """
+            {"path":"/lib","parent":"/","dirs":[],"images":[
+              {"name":"A.dng","path":"/lib/A.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"a00000000000000000000000"},
+              {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"},
+              {"name":"C.dng","path":"/lib/C.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng"}
+            ],"sidecars":[
+              {"name":"A.xmp","path":"/lib/A.xmp","mtime":"2026-03-04T05:06:07Z","size":9,"asset_id":"a00000000000000000000000"}
+            ]}
+            """
+            return (200, Data(json.utf8), [:])
+        }
+        let containerID = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.maplePreviewsDir(folderID: "f1", parentRelativePath: "").rawValue
+        )
+        let enumerator = MapleThumbsEnumerator(
+            catalog: makeCatalog(),
+            folderID: "f1",
+            parentAbsolutePath: "/lib",
+            containerIdentifier: containerID,
+            kind: .previews,
+            pageSize: 100
+        )
+        let observer = TestEnumerationObserver()
+        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+        let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+        XCTAssertTrue(ok)
+        XCTAssertNil(observer.error)
+        let items = observer.batches.flatMap { $0 }
+        XCTAssertEqual(items.map(\.filename), ["A.dng.avif", "B.dng.avif"], "C is unindexed and must be skipped")
+        let ids = items.map { try? FileProviderIdentifier(rawValue: $0.itemIdentifier.rawValue) }
+        XCTAssertEqual(ids, [.preview(assetID: "a00000000000000000000000"),
+                             .preview(assetID: "b00000000000000000000000")])
+        XCTAssertEqual(items[0].parentItemIdentifier, containerID)
+        let iso = ISO8601DateFormatter()
+        XCTAssertEqual(items[0].contentModificationDate, iso.date(from: "2026-03-04T05:06:07Z"),
+                       "A has a sidecar: its mtime seeds the version")
+        XCTAssertEqual(items[1].contentModificationDate, iso.date(from: "2026-01-01T00:00:00Z"),
+                       "B has none: the RAW's mtime seeds the version")
     }
 
     func testMapleThumbsEnumeratorSurfacesThumbPerIndexedImage() async {
