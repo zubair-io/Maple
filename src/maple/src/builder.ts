@@ -527,7 +527,21 @@ export class MapleImageBuilder {
     return runPipeline(this.s, bytes, stateToOutput(this.s, 'jpeg')).buffer;
   }
 
-  /** Execute export or resize and write to output file */
+  /**
+   * Execute export or resize and write to output file.
+   *
+   * Both branches return `{ ok: false, error }` on failure rather than
+   * throwing — including `assertRawDevelopOutput`'s synchronous rejection of
+   * an unsupported per-format option on a RAW-develop input, which used to
+   * escape as a rejected promise while every other `toFile` failure (a
+   * native export error, a bitmap encode error) already came back this way.
+   * The RAW-develop branch's own try/catch lives inside
+   * `rawDevelopToFile` (`builder-raw-develop.ts`) — its `assertRawDevelopOutput`
+   * call sits inside that same try, so the imported function already
+   * resolves rather than rejects for this failure. `toBuffer()` on a
+   * RAW-develop input still throws: `rawDevelopToBuffer` calls `toFile`
+   * internally and re-throws on `!ok`, so that behaviour is unchanged.
+   */
   async toFile(outputPath: string): Promise<ExportResult> {
     if (isRawDevelop(this.s)) {
       return await rawDevelopToFile(this.s, outputPath);
