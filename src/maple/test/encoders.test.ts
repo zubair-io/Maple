@@ -317,6 +317,25 @@ describe('Encoder options', () => {
         );
       }
     });
+
+    // `assertRawDevelopOutput`'s rejection used to escape `toFile` as a
+    // rejected promise — the one `toFile` failure that didn't come back as
+    // `{ ok: false, error }` the way a native export error or a bitmap
+    // encode error already did. `toBuffer()` still throws: it develops to a
+    // tmp file via `toFile` internally and re-throws on `!ok`.
+    it('toFile() returns { ok: false, error } instead of throwing', async () => {
+      const out = tmp('should_not_exist.jpg');
+      const res = await raw().jpeg({ progressive: true }).toFile(out);
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/progressive is not supported on a RAW develop input yet/);
+      await expect(fs.stat(out)).rejects.toThrow();
+    });
+
+    it('toBuffer() still throws for the same option', async () => {
+      await expect(raw().jpeg({ progressive: true }).toBuffer()).rejects.toThrow(
+        /progressive is not supported on a RAW develop input yet/,
+      );
+    });
   });
 
   // Out-of-range numerics were variously clamped (quality 0 encoded at 1),
