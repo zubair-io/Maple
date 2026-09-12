@@ -464,6 +464,31 @@ mod tests {
         .is_err());
     }
 
+    /// #3506 F6: with the `avif` feature off, `lossless: true` — the one
+    /// value that DOES succeed once the feature is on — must still fail by
+    /// name: there is no WebP encoder at all without the feature (it shares
+    /// `raster_encode_avif`'s module with AVIF, see `encode_webp_lossless`
+    /// above), so this isolates the feature gate itself as the failure
+    /// reason, distinct from the lossless-value check
+    /// `webp_lossy_is_refused_through_the_output_enum` above exercises with
+    /// `lossless: false` (which fails either way, for two different
+    /// reasons depending on the feature).
+    #[cfg(not(feature = "avif"))]
+    #[test]
+    fn webp_lossless_output_without_the_avif_feature_is_a_named_error() {
+        let img = RasterImage::new_rgb(2, 1, vec![1, 2, 3, 4, 5, 6]);
+        let err = encode_raster_output(
+            &img,
+            &RasterOutput::Webp { lossless: true },
+            EmbeddedMetadata::default(),
+        )
+        .unwrap_err();
+        assert!(
+            format!("{err}").contains("avif"),
+            "expected the error to name the missing 'avif' feature, got: {err}"
+        );
+    }
+
     #[test]
     fn a_jpeg_output_flattens_alpha_over_black() {
         let rgba = RasterImage::new_rgba(8, 8, vec![0, 255, 0, 0].repeat(64));
