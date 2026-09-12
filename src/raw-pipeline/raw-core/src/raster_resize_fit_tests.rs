@@ -142,3 +142,87 @@ fn a_heavy_downscale_still_differs_from_libvips_two_stage_rounding() {
         "sharp answers 13x6 here — see scaled_dim's KNOWN GAP note"
     );
 }
+
+/// Red names the source column (`x * 6 + 3`), green the source row
+/// (`y * 12 + 5`), so an output pixel says where it came from. Neither
+/// channel can be 0, which keeps them distinct from `opts`' blue
+/// background.
+fn grid(w: u32, h: u32) -> RasterImage {
+    let data = (0..h)
+        .flat_map(|y| (0..w).flat_map(move |x| [(x * 6 + 3) as u8, (y * 12 + 5) as u8, 0]))
+        .collect();
+    RasterImage::new_rgb(w, h, data)
+}
+
+/// `contain` with `withoutReduction` on a source larger than the box. The
+/// clamp pins the scale at 1, so the image cannot shrink into the box — and
+/// sharp does not give up and return the source untouched. It sizes the
+/// letterbox canvas as `max(resized, target)`, which here is the source's
+/// own 40x20, and embeds the image at a NEGATIVE offset of (-15, -5): the
+/// centre region shows through at the top-left and the trailing edges
+/// become background.
+///
+/// Measured against sharp 0.34.5 / libvips 8.17.3 on a 40x20 source with
+/// `{ 10, 10, contain, withoutReduction }`: output 40x20, 3 channels; row 0
+/// reads source columns 15..=39 followed by 15 background columns; column 0
+/// reads source rows 5..=19 followed by 5 background rows.
+#[test]
+fn contain_with_an_upward_clamped_scale_embeds_at_a_negative_offset() {
+    let out = resize_raster(
+        &grid(40, 20),
+        &ResizeOptions {
+            without_reduction: true,
+            ..opts(10, 10, ResizeFit::Contain)
+        },
+    )
+    .unwrap();
+    assert_eq!((out.width, out.height, out.channels), (40, 20, 3));
+    let px = |x: u32, y: u32| {
+        let i = ((y * out.width + x) * out.channels as u32) as usize;
+        [out.data[i], out.data[i + 1], out.data[i + 2]]
+    };
+
+    for x in 0..25u32 {
+        assert_eq!(
+            px(x, 0)[0],
+            ((x + 15) * 6 + 3) as u8,
+            "output column {x} must be source column {}",
+            x + 15
+        );
+    }
+    for x in 25..40u32 {
+        assert_eq!(
+            px(x, 0),
+            [0, 0, 255],
+            "output column {x} must be background"
+        );
+    }
+    for y in 0..15u32 {
+        assert_eq!(
+            px(0, y)[1],
+            ((y + 5) * 12 + 5) as u8,
+            "output row {y} must be source row {}",
+            y + 5
+        );
+    }
+    for y in 15..20u32 {
+        assert_eq!(px(0, y), [0, 0, 255], "output row {y} must be background");
+    }
+}
+
+/// The ordinary letterbox is untouched by the negative-offset handling:
+/// 40x20 into a `contain` 10x10 box scales to 10x5 and pads 2 rows above
+/// and 3 below, and the canvas is the requested box.
+#[test]
+fn an_ordinary_contain_letterbox_still_pads_both_edges() {
+    let out = resize_raster(&grid(40, 20), &opts(10, 10, ResizeFit::Contain)).unwrap();
+    assert_eq!((out.width, out.height), (10, 10));
+    let px = |x: u32, y: u32| {
+        let i = ((y * out.width + x) * out.channels as u32) as usize;
+        [out.data[i], out.data[i + 1], out.data[i + 2]]
+    };
+    assert_eq!(px(5, 1), [0, 0, 255], "last row of the top band");
+    assert_ne!(px(5, 2), [0, 0, 255], "first image row");
+    assert_ne!(px(5, 6), [0, 0, 255], "last image row");
+    assert_eq!(px(5, 7), [0, 0, 255], "first row of the bottom band");
+}
