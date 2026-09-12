@@ -151,7 +151,7 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `jpeg()`                                           | ✅    | `quality`, `progressive`, `chromaSubsampling`, `optimiseCoding`/`optimizeCoding`; `mozjpeg`, trellis quantisation (either spelling), `overshootDeringing`, `optimiseScans`/`optimizeScans`, `quantisationTable`/`quantizationTable` and `force` throw                                                                                                                    |
 | `png()`                                            | ✅    | `compressionLevel`, `adaptiveFiltering`, `palette`, `colours`/`colors`, `dither`; `progressive` (Adam7), `quality`, `effort` and `force` throw                                                                                                                                                                                                                          |
 | `webp()`                                           | ⚠️    | lossless + alpha only — `quality`, `{ lossless: false }`, the animation-only knobs (`smartDeblock`/`loop`/`delay`/`minSize`/`mixed`) and `force` all throw                                                                                                                                                                                                              |
-| `avif()`                                           | ⚠️    | `quality`, `effort`; `chromaSubsampling` and `lossless` only take their defaults (`'4:4:4'` / `false`) — the other value throws; `bitdepth` and `force` throw; `tune` isn't a real sharp option and is a harmless no-op                                                                                                                                                |
+| `avif()`                                           | ⚠️    | `quality`, `effort`, `bitdepth` (8 default, 10; sharp's 12 throws); `chromaSubsampling` and `lossless` only take their defaults (`'4:4:4'` / `false`) — the other value throws; `force` throws; `tune` isn't a real sharp option and is a harmless no-op                                                                                                               |
 | `tiff()`                                           | ✅    | `compression` (none/lzw/deflate/packbits — sharp's own `'jpeg'` default throws), `bitdepth` 8/16, `predictor` (`'horizontal'`/`'none'`; `'float'` throws); tiled/pyramid/bigtiff/resolution/`quality` options throw                                                                                                                                                    |
 
 **\* One known gap, at heavy downscales only.** Everything about how the
@@ -277,6 +277,13 @@ no trellis quantisation. Measured against mozjpeg at matched quality
 case **+45.4%** at quality 75, narrowing to **+14–17%** at quality 90. Closing
 that gap would mean linking a C library, which the Linux zero-dependency build
 audit forbids.
+
+**AVIF writes 8-bit by default, and 8 is the interoperable choice.**
+`avif({ bitdepth: 10 })` produces a genuine 10-bit AV1 bitstream, but
+libheif's prebuilt decoders — sharp's included — cannot read one at all, so
+`bitdepth` defaults to `8` (as it does in sharp) and every reader in the wild
+can decode the output. sharp's third value, `12`, throws: Maple's `ravif`
+encoder has no 12-bit path.
 
 **WebP is lossless only.** No pure-Rust lossy WebP encoder exists, so
 `webp({ lossless: false })` throws rather than silently handing back a much

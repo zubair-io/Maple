@@ -85,6 +85,32 @@ describe('Encoder options', () => {
     ).rejects.toThrow(/lossless/);
   });
 
+  // The `pixi` box records bits-per-channel. `ravif`'s own builder default
+  // is `BitDepth::Auto` = 10, and a 10-bit AV1 bitstream is undecodable by
+  // libheif's prebuilt decoders (sharp's included), so the default here must
+  // be 8 and an explicit 10 must actually reach the file.
+  const pixiDepths = (bytes: Buffer): number[] => {
+    const at = bytes.indexOf(Buffer.from('pixi'));
+    expect(at).toBeGreaterThan(0);
+    const count = bytes[at + 8];
+    return Array.from(bytes.subarray(at + 9, at + 9 + count));
+  };
+
+  it('avif() defaults to 8-bit and avif({ bitdepth: 10 }) writes 10', async () => {
+    const input = await src(48, 48);
+    expect(pixiDepths(await maple(input).avif().toBuffer())).toEqual([8, 8, 8]);
+    expect(pixiDepths(await maple(input).avif({ bitdepth: 8 }).toBuffer())).toEqual([8, 8, 8]);
+    expect(pixiDepths(await maple(input).avif({ bitdepth: 10 }).toBuffer())).toEqual([10, 10, 10]);
+  });
+
+  it('avif({ bitdepth: 12 }) is a named rejection', async () => {
+    await expect(
+      maple(await src(48, 48))
+        .avif({ bitdepth: 12 as never })
+        .toBuffer(),
+    ).rejects.toThrow(/bitdepth 12/);
+  });
+
   it('tiff({ compression }) shrinks the file', async () => {
     const input = await src();
     const plain = await maple(input).tiff({ compression: 'none' }).toBuffer();
