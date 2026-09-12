@@ -67,18 +67,53 @@ export function pushGamma(state: BuilderState, gamma: number, gammaOut?: number)
   };
 }
 
-/** A scalar or per-channel triple, as sharp's `linear(a, b)` accepts. */
-function triple(v: number | number[]): [number, number, number] {
-  return typeof v === 'number' ? [v, v, v] : [v[0], v[1] ?? v[0], v[2] ?? v[0]];
+/**
+ * A scalar or per-channel triple. libvips' `vips_linear` broadcasts a
+ * 1-element vector and takes an N-element one for an N-band image, and
+ * rejects everything else — so 1 and 3 are the only lengths that mean
+ * anything for the 3 colour bands this op writes.
+ *
+ * The old code quietly invented the missing coefficients (`[1, 1.5]` ran
+ * the third channel at `a[0]`, not 1.5) where sharp throws. Error wording
+ * is libvips' own (#3503 review I5).
+ */
+function coefficients(v: number | number[]): [number, number, number] {
+  if (typeof v === 'number') {
+    return [v, v, v];
+  }
+  if (v.length === 1) {
+    return [v[0], v[0], v[0]];
+  }
+  if (v.length === 3) {
+    return [v[0], v[1], v[2]];
+  }
+  // A 4-element vector is legal in sharp on an RGBA image, where libvips
+  // applies the 4th element to the alpha channel. This op never touches
+  // alpha, so it says so rather than dropping the element silently.
+  const alphaNote =
+    v.length === 4 ? ' (sharp applies a 4th element to alpha; this op never touches alpha)' : '';
+  throw new Error(`linear: vector must have 1 or 3 elements, got ${v.length}${alphaNote}`);
 }
 
-/** `a * input + b`, per channel or scalar. */
+/** How long sharp considers a coefficient argument to be: a scalar is 1. */
+const coefficientLength = (v: number | number[]): number => (typeof v === 'number' ? 1 : v.length);
+
+/**
+ * `a * input + b`, per channel or scalar.
+ *
+ * `a` and `b` must be the same length, counting a scalar as length 1 — so
+ * `linear(1.2, [0, 10, -10])` is rejected, exactly as sharp rejects it
+ * (`lib/operation.js`: `linearA.length !== linearB.length`).
+ */
 export function pushLinear(
   state: BuilderState,
   a: number | number[] = 1,
   b: number | number[] = 0,
 ): void {
-  state.ops.push({ op: 'linear', a: triple(a), b: triple(b) });
+  if (coefficientLength(a) !== coefficientLength(b)) {
+    throw new Error('Expected a and b to be arrays of the same length');
+  }
+  state.ops.push({ op: 'linear', a: coefficients(a), b: coefficients(b) });
 }
 
 /**
