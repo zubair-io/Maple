@@ -1,0 +1,109 @@
+/**
+ * Colour recipe ops for `MapleImageBuilder` (#3503 Task D6): `greyscale`,
+ * `gamma`, `linear`, `negate`, `normalise`, `modulate`, `tint`,
+ * `toColourspace`. Split out of `builder.ts` for the file-size budget, same
+ * lane split as `builder-geometry.ts`. Each function mutates the state's
+ * `ops` list (and occasionally `colorSpace`, for the RAW-develop path) —
+ * `builder.ts`'s methods are thin wrappers that call these and `return
+ * this`.
+ *
+ * Range validation for most of these ops lives raw-core side
+ * (`raster_recipe_colour.rs`), which already names the offending option and
+ * value in its error — that error surfaces here as a rejected promise with
+ * the same text, so it is not duplicated. `gamma`/`gammaOut` are the one
+ * exception: sharp's `[1.0, 3.0]` bound applies to the user-facing values,
+ * not to the wire `exponent` (which is `1/gamma` for the pre-resize
+ * instance and so is usually well outside that range) — so that check has
+ * to happen here, before the reciprocal is taken.
+ */
+
+import { resolveColour } from './builder-state';
+import type { BuilderState } from './builder-state';
+import type { Colour } from './types';
+
+export function pushGreyscale(state: BuilderState, greyscale: boolean): void {
+  if (greyscale) {
+    state.ops.push({ op: 'greyscale' });
+  }
+}
+
+function checkGammaRange(name: string, value: number): void {
+  if (!Number.isFinite(value) || value < 1.0 || value > 3.0) {
+    throw new Error(`${name}: expected a finite value in [1.0, 3.0], got ${value}`);
+  }
+}
+
+/**
+ * sharp's `gamma(gamma, gammaOut)`: exponent `1/gamma` before the resize,
+ * exponent `gammaOut` after it. With the defaults (2.2, 2.2) the pair is a
+ * net identity and the RESIZE is what happens in the changed encoding.
+ */
+export function pushGamma(state: BuilderState, gamma: number, gammaOut?: number): void {
+  checkGammaRange('gamma', gamma);
+  const out = gammaOut ?? gamma;
+  checkGammaRange('gammaOut', out);
+  const before = { op: 'gamma', exponent: 1 / gamma };
+  const after = { op: 'gamma', exponent: out };
+  const resizeAt = state.ops.findIndex((op) => op.op === 'resize');
+  if (resizeAt < 0) {
+    state.ops.push(before, after);
+    return;
+  }
+  state.ops.splice(resizeAt, 0, before);
+  state.ops.splice(resizeAt + 2, 0, after);
+}
+
+/** A scalar or per-channel triple, as sharp's `linear(a, b)` accepts. */
+function triple(v: number | number[]): [number, number, number] {
+  return typeof v === 'number' ? [v, v, v] : [v[0], v[1] ?? v[0], v[2] ?? v[0]];
+}
+
+/** `a * input + b`, per channel or scalar. */
+export function pushLinear(
+  state: BuilderState,
+  a: number | number[] = 1,
+  b: number | number[] = 0,
+): void {
+  state.ops.push({ op: 'linear', a: triple(a), b: triple(b) });
+}
+
+/** Produce the negative. `alpha: false` spares the alpha channel. */
+export function pushNegate(state: BuilderState, alpha: boolean): void {
+  state.ops.push({ op: 'negate', alpha });
+}
+
+/** Stretch luminance between the given percentiles. */
+export function pushNormalise(state: BuilderState, lower: number, upper: number): void {
+  state.ops.push({ op: 'normalise', lower, upper });
+}
+
+/** Scale L* and C* and rotate hue, in CIELCh. */
+export function pushModulate(
+  state: BuilderState,
+  brightness: number,
+  saturation: number,
+  hue: number,
+  lightness: number,
+): void {
+  state.ops.push({ op: 'modulate', brightness, saturation, hue, lightness });
+}
+
+/** Keep each pixel's lightness, take the chroma from `tint`. */
+export function pushTint(state: BuilderState, tint: Colour | string): void {
+  const [r, g, b] = resolveColour(tint, [0, 0, 0, 255]);
+  state.ops.push({ op: 'tint', rgb: [r, g, b] });
+}
+
+/**
+ * Target colourspace. For bitmaps this pushes a recipe op that rotates the
+ * primaries and tags the output with the matching ICC profile — accepted
+ * names and error-by-name rejection (`b-w`/`cmyk`/`lab`/…) both live
+ * raw-core side (`raster_recipe_colour::primaries_from_wire`), so an
+ * unsupported name is not re-validated here. `state.colorSpace` also moves,
+ * for the RAW-develop path (`colorSpace()`, Tier 1), which does its own
+ * colour management and never sees this op.
+ */
+export function pushToColourspace(state: BuilderState, space: string): void {
+  state.colorSpace = space === 'srgb' ? 'srgb' : 'display-p3';
+  state.ops.push({ op: 'toColourspace', space });
+}
