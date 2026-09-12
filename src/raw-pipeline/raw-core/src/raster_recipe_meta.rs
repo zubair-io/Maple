@@ -67,6 +67,20 @@ pub struct ResolvedMetadata {
     pub icc: Option<Vec<u8>>,
     pub xmp: Option<Vec<u8>>,
     pub density: Option<f64>,
+    /// The orientation an output container that states one as a native tag
+    /// rather than inside an EXIF block should carry — TIFF's IFD0 tag 274
+    /// (#3507 round 5).
+    ///
+    /// Resolved for every output, whether or not any metadata was asked
+    /// for, because libvips treats orientation as a property of the image
+    /// rather than as metadata: measured on sharp 0.34.5, a TIFF written
+    /// from a source with EXIF Orientation 6 carries tag 274 = 6 even with
+    /// every metadata field stripped, where the same source to JPEG carries
+    /// no orientation at all (the EXIF block it would have ridden in is
+    /// gone). An explicit `metadata.orientation` wins; `Op::AutoOrient`
+    /// neutralises to 1; otherwise it is whatever the input container
+    /// declared.
+    pub orientation: Option<u16>,
     /// Whether `exif` is a block the caller named — an explicit
     /// `metadata.exif` (`withExif`) — rather than one `keep` swept up out
     /// of the input, or one synthesised to carry `metadata.orientation`.
@@ -132,9 +146,10 @@ fn icc_bytes_for_name(name: &str) -> Result<Vec<u8>> {
 /// rewrites whichever EXIF block survives that resolution, creating a
 /// minimal one when there is none to rewrite.
 ///
-/// `auto_oriented` is `true` when the recipe ran `Op::AutoOrient` — the
-/// pixels are already rotated to match whatever Orientation the input
-/// declared, so a resolved EXIF block that still says otherwise would tell a
+/// `auto_oriented` is `true` when the recipe ran `Op::AutoOrient`; an AVIF
+/// input counts the same way, since its container transform is baked in at
+/// decode (#3507 round 5). Either way the pixels are already rotated to
+/// match whatever Orientation the input declared, so a resolved EXIF block that still says otherwise would tell a
 /// second reader to rotate again. Measured against sharp:
 /// `sharp(oriented6).rotate().withMetadata().jpeg()` → `metadata().orientation
 /// === 1` (the EXIF block survives — `hasExif` stays `true` — just
@@ -156,6 +171,14 @@ pub fn resolve_metadata(
     } else {
         RasterSidecars::default()
     };
+    // An AVIF's pixels come out of the decoder already transformed by its
+    // own `irot`/`imir` (#3507 round 2), so an orientation kept from its
+    // `Exif` item would tell the next reader to rotate them again. sharp
+    // writes 1 there — measured: `keepMetadata()` from an AVIF with `irot
+    // 3` + `Exif` Orientation 6 to JPEG gives `orientation: 1` through
+    // sharp, where Maple wrote 6 (#3507 round 5, N1). Same treatment as a
+    // recipe that ran `Op::AutoOrient`: the pixels are already oriented.
+    let pixels_pre_oriented = auto_oriented || crate::raster::is_avif(input);
     let supplied = |field: &str, reference: Option<AuxRef>| -> Result<Option<Vec<u8>>> {
         reference
             .map(|r| {
@@ -178,7 +201,7 @@ pub fn resolve_metadata(
         .map(|block| crate::raster_meta::canonical_exif(&block).0.to_vec());
     let exif_requested = supplied_exif.is_some();
     let exif_base = supplied_exif.or(kept.exif);
-    let neutralised = if auto_oriented {
+    let neutralised = if pixels_pre_oriented {
         exif_base
             .as_deref()
             .map(|block| crate::raster_meta::set_exif_orientation(block, 1))
@@ -225,11 +248,21 @@ pub fn resolve_metadata(
     let supplied_xmp = supplied("xmp", metadata.xmp)?;
     let xmp_requested = supplied_xmp.is_some();
     let xmp = supplied_xmp.or(kept.xmp);
+    // What a native-tag container writes: the explicit value, else 1 when
+    // the pixels are already oriented, else whatever the input declared
+    // (`None` for an AVIF, which declares nothing — see
+    // `crate::raster::container_orientation`).
+    let orientation = metadata.orientation.or(if pixels_pre_oriented {
+        Some(1)
+    } else {
+        crate::raster::container_orientation(input)
+    });
     Ok(ResolvedMetadata {
         exif,
         icc,
         xmp,
         density: metadata.density,
+        orientation,
         exif_requested,
         icc_requested,
         xmp_requested,
