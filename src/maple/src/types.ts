@@ -14,12 +14,16 @@ export interface ImageMetadata {
    * The EXIF Orientation the container's metadata declares, 1..=8, and `1`
    * when it declares none. `.rotate()`/`autoOrient` applies this.
    *
-   * An AVIF's `irot`/`imir` transform is NOT reported here: it is applied to
-   * the pixels during decode, the way libheif does it, so `width`/`height`
-   * are already post-transform and there is nothing left to rotate. What
-   * this reports for an AVIF is its `Exif` item's own Orientation tag.
+   * `undefined` for an AVIF, always — matching sharp, which reports nothing
+   * for a HEIF-family file. An AVIF's `irot`/`imir` transform is applied to
+   * the pixels during decode the way libheif does it, so `width`/`height`
+   * are already post-transform and there is nothing left to rotate; and its
+   * `Exif` item's own Orientation tag is deliberately not surfaced, since
+   * libvips' own AVIF save writes the orientation into both places and
+   * honouring the tag as well would rotate such a file twice. The tag is
+   * still readable in the `exif` buffer.
    */
-  orientation: number;
+  orientation?: number;
   isRaw?: boolean;
   /**
    * The richer fields below (#3507) come from `maple_raster_analyze_buf`,

@@ -93,12 +93,10 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     for (const format of CONTAINERS) {
       const buf = await written(format);
       const theirs = (await sharp(buf).metadata()).orientation;
-      // AVIF is the exception, in both directions. libvips surfaces no
-      // orientation at all for a HEIF-family file — measured `undefined`
-      // even for one whose `Exif` item says 6 — while Maple reports that
-      // item's tag, which is what makes an orientation it wrote readable
-      // again (#3586). See the AVIF cases below.
-      if (format === 'avif') continue;
+      // AVIF included: libvips surfaces no orientation at all for a
+      // HEIF-family file — measured `undefined` even for one whose `Exif`
+      // item says 6 — and Maple now reports `undefined` too (#3507 round
+      // 3). Its transform is in the pixels; see the cases below.
       expect((await maple(buf).metadata()).orientation, `${format} orientation`).toBe(theirs);
     }
   });
@@ -133,25 +131,34 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     }
   });
 
-  it.skipIf(skip)('an AVIF Exif Orientation round-trips through Maple', async () => {
-    // #3586: an orientation Maple writes into an AVIF now reads back.
-    // sharp cannot round-trip this at all — its own AVIF save turns the
-    // orientation into an `irot` box instead, and its loader reports no
-    // orientation for a HEIF-family file.
-    const raw = base();
-    const src = await sharp(raw.data, { raw }).png().toBuffer();
-    const avif = await maple(src).withMetadata({ orientation: 5 }).avif().toBuffer();
-    expect((await maple(avif).metadata()).orientation).toBe(5);
-    expect((await sharp(avif).metadata()).orientation).toBeUndefined();
-  });
+  it.skipIf(skip)(
+    'an AVIF Exif Orientation is readable in the exif block, not surfaced',
+    async () => {
+      // #3586 closes as "matches sharp": the container transform is baked
+      // into the pixels and the `Exif` item's Orientation tag is not
+      // surfaced, exactly as libvips does it. The tag is still there to read
+      // out of the block, for a caller who wants it.
+      const raw = base();
+      const src = await sharp(raw.data, { raw }).png().toBuffer();
+      const avif = await maple(src).withMetadata({ orientation: 5 }).avif().toBuffer();
+      const mine = await maple(avif).metadata();
+      expect(mine.orientation).toBeUndefined();
+      expect((await sharp(avif).metadata()).orientation).toBeUndefined();
+      // Little-endian IFD0 with Orientation as its only entry — the block
+      // `set_exif_orientation` builds, at offset 18 past any introducer.
+      const block = mine.exif!;
+      const tiff =
+        block.subarray(0, 6).toString('latin1') === 'Exif\0\0' ? block.subarray(6) : block;
+      expect(tiff.readUInt16LE(18)).toBe(5);
+    },
+  );
 
   it.skipIf(skip)('.rotate() honours the container orientation like sharp', async () => {
     // The defect this PR set out to fix: only JPEG used to rotate. AVIF is
-    // excluded because its transform is already in the pixels (previous
-    // test) and its `Exif` Orientation is a flag sharp ignores.
+    // included, and is a no-op on both sides — its transform is already in
+    // the pixels and its `Exif` Orientation is not surfaced (#3507 round 3).
     for (const format of CONTAINERS) {
       if (format === 'tiff') continue; // no .tiff() sugar on the builder yet
-      if (format === 'avif') continue;
       const buf = await written(format);
       const mine = await maple(buf).rotate().png().toBuffer();
       const theirs = await sharp(buf).rotate().png().toBuffer();
@@ -170,9 +177,10 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     const theirs = await sharp(buf).metadata();
     expect([mine.width, mine.height]).toEqual([theirs.width, theirs.height]);
     // libvips wrote this file's orientation into BOTH the `irot` box and
-    // the `Exif` item; the box is baked into the pixels and the item's tag
-    // is reported, which is the half sharp drops.
-    expect(mine.orientation).toBe(6);
+    // the `Exif` item. The box is baked into the pixels; the tag is not
+    // surfaced, which is why `.rotate()` cannot rotate it a second time.
+    expect(mine.orientation).toBeUndefined();
+    expect(theirs.orientation).toBeUndefined();
   });
 
   it.skipIf(skip)('metadata().density matches sharp across containers and values', async () => {

@@ -140,7 +140,10 @@ mod avif_dispatch {
             (meta.width, meta.height, meta.format.as_str(), meta.channels),
             (24, 16, "avif", 3)
         );
-        assert_eq!(meta.orientation, 1);
+        // An AVIF never reports an orientation: its transform is applied to
+        // the pixels at decode, and libvips surfaces no orientation for a
+        // HEIF-family file either (#3507 round 3).
+        assert_eq!(meta.orientation, None);
     }
 
     /// An AVIF carrying a separate alpha item must probe as 4 channels —
@@ -392,7 +395,7 @@ mod container_orientation {
     #[test]
     fn a_png_exif_chunk_orientation_reaches_the_probe_and_the_decode() {
         let bytes = png_with_exif(6);
-        assert_eq!(probe_raster_metadata(&bytes).unwrap().orientation, 6);
+        assert_eq!(probe_raster_metadata(&bytes).unwrap().orientation, Some(6));
         let mut decoded = decode_raster(&bytes, None).unwrap();
         assert_eq!(decoded.orientation, crate::image::ExifOrientation::Rotate90);
         decoded.auto_orient();
@@ -402,7 +405,7 @@ mod container_orientation {
     #[test]
     fn a_webp_exif_chunk_orientation_reaches_the_probe_and_the_decode() {
         let bytes = webp_with_exif(3);
-        assert_eq!(probe_raster_metadata(&bytes).unwrap().orientation, 3);
+        assert_eq!(probe_raster_metadata(&bytes).unwrap().orientation, Some(3));
         let decoded = decode_raster(&bytes, None).unwrap();
         assert_eq!(
             decoded.orientation,
@@ -424,7 +427,7 @@ mod container_orientation {
                 .write_image_data(&data)
                 .unwrap();
         }
-        assert_eq!(probe_raster_metadata(&out).unwrap().orientation, 1);
+        assert_eq!(probe_raster_metadata(&out).unwrap().orientation, Some(1));
         assert_eq!(
             decode_raster(&out, None).unwrap().orientation,
             crate::image::ExifOrientation::Normal

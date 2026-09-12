@@ -1579,7 +1579,7 @@ function metadataFromReply(reply) {
     height: m.height,
     format: m.format,
     channels: m.channels,
-    orientation: m.orientation,
+    orientation: m.orientation ?? undefined,
     isRaw: false,
     hasAlpha: m.hasAlpha,
     hasProfile: m.hasProfile,
@@ -1977,7 +1977,7 @@ class MapleImageBuilder {
       throw new Error("normalizeOrientationInPlace requires a file path input");
     }
     const meta = await this.metadata();
-    if (meta.orientation <= 1) {
+    if ((meta.orientation ?? 1) <= 1) {
       return true;
     }
     const ext = path7.extname(this.s.inputPath) || ".jpg";
@@ -2353,7 +2353,7 @@ Maple Image Inspection: ${inputPath}`);
         console.log(`  Dimensions:  ${meta.width} × ${meta.height} px`);
         console.log(`  Format:      ${meta.format.toUpperCase()}`);
         console.log(`  Channels:    ${meta.channels}`);
-        console.log(`  Orientation: ${meta.orientation}`);
+        console.log(`  Orientation: ${meta.orientation ?? "not declared"}`);
         console.log(`  Is RAW:      ${meta.isRaw ? "Yes" : "No"}
 `);
       }
