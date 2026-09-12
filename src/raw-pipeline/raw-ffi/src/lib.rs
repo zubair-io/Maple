@@ -104,6 +104,10 @@ mod raster_v2;
 // lands as a new recipe op instead of a new C symbol. Additive to both
 // `raster.rs` and `raster_v2.rs`, whose entries keep their signatures.
 mod raster_pipeline;
+// Read-only companion to `raster_pipeline` (#3507, Task G4): one entry point
+// answering a small JSON request ("metadata", "stats", or both) about an
+// encoded image, over `raw_core::raster_analyze`.
+mod raster_analyze;
 mod render;
 mod render_develop;
 // Film-look sibling of `maple_render_file` (epic #2683, Task 8) — split out
