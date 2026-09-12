@@ -320,6 +320,17 @@ function getFfiSymbols(FFIType) {
       ],
       returns: FFIType.i32
     },
+    maple_raster_analyze_buf: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.cstring,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr
+      ],
+      returns: FFIType.i32
+    },
     maple_last_error: {
       args: [],
       returns: FFIType.cstring
@@ -327,8 +338,32 @@ function getFfiSymbols(FFIType) {
   };
 }
 
-// src/native-raster-pipeline.ts
+// src/native-raster-analyze.ts
 var NEED_LARGER_BUFFER = 100;
+function createRasterAnalyzeBinding(lib, ptr, getLastError) {
+  return {
+    rasterAnalyzeBuf(input, requestJson) {
+      const requestBuf = Buffer.from(requestJson + "\x00", "utf-8");
+      const outLenBuf = Buffer.alloc(8);
+      const call = (outBuf) => lib.symbols.maple_raster_analyze_buf(ptr(input), BigInt(input.byteLength), ptr(requestBuf), outBuf ? ptr(outBuf) : null, BigInt(outBuf ? outBuf.byteLength : 0), ptr(outLenBuf));
+      const needed = () => Number(outLenBuf.readBigUInt64LE(0));
+      const first = Buffer.alloc(65536);
+      const rc0 = call(first);
+      if (rc0 === 0) {
+        return { ok: true, json: first.subarray(0, needed()).toString("utf-8") };
+      }
+      if (rc0 !== NEED_LARGER_BUFFER) {
+        return { ok: false, error: getLastError() || `Analyze failed with code ${rc0}` };
+      }
+      const grown = Buffer.alloc(needed());
+      const rc = call(grown);
+      return rc === 0 ? { ok: true, json: grown.subarray(0, needed()).toString("utf-8") } : { ok: false, error: getLastError() || `Analyze failed with code ${rc}` };
+    }
+  };
+}
+
+// src/native-raster-pipeline.ts
+var NEED_LARGER_BUFFER2 = 100;
 var EMPTY_AUX = Buffer.alloc(1);
 function createRasterPipelineBinding(lib, ptr, getLastError) {
   return {
@@ -357,7 +392,7 @@ function createRasterPipelineBinding(lib, ptr, getLastError) {
           channels: cBuf.readUInt32LE(0)
         };
       }
-      if (rc0 !== NEED_LARGER_BUFFER) {
+      if (rc0 !== NEED_LARGER_BUFFER2) {
         return failed(rc0);
       }
       const grown = Buffer.alloc(needed());
@@ -374,7 +409,7 @@ function createRasterPipelineBinding(lib, ptr, getLastError) {
 }
 
 // src/native-raster-v2.ts
-var NEED_LARGER_BUFFER2 = 100;
+var NEED_LARGER_BUFFER3 = 100;
 var MAX_PROBE_SIZED_PIXELS = 268000000;
 function rgb8SizeFromProbe(probe, autoOrient) {
   const meta = probe.ok ? probe.metadata : undefined;
@@ -397,8 +432,8 @@ function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
       const call = (outBuf) => lib.symbols.maple_raster_render_buf(ptr(inputBytes), BigInt(inputBytes.byteLength), width >>> 0, height >>> 0, flags >>> 0, filter >>> 0, fmtBuf ? ptr(fmtBuf) : null, quality & 255, effort & 255, ptr(outBuf), BigInt(outBuf.byteLength), ptr(outLenBuf));
       const first = Buffer.alloc(Math.max(65536, inputBytes.byteLength * 2));
       const rc0 = call(first);
-      const outBuf = rc0 === NEED_LARGER_BUFFER2 ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
-      const rc = rc0 === NEED_LARGER_BUFFER2 ? call(outBuf) : rc0;
+      const outBuf = rc0 === NEED_LARGER_BUFFER3 ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
+      const rc = rc0 === NEED_LARGER_BUFFER3 ? call(outBuf) : rc0;
       if (rc !== 0) {
         return { ok: false, error: getLastError() || `Raster render failed with code ${rc}` };
       }
@@ -410,8 +445,8 @@ function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
       const call = (outBuf) => lib.symbols.maple_raster_from_raw_render_buf(ptr(pixels), BigInt(pixels.byteLength), srcWidth >>> 0, srcHeight >>> 0, channels >>> 0, width >>> 0, height >>> 0, flags >>> 0, filter >>> 0, fmtBuf ? ptr(fmtBuf) : null, quality & 255, effort & 255, ptr(outBuf), BigInt(outBuf.byteLength), ptr(outLenBuf));
       const first = Buffer.alloc(Math.max(65536, pixels.byteLength));
       const rc0 = call(first);
-      const outBuf = rc0 === NEED_LARGER_BUFFER2 ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
-      const rc = rc0 === NEED_LARGER_BUFFER2 ? call(outBuf) : rc0;
+      const outBuf = rc0 === NEED_LARGER_BUFFER3 ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
+      const rc = rc0 === NEED_LARGER_BUFFER3 ? call(outBuf) : rc0;
       if (rc !== 0) {
         return { ok: false, error: getLastError() || `Raw raster render failed with code ${rc}` };
       }
@@ -440,7 +475,7 @@ function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
         if (rc === 0) {
           return decoded(outBuf);
         }
-        if (rc !== NEED_LARGER_BUFFER2) {
+        if (rc !== NEED_LARGER_BUFFER3) {
           return failed(rc);
         }
         const grown = Buffer.alloc(needed());
@@ -448,7 +483,7 @@ function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
         return rcGrown === 0 ? decoded(grown) : failed(rcGrown);
       }
       const rc0 = call(null);
-      if (rc0 !== NEED_LARGER_BUFFER2) {
+      if (rc0 !== NEED_LARGER_BUFFER3) {
         return failed(rc0);
       }
       const outBuf = Buffer.alloc(needed());
@@ -648,6 +683,7 @@ function loadNativeBinding() {
     },
     ...createRasterV2Binding(lib, ptr, getLastError, (bytes) => binding.rasterProbeMetadataBuf(bytes)),
     ...createRasterPipelineBinding(lib, ptr, getLastError),
+    ...createRasterAnalyzeBinding(lib, ptr, getLastError),
     renderFilenameTemplate(args) {
       const templateBuf = Buffer.from(args.template + "\x00", "utf-8");
       const stemBuf = Buffer.from(args.originalStem + "\x00", "utf-8");
@@ -909,6 +945,8 @@ function createBuilderState(input) {
     output: null,
     outputOptions: null,
     autoOrient: false,
+    metadata: { keep: false },
+    metadataCallsUsed: [],
     xmpPath: null,
     xmpXml: null,
     colorSpace: "srgb",
@@ -950,7 +988,7 @@ function stateToRecipe(state, output) {
   } : { kind: "encoded" };
   const withAutoOrient = state.autoOrient ? [{ op: "autoOrient" }, ...state.ops] : state.ops;
   const ops = insertGammaPair(withAutoOrient, state.gammaPair);
-  return { v: 1, input, ops, output };
+  return { v: 1, input, ops, output, metadata: state.metadata };
 }
 function stateToOutput(state, fallback) {
   if (state.output) {
@@ -1029,7 +1067,7 @@ function resolveColour(value, fallback) {
 }
 // src/builder.ts
 import * as crypto from "node:crypto";
-import * as fs6 from "node:fs/promises";
+import * as fs7 from "node:fs/promises";
 import * as path7 from "node:path";
 
 // src/builder-alpha.ts
@@ -1216,7 +1254,6 @@ function setTiffOutput(state, options) {
 
 // src/builder-exec.ts
 import * as fs4 from "node:fs/promises";
-import * as path5 from "node:path";
 async function inputBytes(state) {
   if (state.rawInput) {
     return state.rawInput.data;
@@ -1241,47 +1278,6 @@ function runPipeline(state, bytes, output) {
     width: res.width,
     height: res.height,
     channels: res.channels
-  };
-}
-async function resolveMetadata(state) {
-  const native = loadNativeBinding();
-  if (state.rawInput) {
-    return {
-      width: state.rawInput.width,
-      height: state.rawInput.height,
-      format: "raw",
-      channels: state.rawInput.channels,
-      orientation: 1
-    };
-  }
-  if (state.inputBytes) {
-    const res = native.rasterProbeMetadataBuf(state.inputBytes);
-    if (!res.ok || !res.metadata) {
-      throw new Error(res.error || "Failed to probe metadata");
-    }
-    return {
-      width: res.metadata.width,
-      height: res.metadata.height,
-      format: res.metadata.format,
-      channels: res.metadata.channels,
-      orientation: res.metadata.orientation,
-      isRaw: res.metadata.format === "dng"
-    };
-  }
-  if (!state.inputPath) {
-    throw new Error("No input provided to MapleImageBuilder");
-  }
-  const res = native.rasterProbeMetadata(state.inputPath);
-  if (!res.ok || !res.metadata) {
-    throw new Error(res.error || `Failed to probe metadata for ${state.inputPath}`);
-  }
-  return {
-    width: res.metadata.width,
-    height: res.metadata.height,
-    format: res.metadata.format || path5.extname(state.inputPath).replace(".", "").toLowerCase(),
-    channels: res.metadata.channels,
-    orientation: res.metadata.orientation,
-    isRaw: isRawPath(state.inputPath) || res.metadata.format === "dng"
   };
 }
 function decodeRgb8(native, bytes, autoOrient) {
@@ -1491,16 +1487,21 @@ function pushTrim(state, options) {
   });
 }
 
+// src/builder-metadata.ts
+import * as fsSync from "node:fs";
+import * as fs6 from "node:fs/promises";
+import * as path6 from "node:path";
+
 // src/builder-raw-develop.ts
 import * as fs5 from "node:fs/promises";
 import * as os from "node:os";
-import * as path6 from "node:path";
+import * as path5 from "node:path";
 function isRawDevelop(state) {
   return state.inputPath !== null && (state.exportRecipe !== null || state.xmpPath !== null || state.xmpXml !== null || isRawPath(state.inputPath));
 }
 async function rawDevelopToBuffer(state, toFile) {
   const ext = state.format ? `.${state.format === "jpeg" ? "jpg" : state.format}` : ".jpg";
-  const tmpFile = path6.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  const tmpFile = path5.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
   try {
     const fileRes = await toFile(tmpFile);
     if (!fileRes.ok) {
@@ -1514,12 +1515,18 @@ async function rawDevelopToBuffer(state, toFile) {
   }
 }
 var RAW_DEVELOP_OPS = new Set(["resize", "toColourspace"]);
+function unsupportedMetadataForRawDevelop(state) {
+  if (state.metadataCallsUsed.length === 0) {
+    return null;
+  }
+  return `${state.metadataCallsUsed.join("/")} is not supported when developing a RAW file yet — see #3507`;
+}
 function unsupportedOpError(state) {
   const unsupported = state.ops.find((op) => !RAW_DEVELOP_OPS.has(op.op));
   return unsupported === undefined ? null : `${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` + "Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.";
 }
 async function rawDevelopToFile(state, outputPath) {
-  const unsupported = unsupportedOpError(state);
+  const unsupported = unsupportedOpError(state) ?? unsupportedMetadataForRawDevelop(state);
   if (unsupported) {
     return { ok: false, outPath: outputPath, error: unsupported };
   }
@@ -1548,6 +1555,198 @@ async function rawDevelopToFile(state, outputPath) {
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+// src/builder-metadata.ts
+async function analyzeBytes(bytes, what) {
+  const native = loadNativeBinding();
+  const res = native.rasterAnalyzeBuf(bytes, JSON.stringify({ v: 1, what }));
+  if (!res.ok || !res.json) {
+    throw new Error(res.error || "Failed to analyze image");
+  }
+  return JSON.parse(res.json);
+}
+function decodeBlock(value) {
+  return typeof value === "string" ? Buffer.from(value, "base64") : undefined;
+}
+function metadataFromReply(reply) {
+  const m = reply.metadata;
+  return {
+    width: m.width,
+    height: m.height,
+    format: m.format,
+    channels: m.channels,
+    orientation: m.orientation,
+    isRaw: false,
+    hasAlpha: m.hasAlpha,
+    hasProfile: m.hasProfile,
+    space: m.space,
+    depth: m.depth,
+    density: m.density ?? undefined,
+    size: m.size,
+    icc: decodeBlock(m.icc),
+    exif: decodeBlock(m.exif),
+    xmp: decodeBlock(m.xmp)
+  };
+}
+function statsFromReply(reply) {
+  const s = reply.stats;
+  return s;
+}
+async function tier1PathMetadata(inputPath) {
+  const native = loadNativeBinding();
+  const res = native.rasterProbeMetadata(inputPath);
+  if (!res.ok || !res.metadata) {
+    throw new Error(res.error || `Failed to probe metadata for ${inputPath}`);
+  }
+  return {
+    width: res.metadata.width,
+    height: res.metadata.height,
+    format: res.metadata.format || path6.extname(inputPath).replace(".", "").toLowerCase(),
+    channels: res.metadata.channels,
+    orientation: res.metadata.orientation,
+    isRaw: isRawPath(inputPath) || res.metadata.format === "dng"
+  };
+}
+function tier1BufMetadata(m) {
+  return {
+    width: m.width,
+    height: m.height,
+    format: m.format,
+    channels: m.channels,
+    orientation: m.orientation,
+    isRaw: m.format === "dng"
+  };
+}
+async function resolveMetadata(state) {
+  if (state.rawInput) {
+    return {
+      width: state.rawInput.width,
+      height: state.rawInput.height,
+      format: "raw",
+      channels: state.rawInput.channels,
+      orientation: 1
+    };
+  }
+  if (state.inputPath && isRawPath(state.inputPath)) {
+    return tier1PathMetadata(state.inputPath);
+  }
+  if (state.inputBytes) {
+    const probe = loadNativeBinding().rasterProbeMetadataBuf(state.inputBytes);
+    if (probe.ok && probe.metadata?.format === "dng") {
+      return tier1BufMetadata(probe.metadata);
+    }
+    return metadataFromReply(await analyzeBytes(state.inputBytes, ["metadata"]));
+  }
+  if (!state.inputPath) {
+    throw new Error("No input provided to MapleImageBuilder");
+  }
+  const bytes = await fs6.readFile(state.inputPath);
+  return metadataFromReply(await analyzeBytes(bytes, ["metadata"]));
+}
+function renderRawInputToPng(r) {
+  const native = loadNativeBinding();
+  const png = native.rasterFromRawRenderBuf(r.data, r.width, r.height, r.channels, 0, 0, 0, 0, "png", 0, 0);
+  if (!png.ok || !png.buffer) {
+    throw new Error(png.error || "Failed to normalise raw pixels for stats");
+  }
+  return png.buffer;
+}
+async function resolveStats(state) {
+  if (isRawDevelop(state)) {
+    const developed = await rawDevelopToBuffer(state, (out) => rawDevelopToFile(state, out));
+    return statsFromReply(await analyzeBytes(developed, ["stats"]));
+  }
+  if (state.rawInput) {
+    return statsFromReply(await analyzeBytes(renderRawInputToPng(state.rawInput), ["stats"]));
+  }
+  const bytes = state.inputBytes ?? (state.inputPath ? await fs6.readFile(state.inputPath) : null);
+  if (!bytes) {
+    throw new Error("No input provided to MapleImageBuilder");
+  }
+  return statsFromReply(await analyzeBytes(bytes, ["stats"]));
+}
+function invalidParameter2(name, expected, actual) {
+  return new Error(`Expected ${expected} for ${name} but received ${actual} of type ${typeof actual}`);
+}
+function track(state, method) {
+  if (!state.metadataCallsUsed.includes(method)) {
+    state.metadataCallsUsed.push(method);
+  }
+}
+function applyKeepMetadata(state) {
+  state.metadata.keep = true;
+  track(state, "keepMetadata");
+}
+function applyWithMetadata(state, options) {
+  if (options?.orientation !== undefined) {
+    const o = options.orientation;
+    if (!Number.isInteger(o) || o < 1 || o > 8) {
+      throw invalidParameter2("orientation", "integer between 1 and 8", o);
+    }
+  }
+  if (options?.density !== undefined) {
+    const d = options.density;
+    if (typeof d !== "number" || !(d > 0)) {
+      throw invalidParameter2("density", "positive number", d);
+    }
+  }
+  state.metadata.keep = true;
+  if (options?.orientation !== undefined) {
+    state.metadata.orientation = options.orientation;
+  }
+  if (options?.density !== undefined) {
+    state.metadata.density = options.density;
+  }
+  track(state, "withMetadata");
+}
+function applyWithExif(state, exif) {
+  if (!(exif instanceof Uint8Array)) {
+    if (typeof exif === "object" && exif !== null) {
+      throw new Error("withExif: Maple takes a raw EXIF TIFF-header block (a Buffer), not an IFD object " + "like sharp's withExif({ IFD0: { ... } }) — IFD-object authoring is a follow-up " + "(#3588).");
+    }
+    throw invalidParameter2("exif", "a Buffer", exif);
+  }
+  state.metadata.exif = state.aux.add(exif);
+  track(state, "withExif");
+}
+var NAMED_ICC_PROFILES = new Set(["srgb", "p3"]);
+function applyWithIccProfile(state, icc) {
+  if (icc instanceof Uint8Array) {
+    state.metadata.icc = state.aux.add(icc);
+    state.metadata.iccName = undefined;
+    track(state, "withIccProfile");
+    return;
+  }
+  if (typeof icc !== "string") {
+    throw invalidParameter2("icc", "'srgb', 'p3', a file path, or a Buffer", icc);
+  }
+  if (icc === "cmyk") {
+    throw new Error("withIccProfile('cmyk'): Maple has no CMYK ICC profile support — sharp accepts " + "'cmyk', Maple does not.");
+  }
+  if (NAMED_ICC_PROFILES.has(icc)) {
+    state.metadata.iccName = icc;
+    state.metadata.icc = undefined;
+    track(state, "withIccProfile");
+    return;
+  }
+  let bytes;
+  try {
+    bytes = fsSync.readFileSync(icc);
+  } catch (error) {
+    throw new Error(`withIccProfile: cannot read ICC profile file '${icc}': ` + (error instanceof Error ? error.message : String(error)));
+  }
+  state.metadata.icc = state.aux.add(bytes);
+  state.metadata.iccName = undefined;
+  track(state, "withIccProfile");
+}
+function applyWithXmp(state, xmp) {
+  if (typeof xmp === "string" && xmp.length === 0) {
+    throw invalidParameter2("xmp", "non-empty string", xmp);
+  }
+  const bytes = typeof xmp === "string" ? Buffer.from(xmp, "utf-8") : xmp;
+  state.metadata.xmp = state.aux.add(bytes);
+  track(state, "withXmp");
 }
 
 // src/builder.ts
@@ -1781,15 +1980,38 @@ class MapleImageBuilder {
     const res = await this.rotate().format(targetFmt).toFile(tempOut);
     if (!res.ok) {
       try {
-        await fs6.unlink(tempOut);
+        await fs7.unlink(tempOut);
       } catch {}
       throw new Error(res.error || "Failed to normalize orientation");
     }
-    await fs6.rename(tempOut, this.s.inputPath);
+    await fs7.rename(tempOut, this.s.inputPath);
     return true;
   }
   async toRawRgb(options) {
     return resolveTensor(this.s, options);
+  }
+  async stats() {
+    return resolveStats(this.s);
+  }
+  keepMetadata() {
+    applyKeepMetadata(this.s);
+    return this;
+  }
+  withMetadata(options) {
+    applyWithMetadata(this.s, options);
+    return this;
+  }
+  withExif(exif) {
+    applyWithExif(this.s, exif);
+    return this;
+  }
+  withIccProfile(icc) {
+    applyWithIccProfile(this.s, icc);
+    return this;
+  }
+  withXmp(xmp) {
+    applyWithXmp(this.s, xmp);
+    return this;
   }
   async toBuffer() {
     if (isRawDevelop(this.s)) {
@@ -1802,11 +2024,11 @@ class MapleImageBuilder {
     if (isRawDevelop(this.s)) {
       return await rawDevelopToFile(this.s, outputPath);
     }
-    await fs6.mkdir(path7.dirname(outputPath), { recursive: true });
+    await fs7.mkdir(path7.dirname(outputPath), { recursive: true });
     try {
       const bytes = await inputBytes(this.s);
       const out = runPipeline(this.s, bytes, stateToOutput(this.s, formatForPath(outputPath)));
-      await fs6.writeFile(outputPath, out.buffer);
+      await fs7.writeFile(outputPath, out.buffer);
       return { ok: true, outPath: outputPath };
     } catch (error) {
       return {
@@ -1824,7 +2046,7 @@ function maple(input) {
   return new MapleImageBuilder(input);
 }
 // src/cli.ts
-import * as fs7 from "node:fs/promises";
+import * as fs8 from "node:fs/promises";
 import * as path8 from "node:path";
 function printHelp() {
   console.log(`
@@ -1939,7 +2161,7 @@ async function runCli(argv) {
     console.log(`Exporting ${rawPath} -> ${outPath}...`);
     const start = Date.now();
     if (recipePath) {
-      const recipeContent = await fs7.readFile(recipePath, "utf-8");
+      const recipeContent = await fs8.readFile(recipePath, "utf-8");
       const res = await exportRecipe({
         rawPath,
         recipe: recipeContent,
@@ -1966,7 +2188,7 @@ async function runCli(argv) {
       }
     }
     const elapsed = ((Date.now() - start) / 1000).toFixed(2);
-    const stat2 = await fs7.stat(outPath);
+    const stat2 = await fs8.stat(outPath);
     console.log(`✓ Exported: ${outPath} (${(stat2.size / 1024).toFixed(1)} KB in ${elapsed}s)`);
     return 0;
   }
@@ -1994,9 +2216,9 @@ async function runCli(argv) {
       console.error("Error: No photo files specified for batch recipe export.");
       return 1;
     }
-    const recipeContent = await fs7.readFile(recipePath, "utf-8");
+    const recipeContent = await fs8.readFile(recipePath, "utf-8");
     const recipe = JSON.parse(recipeContent);
-    await fs7.mkdir(outDir, { recursive: true });
+    await fs8.mkdir(outDir, { recursive: true });
     console.log(`Batch exporting ${photoFiles.length} photo(s) with recipe "${recipe.name}"...`);
     let succeeded = 0;
     let failed = 0;
@@ -2104,7 +2326,7 @@ async function runCli(argv) {
       return 1;
     }
     const elapsed = ((Date.now() - start) / 1000).toFixed(2);
-    const stat2 = await fs7.stat(outPath);
+    const stat2 = await fs8.stat(outPath);
     console.log(`✓ Resized: ${outPath} (${(stat2.size / 1024).toFixed(1)} KB in ${elapsed}s)`);
     return 0;
   }

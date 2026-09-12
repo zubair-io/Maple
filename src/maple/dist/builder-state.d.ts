@@ -4,7 +4,7 @@
  * (#3505). The builder owns one `BuilderState`; every fluent method mutates
  * it and returns `this`, and the terminals in `builder-exec.ts` read it.
  */
-import { AuxBlob, type Recipe, type RecipeOp } from './recipe';
+import { AuxBlob, type Recipe, type RecipeMetadata, type RecipeOp } from './recipe';
 import type { Colour, ExportColorSpace, ExportFormat, ExportRecipe, RawPixelInput } from './types';
 export declare function isRawPath(filePath: string): boolean;
 /** Translate a `position` or `gravity` value to its wire spelling. */
@@ -49,6 +49,15 @@ export interface BuilderState {
      */
     outputOptions: Record<string, unknown> | null;
     autoOrient: boolean;
+    /** `keepMetadata`/`withMetadata`/`withExif`/`withIccProfile`/`withXmp` state. */
+    metadata: RecipeMetadata;
+    /**
+     * Names of the metadata methods called so far, in call order, deduped
+     * (#3507 fix-round-1, item 1) — `[]` means none were called. Used only to
+     * name the method in the "not supported when developing a RAW file yet"
+     * error; not part of the wire `Recipe` (`stateToRecipe` never emits it).
+     */
+    metadataCallsUsed: string[];
     xmpPath: string | null;
     xmpXml: string | null;
     colorSpace: ExportColorSpace;

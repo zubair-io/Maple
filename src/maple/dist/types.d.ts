@@ -10,6 +10,51 @@ export interface ImageMetadata {
     channels: number;
     orientation: number;
     isRaw?: boolean;
+    /**
+     * The richer fields below (#3507) come from `maple_raster_analyze_buf`,
+     * which only runs for an in-memory bitmap or a non-RAW bitmap file path —
+     * `undefined` for a `rawInput` pixel buffer or an actual camera RAW file
+     * (`.dng` etc.), which keep Tier 1's cheap header-only probe. Nothing here
+     * is ever invented: a field Maple hasn't determined for the current input
+     * is absent, not a guessed value.
+     */
+    hasAlpha?: boolean;
+    hasProfile?: boolean;
+    /** Colour space interpretation. Always `'srgb'` for Maple's bitmap decode. */
+    space?: string;
+    /** Pixel depth name. Always `'uchar'` — Maple decodes to 8-bit. */
+    depth?: string;
+    /** Pixels per inch, when the container states one. */
+    density?: number;
+    /** Byte length of the input. */
+    size?: number;
+    icc?: Buffer;
+    exif?: Buffer;
+    xmp?: Buffer;
+}
+export interface ChannelStats {
+    min: number;
+    max: number;
+    sum: number;
+    squaresSum: number;
+    mean: number;
+    stdev: number;
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+}
+/** Pixel-derived statistics for every channel plus whole-image numbers (sharp's `stats()`). */
+export interface ImageStats {
+    channels: ChannelStats[];
+    isOpaque: boolean;
+    entropy: number;
+    sharpness: number;
+    dominant: {
+        r: number;
+        g: number;
+        b: number;
+    };
 }
 /** sharp's `position` spellings, on top of the nine gravity names. */
 export type ResizePosition = 'centre' | 'center' | 'north' | 'northeast' | 'east' | 'southeast' | 'south' | 'southwest' | 'west' | 'northwest' | 'top' | 'right top' | 'right' | 'right bottom' | 'bottom' | 'left bottom' | 'left' | 'left top';
