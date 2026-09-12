@@ -355,12 +355,21 @@ public final class MapleDirEnumerator: NSObject, NSFileProviderEnumerator {
     public func invalidate() {}
 
     public func enumerateItems(for observer: NSFileProviderEnumerationObserver, startingAt page: NSFileProviderPage) {
-        let item = MapleItem(
-            mapleThumbsDir: folderID,
-            parentRelativePath: parentRelativePath,
-            parentIdentifier: containerIdentifier
-        )
-        observer.didEnumerate([item])
+        // `thumbs/` and, since #3571, `previews/` — the two derived caches
+        // the server keeps under every folder's `.maple/`.
+        let items: [NSFileProviderItem] = [
+            MapleItem(
+                mapleThumbsDir: folderID,
+                parentRelativePath: parentRelativePath,
+                parentIdentifier: containerIdentifier
+            ),
+            MapleItem(
+                maplePreviewsDir: folderID,
+                parentRelativePath: parentRelativePath,
+                parentIdentifier: containerIdentifier
+            ),
+        ]
+        observer.didEnumerate(items)
         observer.finishEnumerating(upTo: nil)
     }
 
@@ -374,6 +383,40 @@ public final class MapleDirEnumerator: NSObject, NSFileProviderEnumerator {
 
     public func currentSyncAnchor(completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void) {
         completionHandler(NSFileProviderSyncAnchor(Data("0".utf8)))
+    }
+}
+
+/// Which derived cache under `.maple/` an enumerator or item stands for.
+public enum MapleDerivedKind: Sendable, Equatable {
+    /// `.maple/thumbs/<sha256_prefix16(filename)>.avif`, 512 px grid thumb.
+    case thumbs
+    /// `.maple/previews/<filename>.avif`, the developed 1280 px preview (#3571).
+    case previews
+
+    /// The on-disk filename the server uses for `rawBasename`'s entry.
+    public func filename(forRawBasename rawBasename: String) -> String {
+        switch self {
+        case .thumbs: return MapleThumbCacheKey.thumbFilename(forRawBasename: rawBasename)
+        case .previews: return MapleItem.previewFilename(forRawBasename: rawBasename)
+        }
+    }
+
+    /// The item for `assetID`'s entry, versioned by `modified` (see
+    /// `MapleItem.init(thumbForAsset:)` on what that seed means).
+    public func item(assetID: String, rawBasename: String, modified: Date?,
+                     parentIdentifier: NSFileProviderItemIdentifier) -> MapleItem {
+        switch self {
+        case .thumbs:
+            return MapleItem(thumbForAsset: assetID,
+                             displayFilename: filename(forRawBasename: rawBasename),
+                             modified: modified,
+                             parentIdentifier: parentIdentifier)
+        case .previews:
+            return MapleItem(previewForAsset: assetID,
+                             displayFilename: filename(forRawBasename: rawBasename),
+                             modified: modified,
+                             parentIdentifier: parentIdentifier)
+        }
     }
 }
 
@@ -392,6 +435,7 @@ public final class MapleThumbsEnumerator: NSObject, NSFileProviderEnumerator {
     private let folderID: String
     private let parentAbsolutePath: String
     private let containerIdentifier: NSFileProviderItemIdentifier
+    private let kind: MapleDerivedKind
     private let pageSize: Int
     private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "enumerator")
 
@@ -399,11 +443,13 @@ public final class MapleThumbsEnumerator: NSObject, NSFileProviderEnumerator {
                 folderID: String,
                 parentAbsolutePath: String,
                 containerIdentifier: NSFileProviderItemIdentifier,
+                kind: MapleDerivedKind = .thumbs,
                 pageSize: Int? = nil) {
         self.catalog = catalog
         self.folderID = folderID
         self.parentAbsolutePath = parentAbsolutePath
         self.containerIdentifier = containerIdentifier
+        self.kind = kind
         #if os(iOS)
         self.pageSize = pageSize ?? 200
         #else
@@ -424,17 +470,19 @@ public final class MapleThumbsEnumerator: NSObject, NSFileProviderEnumerator {
                 let contents = try await catalog.listDir(absolutePath: parentAbsolutePath,
                                                           cursor: cursor,
                                                           limit: pageSize)
+                // Version seed per asset (#3571): the sidecar's mtime when it
+                // has one, else the RAW's — the same rule the change-feed
+                // fan-out applies, so a re-enumeration and a change agree.
+                let sidecarMtimeByAsset = Dictionary(
+                    contents.sidecars.map { ($0.assetID, $0.mtime) },
+                    uniquingKeysWith: { first, _ in first })
                 var items: [NSFileProviderItem] = []
                 for img in contents.images {
-                    // Skip unindexed images: a thumb item without
-                    // an assetID has nothing to fetch. Mirrors the
-                    // image-enumeration path (`MapleItem(image:)`
-                    // is failable on the same condition).
                     guard let assetID = img.assetID, !assetID.isEmpty else { continue }
-                    let thumbName = MapleThumbCacheKey.thumbFilename(forRawBasename: img.name)
-                    items.append(MapleItem(
-                        thumbForAsset: assetID,
-                        displayFilename: thumbName,
+                    items.append(kind.item(
+                        assetID: assetID,
+                        rawBasename: img.name,
+                        modified: sidecarMtimeByAsset[assetID] ?? img.mtime,
                         parentIdentifier: containerIdentifier
                     ))
                 }

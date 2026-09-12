@@ -143,4 +143,26 @@ final class FileProviderIdentifierTests: XCTestCase {
             XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .malformedThumb)
         }
     }
+
+    // MARK: - .maple/previews (#3571)
+
+    func testMaplePreviewsDirRoundTripAndPrefixOrdering() throws {
+        let id = FileProviderIdentifier.maplePreviewsDir(folderID: "f1", parentRelativePath: "sub")
+        XCTAssertEqual(id.rawValue, "mapledirpreviews/f1:c3Vi")
+        let parsed = try FileProviderIdentifier(rawValue: id.rawValue)
+        XCTAssertEqual(parsed, id)
+        switch parsed {
+        case .maplePreviewsDir: break
+        default: XCTFail("`mapledirpreviews/` must not decode as .mapleDir — got \(parsed)")
+        }
+    }
+
+    func testPreviewRoundTripAndRejectsEmptyAssetID() throws {
+        let id = FileProviderIdentifier.preview(assetID: "650a1b2c3d4e5f6071829304")
+        XCTAssertEqual(id.rawValue, "preview/650a1b2c3d4e5f6071829304")
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+        XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "preview/")) { error in
+            XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .malformedPreview)
+        }
+    }
 }

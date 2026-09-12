@@ -219,4 +219,32 @@ final class MapleItemTests: XCTestCase {
         let older = try JSONDecoder().decode(AssetMetadata.self, from: Data(legacy.utf8))
         XCTAssertNil(older.xmpMtime, "a server without the field reads as no sidecar")
     }
+
+    // MARK: - Derived items (#3571)
+
+    func testPreviewItemIsReadOnlyAvifNamedAfterTheRawAndVersionedBySeed() {
+        let parent = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.maplePreviewsDir(folderID: "f1", parentRelativePath: "d").rawValue)
+        let seed = Date(timeIntervalSince1970: 1_700_000_123)
+        let item = MapleItem(previewForAsset: "aaaaaaaaaaaaaaaaaaaaaaaa",
+                             displayFilename: MapleItem.previewFilename(forRawBasename: "IMG_1.dng"),
+                             modified: seed, parentIdentifier: parent)
+        XCTAssertEqual(item.filename, "IMG_1.dng.avif")
+        XCTAssertEqual(item.itemIdentifier.rawValue, "preview/aaaaaaaaaaaaaaaaaaaaaaaa")
+        XCTAssertEqual(item.parentItemIdentifier, parent)
+        XCTAssertEqual(item.capabilities, [.allowsReading])
+        XCTAssertEqual(item.contentModificationDate, seed)
+        XCTAssertEqual(String(data: item.itemVersion.contentVersion, encoding: .utf8),
+                       "1700000123-preview/aaaaaaaaaaaaaaaaaaaaaaaa")
+    }
+
+    func testThumbItemVersionMovesWithItsSeed() {
+        let parent = NSFileProviderItemIdentifier("p")
+        let before = MapleItem(thumbForAsset: "a", displayFilename: "x.avif",
+                               modified: Date(timeIntervalSince1970: 10), parentIdentifier: parent)
+        let after = MapleItem(thumbForAsset: "a", displayFilename: "x.avif",
+                              modified: Date(timeIntervalSince1970: 20), parentIdentifier: parent)
+        XCTAssertNotEqual(before.itemVersion.contentVersion, after.itemVersion.contentVersion,
+                          "a moved sidecar mtime must make the OS refetch the derived bytes")
+    }
 }

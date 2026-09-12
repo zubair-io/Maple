@@ -413,14 +413,21 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     /// per-thumb stats during enumeration (one HEAD per asset would
     /// blow the enumeration budget). The OS materializes on demand and
     /// fills in the real size once bytes are written.
+    /// `modified` is the item's VERSION seed, not a claim about the file
+    /// (#3571): the sidecar's mtime when the asset has one, else the RAW's.
+    /// A server-side edit moves the sidecar mtime, the version changes, and
+    /// the OS refetches the derived bytes (an ETag round trip when the
+    /// server's file is unchanged). `nil` keeps the identifier-only
+    /// version, which never refetches.
     public init(thumbForAsset assetID: String,
                 displayFilename: String,
+                modified: Date? = nil,
                 parentIdentifier: NSFileProviderItemIdentifier) {
         self.identifier = .thumb(assetID: assetID)
         self.displayName = displayFilename
         self.isDirectory = false
         self.size = nil
-        self.modified = nil
+        self.modified = modified
         self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
         // Read-only — `.maple/thumbs/` is a derived cache. Deletes
         // here would leak through to the server-side cache and the
@@ -429,6 +436,52 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
         self.parentItemIdentifier = parentIdentifier
         self.filename = displayFilename
+    }
+
+    /// Synthetic `.maple/previews/` directory (#3571) — the second child of a
+    /// `.mapleDir`, sibling of `thumbs/`. Children are one
+    /// `.preview(assetID:)` per indexed image in the parent folder, named
+    /// `<filename>.avif` exactly as the server writes them, so the app's
+    /// `MapleSidecarPaths.previewURL` resolves on the mount.
+    public init(maplePreviewsDir folderID: String,
+                parentRelativePath: String,
+                parentIdentifier: NSFileProviderItemIdentifier) {
+        self.identifier = .maplePreviewsDir(folderID: folderID, parentRelativePath: parentRelativePath)
+        self.displayName = "previews"
+        self.isDirectory = true
+        self.size = nil
+        self.modified = nil
+        self.utType = .folder
+        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = parentIdentifier
+        self.filename = "previews"
+    }
+
+    /// The developed 1280 px preview AVIF (#3571). Same contract as
+    /// `init(thumbForAsset:)`: read-only, bytes fetched on demand
+    /// (`GET /api/fs/preview?path=`), `modified` is the version seed.
+    public init(previewForAsset assetID: String,
+                displayFilename: String,
+                modified: Date?,
+                parentIdentifier: NSFileProviderItemIdentifier) {
+        self.identifier = .preview(assetID: assetID)
+        self.displayName = displayFilename
+        self.isDirectory = false
+        self.size = nil
+        self.modified = modified
+        self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
+        self.writeCapabilities = [.allowsReading]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = parentIdentifier
+        self.filename = displayFilename
+    }
+
+    /// `<filename>.avif` — the server's on-disk preview name (`cachePathFor`
+    /// in `src/api/src/fs/xmp.ts`), keyed on the full filename so
+    /// `IMG_1.dng` and `IMG_1.jpg` don't collide.
+    public static func previewFilename(forRawBasename rawBasename: String) -> String {
+        "\(rawBasename).avif"
     }
 
     /// The canonical `<imageBase>.xmp` sibling for an asset whose metadata
