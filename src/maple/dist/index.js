@@ -1129,30 +1129,35 @@ function unsupportedOpError(state) {
   const unsupported = state.ops.find((op) => op.op !== "resize");
   return unsupported === undefined ? null : `${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` + "Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.";
 }
-function rawDevelopToFile(state, outputPath) {
+async function rawDevelopToFile(state, outputPath) {
   const unsupported = unsupportedOpError(state);
   if (unsupported) {
-    return Promise.resolve({ ok: false, outPath: outputPath, error: unsupported });
+    return { ok: false, outPath: outputPath, error: unsupported };
   }
   const rawPath = state.inputPath;
-  if (state.exportRecipe) {
-    return exportRecipe({
+  try {
+    return state.exportRecipe ? await exportRecipe({
       rawPath,
       xmpXml: state.xmpXml ?? undefined,
       recipe: state.exportRecipe,
       filmPath: state.filmPath,
       outPath: outputPath
+    }) : await exportImage({
+      rawPath,
+      xmpPath: state.xmpPath,
+      format: state.format ?? undefined,
+      quality: state.quality,
+      colorSpace: state.colorSpace,
+      maxLongEdge: state.maxLongEdge || lastResizeWidth(state),
+      outPath: outputPath
     });
+  } catch (error) {
+    return {
+      ok: false,
+      outPath: outputPath,
+      error: error instanceof Error ? error.message : String(error)
+    };
   }
-  return exportImage({
-    rawPath,
-    xmpPath: state.xmpPath,
-    format: state.format ?? undefined,
-    quality: state.quality,
-    colorSpace: state.colorSpace,
-    maxLongEdge: state.maxLongEdge || lastResizeWidth(state),
-    outPath: outputPath
-  });
 }
 
 // src/builder.ts
