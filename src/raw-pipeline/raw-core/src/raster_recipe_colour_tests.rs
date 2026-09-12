@@ -248,6 +248,24 @@ fn normalise_bounds_out_of_0_100_are_rejected() {
 }
 
 #[test]
+fn normalise_defaults_upper_to_ninety_nine() {
+    // sharp's default, and a different RULE from 100 (which takes the band's
+    // true maximum rather than a percentile) — #3503 review I7.
+    let recipe: Recipe = serde_json::from_str(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"normalise"}],
+            "output":{"format":"raw"}}"#,
+    )
+    .expect("recipe parses");
+    match &recipe.ops[0] {
+        Op::Normalise { lower, upper } => {
+            assert_eq!(*lower, 1.0);
+            assert_eq!(*upper, 99.0);
+        }
+        other => panic!("expected a normalise op, got {other:?}"),
+    }
+}
+
+#[test]
 fn normalise_lower_must_be_below_upper() {
     let img = RasterImage::new_rgb(1, 1, vec![10, 10, 10]);
     let err = apply_colour_op(

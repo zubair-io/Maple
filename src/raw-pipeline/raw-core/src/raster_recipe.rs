@@ -126,8 +126,12 @@ fn unit_gain() -> [f64; 3] {
 fn yes() -> bool {
     true
 }
-fn hundred() -> f64 {
-    100.0
+/// `normalise`'s default upper percentile. 99, not 100: sharp's own default
+/// is 99, and 100 is not merely a different value but a different RULE —
+/// `upper == 100` makes sharp take the band's true maximum instead of a
+/// percentile, so nothing clips at the top (#3503 review I7).
+fn ninety_nine() -> f64 {
+    99.0
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -268,7 +272,7 @@ pub enum Op {
     Normalise {
         #[serde(default = "one")]
         lower: f64,
-        #[serde(default = "hundred")]
+        #[serde(default = "ninety_nine")]
         upper: f64,
     },
     /// Scale L*/C* and rotate hue in CIELCh (`RasterImage::modulate`).
