@@ -79,6 +79,7 @@ pub(crate) mod raster_filter_conv;
 pub mod raster_filter_ops;
 pub mod raster_geometry;
 pub mod raster_lab;
+pub(crate) mod raster_labs;
 mod raster_orient;
 pub mod raster_recipe;
 pub(crate) mod raster_recipe_colour;
