@@ -254,9 +254,13 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Produce the negative. `{ alpha: false }` spares the alpha channel. */
-  negate(options?: { alpha?: boolean }): this {
-    pushNegate(this.s, options?.alpha ?? true);
+  /**
+   * Produce the negative. `{ alpha: false }` spares the alpha channel, and
+   * `negate(false)` is a no-op — sharp's own signature (and the same shape
+   * as `greyscale(false)`).
+   */
+  negate(options?: boolean | { alpha?: boolean }): this {
+    pushNegate(this.s, options);
     return this;
   }
 
