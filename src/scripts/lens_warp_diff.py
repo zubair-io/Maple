@@ -5,7 +5,9 @@ gate the difference against recorded ceilings (#3566).
     lens_warp_diff.py <a.json> <b.json> <ceilings.json> [--record]
 
 Per family the script reports, in pixels of the full active area:
-  distortion  — |green_a − green_b| per grid point (mean, max)
+  zoom        — the uniform zoom between the two fields (|z − 1|), a framing
+                convention (Adobe scale factor vs Lensfun's fixed image circle)
+  distortion  — |green_a − zoom·green_b| per grid point (mean, max), i.e. shape
   tca         — |(red − green)_a − (red − green)_b| and the blue equivalent
   vignetting  — |gain_a / gain_b − 1| (mean, max)
 
@@ -24,10 +26,33 @@ def dist(p, q):
     return math.hypot(p[0] - q[0], p[1] - q[1])
 
 
+def zoom_between(a, b):
+    """Least-squares uniform zoom z with source_a ≈ centre + z · (source_b − centre).
+
+    Adobe's LCP carries a scale factor and Lensfun's convention fixes the
+    image circle instead, so two calibrations of one lens differ by a pure
+    zoom that is framing, not optics. It is reported on its own and removed
+    before the shape comparison."""
+    cx, cy = (a["width"] - 1) / 2, (a["height"] - 1) / 2
+    num = den = 0.0
+    for pa, pb in zip(a["points"], b["points"]):
+        ra = (pa["green"][0] - cx, pa["green"][1] - cy)
+        rb = (pb["green"][0] - cx, pb["green"][1] - cy)
+        num += ra[0] * rb[0] + ra[1] * rb[1]
+        den += rb[0] * rb[0] + rb[1] * rb[1]
+    return num / den
+
+
 def measure(a, b):
     assert a["grid"] == b["grid"] and a["width"] == b["width"], "dumps are not of the same frame"
     out = {}
-    d = [dist(pa["green"], pb["green"]) for pa, pb in zip(a["points"], b["points"])]
+    z = zoom_between(a, b)
+    cx, cy = (a["width"] - 1) / 2, (a["height"] - 1) / 2
+    out["zoom"] = {"ratio_minus_one": abs(z - 1.0)}
+    d = []
+    for pa, pb in zip(a["points"], b["points"]):
+        zb = [cx + z * (pb["green"][0] - cx), cy + z * (pb["green"][1] - cy)]
+        d.append(dist(pa["green"], zb))
     out["distortion"] = {"mean": sum(d) / len(d), "max": max(d)}
     for ch in ("red", "blue"):
         t = []
@@ -48,7 +73,7 @@ def main(argv):
     a, b = load(argv[1]), load(argv[2])
     measured = measure(a, b)
     for family, m in measured.items():
-        print(f"{family:12s} mean {m['mean']:.4f}  max {m['max']:.4f}")
+        print(f"{family:12s} " + "  ".join(f"{k} {v:.4f}" for k, v in m.items()))
     if "--record" in argv:
         ceilings = {f: {k: round(v * 1.1, 4) for k, v in m.items()} for f, m in measured.items()}
         with open(argv[3], "w") as f:
