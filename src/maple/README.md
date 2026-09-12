@@ -502,15 +502,6 @@ an AVIF, which is what sharp reports too. That is how #3586 closes — matching
 sharp: the container transform is baked into the pixels and the EXIF tag is
 not surfaced, the same as libvips.
 
-**Maple cannot read its own default JPEG yet (#3596).** `.jpeg()`'s defaults
-— `optimiseCoding: true` with `chromaSubsampling: '4:2:0'`, both sharp's own
-— produce a valid baseline file that sharp/libjpeg-turbo read correctly and
-raw-core's own `zune-jpeg` decoder does not. So passing a Maple-written JPEG
-back into `maple()` for anything that decodes pixels (`toRaw()`, `stats()`, a
-second recipe) reads garbage, with no error raised. `optimiseCoding: false`,
-`chromaSubsampling: '4:4:4'` and `progressive: true` all read back correctly,
-and so does every PNG/TIFF/WebP/AVIF output. Tracked as #3596.
-
 **`stats()` precision.** `entropy` and `sharpness` now match sharp's own
 numbers to within float noise. They did not before: `stats()` carried its
 own greyscale-luma conversion, which disagreed with libvips' by ±1 on a
