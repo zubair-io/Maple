@@ -86,16 +86,11 @@ describe('Filters', () => {
     expect(after[i]).toBeGreaterThan(before[i]);
   });
 
-  it('sharpen() rejects an out-of-range transfer parameter by name', async () => {
-    // Controller ruling (b) on task E5: raster_recipe_filter.rs's
-    // executor validates m1/m2/x1/y2/y3 to sharp's own [0, 1000000] and
-    // names the offending field.
-    await expect(
-      maple(await png(stepEdge(4, 4)))
-        .sharpen({ sigma: 1, m1: -1 })
-        .toFormat('png')
-        .toBuffer(),
-    ).rejects.toThrow(/m1/);
+  it('sharpen() rejects an out-of-range transfer parameter by name', () => {
+    // sharp validates m1/m2/x1/y2/y3 to [0, 1000000] and names the
+    // offending field; the builder now does that before the wire rather
+    // than leaving it to the executor, so the throw is synchronous.
+    expect(() => maple(Buffer.alloc(0)).sharpen({ sigma: 1, m1: -1 })).toThrow(/m1/);
   });
 
   it('median() erases a speck but keeps an edge', async () => {
@@ -196,24 +191,101 @@ describe('Filters', () => {
     expect(explicitZero[centre]).toBe(255);
   });
 
-  it('rejects an out-of-range median window by name', async () => {
+  it('rejects an out-of-range or non-integer median window by name', () => {
     // Not oddness any more (ruling (c) dropped that restriction) — the
-    // sharp-matching [1, 1000] ceiling is what still rejects.
-    await expect(
-      maple(await png(impulse(5)))
-        .median(1001)
-        .toFormat('png')
-        .toBuffer(),
-    ).rejects.toThrow(/1001/);
+    // sharp-matching [1, 1000] ceiling is what still rejects, and a
+    // fractional size is named rather than reaching serde, which used to
+    // answer `median(3.5)` with "rawler failed to decode <recipe>: …
+    // invalid type: floating point `3.5`, expected u32".
+    expect(() => maple(Buffer.alloc(0)).median(1001)).toThrow(/1001/);
+    expect(() => maple(Buffer.alloc(0)).median(3.5)).toThrow(/size/);
   });
 
-  it('rejects a kernel whose length disagrees with its dimensions', async () => {
-    await expect(
-      maple(await png(impulse(5)))
-        .convolve({ width: 3, height: 3, kernel: [1, 2, 3] })
-        .toFormat('png')
-        .toBuffer(),
-    ).rejects.toThrow(/expected 9/);
+  it('rejects a kernel whose length disagrees with its dimensions', () => {
+    expect(() =>
+      maple(Buffer.alloc(0)).convolve({ width: 3, height: 3, kernel: [1, 2, 3] }),
+    ).toThrow(/9 values/);
+  });
+
+  it('rejects NaN and Infinity by name, which JSON would turn into null', () => {
+    // `JSON.stringify(NaN)` is `null`, so anything not caught here reaches
+    // raw-core as an absent field: `blur(NaN)` used to run the box blur and
+    // report success, and a NaN kernel entry surfaced as "recipe parse
+    // failed: invalid type: null, expected f64".
+    expect(() => maple(Buffer.alloc(0)).blur(NaN)).toThrow(/sigma/);
+    expect(() => maple(Buffer.alloc(0)).blur(Infinity)).toThrow(/sigma/);
+    expect(() => maple(Buffer.alloc(0)).blur({ sigma: NaN })).toThrow(/options\.sigma/);
+    expect(() =>
+      maple(Buffer.alloc(0)).convolve({
+        width: 3,
+        height: 3,
+        kernel: [1, 1, 1, 1, NaN, 1, 1, 1, 1],
+      }),
+    ).toThrow(/kernel\[4\]/);
+    expect(() => maple(Buffer.alloc(0)).sharpen({ sigma: 1, y3: -Infinity })).toThrow(/y3/);
+  });
+
+  it('blur and sharpen require a sigma when given an options object', () => {
+    // sharp: `blur({})` throws "Expected number between 0.3 and 1000 for
+    // options.sigma" and `sharpen({m1: 3})` throws the equivalent for its
+    // own 0.000001-10 domain. Both used to run the mild/box path here, which
+    // also meant m1/m2/x1/y2/y3 were validated and then silently ignored.
+    expect(() => maple(Buffer.alloc(0)).blur({})).toThrow(/options\.sigma/);
+    expect(() => maple(Buffer.alloc(0)).sharpen({ m1: 3 })).toThrow(/options\.sigma/);
+  });
+
+  it('sharpen(number) is the same sigma form blur(number) is', async () => {
+    // sharp's deprecated positional `sharpen(sigma)` is still live in
+    // 0.34.5. Before this wave `sharpen(2)` was silently the no-argument
+    // fast kernel, which measured 37 levels away from sharp.
+    const src = await png(stepEdge(16, 4));
+    const positional = await pixels(await maple(src).sharpen(2).toFormat('png').toBuffer());
+    const object = await pixels(await maple(src).sharpen({ sigma: 2 }).toFormat('png').toBuffer());
+    expect(Array.from(positional)).toEqual(Array.from(object));
+  });
+
+  it('threshold() rejects a non-integer or out-of-range value by name', () => {
+    expect(() => maple(Buffer.alloc(0)).threshold(300)).toThrow(/threshold/);
+    expect(() => maple(Buffer.alloc(0)).threshold(128.5)).toThrow(/threshold/);
+  });
+
+  it('threshold() greyscale follows sharps literal-true rule', async () => {
+    // sharp: `if (!is.object(options) || options.greyscale === true ||
+    // options.grayscale === true)`. So an options object that does not
+    // literally set one spelling to `true` turns greyscale OFF — measured
+    // max diff 255 on 31% of a noise fixture's samples when this was
+    // treated as "default true". Solid red is the readable case: greyscale
+    // takes bw_luma(255, 0, 0) = 127, which is under 128, so every channel
+    // goes to 0; per-channel keeps red at 255.
+    const red = {
+      data: new Uint8Array(Array.from({ length: 16 }, () => [255, 0, 0]).flat()),
+      width: 4,
+      height: 4,
+      channels: 3 as const,
+    };
+    const src = await png(red);
+    const through = async (options?: object) =>
+      Array.from(
+        (await pixels(await maple(src).threshold(128, options).toFormat('png').toBuffer())).slice(
+          0,
+          3,
+        ),
+      );
+    expect(await through()).toEqual([0, 0, 0]);
+    expect(await through({})).toEqual([255, 0, 0]);
+    expect(await through({ greyscale: undefined })).toEqual([255, 0, 0]);
+    expect(await through({ greyscale: false })).toEqual([255, 0, 0]);
+    expect(await through({ greyscale: true })).toEqual([0, 0, 0]);
+    expect(await through({ grayscale: true, greyscale: false })).toEqual([0, 0, 0]);
+  });
+
+  it('a RAW develop input names an op it cannot run instead of dropping it', async () => {
+    // `maple('photo.dng').blur(5).toFile(out)` used to write an unblurred
+    // file and report success — the RAW-develop terminal never read
+    // `state.ops`. `resize` is the one op that path really does honour.
+    await expect(maple('photo.dng').blur(5).toFile('/tmp/maple-never-written.jpg')).rejects.toThrow(
+      /blur is not supported on a RAW develop input/,
+    );
   });
 
   it('rejects a non-integer convolve scale by name', () => {
