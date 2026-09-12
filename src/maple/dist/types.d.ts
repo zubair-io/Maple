@@ -11,12 +11,25 @@ export interface ImageMetadata {
     orientation: number;
     isRaw?: boolean;
 }
+/** sharp's `position` spellings, on top of the nine gravity names. */
+export type ResizePosition = 'centre' | 'center' | 'north' | 'northeast' | 'east' | 'southeast' | 'south' | 'southwest' | 'west' | 'northwest' | 'top' | 'right top' | 'right' | 'right bottom' | 'bottom' | 'left bottom' | 'left' | 'left top';
+export type ResizeKernel = 'nearest' | 'linear' | 'bilinear' | 'cubic' | 'mitchell' | 'lanczos2' | 'lanczos3';
 export interface ResizeOptions {
-    width?: number;
-    height?: number;
-    fit?: 'inside' | 'fill' | 'cover';
+    width?: number | null;
+    height?: number | null;
+    fit?: 'inside' | 'fill' | 'cover' | 'contain' | 'outside';
+    /** Where the source sits inside the target box for `cover` and `contain`. Alias: `gravity`. */
+    position?: ResizePosition;
+    gravity?: ResizePosition;
+    /** Letterbox colour for `fit: 'contain'`. */
+    background?: Colour | string;
+    /** sharp's name for the resampling kernel. */
+    kernel?: ResizeKernel;
+    /** Maple's Tier 1 name for the same option. `kernel` wins when both are set. */
+    filter?: ResizeKernel;
+    /** NOTE: defaults to `true` here, where sharp defaults it to `false`. */
     withoutEnlargement?: boolean;
-    filter?: 'lanczos3' | 'bilinear' | 'nearest';
+    withoutReduction?: boolean;
 }
 export interface RawPixelInput {
     data: Uint8Array;
@@ -57,6 +70,36 @@ export interface EncodeOptions {
     quality?: number;
     /** AVIF only: 0 (fastest) … 9 (slowest), sharp's scale. */
     effort?: number;
+}
+export interface ExtractRegion {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+export interface ExtendOptions {
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+    /** Only `'background'` is implemented; anything else throws by name. */
+    extendWith?: 'background';
+    background?: Colour | string;
+}
+export interface RotateOptions {
+    background?: Colour | string;
+}
+export interface TrimOptions {
+    /** Defaults to the colour of the top-left pixel, as in sharp. */
+    background?: Colour | string;
+    threshold?: number;
+    margin?: number;
+    /**
+     * sharp's line-art trim mode is not implemented (#3501). The type only
+     * accepts `false` (its default); passing `true` throws by name at
+     * execution rather than being silently ignored.
+     */
+    lineArt?: false;
 }
 export interface JpegOutputOptions {
     quality?: number;
@@ -186,3 +229,32 @@ export type FilenameResult = {
     code: number;
     error: string;
 };
+/** `sharpen()`'s mask-based (Lab) transfer options, #3504 task E5. */
+export interface SharpenOptions {
+    /** Gaussian sigma, 0.000001-10. Omit for sharp's fast mild 3x3 sharpen. */
+    sigma?: number;
+    /** Sharpening applied to "flat" areas. Default 1.0. */
+    m1?: number;
+    /** Sharpening applied to "jagged" areas. Default 2.0. */
+    m2?: number;
+    /** Threshold between flat and jagged. Default 2.0. */
+    x1?: number;
+    /** Maximum brightening. Default 10.0. */
+    y2?: number;
+    /** Maximum darkening. Default 20.0. */
+    y3?: number;
+}
+/** `convolve()`'s arbitrary kernel, #3504 task E5. */
+export interface ConvolveKernel {
+    width: number;
+    height: number;
+    /** `width * height` values, row-major. */
+    kernel: number[];
+    /**
+     * Divisor for the weighted sum. Omit to use the kernel's own sum (1 for a
+     * zero-sum kernel, matching sharp) — an explicit `0` is NOT the same as
+     * omitting this: sharp clips any non-positive explicit `scale` up to 1.
+     */
+    scale?: number;
+    offset?: number;
+}
