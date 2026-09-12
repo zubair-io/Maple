@@ -25,7 +25,7 @@ fn is_tiff(bytes: &[u8]) -> bool {
 #[test]
 fn encodes_an_eight_bit_tiff_that_round_trips() {
     let src = ramp(16, 16);
-    let bytes = encode_tiff_opts(&src, &opts(), None).unwrap();
+    let bytes = encode_tiff_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     assert!(is_tiff(&bytes));
     let decoded = crate::raster::decode_raster(&bytes, Some("tiff")).unwrap();
     assert_eq!(decoded.data, src.data, "LZW TIFF must be lossless");
@@ -41,7 +41,7 @@ fn sixteen_bit_widens_the_samples() {
             compression: TiffCompression::None,
             ..opts()
         },
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     // 16x16 RGB16 is 1536 bytes of pixel data alone.
@@ -73,7 +73,7 @@ fn compression_actually_shrinks_the_file() {
                 compression: TiffCompression::None,
                 ..opts()
             },
-            None,
+            &EmbeddedMetadata::default(),
         )
         .unwrap()
         .len()
@@ -96,7 +96,7 @@ fn compression_actually_shrinks_the_file() {
                 compression,
                 ..opts()
             },
-            None,
+            &EmbeddedMetadata::default(),
         )
         .unwrap();
         assert!(
@@ -110,7 +110,15 @@ fn compression_actually_shrinks_the_file() {
 #[test]
 fn the_icc_profile_is_written_as_tag_34675() {
     let icc = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
-    let bytes = encode_tiff_opts(&ramp(8, 8), &opts(), Some(&icc)).unwrap();
+    let bytes = encode_tiff_opts(
+        &ramp(8, 8),
+        &opts(),
+        &EmbeddedMetadata {
+            icc: Some(&icc),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     // The profile's own 'acsp' signature lives at byte 36 of any ICC blob.
     assert!(
         bytes.windows(4).any(|w| w == b"acsp"),
@@ -129,7 +137,7 @@ fn an_unsupported_channel_count_is_rejected() {
         data: vec![0; 4],
         orientation: crate::image::ExifOrientation::Normal,
     };
-    assert!(encode_tiff_opts(&gray, &opts(), None).is_err());
+    assert!(encode_tiff_opts(&gray, &opts(), &EmbeddedMetadata::default()).is_err());
 }
 
 /// RGBA input: an interleaved `[R, G, B, A, ...]` buffer with a
@@ -150,7 +158,7 @@ fn rgba_ramp(w: u32, h: u32) -> RasterImage {
 #[test]
 fn rgba_eight_bit_round_trips_with_extra_samples_tag() {
     let src = rgba_ramp(8, 8);
-    let bytes = encode_tiff_opts(&src, &opts(), None).unwrap();
+    let bytes = encode_tiff_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
 
     let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
     assert_eq!(
@@ -186,7 +194,7 @@ fn rgba_sixteen_bit_round_trips_with_extra_samples_tag() {
             compression: TiffCompression::Lzw,
             ..opts()
         },
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
 
@@ -216,7 +224,7 @@ fn an_unsupported_bit_depth_is_rejected() {
             bitdepth: 12,
             ..opts()
         },
-        None
+        &EmbeddedMetadata::default()
     )
     .is_err());
 }
@@ -240,7 +248,7 @@ fn tag_259_names_the_chosen_compression() {
                 compression,
                 ..opts()
             },
-            None,
+            &EmbeddedMetadata::default(),
         )
         .unwrap();
         let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
@@ -264,7 +272,7 @@ fn tag_317_reflects_the_predictor_choice() {
                 predictor,
                 ..opts()
             },
-            None,
+            &EmbeddedMetadata::default(),
         )
         .unwrap();
         let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
@@ -306,7 +314,7 @@ fn the_horizontal_predictor_is_written_only_for_lzw_and_deflate() {
                 predictor: true,
                 ..opts()
             },
-            None,
+            &EmbeddedMetadata::default(),
         )
         .unwrap();
         let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
@@ -331,7 +339,7 @@ fn predictor_false_still_round_trips_losslessly() {
             predictor: false,
             ..opts()
         },
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     let decoded = crate::raster::decode_raster(&bytes, Some("tiff")).unwrap();
@@ -354,7 +362,7 @@ fn sixteen_bit_widens_every_sample_by_exactly_257x() {
             compression: TiffCompression::None,
             ..opts()
         },
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();

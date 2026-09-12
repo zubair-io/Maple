@@ -57,6 +57,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
+use crate::raster_encode::EmbeddedMetadata;
 
 use imgref::Img;
 use ravif::{BitDepth, ColorModel, Encoder};
@@ -152,7 +153,7 @@ pub(crate) fn avif_speed_for(effort: u8) -> u8 {
 pub fn encode_avif_opts(
     raster: &RasterImage,
     options: &AvifOptions,
-    exif: Option<&[u8]>,
+    meta: &EmbeddedMetadata<'_>,
 ) -> Result<Vec<u8>> {
     // The vendored `rav1e` never reaches true AV1 lossless mode: its
     // `base_q_idx` is floored at 1 (`select_ac_qi(..).max(1)` in
@@ -213,7 +214,7 @@ pub fn encode_avif_opts(
         .with_speed(speed)
         .with_bit_depth(depth)
         .with_internal_color_model(ColorModel::YCbCr);
-    let encoder = match exif {
+    let encoder = match meta.exif {
         Some(block) => base.with_exif(block.to_vec()),
         None => base,
     };
@@ -238,7 +239,19 @@ pub fn encode_avif_opts(
 }
 
 /// WebP. Lossless only — see the module doc and the plan's decision D6.
-pub fn encode_webp_opts(raster: &RasterImage, lossless: bool) -> Result<Vec<u8>> {
+///
+/// ICC and EXIF ARE written here (#3507): `image`'s `WebPEncoder` exposes
+/// `set_icc_profile`/`set_exif_metadata`, so WebP gets the same treatment
+/// JPEG, PNG and TIFF do rather than being the one container that silently
+/// drops a profile the caller asked for. XMP it genuinely cannot carry —
+/// the wrapper has no hook for it — which is what
+/// `raster_recipe_encode`'s capability matrix records.
+pub fn encode_webp_opts(
+    raster: &RasterImage,
+    lossless: bool,
+    meta: &EmbeddedMetadata<'_>,
+) -> Result<Vec<u8>> {
+    use image::ImageEncoder;
     if !lossless {
         return Err(Error::UnsupportedFormat(
             "WebP lossy encode is not supported: Maple's WebP encoder is lossless-only \
@@ -246,9 +259,21 @@ pub fn encode_webp_opts(raster: &RasterImage, lossless: bool) -> Result<Vec<u8>>
                 .into(),
         ));
     }
+    let webp_error = |e: image::ImageError| Error::Png(format!("webp encode failed: {e}"));
     let mut out: Vec<u8> = Vec::new();
-    image::codecs::webp::WebPEncoder::new_lossless(&mut out)
-        .encode(
+    let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+    if let Some(profile) = meta.icc {
+        encoder
+            .set_icc_profile(profile.to_vec())
+            .map_err(|e| Error::Png(format!("webp ICC embed failed: {e}")))?;
+    }
+    if let Some(block) = meta.exif {
+        encoder
+            .set_exif_metadata(block.to_vec())
+            .map_err(|e| Error::Png(format!("webp EXIF embed failed: {e}")))?;
+    }
+    encoder
+        .write_image(
             &raster.data,
             raster.width,
             raster.height,
@@ -258,7 +283,7 @@ pub fn encode_webp_opts(raster: &RasterImage, lossless: bool) -> Result<Vec<u8>>
                 image::ExtendedColorType::Rgb8
             },
         )
-        .map_err(|e| Error::Png(format!("webp encode failed: {e}")))?;
+        .map_err(webp_error)?;
     Ok(out)
 }
 

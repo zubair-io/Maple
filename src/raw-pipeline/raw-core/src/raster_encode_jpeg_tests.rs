@@ -54,7 +54,7 @@ fn walk_markers(bytes: &[u8]) -> Vec<(u8, &[u8])> {
 #[test]
 fn encodes_a_baseline_jpeg_that_decodes_back() {
     let src = noise(32, 32);
-    let bytes = encode_jpeg_opts(&src, &opts(), None, None, None).unwrap();
+    let bytes = encode_jpeg_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     assert_eq!(&bytes[..2], &[0xFF, 0xD8]);
     assert!(has_marker(&bytes, 0xC0), "expected a baseline SOF0");
     let decoded = crate::raster::decode_raster(&bytes, Some("jpeg")).unwrap();
@@ -69,9 +69,7 @@ fn progressive_writes_sof2_and_still_decodes() {
             progressive: true,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     assert!(has_marker(&bytes, 0xC2), "expected a progressive SOF2");
@@ -82,16 +80,14 @@ fn progressive_writes_sof2_and_still_decodes() {
 #[test]
 fn four_four_four_is_larger_than_four_two_zero_at_the_same_quality() {
     let src = noise(64, 64);
-    let subsampled = encode_jpeg_opts(&src, &opts(), None, None, None).unwrap();
+    let subsampled = encode_jpeg_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     let full = encode_jpeg_opts(
         &src,
         &JpegOptions {
             chroma_subsampling: ChromaSubsampling::Yuv444,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     assert!(
@@ -111,12 +107,10 @@ fn optimised_huffman_tables_shrink_the_file() {
             optimise_coding: false,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
-    let optimised = encode_jpeg_opts(&src, &opts(), None, None, None).unwrap();
+    let optimised = encode_jpeg_opts(&src, &opts(), &EmbeddedMetadata::default()).unwrap();
     assert!(
         optimised.len() < plain.len(),
         "optimised ({}) should beat default tables ({})",
@@ -134,9 +128,7 @@ fn lower_quality_produces_a_smaller_file() {
             quality: 95,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     let low = encode_jpeg_opts(
@@ -145,9 +137,7 @@ fn lower_quality_produces_a_smaller_file() {
             quality: 40,
             ..opts()
         },
-        None,
-        None,
-        None,
+        &EmbeddedMetadata::default(),
     )
     .unwrap();
     assert!(low.len() < high.len());
@@ -158,8 +148,17 @@ fn the_three_metadata_segments_are_embedded() {
     let icc = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
     let exif = b"II\x2a\x00\x08\x00\x00\x00\x00\x00".to_vec();
     let xmp = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta/>"#.to_vec();
-    let bytes =
-        encode_jpeg_opts(&noise(16, 16), &opts(), Some(&icc), Some(&exif), Some(&xmp)).unwrap();
+    let bytes = encode_jpeg_opts(
+        &noise(16, 16),
+        &opts(),
+        &EmbeddedMetadata {
+            icc: Some(&icc),
+            exif: Some(&exif),
+            xmp: Some(&xmp),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     assert!(
         bytes.windows(12).any(|w| w == b"ICC_PROFILE\0"),
         "no ICC APP2"
@@ -183,8 +182,17 @@ fn the_metadata_segments_are_written_exif_then_xmp_then_icc() {
     let icc = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
     let exif = b"II\x2a\x00\x08\x00\x00\x00\x00\x00".to_vec();
     let xmp = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta/>"#.to_vec();
-    let bytes =
-        encode_jpeg_opts(&noise(16, 16), &opts(), Some(&icc), Some(&exif), Some(&xmp)).unwrap();
+    let bytes = encode_jpeg_opts(
+        &noise(16, 16),
+        &opts(),
+        &EmbeddedMetadata {
+            icc: Some(&icc),
+            exif: Some(&exif),
+            xmp: Some(&xmp),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let kinds: Vec<&str> = walk_markers(&bytes)
         .into_iter()
         .filter_map(|(marker, payload)| match marker {
@@ -200,7 +208,7 @@ fn the_metadata_segments_are_written_exif_then_xmp_then_icc() {
 #[test]
 fn a_four_channel_raster_is_rejected_rather_than_silently_flattened() {
     let rgba = RasterImage::new_rgba(2, 2, vec![0; 16]);
-    assert!(encode_jpeg_opts(&rgba, &opts(), None, None, None).is_err());
+    assert!(encode_jpeg_opts(&rgba, &opts(), &EmbeddedMetadata::default()).is_err());
 }
 
 #[test]
@@ -213,7 +221,7 @@ fn dimensions_beyond_the_jpeg_limit_are_rejected() {
         data: vec![0; 65_536 * 3],
         orientation: crate::image::ExifOrientation::Normal,
     };
-    assert!(encode_jpeg_opts(&wide, &opts(), None, None, None).is_err());
+    assert!(encode_jpeg_opts(&wide, &opts(), &EmbeddedMetadata::default()).is_err());
 }
 
 // --- Deferred from the F1 review: parse-level assertions, not just marker
@@ -232,9 +240,7 @@ fn sof_sampling_factors_are_2_2_for_420_and_1_1_for_444() {
                 chroma_subsampling: subsampling,
                 ..opts()
             },
-            None,
-            None,
-            None,
+            &EmbeddedMetadata::default(),
         )
         .unwrap();
         let segments = walk_markers(&bytes);
@@ -260,7 +266,15 @@ fn a_70kb_icc_profile_is_split_into_two_app2_chunks_that_reassemble_exactly() {
     // jpeg_encoder chunks ICC profiles at 65535 - 2 - 12 - 2 = 65519 bytes
     // per APP2 segment; 70,000 bytes needs exactly two chunks.
     let icc: Vec<u8> = (0..70_000u32).map(|i| (i % 251) as u8).collect();
-    let bytes = encode_jpeg_opts(&noise(8, 8), &opts(), Some(&icc), None, None).unwrap();
+    let bytes = encode_jpeg_opts(
+        &noise(8, 8),
+        &opts(),
+        &EmbeddedMetadata {
+            icc: Some(&icc),
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let icc_segments: Vec<&[u8]> = walk_markers(&bytes)
         .into_iter()
         .filter(|(marker, payload)| *marker == 0xE2 && payload.starts_with(b"ICC_PROFILE\0"))
@@ -286,7 +300,16 @@ fn a_70kb_icc_profile_is_split_into_two_app2_chunks_that_reassemble_exactly() {
 fn exif_and_xmp_payload_bytes_match_the_input_exactly() {
     let exif = b"II\x2a\x00\x08\x00\x00\x00\x03\x00\x00\x01\x0f\x00\x02\x00".to_vec();
     let xmp = br#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta/>"#.to_vec();
-    let bytes = encode_jpeg_opts(&noise(16, 16), &opts(), None, Some(&exif), Some(&xmp)).unwrap();
+    let bytes = encode_jpeg_opts(
+        &noise(16, 16),
+        &opts(),
+        &EmbeddedMetadata {
+            exif: Some(&exif),
+            xmp: Some(&xmp),
+            ..Default::default()
+        },
+    )
+    .unwrap();
 
     let app1_segments: Vec<&[u8]> = walk_markers(&bytes)
         .into_iter()

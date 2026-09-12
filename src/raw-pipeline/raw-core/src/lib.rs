@@ -99,6 +99,9 @@ pub mod raster_meta;
 mod raster_orient;
 pub mod raster_recipe;
 pub(crate) mod raster_recipe_colour;
+/// The recipe's one encode path: per-format options (#3506) in, the
+/// recipe's resolved metadata (#3507) in, container bytes out.
+mod raster_recipe_encode;
 pub mod raster_recipe_exec;
 pub mod raster_recipe_filter;
 mod raster_recipe_geometry;

@@ -335,3 +335,142 @@ fn a_p3_recipe_rejects_avif_output_by_name() {
         "expected the AVIF/P3 combination to be named in the error, got: {err}"
     );
 }
+
+// ---- metadata (#3507) ----
+//
+// Every fixture below is a baseline JPEG from `crate::jpeg::encode` with an
+// APP1 `Exif\0\0` and/or a single-chunk APP2 `ICC_PROFILE\0` segment
+// hand-spliced in right after the SOI marker, mirroring the pattern
+// `raster_meta_tests.rs`/`raster_recipe_meta.rs`'s own fixtures use.
+
+const EXIF_TIFF: &[u8] = b"II\x2a\x00\x08\x00\x00\x00\x00\x00";
+
+fn jpeg_source(icc: Option<&[u8]>, exif: Option<&[u8]>) -> Vec<u8> {
+    let base = crate::jpeg::encode(4, 4, &vec![90u8; 4 * 4 * 3], 90).unwrap();
+    let mut extra = Vec::new();
+    if let Some(exif) = exif {
+        let mut payload = b"Exif\0\0".to_vec();
+        payload.extend_from_slice(exif);
+        extra.push(0xFFu8);
+        extra.push(0xE1);
+        extra.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+        extra.extend_from_slice(&payload);
+    }
+    if let Some(icc) = icc {
+        let mut payload = b"ICC_PROFILE\0".to_vec();
+        payload.push(1); // sequence
+        payload.push(1); // count
+        payload.extend_from_slice(icc);
+        extra.push(0xFFu8);
+        extra.push(0xE2);
+        extra.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+        extra.extend_from_slice(&payload);
+    }
+    let mut out = base[..2].to_vec();
+    out.extend_from_slice(&extra);
+    out.extend_from_slice(&base[2..]);
+    out
+}
+
+fn p3_icc() -> Vec<u8> {
+    crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3)
+}
+
+#[test]
+fn keep_metadata_copies_the_input_blocks_to_the_output() {
+    let icc = p3_icc();
+    let source = jpeg_source(Some(&icc), Some(EXIF_TIFF));
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"jpeg","quality":85},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    let found = crate::raster_meta::read_sidecars(&out.bytes);
+    assert!(found.exif.is_some(), "EXIF was dropped");
+    assert_eq!(found.icc.as_deref(), Some(icc.as_slice()));
+}
+
+#[test]
+fn metadata_is_stripped_by_default() {
+    let icc = p3_icc();
+    let source = jpeg_source(Some(&icc), Some(EXIF_TIFF));
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],"output":{"format":"jpeg","quality":85}}"#,
+        &source,
+        &[],
+    );
+    assert!(crate::raster_meta::read_sidecars(&out.bytes).exif.is_none());
+}
+
+#[test]
+fn an_explicit_orientation_is_written_into_the_exif_block() {
+    let source = jpeg_source(None, None);
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"jpeg","quality":85},
+            "metadata":{"orientation":6}}"#,
+        &source,
+        &[],
+    );
+    let found = crate::raster_meta::read_sidecars(&out.bytes);
+    let orientation = found
+        .exif
+        .as_deref()
+        .and_then(crate::raster::exif_orientation_from_block);
+    assert_eq!(orientation, Some(6));
+}
+
+#[test]
+fn a_supplied_icc_from_aux_is_embedded() {
+    let icc = p3_icc();
+    let recipe = format!(
+        r#"{{"v":1,"input":{{"kind":"raw","width":8,"height":8,"channels":3}},"ops":[],
+            "output":{{"format":"png"}},
+            "metadata":{{"icc":{{"off":0,"len":{}}}}}}}"#,
+        icc.len()
+    );
+    let out = run(&recipe, &vec![120u8; 8 * 8 * 3], &icc);
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&out.bytes).icc.as_deref(),
+        Some(icc.as_slice())
+    );
+}
+
+#[test]
+fn an_orientation_rewrite_survives_a_kept_exif_block() {
+    let source = jpeg_source(None, Some(EXIF_TIFF));
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"jpeg","quality":85},
+            "metadata":{"keep":true,"orientation":8}}"#,
+        &source,
+        &[],
+    );
+    let found = crate::raster_meta::read_sidecars(&out.bytes);
+    let orientation = found
+        .exif
+        .as_deref()
+        .and_then(crate::raster::exif_orientation_from_block);
+    assert_eq!(orientation, Some(8));
+}
+
+#[test]
+fn metadata_survives_an_op_and_a_format_change() {
+    // The input is a JPEG (can't carry alpha); the output is a resized
+    // PNG. `keep` must still surface the JPEG's own EXIF/ICC in the PNG.
+    let icc = p3_icc();
+    let source = jpeg_source(Some(&icc), Some(EXIF_TIFF));
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},
+            "ops":[{"op":"resize","width":2,"height":2,"fit":"fill"}],
+            "output":{"format":"png"},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    let found = crate::raster_meta::read_sidecars(&out.bytes);
+    assert!(found.exif.is_some(), "EXIF was dropped across the resize");
+    assert_eq!(found.icc.as_deref(), Some(icc.as_slice()));
+}

@@ -150,6 +150,7 @@ mod tests {
     /// round-trip, not just the interleaved ones.
     #[test]
     fn every_default_jpeg_option_combination_round_trips() {
+        use crate::raster_encode::EmbeddedMetadata;
         use crate::raster_encode_jpeg::{encode_jpeg_opts, ChromaSubsampling, JpegOptions};
 
         let src = photographic_64();
@@ -161,7 +162,7 @@ mod tests {
                     chroma_subsampling,
                     optimise_coding,
                 };
-                let bytes = encode_jpeg_opts(&src, &options, None, None, None).unwrap();
+                let bytes = encode_jpeg_opts(&src, &options, &EmbeddedMetadata::default()).unwrap();
                 let decoded = decode_jpeg_lenient(&bytes).unwrap();
                 assert_eq!((decoded.width, decoded.height), (64, 64));
                 assert!(
@@ -188,6 +189,7 @@ mod tests {
     /// non-optimised (interleaved) one was perfect.
     #[test]
     fn optimised_and_unoptimised_huffman_tables_decode_identically() {
+        use crate::raster_encode::EmbeddedMetadata;
         use crate::raster_encode_jpeg::{encode_jpeg_opts, ChromaSubsampling, JpegOptions};
 
         let src = photographic_64();
@@ -199,8 +201,10 @@ mod tests {
                     chroma_subsampling,
                     optimise_coding,
                 };
-                decode_jpeg_lenient(&encode_jpeg_opts(&src, &options, None, None, None).unwrap())
-                    .unwrap()
+                decode_jpeg_lenient(
+                    &encode_jpeg_opts(&src, &options, &EmbeddedMetadata::default()).unwrap(),
+                )
+                .unwrap()
             };
             let optimised = encode(true);
             let plain = encode(false);
