@@ -43,8 +43,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -55,23 +55,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "grey_dcp",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_chart",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_harness",
@@ -142,8 +142,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -154,23 +154,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "grey_dcp",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_chart",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_harness",
@@ -268,8 +268,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -280,23 +280,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "grey_dcp",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_chart",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_harness",
@@ -371,8 +371,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -383,23 +383,23 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "grey_dcp",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_chart",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "color_harness",
@@ -453,8 +453,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -465,8 +465,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_metal",
@@ -516,8 +516,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         }
       ],
       "qualification": [
@@ -542,8 +542,8 @@
       "integration": [
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         }
       ],
       "qualification": []
@@ -633,8 +633,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_lavapipe",
@@ -685,8 +685,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         }
       ],
       "qualification": [
@@ -697,8 +697,8 @@
         },
         {
           "source": "sidecar_contract_api",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v3, current is v4"
+          "status": "satisfied",
+          "detail": "satisfied"
         }
       ]
     },
@@ -737,18 +737,18 @@
         "src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs"
       ],
       "corpus_hash": "blake3:783ba389f8ffa6d0ba6b8815396f7f2b3b1b5bdfa013f3186f43e04dd734c2c8",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 3,
+        "pipeline_version": 4,
         "schema_version": 5,
-        "corpus_hash": "blake3:fc275d707aca0f4b687a796e9528d92240dd2d94db65eaa46aad7e2f1255871b",
+        "corpus_hash": "blake3:783ba389f8ffa6d0ba6b8815396f7f2b3b1b5bdfa013f3186f43e04dd734c2c8",
         "expected_cases": 40,
         "executed_cases": 40,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "47e0dcdc32f3daac68f5fff89a6c5f128a991522",
-        "recorded_at": "2026-09-07T01:56:53Z",
+        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
+        "recorded_at": "2026-09-12T11:17:59Z",
         "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
@@ -760,18 +760,18 @@
       "expected_cases": 6,
       "corpus": ["src/raw-pipeline/raw-core/tests/grey_invariants.rs"],
       "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 3,
+        "pipeline_version": 4,
         "schema_version": 5,
         "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
         "expected_cases": 6,
         "executed_cases": 6,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "47e0dcdc32f3daac68f5fff89a6c5f128a991522",
-        "recorded_at": "2026-09-07T01:55:37Z",
+        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
+        "recorded_at": "2026-09-12T11:17:30Z",
         "command": "bash src/scripts/test_synthetic_grey.sh"
       }
     },
@@ -783,18 +783,18 @@
       "expected_cases": 5,
       "corpus": ["src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs"],
       "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 3,
+        "pipeline_version": 4,
         "schema_version": 5,
         "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
         "expected_cases": 5,
         "executed_cases": 5,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "47e0dcdc32f3daac68f5fff89a6c5f128a991522",
-        "recorded_at": "2026-09-07T01:57:18Z",
+        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
+        "recorded_at": "2026-09-12T11:18:15Z",
         "command": "bash src/scripts/test_grey_dcp.sh"
       }
     },
@@ -806,18 +806,18 @@
       "expected_cases": 7,
       "corpus": ["src/raw-pipeline/raw-core/tests/color_chart_invariants.rs"],
       "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 3,
+        "pipeline_version": 4,
         "schema_version": 5,
         "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
         "expected_cases": 7,
         "executed_cases": 7,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "47e0dcdc32f3daac68f5fff89a6c5f128a991522",
-        "recorded_at": "2026-09-07T01:55:58Z",
+        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
+        "recorded_at": "2026-09-12T11:17:47Z",
         "command": "bash src/scripts/test_synthetic_color_chart.sh"
       }
     },
@@ -869,19 +869,19 @@
       "expected_cases": 3,
       "corpus": ["src/api/src/routes/xmp.sidecar-contract.test.ts"],
       "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "bun",
-        "pipeline_version": 3,
+        "pipeline_version": 4,
         "schema_version": 5,
         "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
         "expected_cases": 3,
         "executed_cases": 3,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "710247debc80171a3675094f24c87649c9658127",
-        "recorded_at": "2026-09-06T14:17:14Z",
-        "command": "bash -c \"cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts --timeout 30000\""
+        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
+        "recorded_at": "2026-09-12T11:18:59Z",
+        "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
     {
