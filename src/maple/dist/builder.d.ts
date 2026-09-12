@@ -4,7 +4,7 @@
  * Provides a unified chaining interface for RAW photo development,
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
-import type { AvifOutputOptions, Colour, CompositeLayer, ConvolveKernel, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, JpegOutputOptions, PngOutputOptions, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, SharpenOptions, TensorOptions, TensorResult, TiffOutputOptions, TrimOptions, WebpOutputOptions } from './types';
+import type { AvifOutputOptions, Colour, CompositeLayer, ConvolveKernel, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, ImageStats, JpegOutputOptions, PngOutputOptions, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, SharpenOptions, TensorOptions, TensorResult, TiffOutputOptions, TrimOptions, WebpOutputOptions } from './types';
 export declare class MapleImageBuilder {
     private readonly s;
     constructor(input: string | Uint8Array | Buffer | RawPixelInput);
@@ -171,6 +171,30 @@ export declare class MapleImageBuilder {
     normalizeOrientationInPlace(): Promise<boolean>;
     /** Extract raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace) */
     toRawRgb(options?: TensorOptions): Promise<TensorResult>;
+    /** Pixel-derived statistics for every channel (sharp's `stats`). */
+    stats(): Promise<ImageStats>;
+    /** Keep every metadata block from the input (sharp's `keepMetadata`). */
+    keepMetadata(): this;
+    /** Keep most metadata and optionally set the orientation or density (sharp's `withMetadata`). */
+    withMetadata(options?: {
+        orientation?: number;
+        density?: number;
+    }): this;
+    /**
+     * Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`).
+     * Diverges from sharp's `withExif({IFD0: {...}})` — see the doc on
+     * `applyWithExif` in `builder-metadata.ts`.
+     */
+    withExif(exif: Uint8Array | Buffer): this;
+    /**
+     * Embed an ICC profile: `'srgb'`/`'p3'` (Maple's own built-in profiles), a
+     * filesystem path, or raw profile bytes. See the doc on
+     * `applyWithIccProfile` in `builder-metadata.ts` for the divergence from
+     * sharp's own `string`-only signature (`'cmyk'` included).
+     */
+    withIccProfile(icc: string | Uint8Array | Buffer): this;
+    /** Embed this XMP packet. */
+    withXmp(xmp: string | Uint8Array | Buffer): this;
     /** Render or resize image directly to an in-memory Buffer */
     toBuffer(): Promise<Buffer>;
     /**
