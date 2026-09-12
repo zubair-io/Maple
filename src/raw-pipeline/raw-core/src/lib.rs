@@ -74,6 +74,8 @@ pub mod raster_colour_lab;
 pub mod raster_composite;
 pub mod raster_encode;
 pub mod raster_filter;
+pub(crate) mod raster_filter_chain;
+pub(crate) mod raster_filter_conv;
 pub mod raster_filter_ops;
 pub mod raster_geometry;
 pub mod raster_lab;

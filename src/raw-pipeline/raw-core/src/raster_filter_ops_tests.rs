@@ -137,7 +137,7 @@ fn threshold_binarises_through_greyscale_by_default() {
     // Linear-light Rec.709 luma of pure red is 127 (see `bw_luma`'s pinned
     // test), which is below 128 -> black.
     let img = RasterImage::new_rgb(2, 1, vec![255, 0, 0, 0, 255, 0]);
-    let out = img.threshold(128, true);
+    let out = img.threshold(128, true).unwrap();
     assert_eq!(&out.data[..3], &[0, 0, 0]);
     // Linear-light luma of pure green is 220, above 128 -> white.
     assert_eq!(&out.data[3..], &[255, 255, 255]);
@@ -146,7 +146,7 @@ fn threshold_binarises_through_greyscale_by_default() {
 #[test]
 fn threshold_without_greyscale_binarises_each_channel() {
     let img = RasterImage::new_rgb(1, 1, vec![255, 0, 130]);
-    assert_eq!(img.threshold(128, false).data, vec![255, 0, 255]);
+    assert_eq!(img.threshold(128, false).unwrap().data, vec![255, 0, 255]);
 }
 
 #[test]
@@ -156,7 +156,10 @@ fn threshold_closed_form_100_200_pair() {
     // Rec.709 weights sum to 1.0), so greyscale's weighted luma and a plain
     // per-channel comparison agree here: 100 < 128 -> 0, 200 >= 128 -> 255.
     let img = RasterImage::new_rgb(2, 1, vec![100, 100, 100, 200, 200, 200]);
-    assert_eq!(img.threshold(128, true).data, vec![0, 0, 0, 255, 255, 255]);
+    assert_eq!(
+        img.threshold(128, true).unwrap().data,
+        vec![0, 0, 0, 255, 255, 255]
+    );
 }
 
 #[test]
@@ -165,9 +168,9 @@ fn threshold_thresholds_alpha_too() {
     // band, alpha included — not exempted like `convolve`'s colour-only
     // predecessor logic, and not routed through `bw_luma` either.
     let low = RasterImage::new_rgba(1, 1, vec![255, 255, 255, 64]);
-    assert_eq!(low.threshold(128, true).data[3], 0);
+    assert_eq!(low.threshold(128, true).unwrap().data[3], 0);
     let high = RasterImage::new_rgba(1, 1, vec![255, 255, 255, 200]);
-    assert_eq!(high.threshold(128, true).data[3], 255);
+    assert_eq!(high.threshold(128, true).unwrap().data[3], 255);
 }
 
 // -------------------------------------------------------------- convolve ---
@@ -263,16 +266,19 @@ fn convolve_truncates_rather_than_rounds_an_integer_kernel() {
 }
 
 #[test]
-fn convolve_rounds_a_non_integer_kernel() {
-    // A non-integer kernel takes the float path (rounds instead of
-    // truncating). Three identical rows (so only the middle kernel row,
-    // which is the only one with nonzero weight, matters) of columns
-    // 60/70/61 — kernel dimensions must be >= 3 in both axes (see the
-    // MIN_KERNEL_DIM tests below), so the "1-D" shape is expressed as a 3x3
-    // kernel with zeroed top/bottom rows rather than a literal 3x1. Window
-    // at x=1: 60*0.5 + 70*0 + 61*0.5 = 60.5; the kernel sums to 1.0 so the
-    // auto scale is 1.0; round(60.5) = 61 under Rust's f64::round (half
-    // away from zero) — truncation would give 60.
+fn convolve_truncates_a_non_integer_kernel_like_libvips() {
+    // Three identical rows (so only the middle kernel row, which is the
+    // only one with nonzero weight, matters) of columns 60/70/61 — kernel
+    // dimensions must be >= 3 in both axes (see the MIN_KERNEL_DIM tests
+    // below), so the "1-D" shape is expressed as a 3x3 kernel with zeroed
+    // top/bottom rows rather than a literal 3x1. Window at x=1:
+    // 60*0.5 + 70*0 + 61*0.5 = 60.5; the kernel sums to 1.0 so the auto
+    // scale is 1.0.
+    //
+    // Measured on sharp 0.34.5: **60**, not 61. There is no separate
+    // rounding path for a non-integer kernel — `vips_conv` is a float
+    // convolution whatever the mask looks like, and the only quantisation
+    // is the truncating cast at the end of the filter run.
     let row = [60u8, 60, 60, 70, 70, 70, 61, 61, 61];
     let data = row.repeat(3);
     let img = RasterImage::new_rgb(3, 3, data);
@@ -283,7 +289,7 @@ fn convolve_rounds_a_non_integer_kernel() {
         0.0, 0.0, 0.0,
     ];
     let out = img.convolve(3, 3, &kernel, 0.0, 0.0).unwrap();
-    assert_eq!(at(&out, 1, 1), 61);
+    assert_eq!(at(&out, 1, 1), 60);
 }
 
 #[test]
