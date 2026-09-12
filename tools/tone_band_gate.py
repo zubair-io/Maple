@@ -16,7 +16,7 @@ Usage:
 Candidates are maple-cli batch outputs: DIR/<fixture>_<case>.png.
 References: ROOT/<fixture>/down/<case>.png (ACR renders).
 """
-import argparse, json, os, sys
+import argparse, json, math, os, sys
 import numpy as np
 from PIL import Image
 
@@ -78,7 +78,9 @@ def gate(args):
         rows.append(f"{fixture}/{case:16s} {line}   (maple/acr ΔL*)")
         if budget is not None:
             for b in BANDS:
-                if abs(errs[b]) > budget[b]:
+                if math.isnan(errs[b]):
+                    breaches.append(f"{fixture}/{case}: {b} band undefined (no pixels)")
+                elif abs(errs[b]) > budget[b]:
                     breaches.append(f"{fixture}/{case}: {b} error {errs[b]:+.1f} > {budget[b]:.1f}")
     print("\n".join(rows))
     if args.write_acr:

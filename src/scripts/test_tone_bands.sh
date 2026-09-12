@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Per-luma-band tone-slider gate (companion to test_color_pipeline.sh).
 # Renders baseline + tone cases with maple-cli (Neutral profile, RCD demosaic,
-# 1600 px long edge) and compares each slider's per-band ΔL* effect with ACR's.
+# native resolution — maple-cli batch has no output-sizing flag, so this is
+# NOT a downscaled render; expect ~1-2 min per case) and compares each
+# slider's per-band ΔL* effect with ACR's. Cases are split round-robin across
+# PARALLEL maple-cli batch shards run concurrently.
 #   FILTER=whites src/scripts/test_tone_bands.sh     # subset by case/fixture substring
 #   WRITE_ACR=path.json ...                            # also dump ACR band effects
 #   PARALLEL=4 ...                                      # shard count for maple-cli batch (default 4)
@@ -18,6 +21,7 @@ fi
 ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null )
 CLI="$REPO_ROOT/src/raw-pipeline/target/release/maple-cli"
 WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
 python3 - "$MANIFEST" "$WORK/mini.json" "${FILTER:-}" "$CASES_RE" <<'PY'
 import json, re, sys
 src, dst, flt, cases_re = sys.argv[1:5]
@@ -37,7 +41,7 @@ for fixture in sorted(fixtures_with_match):
         selected.append(b)
 keep = []
 for c in selected:
-    c["outputs"] = [dict(o, long_edge=1600) for o in c["outputs"] if o["resolution"] == "down"]
+    c["outputs"] = [o for o in c["outputs"] if o["resolution"] == "down"]
     keep.append(c)
 json.dump({"cases": keep}, open(dst, "w"))
 print(f"test_tone_bands: {len(keep)} cases")
@@ -71,6 +75,8 @@ done
 if [ "$fail" != "0" ]; then
   echo "test_tone_bands: one or more shards failed to render"; exit 1
 fi
+# No --filter here: $WORK/mini.json is already filtered above, so the gate
+# (invoked with its own default empty filter) sees exactly the selected cases.
 python3 "$REPO_ROOT/tools/tone_band_gate.py" gate --candidates "$WORK/out" --references "$REFS" \
-  --manifest "$WORK/mini.json" --budgets "$BUDGETS" --filter "${FILTER:-}" \
+  --manifest "$WORK/mini.json" --budgets "$BUDGETS" \
   ${WRITE_ACR:+--write-acr "$WRITE_ACR"}
