@@ -96,6 +96,13 @@ fn extend_and_trim_defaults_match_sharp() {
     }
 }
 
+// Schema-level tests for the filter ops added by #3504 task E4 (sigma/
+// size/value defaults, the `precision`/`grayscale` reject-by-name cases,
+// the `Convolve.scale` absent-vs-explicit-0 distinction) live in
+// `raster_recipe_filter_tests.rs` alongside that op family's `run_recipe`
+// and error-by-name coverage, to keep this file under its 600-line hard
+// budget — see `raster_recipe_filter.rs`'s module doc.
+
 #[test]
 fn a_typo_d_field_is_named_in_the_error() {
     let err = parse_recipe(
@@ -243,6 +250,26 @@ fn every_variant_of_every_recipe_enum_rejects_a_stray_key() {
         (
             "op:toColourspace",
             r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"toColourspace","space":"srgb","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:blur",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"blur","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:sharpen",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"sharpen","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:median",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"median","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:threshold",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"threshold","zzzStray":1}],"output":{"format":"png"}}"#,
+        ),
+        (
+            "op:convolve",
+            r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"convolve","width":3,"height":3,"kernel":[1,1,1,1,1,1,1,1,1],"zzzStray":1}],"output":{"format":"png"}}"#,
         ),
         // Output
         (
