@@ -116,18 +116,23 @@ fn shadows_mult(y: f32, s_amount: f32) -> f32 {
     1.0 + ((S_GAIN_EV * s_amount).exp2() - 1.0) * w
 }
 
-/// `highlights_mult` — verbatim from the raw-core stage (#1103): weighted
-/// gain engaging below clip + the sign-branched above-knee shape (h ≥ 0
-/// keeps the legacy compression; h < 0 expands by the #1081 pole-free
-/// mirror — do not collapse the branches back into one denominator).
+/// `highlights_mult` — verbatim from the raw-core stage (#1103), **Adobe
+/// direction** (`crs:Highlights2012`): `h_amount ≥ 0` BRIGHTENS
+/// bright-but-unclipped tones and expands above the knee, `h_amount < 0`
+/// RECOVERS (darkens toward the knee, compresses above it). Internally the
+/// maths runs on the RECOVER amount `r = -h_amount`: weighted gain engaging
+/// below clip + the sign-branched above-knee shape (`r ≥ 0` keeps the
+/// legacy compression; `r < 0` expands by the #1081 pole-free mirror — do
+/// not collapse the branches back into one denominator).
 fn highlights_mult(y: f32, h_amount: f32) -> f32 {
+    let recover = -h_amount;
     let w = smoothstep(H_W0, H_W1, y);
-    let g = (-H_GAIN_EV * h_amount * w).exp2();
+    let g = (-H_GAIN_EV * recover * w).exp2();
     let shape = if y > 1.0 {
-        let y_new = if h_amount >= 0.0 {
-            1.0 + (y - 1.0) / (1.0 + h_amount * 2.0)
+        let y_new = if recover >= 0.0 {
+            1.0 + (y - 1.0) / (1.0 + 2.0 * recover)
         } else {
-            1.0 + (y - 1.0) * (1.0 + 2.0 * h_amount.abs())
+            1.0 + (y - 1.0) * (1.0 + 2.0 * recover.abs())
         };
         y_new / y
     } else {

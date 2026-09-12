@@ -17,11 +17,15 @@
 // (`highlights_mult` / `shadows_mult`; the parity test pins this file to the
 // real Rust stage):
 //
-// * highlights (mode 0): weighted gain exp2(−0.7·h·smoothstep(0.25, 1, Y))
-//   engaging below clip, times the sign-branched above-knee shape — h ≥ 0
-//   keeps the legacy (1 + (Y−1)/(1+2h)) compression; h < 0 expands by
-//   ×(1 + 2|h|), the pole-free mirror (#1081: the legacy shared denominator
-//   crossed zero at h = −50 — do NOT collapse the branches back together).
+// * highlights (mode 0), Adobe direction (crs:Highlights2012): h ≥ 0
+//   BRIGHTENS bright-but-unclipped tones and expands above the knee, h < 0
+//   RECOVERS (darkens toward the knee, compresses above it). Internally the
+//   maths runs on the RECOVER amount r = −h: weighted gain
+//   exp2(−0.7·r·smoothstep(0.25, 1, Y)) engaging below clip, times the
+//   sign-branched above-knee shape — r ≥ 0 keeps the legacy
+//   (1 + (Y−1)/(1+2r)) compression; r < 0 expands by ×(1 + 2|r|), the
+//   pole-free mirror (#1081: the legacy shared denominator crossed zero at
+//   the old sign's h = −50 — do NOT collapse the branches back together).
 // * shadows (mode 1): mix(1, exp2(1.5·s), (1 − smoothstep(0, 0.25, Y))²) —
 //   2.83× / 0.35× cap at the rails (monotonicity-bounded, see S_GAIN_EV in
 //   raw-core), exactly 1 at Y ≥ 0.25.
@@ -59,17 +63,18 @@ fn shadows_mult(y: f32, s_amount: f32) -> f32 {
     return 1.0 + (exp2(S_GAIN_EV * s_amount) - 1.0) * w;
 }
 
+// Adobe direction (crs:Highlights2012): positive brightens, negative recovers.
+// Mirrors raw-core `highlights_mult` verbatim — the maths runs on the
+// RECOVER amount r = -h_amount.
 fn highlights_mult(y: f32, h_amount: f32) -> f32 {
+    let recover = -h_amount;
     let w = smoothstep(H_W0, H_W1, y);
-    let g = exp2(-H_GAIN_EV * h_amount * w);
+    let g = exp2(-H_GAIN_EV * recover * w);
     var shape = 1.0;
     if (y > 1.0) {
         var y_new: f32;
-        if (h_amount >= 0.0) {
-            y_new = 1.0 + (y - 1.0) / (1.0 + h_amount * 2.0);
-        } else {
-            y_new = 1.0 + (y - 1.0) * (1.0 + 2.0 * abs(h_amount));
-        }
+        if (recover >= 0.0) { y_new = 1.0 + (y - 1.0) / (1.0 + 2.0 * recover); }
+        else                { y_new = 1.0 + (y - 1.0) * (1.0 + 2.0 * abs(recover)); }
         shape = y_new / y;
     }
     return shape * g;

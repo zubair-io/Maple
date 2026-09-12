@@ -110,15 +110,15 @@ const CASES: &[(f32, f32, f32, f32, f32, f32)] = &[
     (1.0, 0.0, 0.0, 0.0, 0.0, 0.0),           // exposure only
     (0.0, 70.0, 0.0, 0.0, 0.0, 0.0),          // brightness lift only (#1102)
     (0.0, -85.0, 0.0, 0.0, 0.0, 0.0),         // brightness darken only (#1102)
-    (0.0, 0.0, 60.0, 0.0, 0.0, 0.0),          // highlights recovery only (#1103 mask)
-    (0.0, 0.0, -50.0, 0.0, 0.0, 0.0),         // highlights gain at the old #1081 pole
-    (0.0, 0.0, -100.0, 0.0, 0.0, 0.0),        // highlights gain at full negative
-    (0.0, 0.0, 0.0, 80.0, 0.0, 0.0),          // shadows lift only (#1103 mask)
-    (0.0, 0.0, 0.0, -60.0, 0.0, 0.0),         // shadows crush only (#1103 mask)
-    (0.0, 0.0, 0.0, 0.0, 75.0, 0.0),          // whites gain only
-    (0.0, 0.0, 0.0, 0.0, 0.0, 50.0),          // blacks lift (positive → additive)
-    (0.0, 0.0, 0.0, 0.0, 0.0, -70.0),         // blacks crush (negative → multiplicative)
-    (0.5, 35.0, 40.0, 30.0, 20.0, -25.0),     // everything together
+    (0.0, 0.0, 60.0, 0.0, 0.0, 0.0),          // highlights gain (+60)
+    (0.0, 0.0, -50.0, 0.0, 0.0, 0.0), // highlights recovery at the old #1081 pole (now +50 in Adobe sign)
+    (0.0, 0.0, -100.0, 0.0, 0.0, 0.0), // highlights recovery at full negative
+    (0.0, 0.0, 0.0, 80.0, 0.0, 0.0),  // shadows lift only (#1103 mask)
+    (0.0, 0.0, 0.0, -60.0, 0.0, 0.0), // shadows crush only (#1103 mask)
+    (0.0, 0.0, 0.0, 0.0, 75.0, 0.0),  // whites gain only
+    (0.0, 0.0, 0.0, 0.0, 0.0, 50.0),  // blacks lift (positive → additive)
+    (0.0, 0.0, 0.0, 0.0, 0.0, -70.0), // blacks crush (negative → multiplicative)
+    (0.5, 35.0, 40.0, 30.0, 20.0, -25.0), // everything together
     (-1.0, -45.0, -50.0, -40.0, -60.0, 90.0), // negative exposure + mixed signs
 ];
 
