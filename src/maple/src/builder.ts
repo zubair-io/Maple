@@ -5,9 +5,6 @@
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
 
-import * as crypto from 'node:crypto';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { pushComposite, pushEnsureAlpha, pushFlatten, pushRemoveAlpha } from './builder-alpha';
 import {
   pushGamma,
@@ -27,6 +24,7 @@ import {
   setWebpOutput,
 } from './builder-encoders';
 import { inputBytes, resolveTensor, resolveToRaw, runPipeline } from './builder-exec';
+import { bitmapToFile, normalizeOrientationInPlace, validateIntegrity } from './builder-maintain';
 import { pushBlur, pushConvolve, pushMedian, pushSharpen, pushThreshold } from './builder-filter';
 import {
   pushExtend,
@@ -51,7 +49,6 @@ import {
   applyFormat,
   applyQuality,
   createBuilderState,
-  formatForPath,
   resolveColour,
   resolveGravity,
   stateToOutput,
@@ -458,40 +455,19 @@ export class MapleImageBuilder {
 
   /** Check if image file or buffer is valid and uncorrupted by decoding payload */
   async validateIntegrity(): Promise<boolean> {
-    try {
-      const meta = await this.metadata();
-      if (meta.width <= 0 || meta.height <= 0) return false;
-      // Perform full decode check to catch truncated mdat or broken bitstream payloads
-      await this.toBuffer();
-      return true;
-    } catch {
-      return false;
-    }
+    return validateIntegrity(
+      () => this.metadata(),
+      () => this.toBuffer(),
+    );
   }
 
   /** Normalize image orientation in-place on disk */
   async normalizeOrientationInPlace(): Promise<boolean> {
-    if (!this.s.inputPath) {
-      throw new Error('normalizeOrientationInPlace requires a file path input');
-    }
-    const meta = await this.metadata();
-    // `undefined` means the container declares no orientation to normalise
-    // (every AVIF, whose transform the decoder has already applied).
-    if ((meta.orientation ?? 1) <= 1) {
-      return true; // Already normal
-    }
-    const ext = path.extname(this.s.inputPath) || '.jpg';
-    const tempOut = `${this.s.inputPath}.orient_tmp.${Date.now()}.${crypto.randomUUID()}${ext}`;
-    const targetFmt = this.s.format || (meta.format as ExportFormat) || 'jpeg';
-    const res = await this.rotate().format(targetFmt).toFile(tempOut);
-    if (!res.ok) {
-      try {
-        await fs.unlink(tempOut);
-      } catch {}
-      throw new Error(res.error || 'Failed to normalize orientation');
-    }
-    await fs.rename(tempOut, this.s.inputPath);
-    return true;
+    return normalizeOrientationInPlace(
+      this.s,
+      () => this.metadata(),
+      (format, out) => this.rotate().format(format).toFile(out),
+    );
   }
 
   /** Extract raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace) */
@@ -569,22 +545,9 @@ export class MapleImageBuilder {
    * internally and re-throws on `!ok`, so that behaviour is unchanged.
    */
   async toFile(outputPath: string): Promise<ExportResult> {
-    if (isRawDevelop(this.s)) {
-      return await rawDevelopToFile(this.s, outputPath);
-    }
-    await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    try {
-      const bytes = await inputBytes(this.s);
-      const out = runPipeline(this.s, bytes, stateToOutput(this.s, formatForPath(outputPath)));
-      await fs.writeFile(outputPath, out.buffer);
-      return { ok: true, outPath: outputPath };
-    } catch (error) {
-      return {
-        ok: false,
-        outPath: outputPath,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
+    return isRawDevelop(this.s)
+      ? await rawDevelopToFile(this.s, outputPath)
+      : await bitmapToFile(this.s, outputPath);
   }
 
   /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
