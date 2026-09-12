@@ -1,7 +1,6 @@
-//! Rank/point/arbitrary-kernel filters (#3504 task E3): `median`,
-//! `threshold`, `convolve`. Split out of `raster_filter.rs` (which keeps
-//! `blur`) to stay under the file-size budget — see that file's module doc
-//! for the family-wide alpha/clamp-to-edge conventions this file inherits.
+//! Rank/point/arbitrary-kernel filters (#3504): `median`, `threshold`,
+//! `convolve`. Split out of `raster_filter.rs` (which keeps `blur`) to stay
+//! under the file-size budget.
 //!
 //! **Alpha, per operation** (each has different real libvips/sharp
 //! behaviour, so there is no one shared rule here):
@@ -13,36 +12,30 @@
 //!   otherwise-opaque alpha channel spreads under a 3x3 box exactly like any
 //!   other band (measured against sharp 0.34.5: a single 0 surrounded by
 //!   255 comes out 226 at every cell the box's 3x3 support touches —
-//!   `(8*255 + 1*0) / 9 = 226.67`, truncated). On a 4-channel raster the
-//!   colour bands are premultiplied by alpha before convolving and
-//!   unpremultiplied afterwards (reusing `raster_filter`'s `premultiply`/
-//!   `unpremultiply`, the same treatment `blur` uses), so a fully
-//!   transparent neighbour's stored colour can't bleed into a partly opaque
-//!   pixel's result — the alpha band itself is still convolved directly, not
-//!   premultiplied against itself (controller ruling on the E3 re-review,
-//!   #3504 task E4). `median` is a rank filter and libvips' `vips_rank` does
-//!   not premultiply, so it is untouched by this.
+//!   `(8*255 + 1*0) / 9 = 226.67`, truncated).
 //! - `threshold` thresholds alpha too, but directly against `value` (a plain
 //!   `alpha >= value` comparison, in both `greyscale` modes) rather than
 //!   through the luma computation — matching sharp, whose underlying
 //!   `>=` comparison runs over every band of the image, alpha included.
 //!
-//! **Integer vs float convolution.** libvips picks between `vips_convi`
-//! (integer coefficients, truncating division) and `vips_convf` (float
-//! coefficients, rounding) based on whether the mask is integer-valued.
-//! `convolve` mirrors that: when every kernel entry, the resolved divisor,
-//! and the offset are all whole numbers, the accumulation runs in `i64` and
-//! divides with Rust's `/` (truncates toward zero, same as `fast_sharpen`'s
-//! integer path in `raster_sharpen.rs`); otherwise it accumulates in `f64`
-//! and rounds. This is a measured distinction, not a guess: on sharp 0.34.5,
-//! a 3x3 box kernel (`[1;9]`, scale 9) run over the 16x4 60/200 step-edge
-//! fixture (`step_edge` in `raster_filter_ops_tests.rs`) gives row value 106
-//! at x=7 (window sum 960, `960/9 = 106.67`, which *rounds* to 107 but
-//! *truncates* to 106 — sharp's actual output is 106).
+//! Premultiplication is not this file's business: it belongs to the filter
+//! run as a whole (`raster_filter_chain.rs`), the way sharp does it.
+//!
+//! **`convolve` is a float convolution, always.** sharp's `Convolve` is a
+//! bare `image.conv(kernel)` (`operations.cc`), and `vips_conv` defaults to
+//! FLOAT precision, whose output image is float — so nothing is rounded or
+//! clamped inside the operation and the only quantisation is the chain's
+//! single truncating cast at the end. That is why an integer box kernel
+//! comes out truncated and not rounded: on sharp 0.34.5, a 3x3 box (`[1;9]`,
+//! scale 9) over the 16x4 60/200 step-edge fixture (`step_edge` in
+//! `raster_filter_ops_tests.rs`) gives 106 at x=7 — window sum 960,
+//! `960/9 = 106.67`, truncated, not rounded to 107 — and a non-integer
+//! kernel behaves the same way rather than switching to a rounding path.
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
-use crate::raster_filter::{clamp_index, premultiply, unpremultiply};
+use crate::raster_filter_chain::{run_filter_chain, FilterOp, Plane};
+use crate::raster_filter_conv::{clamp_index, conv_f64};
 use crate::view::encode::{srgb_degamma, srgb_gamma};
 
 /// Rec.709 luma weights ([ITU-R BT.709] luminance coefficients: `Y' =
@@ -84,6 +77,133 @@ pub(crate) fn bw_luma(rgb: [u8; 3]) -> u8 {
         .clamp(0.0, 255.0) as u8
 }
 
+/// One `median` over a filter run's working buffer.
+///
+/// **Even-size windowing.** For an odd `size` the window is symmetric:
+/// `(size - 1) / 2` taps on each side of the centre pixel. For an even
+/// `size` there is no exact centre, and libvips puts the extra tap on the
+/// low side — measured against sharp 0.34.5 with a single-column spike
+/// probe (a lone bright pixel in an otherwise flat field): with `size: 2`,
+/// the spike shows up in the output at its own column AND the column to its
+/// right, never the column to its left, meaning the window at pixel `x`
+/// spans `[x-1, x]`, not `[x, x+1]`. That generalises to
+/// `before = size / 2` taps on the low side and `after = size - 1 - before`
+/// on the high side, which collapses to the symmetric `(size - 1) / 2` on
+/// both sides whenever `size` is odd.
+pub(crate) fn median_plane(plane: &Plane, size: u32) -> Result<Plane> {
+    if size == 0 || size > MAX_MEDIAN_SIZE {
+        return Err(Error::Pipeline(format!(
+            "median window {size} must be an integer in [1, {MAX_MEDIAN_SIZE}]"
+        )));
+    }
+    let before = (size / 2) as i64;
+    let after = size as i64 - 1 - before;
+    let (w, h, c) = (plane.width, plane.height, plane.channels);
+    let data = (0..h)
+        .flat_map(|y| {
+            (0..w).flat_map(move |x| {
+                (0..c).map(move |band| {
+                    let mut window: Vec<f64> = (-before..=after)
+                        .flat_map(|dy| {
+                            (-before..=after).map(move |dx| {
+                                let sy = clamp_index(y as i64 + dy, h);
+                                let sx = clamp_index(x as i64 + dx, w);
+                                plane.data[(sy * w + sx) * c + band]
+                            })
+                        })
+                        .collect();
+                    window.sort_by(|a, b| a.total_cmp(b));
+                    window[window.len() / 2]
+                })
+            })
+        })
+        .collect();
+    Ok(plane.with_data(data))
+}
+
+/// One `threshold` over a filter run's working buffer. The comparison runs
+/// on bytes (sharp thresholds a `uchar` image), so the working buffer is
+/// quantised first; the result is exact 0/255 either way.
+pub(crate) fn threshold_plane(plane: &Plane, value: u8, greyscale: bool) -> Plane {
+    let c = plane.channels;
+    let on = |v: u8| if v >= value { 255.0 } else { 0.0 };
+    let data = plane
+        .to_u8()
+        .chunks_exact(c)
+        .flat_map(|px| {
+            let colour: [f64; 3] = if greyscale {
+                let luma = on(bw_luma([px[0], px[1], px[2]]));
+                [luma, luma, luma]
+            } else {
+                [0, 1, 2].map(|i| on(px[i]))
+            };
+            colour.into_iter().chain(px.get(3).map(|&a| on(a)))
+        })
+        .collect();
+    plane.with_data(data)
+}
+
+/// One `convolve` over a filter run's working buffer. See the module doc for
+/// why there is only a float path.
+///
+/// `scale == 0.0` means "the caller omitted `scale`", so the kernel's own
+/// sum is used (`1.0` for a zero-sum kernel such as a Sobel operator).
+/// Whichever way the divisor is resolved, sharp then clips it up to a
+/// minimum of 1: `lib/operation.js` computes
+/// `scale = <explicit> || <kernel sum>` and *then* applies
+/// `scale < 1 ? 1 : scale`, so a kernel that sums to a negative number is
+/// divided by 1, not by its own negative sum. Measured on sharp 0.34.5: a
+/// 3x3 kernel of all `-1` with no `scale` turns RGB noise entirely black,
+/// where dividing by −9 would have handed back roughly the source.
+pub(crate) fn convolve_plane(
+    plane: &Plane,
+    width: u32,
+    height: u32,
+    kernel: &[f64],
+    scale: f64,
+    offset: f64,
+) -> Result<Plane> {
+    if !(MIN_KERNEL_DIM..=MAX_KERNEL_DIM).contains(&width)
+        || !(MIN_KERNEL_DIM..=MAX_KERNEL_DIM).contains(&height)
+    {
+        return Err(Error::Pipeline(format!(
+            "convolve kernel is {width}x{height}; both dimensions must be in [{MIN_KERNEL_DIM}, {MAX_KERNEL_DIM}]"
+        )));
+    }
+    let expected = width as usize * height as usize;
+    if kernel.len() != expected {
+        return Err(Error::Pipeline(format!(
+            "convolve kernel has {} values, expected {expected} for {width}x{height}",
+            kernel.len()
+        )));
+    }
+    if let Some((i, v)) = kernel.iter().enumerate().find(|(_, v)| v.is_nan()) {
+        return Err(Error::Pipeline(format!(
+            "convolve kernel value at index {i} is {v} (NaN)"
+        )));
+    }
+    let sum: f64 = kernel.iter().sum();
+    let resolved = if scale != 0.0 {
+        scale
+    } else if sum != 0.0 {
+        sum
+    } else {
+        1.0
+    };
+    let divisor = resolved.max(1.0);
+    Ok(plane.with_data(conv_f64(
+        &plane.data,
+        plane.width,
+        plane.height,
+        plane.channels,
+        width as usize,
+        height as usize,
+        kernel,
+        divisor,
+        offset,
+    )))
+}
+
 impl RasterImage {
     /// Square median (rank) filter: window `size` x `size`, any integer in
     /// `[1, 1000]` — sharp/`vips_rank` accepts even windows too (#3504 task
@@ -91,51 +211,8 @@ impl RasterImage {
     /// through task E4 was never sharp's own rule, just an unexamined
     /// assumption). Every band, alpha included — see the module doc.
     /// Clamp-to-edge addressing at the image boundary, matching `blur`.
-    ///
-    /// **Even-size windowing.** For an odd `size` the window is symmetric:
-    /// `(size - 1) / 2` taps on each side of the centre pixel. For an even
-    /// `size` there is no exact centre, and libvips puts the extra tap on
-    /// the low side — measured against sharp 0.34.5 with a single-column
-    /// spike probe (a lone bright pixel in an otherwise flat field): with
-    /// `size: 2`, the spike shows up in the output at its own column AND
-    /// the column to its right, never the column to its left, meaning the
-    /// window at pixel `x` spans `[x-1, x]`, not `[x, x+1]`. That
-    /// generalises to `before = size / 2` taps on the low side and
-    /// `after = size - 1 - before` on the high side, which collapses to the
-    /// symmetric `(size - 1) / 2` on both sides whenever `size` is odd.
     pub fn median(&self, size: u32) -> Result<Self> {
-        if size == 0 || size > MAX_MEDIAN_SIZE {
-            return Err(Error::Pipeline(format!(
-                "median window {size} must be an integer in [1, {MAX_MEDIAN_SIZE}]"
-            )));
-        }
-        let before = (size / 2) as i64;
-        let after = size as i64 - 1 - before;
-        let c = self.channels as usize;
-        let (w, h) = (self.width as usize, self.height as usize);
-        let data = (0..h)
-            .flat_map(|y| {
-                (0..w).flat_map(move |x| {
-                    (0..c).map(move |band| {
-                        let mut window: Vec<u8> = (-before..=after)
-                            .flat_map(|dy| {
-                                (-before..=after).map(move |dx| {
-                                    let sy = clamp_index(y as i64 + dy, h);
-                                    let sx = clamp_index(x as i64 + dx, w);
-                                    self.data[(sy * w + sx) * c + band]
-                                })
-                            })
-                            .collect();
-                        window.sort_unstable();
-                        window[window.len() / 2]
-                    })
-                })
-            })
-            .collect();
-        Ok(Self {
-            data,
-            ..self.clone()
-        })
+        run_filter_chain(self, &[FilterOp::Median(size)])
     }
 
     /// Binarise at `value` (sharp's default is 128). With `greyscale` (the
@@ -144,42 +221,17 @@ impl RasterImage {
     /// channels; without it, each colour channel is thresholded
     /// independently. Alpha is thresholded too either way, via a direct
     /// `alpha >= value` comparison — see the module doc.
-    pub fn threshold(&self, value: u8, greyscale: bool) -> Self {
-        let c = self.channels as usize;
-        let on = |v: u8| if v >= value { 255 } else { 0 };
-        let data = self
-            .data
-            .chunks_exact(c)
-            .flat_map(|px| {
-                let colour: [u8; 3] = if greyscale {
-                    let luma = on(bw_luma([px[0], px[1], px[2]]));
-                    [luma, luma, luma]
-                } else {
-                    [0, 1, 2].map(|i| on(px[i]))
-                };
-                colour.into_iter().chain(px.get(3).map(|&a| on(a)))
-            })
-            .collect();
-        Self {
-            data,
-            ..self.clone()
-        }
+    pub fn threshold(&self, value: u8, greyscale: bool) -> Result<Self> {
+        run_filter_chain(self, &[FilterOp::Threshold { value, greyscale }])
     }
 
-    /// Arbitrary `width` x `height` convolution: `out = round_or_truncate(sum(kernel
-    /// * neighbourhood) / divisor) + offset`, clamped to `[0, 255]`. `width`
-    /// and `height` must each be in `[3, 1001]` (sharp's own kernel-size
-    /// contract; even sizes are accepted). `scale == 0.0` means "use the
-    /// kernel's own sum" (sharp's documented default), falling back to
-    /// `1.0` for a zero-sum kernel such as a Sobel operator. Every band is
-    /// filtered, alpha included (see the module doc). Clamp-to-edge
-    /// addressing at the boundary. On a 4-channel raster, colour is
-    /// premultiplied by alpha before convolving and unpremultiplied
-    /// afterwards (see the module doc); a 3-channel raster is unaffected,
-    /// since [`premultiply`]/[`unpremultiply`] are no-ops without an alpha
-    /// band.
-    ///
-    /// See the module doc for the integer-vs-float path this picks between.
+    /// Arbitrary `width` x `height` convolution:
+    /// `out = sum(kernel * neighbourhood) / divisor + offset`, in floating
+    /// point with no intermediate clamp, cast to bytes (clipped and
+    /// truncated) at the end of the filter run. `width` and `height` must
+    /// each be in `[3, 1001]` (sharp's own kernel-size contract; even sizes
+    /// are accepted). See [`convolve_plane`] for how the divisor is resolved
+    /// and clipped.
     pub fn convolve(
         &self,
         width: u32,
@@ -188,75 +240,16 @@ impl RasterImage {
         scale: f64,
         offset: f64,
     ) -> Result<Self> {
-        if !(MIN_KERNEL_DIM..=MAX_KERNEL_DIM).contains(&width)
-            || !(MIN_KERNEL_DIM..=MAX_KERNEL_DIM).contains(&height)
-        {
-            return Err(Error::Pipeline(format!(
-                "convolve kernel is {width}x{height}; both dimensions must be in [{MIN_KERNEL_DIM}, {MAX_KERNEL_DIM}]"
-            )));
-        }
-        let expected = width as usize * height as usize;
-        if kernel.len() != expected {
-            return Err(Error::Pipeline(format!(
-                "convolve kernel has {} values, expected {expected} for {width}x{height}",
-                kernel.len()
-            )));
-        }
-        if let Some((i, v)) = kernel.iter().enumerate().find(|(_, v)| v.is_nan()) {
-            return Err(Error::Pipeline(format!(
-                "convolve kernel value at index {i} is {v} (NaN)"
-            )));
-        }
-        let sum: f64 = kernel.iter().sum();
-        let divisor = if scale != 0.0 {
-            scale
-        } else if sum != 0.0 {
-            sum
-        } else {
-            1.0
-        };
-        let is_whole = |v: f64| v.fract() == 0.0;
-        let integer_path =
-            kernel.iter().all(|v| is_whole(*v)) && is_whole(divisor) && is_whole(offset);
-
-        let (rx, ry) = ((width / 2) as i64, (height / 2) as i64);
-        let c = self.channels as usize;
-        let (w, h) = (self.width as usize, self.height as usize);
-        let int_kernel: Vec<i64> = kernel.iter().map(|v| *v as i64).collect();
-        let int_kernel: &[i64] = &int_kernel;
-        let (int_divisor, int_offset) = (divisor as i64, offset as i64);
-        let premultiplied = premultiply(self);
-        let source: &RasterImage = &premultiplied;
-        let data = (0..h)
-            .flat_map(|y| {
-                (0..w).flat_map(move |x| {
-                    (0..c).map(move |band| {
-                        let taps = (0..height as i64).flat_map(|ky| {
-                            (0..width as i64).map(move |kx| {
-                                let sy = clamp_index(y as i64 + ky - ry, h);
-                                let sx = clamp_index(x as i64 + kx - rx, w);
-                                let k = (ky * width as i64 + kx) as usize;
-                                (source.data[(sy * w + sx) * c + band], k)
-                            })
-                        });
-                        if integer_path {
-                            let acc: i64 = taps.map(|(p, k)| p as i64 * int_kernel[k]).sum::<i64>()
-                                / int_divisor
-                                + int_offset;
-                            acc.clamp(0, 255) as u8
-                        } else {
-                            let acc: f64 = taps.map(|(p, k)| p as f64 * kernel[k]).sum();
-                            (acc / divisor + offset).round().clamp(0.0, 255.0) as u8
-                        }
-                    })
-                })
-            })
-            .collect();
-        let convolved = Self {
-            data,
-            ..self.clone()
-        };
-        Ok(unpremultiply(&convolved))
+        run_filter_chain(
+            self,
+            &[FilterOp::Convolve {
+                width,
+                height,
+                kernel,
+                scale,
+                offset,
+            }],
+        )
     }
 }
 

@@ -16,7 +16,7 @@ use crate::raster_recipe_colour::{apply_colour_op, output_primaries};
 use crate::export::ExportFormat;
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
 use crate::raster_encode::{container_supports_alpha, encode_raster_opts, RasterEncodeOptions};
-use crate::raster_recipe_filter::apply_filter_op;
+use crate::raster_recipe_filter::{apply_filter_run, is_filter_op};
 use crate::raster_recipe_geometry::apply_geometry_op;
 use crate::raster_recipe_resize::{apply_resize_op, ResizeOpArgs};
 use crate::view::encode::TargetPrimaries;
@@ -57,20 +57,15 @@ fn decode_layer(layer: &Layer, aux: &[u8]) -> Result<RasterImage> {
 /// through unchanged — only `apply_colour_op`'s `ToColourspace` arm updates
 /// it, using the incoming value as `from` rather than an assumed sRGB (see
 /// its doc comment).
+///
+/// Handles every op except the five filter ops, which `apply_filter_run`
+/// takes as whole runs rather than one at a time (see [`run_recipe`]).
 fn apply_op(
     image: RasterImage,
     primaries: TargetPrimaries,
     op: &Op,
     aux: &[u8],
 ) -> Result<(RasterImage, TargetPrimaries)> {
-    // Filter ops (`blur`/`sharpen`/`median`/`threshold`/`convolve`, #3504
-    // task E4) live in `raster_recipe_filter.rs` to keep this file under its
-    // 400-line soft budget; try that dispatcher first and fall through to
-    // the match below for everything else. No filter op touches the
-    // primaries, so the incoming value is threaded straight back out.
-    if let Some(result) = apply_filter_op(&image, op) {
-        return result.map(|filtered| (filtered, primaries));
-    }
     match op {
         Op::AutoOrient {} => {
             let mut oriented = image;
@@ -149,7 +144,15 @@ fn apply_op(
         | Op::Tint { .. }
         | Op::ToColourspace { .. } => apply_colour_op(image, primaries, op),
         Op::Blur(_) | Op::Sharpen(_) | Op::Median(_) | Op::Threshold(_) | Op::Convolve(_) => {
-            unreachable!("apply_filter_op handles every filter op and always returns Some")
+            // `run_recipe` routes every filter op through `apply_filter_run`,
+            // so reaching here means a new filter variant was added to
+            // `is_filter_op`'s list without being wired into
+            // `filter_op_from_wire`. An error beats a panic: this function
+            // runs behind the C-FFI boundary, where unwinding is not the
+            // caller's problem to catch.
+            Err(bad(format!(
+                "{op:?} is a filter op and must run through apply_filter_run"
+            )))
         }
     }
 }
@@ -205,10 +208,26 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     // The decoder's output is sRGB; `apply_op` threads the ACTUAL current
     // primaries alongside the image so a `ToColourspace` op rotates from
     // where the pixels are, not from an assumed sRGB (#3503 fix-round-1).
-    let (processed, _primaries) = recipe.ops.iter().try_fold(
-        (decoded, TargetPrimaries::Srgb),
-        |(image, primaries), op| apply_op(image, primaries, op, aux),
-    )?;
+    //
+    // Consecutive filter ops run as ONE premultiply sandwich, matching
+    // sharp's single `premultiply()` / `unpremultiply()` pair around its
+    // whole filter stage — see `raster_filter_chain`. `chunk_by` groups a
+    // maximal run of them; every other op comes back as a chunk of one. No
+    // filter op rotates primaries, so a run threads the incoming value
+    // straight back out.
+    let (processed, _primaries) = recipe
+        .ops
+        .chunk_by(|a, b| is_filter_op(a) && is_filter_op(b))
+        .try_fold(
+            (decoded, TargetPrimaries::Srgb),
+            |(image, primaries), chunk| {
+                if is_filter_op(&chunk[0]) {
+                    apply_filter_run(&image, chunk).map(|filtered| (filtered, primaries))
+                } else {
+                    apply_op(image, primaries, &chunk[0], aux)
+                }
+            },
+        )?;
     let (bytes, channels) = encode(&processed, recipe.output, output_primaries(recipe)?)?;
     Ok(RecipeResult {
         width: processed.width,

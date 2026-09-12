@@ -219,6 +219,27 @@ fn no_argument_sharpen_truncates_a_non_half_sum_too() {
 }
 
 #[test]
+fn no_argument_sharpen_convolves_the_alpha_band_too() {
+    // `image.conv(mask)` has no band exclusion, so the argument-less
+    // sharpen sharpens alpha along with colour — the mask-based (Lab) path
+    // is the one that leaves alpha alone. Measured on sharp 0.34.5 over a
+    // 4x1 RGBA ramp whose alpha ramps 40..43: alpha comes back 39, 41, 42,
+    // 43, not the source's 40, 41, 42, 43.
+    let src = RasterImage::new_rgba(
+        4,
+        1,
+        vec![
+            0, 20, 30, 40, 10, 20, 30, 41, 20, 20, 30, 42, 30, 20, 30, 43,
+        ],
+    );
+    let out = src.sharpen(&SharpenOptions::default()).unwrap();
+    assert_eq!(
+        out.data,
+        vec![0, 19, 25, 39, 5, 18, 24, 41, 18, 18, 23, 42, 31, 17, 30, 43]
+    );
+}
+
+#[test]
 fn m1_and_m2_zero_returns_the_source() {
     // A zeroed transfer means the added difference is 0 everywhere, so the
     // only change possible is float round-trip noise through Lab — bounded

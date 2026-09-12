@@ -25,6 +25,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
+use crate::raster_filter_chain::{run_filter_chain, FilterOp};
 use crate::raster_recipe::{one, ten, yes, Op};
 use crate::raster_sharpen::SharpenOptions;
 use serde::Deserialize;
@@ -122,21 +123,31 @@ pub struct ConvolveOp {
     pub offset: f64,
 }
 
-/// Apply `op` if it's one of the five filter ops this file owns, returning
-/// `None` for anything else so `apply_op` can fall through to its own
-/// match.
+/// Whether `op` is one of the five filter ops this file owns.
+/// `raster_recipe_exec` groups maximal runs of consecutive filter ops with
+/// this so a run shares one premultiply sandwich, the way sharp does — see
+/// [`crate::raster_filter_chain`].
+pub(crate) fn is_filter_op(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::Blur(_) | Op::Sharpen(_) | Op::Median(_) | Op::Threshold(_) | Op::Convolve(_)
+    )
+}
+
+/// One wire op as a chain [`FilterOp`].
 ///
 /// `Convolve`'s `scale` is where sharp's wire semantics and
 /// `RasterImage::convolve`'s own contract disagree, and this is the one
 /// place that reconciles them: `RasterImage::convolve` treats a literal
 /// `0.0` as its own "use the kernel's sum" sentinel, but sharp's real API
 /// only falls back to the kernel sum when the caller omits `scale`
-/// entirely — an explicit `scale: 0` (or any non-positive value) is clipped
-/// to a minimum of `1.0`. `ConvolveOp.scale` is `Option<f64>` precisely so
-/// this function can tell the two apart: `None` (absent) is passed straight
-/// through as raw-core's `0.0` sentinel, `Some(v)` (explicit, sharp's rules)
-/// is clamped to `v.max(1.0)` first. See [`ConvolveOp`]'s doc comment for
-/// the wire-level rationale.
+/// entirely. `ConvolveOp.scale` is `Option<f64>` precisely so this function
+/// can tell the two apart: `None` (absent) is passed straight through as
+/// raw-core's `0.0` sentinel, `Some(v)` (explicit) is passed as given —
+/// `convolve_plane` applies sharp's own `scale < 1 ? 1 : scale` clip to
+/// whichever divisor it ends up resolving, explicit or kernel-sum, so it
+/// does not need pre-clipping here. See [`ConvolveOp`]'s doc comment for the
+/// wire-level rationale.
 ///
 /// Before any of that: sharp's own `convolve()` (`lib/operation.js`) only
 /// honours an explicit `scale`/`offset` when `is.integer()` passes on it —
@@ -145,9 +156,9 @@ pub struct ConvolveOp {
 /// non-integer `scale`/`offset` by name instead of silently discarding a
 /// value the caller actually passed, so a raw recipe caller gets the same
 /// contract as `builder-filter.ts`'s `pushConvolve` on the TS side.
-pub(crate) fn apply_filter_op(image: &RasterImage, op: &Op) -> Option<Result<RasterImage>> {
+fn filter_op_from_wire(op: &Op) -> Result<FilterOp<'_>> {
     match op {
-        Op::Blur(BlurOp { sigma }) => Some(image.blur(*sigma)),
+        Op::Blur(BlurOp { sigma }) => Ok(FilterOp::Blur(*sigma)),
         Op::Sharpen(SharpenOp {
             sigma,
             m1,
@@ -155,7 +166,7 @@ pub(crate) fn apply_filter_op(image: &RasterImage, op: &Op) -> Option<Result<Ras
             x1,
             y2,
             y3,
-        }) => Some(image.sharpen(&SharpenOptions {
+        }) => Ok(FilterOp::Sharpen(SharpenOptions {
             sigma: *sigma,
             m1: *m1,
             m2: *m2,
@@ -163,10 +174,11 @@ pub(crate) fn apply_filter_op(image: &RasterImage, op: &Op) -> Option<Result<Ras
             y2: *y2,
             y3: *y3,
         })),
-        Op::Median(MedianOp { size }) => Some(image.median(*size)),
-        Op::Threshold(ThresholdOp { value, greyscale }) => {
-            Some(Ok(image.threshold(*value, *greyscale)))
-        }
+        Op::Median(MedianOp { size }) => Ok(FilterOp::Median(*size)),
+        Op::Threshold(ThresholdOp { value, greyscale }) => Ok(FilterOp::Threshold {
+            value: *value,
+            greyscale: *greyscale,
+        }),
         Op::Convolve(ConvolveOp {
             width,
             height,
@@ -176,21 +188,42 @@ pub(crate) fn apply_filter_op(image: &RasterImage, op: &Op) -> Option<Result<Ras
         }) => {
             if let Some(s) = scale {
                 if s.fract() != 0.0 {
-                    return Some(Err(Error::Pipeline(format!(
+                    return Err(Error::Pipeline(format!(
                         "convolve scale {s} must be an integer (sharp requires an integer scale)"
-                    ))));
+                    )));
                 }
             }
             if offset.fract() != 0.0 {
-                return Some(Err(Error::Pipeline(format!(
+                return Err(Error::Pipeline(format!(
                     "convolve offset {offset} must be an integer (sharp requires an integer offset)"
-                ))));
+                )));
             }
-            let resolved_scale = scale.map_or(0.0, |s| s.max(1.0));
-            Some(image.convolve(*width, *height, kernel, resolved_scale, *offset))
+            Ok(FilterOp::Convolve {
+                width: *width,
+                height: *height,
+                kernel,
+                // An absent `scale` stays raw-core's `0.0` "use the
+                // kernel's sum" sentinel; an explicit one gets sharp's own
+                // `scale < 1 ? 1 : scale` clip here so a literal `scale: 0`
+                // divides by 1 rather than falling back to the kernel sum.
+                scale: scale.map_or(0.0, |s| s.max(1.0)),
+                offset: *offset,
+            })
         }
-        _ => None,
+        other => Err(Error::Pipeline(format!(
+            "{other:?} is not a filter op; apply_filter_run was called with the wrong run"
+        ))),
     }
+}
+
+/// Run a maximal run of consecutive filter ops through one premultiply
+/// sandwich, in the order the caller wrote them.
+pub(crate) fn apply_filter_run(image: &RasterImage, ops: &[Op]) -> Result<RasterImage> {
+    let resolved = ops
+        .iter()
+        .map(filter_op_from_wire)
+        .collect::<Result<Vec<_>>>()?;
+    run_filter_chain(image, &resolved)
 }
 
 #[cfg(test)]

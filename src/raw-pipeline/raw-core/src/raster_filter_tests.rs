@@ -1,4 +1,5 @@
 use super::*;
+use crate::raster_filter_conv::gaussmat_radius;
 
 /// A single white pixel at the centre of a black `n`x`n` field.
 fn impulse(n: u32) -> RasterImage {
@@ -21,43 +22,64 @@ fn at(img: &RasterImage, x: u32, y: u32) -> u8 {
     img.data[((y * img.width + x) * img.channels as u32) as usize]
 }
 
+/// The red channel of one row, which is enough to pin a symmetric blur.
+fn row(img: &RasterImage, y: u32) -> Vec<u8> {
+    (0..img.width).map(|x| at(img, x, y)).collect()
+}
+
 #[test]
-fn blur_spreads_an_impulse_symmetrically() {
+fn blur_spreads_an_impulse_exactly_as_sharp_does() {
+    // Measured on sharp 0.34.5: a 9x9 white-centre impulse blurred at sigma
+    // 1.5 gives this centre row byte for byte. The mask is libvips' integer
+    // Gaussian [8, 16, 20, 16, 8] / 68 run as two byte passes, and the
+    // reach is 2 taps — the 3-tap reach this file used before #3504's final
+    // wave put a non-zero value at x=1 and x=7, where sharp has none.
     let out = impulse(9).blur(Some(1.5)).unwrap();
     assert_eq!((out.width, out.height), (9, 9));
-    assert!(at(&out, 4, 4) < 255, "the peak must fall");
-    assert!(at(&out, 4, 4) > 0);
-    // Symmetry in both axes is the strongest evidence the separable pass
-    // is wired the right way round.
-    assert_eq!(at(&out, 3, 4), at(&out, 5, 4));
+    assert_eq!(row(&out, 4), vec![0, 0, 9, 18, 23, 18, 9, 0, 0]);
+    // Symmetry in both axes is the strongest evidence the separable pass is
+    // wired the right way round.
     assert_eq!(at(&out, 4, 3), at(&out, 4, 5));
     assert_eq!(at(&out, 3, 4), at(&out, 4, 3));
-}
-
-#[test]
-fn blur_conserves_total_energy() {
-    let out = impulse(9).blur(Some(1.5)).unwrap();
+    // sharp's own total over the red channel, for the record: two integer
+    // passes at this mask gain a little rather than conserving the 255 the
+    // impulse started with.
     let total: u32 = out.data.iter().step_by(3).map(|&v| v as u32).sum();
-    // Radius 3 (libvips' amplitude cutoff at sigma 1.5) loses
-    // essentially nothing to boundary clamping — see `gaussian_kernel`'s
-    // doc comment — so this budget is tight: only ordinary `u8`
-    // rounding bias, not truncated mass, should show up here.
-    assert!(
-        (253..=257).contains(&total),
-        "a near-lossless kernel should conserve the 255 it started with, got {total}"
-    );
+    assert_eq!(total, 259);
 }
 
 #[test]
-fn kernel_radius_matches_libvips_amplitude_cutoff() {
-    assert_eq!(kernel_radius(1.5), 3);
-    assert_eq!(kernel_radius(0.3), 1);
-    assert_eq!(kernel_radius(5.0), 9);
+fn blur_mask_radius_matches_libvips_amplitude_cutoff() {
+    // libvips keeps every tap whose amplitude is still at or above
+    // `min_ampl` (0.2 for `blur`) and drops the rest, which is
+    // `floor(sigma * sqrt(-2 * ln 0.2))` = `floor(sigma * 1.7941)`.
+    // Measured against sharp 0.34.5 over 15 sigmas from 0.3 to 8.5: the
+    // reach matches that expression every time, and it is legitimately 0.
+    assert_eq!(gaussmat_radius(1.5, BLUR_MIN_AMPL), 2);
+    assert_eq!(gaussmat_radius(0.3, BLUR_MIN_AMPL), 0);
+    assert_eq!(gaussmat_radius(5.0, BLUR_MIN_AMPL), 8);
+}
+
+#[test]
+fn a_small_sigma_blur_is_an_exact_identity() {
+    // A 1x1 mask is what the amplitude cutoff leaves for every sigma up to
+    // 0.557, and sharp's `blur(0.5)` really is a no-op: measured
+    // byte-identical on 32x32 noise and on this impulse.
+    let src = impulse(5);
+    for sigma in [0.3, 0.5, 0.557] {
+        assert_eq!(
+            src.blur(Some(sigma)).unwrap().data,
+            src.data,
+            "sigma {sigma}"
+        );
+    }
 }
 
 #[test]
 fn blur_with_no_sigma_is_the_3x3_box() {
-    // sharp: "performs a fast 3x3 box blur". 255/9 = 28.33 -> 28.
+    // sharp: "performs a fast 3x3 box blur", and `vips_conv` at its default
+    // float precision leaves the truncation to the final cast:
+    // 255/9 = 28.33 -> 28, never 29.
     let out = impulse(5).blur(None).unwrap();
     assert_eq!(at(&out, 2, 2), 28);
     assert_eq!(at(&out, 1, 1), 28);
@@ -75,18 +97,19 @@ fn blur_leaves_a_flat_field_flat() {
 }
 
 #[test]
-fn blur_filters_the_alpha_channel_too() {
-    // Half opaque, half transparent — blurring must produce a gradient in
-    // the alpha channel, which is how libvips' gaussblur behaves.
-    let data = (0..1u32)
-        .flat_map(|_| (0..8u32).flat_map(|x| [200u8, 200, 200, if x < 4 { 255 } else { 0 }]))
+fn blur_filters_alpha_and_premultiplies_colour_like_sharp() {
+    // 8x1, left half opaque grey, right half fully transparent. Measured on
+    // sharp 0.34.5 at sigma 1.5: alpha ramps 255, 255, 225, 165, 90, 30, 0,
+    // 0 and the colour stays at (or just under) 200 through the ramp rather
+    // than being dragged toward the transparent side's stored black — the
+    // premultiply-once-per-run behaviour this file relies on.
+    let data = (0..8u32)
+        .flat_map(|x| [200u8, 200, 200, if x < 4 { 255 } else { 0 }])
         .collect();
-    let img = RasterImage::new_rgba(8, 1, data);
-    let out = img.blur(Some(1.5)).unwrap();
-    assert!(
-        out.data[4 * 4 + 3] < 255 && out.data[4 * 4 + 3] > 0,
-        "alpha did not blur"
-    );
+    let out = RasterImage::new_rgba(8, 1, data).blur(Some(1.5)).unwrap();
+    let alpha: Vec<u8> = out.data.chunks_exact(4).map(|px| px[3]).collect();
+    assert_eq!(alpha, vec![255, 255, 225, 165, 90, 30, 0, 0]);
+    assert_eq!(row(&out, 0), vec![200, 200, 200, 200, 198, 195, 0, 0]);
 }
 
 #[test]
@@ -105,46 +128,12 @@ fn a_nan_sigma_is_rejected_by_name() {
 }
 
 #[test]
-fn convolve_separable_with_colour_only_leaves_alpha_byte_identical() {
-    // sharpen (#3504) calls `convolve_separable(.., colour_only: true)`
-    // and must not touch alpha at all — pin that directly against the
-    // shared helper rather than only through `blur`, which always
-    // convolves alpha (`colour_only: false`).
-    let data: Vec<u8> = (0..4u32)
-        .flat_map(|x| [10u8 * x as u8, 20, 30, 40 + x as u8])
-        .collect();
-    let src = RasterImage::new_rgba(4, 1, data.clone());
-    let kernel = vec![1.0 / 3.0; 3];
-    let out = convolve_separable(&src, &kernel, true);
-
-    let alpha_before: Vec<u8> = data.chunks_exact(4).map(|px| px[3]).collect();
-    let alpha_after: Vec<u8> = out.data.chunks_exact(4).map(|px| px[3]).collect();
-    assert_eq!(
-        alpha_after, alpha_before,
-        "colour_only must not touch alpha"
-    );
-
-    let colour_before: Vec<u8> = data
-        .chunks_exact(4)
-        .flat_map(|px| [px[0], px[1], px[2]])
-        .collect();
-    let colour_after: Vec<u8> = out
-        .data
-        .chunks_exact(4)
-        .flat_map(|px| [px[0], px[1], px[2]])
-        .collect();
-    assert_ne!(
-        colour_before, colour_after,
-        "the box kernel should still change colour"
-    );
-}
-
-#[test]
 fn blur_zeroes_colour_where_alpha_stays_fully_transparent() {
-    // A 255-alpha impulse on a fully-transparent field: far from the
-    // impulse, alpha must stay 0 (the kernel's support is local), and
-    // colour there must be exactly 0 rather than some divided-back-out
-    // remainder of the unpremultiply.
+    // A 255-alpha white impulse on a fully-transparent black field. Measured
+    // on sharp 0.34.5 at sigma 1.5: inside the mask's support the
+    // unpremultiply divides the colour straight back out to 255 even where
+    // alpha is only 9, and outside it both colour and alpha are exactly 0 —
+    // no divided-back-out remainder.
     let n = 9u32;
     let centre = n / 2;
     let data = (0..n)
@@ -158,12 +147,24 @@ fn blur_zeroes_colour_where_alpha_stays_fully_transparent() {
             })
         })
         .collect();
-    let img = RasterImage::new_rgba(n, n, data);
-    let out = img.blur(Some(0.5)).unwrap();
-    assert_eq!(at(&out, 0, 0), 0);
-    let corner_alpha = out.data[((0 * n + 0) * 4 + 3) as usize];
+    let out = RasterImage::new_rgba(n, n, data).blur(Some(1.5)).unwrap();
+    let centre_row: Vec<[u8; 4]> = out.data[(4 * n * 4) as usize..(5 * n * 4) as usize]
+        .chunks_exact(4)
+        .map(|px| [px[0], px[1], px[2], px[3]])
+        .collect();
     assert_eq!(
-        corner_alpha, 0,
-        "a small sigma must not spread alpha to the far corner"
+        centre_row,
+        vec![
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            [255, 255, 255, 9],
+            [255, 255, 255, 18],
+            [255, 255, 255, 23],
+            [255, 255, 255, 18],
+            [255, 255, 255, 9],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+        ]
     );
+    assert_eq!(&out.data[..4], &[0, 0, 0, 0], "the far corner stays empty");
 }
