@@ -91,32 +91,39 @@ pub(crate) const AVIF_CAPS: Capabilities = Capabilities {
     density: false,
 };
 
-/// Reject, by name, any metadata field `format_name`'s own encoder crate
-/// cannot carry — fix-round-1, item 1. Before this the encoders simply never
-/// read the fields their container can't carry (WebP xmp/density, TIFF
-/// exif/xmp/density, AVIF icc/xmp/density), silently producing a file
-/// missing what the caller supplied. "Requested" means whatever
-/// `resolve_metadata` actually resolved to `Some` — for `keep: true` that is
-/// only ever a field genuinely present in the input, never one the input
-/// simply didn't carry, so a JPEG with no XMP → WebP output is still fine.
+/// Reject, by name, any metadata field the caller NAMED that `format_name`'s
+/// own encoder crate cannot carry — fix-round-1, item 1. Before that, the
+/// encoders simply never read the fields their container can't carry (WebP
+/// xmp/density, TIFF exif/xmp/density, AVIF icc/xmp/density), silently
+/// producing a file missing what the caller supplied.
 ///
-/// `icc` is the one exception (fix-round-2). Two things can fill it that are
-/// not caller requests: the default sRGB profile `resolve_metadata` adds as
-/// `keep`'s own convenience when the input carried none, and the primaries
-/// profile the output stage adds after a `toColourspace` (see
-/// `raster_recipe_exec::resolve_output_metadata`). Both are skipped silently
-/// on a format that cannot write ICC at all (AVIF today, #3580), so
-/// `keep: true` on a no-ICC JPEG → AVIF succeeds with no ICC, like sharp.
-/// [`ResolvedMetadata::icc_requested`] is what gates this check: only an ICC
-/// present in the input or explicitly supplied errors by name here.
+/// Named means named: an explicit `metadata.exif`/`icc`/`iccName`/`xmp`/
+/// `density`, which is to say a `withExif`/`withIccProfile`/`withXmp`/
+/// `withMetadata({density})` call. A field `keep` swept up out of the input
+/// is dropped silently instead (#3507 final fix wave, item 6), and so is the
+/// ICC the output stage fills in from the recipe's primaries (see
+/// `raster_recipe_exec::resolve_output_metadata`).
+///
+/// The reason is that `keepMetadata()` and `withMetadata()` both set `keep`
+/// for every block at once, so checking the swept fields made
+/// `withMetadata({orientation:5})` on a JPEG-with-XMP source fail with
+/// `"WebP cannot embed XMP (requested via metadata.xmp / keep)"` — a field
+/// the caller never mentioned, for a call sharp completes. Measured against
+/// sharp 0.34.5 on a source carrying EXIF + ICC + XMP: every `keepMetadata`
+/// and `withMetadata({orientation})` combination succeeds on all five
+/// containers, writing whatever that container can carry and nothing more.
+/// An EXIF block synthesised to carry `metadata.orientation` is not a named
+/// request either, which is what lets `withMetadata({orientation})` through
+/// on a TIFF (whose encoder here has no EXIF setter at all — it states the
+/// orientation as IFD0 tag 274 instead).
 pub(crate) fn require_supported(
     meta: &ResolvedMetadata,
     format_name: &str,
     caps: &Capabilities,
 ) -> Result<()> {
-    if meta.exif.is_some() && !caps.exif {
+    if meta.exif_requested && !caps.exif {
         return Err(bad(format!(
-            "{format_name} cannot embed EXIF (requested via metadata.exif / keep)"
+            "{format_name} cannot embed EXIF (requested via metadata.exif)"
         )));
     }
     if meta.icc_requested && !caps.icc {
@@ -124,11 +131,14 @@ pub(crate) fn require_supported(
             "{format_name} cannot embed an ICC profile (requested via metadata.icc / metadata.iccName / keep)"
         )));
     }
-    if meta.xmp.is_some() && !caps.xmp {
+    if meta.xmp_requested && !caps.xmp {
         return Err(bad(format!(
-            "{format_name} cannot embed XMP (requested via metadata.xmp / keep)"
+            "{format_name} cannot embed XMP (requested via metadata.xmp)"
         )));
     }
+    // `density` has no `keep` path at all — `resolve_metadata` only ever
+    // fills it from an explicit `metadata.density` — so its presence is
+    // already the request.
     if meta.density.is_some() && !caps.density {
         return Err(bad(format!(
             "{format_name} cannot embed a pixel density (requested via metadata.density)"
