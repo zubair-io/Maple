@@ -360,7 +360,7 @@ extension AdjustmentModel {
     /// AdjustmentModel value without a load-time converter. Fold it
     /// into every rendered-output cache key so a single bump
     /// invalidates stale entries across all platforms.
-    public static let pipelineOutputVersion: UInt32 = 3
+    public static let pipelineOutputVersion: UInt32 = 4
 }
 
 // MARK: - Copy / paste / sync groups (#944, canonical, generated)

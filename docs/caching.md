@@ -30,7 +30,7 @@ Previews have their own agreed parameters: **1280 px long edge, AVIF quality ~0.
 
 ## Pipeline output version
 
-`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **2**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
+`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **4**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
 
 The `codegen` crate (`tools/codegen.sh`) emits the mirrors, and the `codegen-drift` CI job fails if a hand edit makes them diverge:
 
