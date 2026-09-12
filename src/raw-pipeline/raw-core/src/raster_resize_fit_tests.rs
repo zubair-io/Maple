@@ -126,20 +126,22 @@ fn the_derived_axis_rounds_the_way_libvips_sizes_a_resize() {
 /// The one place this still parts company with sharp, pinned so it is
 /// visible rather than folklore. libvips resizes in two stages — an integer
 /// `vips_shrink` then a residual `vips_reduce` — and rounds at each, so at
-/// heavy downscales its derived axis lands a pixel below any single-step
-/// rounding. Measured: sharp renders a 400x200 source into an `inside`
-/// 13x13 box at 13x6; the closed form here gives 13x7.
+/// heavy downscales its derived axis can land a pixel away from any
+/// single-step rounding, in either direction (a 31x31 box on this same
+/// source goes the other way: sharp 31x15, this 31x16). Measured: sharp
+/// renders a 400x200 source into an `inside` 19x19 box at 19x10; the closed
+/// form here gives 19x9.
 ///
 /// If a future change ports `vips_resize`'s staging, this test is the one
 /// to update — the assertion below is OUR number, not sharp's.
 #[test]
 fn a_heavy_downscale_still_differs_from_libvips_two_stage_rounding() {
     let src = RasterImage::new_rgb(400, 200, vec![7; 400 * 200 * 3]);
-    let out = resize_raster(&src, &opts(13, 13, ResizeFit::Inside)).unwrap();
+    let out = resize_raster(&src, &opts(19, 19, ResizeFit::Inside)).unwrap();
     assert_eq!(
         (out.width, out.height),
-        (13, 7),
-        "sharp answers 13x6 here — see scaled_dim's KNOWN GAP note"
+        (19, 9),
+        "sharp answers 19x10 here — see scaled_dim's KNOWN GAP note"
     );
 }
 
