@@ -54,6 +54,9 @@ fn eight() -> u8 {
 fn yes() -> bool {
     true
 }
+fn horizontal() -> String {
+    "horizontal".to_string()
+}
 fn chroma_420() -> String {
     "4:2:0".to_string()
 }
@@ -120,8 +123,12 @@ pub enum Output {
         compression: String,
         #[serde(default = "eight")]
         bitdepth: u8,
-        #[serde(default = "yes")]
-        predictor: bool,
+        /// sharp's string form (F6, #3506): `"horizontal"` (default) or
+        /// `"none"`. `"float"` is a real sharp value the `tiff` crate's
+        /// encoder cannot produce and is rejected by name — see
+        /// `predictor_from_wire`.
+        #[serde(default = "horizontal")]
+        predictor: String,
     },
     /// Native-size interleaved pixels, no container.
     Raw {},
@@ -183,9 +190,27 @@ pub(crate) fn output_from_wire(output: &Output) -> Result<RasterOutput> {
                 ))
             })?,
             bitdepth: *bitdepth,
-            predictor: *predictor,
+            predictor: predictor_from_wire(predictor).ok_or_else(|| {
+                bad(format!(
+                    "unsupported TIFF predictor '{predictor}' (horizontal, none)"
+                ))
+            })?,
         }),
     })
+}
+
+/// sharp's TIFF `predictor` is a string (`"horizontal"` | `"none"` |
+/// `"float"`); Maple's encoder only ever toggles the `tiff` crate's
+/// horizontal differencing predictor on or off (see `raster_encode_tiff.rs`),
+/// so the wire string collapses to that bool here. `"float"` names a real
+/// sharp value the `tiff` crate cannot produce and is rejected rather than
+/// silently mapped to one of the other two.
+fn predictor_from_wire(s: &str) -> Option<bool> {
+    match s {
+        "horizontal" => Some(true),
+        "none" => Some(false),
+        _ => None,
+    }
 }
 
 /// Split out so the `avif`-feature/no-`avif` split is one pair of small
@@ -301,9 +326,76 @@ mod tests {
             } => {
                 assert_eq!(compression, "lzw");
                 assert_eq!(bitdepth, 8);
-                assert!(predictor);
+                assert_eq!(predictor, "horizontal");
             }
             other => panic!("expected a tiff output, got {other:?}"),
+        }
+    }
+
+    /// `output_from_wire` must translate both real sharp predictor strings
+    /// into the encoder's bool, in each direction — not just accept the
+    /// default.
+    #[test]
+    fn tiff_predictor_horizontal_and_none_translate_to_the_encoders_bool() {
+        for (wire, expected) in [("horizontal", true), ("none", false)] {
+            let r = parse_recipe(&output_json(&format!(
+                r#"{{"format":"tiff","predictor":"{wire}"}}"#
+            )))
+            .unwrap();
+            match output_from_wire(&r.output).unwrap() {
+                RasterOutput::Tiff(opts) => {
+                    assert_eq!(opts.predictor, expected, "predictor '{wire}'");
+                }
+                other => panic!("expected a tiff RasterOutput, got {other:?}"),
+            }
+        }
+    }
+
+    /// `"float"` is a real sharp predictor value the `tiff` crate's encoder
+    /// cannot produce (see `raster_encode_tiff.rs`'s module doc) — it must be
+    /// a named rejection, not silently mapped to `horizontal` or `none`.
+    #[test]
+    fn an_unsupported_tiff_predictor_is_named() {
+        let r = parse_recipe(&output_json(r#"{"format":"tiff","predictor":"float"}"#)).unwrap();
+        let err = output_from_wire(&r.output).unwrap_err();
+        assert!(format!("{err}").contains("float"), "got: {err}");
+    }
+
+    /// sharp defaults TIFF `compression` to `'jpeg'`, which Maple has no
+    /// encoder for (no JPEG-in-TIFF path — see the README's parity note).
+    /// F5 already rejects it via the generic "not one of the four
+    /// supported compressors" path; this pins that `'jpeg'` specifically
+    /// stays a named rejection rather than silently falling back to `lzw`.
+    #[test]
+    fn tiff_compression_jpeg_is_a_named_rejection() {
+        let r = parse_recipe(&output_json(r#"{"format":"tiff","compression":"jpeg"}"#)).unwrap();
+        let err = output_from_wire(&r.output).unwrap_err();
+        assert!(format!("{err}").contains("jpeg"), "got: {err}");
+    }
+
+    /// End-to-end through `run_recipe`: the wire predictor string must
+    /// actually flip tag 317 in the encoded bytes, not just translate
+    /// correctly at the `output_from_wire` layer.
+    #[test]
+    fn tiff_predictor_wire_string_reaches_tag_317() {
+        use crate::raster_recipe_exec::run_recipe;
+
+        let pixels: Vec<u8> = (0..(8 * 8 * 3)).map(|i| (i % 251) as u8).collect();
+        for (wire, expected_tag) in [("horizontal", 2u16), ("none", 1u16)] {
+            let recipe = parse_recipe(&format!(
+                r#"{{"v":1,"input":{{"kind":"raw","width":8,"height":8,"channels":3}},"ops":[],"output":{{"format":"tiff","predictor":"{wire}"}}}}"#
+            ))
+            .unwrap();
+            let result = run_recipe(&recipe, &pixels, &[]).unwrap();
+            let mut decoder =
+                tiff::decoder::Decoder::new(std::io::Cursor::new(&result.bytes)).unwrap();
+            let tag: u16 = decoder
+                .get_tag_unsigned(tiff::tags::Tag::Predictor)
+                .unwrap();
+            assert_eq!(
+                tag, expected_tag,
+                "predictor '{wire}' wrote the wrong tag 317"
+            );
         }
     }
 

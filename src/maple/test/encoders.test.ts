@@ -94,6 +94,38 @@ describe('Encoder options', () => {
     expect(deflate.length).toBeLessThan(plain.length);
   });
 
+  // #3506 F6: sharp defaults TIFF compression to 'jpeg'; Maple has no
+  // JPEG-in-TIFF encoder (README parity note) and rejects the value by name
+  // rather than silently falling back to 'lzw'.
+  it("tiff({ compression: 'jpeg' }) is a named rejection", async () => {
+    await expect(
+      maple(await src())
+        .tiff({ compression: 'jpeg' as never })
+        .toBuffer(),
+    ).rejects.toThrow(/jpeg/);
+  });
+
+  // #3506 F6: predictor moved from a bool to sharp's string form.
+  it("tiff({ predictor: 'none' }) writes tag 317 as 1 (None)", async () => {
+    const input = await src();
+    const withPredictor = await maple(input).tiff({ predictor: 'horizontal' }).toBuffer();
+    const withoutPredictor = await maple(input).tiff({ predictor: 'none' }).toBuffer();
+    // Not a size assertion (LZW-with-predictor can occasionally lose to
+    // plain LZW on some inputs) — both must still decode losslessly to the
+    // same pixels regardless of which predictor setting wrote them.
+    const a = await maple(withPredictor).toRaw();
+    const b = await maple(withoutPredictor).toRaw();
+    expect(a.data).toEqual(b.data);
+  });
+
+  it("tiff({ predictor: 'float' }) is a named rejection", async () => {
+    await expect(
+      maple(await src())
+        .tiff({ predictor: 'float' as never })
+        .toBuffer(),
+    ).rejects.toThrow(/float/);
+  });
+
   it('webp({ lossless: false }) fails with a message naming the limitation', async () => {
     await expect(
       maple(await src())
