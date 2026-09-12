@@ -79,6 +79,13 @@ fn sharpen_runs_through_the_recipe() {
 
 #[test]
 fn sharpen_with_sigma_runs_through_the_recipe_on_a_4_channel_image() {
+    // A flat field has no local contrast to boost, so the only thing that
+    // moves the colour is the premultiply sandwich `sharpen` now runs
+    // inside: 80 * 200/255 truncates to 62 going in and 62 * 255/200
+    // truncates to 79 coming back out. Measured on sharp 0.34.5, which
+    // gives exactly 79 here for `sharpen()`, `sharpen({sigma})`, `blur()`
+    // and `convolve()` alike — and 80 for `median`, which does not trigger
+    // the sandwich.
     let flat: Vec<u8> = (0..9).flat_map(|_| [80u8, 80, 80, 200]).collect();
     let out = run(
         r#"{"v":1,"input":{"kind":"raw","width":3,"height":3,"channels":4},
@@ -91,8 +98,9 @@ fn sharpen_with_sigma_runs_through_the_recipe_on_a_4_channel_image() {
         "sharpen never touches alpha"
     );
     assert!(
-        (0..9).all(|i| out.bytes[i * 4..i * 4 + 3] == [80, 80, 80]),
-        "a flat field has no local contrast to boost"
+        (0..9).all(|i| out.bytes[i * 4..i * 4 + 3] == [79, 79, 79]),
+        "expected the premultiply round trip's 79, got: {:?}",
+        &out.bytes[..4]
     );
 }
 
