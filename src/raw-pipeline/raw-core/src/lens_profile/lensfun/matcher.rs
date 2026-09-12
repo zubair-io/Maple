@@ -20,7 +20,7 @@ pub struct Match<'a> {
     pub slug: String,
 }
 
-fn camera_named<'a>(db: &'a Database, make: &str, model: &str) -> Option<&'a Camera> {
+pub fn camera_named<'a>(db: &'a Database, make: &str, model: &str) -> Option<&'a Camera> {
     let wanted = canonical_camera(make, model);
     if wanted.is_empty() {
         return None;

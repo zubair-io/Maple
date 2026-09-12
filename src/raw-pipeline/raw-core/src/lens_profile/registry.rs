@@ -1,7 +1,7 @@
 //! Content-addressed process cache. Hosts persist imported bytes and reload
 //! them before opening a sidecar; no proprietary profile pack is bundled.
 
-use super::{LensProfile, LensQuery, Resolution};
+use super::{LensProfile, Resolution};
 use crate::{
     pipeline::pano::opcode_apply::{scale_active_area, LensCorrectionScales},
     pipeline::pano::opcodes::ActiveAreaRect,
@@ -113,7 +113,10 @@ pub fn resolve_for_raw(raw: &RawImage, reference: &str) -> Result<Option<Resolut
     if reference.is_empty() || raw.opcode_list3.is_some() {
         return Ok(None);
     }
-    let (id, _) = profile_id(reference)?;
+    let id = match parse_reference(reference)? {
+        ProfileRef::Lensfun { slug } => return super::auto::resolve_slug(raw, slug).map(Some),
+        ProfileRef::Lcp { id, .. } => id,
+    };
     let profile = cache()
         .read()
         .map_err(|_| "LCP cache lock failed")?
@@ -122,23 +125,7 @@ pub fn resolve_for_raw(raw: &RawImage, reference: &str) -> Result<Option<Resolut
         .ok_or(
             "The sidecar's LCP profile is not in the local cache; import the original profile",
         )?;
-    let query = LensQuery {
-        make: raw
-            .lens_metadata
-            .camera_make
-            .as_deref()
-            .unwrap_or(&raw.camera_make),
-        camera: raw
-            .lens_metadata
-            .camera_model
-            .as_deref()
-            .unwrap_or(&raw.camera_model),
-        lens: raw.lens_metadata.lens_model.as_deref().unwrap_or(""),
-        focal_mm: raw.focal_length.unwrap_or(0.0) as f64,
-        f_number: raw.aperture.map(f64::from),
-        focus_m: raw.lens_metadata.focus_m,
-    };
-    let mut resolution = profile.resolve(&query)?;
+    let mut resolution = profile.resolve(&super::auto::query_for(raw))?;
     let area = raw
         .lens_metadata
         .active_area
@@ -188,15 +175,11 @@ pub fn apply_for_raw(
         return Ok(());
     }
     let Some(resolution) =
-        resolve_for_raw(raw, &model.lens_profile).map_err(crate::Error::Pipeline)?
+        super::auto::resolve_for_model(raw, model).map_err(crate::Error::Pipeline)?
     else {
         return Ok(());
     };
-    if !resolution.approximations.is_empty()
-        && !profile_id(&model.lens_profile)
-            .map_err(crate::Error::Pipeline)?
-            .1
-    {
+    if super::auto::needs_acknowledgement(&model.lens_profile, &resolution) {
         return Err(crate::Error::Pipeline(format!(
             "LCP approximation requires acknowledgement: {}",
             resolution.approximations.join("; ")
@@ -219,9 +202,15 @@ impl Resolution {
         };
         let (source, lens, db_version) = match &self.source {
             super::Source::Lcp => ("lcp", None, None),
-            super::Source::Lensfun { maker, model, db_version } => {
-                ("lensfun", Some(format!("{maker} {model}")), Some(db_version.clone()))
-            }
+            super::Source::Lensfun {
+                maker,
+                model,
+                db_version,
+            } => (
+                "lensfun",
+                Some(format!("{maker} {model}")),
+                Some(db_version.clone()),
+            ),
         };
         serde_json::json!({"source":source,"lens":lens,"dbVersion":db_version,"confidence":if self.approximations.is_empty() {"in-range"} else {"approximate"},
             "hasDistortion":self.calibration.distortion.is_some(),"hasCa":self.calibration.ca.is_some(),"hasVignetting":self.calibration.vignette.is_some(),
