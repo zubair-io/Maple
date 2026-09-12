@@ -1,0 +1,25 @@
+{
+  "note": "Ceilings 10 % above the first run on 2026-09-12; ratchet down only. zoom is the uniform framing zoom between the two fields (Adobe scale factor vs Lensfun's fixed image circle), removed before the shape metrics. Lensfun's crop-1 entry for this lens carries no vignetting samples, so the vignetting metric here compares no correction against Adobe's; it is a coverage gap in the database, not a conversion error.",
+  "ceilings": {
+    "zoom": {
+      "ratio_minus_one": 0.0154
+    },
+    "distortion": {
+      "mean": 1.8844,
+      "max": 13.1411
+    },
+    "tca_red": {
+      "mean": 1.7274,
+      "max": 4.2179
+    },
+    "tca_blue": {
+      "mean": 0.0993,
+      "max": 0.4745
+    },
+    "vignetting": {
+      "mean": 0.1992,
+      "max": 0.4848
+    }
+  },
+  "fixture": "test_0011.ARW \u2014 Sony ILCE-7RM4 + FE 24-70mm F4 ZA OSS vs Adobe \"SONY (Sony FE 24-70mm F4 ZA OSS) - RAW.lcp\""
+}
