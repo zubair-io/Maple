@@ -397,3 +397,7 @@ mod tests {
         assert!(msg.contains("decoder invariant violated"), "got: {msg}");
     }
 }
+
+#[cfg(test)]
+#[path = "raster_v2_pin_tests.rs"]
+mod pin_tests;
