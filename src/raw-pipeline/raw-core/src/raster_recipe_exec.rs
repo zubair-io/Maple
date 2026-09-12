@@ -297,3 +297,7 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
 #[cfg(test)]
 #[path = "raster_recipe_exec_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "raster_recipe_exec_meta_tests.rs"]
+mod meta_tests;
