@@ -28,6 +28,19 @@ fn a_larger_sensor_does_not_use_a_smaller_calibration() {
 }
 
 #[test]
+fn the_calibration_set_closest_to_the_sensor_wins() {
+    let mut db = parse(&sample_bundle()).unwrap();
+    let mut aps = db.lenses[0].clone();
+    aps.crop = 1.534;
+    db.lenses.insert(0, aps); // the APS-C set is listed first
+    let ff = find(&db, "SONY", "ILCE-7RM4", "FE 24-70mm F4 ZA OSS").unwrap();
+    assert_eq!(ff.lens.crop, 1.0);
+    db.cameras[0].crop = 1.534;
+    let crop = find(&db, "SONY", "ILCE-7RM4", "FE 24-70mm F4 ZA OSS").unwrap();
+    assert_eq!(crop.lens.crop, 1.534);
+}
+
+#[test]
 fn slugs_round_trip_and_compatible_lists_the_mount() {
     let db = parse(&sample_bundle()).unwrap();
     let m = find(&db, "SONY", "ILCE-7RM4", "FE 24-70mm F4 ZA OSS").unwrap();

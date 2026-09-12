@@ -29,6 +29,29 @@ pub fn clear_cache() -> Result<(), String> {
     Ok(())
 }
 
+/// A parsed `papp:LensProfile` value.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ProfileRef<'a> {
+    /// `lcp1:<BLAKE3>` / `lcp1-ack:<BLAKE3>` — an imported document.
+    Lcp { id: &'a str, acknowledged: bool },
+    /// `lensfun1:<maker>/<lens>@<mount>` — a manual pick from the bundle.
+    Lensfun { slug: &'a str },
+}
+
+pub fn parse_reference(reference: &str) -> Result<ProfileRef<'_>, String> {
+    if let Some(slug) = reference.strip_prefix("lensfun1:") {
+        if slug.is_empty()
+            || !slug.contains('/')
+            || !slug.contains('@')
+            || slug.bytes().any(|c| c.is_ascii_whitespace() || c == b'"')
+        {
+            return Err("Invalid Lensfun lens reference".into());
+        }
+        return Ok(ProfileRef::Lensfun { slug });
+    }
+    profile_id(reference).map(|(id, acknowledged)| ProfileRef::Lcp { id, acknowledged })
+}
+
 /// `lcp1` pins both the exact document bytes and Maple's interpretation
 /// version. `-ack` is a sidecar record of explicit approximation acceptance.
 pub fn profile_id(reference: &str) -> Result<(&str, bool), String> {
@@ -194,7 +217,13 @@ impl Resolution {
             "index":s.index,"weight":s.weight,"focalMm":s.focal_mm,"apertureApex":s.aperture_apex,"focusM":s.focus_m,
         })).collect::<Vec<_>>()
         };
-        serde_json::json!({"source":"lcp","confidence":if self.approximations.is_empty() {"in-range"} else {"approximate"},
+        let (source, lens, db_version) = match &self.source {
+            super::Source::Lcp => ("lcp", None, None),
+            super::Source::Lensfun { maker, model, db_version } => {
+                ("lensfun", Some(format!("{maker} {model}")), Some(db_version.clone()))
+            }
+        };
+        serde_json::json!({"source":source,"lens":lens,"dbVersion":db_version,"confidence":if self.approximations.is_empty() {"in-range"} else {"approximate"},
             "hasDistortion":self.calibration.distortion.is_some(),"hasCa":self.calibration.ca.is_some(),"hasVignetting":self.calibration.vignette.is_some(),
             "approximations":self.approximations,"unsupported":self.unsupported,
             "distortion":samples(&self.distortion_samples),"ca":samples(&self.ca_samples),"vignetting":samples(&self.vignette_samples)})
