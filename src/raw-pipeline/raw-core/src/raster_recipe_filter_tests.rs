@@ -2,6 +2,9 @@ use super::*;
 use crate::raster_recipe::parse_recipe;
 use crate::raster_recipe_exec::{run_recipe, RecipeResult};
 
+// `BlurOp`/`SharpenOp`/`MedianOp`/`ThresholdOp`/`ConvolveOp` come in via
+// `super::*` (this file's parent, `raster_recipe_filter.rs`, defines them).
+
 /// Mirrors `raster_recipe_exec.rs`'s own private test helper — duplicated
 /// rather than shared because `#[cfg(test)]` sibling modules don't share
 /// bindings (same rationale `raster_filter_ops_tests.rs` gives for
@@ -140,13 +143,35 @@ fn median_runs_through_the_recipe_on_a_4_channel_image() {
 
 #[test]
 fn a_bad_median_window_is_reported() {
+    // #3504 task E5 controller ruling (c): `size` is no longer odd-only
+    // (sharp/`vips_rank` accepts even windows — see `RasterImage::median`'s
+    // doc comment), so the value that actually fails now is one over the
+    // sharp-matching [1, 1000] ceiling, not an even number.
     let recipe = parse_recipe(
         r#"{"v":1,"input":{"kind":"raw","width":3,"height":3,"channels":3},
-            "ops":[{"op":"median","size":4}],"output":{"format":"raw"}}"#,
+            "ops":[{"op":"median","size":1001}],"output":{"format":"raw"}}"#,
     )
     .unwrap();
     let err = run_recipe(&recipe, &vec![0u8; 27], &[]).unwrap_err();
-    assert!(format!("{err}").contains("odd"), "got: {err}");
+    assert!(format!("{err}").contains("1001"), "got: {err}");
+}
+
+#[test]
+fn an_even_median_window_reaches_the_recipe() {
+    // Companion to `a_bad_median_window_is_reported`: an even `size` must
+    // now succeed through the full recipe, not just at the `RasterImage`
+    // layer (`median_size_2_matches_sharps_asymmetric_window` in
+    // `raster_filter_ops_tests.rs` pins the actual sharp-matching value).
+    let mut px = vec![100u8; 5 * 5 * 3];
+    let centre = ((2 * 5 + 2) * 3) as usize;
+    px[centre..centre + 3].copy_from_slice(&[255, 255, 255]);
+    let out = run(
+        r#"{"v":1,"input":{"kind":"raw","width":5,"height":5,"channels":3},
+            "ops":[{"op":"median","size":2}],"output":{"format":"raw"}}"#,
+        &px,
+        &[],
+    );
+    assert_eq!(out.bytes.len(), px.len());
 }
 
 // ------------------------------------------------------------- threshold ---
@@ -187,6 +212,16 @@ fn threshold_runs_through_the_recipe_on_a_4_channel_image() {
 
 #[test]
 fn convolve_runs_through_the_recipe_on_a_4_channel_image() {
+    // A flat 80-valued RGBA field, alpha included, is NOT bit-exact
+    // invariant under a normalised box kernel once colour is premultiplied
+    // by (a non-255) alpha before convolving and truncated (not rounded)
+    // both ways: premultiplying truncates 80*80/255=25.098 to 25, and
+    // unpremultiplying truncates 25*255/80=79.68 back down to 79, one
+    // short of the original 80 — matching sharp 0.34.5's real output on
+    // this exact fixture (measured directly: `sharp(flat RGBA
+    // 80).convolve({width:3,height:3,kernel:[1x9]})` gives 79/79/79/80 at
+    // every pixel). Alpha itself is never premultiplied, so it alone stays
+    // exactly 80.
     let flat = vec![80u8; 3 * 3 * 4];
     let out = run(
         r#"{"v":1,"input":{"kind":"raw","width":3,"height":3,"channels":4},
@@ -196,8 +231,9 @@ fn convolve_runs_through_the_recipe_on_a_4_channel_image() {
         &[],
     );
     assert!(
-        out.bytes.iter().all(|&v| v == 80),
-        "a flat field (alpha included) is invariant under a normalised box kernel"
+        out.bytes.chunks_exact(4).all(|px| px == [79, 79, 79, 80]),
+        "got: {:?}",
+        &out.bytes[..4]
     );
 }
 
@@ -268,14 +304,14 @@ fn sharpen_defaults_match_sharp() {
     )
     .unwrap();
     match &r.ops[0] {
-        Op::Sharpen {
+        Op::Sharpen(SharpenOp {
             sigma,
             m1,
             m2,
             x1,
             y2,
             y3,
-        } => {
+        }) => {
             assert_eq!(*sigma, None);
             assert_eq!(*m1, 1.0);
             assert_eq!(*m2, 2.0);
@@ -295,10 +331,10 @@ fn threshold_defaults_match_sharp() {
     .unwrap();
     assert!(matches!(
         r.ops[0],
-        Op::Threshold {
+        Op::Threshold(ThresholdOp {
             value: 128,
             greyscale: true
-        }
+        })
     ));
 }
 
@@ -308,7 +344,7 @@ fn median_defaults_to_a_3x3_window() {
         r#"{"v":1,"input":{"kind":"encoded"},"ops":[{"op":"median"}],"output":{"format":"png"}}"#,
     )
     .unwrap();
-    assert!(matches!(r.ops[0], Op::Median { size: 3 }));
+    assert!(matches!(r.ops[0], Op::Median(MedianOp { size: 3 })));
 }
 
 #[test]
@@ -324,11 +360,11 @@ fn convolve_leaves_an_absent_scale_as_none() {
     .unwrap();
     assert!(matches!(
         r.ops[0],
-        Op::Convolve {
+        Op::Convolve(ConvolveOp {
             scale: None,
             offset,
             ..
-        } if offset == 0.0
+        }) if offset == 0.0
     ));
 
     let explicit = parse_recipe(
@@ -339,9 +375,9 @@ fn convolve_leaves_an_absent_scale_as_none() {
     .unwrap();
     assert!(matches!(
         explicit.ops[0],
-        Op::Convolve {
+        Op::Convolve(ConvolveOp {
             scale: Some(s), ..
-        } if s == 0.0
+        }) if s == 0.0
     ));
 }
 

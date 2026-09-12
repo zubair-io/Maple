@@ -14,6 +14,7 @@
 //! if an existing field changes meaning.
 
 use crate::error::{Error, Result};
+use crate::raster_recipe_filter::{BlurOp, ConvolveOp, MedianOp, SharpenOp, ThresholdOp};
 use serde::Deserialize;
 
 /// Schema version this build understands. See the module doc.
@@ -111,31 +112,26 @@ fn lanczos3() -> String {
 fn opaque_black() -> [u8; 4] {
     [0, 0, 0, 255]
 }
-fn one() -> f64 {
+/// `pub(crate)` so `raster_recipe_filter.rs`'s `SharpenOp` (moved out per
+/// #3504 task E5 controller ruling (d)) can reuse it for `m1`'s default —
+/// this is still the only default fn `EnsureAlpha` needs from this file.
+pub(crate) fn one() -> f64 {
     1.0
 }
 fn background_mode() -> String {
     "background".to_string()
 }
-fn two() -> f64 {
-    2.0
-}
-fn ten() -> f64 {
+/// `trim`'s default threshold, and `sharpen`'s default `y2` — shared with
+/// `raster_recipe_filter` rather than duplicated there.
+pub(crate) fn ten() -> f64 {
     10.0
 }
 fn unit_gain() -> [f64; 3] {
     [1.0, 1.0, 1.0]
 }
-fn twenty() -> f64 {
-    20.0
-}
-fn three() -> u32 {
-    3
-}
-fn one_two_eight() -> u8 {
-    128
-}
-fn yes() -> bool {
+/// `negate`'s `alpha` default, and `threshold`'s `greyscale` default —
+/// shared with `raster_recipe_filter` rather than duplicated there.
+pub(crate) fn yes() -> bool {
     true
 }
 /// `normalise`'s default upper percentile. 99, not 100: sharp's own default
@@ -315,72 +311,25 @@ pub enum Op {
     ToColourspace {
         space: String,
     },
-    /// #3504 task E4. `sigma: null` (the wire default) is sharp's fast 3x3
-    /// box blur (`RasterImage::blur`'s `None` case); `sigma` present is a
-    /// Gaussian. sharp's `precision` option is deliberately NOT part of this
-    /// schema (`deny_unknown_fields` rejects it by name) — Maple's blur has
-    /// no separate integer/float precision knob to select.
-    Blur {
-        #[serde(default)]
-        sigma: Option<f64>,
-    },
-    /// #3504 task E4. `sigma: null` runs sharp's fast, argument-less
-    /// `sharpen()` kernel; `sigma` present runs the mask-based Lab unsharp
-    /// transfer with `m1`/`m2`/`x1`/`y2`/`y3` (see
-    /// `raster_sharpen::SharpenOptions`, whose non-`sigma` defaults these
-    /// mirror). sharp's legacy positional `sharpen(sigma, flat, jagged)` form
-    /// is a TS-side (`E5`) concern, not part of this wire schema — this is
-    /// always the object form.
-    Sharpen {
-        #[serde(default)]
-        sigma: Option<f64>,
-        #[serde(default = "one")]
-        m1: f64,
-        #[serde(default = "two")]
-        m2: f64,
-        #[serde(default = "two")]
-        x1: f64,
-        #[serde(default = "ten")]
-        y2: f64,
-        #[serde(default = "twenty")]
-        y3: f64,
-    },
-    /// #3504 task E4. `size` defaults to 3, matching sharp's own
-    /// argument-less `median()`.
-    Median {
-        #[serde(default = "three")]
-        size: u32,
-    },
-    /// #3504 task E4. sharp's `threshold({grayscale})` American-spelling
-    /// alias is a TS-side (`E5`) concern resolved before the wire, not
-    /// accepted here — `grayscale` on this schema is a stray key, rejected
-    /// by `deny_unknown_fields` like any other typo.
-    Threshold {
-        #[serde(default = "one_two_eight")]
-        value: u8,
-        #[serde(default = "yes")]
-        greyscale: bool,
-    },
-    /// #3504 task E4. `scale` is `Option<f64>` rather than a plain `f64`
-    /// with a `0.0` default specifically to keep sharp's "absent" and
-    /// "explicit 0" apart: `RasterImage::convolve`'s own contract treats a
-    /// literal `0.0` as "use the kernel's sum" (a raw-core-level sentinel,
-    /// not sharp's), while sharp's real API clips an explicit `scale: 0` (or
-    /// any non-positive value) to a minimum of `1.0` and only falls back to
-    /// the kernel sum when the caller omits `scale` entirely. The executor
-    /// (`raster_recipe_filter::apply_filter_op`) is what reconciles the two:
-    /// `None` here is passed through as raw-core's `0.0` sentinel, `Some(v)`
-    /// is clamped to `v.max(1.0)` before reaching `RasterImage::convolve`,
-    /// so a wire `"scale":0` can never be confused with an absent `scale`.
-    Convolve {
-        width: u32,
-        height: u32,
-        kernel: Vec<f64>,
-        #[serde(default)]
-        scale: Option<f64>,
-        #[serde(default)]
-        offset: f64,
-    },
+    /// #3504 task E4; fields moved to `raster_recipe_filter::BlurOp` per
+    /// task E5 controller ruling (d), to keep this file under budget — see
+    /// that type for the wire semantics (sharp's fast 3x3 box vs. Gaussian,
+    /// and why `precision` is deliberately not part of this schema).
+    Blur(BlurOp),
+    /// #3504 task E4; fields moved to `raster_recipe_filter::SharpenOp` —
+    /// see that type for the wire semantics (the fast vs. mask-based path,
+    /// and the `m1`/`m2`/`x1`/`y2`/`y3` defaults).
+    Sharpen(SharpenOp),
+    /// #3504 task E4; fields moved to `raster_recipe_filter::MedianOp`.
+    Median(MedianOp),
+    /// #3504 task E4; fields moved to `raster_recipe_filter::ThresholdOp` —
+    /// see that type for why the American `grayscale` spelling is rejected
+    /// on this wire rather than accepted as an alias.
+    Threshold(ThresholdOp),
+    /// #3504 task E4; fields moved to `raster_recipe_filter::ConvolveOp` —
+    /// see that type for why `scale` is `Option<f64>` rather than a plain
+    /// `f64` (the absent-vs-explicit-0 distinction sharp's own API needs).
+    Convolve(ConvolveOp),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]

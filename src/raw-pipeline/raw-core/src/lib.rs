@@ -81,7 +81,7 @@ mod raster_orient;
 pub mod raster_recipe;
 pub(crate) mod raster_recipe_colour;
 pub mod raster_recipe_exec;
-pub(crate) mod raster_recipe_filter;
+pub mod raster_recipe_filter;
 mod raster_recipe_geometry;
 mod raster_recipe_resize;
 pub mod raster_rotate;
