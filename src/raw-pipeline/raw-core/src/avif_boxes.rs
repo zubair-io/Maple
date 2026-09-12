@@ -37,30 +37,6 @@
 //! applies); a corrupt or truncated `ipma` yields no associations at all,
 //! so the primary item keeps its default orientation (1).
 //!
-//! ISO/IEC 23008-12 defines a fixed application order for transformative
-//! item properties — clean-aperture crop, then rotation, then mirror —
-//! independent of the order those properties are stored in `ipco` or listed
-//! in `ipma`. Since this walker only tracks rotation and mirror, that
-//! reduces to "rotate, then mirror", which is what
-//! `ORIENTATION_TABLE[rotation][mirror]` encodes.
-//!
-//! The order matters: rotation and mirroring do not commute, and for an odd
-//! number of quarter turns the two orders disagree (`M∘R^k = R^(-k)∘M`). The
-//! table shipped through Task G2 encoded mirror-then-rotate, which reported
-//! the wrong orientation for exactly those four combinations — `irot ∈
-//! {1, 3}` with a mirror — and is fixed here (#3507 final fix wave, item 1).
-//!
-//! One measured caveat on top of the spec: libheif 1.20.2 (sharp's AVIF
-//! decoder) applies these properties in the order the file's `ipma` lists
-//! them, not the spec's fixed order. Reordering nothing but the two
-//! association bytes of a real sharp-written AVIF changes what it decodes
-//! to — `irot 3` + `imir 1` listed as `[irot, imir]` decodes as EXIF 5, and
-//! as `[imir, irot]` decodes as EXIF 7. Every writer in practice (libvips/
-//! libheif, libavif, and this crate) stores and associates `irot` before
-//! `imir`, which is the order the spec mandates and the order this table
-//! matches, so the two agree on every real file; a file that lists them the
-//! other way round is read here per the spec, not per libheif.
-//!
 //! ## irot/imir to EXIF orientation
 //!
 //! `irot` carries a rotation in the counter-clockwise direction, in units of
@@ -87,40 +63,53 @@
 //! #3507 if that verification becomes possible.
 //!
 //! The eight EXIF orientations are exactly the eight combinations of a
-//! 90-degree-step rotation and an optional mirror, so `ORIENTATION_TABLE` is
-//! a lookup rather than a computation.
+//! 90-degree-step rotation and an optional mirror, which is why a
+//! container transform can be reported as one — see
+//! `avif_boxes_transform.rs` for the composition, the association order it
+//! follows, and the libheif measurements behind both.
+//!
+//! ## The transform is pixels, not a flag
+//!
+//! `AvifBoxes::transform` is NOT an orientation flag a consumer should pass
+//! on. libheif applies `irot`/`imir` while decoding, so sharp's pixels for
+//! an `irot 3` AVIF are already rotated and its `metadata()` reports the
+//! rotated size (measured: 16×24 for a 24×16 image, where the same image as
+//! a JPEG reports 24×16 with `orientation: 6`). `decode_raster` bakes this
+//! transform into the pixels for the same reason, and the orientation
+//! `RasterImage` then carries — the one `.rotate()`/`autoOrient` applies —
+//! is the `Exif` item's own Orientation tag, reached through
+//! `AvifBoxes::exif_orientation` (#3507 round 2).
 
 /// The parts of an AVIF container `avif-parse` does not surface.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AvifBoxes {
-    /// EXIF orientation, 1..=8. `1` when the file carries no transform.
-    pub orientation: u16,
+    /// The primary item's `irot`/`imir` transform, as the EXIF orientation
+    /// that describes the same transform: `1` when the file carries none.
+    ///
+    /// A transform, not a flag — the decoder is expected to apply it to the
+    /// pixels, which is what libheif does and what `decode_raster` now does.
+    /// See the module doc.
+    pub transform: u16,
     pub exif: Option<Vec<u8>>,
     pub xmp: Option<Vec<u8>>,
 }
 
-/// `[rotation_steps][mirror]`, where mirror is 0 = none, 1 = axis 0
-/// (top/bottom exchanged), 2 = axis 1 (left/right exchanged). Rotation is
-/// counter-clockwise in 90-degree steps, as `irot` defines it — see the
-/// module doc for the source, the axis-convention caveat, and why the
-/// rotate-then-mirror order this encodes is the spec's.
-///
-/// Every one of the twelve entries is measured against libheif 1.20.2 —
-/// sharp's own AVIF decoder — by patching the `irot`/`imir` payload bytes
-/// of a real sharp-written AVIF (a one-byte edit each, so no other byte of
-/// the container changes), decoding the pixels through sharp, and searching
-/// all eight EXIF transforms of the source for the one that matches. Every
-/// combination matched exactly (mean absolute error 0, next-best 52), and
-/// the rows agree with what libvips *writes* for each EXIF orientation:
-/// nothing for 1, `imir 1` for 2, `irot 2` for 3, `imir 0` for 4,
-/// `irot 3 + imir 1` for 5, `irot 3` for 6, `irot 3 + imir 0` for 7,
-/// `irot 1` for 8.
-const ORIENTATION_TABLE: [[u16; 3]; 4] = [
-    [1, 4, 2], // no rotation
-    [8, 5, 7], // 90 CCW
-    [3, 2, 4], // 180
-    [6, 7, 5], // 270 CCW
-];
+impl AvifBoxes {
+    /// The Orientation tag inside the `Exif` item, or `1` when there is no
+    /// item, no tag, or no readable TIFF block.
+    ///
+    /// This is the orientation an AVIF's pixels have NOT been through: the
+    /// container's own `irot`/`imir` is baked in at decode instead (see the
+    /// module doc), so this is what is left for `.rotate()`/`autoOrient` to
+    /// apply. `metadata().orientation` reports it too.
+    pub fn exif_orientation(&self) -> u16 {
+        self.exif
+            .as_deref()
+            .map(|block| crate::raster_meta::canonical_exif(block).0)
+            .and_then(crate::raster::exif_orientation_from_block)
+            .unwrap_or(1)
+    }
+}
 
 #[path = "avif_boxes_transform.rs"]
 mod transform;
@@ -319,10 +308,10 @@ fn parse_iloc(payload: &[u8]) -> Vec<(u16, usize, usize)> {
 }
 
 /// Walk `bytes` for the primary item's `irot`/`imir` transform and the
-/// `Exif`/`mime` (XMP) metadata items, returning the real EXIF orientation
-/// and the raw item payloads. A file with none of these — or that isn't a
-/// well-formed ISO-BMFF stream at all — reports orientation `1` and no
-/// items.
+/// `Exif`/`mime` (XMP) metadata items, returning the transform as an EXIF
+/// orientation equivalent and the raw item payloads. A file with none of
+/// these — or that isn't a well-formed ISO-BMFF stream at all — reports
+/// transform `1` and no items.
 pub fn read_avif_boxes(bytes: &[u8]) -> AvifBoxes {
     let meta_children = find_child_box(bytes, 0, bytes.len(), b"meta")
         .and_then(|payload| payload.get(4..)) // skip meta's own FullBox version/flags
@@ -332,9 +321,9 @@ pub fn read_avif_boxes(bytes: &[u8]) -> AvifBoxes {
         .and_then(transform::parse_pitm)
         .unwrap_or(1); // ISO/IEC 23008-12 fallback: no `pitm` means item 1.
 
-    let (rotation, mirror) = find_child_box(meta_children, 0, meta_children.len(), b"iprp")
+    let transform = find_child_box(meta_children, 0, meta_children.len(), b"iprp")
         .map(|iprp| transform::resolve_transform(iprp, primary_item))
-        .unwrap_or((0, 0));
+        .unwrap_or(1);
 
     let item_types = find_child_box(meta_children, 0, meta_children.len(), b"iinf")
         .map(parse_iinf)
@@ -359,7 +348,7 @@ pub fn read_avif_boxes(bytes: &[u8]) -> AvifBoxes {
     let xmp = block_for(b"mime");
 
     AvifBoxes {
-        orientation: ORIENTATION_TABLE[rotation][mirror],
+        transform,
         exif,
         xmp,
     }

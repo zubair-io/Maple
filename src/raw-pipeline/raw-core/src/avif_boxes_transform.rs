@@ -2,10 +2,30 @@
 //! `irot`/`imir` properties (if any) apply to the AVIF's primary item,
 //! read out of `iprp`'s `ipco` (the ordered property list) and `ipma`
 //! (which properties are associated with which item) plus `pitm` (which
-//! item is primary). See the parent module's doc for why only the primary
-//! item's own associations count, and why the rotate-then-mirror
-//! composition is always a fixed lookup rather than something derived from
-//! storage order.
+//! item is primary), composed into one EXIF-orientation-equivalent value.
+//! See the parent module's doc for why only the primary item's own
+//! associations count.
+//!
+//! ## Composed in association order
+//!
+//! The properties are applied in the order `ipma` lists them, because that
+//! is the order libheif applies them in — measured, and the whole reason
+//! this is a composition rather than a static `[rotation][mirror]` lookup
+//! (#3507 round 2). Reordering nothing but the two association bytes of a
+//! real sharp-written AVIF changes what it decodes to: `irot 3` + `imir 1`
+//! listed as `[irot, imir]` decodes as EXIF 5, and as `[imir, irot]` as
+//! EXIF 7. The spec does define a fixed order (crop, then rotation, then
+//! mirror), and for the `[irot, imir]` order every writer in practice emits
+//! the two agree — but following libheif is what makes Maple's pixels match
+//! sharp's on any file, which is the parity that matters here.
+//!
+//! The eight transforms form a group — a quarter-turn rotation and an
+//! optional mirror — so composition is closed and cheap: every element is
+//! `(quarter turns counter-clockwise, mirrored)`, where the mirror is the
+//! horizontal one and is applied BEFORE the rotation, and composing
+//! `next` after `acc` is `R^(a2 + (-1)^f2 · a1) · M^(f2 xor f1)`. All
+//! thirteen combinations this produces are measured against libheif 1.20.2
+//! — see [`EXIF_OF_ELEMENT`].
 //!
 //! Sibling of `avif_boxes.rs`, split out once the box walker grew past the
 //! 400-line soft budget (CONTRIBUTING.md § "File-size budget") — same
@@ -138,28 +158,76 @@ fn parse_ipma_for_item(ipma: &[u8], item: u32) -> Vec<u32> {
     Vec::new()
 }
 
-/// Resolve the primary item's own rotation/mirror step from `iprp`'s
-/// `ipco` (the ordered property list) and `ipma` (which properties are
-/// associated with which item) — see the module doc for why only the
-/// primary item's associations count and why the composition is always
-/// "rotate, then mirror" regardless of storage/association order.
-pub(super) fn resolve_transform(iprp: &[u8], primary_item: u32) -> (usize, usize) {
+/// One transform as `(quarter turns counter-clockwise, mirrored)`, where
+/// the mirror is the horizontal one and is applied BEFORE the rotation.
+type Element = (u8, bool);
+
+/// `[quarter turns][mirrored]` → the EXIF orientation that describes the
+/// same transform.
+///
+/// Every entry is measured against libheif 1.20.2 — sharp's own AVIF
+/// decoder — by patching the `irot`/`imir` payload bytes of a real
+/// sharp-written AVIF (a one-byte edit each, so no other byte of the
+/// container changes), decoding the pixels through sharp, and searching all
+/// eight EXIF transforms of the source for the one that matches. All twelve
+/// `irot`×`imir` combinations matched exactly (mean absolute error 0,
+/// next-best 52), as did the thirteenth case that pins the association
+/// order (`[imir, irot]` instead of `[irot, imir]`). The rows also agree
+/// with what libvips *writes* for each EXIF orientation: nothing for 1,
+/// `imir 1` for 2, `irot 2` for 3, `imir 0` for 4, `irot 3 + imir 1` for 5,
+/// `irot 3` for 6, `irot 3 + imir 0` for 7, `irot 1` for 8.
+const EXIF_OF_ELEMENT: [[u16; 2]; 4] = [[1, 2], [8, 5], [3, 4], [6, 7]];
+
+/// `irot`/`imir` as a group element. `irot` is counter-clockwise in
+/// 90-degree steps; `imir` axis 0 exchanges top and bottom (a vertical
+/// flip, which is a horizontal mirror plus a half turn) and axis 1
+/// exchanges left and right — libavif's effect-first wording, see the
+/// parent module's doc for why that phrasing and not the axis-name one.
+fn element_of(transform: &Transform) -> Element {
+    match transform {
+        Transform::Rotate(step) => (step & 0b11, false),
+        Transform::Mirror(0) => (2, true),
+        Transform::Mirror(_) => (0, true),
+    }
+}
+
+/// `next` applied after `acc`.
+fn compose(acc: Element, next: Element) -> Element {
+    let (turns, mirrored) = acc;
+    let (next_turns, next_mirrored) = next;
+    // A mirror reverses the sense of every turn that came before it.
+    let carried = if next_mirrored {
+        (4 - turns % 4) % 4
+    } else {
+        turns
+    };
+    ((next_turns + carried) % 4, next_mirrored ^ mirrored)
+}
+
+/// Resolve the primary item's own transform from `iprp`'s `ipco` (the
+/// ordered property list) and `ipma` (which properties are associated with
+/// which item), composed in association order, as the EXIF orientation
+/// that describes the same transform. `1` when the item has no `irot` or
+/// `imir` — see the module doc for the order and the composition rule.
+pub(super) fn resolve_transform(iprp: &[u8], primary_item: u32) -> u16 {
     let Some(props) = find_child_box(iprp, 0, iprp.len(), b"ipco").map(collect_ipco_properties)
     else {
-        return (0, 0);
+        return EXIF_OF_ELEMENT[0][0];
     };
     let Some(associations) = find_child_box(iprp, 0, iprp.len(), b"ipma") else {
-        return (0, 0);
+        return EXIF_OF_ELEMENT[0][0];
     };
-    let mut rotation = 0usize;
-    let mut mirror = 0usize;
-    for index in parse_ipma_for_item(associations, primary_item) {
-        let slot = (index as usize).checked_sub(1).and_then(|i| props.get(i));
-        match slot {
-            Some(Some(Transform::Rotate(step))) => rotation = *step as usize,
-            Some(Some(Transform::Mirror(axis))) => mirror = *axis as usize + 1,
-            _ => {} // out-of-range index, or a non-transform property: ignore
-        }
-    }
-    (rotation, mirror)
+    let (turns, mirrored) = parse_ipma_for_item(associations, primary_item)
+        .iter()
+        .filter_map(|index| {
+            // An out-of-range index, or a non-transform property, contributes
+            // nothing; every other association in the list still applies.
+            (*index as usize)
+                .checked_sub(1)
+                .and_then(|i| props.get(i))
+                .and_then(|slot| slot.as_ref())
+                .map(element_of)
+        })
+        .fold((0u8, false), compose);
+    EXIF_OF_ELEMENT[(turns % 4) as usize][mirrored as usize]
 }
