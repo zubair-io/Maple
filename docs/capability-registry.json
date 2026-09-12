@@ -736,19 +736,19 @@
         "src/raw-pipeline/raw-core/tests/grey_adjustments.rs",
         "src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs"
       ],
-      "corpus_hash": "blake3:783ba389f8ffa6d0ba6b8815396f7f2b3b1b5bdfa013f3186f43e04dd734c2c8",
+      "corpus_hash": "blake3:16e4c691d050652827c9996ac204773b3bb855312ea4d0ee99c2090be4e48fd4",
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
         "pipeline_version": 4,
         "schema_version": 5,
-        "corpus_hash": "blake3:783ba389f8ffa6d0ba6b8815396f7f2b3b1b5bdfa013f3186f43e04dd734c2c8",
+        "corpus_hash": "blake3:16e4c691d050652827c9996ac204773b3bb855312ea4d0ee99c2090be4e48fd4",
         "expected_cases": 40,
         "executed_cases": 40,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
-        "recorded_at": "2026-09-12T11:17:59Z",
+        "git_sha": "76f273f47e7e93940b656703c0c7c1ab0df6d988",
+        "recorded_at": "2026-09-12T13:43:37Z",
         "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
