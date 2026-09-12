@@ -4,7 +4,7 @@
  * Provides a unified chaining interface for RAW photo development,
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
-import type { Colour, CompositeLayer, ConvolveKernel, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ImageMetadata, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, SharpenOptions, TensorOptions, TensorResult } from './types';
+import type { AvifOutputOptions, Colour, CompositeLayer, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ImageMetadata, JpegOutputOptions, PngOutputOptions, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, TensorOptions, TensorResult, TiffOutputOptions, WebpOutputOptions } from './types';
 export declare class MapleImageBuilder {
     private readonly s;
     constructor(input: string | Uint8Array | Buffer | RawPixelInput);
@@ -20,14 +20,16 @@ export declare class MapleImageBuilder {
     rotate(): this;
     /** Set output container format and optional quality/effort */
     toFormat(format: ExportFormat, options?: EncodeOptions): this;
-    /** Encode as AVIF (sugar for `toFormat('avif', options)`) */
-    avif(options?: EncodeOptions): this;
-    /** Encode as JPEG (sugar for `toFormat('jpeg', options)`) */
-    jpeg(options?: EncodeOptions): this;
-    /** Encode as PNG (sugar for `toFormat('png')`) */
-    png(): this;
-    /** Encode as WebP (sugar for `toFormat('webp', options)`) */
-    webp(options?: EncodeOptions): this;
+    /** Encode as JPEG with sharp's options. */
+    jpeg(options?: JpegOutputOptions): this;
+    /** Encode as PNG with sharp's options. */
+    png(options?: PngOutputOptions): this;
+    /** Encode as lossless WebP. `{ lossless: false }` throws — see the README. */
+    webp(options?: WebpOutputOptions): this;
+    /** Encode as AVIF with sharp's options. */
+    avif(options?: AvifOutputOptions): this;
+    /** Encode as TIFF with sharp's options. */
+    tiff(options?: TiffOutputOptions): this;
     /** Set output container format */
     format(format: ExportFormat): this;
     /** Set output quality (1..100) */
@@ -54,21 +56,6 @@ export declare class MapleImageBuilder {
     ensureAlpha(alpha?: number): this;
     /** Drop the alpha channel without compositing. */
     removeAlpha(): this;
-    /** Blur. No argument = a fast 3x3 box blur; a sigma = a Gaussian. */
-    blur(options?: number | {
-        sigma?: number;
-    }): this;
-    /** Unsharp mask on the L* channel (sharp's `sharpen`). */
-    sharpen(options?: SharpenOptions): this;
-    /** Square median filter; `size` defaults to 3, sharp's own default. */
-    median(size?: number): this;
-    /** Binarise at `threshold`; `greyscale` decides via Rec.709 luma. */
-    threshold(threshold?: number, options?: {
-        greyscale?: boolean;
-        grayscale?: boolean;
-    }): this;
-    /** Convolve with an arbitrary kernel. */
-    convolve(kernel: ConvolveKernel): this;
     /** Native-size interleaved pixels, alpha preserved when the source has it. */
     toRawAlpha(): Promise<RawPixelsAny>;
     /** Inspect image dimensions, format, orientation without full decode */
@@ -79,6 +66,15 @@ export declare class MapleImageBuilder {
     normalizeOrientationInPlace(): Promise<boolean>;
     /** Extract raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace) */
     toRawRgb(options?: TensorOptions): Promise<TensorResult>;
+    /**
+     * True when this builder describes a RAW develop rather than a bitmap
+     * transform: a recipe, an XMP sidecar, or a RAW file path as input.
+     */
+    private isRawDevelop;
+    /** Saved-recipe or XMP-driven RAW development, rendered to a tmp file and read back. */
+    private rawDevelopToBuffer;
+    /** Saved-recipe or XMP-driven RAW development, written straight to `outputPath`. */
+    private rawDevelopToFile;
     /** Render or resize image directly to an in-memory Buffer */
     toBuffer(): Promise<Buffer>;
     /** Execute export or resize and write to output file */
