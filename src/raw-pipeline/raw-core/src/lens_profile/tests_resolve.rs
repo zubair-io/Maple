@@ -233,6 +233,7 @@ fn distortion_uses_dmax_and_each_axis_focal_length_without_radius_clamp() {
             center: [0.5, 0.5],
         },
         radial: [0.1, 0.0, 0.0],
+        radial_odd: [0.0; 2],
         tangential: [0.0, 0.0],
         scale: 1.0,
     };

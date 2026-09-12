@@ -133,3 +133,51 @@ fn installed_profile_corpus_parses_without_modifying_inputs() {
     assert!(count > 0, "profile corpus is empty");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn odd_radial_terms_evaluate_the_ptlens_polynomial() {
+    let p = model::Perspective {
+        frame: model::Frame {
+            focal: [1.0, 1.0],
+            center: [0.5, 0.5],
+        },
+        radial: [0.02, 0.0, 0.0],
+        radial_odd: [0.01, -0.03],
+        tangential: [0.0; 2],
+        scale: 1.0,
+    };
+    // width = height = 200 → focal 200 px; (150, 100) is x = 0.25, r = 0.25.
+    let [x, y] = p.map(200.0, 200.0, [150.0, 100.0]);
+    let r = 0.25f64;
+    let poly = 1.0 + 0.01 * r + 0.02 * r * r - 0.03 * r * r * r;
+    assert!((x - (100.0 + 50.0 * poly)).abs() < 1e-9, "{x}");
+    assert!((y - 100.0).abs() < 1e-9);
+}
+
+#[test]
+fn zero_odd_terms_are_the_adobe_polynomial() {
+    let even = model::Perspective {
+        frame: model::Frame {
+            focal: [1.0, 1.0],
+            center: [0.5, 0.5],
+        },
+        radial: [0.1, -0.05, 0.01],
+        radial_odd: [0.0; 2],
+        tangential: [0.001, -0.002],
+        scale: 1.02,
+    };
+    let point = [173.0, 41.0];
+    let [x, y] = even.map(300.0, 200.0, point);
+    let [nx, ny] = even.frame.coordinates(300.0, 200.0, point);
+    let r2 = nx * nx + ny * ny;
+    let radial = 1.0 + r2 * (0.1 + r2 * (-0.05 + r2 * 0.01));
+    let expected = even.frame.pixels(
+        300.0,
+        200.0,
+        [
+            1.02 * (nx * radial + 2.0 * 0.001 * nx * ny + -0.002 * (r2 + 2.0 * nx * nx)),
+            1.02 * (ny * radial + 0.001 * (r2 + 2.0 * ny * ny) + 2.0 * -0.002 * nx * ny),
+        ],
+    );
+    assert!((x - expected[0]).abs() < 1e-12 && (y - expected[1]).abs() < 1e-12);
+}

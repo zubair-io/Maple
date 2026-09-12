@@ -359,6 +359,9 @@ fn blend_perspective(
     Some(Perspective {
         frame: blend_frame(records, |r| get(r).frame),
         radial: std::array::from_fn(|i| records.iter().map(|(r, w)| get(r).radial[i] * w).sum()),
+        radial_odd: std::array::from_fn(|i| {
+            records.iter().map(|(r, w)| get(r).radial_odd[i] * w).sum()
+        }),
         tangential: std::array::from_fn(|i| {
             records.iter().map(|(r, w)| get(r).tangential[i] * w).sum()
         }),
