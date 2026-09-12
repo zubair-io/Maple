@@ -73,6 +73,10 @@ pub use raster::{
 /// unconditionally; only its real-encoder tests need the `avif` feature.
 pub mod avif_boxes;
 pub mod raster_alpha;
+/// `maple_raster_analyze_buf`'s read-only half of the raster surface
+/// (#3507, Task G4): one JSON-in/JSON-out entry point over the metadata
+/// (`raster_meta`) and stats (`raster_stats`) readers.
+pub mod raster_analyze;
 pub mod raster_colour;
 pub mod raster_colour_lab;
 pub mod raster_composite;
