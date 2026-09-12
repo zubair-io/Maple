@@ -25,17 +25,13 @@ pub fn camera_named<'a>(db: &'a Database, make: &str, model: &str) -> Option<&'a
     if wanted.is_empty() {
         return None;
     }
-    db.cameras.iter().find(|camera| {
-        std::iter::once(&camera.model)
-            .chain(&camera.variants)
-            .any(|name| canonical_camera(&camera.maker, name) == wanted)
-    })
+    db.cameras
+        .iter()
+        .find(|camera| camera.canonical.iter().any(|name| *name == wanted))
 }
 
-fn lens_named<'a>(lens: &'a Lens, wanted: &str) -> bool {
-    std::iter::once(&lens.model)
-        .chain(&lens.names)
-        .any(|name| canonical(&lens.maker, name) == wanted)
+fn lens_named(lens: &Lens, wanted: &str) -> bool {
+    lens.canonical.iter().any(|name| name == wanted)
 }
 
 /// Mount indices a body on `mount` can carry glass for: its own and the

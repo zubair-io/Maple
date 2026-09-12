@@ -34,6 +34,9 @@ pub struct Camera {
     pub variants: Vec<String>,
     pub mount: usize,
     pub crop: f64,
+    /// `canonical_camera` of `model` and every variant, computed once at
+    /// parse time so a lookup compares without allocating.
+    pub canonical: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +48,8 @@ pub struct Lens {
     pub crop: f64,
     pub aspect: f64,
     pub rectilinear: bool,
+    /// `canonical` of `model` and every name, computed once at parse time.
+    pub canonical: Vec<String>,
     pub distortion: Vec<DistortionSample>,
     pub tca: Vec<TcaSample>,
     pub vignetting: Vec<VignettingSample>,
@@ -185,12 +190,20 @@ pub fn parse(bytes: &[u8]) -> Result<Database, String> {
         .collect::<Result<Vec<_>, String>>()?;
     let cameras = (0..n_cameras)
         .map(|_| {
+            let maker = c.string_ref(&strings)?;
+            let model = c.string_ref(&strings)?;
+            let variants = c.string_list(&strings)?;
+            let canonical = std::iter::once(&model)
+                .chain(&variants)
+                .map(|name| super::names::canonical_camera(&maker, name))
+                .collect();
             Ok(Camera {
-                maker: c.string_ref(&strings)?,
-                model: c.string_ref(&strings)?,
-                variants: c.string_list(&strings)?,
+                maker,
+                model,
+                variants,
                 mount: c.index(mounts.len(), "mount")?,
                 crop: c.f32()?,
+                canonical,
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -251,6 +264,10 @@ fn lens(c: &mut Cursor<'_>, strings: &[String], n_mounts: usize) -> Result<Lens,
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
+    let canonical = std::iter::once(&model)
+        .chain(&names)
+        .map(|name| super::names::canonical(&maker, name))
+        .collect();
     Ok(Lens {
         maker,
         model,
@@ -259,6 +276,7 @@ fn lens(c: &mut Cursor<'_>, strings: &[String], n_mounts: usize) -> Result<Lens,
         crop,
         aspect,
         rectilinear,
+        canonical,
         distortion,
         tca,
         vignetting,
