@@ -212,6 +212,31 @@ describe('Colour ops', () => {
     expect(await first(out)).toEqual([150, 150, 150]);
   });
 
+  it('linear() rejects coefficient vectors sharp rejects', () => {
+    // All four messages measured against real sharp 0.34.5. Before this,
+    // `[1, 1.5]` silently ran the third channel at a[0] = 1 (#3503 review I5).
+    const img = () => maple(solid([1, 2, 3]));
+    expect(() => img().linear([1, 1.5], [0, 0])).toThrow(
+      /linear: vector must have 1 or 3 elements, got 2/,
+    );
+    expect(() => img().linear([1, 1, 1, 0.5], [0, 0, 0, 0])).toThrow(
+      /linear: vector must have 1 or 3 elements, got 4/,
+    );
+    expect(() => img().linear([1, 1.5, 0.5], 10)).toThrow(
+      /Expected a and b to be arrays of the same length/,
+    );
+    expect(() => img().linear(1.2, [0, 10, -10])).toThrow(
+      /Expected a and b to be arrays of the same length/,
+    );
+  });
+
+  it('linear() broadcasts a 1-element vector, as libvips does', async () => {
+    const out = await maple(solid([100, 100, 100]))
+      .linear([0.5], [10])
+      .toRawAlpha();
+    expect(Array.from(out.data.subarray(0, 3))).toEqual([60, 60, 60]);
+  });
+
   it('negate(false) is a no-op, like sharp', async () => {
     // sharp: `this.options.negate = is.bool(options) ? options : true`, so a
     // boolean false DISABLES the op. Measured against real sharp 0.34.5,
