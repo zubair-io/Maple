@@ -9,7 +9,7 @@
  * Every function first runs `rejectUnsupported`, which throws synchronously
  * (before the value ever reaches `state.output`, let alone the wire) for a
  * real sharp option this format's pure-Rust encoder cannot honour — see
- * that function's doc in `builder-state.ts` for the full cross-checked list
+ * that function's doc in `builder-validate.ts` for the full cross-checked list
  * per format (#3506 F5/F6). The three formats with numeric options then run
  * `checkOptionRanges`, which throws in sharp's own wording for a value
  * outside sharp's range. Values these encoders CAN accept but reject for
@@ -18,7 +18,7 @@
  * error already names the offending value — not duplicated here.
  */
 
-import { checkOptionRanges, rejectUnsupported } from './builder-state';
+import { checkOptionRanges, rejectUnsupported } from './builder-validate';
 import type { BuilderState } from './builder-state';
 import type {
   AvifOutputOptions,
