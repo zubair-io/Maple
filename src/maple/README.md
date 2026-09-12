@@ -130,10 +130,10 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `flatten()`                                        | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                                                                                                                                                   |
 | `ensureAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                        |
 | `removeAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                        |
-| `blur()`                                           | ✅    | no argument = 3x3 box; a sigma = separable Gaussian, clamp-to-edge                                                                                                                                                                                                                                                     |
-| `sharpen()`                                        | ✅    | unsharp mask on L\* with sharp's `m1`/`m2`/`x1`/`y2`/`y3` transfer                                                                                                                                                                                                                                                     |
-| `median()`                                         | ✅    | any integer window 1..1000, every band                                                                                                                                                                                                                                                                                 |
-| `threshold()`                                      | ✅    | `{ greyscale }` decides via Rec.709 luma in linear light                                                                                                                                                                                                                                                               |
+| `blur()`                                           | ✅    | no argument = 3x3 box; a sigma = separable Gaussian. Byte-identical to sharp                                                                                                                                                                                                                                           |
+| `sharpen()`                                        | ✅¹   | argument-less kernel byte-identical; the `{sigma}` mask path within 2 levels (see below)                                                                                                                                                                                                                               |
+| `median()`                                         | ✅    | any integer window 1..1000, every band. Byte-identical to sharp                                                                                                                                                                                                                                                        |
+| `threshold()`                                      | ✅²   | `{ greyscale }` follows sharp's literal-`true` rule; luma in linear light                                                                                                                                                                                                                                              |
 | `convolve()`                                       | ✅    | any kernel; integer `scale` (default kernel sum) and `offset`, non-integers rejected by name                                                                                                                                                                                                                           |
 | `greyscale()` / `grayscale()`                      | ✅    | Rec.709 luma reduced in linear light (de-gamma, weight, re-gamma), three identical channels                                                                                                                                                                                                                            |
 | `gamma()`                                          | ✅    | an assembly-time pair around the `resize` op: `gamma` itself before it, `1/gammaOut` after; residual ≤1 — a single-code artefact at input 255 for `gammaOut` 1/1.5 and 1/3, where libvips' own float chain returns 254 rather than 255                                                                                 |
@@ -193,6 +193,37 @@ interpretation name. Ported code calling `.toColourspace('display-p3')`
 therefore gets different — and actually tagged — pixels than it did under
 sharp.
 
+Every ✅ above is a measured maximum absolute per-sample difference against
+sharp 0.34.5 / libvips 8.17.3, raw pixels in and raw pixels out, on 32x32
+RGB noise and on a 32x32 RGBA fixture with a fully transparent quadrant, a
+128-alpha quadrant and an opaque half. `blur` at sigma 0.5, 1.5, 3 and 10,
+`blur()`, `median(3)`, `median(5)`, `threshold`, the argument-less
+`sharpen()` and `convolve` are **0** on both fixtures; `blur(1.5)` and a 5x5
+box `convolve` differ by 1 on one or two samples of the RGBA fixture.
+
+¹ `sharpen({ sigma })` blurs `L*` through a CIELAB round trip and measures 1
+on RGB, 2 on partial alpha. ² `threshold`'s greyscale luma can disagree with
+libvips by one code, and a value one code either side of the threshold then
+flips a whole sample between 0 and 255 — 3 samples of 12288 on noise
+(tracked as #3572).
+
+Argument validation is sharp's, by name, before anything reaches the native
+core: `blur(NaN)`, `blur({})`, `sharpen({ m1: 3 })` (no `sigma`),
+`median(3.5)` and `threshold(300)` all throw with the offending field named.
+`sharpen(sigma)`, sharp's deprecated positional form, is accepted like
+`blur(sigma)` — with one narrowing, since Maple applies the object form's
+0.000001-10 sigma domain to both where sharp's positional form allows up to 10000. On a RAW input the develop pipeline runs instead of the bitmap recipe,
+so any op other than `resize` on that path throws by name rather than being
+silently dropped.
+
+Two behaviours worth knowing as a caller, both of them sharp's rather than
+Maple's: `blur(sigma)` is an **exact no-op** for every sigma up to 0.557,
+because libvips truncates the Gaussian mask at 20% of its peak amplitude and
+that leaves a 1x1 mask; and on an image with alpha, `blur`, `convolve` and
+`sharpen` premultiply, so a partial-alpha value can come back one code
+different even where the filter itself changed nothing (a flat
+`(80, 80, 80, 200)` field comes back `(79, 79, 79, 200)` from sharp too).
+
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
 no alpha channel, so they composite over black — the same thing libvips does —
@@ -209,9 +240,10 @@ const badged = await maple(photo)
 **Op order.** Maple executes ops in the order you call them — the ops list
 _is_ the pipeline — with `autoOrient`/`rotate()` always hoisted to run first
 regardless of where it appears in the chain. sharp instead applies a fixed
-internal order (rotate → resize → composite → flatten → …) no matter how you
-call its methods. In practice: `.resize().composite().flatten()` matches
-sharp, because that's also sharp's fixed order. `.flatten().resize()` flattens
+internal order (rotate → resize → composite → flatten → … → median →
+threshold → blur → convolve → sharpen) no matter how you call its methods.
+In practice: `.resize().composite().flatten()` matches sharp, because that's
+also sharp's fixed order. `.flatten().resize()` flattens
 before resampling — identical to sharp for an opaque source, but the two can
 differ slightly at soft/antialiased transparent edges, where flattening
 before vs. after the resample blends against a background at a different
@@ -271,6 +303,20 @@ encoding. Everything else is call order, so **call the colour ops in the
 stage order above** if you are porting a sharp pipeline and want the same
 pixels. Resolving the whole op list into sharp's stage order at assembly
 time, the way `gamma` already is, is tracked separately.
+
+The five filters have their own stage order inside that list — **median →
+threshold → blur → convolve → sharpen** — and sharp wraps the whole group in
+a single premultiply/unpremultiply pair when the image has alpha. Maple
+matches the premultiply part: each run of consecutive filter calls shares one
+premultiply, one unpremultiply and one cast back to bytes, so `median` and
+`threshold` land inside the sandwich exactly as they do in sharp. It does not
+match the reordering. Whenever your call order already agrees with sharp's
+stage order the two are byte-identical; when it does not, Maple does what you
+wrote. Measured on 32x32 noise: `.threshold(128).blur(1.5)` and
+`.blur(1.5).threshold(128)` are byte-identical in sharp and differ by up to
+190 in Maple (the first order matches sharp exactly, the second is Maple's own
+answer); `.blur(2).sharpen()` versus `.sharpen().blur(2)` is 0 in sharp and up
+to 10 in Maple. Call them in sharp's stage order if you want sharp's numbers.
 
 ## Native Core & Linux Support
 
