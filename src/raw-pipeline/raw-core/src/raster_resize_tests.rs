@@ -405,22 +405,27 @@ fn every_new_kernel_leaves_a_flat_image_unchanged() {
     }
 }
 
-/// A 2-pixel-wide hard edge: downscaling to 1 pixel forces the kernel to
-/// blend exactly the two source samples, with no interior neighbours to
-/// draw from, so this is the simplest case a well-behaved kernel handles
-/// without ringing.
+/// A 2-pixel-wide hard edge downscaled to 1 pixel. Both source samples sit
+/// symmetrically under the kernel with no interior neighbours to draw from,
+/// so every interpolating kernel has to weight them equally and land on the
+/// exact midpoint of 40 and 220: `(40 + 220) / 2 = 130`. Measured against
+/// sharp 0.34.5 / libvips 8.17.3, which answers 130 for `linear`, `cubic`,
+/// `mitchell`, `lanczos2` and `lanczos3` alike (`nearest` is excluded — it
+/// samples rather than blends, and answers 220).
 #[test]
-fn every_new_kernel_blends_a_2_pixel_edge_between_the_source_values() {
+fn every_interpolating_kernel_blends_a_2_pixel_edge_to_the_exact_midpoint() {
     let src = RasterImage::new_rgb(2, 1, vec![40, 40, 40, 220, 220, 220]);
-    for filter in NEW_KERNELS {
+    for filter in [
+        FilterAlg::Bilinear,
+        FilterAlg::CatmullRom,
+        FilterAlg::Mitchell,
+        FilterAlg::Lanczos2,
+        FilterAlg::Lanczos3,
+    ] {
         let mut o = opts(1, 1, ResizeFit::Fill);
         o.filter = filter;
         let out = resize_raster(&src, &o).unwrap();
-        let v = out.data[0];
-        assert!(
-            (40..=220).contains(&v),
-            "{filter:?} produced {v}, outside the source range [40, 220]"
-        );
+        assert_eq!(out.data[0], 130, "{filter:?} missed the midpoint");
     }
 }
 
