@@ -20,6 +20,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster_stats::{compute_stats, RasterStats};
+use image::ImageDecoder;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -72,16 +73,49 @@ fn metadata_value(bytes: &[u8]) -> Result<Value> {
         "orientation": probe.orientation,
         "hasAlpha": probe.has_alpha,
         "hasProfile": sidecars.icc.is_some(),
-        // Every container Maple decodes carries 8-bit sRGB samples; a wider
-        // space would have been converted by the decoder.
+        // Every container Maple decodes is sRGB (a wider space would have
+        // been converted by the decoder) — but sample *depth* genuinely
+        // varies: TIFF and PNG can carry 16-bit-per-channel samples, unlike
+        // this crate's JPEG/WebP/AVIF encoders, which are always 8-bit.
         "space": "srgb",
-        "depth": "uchar",
+        "depth": depth_value(bytes, &probe.format),
         "density": sidecars.density,
         "size": bytes.len(),
         "icc": sidecars.icc.as_deref().map(base64),
         "exif": sidecars.exif.as_deref().map(base64),
         "xmp": sidecars.xmp.as_deref().map(base64),
     }))
+}
+
+/// Sample depth ('uchar' / 'ushort', matching sharp's own `metadata().depth`
+/// vocabulary), read from the container header rather than assumed.
+///
+/// Only TIFF and PNG in this crate's supported formats can carry samples
+/// wider than 8 bits per channel — `image`'s JPEG and WebP decoders always
+/// produce 8-bit output, and AVIF here goes through `avif_decode_gate`
+/// rather than `image::ImageReader`, so none of those three need (or can
+/// use) a header read; they stay 'uchar'. A decoder-construction failure —
+/// after `probe_raster_metadata` already succeeded above — shouldn't happen
+/// in practice; falls back to 'uchar' rather than turning an advisory field
+/// into a hard error.
+fn depth_value(bytes: &[u8], format: &str) -> &'static str {
+    if format != "tiff" && format != "dng" && format != "png" {
+        return "uchar";
+    }
+    match image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_decoder().ok())
+    {
+        Some(decoder) => match decoder.color_type() {
+            image::ColorType::L16
+            | image::ColorType::La16
+            | image::ColorType::Rgb16
+            | image::ColorType::Rgba16 => "ushort",
+            _ => "uchar",
+        },
+        None => "uchar",
+    }
 }
 
 fn stats_value(stats: &RasterStats) -> Value {

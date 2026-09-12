@@ -88,6 +88,81 @@ fn parse(json: &str) -> serde_json::Value {
     serde_json::from_str(json).unwrap()
 }
 
+/// An 8-bit RGB TIFF, written with `image`'s `TiffEncoder` directly at
+/// `ExtendedColorType::Rgb8` — this crate's own TIFF *encoder*
+/// (`crate::tiff::encode_from_u8`/`raster_recipe_encode::encode_tiff_with_metadata`)
+/// always writes 16-bit samples, so an 8-bit TIFF only ever shows up here as
+/// somebody else's file; `metadata()` must still read it correctly rather
+/// than assuming every TIFF this crate sees is one it wrote itself.
+fn tiff_8bit(width: u32, height: u32) -> Vec<u8> {
+    use image::codecs::tiff::TiffEncoder;
+    use image::ImageEncoder;
+    let rgb = vec![128u8; (width * height * 3) as usize];
+    let mut out = Vec::new();
+    TiffEncoder::new(std::io::Cursor::new(&mut out))
+        .write_image(&rgb, width, height, image::ExtendedColorType::Rgb8)
+        .unwrap();
+    out
+}
+
+/// A 16-bit RGB TIFF, via this crate's own real 16-bit TIFF encoder
+/// (`crate::tiff::encode_from_u8`) — the same path `export.rs`'s RAW-develop
+/// pipeline uses, not a fixture built just for this test.
+fn tiff_16bit(width: u32, height: u32) -> Vec<u8> {
+    let rgb = vec![128u8; (width * height * 3) as usize];
+    crate::tiff::encode_from_u8(width, height, &rgb).unwrap()
+}
+
+/// A 16-bit RGB PNG. The `png` crate's `write_image_data` writes the bytes
+/// given verbatim — no bit-depth-aware conversion — so a 16-bit sample must
+/// be supplied as its two big-endian bytes, per the PNG spec (`image`'s own
+/// PNG *decoder*, which `depth_value` reads back through, does do that
+/// conversion on read).
+fn png_16bit(width: u32, height: u32) -> Vec<u8> {
+    let mut data = Vec::with_capacity((width * height * 3 * 2) as usize);
+    for _ in 0..(width * height * 3) {
+        data.extend_from_slice(&30000u16.to_be_bytes());
+    }
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Sixteen);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&data).unwrap();
+    }
+    out
+}
+
+#[test]
+fn depth_reports_uchar_for_an_8bit_tiff() {
+    let reply = parse(&analyze(&tiff_8bit(2, 2), r#"{"v":1,"what":["metadata"]}"#).unwrap());
+    assert_eq!(reply["metadata"]["format"], "tiff");
+    assert_eq!(reply["metadata"]["depth"], "uchar");
+}
+
+#[test]
+fn depth_reports_ushort_for_a_16bit_tiff() {
+    let reply = parse(&analyze(&tiff_16bit(2, 2), r#"{"v":1,"what":["metadata"]}"#).unwrap());
+    assert_eq!(reply["metadata"]["format"], "tiff");
+    assert_eq!(reply["metadata"]["depth"], "ushort");
+}
+
+#[test]
+fn depth_reports_uchar_for_the_8bit_metadata_fixture_png() {
+    // `png_with_metadata()` above is an 8-bit RGBA PNG — pins the "not every
+    // PNG is 16-bit" side of the same check.
+    let reply = parse(&analyze(&png_with_metadata(), r#"{"v":1,"what":["metadata"]}"#).unwrap());
+    assert_eq!(reply["metadata"]["depth"], "uchar");
+}
+
+#[test]
+fn depth_reports_ushort_for_a_16bit_png() {
+    let reply = parse(&analyze(&png_16bit(2, 2), r#"{"v":1,"what":["metadata"]}"#).unwrap());
+    assert_eq!(reply["metadata"]["format"], "png");
+    assert_eq!(reply["metadata"]["depth"], "ushort");
+}
+
 #[test]
 fn metadata_reports_the_header_and_the_blocks() {
     let reply = parse(&analyze(&png_with_metadata(), r#"{"v":1,"what":["metadata"]}"#).unwrap());
