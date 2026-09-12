@@ -96,8 +96,10 @@ final class DeferredFolderEnumeratorChangesTests: XCTestCase {
 
         XCTAssertNil(observer.failure)
         XCTAssertEqual(observer.updated.map(\.filename), ["one.dng"])
+        // A deleted RAW takes its canonical sidecar with it (#3563).
         XCTAssertEqual(observer.deleted.map(\.rawValue),
-                       [FileProviderIdentifier.asset("a2").rawValue])
+                       [FileProviderIdentifier.asset("a2").rawValue,
+                        MapleItem.sidecarIdentifier(assetID: "a2").rawValue])
         // Anchor advances past the whole page even though one row was
         // filtered out — otherwise we would re-scan it forever.
         XCTAssertEqual(observer.finishedAnchor.map(FolderChangeMatching.parseAnchor), 13)
@@ -110,6 +112,50 @@ final class DeferredFolderEnumeratorChangesTests: XCTestCase {
     /// from the same (unchanged) anchor forever. Today's server always
     /// attaches a cursor to a non-empty page (`src/api/.../changes.ts`),
     /// so this exercises defense-in-depth against a server that doesn't.
+    /// #3563 — with `batch-meta` answering, an updated asset fans out to its
+    /// RAW item AND its sidecar item (the sidecar's own mtime seeding the
+    /// version), and an asset the server reports without a sidecar retires
+    /// the sidecar identifier instead.
+    func testResolvesSidecarItemsFromBatchMetadata() {
+        StubURLProtocol.handler = { req in
+            if req.url?.path == "/api/assets/batch-meta" {
+                let body = """
+                {"assets":[
+                  {"id":"a1a1a1a1a1a1a1a1a1a1a1a1","folder_id":"F1","filename":"one.dng","abs_path":"/srv/lib/d/one.dng",
+                   "size":10,"mtime":1700000000000,"rating":0,"xmp_mtime":1700000123,"xmp_size":512,"has_xmp":true},
+                  {"id":"c3c3c3c3c3c3c3c3c3c3c3c3","folder_id":"F1","filename":"three.dng","abs_path":"/srv/lib/d/three.dng",
+                   "size":10,"mtime":1700000000000,"rating":0,"xmp_mtime":null,"xmp_size":null,"has_xmp":false}
+                ]}
+                """
+                return (200, Data(body.utf8), [:])
+            }
+            let body = """
+            {"changes":[
+              {"cursor":11,"asset_id":"a1a1a1a1a1a1a1a1a1a1a1a1","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"d/one.dng","at":"2026-08-12T00:00:00.000Z"},
+              {"cursor":12,"asset_id":"c3c3c3c3c3c3c3c3c3c3c3c3","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"d/three.dng","at":"2026-08-12T00:00:00.000Z"}
+            ],"next_cursor":12}
+            """
+            return (200, Data(body.utf8), [:])
+        }
+
+        let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
+        let observer = ChangeObserver()
+        enumerator.enumerateChanges(for: observer, from: FolderChangeMatching.anchor(10))
+        wait(for: [observer.done], timeout: 5)
+
+        XCTAssertNil(observer.failure)
+        XCTAssertEqual(observer.updated.map(\.filename), ["one.dng", "one.xmp", "three.dng"])
+        let sidecar = observer.updated.first { $0.filename == "one.xmp" } as? MapleItem
+        XCTAssertEqual(sidecar?.itemIdentifier, MapleItem.sidecarIdentifier(assetID: "a1a1a1a1a1a1a1a1a1a1a1a1"))
+        XCTAssertEqual(sidecar?.contentModificationDate,
+                       Date(timeIntervalSince1970: 1_700_000_123),
+                       "the sidecar item carries the sidecar's own mtime, not the RAW's")
+        XCTAssertEqual(sidecar?.documentSize, 512)
+        XCTAssertEqual(observer.deleted.map(\.rawValue),
+                       [MapleItem.sidecarIdentifier(assetID: "c3c3c3c3c3c3c3c3c3c3c3c3").rawValue])
+        XCTAssertEqual(observer.finishedAnchor.map(FolderChangeMatching.parseAnchor), 12)
+    }
+
     func testFullPageWithoutNextCursorDoesNotLoopForever() {
         let pageLimit = 500
         StubURLProtocol.handler = { _ in

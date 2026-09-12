@@ -34,8 +34,58 @@
 
 import { Elysia, t } from 'elysia';
 import * as fs from 'node:fs/promises';
+import { ObjectId } from 'mongodb';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { mostSpecificRoot } from '../fs/root-match.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { findDetailByAddress, recordSidecarEdit, setHasXmp } from '../db/assets.repo.ts';
+import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('xmp-routes');
+
+/**
+ * Mirror what the id-keyed `PUT/DELETE /api/assets/:id/xmp` does after the
+ * bytes land: flag the asset (`has_xmp` / `sidecar_ver`) and record + publish
+ * an `update` on the change feed. The web editor writes through THIS
+ * path-keyed route, and without a change row the File Provider extensions
+ * never learn that a sidecar changed on the server — a mounted folder kept
+ * serving the stale `.xmp` until it was re-mounted (#3563).
+ *
+ * Best-effort: the write itself has already succeeded, so a lookup or feed
+ * failure is logged, never surfaced as an error to the editor. An unindexed
+ * path (no asset row yet) simply has nothing to notify.
+ */
+async function publishSidecarChange(rawAbsPath: string, edited: boolean): Promise<void> {
+  try {
+    const hit = mostSpecificRoot(rawAbsPath, await loadLibraryRoots());
+    // `MAPLE_ROOTS` env roots (and test-registered roots) carry synthetic
+    // keys, not Mongo ids; only registered libraries have indexed assets.
+    if (!hit || hit.relPath === '' || !ObjectId.isValid(hit.key)) return;
+    const libraryId = new ObjectId(hit.key);
+    const dto = await findDetailByAddress(libraryId, hit.relPath);
+    if (!dto) return;
+    const id = new ObjectId(dto.id);
+    if (edited) {
+      await recordSidecarEdit(id);
+    } else {
+      await setHasXmp(id, false);
+    }
+    await recordAndPublishAssetChange({
+      kind: 'update',
+      asset_id: id,
+      folder_id: libraryId,
+      abs_path: rawAbsPath,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { err, path: rawAbsPath },
+      `publishSidecarChange failed (best-effort, ignoring): ${detail}`,
+    );
+  }
+}
 // Note: we deliberately bypass `readXmp` from `../fs/xmp.ts` and call
 // `fs.readFile` directly so we can distinguish "no sidecar" (404) from
 // "filesystem error" (500). The id-keyed route conflates those by
@@ -109,6 +159,7 @@ export const xmpPathRoutes = new Elysia()
         set.status = 500;
         return { error: outcome.error };
       }
+      await publishSidecarChange(r.data, true);
       set.headers['Content-Type'] = 'application/xml';
       return xmlContent;
     },
@@ -173,6 +224,7 @@ export const xmpPathRoutes = new Elysia()
         set.status = 500;
         return { error: outcome.error };
       }
+      await publishSidecarChange(r.data, false);
       set.status = 204;
       return;
     },

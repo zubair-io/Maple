@@ -53,6 +53,61 @@ public enum FolderChangeMatching {
     /// Split one page of changes into the observer's two buckets, keeping
     /// only rows belonging to this folder. Rows without an asset id carry
     /// no identity we can report and are skipped.
+    /// Folder-scoped change resolution (#3563). Like `partition`, but resolves
+    /// the changed assets' metadata in one `batch-meta` call so each update
+    /// fans out to the RAW item AND its sidecar item (real filename, real
+    /// sidecar mtime → the OS refetches the `.xmp`), or retires a sidecar
+    /// the server no longer has. A batch that fails or that the server
+    /// doesn't offer falls back to `partition`'s cursor-versioned stubs for
+    /// the RAW alone — the pre-#3563 behaviour, never worse than it.
+    public static func resolve(changes: [AssetChange],
+                               folderID: String,
+                               relativePath: String,
+                               catalog: RemoteCatalog) async
+        -> (updates: [MapleItem], deletes: [NSFileProviderItemIdentifier]) {
+        let mine = changes.filter {
+            belongs(change: $0, toFolderID: folderID, relativePath: relativePath)
+        }
+        var deletes = mine
+            .filter { $0.kind == .delete }
+            .compactMap(\.assetID)
+            .flatMap(AssetChangeItems.deleted)
+        let pending = mine.filter { $0.assetID != nil && $0.kind != .delete }
+        let metas = await batchMetadata(for: pending.compactMap(\.assetID), catalog: catalog)
+        let parent = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.folder(folderID: folderID, relativePath: relativePath).rawValue)
+        var updates: [MapleItem] = []
+        for change in pending {
+            guard let assetID = change.assetID else { continue }
+            guard let metas else {
+                updates.append(MapleItem(stubAssetID: assetID,
+                                         cursor: change.cursor,
+                                         folderID: change.folderID,
+                                         relativePath: change.relativePath))
+                continue
+            }
+            // The batch answered and this id is absent: the asset is gone
+            // (same reading the working-set resolver gives a 404).
+            guard let meta = metas[assetID] else {
+                deletes.append(contentsOf: AssetChangeItems.deleted(assetID: assetID))
+                continue
+            }
+            let fanOut = AssetChangeItems.resolved(meta: meta, parent: parent)
+            updates.append(contentsOf: fanOut.updates)
+            deletes.append(contentsOf: fanOut.deletes)
+        }
+        return (updates, deletes)
+    }
+
+    /// `nil` when the batch could not be used (transport error, decode
+    /// error, or a server without the route) — callers stub instead.
+    private static func batchMetadata(for ids: [String],
+                                      catalog: RemoteCatalog) async -> [String: AssetMetadata]? {
+        guard !ids.isEmpty else { return [:] }
+        guard let metas = try? await catalog.getAssetsBatch(assetIDs: ids) else { return nil }
+        return Dictionary(metas.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+    }
+
     public static func partition(changes: [AssetChange],
                                  folderID: String,
                                  relativePath: String)

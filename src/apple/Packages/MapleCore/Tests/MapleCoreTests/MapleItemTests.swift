@@ -175,4 +175,48 @@ final class MapleItemTests: XCTestCase {
         let item = MapleItem(trashed: makeTrashItem(assetID: ""), parentTrashIdentifier: parent)
         XCTAssertNil(item)
     }
+
+    // MARK: - Sidecar from asset metadata (#3563)
+
+    private func meta(filename: String, xmpMtime: Double?, xmpSize: Int64?) -> AssetMetadata {
+        AssetMetadata(id: "aaaaaaaaaaaaaaaaaaaaaaaa", folderID: "F1", filename: filename,
+                      absPath: "/srv/lib/\(filename)", size: 10, mtimeMS: 1_700_000_000_000,
+                      rating: 0, xmpMtimeSeconds: xmpMtime, xmpSize: xmpSize)
+    }
+
+    func testSidecarForAssetIsTheCanonicalSiblingWithTheSidecarsOwnMtime() throws {
+        let parent = NSFileProviderItemIdentifier("parent")
+        let item = try XCTUnwrap(MapleItem(sidecarForAsset: meta(filename: "IMG_1.dng", xmpMtime: 1_700_000_123, xmpSize: 640),
+                                           parent: parent))
+        XCTAssertEqual(item.filename, "IMG_1.xmp")
+        XCTAssertEqual(item.itemIdentifier, MapleItem.sidecarIdentifier(assetID: "aaaaaaaaaaaaaaaaaaaaaaaa"))
+        XCTAssertEqual(item.parentItemIdentifier, parent)
+        XCTAssertEqual(item.contentModificationDate, Date(timeIntervalSince1970: 1_700_000_123))
+        XCTAssertEqual(item.documentSize, 640)
+        XCTAssertEqual(MapleItem.decodePriorMtime(item.itemVersion.contentVersion),
+                       Date(timeIntervalSince1970: 1_700_000_123),
+                       "the write precondition reads the sidecar mtime back out of the version")
+    }
+
+    func testSidecarForAssetIsNilWhenTheServerReportsNoSidecar() {
+        XCTAssertNil(MapleItem(sidecarForAsset: meta(filename: "IMG_1.dng", xmpMtime: nil, xmpSize: nil),
+                               parent: .workingSet))
+    }
+
+    func testAssetMetadataDecodesTheSidecarStat() throws {
+        let json = """
+        {"id":"a1","folder_id":"F1","filename":"x.dng","abs_path":"/l/x.dng","size":1,
+         "mtime":1700000000000,"rating":0,"xmp_mtime":1700000123,"xmp_size":99}
+        """
+        let decoded = try JSONDecoder().decode(AssetMetadata.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.xmpMtime, Date(timeIntervalSince1970: 1_700_000_123))
+        XCTAssertEqual(decoded.xmpSize, 99)
+
+        let legacy = """
+        {"id":"a1","folder_id":"F1","filename":"x.dng","abs_path":"/l/x.dng","size":1,
+         "mtime":1700000000000,"rating":0}
+        """
+        let older = try JSONDecoder().decode(AssetMetadata.self, from: Data(legacy.utf8))
+        XCTAssertNil(older.xmpMtime, "a server without the field reads as no sidecar")
+    }
 }

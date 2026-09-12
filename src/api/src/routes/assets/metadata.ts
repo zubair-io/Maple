@@ -16,7 +16,7 @@ import { ObjectId } from 'mongodb';
 import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { resolveAddressString } from '../../library/address.ts';
-import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { resolveThumbPathForAsset, xmpSidecarPath } from '../../fs/xmp.ts';
 import { safeReadFile } from '../../fs/root.ts';
 import { mostSpecificRoot } from '../../fs/root-match.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
@@ -28,6 +28,7 @@ import {
   parseAssetId,
 } from '../../db/assets.repo.ts';
 import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { mapWithConcurrency } from '../../imports/capture-time.ts';
 import { resolveAssetInfoOrRespond, resolveAssetLocationOrRespond } from './_shared.ts';
 
 /**
@@ -59,6 +60,29 @@ export function resolveFsPathToLibrary(
     relPath: hit.relPath,
     address: slug ? `${slug}:${hit.relPath}` : null,
   };
+}
+
+/**
+ * Attach the on-disk sidecar's stat to a detail DTO (#3563). The File
+ * Provider extensions build the mounted `.xmp` item from this: its
+ * `itemVersion` is the sidecar's own mtime, so a server-side edit advances
+ * the version and the OS refetches the bytes. `null` when there is no
+ * sidecar — the client then removes a stale mounted copy. Seconds, not
+ * milliseconds: the write precondition (`X-If-Mtime-Matches`) compares at
+ * one-second granularity.
+ */
+const SIDECAR_STAT_CONCURRENCY = 16;
+
+async function withSidecarStat<T extends { abs_path: string }>(
+  dto: T,
+): Promise<T & { xmp_mtime: number | null; xmp_size: number | null }> {
+  if (dto.abs_path === '') return { ...dto, xmp_mtime: null, xmp_size: null };
+  try {
+    const s = await stat(xmpSidecarPath(dto.abs_path));
+    return { ...dto, xmp_mtime: Math.floor(s.mtimeMs / 1000), xmp_size: s.size };
+  } catch {
+    return { ...dto, xmp_mtime: null, xmp_size: null };
+  }
 }
 
 export const metadataRoutes = new Elysia()
@@ -158,7 +182,9 @@ export const metadataRoutes = new Elysia()
       set.status = 400;
       return { error: 'Invalid asset id in ids' };
     }
-    return { assets: await findDetailsByIds(parsed as ObjectId[]) };
+    const dtos = await findDetailsByIds(parsed as ObjectId[]);
+    // Bounded: a 500-id page is 500 stats; keep the fd pressure flat.
+    return { assets: await mapWithConcurrency(dtos, SIDECAR_STAT_CONCURRENCY, withSidecarStat) };
   })
 
   // Single asset metadata
@@ -174,7 +200,7 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not found' };
     }
-    return dto;
+    return withSidecarStat(dto);
   })
 
   // Stream raw bytes

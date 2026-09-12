@@ -842,9 +842,15 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // so the OS doesn't think the sidecar was edited
                     // locally and try to push it back via modifyItem.
                     // (Same root cause as the RAW path above.)
+                    // The sidecar's OWN mtime (#3563): it seeds the item's
+                    // version and the write precondition. The RAW's mtime
+                    // never moves on an edit, so stamping it here froze the
+                    // version across server-side edits. Older servers
+                    // report no sidecar stat; fall back to the RAW's.
+                    let sidecarMtime = resolved.xmpMtime ?? resolved.contentModificationDate
                     do {
                         try FileManager.default.setAttributes(
-                            [.modificationDate: resolved.contentModificationDate],
+                            [.modificationDate: sidecarMtime],
                             ofItemAtPath: localURL.path
                         )
                     } catch {
@@ -888,11 +894,10 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // back to "now" here would reintroduce the OS's
                     // file-vs-item mtime mismatch in the inverted
                     // direction: file = server-mtime, item = now.
-                    let mtime = resolved.contentModificationDate
                     let synthesized = SidecarChild(
                         name: sidecarName,
                         path: sidecarName,
-                        mtime: mtime,
+                        mtime: sidecarMtime,
                         size: Int64(bytes.count),
                         assetID: assetID
                     )
@@ -2372,9 +2377,10 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
             do {
                 let page = try await self.catalog.listChanges(since: since,
                                                                limit: Self.changesPageLimit)
-                let split = FolderChangeMatching.partition(changes: page.changes,
-                                                           folderID: self.folderID,
-                                                           relativePath: self.relativePath)
+                let split = await FolderChangeMatching.resolve(changes: page.changes,
+                                                               folderID: self.folderID,
+                                                               relativePath: self.relativePath,
+                                                               catalog: self.catalog)
                 observer.didUpdate(split.updates)
                 observer.didDeleteItems(withIdentifiers: split.deletes)
                 // Advance past the whole page, not just the rows we kept —

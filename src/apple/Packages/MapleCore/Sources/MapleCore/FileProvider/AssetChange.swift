@@ -267,10 +267,23 @@ public struct AssetMetadata: Codable, Sendable, Equatable {
     /// `Double` so the JSON parser doesn't reject the fractional part.
     public let mtimeMS: Double
     public let rating: Int
+    /// The on-disk `.xmp` sidecar's mtime in epoch SECONDS and size in
+    /// bytes (#3563), attached by `GET /api/assets/:id` and `batch-meta`.
+    /// `nil` when the server reports no sidecar — or when it predates the
+    /// field, which the sidecar-item builders treat the same way.
+    public let xmpMtimeSeconds: Double?
+    public let xmpSize: Int64?
+    /// The server's own "a sidecar exists" flag (`AssetDoc.has_xmp`). An
+    /// explicit `false` is the only signal that a mounted `.xmp` should be
+    /// removed; `nil` (a server that predates the field) means unknown and
+    /// leaves any mounted sidecar alone.
+    public let hasXMP: Bool?
 
     public init(id: String, folderID: String, filename: String, absPath: String,
                 fileInfo: [FileInfo]? = nil,
-                size: Int64, mtimeMS: Double, rating: Int) {
+                size: Int64, mtimeMS: Double, rating: Int,
+                xmpMtimeSeconds: Double? = nil, xmpSize: Int64? = nil,
+                hasXMP: Bool? = nil) {
         self.id = id
         self.folderID = folderID
         self.filename = filename
@@ -279,6 +292,14 @@ public struct AssetMetadata: Codable, Sendable, Equatable {
         self.size = size
         self.mtimeMS = mtimeMS
         self.rating = rating
+        self.xmpMtimeSeconds = xmpMtimeSeconds
+        self.xmpSize = xmpSize
+        self.hasXMP = hasXMP
+    }
+
+    /// Sidecar mtime as a `Date`; `nil` when there is no sidecar.
+    public var xmpMtime: Date? {
+        xmpMtimeSeconds.map { Date(timeIntervalSince1970: $0) }
     }
 
     /// Convenience: the modification date as a Foundation `Date`,
@@ -293,5 +314,8 @@ public struct AssetMetadata: Codable, Sendable, Equatable {
         case absPath = "abs_path"
         case fileInfo = "fileinfo"
         case mtimeMS = "mtime"
+        case xmpMtimeSeconds = "xmp_mtime"
+        case xmpSize = "xmp_size"
+        case hasXMP = "has_xmp"
     }
 }

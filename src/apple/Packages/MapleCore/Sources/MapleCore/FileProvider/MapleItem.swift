@@ -431,6 +431,34 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = displayFilename
     }
 
+    /// The canonical `<imageBase>.xmp` sibling for an asset whose metadata
+    /// reports a sidecar on disk (#3563). Built from a change-feed
+    /// resolution so a server-side edit re-emits the sidecar item with the
+    /// sidecar's OWN mtime — the `itemVersion` seed — and the OS refetches
+    /// the bytes. `nil` when the server reports no sidecar; callers delete
+    /// `sidecarIdentifier(assetID:)` instead.
+    public convenience init?(sidecarForAsset meta: AssetMetadata,
+                             parent: NSFileProviderItemIdentifier) {
+        guard let mtime = meta.xmpMtime else { return nil }
+        let base = Self.imageBase(of: meta.filename)
+        let name = "\(base).xmp"
+        let child = SidecarChild(name: name, path: name, mtime: mtime,
+                                 size: meta.xmpSize ?? 0, assetID: meta.id)
+        self.init(sidecar: child, parentImageBase: base, parentIdentifier: parent)
+    }
+
+    /// `IMG_1.dng` → `IMG_1`; an extensionless name is its own base.
+    public static func imageBase(of filename: String) -> String {
+        let dot = filename.lastIndex(of: ".")
+        return dot.map { String(filename[..<$0]) } ?? filename
+    }
+
+    /// Identifier of an asset's canonical (non-conflict) sidecar item.
+    public static func sidecarIdentifier(assetID: String) -> NSFileProviderItemIdentifier {
+        NSFileProviderItemIdentifier(
+            FileProviderIdentifier.sidecar(assetID: assetID, conflictBasename: nil).rawValue)
+    }
+
     public init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {
         let canonicalName = "\(parentImageBase).xmp"
         let isCanonical = sidecar.name.caseInsensitiveCompare(canonicalName) == .orderedSame
