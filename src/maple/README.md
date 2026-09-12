@@ -284,6 +284,11 @@ encodes at `.jpeg()`'s own default of 80. Likewise `.toFormat()` naming a
 different container than an earlier `.jpeg()`/`.png()`/… discards that call's
 options, and naming the same container keeps them.
 
+On a RAW develop input specifically, calling `.jpeg()`/`.avif()` also sets the
+export `quality` to that format's own sharp-matched default (80 / 50) — a bare
+`maple('photo.dng').toFile('x.jpg')`, with no `.jpeg()`/`.quality()` call at
+all, uses the builder's own long-standing default of 92 instead.
+
 **JPEG is not mozjpeg.** Maple encodes JPEG with the pure-Rust `jpeg-encoder`
 crate — progressive scans, 4:2:0/4:4:4 chroma and optimised Huffman tables, but
 no trellis quantisation. Measured against mozjpeg at matched quality
@@ -310,8 +315,8 @@ asking for the default does not quietly buy you the slowest setting.
 imply `palette: true` just as they do in sharp, and the palette is capped at
 256 entries — but Maple always writes bit depth 8, where libvips derives 1, 2
 or 4 from the colour count. Measured on a 6-colour flat image: `png({ colours:
-4 })` gives Maple 145 B at depth 8 against sharp's 138 B at depth 2. Same
-pixels, slightly larger file.
+4 })` gives Maple 137 B at depth 8 against sharp's 138 B at depth 2 — the
+depth gap is real, but it costs one byte, not a meaningfully larger file.
 
 **WebP is lossless only.** No pure-Rust lossy WebP encoder exists, so
 `webp({ lossless: false })` throws rather than silently handing back a much
