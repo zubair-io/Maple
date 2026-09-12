@@ -211,15 +211,17 @@ export class MapleImageBuilder {
   /**
    * Target colourspace. For bitmaps this rotates the primaries and tags the
    * output with the matching ICC profile; for the RAW develop path it also
-   * selects the export primaries, as it did in Tier 1.
+   * selects the export primaries, as it did in Tier 1. `'b-w'` is the
+   * greyscale conversion, the same thing `greyscale()` does — which is what
+   * it means in sharp too.
    */
-  toColourspace(space: 'srgb' | 'display-p3' | 'p3'): this {
+  toColourspace(space: 'srgb' | 'display-p3' | 'p3' | 'b-w'): this {
     pushToColourspace(this.s, space);
     return this;
   }
 
   /** Alternative spelling of `toColourspace`. */
-  toColorspace(space: 'srgb' | 'display-p3' | 'p3'): this {
+  toColorspace(space: 'srgb' | 'display-p3' | 'p3' | 'b-w'): this {
     return this.toColourspace(space);
   }
 
