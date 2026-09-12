@@ -143,12 +143,12 @@ letterbox pad, and `contain`'s negative-offset embed when a clamp holds the
 scale back. What does not match is the last pixel of the DERIVED axis when
 the image is shrunk hard. libvips does not resize in one step — it splits
 the scale into an integer `vips_shrink` plus a residual `vips_reduce` and
-rounds at each stage — so its second axis can land a pixel below any
-single-step rounding. Across a 2560-case sweep of sources x targets x fits
-x clamps, 11 distinct shapes diverge, every one at a shrink of 6.35x or
-more and every one by exactly one pixel (for example a 400x200 source into
-an `inside` 13x13 box: sharp 13x6, Maple 13x7). Closing it means porting
-`vips_resize`'s staging rather than tuning a rounding mode.
+rounds at each stage — so its second axis can land a pixel away from any
+single-step rounding, in either direction: measured against sharp 0.34.5 /
+libvips 8.17.3 on a 400x200 source, an `inside` 19x19 box gives 19x10 in
+sharp and 19x9 in Maple, while a 31x31 box gives 31x15 in sharp and 31x16
+in Maple. Closing it means porting `vips_resize`'s staging rather than
+tuning a rounding mode.
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
