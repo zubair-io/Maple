@@ -88,6 +88,14 @@ export interface BuilderState {
    * `.toFormat()`/`.quality()`/`.format()` — see `stateToOutput`.
    */
   output: Record<string, unknown> | null;
+  /**
+   * The option object the caller actually passed to that per-format method,
+   * as opposed to `output`, which is that object merged over every default.
+   * Kept so `assertRawDevelopOutput` can tell "the caller asked for
+   * progressive scans" from "progressive defaulted to false" — only the
+   * former is worth refusing on a RAW-develop input.
+   */
+  outputOptions: Record<string, unknown> | null;
   autoOrient: boolean;
   // RAW-develop fields, unchanged from Tier 1.
   xmpPath: string | null;
@@ -109,6 +117,7 @@ export function createBuilderState(
     quality: 92,
     effort: null,
     output: null,
+    outputOptions: null,
     autoOrient: false,
     xmpPath: null,
     xmpXml: null,
@@ -274,6 +283,89 @@ export function stateToOutput(
     return { format, quality: state.quality };
   }
   return { format };
+}
+
+/**
+ * Output containers whose wire object carries a `quality` field, and so can
+ * take a later `.quality()` / `.toFormat(f, { quality })`. PNG, WebP and TIFF
+ * have no quality knob in Maple's encoders at all (`png({ quality })` and
+ * `webp({ quality })` are named rejections, and TIFF's is the JPEG-in-TIFF
+ * knob Maple has no encoder for), so there is nothing to write there.
+ */
+const QUALITY_FORMATS: ReadonlySet<string> = new Set(['jpeg', 'avif']);
+/** Output containers whose wire object carries an `effort` field. */
+const EFFORT_FORMATS: ReadonlySet<string> = new Set(['avif']);
+
+/**
+ * Apply a `quality` to both the RAW-develop field and, when a per-format
+ * method already set one, the wire output object.
+ *
+ * `stateToOutput` returns `state.output` verbatim whenever it is set, so
+ * writing only `state.quality` would leave `.jpeg().quality(30)` silently
+ * encoding at the `.jpeg()` default — measured before this fix at 1436 B,
+ * byte-identical to a plain `.jpeg()`, against 716 B for
+ * `.jpeg({ quality: 30 })`.
+ */
+export function applyQuality(state: BuilderState, quality: number): void {
+  const clamped = Math.max(1, Math.min(100, quality));
+  state.quality = clamped;
+  const output = state.output;
+  if (output && QUALITY_FORMATS.has(String(output.format))) {
+    output.quality = clamped;
+  }
+}
+
+/** `applyQuality`'s counterpart for AVIF's `effort` (0 fastest … 9 slowest). */
+export function applyEffort(state: BuilderState, effort: number): void {
+  const clamped = Math.max(0, Math.min(9, effort));
+  state.effort = clamped;
+  const output = state.output;
+  if (output && EFFORT_FORMATS.has(String(output.format))) {
+    output.effort = clamped;
+  }
+}
+
+/**
+ * Select the output container for `.format()` / `.toFormat()`.
+ *
+ * Naming a *different* container than the one a per-format method already
+ * configured discards that method's options: `stateToOutput` prefers
+ * `state.output` over `state.format`, so keeping a stale `.jpeg()` output
+ * around would make `.jpeg({ progressive: true }).toFormat('png')` hand back
+ * a JPEG — the caller's last instruction silently ignored. Naming the same
+ * container keeps the options, so `.jpeg({ progressive: true })
+ * .toFormat('jpeg', { quality: 30 })` still writes progressive scans.
+ */
+export function applyFormat(state: BuilderState, format: ExportFormat): void {
+  state.format = format;
+  if (state.output && state.output.format !== format) {
+    state.output = null;
+    state.outputOptions = null;
+  }
+}
+
+/**
+ * Throw if a per-format encoder option cannot survive the RAW-develop export.
+ *
+ * That path goes through `exportImage`, whose surface is
+ * `format`/`quality`/`colorSpace`/`maxLongEdge` — it never sees the wire
+ * recipe `state.output` describes. Everything else a per-format method
+ * accepts (`progressive`, `chromaSubsampling`, `palette`, `compression`,
+ * `effort`, …) was therefore silently dropped on a RAW input; naming it is
+ * the only honest option until #3579 routes RAW develops through the same
+ * recipe the bitmap path already uses.
+ *
+ * Reads `outputOptions` (what the caller passed), not `output` (that merged
+ * over every default), so an unset `progressive` never trips it.
+ */
+export function assertRawDevelopOutput(state: BuilderState): void {
+  const offender = Object.keys(state.outputOptions ?? {}).find((key) => key !== 'quality');
+  if (offender !== undefined) {
+    throw new Error(
+      `${offender} is not supported on a RAW develop input yet — see #3579. ` +
+        `Develop to a bitmap first, then re-encode it with the per-format options.`,
+    );
+  }
 }
 
 const FORMAT_BY_EXT: Record<string, ExportFormat> = {

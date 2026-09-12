@@ -11,7 +11,12 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { isRawPath, lastResizeWidth, type BuilderState } from './builder-state';
+import {
+  assertRawDevelopOutput,
+  isRawPath,
+  lastResizeWidth,
+  type BuilderState,
+} from './builder-state';
 import { exportImage, exportRecipe } from './export';
 import type { ExportResult } from './types';
 
@@ -108,6 +113,14 @@ function unsupportedOpError(state: BuilderState): string | null {
  * throw, or `fs.mkdir` failing on a read-only or nonexistent parent) would
  * reject `toFile`'s promise instead of resolving it to `{ ok: false, error
  * }` like every other `toFile` failure.
+ *
+ * `assertRawDevelopOutput` runs here rather than inside `.jpeg()`/`.tiff()`/…
+ * — `.xmp()`/`.recipe()` can turn a builder into a RAW develop after those
+ * per-format methods have already run, so this terminal is the first point
+ * that knows a per-format option (`progressive`, `chromaSubsampling`, …)
+ * would otherwise be silently dropped by `exportImage`/`exportRecipe`, which
+ * carry no such options at all (#3579). Its throw is caught by the try/catch
+ * below like any other rejection from this function.
  */
 export async function rawDevelopToFile(
   state: BuilderState,
@@ -119,6 +132,7 @@ export async function rawDevelopToFile(
   }
   const rawPath = state.inputPath as string;
   try {
+    assertRawDevelopOutput(state);
     return state.exportRecipe
       ? await exportRecipe({
           rawPath,

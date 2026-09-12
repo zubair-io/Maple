@@ -1,5 +1,11 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
+
+const repoRoot = path.resolve(__dirname, '../../..');
+const fixtureDng = path.join(repoRoot, 'test-fixtures/batch-transfer/source.dng');
 
 /** Gate for #3506: encoder options through the real FFI. */
 describe('Encoder options', () => {
@@ -211,6 +217,79 @@ describe('Encoder options', () => {
     expect(() => maple(input).tiff({ tileWidth: 256 } as never)).toThrow(/tileWidth/);
     expect(() => maple(input).tiff({ tileHeight: 256 } as never)).toThrow(/tileHeight/);
     expect(() => maple(input).tiff({ resolutionUnit: 'inch' } as never)).toThrow(/resolutionUnit/);
+  });
+
+  // `stateToOutput` returns `state.output` verbatim once a per-format method
+  // has run, so a later `.quality()` used to be silently inert: measured at
+  // 1436 B for `.jpeg().quality(30)`, byte-identical to a plain `.jpeg()`
+  // (quality 80), against 716 B for `.jpeg({ quality: 30 })`.
+  it('quality() after jpeg()/avif() reaches the encoder', async () => {
+    const input = await src();
+    const viaOption = await maple(input).jpeg({ quality: 30 }).toBuffer();
+    const viaMethod = await maple(input).jpeg().quality(30).toBuffer();
+    expect(viaMethod.length).toBe(viaOption.length);
+    const avifOption = await maple(input).avif({ quality: 20 }).toBuffer();
+    const avifMethod = await maple(input).avif().quality(20).toBuffer();
+    expect(avifMethod.length).toBe(avifOption.length);
+  });
+
+  // The same shadowing made `.toFormat()` unable to change the container
+  // after a per-format call. Naming a different container must discard the
+  // earlier call's options rather than silently win over the last
+  // instruction the caller gave.
+  it('toFormat() after a per-format call changes the container', async () => {
+    const out = await maple(await src())
+      .jpeg({ progressive: true })
+      .toFormat('png')
+      .toBuffer();
+    expect((await maple(out).metadata()).format).toBe('png');
+  });
+
+  it('toFormat() naming the same container keeps that call’s options', async () => {
+    const out = await maple(await src())
+      .jpeg({ progressive: true })
+      .toFormat('jpeg', { quality: 30 })
+      .toBuffer();
+    const hasSof2 = out.some((b, i) => b === 0xff && out[i + 1] === 0xc2);
+    expect(hasSof2).toBe(true);
+    const plain = await maple(await src())
+      .jpeg({ progressive: true })
+      .toBuffer();
+    expect(out.length).toBeLessThan(plain.length);
+  });
+
+  // The RAW-develop path goes through `exportImage`, which reads
+  // `state.quality` and never sees the wire output object — so `.jpeg({
+  // quality })` on a RAW input used to export at the builder's own 92
+  // default, and every other per-format option was dropped without a word.
+  describe('RAW develop input', () => {
+    const raw = () => maple(fixtureDng);
+    const tmp = (name: string) => path.join(os.tmpdir(), `maple_t2f_${Date.now()}_${name}`);
+
+    it('honours jpeg({ quality }) on a RAW develop', async () => {
+      const low = tmp('low.jpg');
+      const high = tmp('high.jpg');
+      expect((await raw().jpeg({ quality: 40 }).toFile(low)).ok).toBe(true);
+      expect((await raw().jpeg({ quality: 95 }).toFile(high)).ok).toBe(true);
+      const [lowStat, highStat] = await Promise.all([fs.stat(low), fs.stat(high)]);
+      expect(lowStat.size).toBeLessThan(highStat.size);
+      await Promise.all([fs.unlink(low), fs.unlink(high)]);
+    });
+
+    it('names any other per-format option instead of dropping it', async () => {
+      const cases: Array<[string, () => Promise<unknown>]> = [
+        ['progressive', () => raw().jpeg({ progressive: true }).toBuffer()],
+        ['chromaSubsampling', () => raw().jpeg({ chromaSubsampling: '4:4:4' }).toBuffer()],
+        ['palette', () => raw().png({ palette: true }).toBuffer()],
+        ['compression', () => raw().tiff({ compression: 'deflate' }).toBuffer()],
+        ['effort', () => raw().avif({ effort: 2 }).toBuffer()],
+      ];
+      for (const [option, run] of cases) {
+        await expect(run()).rejects.toThrow(
+          new RegExp(`${option} is not supported on a RAW develop input yet — see #3579`),
+        );
+      }
+    });
   });
 
   it('no longer rejects avif({ tune }) — tune is not a real sharp option', async () => {
