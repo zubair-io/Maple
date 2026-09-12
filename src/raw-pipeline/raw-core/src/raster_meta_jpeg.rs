@@ -105,7 +105,7 @@ pub(super) fn read_jpeg(bytes: &[u8]) -> RasterSidecars {
         .as_deref()
         .and_then(exif_resolution_dpi)
         .or(found.density)
-        .or(Some(JPEG_DEFAULT_DPI))
+        .or(Some(DEFAULT_DPI))
         .and_then(reportable_density);
     found
 }
