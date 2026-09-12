@@ -14,11 +14,25 @@
 //! AVIF 4:2:0 chroma subsampling is likewise a named error, not a working
 //! option: the vendored `ravif` 0.13 hard-codes `ChromaSampling::Cs444` in
 //! every encode path, and its own `encode_raw_planes_8_bit` doc says chroma
-//! subsampling isn't supported. `ColorModel::YCbCr` only changes the BT.601
-//! colour-transform matrix, not the sampled chroma resolution, so requesting
+//! subsampling isn't supported — for either colour model. `ColorModel` only
+//! picks the colour-transform matrix (identity for `RGB`, BT.601 for
+//! `YCbCr`); it never touches the sampled chroma resolution, so requesting
 //! `AvifChroma::Yuv420` fails loudly rather than silently returning a 4:4:4
 //! file under a 4:2:0 label. 4:4:4 (sharp's own AVIF default) is the only
-//! chroma mode this encoder actually produces today.
+//! chroma mode this encoder actually produces today, and it is encoded with
+//! `ColorModel::YCbCr` — ravif's own default, and "usually the best choice"
+//! per its docs — not `ColorModel::RGB`: measured on a 64x64
+//! gradient-plus-noise fixture (`raster_encode_avif_tests.rs`'s
+//! `photographic()`, the same shape as `src/maple/test/oracle.test.ts`'s),
+//! YCbCr cuts file size 3-36% and never costs more than 0.26 dB PSNR versus
+//! RGB — at q50 and q80 it is free on BOTH axes (from its decorrelation):
+//! q30 410→397 B / 28.93→28.67 dB, q50 838→584 B / 30.02→30.11 dB, q80
+//! 1760→1122 B / 34.09→34.86 dB. See `ycbcr_beats_rgb_on_size_at_every_quality`
+//! and `ycbcr_psnr_cost_versus_rgb_stays_under_one_db`. An earlier version
+//! of this module picked `RGB` on the theory that "no chroma channels to
+//! subsample" made it the 4:4:4-correct choice; that reasoning is true for
+//! the subsampling question and beside the point for the size/quality trade
+//! the colour model actually controls.
 //!
 //! AVIF `lossless: true` is a named error for the same reason: the vendored
 //! `rav1e` never reaches true AV1 lossless mode. `ravif` maps quality 100 to
@@ -62,15 +76,6 @@ impl AvifChroma {
             "4:4:4" => Some(Self::Yuv444),
             "4:2:0" => Some(Self::Yuv420),
             _ => None,
-        }
-    }
-
-    /// `ColorModel::RGB` codes the samples with an identity matrix — no
-    /// chroma channels to subsample, which is how ravif expresses 4:4:4.
-    fn color_model(self) -> ColorModel {
-        match self {
-            Self::Yuv444 => ColorModel::RGB,
-            Self::Yuv420 => ColorModel::YCbCr,
         }
     }
 }
@@ -193,13 +198,21 @@ pub fn encode_avif_opts(
     })?;
     let speed = avif_speed_for(options.effort);
     let quality = f32::from(options.quality.clamp(1, 100));
-    let model = options.chroma_subsampling.color_model();
+    // `chroma_subsampling` can only be `Yuv444` here — `Yuv420` already
+    // returned above — so there is exactly one colour model to pick, and
+    // it is `YCbCr`, not `RGB`: `ChromaSampling::Cs444` (4:4:4, ravif's only
+    // supported subsampling) is fixed either way, so the colour model
+    // choice affects size and quality only, via which colour-transform
+    // matrix ravif's rate control optimises against. Measured, YCbCr cuts
+    // size 3-36% and never costs more than 0.26 dB PSNR versus RGB, with q50
+    // and q80 free on both axes — see the module doc and
+    // `raster_encode_avif_tests.rs`.
     let base = Encoder::new()
         .with_quality(quality)
         .with_alpha_quality(quality)
         .with_speed(speed)
         .with_bit_depth(depth)
-        .with_internal_color_model(model);
+        .with_internal_color_model(ColorModel::YCbCr);
     let encoder = match exif {
         Some(block) => base.with_exif(block.to_vec()),
         None => base,

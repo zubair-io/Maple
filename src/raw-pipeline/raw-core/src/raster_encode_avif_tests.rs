@@ -182,6 +182,127 @@ fn lossless_is_a_named_error_not_a_silent_lossy_encode() {
     assert!(message.contains("lossless"), "got: {message}");
 }
 
+/// A 64x64 gradient-plus-bounded-noise source — the shape of real
+/// photographic content, deliberately avoiding `gradient()`'s wrap-around
+/// moire (which is the right stressor for a byte-exact round trip and the
+/// wrong one for a lossy size/quality comparison). Mirrors the `photographic()`
+/// helper in `src/maple/test/oracle.test.ts` exactly, so a number measured
+/// here and a number measured through the oracle describe the same source.
+fn photographic(w: u32, h: u32) -> Vec<u8> {
+    let mut state: u32 = 7;
+    let mut data = Vec::with_capacity((w * h * 3) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            let noise = (((state >> 22) & 31) as i32) - 16;
+            let clamp = |v: i32| v.clamp(0, 255) as u8;
+            data.push(clamp(x as i32 * 4 + noise));
+            data.push(clamp(y as i32 * 4 + noise));
+            data.push(clamp(128 + ((x + y) as i32 >> 1) + noise));
+        }
+    }
+    data
+}
+
+/// The size/quality trade the fix for #3583 turns on: with 4:4:4 chroma
+/// fixed either way (ravif has no other subsampling — see the module doc),
+/// `ColorModel::YCbCr` must beat `ColorModel::RGB` on file size at every
+/// quality this encoder actually ships (30, 50, 80), at the same speed
+/// `encode_avif_opts` uses for `AvifOptions::default()`'s `effort: 4`.
+/// Encodes with both models directly (bypassing `encode_avif_opts`, which —
+/// after the fix — only ever reaches `YCbCr`) so this test still means
+/// something if that function's own default ever changes again.
+#[test]
+fn ycbcr_beats_rgb_on_size_at_every_quality() {
+    let (w, h) = (64usize, 64usize);
+    let data = photographic(w as u32, h as u32);
+    let pixels: Vec<RGB8> = data
+        .chunks_exact(3)
+        .map(|p| RGB8::new(p[0], p[1], p[2]))
+        .collect();
+    let speed = avif_speed_for(4); // `AvifOptions::default()`'s effort.
+    let encode = |model: ColorModel, quality: f32| -> usize {
+        Encoder::new()
+            .with_quality(quality)
+            .with_alpha_quality(quality)
+            .with_speed(speed)
+            .with_bit_depth(BitDepth::Eight)
+            .with_internal_color_model(model)
+            .encode_rgb(Img::new(pixels.as_slice(), w, h))
+            .unwrap()
+            .avif_file
+            .len()
+    };
+    // Measured on this fixture: q30 410→397 B (-3%), q50 838→584 B (-30%),
+    // q80 1760→1122 B (-36%) — see the module doc and the closing-pass
+    // report for the corresponding PSNR costs.
+    for quality in [30.0f32, 50.0, 80.0] {
+        let rgb_len = encode(ColorModel::RGB, quality);
+        let ycbcr_len = encode(ColorModel::YCbCr, quality);
+        assert!(
+            ycbcr_len < rgb_len,
+            "quality {quality}: YCbCr ({ycbcr_len} B) did not beat RGB ({rgb_len} B)"
+        );
+    }
+}
+
+/// The PSNR half of the same trade `ycbcr_beats_rgb_on_size_at_every_quality`
+/// measures for size: `ColorModel::YCbCr` must not cost more than 1 dB
+/// against the source at any of the three qualities this encoder ships,
+/// which is the fidelity price for the size win above.
+#[test]
+fn ycbcr_psnr_cost_versus_rgb_stays_under_one_db() {
+    fn psnr(a: &[u8], b: &[u8]) -> f64 {
+        let n = a.len().min(b.len());
+        let mse: f64 = (0..n)
+            .map(|i| {
+                let d = f64::from(a[i]) - f64::from(b[i]);
+                d * d
+            })
+            .sum::<f64>()
+            / n as f64;
+        if mse == 0.0 {
+            f64::INFINITY
+        } else {
+            10.0 * (255.0 * 255.0 / mse).log10()
+        }
+    }
+
+    let (w, h) = (64usize, 64usize);
+    let data = photographic(w as u32, h as u32);
+    let pixels: Vec<RGB8> = data
+        .chunks_exact(3)
+        .map(|p| RGB8::new(p[0], p[1], p[2]))
+        .collect();
+    let speed = avif_speed_for(4);
+    let encode_and_decode = |model: ColorModel, quality: f32| -> f64 {
+        let bytes = Encoder::new()
+            .with_quality(quality)
+            .with_alpha_quality(quality)
+            .with_speed(speed)
+            .with_bit_depth(BitDepth::Eight)
+            .with_internal_color_model(model)
+            .encode_rgb(Img::new(pixels.as_slice(), w, h))
+            .unwrap()
+            .avif_file;
+        let decoded = crate::avif_decode::decode_avif(&bytes).unwrap();
+        psnr(&decoded.data, &data)
+    };
+    // Measured on this fixture: q30 costs 0.26 dB (28.93→28.67), q50 and q80
+    // are actually FREE — YCbCr's decorrelation wins on fidelity too (q50
+    // 30.02→30.11, q80 34.09→34.86) — see the module doc and the
+    // closing-pass report.
+    for quality in [30.0f32, 50.0, 80.0] {
+        let rgb_db = encode_and_decode(ColorModel::RGB, quality);
+        let ycbcr_db = encode_and_decode(ColorModel::YCbCr, quality);
+        let cost = rgb_db - ycbcr_db;
+        assert!(
+            cost < 1.0,
+            "quality {quality}: YCbCr cost {cost:.2} dB against RGB ({rgb_db:.2} vs {ycbcr_db:.2})"
+        );
+    }
+}
+
 #[test]
 fn avif_speed_for_pins_effort_to_speed() {
     // sharp effort 0 (fastest) ..= 9 (slowest) -> rav1e speed 10 ..= 1.
