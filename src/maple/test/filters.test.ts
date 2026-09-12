@@ -211,9 +211,9 @@ describe('Filters', () => {
   });
 
   it('rejects a kernel whose length disagrees with its dimensions', () => {
-    expect(() =>
-      maple(DUMMY_INPUT).convolve({ width: 3, height: 3, kernel: [1, 2, 3] }),
-    ).toThrow(/9 values/);
+    expect(() => maple(DUMMY_INPUT).convolve({ width: 3, height: 3, kernel: [1, 2, 3] })).toThrow(
+      /9 values/,
+    );
   });
 
   it('rejects NaN and Infinity by name, which JSON would turn into null', () => {
