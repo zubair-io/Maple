@@ -49,6 +49,27 @@ fn png_phys_density_converts_metres_to_dpi() {
 }
 
 #[test]
+fn a_png_with_no_phys_chunk_reports_the_libvips_default() {
+    // Measured: sharp reports 72 for a PNG carrying no `pHYs` at all —
+    // which is every PNG this crate's own encoder writes unless a density
+    // was asked for (#3507 final fix wave, item 7).
+    let bytes = png_fixture_raw(&[]);
+    assert_eq!(read_sidecars(&bytes).density, Some(72.0));
+}
+
+#[test]
+fn a_unitless_phys_chunk_is_read_as_pixels_per_millimetre() {
+    // Unit 0 means "aspect ratio, no physical unit", and libvips reads the
+    // X value as px/mm anyway — measured: a 3:1 unitless `pHYs` reads back
+    // through sharp as 76, which is 3 × 25.4 rounded.
+    let mut payload = 3u32.to_be_bytes().to_vec();
+    payload.extend_from_slice(&1u32.to_be_bytes());
+    payload.push(0); // unit specifier: unknown
+    let bytes = png_fixture_raw(&[(png::chunk::pHYs, payload)]);
+    assert_eq!(read_sidecars(&bytes).density, Some(76.0));
+}
+
+#[test]
 fn the_libvips_default_png_density_is_suppressed_like_sharp() {
     // Every sharp-written PNG carries `pHYs` = 1000 px/m, which is libvips'
     // own 1 px/mm default and exactly 25.4 dpi. sharp reports no density

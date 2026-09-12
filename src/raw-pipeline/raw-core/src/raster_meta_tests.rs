@@ -233,7 +233,16 @@ pub(super) fn jpeg_with_jfif_density(units: u8, density: u16) -> Vec<u8> {
 fn a_container_with_no_metadata_reports_none() {
     let img = ramp();
     let bytes = crate::png::encode(img.width, img.height, &img.data).unwrap();
-    assert_eq!(read_sidecars(&bytes), RasterSidecars::default());
+    assert_eq!(
+        read_sidecars(&bytes),
+        RasterSidecars {
+            // A PNG with no `pHYs` is 72 dpi, libvips' own default for the
+            // container (#3507 final fix wave, item 7) — every other field
+            // is genuinely absent.
+            density: Some(72.0),
+            ..Default::default()
+        }
+    );
 }
 
 #[test]
@@ -250,15 +259,13 @@ fn garbage_never_panics_and_reports_no_blocks() {
             (None, None, None),
             "no block may be invented from {input:?}"
         );
-        // `density` is the exception: a JPEG that states no resolution is
-        // 72 dpi by libvips' own default (#3507 final fix wave, item 7),
-        // and the two-byte stub above is a JPEG as far as its magic goes.
-        // Nothing reaches `metadata()` this way — a file this damaged
-        // fails the dimension probe first.
-        assert_eq!(
-            found.density,
-            input.starts_with(&[0xFF, 0xD8]).then_some(72.0)
-        );
+        // `density` is the exception: a JPEG or PNG that states no
+        // resolution is 72 dpi by libvips' own default (#3507 final fix
+        // wave, item 7), and the stubs above are a JPEG and a PNG as far
+        // as their magic goes. Nothing reaches `metadata()` this way — a
+        // file this damaged fails the dimension probe first.
+        let has_default = input.starts_with(&[0xFF, 0xD8]) || input.starts_with(b"\x89PNG");
+        assert_eq!(found.density, has_default.then_some(72.0));
     }
 }
 
