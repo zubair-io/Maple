@@ -68,11 +68,13 @@
 //!   — libvips' `hist_find_ndim` bin edges, NOT a plain `v >> 4` shift,
 //!   which disagreed on 15 of 256 input values (every multiple of 16,
 //!   including `128 -> bin 7`, not the `8 -> bin 8` a `>> 4` shift would
-//!   give); (2) ties are broken by keeping the FIRST (lowest) maximum bin
-//!   index, matching libvips' `maxpos()`, not the last one a naive
-//!   `max_by_key` returns. Confirmed against `stats.cc`'s
-//!   `hist_find_ndim(bins: 16)` + `maxpos()`, and against real sharp output
-//!   on the 8x8 fixture (`{r:200,g:24,b:24}`, matched exactly).
+//!   give); (2) ties are broken by keeping the first maximum in libvips'
+//!   own scan order over the `hist_find_ndim` image — green down the rows,
+//!   then red across the columns, then blue in the bands — not the lowest
+//!   red-major bin index the final fix wave found here, and not the last
+//!   one a naive `max_by_key` returns. See `dominant_of` for the four
+//!   measured tie fixtures that pin that ordering, and for the earlier
+//!   claim they disproved.
 //!
 //! `greyscale`, `convolve` and `blur` are all real `RasterImage` methods
 //! elsewhere in the #3507 epic (colour-ops lane #3503, filters lane #3504),
@@ -271,6 +273,32 @@ fn dominant_bin(v: u8) -> usize {
 }
 
 /// Most populated cell of a 16x16x16 RGB histogram, reported as its centre.
+///
+/// Ties are broken the way libvips breaks them, which is not by the lowest
+/// red bin. sharp builds this histogram with `vips_hist_find_ndim`, whose
+/// output is one `bins`×`bins` image with `bins` bands — red across the
+/// columns, green down the rows, blue in the bands — then takes
+/// `maxpos()`, which scans that image in memory order: rows outermost,
+/// then columns, then bands. So the first maximum in scan order is the one
+/// with the lowest GREEN bin, then the lowest red, then the lowest blue.
+///
+/// Measured on sharp 0.34.5 with four hand-built tie fixtures, each a
+/// 1-pixel-per-bin image so every cell ties at a count of 1 (#3507 final
+/// fix wave, item 10):
+///
+/// | tied cells (r,g,b) | sharp picks |
+/// |---|---|
+/// | (1,14,6) and (8,0,7) | (8,0,7) — lowest green |
+/// | (3,5,9) and (3,5,2) | (3,5,2) — lowest blue |
+/// | (9,7,0) and (2,7,0) | (2,7,0) — lowest red |
+/// | (0,3,15), (5,1,1), (15,1,0) | (5,1,1) — lowest green, then red |
+///
+/// The last one is what separates this ordering from every other: (15,1,0)
+/// has the lowest blue and (0,3,15) the lowest red, and neither wins. The
+/// earlier claim here — "the FIRST (lowest) maximum bin index, matching
+/// libvips' `maxpos()`" — scanned red-major and picked (1,14,6) and
+/// (0,3,15) for those two cases, which is what the review measured
+/// diverging from sharp on `noise_rgba.png`.
 fn dominant_of(raster: &RasterImage) -> [u8; 3] {
     let c = raster.channels as usize;
     let mut bins = vec![0u32; 16 * 16 * 16];
@@ -278,25 +306,29 @@ fn dominant_of(raster: &RasterImage) -> [u8; 3] {
         let cell = [0, 1, 2].map(|i| dominant_bin(px[i]));
         bins[(cell[0] << 8) | (cell[1] << 4) | cell[2]] += 1;
     }
-    // First (lowest-index) maximum, matching libvips' `maxpos()` — a
-    // strict `>` only replaces the running best on a new high, so a tie
-    // keeps the earlier, lower index rather than the later one a
-    // `max_by_key` scan would return.
-    let (best, _) =
-        bins.iter()
-            .enumerate()
-            .fold((0usize, 0u32), |(best_i, best_count), (i, &count)| {
+    // Green outermost, then red, then blue — libvips' own scan order (see
+    // the doc above). A strict `>` only replaces the running best on a new
+    // high, so the earliest cell in that order wins a tie.
+    let ((red, green, blue), _) = (0..16usize)
+        .flat_map(|green| {
+            (0..16usize).flat_map(move |red| (0..16usize).map(move |blue| (red, green, blue)))
+        })
+        .fold(
+            ((0, 0, 0), 0u32),
+            |(best, best_count), (red, green, blue)| {
+                let count = bins[(red << 8) | (green << 4) | blue];
                 if count > best_count {
-                    (i, count)
+                    ((red, green, blue), count)
                 } else {
-                    (best_i, best_count)
+                    (best, best_count)
                 }
-            });
-    // Cell centre: the low nibble is 8, so shift the index back and add it.
+            },
+        );
+    // Cell centre: the low nibble is 8, so shift the bin up and add it.
     [
-        (((best >> 8) & 0xF) << 4) as u8 + 8,
-        (((best >> 4) & 0xF) << 4) as u8 + 8,
-        ((best & 0xF) << 4) as u8 + 8,
+        (red << 4) as u8 + 8,
+        (green << 4) as u8 + 8,
+        (blue << 4) as u8 + 8,
     ]
 }
 
