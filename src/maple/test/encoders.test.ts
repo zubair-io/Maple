@@ -319,6 +319,57 @@ describe('Encoder options', () => {
     });
   });
 
+  // Out-of-range numerics were variously clamped (quality 0 encoded at 1),
+  // silently ignored (compressionLevel 42 behaved as 6, colours 999 did
+  // nothing) or reported by wire position ("invalid value: integer 500,
+  // expected u8 at line 1 column 186"). They now throw in sharp's own
+  // wording — synchronous, like every other option rejection here.
+  it('range-checks numeric options in sharp’s own wording', async () => {
+    const input = await src();
+    const cases: Array<[() => unknown, RegExp]> = [
+      [
+        () => maple(input).jpeg({ quality: 0 }),
+        /Expected integer between 1 and 100 for quality but received 0/,
+      ],
+      [
+        () => maple(input).jpeg({ quality: 500 }),
+        /Expected integer between 1 and 100 for quality but received 500/,
+      ],
+      [
+        () => maple(input).png({ compressionLevel: 42 }),
+        /Expected integer between 0 and 9 for compressionLevel but received 42/,
+      ],
+      [
+        () => maple(input).png({ colours: 999 }),
+        /Expected integer between 2 and 256 for colours but received 999/,
+      ],
+      [
+        () => maple(input).png({ colors: 1 }),
+        /Expected integer between 2 and 256 for colours but received 1/,
+      ],
+      [
+        () => maple(input).avif({ effort: 99 }),
+        /Expected integer between 0 and 9 for effort but received 99/,
+      ],
+      [
+        () => maple(input).avif({ quality: 0 }),
+        /Expected integer between 1 and 100 for quality but received 0/,
+      ],
+      [
+        () => maple(input).png({ compressionLevel: 3.5 }),
+        /Expected integer between 0 and 9 for compressionLevel but received 3.5/,
+      ],
+    ];
+    for (const [call, message] of cases) {
+      expect(call).toThrow(message);
+    }
+    // The ends of every range still pass.
+    expect(() => maple(input).jpeg({ quality: 1 })).not.toThrow();
+    expect(() => maple(input).jpeg({ quality: 100 })).not.toThrow();
+    expect(() => maple(input).png({ compressionLevel: 0, colours: 2 })).not.toThrow();
+    expect(() => maple(input).avif({ effort: 9, quality: 100 })).not.toThrow();
+  });
+
   it('no longer rejects avif({ tune }) — tune is not a real sharp option', async () => {
     // #3506 F6: `tune` was never a sharp option (`avif()` delegates to
     // `heif()`, whose documented surface has no `tune` field at all); F5
