@@ -257,9 +257,14 @@ fn metadata_reads_exif_and_icc_from_a_jpeg() {
     assert_eq!(meta["channels"], 3);
     assert_eq!(meta["hasAlpha"], false);
     assert_eq!(meta["hasProfile"], true);
-    // `read_sidecars` strips the `Exif\0\0` intro, so the block that comes
-    // back (and gets base64-encoded here) is exactly `EXIF_TIFF`.
-    assert_eq!(meta["exif"].as_str(), Some(base64(EXIF_TIFF).as_str()));
+    // `read_sidecars` canonicalises to the bare TIFF header internally, but
+    // `metadata()` hands the block back in the form its container stored it
+    // — introduced, for a JPEG — because that is the form sharp returns
+    // (#3507 final fix wave, item 3; measured 186 bytes starting
+    // `Exif\0\0II*` against sharp 0.34.5's 186 on the same input, where
+    // Maple used to return 180 starting `II*`).
+    let stored = [b"Exif\0\0".as_slice(), EXIF_TIFF].concat();
+    assert_eq!(meta["exif"].as_str(), Some(base64(&stored).as_str()));
 }
 
 #[test]

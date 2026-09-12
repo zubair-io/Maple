@@ -228,7 +228,12 @@ fn parse_iinf(iinf: &[u8]) -> Vec<(u16, [u8; 4])> {
 /// per item — which is what every AVIF muxer in practice writes for a
 /// metadata item. A version-2 `iloc` (32-bit item_ID, defined in the wider
 /// ISO/IEC 14496-12 spec) degrades to "no items" here, the same way
-/// `parse_iinf`'s version ≥2 does. Returns `(item_id, offset, length)`.
+/// `parse_iinf`'s version ≥2 does. Returns `(item_id, offset, length)`,
+/// where the offset is the item's absolute file position: `base_offset +
+/// extent_offset`, since a writer is free to put the whole location in
+/// either field (libheif/libvips and libavif use `base_offset`; the
+/// `avif-serialize` encoder behind this crate's own AVIF output uses
+/// `extent_offset`).
 fn parse_iloc(payload: &[u8]) -> Vec<(u16, usize, usize)> {
     let Some(&version) = payload.first() else {
         return Vec::new();
@@ -271,11 +276,17 @@ fn parse_iloc(payload: &[u8]) -> Vec<(u16, usize, usize)> {
             break;
         };
         // data_reference_index(2) + base_offset(base_size) + extent_count(2)
-        let Some(extents_at) = after_id
-            .checked_add(2)
-            .and_then(|v| v.checked_add(base_size))
-            .and_then(|v| v.checked_add(2))
-        else {
+        let Some(base_at) = after_id.checked_add(2) else {
+            break;
+        };
+        let Some(base_end) = base_at.checked_add(base_size) else {
+            break;
+        };
+        let Some(base_bytes) = payload.get(base_at..base_end) else {
+            break;
+        };
+        let base_offset = read_be(base_bytes);
+        let Some(extents_at) = base_end.checked_add(2) else {
             break;
         };
         let Some(extent_end) = extents_at
@@ -288,8 +299,19 @@ fn parse_iloc(payload: &[u8]) -> Vec<(u16, usize, usize)> {
         let Some(extent) = payload.get(extents_at..extent_end) else {
             break;
         };
-        let offset = read_be(&extent[index_size..index_size + offset_size]);
+        let extent_offset = read_be(&extent[index_size..index_size + offset_size]);
         let length = read_be(&extent[index_size + offset_size..]);
+        // The item's bytes start at `base_offset + extent_offset`, not at
+        // the extent offset alone: libheif/libvips and libavif both write
+        // the real file position in `base_offset` and leave the extent
+        // offset at 0, so ignoring it made every externally-produced AVIF's
+        // `Exif`/XMP item read from the top of the file instead (#3507
+        // final fix wave, item 2 — measured: a sharp-written AVIF's `exif`
+        // came back as its own `ftypavif...` header). Checked, since both
+        // halves are attacker-controlled 64-bit-capable fields.
+        let Some(offset) = base_offset.checked_add(extent_offset) else {
+            break;
+        };
         out.push((id, offset, length));
         at = extent_end;
     }

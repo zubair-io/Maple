@@ -82,7 +82,10 @@ fn metadata_value(bytes: &[u8]) -> Result<Value> {
         "density": sidecars.density,
         "size": bytes.len(),
         "icc": sidecars.icc.as_deref().map(base64),
-        "exif": sidecars.exif.as_deref().map(base64),
+        // Handed back in the form the container stored it, introducer and
+        // all, because that is what sharp returns (#3507 final fix wave,
+        // item 3 — see `RasterSidecars::exif_as_stored`).
+        "exif": sidecars.exif_as_stored().as_deref().map(base64),
         "xmp": sidecars.xmp.as_deref().map(base64),
     }))
 }
