@@ -581,6 +581,44 @@ export async function ensureIndexes(): Promise<void> {
     }
   }
 
+  // Reset describe rows dead-lettered on a TRUNCATED generation (#3561).
+  //
+  // Output is grammar-constrained by `format`, so the model cannot produce
+  // malformed JSON — these rows held a fragment of a generation the server
+  // cut short, and `vision-parse[not-json]: ... Unterminated string` named
+  // the parser that choked on it rather than the provider fault behind it.
+  // 118 assets on the reference deploy, accumulating at a steady ~4/hour
+  // alongside timeouts and runner crashes from the same unstable host.
+  //
+  // `describe-providers/ollama.ts` now rejects an unfinished generation at
+  // the provider, so the stored reason is stale and re-attempting is the
+  // right move. Narrow on purpose: only the `Unterminated string` class,
+  // not every `not-json` — a future genuinely-unparseable body should stay
+  // dead-lettered for triage rather than loop. One-shot.
+  if (!(await migrationApplied(db, 'reset-describe-dead-truncated-2026-09-11'))) {
+    try {
+      const res = await db.collection('assets').updateMany(
+        {
+          'stages.describe.dead': true,
+          'stages.describe.last_error': {
+            $regex: 'vision-parse\\[not-json\\].*Unterminated string',
+          },
+        },
+        { $set: RESET_DESCRIBE_DEAD_SET },
+      );
+      await recordMigration(db, 'reset-describe-dead-truncated-2026-09-11', res.modifiedCount);
+      log.info(
+        { rows: res.modifiedCount },
+        'reset describe-stage dead rows truncated mid-generation',
+      );
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        'describe truncated-generation dead-reset migration skipped',
+      );
+    }
+  }
+
   // folders: path is unique
   await db.collection('folders').createIndex({ path: 1 }, { unique: true });
 

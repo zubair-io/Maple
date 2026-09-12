@@ -27,6 +27,7 @@ export type MigrationId =
   | 'reset-describe-dead-vision-parse-2026-05-20'
   | 'reset-describe-dead-vision-parse-2026-05-21'
   | 'reset-describe-dead-vision-parse-2026-05-22'
+  | 'reset-describe-dead-truncated-2026-09-11'
   | 'fileinfo-backfill-2026-05-20'
   | 'merge-duplicate-assets-2026-05-21'
   | 'drop-abs-path-2026-05-21'

@@ -176,22 +176,60 @@ function extractGeneratedText(
   const thinkingText = typeof parsed.thinking === 'string' ? parsed.thinking.trim() : '';
   const text = responseText.length > 0 ? responseText : thinkingText;
   if (text.length === 0) {
-    const detail = emptyResponseDetail(parsed, httpStatus, requestedModel, thinkingText.length);
+    const detail = generationDetail(parsed, httpStatus, requestedModel, thinkingText.length);
     throw new RemoteError(`Ollama returned empty response (${detail})`, true, httpStatus);
+  }
+  if (stoppedEarly(parsed)) {
+    const detail = generationDetail(parsed, httpStatus, requestedModel, thinkingText.length);
+    throw new RemoteError(
+      `Ollama stopped generating before it finished (${detail})`,
+      true,
+      httpStatus,
+    );
   }
   return text;
 }
 
 /**
- * Operator-facing diagnostic detail for an empty-response failure. The
- * returned string lands verbatim in `stages.describe.last_error` — all the
- * operator sees in the Workers dead list — so it must identify the provider
- * state (which model, did generation finish, why, how many tokens went
- * where) without including prompt or image content. `thinking_chars`
- * distinguishes a thinking-misroute (large) from a genuinely empty
- * generation (0).
+ * Did the server stop generating before the model was done?
+ *
+ * The describe stage always constrains output with a `format` JSON schema,
+ * which Ollama enforces at decode time — so the model CANNOT emit
+ * malformed JSON. A body that fails to parse therefore never means "the
+ * model produced garbage"; it means generation was cut off partway and we
+ * are holding a fragment. Left unchecked the fragment reaches
+ * `parseVisionJson`, which can only report `vision-parse[not-json]:
+ * Unterminated string` — naming the parser instead of the provider fault
+ * that actually happened, and burying the one field that explains it.
+ *
+ * Measured on the deploy (#3561): 118 dead-lettered assets, every one this
+ * failure, at a steady ~4/hour across 30 hours with responses as short as
+ * 155 bytes. Far too early for a context overflow (the v7 prompt leaves
+ * ~2500 tokens of headroom), and alongside 28 timeouts and 10 `model
+ * runner has unexpectedly stopped` at similar rates — the same host
+ * instability as #2734. Retryable, because the next attempt almost always
+ * completes.
+ *
+ * Conservative on purpose: only an explicit truncation signal counts.
+ * `done_reason` is absent on older Ollama builds, and reading absence as
+ * truncation would fail every describe on those deploys.
  */
-function emptyResponseDetail(
+function stoppedEarly(parsed: OllamaGenerateResponse): boolean {
+  if (parsed.done === false) return true;
+  return parsed.done_reason === 'length';
+}
+
+/**
+ * Operator-facing diagnostic detail for a failed generation — empty or
+ * truncated. The returned string lands verbatim in
+ * `stages.describe.last_error` — all the operator sees in the Workers dead
+ * list — so it must identify the provider state (which model, did
+ * generation finish, why, how many tokens went where) without including
+ * prompt or image content. `thinking_chars` distinguishes a
+ * thinking-misroute (large) from a genuinely empty generation (0);
+ * `done_reason` is what separates a truncation from a clean stop.
+ */
+function generationDetail(
   parsed: OllamaGenerateResponse,
   httpStatus: number,
   requestedModel: string,
