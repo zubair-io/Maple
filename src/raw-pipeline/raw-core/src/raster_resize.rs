@@ -157,16 +157,15 @@ fn resolve_shrink(src: &RasterImage, options: &ResizeOptions) -> (f64, f64) {
 ///    an exact 8.5 where sharp answers 9.
 ///
 /// KNOWN GAP: at heavy downscales this is still one pixel out on the
-/// derived axis, because libvips does not resize in one step — it splits
-/// the scale into an integer `vips_shrink` plus a residual `vips_reduce`
-/// and rounds at each stage, which no single closed form reproduces. Over
-/// a 2560-case sweep of sources, targets, fits and clamps, 11 distinct
-/// shapes diverge, every one of them at a shrink factor of 6.35x or more
-/// and every one of them by exactly one pixel low in sharp (e.g. 400x200
-/// into `inside` 13x13: sharp 13x6, this 13x7). The same sweep scored 403
-/// mismatches before this file's #3502 work. Widening the pin further
-/// means porting `vips_resize`'s staging, which is a separate piece of
-/// work — see `src/maple/README.md` § sharp parity.
+/// derived axis, in either direction, because libvips does not resize in
+/// one step — it splits the scale into an integer `vips_shrink` plus a
+/// residual `vips_reduce` and rounds at each stage, which no single closed
+/// form reproduces. Measured against sharp 0.34.5 / libvips 8.17.3 on a
+/// 400x200 source: an `inside` 19x19 box gives 19x10 in sharp and 19x9
+/// here (one pixel low), while a 31x31 box gives 31x15 in sharp and 31x16
+/// here (one pixel high). Widening the pin further means porting
+/// `vips_resize`'s staging, which is a separate piece of work — see
+/// `src/maple/README.md` § sharp parity.
 fn scaled_dim(dim: u32, shrink: f64) -> u32 {
     ((dim as f64 * (1.0 / shrink)) + 0.5).floor().max(1.0) as u32
 }
