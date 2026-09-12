@@ -43,6 +43,13 @@ test-fixtures/*
 # by tools/check-perf-ratchet.py. No RAWs involved.
 !test-fixtures/perf/
 !test-fixtures/perf/**
+# Exception: the non-interleaved multi-scan baseline JPEG regression fixture
+# (#3596) IS committed — a single 769-byte JPEG, encoded with
+# `cjpeg -optimize -scans` to reproduce the exact one-Ns=1-scan-per-component
+# structure `jpeg-encoder`'s optimised-Huffman + 4:2:0 defaults write. Decoded
+# directly by raw-core's raster_jpeg tests; no RAWs involved.
+!test-fixtures/jpeg-regressions/
+!test-fixtures/jpeg-regressions/**
 # Exception: the film-look self-consistency goldens (epic #2683,
 # src/scripts/test_film_looks.sh) ARE committed — six 1024px-long-edge PNGs
 # (~1MB each), downscaled from the full-res candidate before being written
