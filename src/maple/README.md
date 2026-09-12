@@ -117,8 +117,8 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 
 ## sharp parity
 
-| sharp method                    | Maple | Notes                                                                                                                                                                                          |
-| :------------------------------ | :---- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sharp method                         | Maple | Notes                                                                                                                                                                                          |
+| :------------------------------------ | :---- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `extract()`                     | ✅    | `{ left, top, width, height }`                                                                                                                                                                 |
 | `extend()`                      | ✅    | background only — `extendWith: 'copy' \| 'repeat' \| 'mirror'` throws by name                                                                                                                  |
 | `rotate(angle)`                 | ✅    | 90/180/270 exact; other angles bilinear into the rotated box                                                                                                                                   |
@@ -130,6 +130,14 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `flatten()`                     | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                           |
 | `ensureAlpha()`                 | ✅    |                                                                                                                                                                                                 |
 | `removeAlpha()`                 | ✅    |                                                                                                                                                                                                 |
+| `greyscale()` / `grayscale()`        | ✅    | Rec.709 luma reduced in linear light (de-gamma, weight, re-gamma), three identical channels |
+| `gamma()`                            | ✅    | an assembly-time pair around the `resize` op: `gamma` itself before it, `1/gammaOut` after  |
+| `linear()`                           | ✅    | scalar or per-channel `a` and `b`, on the encoded samples                                   |
+| `negate()`                           | ✅    | `{ alpha: false }` spares the alpha channel                                                 |
+| `normalise()` / `normalize()`        | ✅    | percentile stretch of CIELAB L\*, chroma preserved                                          |
+| `modulate()`                         | ✅    | brightness/lightness on L\*, saturation on C\*, hue rotation, in CIELCh                     |
+| `tint()`                             | ✅    | reduces to the same linear-light luma as `greyscale`, then takes a\*/b\* from the tint      |
+| `toColourspace()` / `toColorspace()` | ✅    | `srgb` and `display-p3`; the output carries the matching ICC profile                        |
 | `resize({ fit })`               | ✅\*  | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                       |
 | `resize({ position })`          | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                             |
 | `resize({ kernel })`            | ✅    | `nearest`, `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3`; `filter` is an alias; `mks2013`/`mks2021` throw by name                                                                      |
@@ -149,6 +157,23 @@ libvips 8.17.3 on a 400x200 source, an `inside` 19x19 box gives 19x10 in
 sharp and 19x9 in Maple, while a 31x31 box gives 31x15 in sharp and 31x16
 in Maple. Closing it means porting `vips_resize`'s staging rather than
 tuning a rounding mode.
+
+`gamma()` and `linear()` operate on the encoded 8-bit samples, matching what
+libvips does. `gamma`'s job is to move the **resize** into a different
+encoding: the `gamma`/`gammaOut` pair is resolved once the full op list is
+known — spliced around the first `resize` op in the final chain, or appended
+if there is none — so it lands correctly regardless of whether `.gamma()` is
+called before or after `.resize()`. The wire exponents are not sharp's own
+`1/gamma`/`gammaOut`: our recipe's `gamma` op is a plain power law rather
+than libvips' reciprocal `vips_gamma`, so matching sharp's net effect means
+sending `gamma` itself as the pre-resize exponent and `1/gammaOut` as the
+post-resize one. `greyscale`/`grayscale` and `tint` both reduce through that
+same linear-light luma rather than CIELAB lightness; `modulate` and
+`normalise` go through real CIELAB/CIELCh math with a D65 white; and
+`toColourspace` rotates primaries in linear light from wherever the image's
+primaries currently are — not always from sRGB — so chaining
+`.toColourspace('display-p3').toColourspace('srgb')` round-trips the pixels
+instead of rotating twice in the same direction.
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
