@@ -87,6 +87,9 @@ path = "tests/pano_ffi_gates.rs"
 required-features = ["pano"]
 
 [dev-dependencies]
+# Byte-identity pins for the Tier-1 thumbnail renders (#3502) hash the
+# encoded output; blake3 is already in the workspace via raw-core.
+blake3 = "1"
 # Enable raw-core's synthetic-DNG writer for thumbnail tests that need a
 # RAW with no embedded JPEG preview (exercises the rc=8 fall-through).
 raw-core = { path = "../raw-core", features = ["test-support"] }
