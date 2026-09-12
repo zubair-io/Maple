@@ -51,12 +51,22 @@ fn decode_layer(layer: &Layer, aux: &[u8]) -> Result<RasterImage> {
     }
 }
 
-fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
+/// Apply one op, threading the primaries the image is ACTUALLY in right
+/// now alongside it. Every op but `ToColourspace` passes `primaries`
+/// through unchanged — only `apply_colour_op`'s `ToColourspace` arm updates
+/// it, using the incoming value as `from` rather than an assumed sRGB (see
+/// its doc comment).
+fn apply_op(
+    image: RasterImage,
+    primaries: TargetPrimaries,
+    op: &Op,
+    aux: &[u8],
+) -> Result<(RasterImage, TargetPrimaries)> {
     match op {
         Op::AutoOrient {} => {
             let mut oriented = image;
             oriented.auto_orient();
-            Ok(oriented)
+            Ok((oriented, primaries))
         }
         Op::Resize {
             width,
@@ -67,26 +77,31 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
             without_enlargement,
             without_reduction,
             background,
-        } => apply_resize_op(
-            &image,
-            &ResizeOpArgs {
-                width: *width,
-                height: *height,
-                fit,
-                position,
-                kernel,
-                without_enlargement: *without_enlargement,
-                without_reduction: *without_reduction,
-                background: *background,
-            },
-        ),
-        Op::Flatten { background } => {
-            Ok(image.flatten([background[0], background[1], background[2]]))
-        }
-        Op::EnsureAlpha { alpha } => {
-            Ok(image.ensure_alpha((alpha.clamp(0.0, 1.0) * 255.0).round() as u8))
-        }
-        Op::RemoveAlpha {} => Ok(image.remove_alpha()),
+        } => Ok((
+            apply_resize_op(
+                &image,
+                &ResizeOpArgs {
+                    width: *width,
+                    height: *height,
+                    fit,
+                    position,
+                    kernel,
+                    without_enlargement: *without_enlargement,
+                    without_reduction: *without_reduction,
+                    background: *background,
+                },
+            )?,
+            primaries,
+        )),
+        Op::Flatten { background } => Ok((
+            image.flatten([background[0], background[1], background[2]]),
+            primaries,
+        )),
+        Op::EnsureAlpha { alpha } => Ok((
+            image.ensure_alpha((alpha.clamp(0.0, 1.0) * 255.0).round() as u8),
+            primaries,
+        )),
+        Op::RemoveAlpha {} => Ok((image.remove_alpha(), primaries)),
         Op::Composite { layers } => {
             let decoded = layers
                 .iter()
@@ -108,14 +123,14 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            composite(&image, &specs)
+            Ok((composite(&image, &specs)?, primaries))
         }
         Op::Extract { .. }
         | Op::Extend { .. }
         | Op::Rotate { .. }
         | Op::Flip {}
         | Op::Flop {}
-        | Op::Trim { .. } => apply_geometry_op(image, op),
+        | Op::Trim { .. } => Ok((apply_geometry_op(image, op)?, primaries)),
         Op::Greyscale {}
         | Op::Gamma { .. }
         | Op::Linear { .. }
@@ -123,7 +138,7 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
         | Op::Normalise { .. }
         | Op::Modulate { .. }
         | Op::Tint { .. }
-        | Op::ToColourspace { .. } => apply_colour_op(image, op),
+        | Op::ToColourspace { .. } => apply_colour_op(image, primaries, op),
     }
 }
 
@@ -175,10 +190,13 @@ fn encode(
 
 pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeResult> {
     let decoded = decode_input(recipe, input)?;
-    let processed = recipe
-        .ops
-        .iter()
-        .try_fold(decoded, |image, op| apply_op(image, op, aux))?;
+    // The decoder's output is sRGB; `apply_op` threads the ACTUAL current
+    // primaries alongside the image so a `ToColourspace` op rotates from
+    // where the pixels are, not from an assumed sRGB (#3503 fix-round-1).
+    let (processed, _primaries) = recipe.ops.iter().try_fold(
+        (decoded, TargetPrimaries::Srgb),
+        |(image, primaries), op| apply_op(image, primaries, op, aux),
+    )?;
     let (bytes, channels) = encode(&processed, recipe.output, output_primaries(recipe)?)?;
     Ok(RecipeResult {
         width: processed.width,

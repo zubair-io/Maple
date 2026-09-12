@@ -150,6 +150,32 @@ fn a_to_colourspace_op_changes_the_embedded_profile() {
 }
 
 #[test]
+fn to_colourspace_p3_then_srgb_round_trips_to_the_original_bytes() {
+    // #3503 fix-round-1, finding 3: the executor must track the primaries
+    // the image is ACTUALLY in and use that as `from` for the next
+    // `toColourspace`, not a hardcoded sRGB — otherwise this op pair
+    // applies the sRGB->P3 rotation twice instead of rotating back, and a
+    // round trip like this one would NOT return the original pixels.
+    let px = vec![255u8, 0, 0, 0, 200, 40, 40, 100, 100, 100, 30, 90];
+    let out = run(
+        r#"{"v":1,"input":{"kind":"raw","width":2,"height":2,"channels":3},
+            "ops":[{"op":"toColourspace","space":"display-p3"},
+                   {"op":"toColourspace","space":"srgb"}],
+            "output":{"format":"raw"}}"#,
+        &px,
+        &[],
+    );
+    for (got, want) in out.bytes.iter().zip(&px) {
+        assert!(
+            got.abs_diff(*want) <= 1,
+            "round trip drifted: got {:?}, want {:?}",
+            out.bytes,
+            px
+        );
+    }
+}
+
+#[test]
 fn an_unknown_colourspace_is_named() {
     let recipe = parse_recipe(
         r#"{"v":1,"input":{"kind":"raw","width":1,"height":1,"channels":3},
@@ -182,7 +208,12 @@ fn a_non_finite_gamma_exponent_is_named() {
     assert!(recipe.is_err());
 
     let img = RasterImage::new_rgb(1, 1, vec![10, 10, 10]);
-    let err = apply_colour_op(img, &Op::Gamma { exponent: f64::NAN }).unwrap_err();
+    let err = apply_colour_op(
+        img,
+        TargetPrimaries::Srgb,
+        &Op::Gamma { exponent: f64::NAN },
+    )
+    .unwrap_err();
     assert!(format!("{err}").contains("gamma exponent"), "got: {err}");
 }
 
@@ -191,6 +222,7 @@ fn non_finite_linear_coefficients_are_named() {
     let img = RasterImage::new_rgb(1, 1, vec![10, 10, 10]);
     let err = apply_colour_op(
         img,
+        TargetPrimaries::Srgb,
         &Op::Linear {
             a: [1.0, f64::INFINITY, 1.0],
             b: [0.0, 0.0, 0.0],
@@ -205,6 +237,7 @@ fn normalise_bounds_out_of_0_100_are_rejected() {
     let img = RasterImage::new_rgb(1, 1, vec![10, 10, 10]);
     let err = apply_colour_op(
         img,
+        TargetPrimaries::Srgb,
         &Op::Normalise {
             lower: -1.0,
             upper: 100.0,
@@ -219,6 +252,7 @@ fn normalise_lower_must_be_below_upper() {
     let img = RasterImage::new_rgb(1, 1, vec![10, 10, 10]);
     let err = apply_colour_op(
         img,
+        TargetPrimaries::Srgb,
         &Op::Normalise {
             lower: 50.0,
             upper: 50.0,
@@ -233,6 +267,7 @@ fn modulate_rejects_a_negative_brightness() {
     let img = RasterImage::new_rgb(1, 1, vec![10, 10, 10]);
     let err = apply_colour_op(
         img,
+        TargetPrimaries::Srgb,
         &Op::Modulate {
             brightness: -0.5,
             saturation: 1.0,
@@ -249,6 +284,7 @@ fn modulate_rejects_a_negative_saturation() {
     let img = RasterImage::new_rgb(1, 1, vec![10, 10, 10]);
     let err = apply_colour_op(
         img,
+        TargetPrimaries::Srgb,
         &Op::Modulate {
             brightness: 1.0,
             saturation: -0.5,
