@@ -190,6 +190,65 @@ fn every_output_variant_rejects_a_stray_key() {
     }
 }
 
+/// Out-of-range numerics must name the option and its range, the way sharp's
+/// own `is.invalidParameterError` does. The wire fields are `u16` — wider
+/// than the `u8` the encoders take — precisely so `quality: 500` reaches this
+/// check rather than producing serde's "invalid value: integer 500, expected
+/// u8 at line 1 column 186", which names neither the option nor a bound.
+#[test]
+fn out_of_range_numerics_are_named_with_their_range() {
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            r#"{"format":"jpeg","quality":0}"#,
+            "quality",
+            "between 1 and 100",
+        ),
+        (
+            r#"{"format":"jpeg","quality":500}"#,
+            "quality",
+            "between 1 and 100",
+        ),
+        (
+            r#"{"format":"png","compressionLevel":42}"#,
+            "compressionLevel",
+            "between 0 and 9",
+        ),
+        (
+            r#"{"format":"png","colours":999}"#,
+            "colours",
+            "between 2 and 256",
+        ),
+        (
+            r#"{"format":"png","colours":1}"#,
+            "colours",
+            "between 2 and 256",
+        ),
+    ];
+    for (body, field, range) in cases {
+        let recipe = parse_recipe(&output_json(body)).unwrap();
+        let err =
+            output_from_wire(&recipe.output).expect_err(&format!("{body} was silently accepted"));
+        let message = format!("{err}");
+        assert!(message.contains(field), "{body}: got {message}");
+        assert!(message.contains(range), "{body}: got {message}");
+    }
+}
+
+/// AVIF's two numerics live behind the feature gate, so they get their own
+/// case rather than sitting in the table above.
+#[cfg(feature = "avif")]
+#[test]
+fn out_of_range_avif_numerics_are_named() {
+    for (body, field) in [
+        (r#"{"format":"avif","effort":99}"#, "effort"),
+        (r#"{"format":"avif","quality":0}"#, "quality"),
+    ] {
+        let recipe = parse_recipe(&output_json(body)).unwrap();
+        let err = output_from_wire(&recipe.output).expect_err(&format!("{body} was accepted"));
+        assert!(format!("{err}").contains(field), "{body}: got {err}");
+    }
+}
+
 #[test]
 fn an_unsupported_jpeg_chroma_subsampling_is_named() {
     let r = parse_recipe(&output_json(

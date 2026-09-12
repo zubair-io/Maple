@@ -263,6 +263,54 @@ export function rejectUnsupported(format: string, options: Record<string, unknow
 }
 
 /**
+ * Range-check one numeric encoder option, throwing in sharp's own wording.
+ *
+ * sharp's `is.invalidParameterError` produces "Expected integer between 1 and
+ * 100 for quality but received 500 of type number", and a caller migrating
+ * off sharp should see the message they already know rather than Maple's
+ * serde error naming a JSON column. `undefined` passes (the option is simply
+ * absent); a non-integer fails, as it does in sharp.
+ */
+function checkIntegerRange(name: string, value: number | undefined, lo: number, hi: number): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Number.isInteger(value) || value < lo || value > hi) {
+    throw new Error(
+      `Expected integer between ${lo} and ${hi} for ${name} ` +
+        `but received ${value} of type ${typeof value}`,
+    );
+  }
+}
+
+/**
+ * Every numeric option each per-format encoder accepts, range-checked at call
+ * time. Ranges are sharp's, option for option (`lib/output.js`): JPEG/AVIF
+ * `quality` 1-100, PNG `compressionLevel` 0-9, PNG `colours`/`colors` 2-256,
+ * AVIF `effort` 0-9. WebP and TIFF have no numeric option left once
+ * `rejectUnsupported` has run, so they never call this. Before this, out-of-range values were variously clamped
+ * (`quality: 0` encoded at 1), silently ignored (`compressionLevel: 42`
+ * behaved as 6, `colours: 999` did nothing) or reported by wire position
+ * rather than by name (`quality: 500`).
+ *
+ * `dither`, `bitdepth` and the string-typed fields are validated raw-core
+ * side, where the error already names both the field and the value.
+ */
+export function checkOptionRanges(format: string, options: Record<string, unknown>): void {
+  const num = (key: string) => options[key] as number | undefined;
+  if (format === 'jpeg' || format === 'avif') {
+    checkIntegerRange('quality', num('quality'), 1, 100);
+  }
+  if (format === 'avif') {
+    checkIntegerRange('effort', num('effort'), 0, 9);
+  }
+  if (format === 'png') {
+    checkIntegerRange('compressionLevel', num('compressionLevel'), 0, 9);
+    checkIntegerRange('colours', num('colours') ?? num('colors'), 2, 256);
+  }
+}
+
+/**
  * Output object for the current output selection: the full per-format
  * object set by `.jpeg()`/`.png()`/`.webp()`/`.avif()`/`.tiff()` when one
  * was called, otherwise the Tier 1 `.toFormat()`/`.quality()`/`.format()`
