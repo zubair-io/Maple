@@ -131,9 +131,9 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `ensureAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                        |
 | `removeAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                        |
 | `blur()`                                           | ✅    | no argument = 3x3 box; a sigma = separable Gaussian. Byte-identical to sharp                                                                                                                                                                                                                                           |
-| `sharpen()`                                        | ✅¹   | argument-less kernel byte-identical; the `{sigma}` mask path within 2 levels (see below)                                                                                                                                                                                                                               |
+| `sharpen()`                                        | ✅    | argument-less kernel and the `{sigma}` Lab mask path both byte-identical                                                                                                                                                                                                                                               |
 | `median()`                                         | ✅    | integer window 1..1000, no wider than the image, every band. Byte-identical                                                                                                                                                                                                                                            |
-| `threshold()`                                      | ✅²   | literal-`true` `{ greyscale }` rule; linear-light luma; `0`/`false` is a no-op                                                                                                                                                                                                                                         |
+| `threshold()`                                      | ✅    | literal-`true` `{ greyscale }` rule; libvips' own luma; `0`/`false` is a no-op                                                                                                                                                                                                                                         |
 | `convolve()`                                       | ✅    | any kernel; integer `scale` (default kernel sum) and `offset`, non-integers rejected by name                                                                                                                                                                                                                           |
 | `greyscale()` / `grayscale()`                      | ✅    | Rec.709 luma reduced in linear light (de-gamma, weight, re-gamma), three identical channels                                                                                                                                                                                                                            |
 | `gamma()`                                          | ✅    | an assembly-time pair around the `resize` op: `gamma` itself before it, `1/gammaOut` after; residual ≤1 — a single-code artefact at input 255 for `gammaOut` 1/1.5 and 1/3, where libvips' own float chain returns 254 rather than 255                                                                                 |
@@ -193,19 +193,31 @@ interpretation name. Ported code calling `.toColourspace('display-p3')`
 therefore gets different — and actually tagged — pixels than it did under
 sharp.
 
-Every ✅ above is a measured maximum absolute per-sample difference against
-sharp 0.34.5 / libvips 8.17.3, raw pixels in and raw pixels out, on 32x32
-RGB noise and on a 32x32 RGBA fixture with a fully transparent quadrant, a
-128-alpha quadrant and an opaque half. `blur` at sigma 0.5, 1.5, 3 and 10,
-`blur()`, `median(3)`, `median(5)`, `threshold`, the argument-less
-`sharpen()` and `convolve` are **0** on both fixtures; `blur(1.5)` and a 5x5
-box `convolve` differ by 1 on one or two samples of the RGBA fixture.
+Every ✅ on the five filters means **byte-identical**: a measured maximum
+absolute per-sample difference of **0** against sharp 0.34.5 / libvips
+8.17.3, raw pixels in and raw pixels out. The cases measured are `blur` at
+sigma 0.5, 1.5, 3 and 10 plus the no-argument box, `median(3)` and
+`median(5)`, `threshold` at 100, 128 and 200, `convolve` with a 3x3 sharpen
+kernel, a 5x5 box and an all-`-1` kernel with no scale, and `sharpen` both
+argument-less and with `{sigma}` — each on 32x32 RGB noise, on a 32x32 RGBA
+fixture with a fully transparent quadrant, a 128-alpha quadrant and an
+opaque half, and on uniform-alpha RGBA at 255, 200, 128, 64, 16 and 3.
+Chains were measured too (`median(3).blur(1.5)`, `blur(1.5).sharpen()`,
+`blur(1.5).convolve(box)`, `threshold(128).blur(1.5)`), as were an 8x1
+double ramp where every pixel sits at a different partial alpha and an 8x4
+fixture that is half opaque and half fully transparent.
 
-¹ `sharpen({ sigma })` blurs `L*` through a CIELAB round trip and measures 1
-on RGB, 2 on partial alpha. ² `threshold`'s greyscale luma can disagree with
-libvips by one code, and a value one code either side of the threshold then
-flips a whole sample between 0 and 255 — 3 samples of 12288 on noise
-(tracked as #3572).
+Getting there meant following libvips rather than the textbook in three
+places, and each is measurable on its own: `blur(sigma)` is `vips_convsep`
+at integer precision, two byte passes with libvips' fixed-point mask
+arithmetic and its own vector/scalar path selection, not one float pass;
+`convolve`, `blur()` and the argument-less `sharpen()` are `vips_conv` at
+its default **float** precision, so nothing is rounded or clamped inside
+them and the only quantisation is a single truncating cast at the end; and
+`sharpen({sigma})` converts through `vips_colourspace(LABS)`, whose round
+trip is an exact identity where an approximate CIELAB pair is not — on a
+premultiplied image the unpremultiply amplifies a single code of error by
+`255/alpha`, which was worth 85 levels at alpha 3.
 
 sharp's deprecated boolean forms work here too, and mean what they mean
 there: `blur(true)`/`sharpen(true)` are the mild no-argument paths,
@@ -232,7 +244,11 @@ because libvips truncates the Gaussian mask at 20% of its peak amplitude and
 that leaves a 1x1 mask; and on an image with alpha, `blur`, `convolve` and
 `sharpen` premultiply, so a partial-alpha value can come back one code
 different even where the filter itself changed nothing (a flat
-`(80, 80, 80, 200)` field comes back `(79, 79, 79, 200)` from sharp too).
+`(80, 80, 80, 200)` field comes back `(79, 79, 79, 200)` from sharp too,
+while `median` — which does not premultiply — leaves it at 80). A third,
+smaller one: libvips' integer Gaussian does not always have unit gain, so at
+sigma 3 a flat field comes back about 0.8% brighter (200 -> 202, 254 -> 255)
+in both engines.
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
@@ -326,7 +342,8 @@ wrote. Measured on 32x32 noise: `.threshold(128).blur(1.5)` and
 `.blur(1.5).threshold(128)` are byte-identical in sharp and differ by up to
 190 in Maple (the first order matches sharp exactly, the second is Maple's own
 answer); `.blur(2).sharpen()` versus `.sharpen().blur(2)` is 0 in sharp and up
-to 10 in Maple. Call them in sharp's stage order if you want sharp's numbers.
+to 10 in Maple, again with the first order byte-identical. Call them in
+sharp's stage order if you want sharp's numbers.
 
 ## Native Core & Linux Support
 

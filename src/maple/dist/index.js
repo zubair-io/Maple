@@ -1041,7 +1041,10 @@ function requireInteger(name, value, [lo, hi]) {
   return value;
 }
 function pushBlur(state, options) {
-  if (options === undefined) {
+  if (options === false) {
+    return;
+  }
+  if (options === undefined || options === true) {
     state.ops.push({ op: "blur", sigma: null });
     return;
   }
@@ -1049,9 +1052,13 @@ function pushBlur(state, options) {
   state.ops.push({ op: "blur", sigma });
 }
 function pushSharpen(state, options) {
+  if (options === false) {
+    return;
+  }
+  const mild = options === undefined || options === true;
   const numeric = typeof options === "number";
-  const sigma = options === undefined ? null : numeric ? requireNumber("sigma", options, SHARPEN_SIGMA) : requireNumber("options.sigma", options.sigma, SHARPEN_SIGMA);
-  const params = options === undefined || numeric ? {} : options;
+  const sigma = mild ? null : numeric ? requireNumber("sigma", options, SHARPEN_SIGMA) : requireNumber("options.sigma", options.sigma, SHARPEN_SIGMA);
+  const params = mild || numeric ? {} : options;
   const param = (name, fallback) => params[name] === undefined ? fallback : requireNumber(`options.${name}`, params[name], SHARPEN_PARAM);
   state.ops.push({
     op: "sharpen",
@@ -1069,7 +1076,7 @@ function pushMedian(state, size) {
 function pushThreshold(state, threshold, options) {
   state.ops.push({
     op: "threshold",
-    value: requireInteger("threshold", threshold, [0, 255]),
+    value: typeof threshold === "boolean" ? threshold ? 128 : 0 : requireInteger("threshold", threshold, [0, 255]),
     greyscale: typeof options !== "object" || options.greyscale === true || options.grayscale === true
   });
 }
@@ -1118,14 +1125,15 @@ async function rawDevelopToBuffer(state, toFile) {
     } catch {}
   }
 }
-function assertNoUnsupportedOps(state) {
+function unsupportedOpError(state) {
   const unsupported = state.ops.find((op) => op.op !== "resize");
-  if (unsupported) {
-    throw new Error(`${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` + "Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.");
-  }
+  return unsupported === undefined ? null : `${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` + "Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.";
 }
 function rawDevelopToFile(state, outputPath) {
-  assertNoUnsupportedOps(state);
+  const unsupported = unsupportedOpError(state);
+  if (unsupported) {
+    return Promise.resolve({ ok: false, outPath: outputPath, error: unsupported });
+  }
   const rawPath = state.inputPath;
   if (state.exportRecipe) {
     return exportRecipe({
