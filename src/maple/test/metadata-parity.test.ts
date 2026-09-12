@@ -373,6 +373,44 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     }
   });
 
+  describe('ICC precedence (#3507, ruled)', () => {
+    /**
+     * `keepMetadata().toColourspace('display-p3')` must tag the output with
+     * the DISPLAY P3 profile, read back through sharp — not with the input's
+     * own profile, which describes a space the samples are no longer in.
+     * sharp is the oracle for "what a colour-managed reader sees", which is
+     * the whole point of the tag.
+     */
+    it.skipIf(skip)('a toColourspace rotation outranks the input profile', async () => {
+      const source = await written('jpeg');
+      // The source carries sharp's own profile, so there IS an input profile
+      // for the rotation to have to outrank.
+      expect((await sharp(source).metadata()).hasProfile).toBe(true);
+
+      const rotated = await maple(source)
+        .keepMetadata()
+        .toColourspace('display-p3')
+        .png()
+        .toBuffer();
+      const meta = await sharp(rotated).metadata();
+      expect(meta.hasProfile).toBe(true);
+      const profile = (meta.icc as Buffer).toString('latin1');
+      expect(profile).toContain('Display P3');
+      // And it really is Maple's P3 profile, byte for byte — the same bytes
+      // `withIccProfile('p3')` embeds.
+      const named = await maple(source).withIccProfile('p3').png().toBuffer();
+      expect((meta.icc as Buffer).equals((await sharp(named).metadata()).icc as Buffer)).toBe(true);
+    });
+
+    it.skipIf(skip)('without a rotation, keep still carries the input profile', async () => {
+      const source = await written('jpeg');
+      const theirs = (await sharp(source).metadata()).icc as Buffer;
+      const kept = await maple(source).keepMetadata().png().toBuffer();
+      const mine = (await sharp(kept).metadata()).icc as Buffer;
+      expect(mine.equals(theirs)).toBe(true);
+    });
+  });
+
   describe('argument and input guards', () => {
     it('withXmp() rejects a non-string with sharp exact wording', () => {
       const cases: [unknown, string][] = [

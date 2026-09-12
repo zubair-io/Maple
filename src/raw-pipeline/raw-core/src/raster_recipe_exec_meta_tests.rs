@@ -419,6 +419,71 @@ fn an_explicit_icc_to_avif_is_a_named_error() {
     );
 }
 
+// ---- the ICC precedence (#3507, ruled) ----
+
+/// `keep` carries the input's own profile — but only while the samples are
+/// still in the space that profile describes. A `toColourspace` that moved
+/// them outranks it, or a colour-managed reader renders Display P3 pixels
+/// through the source's sRGB profile.
+#[test]
+fn a_to_colourspace_rotation_outranks_keeps_input_profile() {
+    let srgb = crate::icc::profile_for(crate::view::encode::TargetPrimaries::Srgb);
+    let p3 = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
+    let source = jpeg_source(Some(&srgb), None);
+
+    let rotated = run(
+        r#"{"v":1,"input":{"kind":"encoded"},
+            "ops":[{"op":"toColourspace","space":"display-p3"}],
+            "output":{"format":"png"},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&rotated.bytes)
+            .icc
+            .as_deref(),
+        Some(p3.as_slice()),
+        "a rotated output kept the INPUT's sRGB profile over its own P3 samples"
+    );
+
+    // No rotation: `keep` carries the input's profile through, as before.
+    let plain = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"png"},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&plain.bytes)
+            .icc
+            .as_deref(),
+        Some(srgb.as_slice())
+    );
+}
+
+/// An explicit `withIccProfile` still outranks the rotation profile — it is
+/// the caller's own instruction, and (for a named one) it rotates the pixels
+/// itself. Here the named profile and the op disagree: `iccName` wins, and
+/// the pixels end up in the space it names.
+#[test]
+fn an_explicit_profile_outranks_the_rotation_profile() {
+    let srgb = crate::icc::profile_for(crate::view::encode::TargetPrimaries::Srgb);
+    let out = run(
+        r#"{"v":1,"input":{"kind":"encoded"},
+            "ops":[{"op":"toColourspace","space":"display-p3"}],
+            "output":{"format":"png"},
+            "metadata":{"iccName":"srgb"}}"#,
+        &jpeg_source(None, None),
+        &[],
+    );
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&out.bytes).icc.as_deref(),
+        Some(srgb.as_slice())
+    );
+}
+
 // ---- reconciliation with #3503: keep's fill follows the output primaries ----
 
 /// `keepMetadata()`/`withMetadata()` fill in a profile when the input
