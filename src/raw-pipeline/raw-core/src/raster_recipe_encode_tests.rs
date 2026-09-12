@@ -415,7 +415,6 @@ fn tiff_writes_no_orientation_tag_when_none_is_resolved() {
 #[test]
 fn tiff_still_embeds_an_icc_profile_alongside_the_orientation() {
     let icc = p3();
-    let rgb16 = vec![9000u16; 2 * 2 * 3];
     let meta = ResolvedMetadata {
         icc: Some(icc.clone()),
         icc_requested: true,

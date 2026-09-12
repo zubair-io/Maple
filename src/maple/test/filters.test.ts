@@ -2,6 +2,15 @@ import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
 
 /**
+ * A one-byte stand-in for a real image, for the synchronous argument-validation
+ * cases below — they throw before any decode. It cannot be `Buffer.alloc(0)`:
+ * an empty input buffer is itself rejected in the constructor (#3507), exactly
+ * as `sharp(Buffer.alloc(0))` is ("Input Buffer is empty"), so it would mask
+ * the per-option error these tests are about.
+ */
+const DUMMY_INPUT = Buffer.alloc(1);
+
+/**
  * Gate for #3504: filters through the real FFI, closed-form on synthetics.
  *
  * The wire shapes these methods emit follow `raster_recipe_filter.rs`'s
@@ -90,7 +99,7 @@ describe('Filters', () => {
     // sharp validates m1/m2/x1/y2/y3 to [0, 1000000] and names the
     // offending field; the builder now does that before the wire rather
     // than leaving it to the executor, so the throw is synchronous.
-    expect(() => maple(Buffer.alloc(0)).sharpen({ sigma: 1, m1: -1 })).toThrow(/m1/);
+    expect(() => maple(DUMMY_INPUT).sharpen({ sigma: 1, m1: -1 })).toThrow(/m1/);
   });
 
   it('median() erases a speck but keeps an edge', async () => {
@@ -197,13 +206,13 @@ describe('Filters', () => {
     // fractional size is named rather than reaching serde, which used to
     // answer `median(3.5)` with "rawler failed to decode <recipe>: …
     // invalid type: floating point `3.5`, expected u32".
-    expect(() => maple(Buffer.alloc(0)).median(1001)).toThrow(/1001/);
-    expect(() => maple(Buffer.alloc(0)).median(3.5)).toThrow(/size/);
+    expect(() => maple(DUMMY_INPUT).median(1001)).toThrow(/1001/);
+    expect(() => maple(DUMMY_INPUT).median(3.5)).toThrow(/size/);
   });
 
   it('rejects a kernel whose length disagrees with its dimensions', () => {
     expect(() =>
-      maple(Buffer.alloc(0)).convolve({ width: 3, height: 3, kernel: [1, 2, 3] }),
+      maple(DUMMY_INPUT).convolve({ width: 3, height: 3, kernel: [1, 2, 3] }),
     ).toThrow(/9 values/);
   });
 
@@ -212,17 +221,17 @@ describe('Filters', () => {
     // raw-core as an absent field: `blur(NaN)` used to run the box blur and
     // report success, and a NaN kernel entry surfaced as "recipe parse
     // failed: invalid type: null, expected f64".
-    expect(() => maple(Buffer.alloc(0)).blur(NaN)).toThrow(/sigma/);
-    expect(() => maple(Buffer.alloc(0)).blur(Infinity)).toThrow(/sigma/);
-    expect(() => maple(Buffer.alloc(0)).blur({ sigma: NaN })).toThrow(/options\.sigma/);
+    expect(() => maple(DUMMY_INPUT).blur(NaN)).toThrow(/sigma/);
+    expect(() => maple(DUMMY_INPUT).blur(Infinity)).toThrow(/sigma/);
+    expect(() => maple(DUMMY_INPUT).blur({ sigma: NaN })).toThrow(/options\.sigma/);
     expect(() =>
-      maple(Buffer.alloc(0)).convolve({
+      maple(DUMMY_INPUT).convolve({
         width: 3,
         height: 3,
         kernel: [1, 1, 1, 1, NaN, 1, 1, 1, 1],
       }),
     ).toThrow(/kernel\[4\]/);
-    expect(() => maple(Buffer.alloc(0)).sharpen({ sigma: 1, y3: -Infinity })).toThrow(/y3/);
+    expect(() => maple(DUMMY_INPUT).sharpen({ sigma: 1, y3: -Infinity })).toThrow(/y3/);
   });
 
   it('blur and sharpen require a sigma when given an options object', () => {
@@ -230,8 +239,8 @@ describe('Filters', () => {
     // options.sigma" and `sharpen({m1: 3})` throws the equivalent for its
     // own 0.000001-10 domain. Both used to run the mild/box path here, which
     // also meant m1/m2/x1/y2/y3 were validated and then silently ignored.
-    expect(() => maple(Buffer.alloc(0)).blur({})).toThrow(/options\.sigma/);
-    expect(() => maple(Buffer.alloc(0)).sharpen({ m1: 3 })).toThrow(/options\.sigma/);
+    expect(() => maple(DUMMY_INPUT).blur({})).toThrow(/options\.sigma/);
+    expect(() => maple(DUMMY_INPUT).sharpen({ m1: 3 })).toThrow(/options\.sigma/);
   });
 
   it('sharpen(number) is the same sigma form blur(number) is', async () => {
@@ -245,8 +254,8 @@ describe('Filters', () => {
   });
 
   it('threshold() rejects a non-integer or out-of-range value by name', () => {
-    expect(() => maple(Buffer.alloc(0)).threshold(300)).toThrow(/threshold/);
-    expect(() => maple(Buffer.alloc(0)).threshold(128.5)).toThrow(/threshold/);
+    expect(() => maple(DUMMY_INPUT).threshold(300)).toThrow(/threshold/);
+    expect(() => maple(DUMMY_INPUT).threshold(128.5)).toThrow(/threshold/);
   });
 
   it('threshold() greyscale follows sharps literal-true rule', async () => {
@@ -385,7 +394,7 @@ describe('Filters', () => {
     // field at 30 (scale silently replaced by the kernel sum of 9, not
     // applied as 4.5). Maple rejects rather than silently diverging.
     expect(() =>
-      maple(Buffer.alloc(0)).convolve({
+      maple(DUMMY_INPUT).convolve({
         width: 3,
         height: 3,
         kernel: Array(9).fill(1),
@@ -396,7 +405,7 @@ describe('Filters', () => {
 
   it('rejects a non-integer convolve offset by name', () => {
     expect(() =>
-      maple(Buffer.alloc(0)).convolve({
+      maple(DUMMY_INPUT).convolve({
         width: 3,
         height: 3,
         kernel: Array(9).fill(1),
