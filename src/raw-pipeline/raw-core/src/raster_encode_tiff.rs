@@ -90,9 +90,6 @@ impl Default for TiffOptions {
     }
 }
 
-/// TIFF tag 34675, `InterColorProfile`, where an ICC profile lives.
-const TAG_ICC_PROFILE: u16 = 34675;
-
 fn tiff_error(e: impl std::fmt::Display) -> Error {
     Error::Png(format!("tiff encode failed: {e}"))
 }
@@ -148,7 +145,7 @@ pub fn encode_tiff_opts(
             if let Some(profile) = icc {
                 image
                     .encoder()
-                    .write_tag(Tag::Unknown(TAG_ICC_PROFILE), profile)
+                    .write_tag(Tag::IccProfile, profile)
                     .map_err(tiff_error)?;
             }
             image.write_data(&widened).map_err(tiff_error)?;
@@ -164,7 +161,7 @@ pub fn encode_tiff_opts(
             if let Some(profile) = icc {
                 image
                     .encoder()
-                    .write_tag(Tag::Unknown(TAG_ICC_PROFILE), profile)
+                    .write_tag(Tag::IccProfile, profile)
                     .map_err(tiff_error)?;
             }
             image.write_data(&raster.data).map_err(tiff_error)?;
@@ -378,5 +375,109 @@ mod tests {
             None
         )
         .is_err());
+    }
+
+    /// Tag 259 (`Compression`) must name the actual algorithm chosen, not
+    /// just shrink the file (`compression_actually_shrinks_the_file` above
+    /// only checks size). TIFF's own numeric codes: None=1, LZW=5,
+    /// Deflate(Adobe)=8, PackBits=0x8005.
+    #[test]
+    fn tag_259_names_the_chosen_compression() {
+        let cases = [
+            (TiffCompression::None, 1u16),
+            (TiffCompression::Lzw, 5),
+            (TiffCompression::Deflate, 8),
+            (TiffCompression::Packbits, 0x8005),
+        ];
+        for (compression, expected) in cases {
+            let bytes = encode_tiff_opts(
+                &ramp(4, 4),
+                &TiffOptions {
+                    compression,
+                    ..opts()
+                },
+                None,
+            )
+            .unwrap();
+            let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
+            let tag: u16 = decoder.get_tag_unsigned(Tag::Compression).unwrap();
+            assert_eq!(tag, expected, "{compression:?} wrote the wrong tag 259");
+        }
+    }
+
+    /// Tag 317 (`Predictor`) must reflect the caller's `predictor` choice on
+    /// the alpha-free (3-channel) path: 1 (`None`) when `predictor: false`,
+    /// 2 (`Horizontal`) when `predictor: true` (the default `opts()` used
+    /// throughout this module already exercises the `true` case implicitly
+    /// via `encodes_an_eight_bit_tiff_that_round_trips`'s lossless check;
+    /// this test is the one that actually reads tag 317 back).
+    #[test]
+    fn tag_317_reflects_the_predictor_choice() {
+        for (predictor, expected_tag) in [(true, 2u16), (false, 1u16)] {
+            let bytes = encode_tiff_opts(
+                &ramp(8, 8),
+                &TiffOptions {
+                    predictor,
+                    ..opts()
+                },
+                None,
+            )
+            .unwrap();
+            let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
+            let tag: u16 = decoder.get_tag_unsigned(Tag::Predictor).unwrap();
+            assert_eq!(
+                tag, expected_tag,
+                "predictor: {predictor} wrote the wrong tag 317"
+            );
+        }
+    }
+
+    /// `predictor: false` must still encode a correct, losslessly
+    /// round-tripping file — not merely "a file with tag 317 set to 1".
+    #[test]
+    fn predictor_false_still_round_trips_losslessly() {
+        let src = ramp(16, 16);
+        let bytes = encode_tiff_opts(
+            &src,
+            &TiffOptions {
+                predictor: false,
+                ..opts()
+            },
+            None,
+        )
+        .unwrap();
+        let decoded = crate::raster::decode_raster(&bytes, Some("tiff")).unwrap();
+        assert_eq!(decoded.data, src.data);
+    }
+
+    /// The 16-bit path's existing coverage (`sixteen_bit_widens_the_samples`,
+    /// `rgba_sixteen_bit_round_trips_with_extra_samples_tag`) checks file
+    /// size and non-zero-ness but never the actual widened *value* — this
+    /// pins the exact `v * 257` mapping (the only way to widen 8-bit full
+    /// scale [0,255] to 16-bit full scale [0,65535] without a divide) for
+    /// every sample, not just the first.
+    #[test]
+    fn sixteen_bit_widens_every_sample_by_exactly_257x() {
+        let src = ramp(4, 4);
+        let bytes = encode_tiff_opts(
+            &src,
+            &TiffOptions {
+                bitdepth: 16,
+                compression: TiffCompression::None,
+                ..opts()
+            },
+            None,
+        )
+        .unwrap();
+        let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
+        match decoder.read_image().unwrap() {
+            tiff::decoder::DecodingResult::U16(decoded) => {
+                assert_eq!(decoded.len(), src.data.len());
+                for (widened, &original) in decoded.iter().zip(&src.data) {
+                    assert_eq!(*widened, u16::from(original) * 257);
+                }
+            }
+            other => panic!("expected a 16-bit decode result, got {other:?}"),
+        }
     }
 }
