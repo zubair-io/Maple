@@ -212,6 +212,19 @@ describe('Colour ops', () => {
     expect(await first(out)).toEqual([150, 150, 150]);
   });
 
+  it('negate(false) is a no-op, like sharp', async () => {
+    // sharp: `this.options.negate = is.bool(options) ? options : true`, so a
+    // boolean false DISABLES the op. Measured against real sharp 0.34.5,
+    // which returns the source pixels untouched (#3503 review I4).
+    const src = await png([0, 100, 255, 200]);
+    expect(await first(await maple(src).negate(false).toFormat('png').toBuffer())).toEqual([
+      0, 100, 255, 200,
+    ]);
+    expect(await first(await maple(src).negate(true).toFormat('png').toBuffer())).toEqual([
+      255, 155, 0, 55,
+    ]);
+  });
+
   it('negate() inverts, and { alpha: false } spares transparency', async () => {
     const src = await png([0, 100, 255, 200]);
     expect(await first(await maple(src).negate().toFormat('png').toBuffer())).toEqual([

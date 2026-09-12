@@ -81,8 +81,20 @@ export function pushLinear(
   state.ops.push({ op: 'linear', a: triple(a), b: triple(b) });
 }
 
-/** Produce the negative. `alpha: false` spares the alpha channel. */
-export function pushNegate(state: BuilderState, alpha: boolean): void {
+/**
+ * Produce the negative. `{ alpha: false }` spares the alpha channel.
+ *
+ * `negate(false)` DISABLES the op, as in sharp: `this.options.negate =
+ * is.bool(options) ? options : true` (`lib/operation.js:584`). Measured —
+ * sharp's `negate(false)` returns the source pixels untouched. This lane's
+ * own `greyscale(false)` already worked that way, so the pair was
+ * internally inconsistent (#3503 review I4).
+ */
+export function pushNegate(state: BuilderState, options?: boolean | { alpha?: boolean }): void {
+  if (options === false) {
+    return;
+  }
+  const alpha = typeof options === 'object' ? (options.alpha ?? true) : true;
   state.ops.push({ op: 'negate', alpha });
 }
 
