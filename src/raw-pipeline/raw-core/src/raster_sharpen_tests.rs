@@ -270,6 +270,83 @@ fn a_nan_sigma_is_rejected_by_name() {
 }
 
 #[test]
+fn an_out_of_range_transfer_parameter_is_named() {
+    // #3504 task E5 controller ruling (b): m1/m2/x1/y2/y3 all share sharp's
+    // own [0, 1000000] domain (`lib/operation.js`'s `is.inRange` checks on
+    // `options.m1`/`m2`/`x1`/`y2`/`y3`), and a violation is named by field —
+    // one case per field, each checked in isolation with the other four
+    // left at sharp's own defaults.
+    let src = step_edge(4, 4);
+    let cases: &[(&str, SharpenOptions)] = &[
+        (
+            "m1",
+            SharpenOptions {
+                sigma: Some(1.0),
+                m1: -1.0,
+                ..SharpenOptions::default()
+            },
+        ),
+        (
+            "m2",
+            SharpenOptions {
+                sigma: Some(1.0),
+                m2: 2_000_000.0,
+                ..SharpenOptions::default()
+            },
+        ),
+        (
+            "x1",
+            SharpenOptions {
+                sigma: Some(1.0),
+                x1: f64::NAN,
+                ..SharpenOptions::default()
+            },
+        ),
+        (
+            "y2",
+            SharpenOptions {
+                sigma: Some(1.0),
+                y2: -0.1,
+                ..SharpenOptions::default()
+            },
+        ),
+        (
+            "y3",
+            SharpenOptions {
+                sigma: Some(1.0),
+                y3: 1_000_001.0,
+                ..SharpenOptions::default()
+            },
+        ),
+    ];
+    for (name, options) in cases {
+        let err = src.sharpen(options).unwrap_err();
+        assert!(
+            err.to_string().contains(name),
+            "expected the error to name {name}, got: {err}"
+        );
+    }
+}
+
+#[test]
+fn transfer_parameters_at_sharps_own_boundary_values_are_accepted() {
+    // The domain is inclusive on both ends — 0 and 1000000 are valid, not
+    // one-past-the-edge rejections.
+    let src = step_edge(4, 4);
+    assert!(src
+        .sharpen(&SharpenOptions {
+            sigma: Some(1.0),
+            m1: 0.0,
+            m2: 1_000_000.0,
+            x1: 0.0,
+            y2: 1_000_000.0,
+            y3: 0.0,
+            ..SharpenOptions::default()
+        })
+        .is_ok());
+}
+
+#[test]
 fn lab_round_trip_is_stable_for_srgb_bytes() {
     // Not part of the brief's test list, but the closed-form guarantee the
     // whole filter leans on: converting to Lab and back must be
