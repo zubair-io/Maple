@@ -48,6 +48,68 @@ fn test_tensor_extraction_insightface() {
     assert!((tensor.data[0] - 0.99609375).abs() < 1e-4);
 }
 
+/// `probe_raster_metadata`'s `channels`/`has_alpha` pinned against sharp
+/// 0.34.5's own `metadata()` (#3507 controller ruling) — measured with a
+/// read-only Bun script against a real Grayscale (colour type 0),
+/// GrayscaleAlpha (type 4), RGB (type 2) and RGBA (type 6) PNG file (built
+/// with `pngjs` so sharp reads a genuine IHDR colour type, not sharp's own
+/// opinion about a raw buffer), plus a JPEG:
+///
+/// ```text
+/// Real Grayscale PNG (colorType 0)      channels: 1, hasAlpha: false
+/// Real GrayscaleAlpha PNG (colorType 4) channels: 2, hasAlpha: true
+/// Real RGB PNG (colorType 2)            channels: 3, hasAlpha: false
+/// Real RGBA PNG (colorType 6)           channels: 4, hasAlpha: true
+/// JPEG                                  channels: 3, hasAlpha: false
+/// ```
+mod probe_channels_and_alpha {
+    use super::*;
+
+    fn png_with_color_type(color: image::ExtendedColorType, data: &[u8]) -> Vec<u8> {
+        use image::{codecs::png::PngEncoder, ImageEncoder};
+        let mut out = Vec::new();
+        PngEncoder::new(&mut out)
+            .write_image(data, 4, 4, color)
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn probe_reports_three_channels_no_alpha_for_an_rgb_png() {
+        let bytes = png_with_color_type(image::ExtendedColorType::Rgb8, &[128u8; 4 * 4 * 3]);
+        let meta = probe_raster_metadata(&bytes).unwrap();
+        assert_eq!((meta.channels, meta.has_alpha), (3, false));
+    }
+
+    #[test]
+    fn probe_reports_four_channels_with_alpha_for_an_rgba_png() {
+        let bytes = png_with_color_type(image::ExtendedColorType::Rgba8, &[128u8; 4 * 4 * 4]);
+        let meta = probe_raster_metadata(&bytes).unwrap();
+        assert_eq!((meta.channels, meta.has_alpha), (4, true));
+    }
+
+    #[test]
+    fn probe_reports_one_channel_no_alpha_for_a_grey_png() {
+        let bytes = png_with_color_type(image::ExtendedColorType::L8, &[128u8; 4 * 4]);
+        let meta = probe_raster_metadata(&bytes).unwrap();
+        assert_eq!((meta.channels, meta.has_alpha), (1, false));
+    }
+
+    #[test]
+    fn probe_reports_two_channels_with_alpha_for_a_grey_alpha_png() {
+        let bytes = png_with_color_type(image::ExtendedColorType::La8, &[128u8; 4 * 4 * 2]);
+        let meta = probe_raster_metadata(&bytes).unwrap();
+        assert_eq!((meta.channels, meta.has_alpha), (2, true));
+    }
+
+    #[test]
+    fn probe_reports_three_channels_no_alpha_for_a_jpeg() {
+        let bytes = crate::jpeg::encode(4, 4, &[128u8; 4 * 4 * 3], 90).unwrap();
+        let meta = probe_raster_metadata(&bytes).unwrap();
+        assert_eq!((meta.channels, meta.has_alpha), (3, false));
+    }
+}
+
 #[cfg(feature = "avif")]
 mod avif_dispatch {
     use crate::raster::{decode_raster, probe_raster_metadata};

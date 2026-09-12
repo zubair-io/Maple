@@ -12,24 +12,16 @@
 //! few KB, an EXIF block tens of KB), so the ~33% encoding overhead is not
 //! worth a second out-buffer and a second round of size probing.
 //!
-//! `channels`/`hasAlpha` deliberately do NOT come from
-//! `RasterMetadata::channels`: that field is hard-coded to `3` for every
-//! non-AVIF format in `raster::probe_raster_metadata` (a pre-existing gap,
-//! not something this task's brief or interface list touches — see
-//! [`channels_and_alpha`]), so it can never report a real alpha channel for
-//! JPEG/PNG/TIFF/WebP. Instead this module reads the container's own
-//! `image::ImageDecoder::color_type()` — a header-level read, no pixel
-//! decode — for those formats, and falls back to the AVIF probe's already-
-//! accurate `channels` for AVIF (which `avif_boxes`/`avif_decode` compute
-//! from the real `ispe`/alpha-item state).
+//! `channels`/`hasAlpha` come straight from `RasterMetadata::channels`/
+//! `RasterMetadata::has_alpha` (#3507 controller ruling fixed the field
+//! itself, which used to be hard-coded to `3` for every non-AVIF format —
+//! this module's own local re-probe, `channels_and_alpha`, existed only to
+//! route around that and is gone now that the shared field is correct).
 
 use crate::error::{Error, Result};
-use crate::raster::RasterMetadata;
 use crate::raster_stats::{compute_stats, RasterStats};
-use image::ImageDecoder;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use std::io::Cursor;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,41 +61,16 @@ fn bad(reason: String) -> Error {
     }
 }
 
-/// Real channel count and alpha presence for a container, straight from its
-/// header. See the module doc for why this doesn't just read
-/// `RasterMetadata::channels`.
-fn channels_and_alpha(bytes: &[u8], probe: &RasterMetadata) -> (u8, bool) {
-    if probe.format == "avif" {
-        return (probe.channels, probe.channels == 4);
-    }
-    match image::ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()
-        .and_then(|reader| reader.into_decoder().ok())
-    {
-        Some(decoder) => {
-            let color = decoder.color_type();
-            (color.channel_count(), color.has_alpha())
-        }
-        // Decoder construction failed after `probe_raster_metadata` already
-        // succeeded — shouldn't happen in practice, but fall back to the
-        // probe's own (conservative) channel count rather than propagating
-        // an error from a field that's advisory, not load-bearing.
-        None => (probe.channels, false),
-    }
-}
-
 fn metadata_value(bytes: &[u8]) -> Result<Value> {
     let probe = crate::raster::probe_raster_metadata(bytes)?;
     let sidecars = crate::raster_meta::read_sidecars(bytes);
-    let (channels, has_alpha) = channels_and_alpha(bytes, &probe);
     Ok(json!({
         "width": probe.width,
         "height": probe.height,
         "format": probe.format,
-        "channels": channels,
+        "channels": probe.channels,
         "orientation": probe.orientation,
-        "hasAlpha": has_alpha,
+        "hasAlpha": probe.has_alpha,
         "hasProfile": sidecars.icc.is_some(),
         // Every container Maple decodes carries 8-bit sRGB samples; a wider
         // space would have been converted by the decoder.
