@@ -10,15 +10,18 @@ fn meta(
     xmp: Option<&[u8]>,
     density: Option<f64>,
 ) -> ResolvedMetadata {
-    // Every existing call site here means "this icc, if any, is a real
-    // request" — the fix-round-2 default-fill-vs-request distinction gets
-    // its own dedicated tests below, not a change to this helper's meaning.
+    // Every existing call site here means "whatever is Some was named by
+    // the caller" — the swept-vs-named distinction (fix-round-2 for ICC,
+    // final fix wave item 6 for EXIF and XMP) gets its own dedicated tests
+    // below, not a change to this helper's meaning.
     ResolvedMetadata {
         icc: icc.map(|b| b.to_vec()),
-        icc_requested: icc.is_some(),
         exif: exif.map(|b| b.to_vec()),
         xmp: xmp.map(|b| b.to_vec()),
         density,
+        exif_requested: exif.is_some(),
+        icc_requested: icc.is_some(),
+        xmp_requested: xmp.is_some(),
     }
 }
 
