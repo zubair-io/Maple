@@ -961,6 +961,9 @@ function createBuilderState(input) {
     return { ...base, inputPath: null, inputBytes: null, rawInput: input };
   }
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+  if (bytes.byteLength === 0) {
+    throw new Error("Input Buffer is empty");
+  }
   return { ...base, inputPath: null, inputBytes: bytes, rawInput: null };
 }
 function insertGammaPair(ops, pair) {
@@ -1710,7 +1713,7 @@ function applyWithExif(state, exif) {
   state.metadata.exif = state.aux.add(exif);
   track(state, "withExif");
 }
-var NAMED_ICC_PROFILES = new Set(["srgb", "p3"]);
+var NAMED_ICC_PROFILES = new Set(["srgb"]);
 function applyWithIccProfile(state, icc) {
   if (icc instanceof Uint8Array) {
     state.metadata.icc = state.aux.add(icc);
@@ -1719,10 +1722,13 @@ function applyWithIccProfile(state, icc) {
     return;
   }
   if (typeof icc !== "string") {
-    throw invalidParameter2("icc", "'srgb', 'p3', a file path, or a Buffer", icc);
+    throw invalidParameter2("icc", "'srgb', a file path, or a Buffer", icc);
   }
   if (icc === "cmyk") {
     throw new Error("withIccProfile('cmyk'): Maple has no CMYK ICC profile support — sharp accepts " + "'cmyk', Maple does not.");
+  }
+  if (icc === "p3") {
+    throw new Error("withIccProfile('p3'): Maple tags the output without converting its pixels, so this " + "would label sRGB pixels as Display P3 — sharp converts them first. Use " + "toColourspace('display-p3'), whose bitmap-pipeline wiring is #3503.");
   }
   if (NAMED_ICC_PROFILES.has(icc)) {
     state.metadata.iccName = icc;
@@ -1741,10 +1747,10 @@ function applyWithIccProfile(state, icc) {
   track(state, "withIccProfile");
 }
 function applyWithXmp(state, xmp) {
-  if (typeof xmp === "string" && xmp.length === 0) {
+  const bytes = typeof xmp === "string" && xmp.length > 0 ? Buffer.from(xmp, "utf-8") : xmp instanceof Uint8Array && xmp.byteLength > 0 ? xmp : null;
+  if (bytes === null) {
     throw invalidParameter2("xmp", "non-empty string", xmp);
   }
-  const bytes = typeof xmp === "string" ? Buffer.from(xmp, "utf-8") : xmp;
   state.metadata.xmp = state.aux.add(bytes);
   track(state, "withXmp");
 }

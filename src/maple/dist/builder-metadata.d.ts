@@ -54,13 +54,26 @@ export declare function applyWithMetadata(state: BuilderState, options?: {
  */
 export declare function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): void;
 /**
- * Embed an ICC profile — `'srgb'`/`'p3'` (Maple's own built-in profiles, no
- * bytes to supply), a filesystem path (read now — Maple's `aux` blob needs
- * real bytes at call time, unlike sharp's own deferred-to-libvips read), or
- * raw profile bytes (a Maple extension beyond sharp's `string`-only
- * signature). `'cmyk'` is sharp's third named value; Maple has no CMYK ICC
- * support at all, so it's rejected by name rather than silently ignored.
+ * Embed an ICC profile — `'srgb'` (Maple's own built-in profile, no bytes to
+ * supply), a filesystem path (read now — Maple's `aux` blob needs real bytes
+ * at call time, unlike sharp's own deferred-to-libvips read), or raw profile
+ * bytes (a Maple extension beyond sharp's `string`-only signature).
+ *
+ * This TAGS the output; it never converts its pixels, which is where it
+ * parts company with sharp. `'p3'` is therefore a named error rather than a
+ * mislabelling (see [`NAMED_ICC_PROFILES`]), and `'cmyk'` — sharp's third
+ * named value — is a named error because Maple has no CMYK support at all.
  */
 export declare function applyWithIccProfile(state: BuilderState, icc: string | Uint8Array | Buffer): void;
-/** Embed this XMP packet. */
+/**
+ * Embed this XMP packet — a string, as sharp takes, or raw packet bytes (a
+ * Maple extension beyond sharp's `string`-only signature, the same one
+ * `withIccProfile` offers).
+ *
+ * Anything else is rejected with sharp's own wording. Before this only the
+ * empty string was checked, so `withXmp(42)` threw nothing at call time and
+ * failed downstream with `AuxBlob wrote NaN bytes, expected NaN`, and
+ * `withXmp(null)` with `null is not an object` (#3507 final fix wave,
+ * item 9).
+ */
 export declare function applyWithXmp(state: BuilderState, xmp: string | Uint8Array | Buffer): void;

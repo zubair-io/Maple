@@ -34,10 +34,14 @@ export interface RecipeMetadata {
     exif?: AuxRef;
     icc?: AuxRef;
     /**
-     * A named built-in profile (`'srgb'` | `'p3'`) instead of `icc` bytes —
-     * `withIccProfile('srgb' | 'p3')`. Resolved on the Rust side via
-     * `icc::profile_for`, so the package never ships a copy of the bytes
-     * itself (#3507 fix-round-1, item 2). Ignored when `icc` is also set.
+     * A named built-in profile instead of `icc` bytes, resolved on the Rust
+     * side via `icc::profile_for` so the package never ships a copy of them
+     * (#3507 fix-round-1, item 2). Ignored when `icc` is also set.
+     *
+     * The wire still accepts `'p3'`, which the Rust side resolves; the
+     * builder's own `withIccProfile('p3')` refuses, because tagging without
+     * converting would mislabel sRGB pixels (#3507 final fix wave, item 10).
+     * A recipe written by hand can therefore still ask for it deliberately.
      */
     iccName?: 'srgb' | 'p3';
     xmp?: AuxRef;
