@@ -59,15 +59,32 @@ export async function rawDevelopToBuffer(
 }
 
 /**
+ * The ops a RAW develop genuinely carries out, as `state` metadata rather
+ * than as recipe ops.
+ *
+ * `resize` is read back as a long-edge limit through `lastResizeWidth`.
+ * `toColourspace` is honoured because `pushToColourspace` also writes
+ * `state.colorSpace`, which `exportImage` passes to the develop pipeline
+ * (#3503 review, cross-task consistency) — a `toColourspace('srgb')` or
+ * `('display-p3')` on a RAW therefore exports in that space, exactly as
+ * Tier 1's `colorSpace()` does. `toColourspace('b-w')` is NOT in this set:
+ * it pushes a `greyscale` op instead of a `toColourspace` one, and the
+ * develop pipeline has no greyscale stage, so it is correctly rejected
+ * below.
+ */
+const RAW_DEVELOP_OPS = new Set(['resize', 'toColourspace']);
+
+/**
  * The first op a RAW develop cannot carry out, as a message — or `null`.
  *
  * The RAW-develop terminal runs the develop pipeline (`exportImage` /
- * `exportRecipe`), not the bitmap recipe executor, so the only builder op it
- * can honour is `resize`, whose width it reads back through
- * `lastResizeWidth`. Everything else — `blur`, `sharpen`, `median`,
- * `threshold`, `convolve`, `flatten`, `composite` and the rest — used to be
- * discarded in silence, so `maple('photo.dng').blur(5).toFile(out)` wrote an
- * unblurred file and reported success (#3504 PR-E final review, finding 12).
+ * `exportRecipe`), not the bitmap recipe executor, so the only ops it can
+ * honour are the [`RAW_DEVELOP_OPS`] it reads back off `state` as metadata.
+ * Everything else — `blur`, `sharpen`, `median`, `threshold`, `convolve`,
+ * `flatten`, `composite`, the geometry ops and the rest of the colour ops —
+ * used to be discarded in silence, so `maple('photo.dng').blur(5).toFile(out)`
+ * wrote an unblurred file and reported success (#3504 PR-E final review,
+ * finding 12).
  *
  * It is returned rather than thrown because `toFile` reports every other
  * failure the same way, as `{ ok: false, error }` — [`rawDevelopToFile`]
@@ -76,7 +93,7 @@ export async function rawDevelopToBuffer(
  * exception itself.
  */
 function unsupportedOpError(state: BuilderState): string | null {
-  const unsupported = state.ops.find((op) => op.op !== 'resize');
+  const unsupported = state.ops.find((op) => !RAW_DEVELOP_OPS.has(op.op));
   return unsupported === undefined
     ? null
     : `${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` +

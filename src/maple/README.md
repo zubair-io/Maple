@@ -240,8 +240,12 @@ core: `blur(NaN)`, `blur({})`, `sharpen({ m1: 3 })` (no `sigma`),
 `sharpen(sigma)`, sharp's deprecated positional form, is accepted like
 `blur(sigma)` — with one narrowing, since Maple applies the object form's
 0.000001-10 sigma domain to both where sharp's positional form allows up to 10000. On a RAW input the develop pipeline runs instead of the bitmap recipe,
-so any op other than `resize` on that path throws by name rather than being
-silently dropped.
+so any op that path cannot carry out throws by name rather than being
+silently dropped. It carries out exactly two: `resize`, read back as a
+long-edge limit, and `toColourspace('srgb'|'display-p3'|'p3')`, which is the
+export space (the same thing Tier 1's `colorSpace()` sets).
+`toColourspace('b-w')` is not one of them — it is the greyscale conversion,
+and the develop pipeline has no greyscale stage.
 
 Two behaviours worth knowing as a caller, both of them sharp's rather than
 Maple's: `blur(sigma)` is an **exact no-op** for every sigma up to 0.557,
