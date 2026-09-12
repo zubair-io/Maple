@@ -86,8 +86,8 @@ fn highlights_leaves_below_engagement_untouched() {
 fn highlights_engages_below_the_knee() {
     // #1103: the headline behaviour change — a bright-but-unclipped tone
     // (Y = 0.7 < 1.0) now responds. w_h(0.7) = smoothstep(0.25, 1, 0.7) =
-    // 0.648, so +100 darkens by 2^(−0.7·0.648) ≈ 0.7301 and −100 brightens
-    // by the mirror factor.
+    // 0.648, so +100 brightens by 1/2^(−0.7·0.648) and −100 darkens by the
+    // mirror factor (Adobe direction).
     let g = (-0.7_f32 * 0.648).exp2();
     let mut img = fresh_img([0.7, 0.7, 0.7]);
     let mut m = model_default();
