@@ -17,7 +17,7 @@ use crate::raster_recipe::AuxRef;
 use serde::Deserialize;
 
 /// What to do with the input's metadata.
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RecipeMetadata {
     /// Copy EXIF, ICC and XMP from the input (sharp's `keepMetadata`).
@@ -34,9 +34,17 @@ pub struct RecipeMetadata {
     /// Caller-supplied EXIF block, in the `aux` buffer. Wins over `keep`.
     #[serde(default)]
     pub exif: Option<AuxRef>,
-    /// Caller-supplied ICC profile, in the `aux` buffer. Wins over `keep`.
+    /// Caller-supplied ICC profile, in the `aux` buffer. Wins over `keep`
+    /// and over `iccName`.
     #[serde(default)]
     pub icc: Option<AuxRef>,
+    /// A named built-in profile ("srgb" or "p3") instead of caller-supplied
+    /// bytes (#3507 fix-round-1, item 2 — the package's `withIccProfile('srgb'
+    /// | 'p3')`). Resolved via [`crate::icc::profile_for`] rather than an
+    /// `aux` reference, so the package never has to ship a copy of these
+    /// bytes itself. Ignored when `icc` is also set.
+    #[serde(default)]
+    pub icc_name: Option<String>,
     /// Caller-supplied XMP packet, in the `aux` buffer. Wins over `keep`.
     #[serde(default)]
     pub xmp: Option<AuxRef>,
@@ -82,6 +90,26 @@ pub struct ResolvedMetadata {
 /// the equivalent hardcoded-sRGB decision there; this is that same TODO.
 fn default_icc() -> Vec<u8> {
     crate::icc::profile_for(crate::view::encode::TargetPrimaries::Srgb)
+}
+
+/// Resolve `metadata.iccName` ("srgb"/"p3") to the package's own built-in
+/// profile bytes — see `RecipeMetadata::icc_name`'s doc for why this is a
+/// named lookup rather than another `aux` reference.
+fn icc_bytes_for_name(name: &str) -> Result<Vec<u8>> {
+    match name {
+        "srgb" => Ok(crate::icc::profile_for(
+            crate::view::encode::TargetPrimaries::Srgb,
+        )),
+        "p3" => Ok(crate::icc::profile_for(
+            crate::view::encode::TargetPrimaries::P3,
+        )),
+        other => Err(crate::error::Error::Decode {
+            path: "<recipe>".into(),
+            reason: format!(
+                "metadata.iccName '{other}' is not a known profile name (expected 'srgb' or 'p3')"
+            ),
+        }),
+    }
 }
 
 /// Assemble the metadata blocks an encoder should embed. Caller-supplied
@@ -145,11 +173,17 @@ pub fn resolve_metadata(
     // present is copied through as-is, and one that's absent gets a default
     // sRGB profile added (see `default_icc`'s doc) — `keep: false` with no
     // supplied override means no ICC at all, matching sharp's own default.
-    let supplied_icc = supplied("icc", metadata.icc)?;
-    // Only an ICC the caller actually asked for — present in the input, or
-    // an explicit override — counts as requested. The default sRGB fill
-    // below is `keep`'s own convenience, not something to hold a
-    // can't-write-ICC format (AVIF, #3580) to (fix-round-2).
+    let supplied_icc = match supplied("icc", metadata.icc)? {
+        Some(bytes) => Some(bytes),
+        None => match metadata.icc_name.as_deref() {
+            Some(name) => Some(icc_bytes_for_name(name)?),
+            None => None,
+        },
+    };
+    // Only an ICC the caller actually asked for — present in the input, an
+    // explicit override, or a named built-in profile — counts as requested.
+    // The default sRGB fill below is `keep`'s own convenience, not something
+    // to hold a can't-write-ICC format (AVIF, #3580) to (fix-round-2).
     let icc_requested = supplied_icc.is_some() || kept.icc.is_some();
     let icc = supplied_icc.or_else(|| kept.icc.clone().or_else(|| metadata.keep.then(default_icc)));
     let xmp = supplied("xmp", metadata.xmp)?.or(kept.xmp);
@@ -376,6 +410,58 @@ mod tests {
         let resolved = resolve_metadata(&metadata, &[], &icc, false).unwrap();
         assert_eq!(resolved.icc.as_deref(), Some(icc.as_slice()));
         assert!(resolved.icc_requested);
+    }
+
+    // ---- fix-round-1 item 2: named profiles (`iccName`, package `withIccProfile('srgb'|'p3')`) ----
+
+    #[test]
+    fn icc_name_srgb_resolves_to_the_built_in_srgb_profile() {
+        let metadata = RecipeMetadata {
+            icc_name: Some("srgb".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_metadata(&metadata, &[], &[], false).unwrap();
+        assert_eq!(resolved.icc.as_deref(), Some(default_icc().as_slice()));
+        assert!(
+            resolved.icc_requested,
+            "an explicit iccName IS a real request"
+        );
+    }
+
+    #[test]
+    fn icc_name_p3_resolves_to_the_built_in_p3_profile() {
+        let metadata = RecipeMetadata {
+            icc_name: Some("p3".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_metadata(&metadata, &[], &[], false).unwrap();
+        let p3 = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
+        assert_eq!(resolved.icc.as_deref(), Some(p3.as_slice()));
+    }
+
+    #[test]
+    fn an_unknown_icc_name_is_a_named_error() {
+        let metadata = RecipeMetadata {
+            icc_name: Some("cmyk".into()),
+            ..Default::default()
+        };
+        let err = resolve_metadata(&metadata, &[], &[], false).unwrap_err();
+        assert!(format!("{err}").contains("metadata.iccName"), "got: {err}");
+    }
+
+    #[test]
+    fn a_supplied_icc_aux_ref_wins_over_icc_name() {
+        let icc = crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3);
+        let metadata = RecipeMetadata {
+            icc: Some(AuxRef {
+                off: 0,
+                len: icc.len(),
+            }),
+            icc_name: Some("srgb".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_metadata(&metadata, &[], &icc, false).unwrap();
+        assert_eq!(resolved.icc.as_deref(), Some(icc.as_slice()));
     }
 
     // ---- item 3: autoOrient neutralises a kept Orientation tag ----
