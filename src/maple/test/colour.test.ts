@@ -68,6 +68,60 @@ describe('Colour ops', () => {
     expect((await first(out))[0]).toBe(64);
   });
 
+  /** Deterministic 4x4 RGB gradient, matching the fixture sharp was measured against. */
+  const gradient4x4 = (): { data: Uint8Array; width: number; height: number; channels: 3 } => {
+    const w = 4;
+    const h = 4;
+    const data = new Uint8Array(w * h * 3);
+    let i = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const v = Math.floor((y * w + x) * (255 / (w * h - 1)));
+        data[i++] = v;
+        data[i++] = 255 - v;
+        data[i++] = (v * 2) % 256;
+      }
+    }
+    return { data, width: w, height: h, channels: 3 };
+  };
+
+  it('gamma().resize() and resize().gamma() are ASSEMBLY-time equivalent', async () => {
+    // sharp's gamma/resize are fixed pipeline stages: gamma-in always runs
+    // immediately before the resize stage and gamma-out immediately after
+    // it, regardless of the order `.gamma()`/`.resize()` were called in.
+    // This is the regression check for the critical bug: before the fix,
+    // `.gamma(2.2).resize(2,2)` pushed BOTH gamma ops ahead of a resize op
+    // that didn't exist in the list yet, so gamma had no effect at all —
+    // the two orderings below would have matched each other AND matched a
+    // plain resize with no gamma. Default (lanczos3) kernel.
+    const plain = await maple(gradient4x4()).resize(2, 2).toRawAlpha();
+    const gammaFirst = await maple(gradient4x4()).gamma(2.2).resize(2, 2).toRawAlpha();
+    const resizeFirst = await maple(gradient4x4()).resize(2, 2).gamma(2.2).toRawAlpha();
+    expect(Buffer.from(gammaFirst.data).equals(Buffer.from(resizeFirst.data))).toBe(true);
+    expect(Buffer.from(gammaFirst.data).equals(Buffer.from(plain.data))).toBe(false);
+  });
+
+  it('gamma-around-resize matches sharp, kernel isolated via nearest', async () => {
+    // Same ordering check, but with `nearest` as the resize kernel so the
+    // comparison to real sharp isolates gamma placement from resize-kernel
+    // numerics: `nearest` is an exact pixel pick with no interpolation, so
+    // maple's plain `nearest` resize is already byte-identical to sharp's
+    // (verified separately) — `raw-core`'s `fast_image_resize`-based
+    // `lanczos3` is NOT bit-identical to libvips' `lanczos3`, which is a
+    // pre-existing, unrelated gap; pinning to sharp through THAT kernel
+    // would conflate the two concerns.
+    const opts = { width: 2, height: 2, filter: 'nearest' as const };
+    const gammaFirst = await maple(gradient4x4()).gamma(2.2).resize(opts).toRawAlpha();
+    const resizeFirst = await maple(gradient4x4()).resize(opts).gamma(2.2).toRawAlpha();
+    expect(Buffer.from(gammaFirst.data).equals(Buffer.from(resizeFirst.data))).toBe(true);
+    // Measured against real sharp 0.34.5
+    // `.gamma(2.2).resize(2,2,{kernel:'nearest'})` on this exact gradient.
+    const sharpExpected = [83, 169, 169, 118, 135, 237, 220, 33, 185, 255, 0, 253];
+    Array.from(gammaFirst.data).forEach((byte, idx) => {
+      expect(Math.abs(byte - sharpExpected[idx])).toBeLessThanOrEqual(2);
+    });
+  });
+
   it('gamma() rejects an out-of-range value by name', () => {
     expect(() => maple(solid([1, 2, 3])).gamma(0.5)).toThrow(/gamma.*\[1\.0, 3\.0\].*0\.5/);
   });

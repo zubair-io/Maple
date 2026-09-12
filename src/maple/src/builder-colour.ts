@@ -37,20 +37,24 @@ function checkGammaRange(name: string, value: number): void {
  * sharp's `gamma(gamma, gammaOut)`: exponent `1/gamma` before the resize,
  * exponent `gammaOut` after it. With the defaults (2.2, 2.2) the pair is a
  * net identity and the RESIZE is what happens in the changed encoding.
+ *
+ * The pair is recorded in `state.gammaPair`, not spliced into `state.ops`
+ * here — sharp's `gamma`/`resize` are fixed pipeline STAGES, so the pair's
+ * position relative to `resize` has to be resolved once the full op list is
+ * known, at assembly time (`stateToRecipe`), not at the moment `.gamma()`
+ * happens to be called. Splicing here would put the pair in the wrong place
+ * whenever `.gamma()` is chained before `.resize()` — the position needs to
+ * be resolved from the FINAL op list, which doesn't exist yet mid-chain. A
+ * second `.gamma()` call replaces the pending pair, matching sharp.
  */
 export function pushGamma(state: BuilderState, gamma: number, gammaOut?: number): void {
   checkGammaRange('gamma', gamma);
   const out = gammaOut ?? gamma;
   checkGammaRange('gammaOut', out);
-  const before = { op: 'gamma', exponent: 1 / gamma };
-  const after = { op: 'gamma', exponent: out };
-  const resizeAt = state.ops.findIndex((op) => op.op === 'resize');
-  if (resizeAt < 0) {
-    state.ops.push(before, after);
-    return;
-  }
-  state.ops.splice(resizeAt, 0, before);
-  state.ops.splice(resizeAt + 2, 0, after);
+  state.gammaPair = {
+    before: { op: 'gamma', exponent: 1 / gamma },
+    after: { op: 'gamma', exponent: out },
+  };
 }
 
 /** A scalar or per-channel triple, as sharp's `linear(a, b)` accepts. */

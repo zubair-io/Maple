@@ -56,12 +56,27 @@ export function resolveGravity(value: string | undefined): string {
   return value === undefined ? 'centre' : (POSITION_TO_GRAVITY[value] ?? value);
 }
 
+/**
+ * The `gamma(gamma, gammaOut)` op pair, held apart from `ops` because its
+ * position is resolved at ASSEMBLY time (`stateToRecipe`), not at call time
+ * — matching sharp's fixed pipeline stages, where gamma-in runs immediately
+ * before the resize stage and gamma-out immediately after it, regardless of
+ * where in the call chain `.gamma()` and `.resize()` were written relative
+ * to each other. A second `.gamma()` call replaces the pair, as sharp does.
+ */
+export interface GammaPair {
+  before: RecipeOp;
+  after: RecipeOp;
+}
+
 export interface BuilderState {
   inputPath: string | null;
   inputBytes: Uint8Array | null;
   rawInput: RawPixelInput | null;
-  /** Ordered recipe ops, in call order. */
+  /** Ordered recipe ops, in call order (gamma excepted — see `gammaPair`). */
   ops: RecipeOp[];
+  /** Pending `gamma()` pair, inserted around `resize` by `stateToRecipe`. */
+  gammaPair: GammaPair | null;
   aux: AuxBlob;
   format: ExportFormat | null;
   quality: number;
@@ -82,6 +97,7 @@ export function createBuilderState(
 ): BuilderState {
   const base: Omit<BuilderState, 'inputPath' | 'inputBytes' | 'rawInput'> = {
     ops: [],
+    gammaPair: null,
     aux: new AuxBlob(),
     format: null,
     quality: 92,
@@ -104,6 +120,30 @@ export function createBuilderState(
   return { ...base, inputPath: null, inputBytes: bytes, rawInput: null };
 }
 
+/**
+ * Splice a pending `gamma()` pair into `ops` at its ASSEMBLY-time position:
+ * immediately around the first `resize` op, or at the very end when there
+ * is no resize. Building this fresh on every call (rather than mutating
+ * `ops` when `.gamma()` is called) is what makes the pair land correctly
+ * regardless of whether `.gamma()` was chained before or after `.resize()`.
+ */
+function insertGammaPair(ops: readonly RecipeOp[], pair: GammaPair | null): RecipeOp[] {
+  if (!pair) {
+    return [...ops];
+  }
+  const resizeAt = ops.findIndex((op) => op.op === 'resize');
+  if (resizeAt < 0) {
+    return [...ops, pair.before, pair.after];
+  }
+  return [
+    ...ops.slice(0, resizeAt),
+    pair.before,
+    ops[resizeAt],
+    pair.after,
+    ...ops.slice(resizeAt + 1),
+  ];
+}
+
 /** Assemble the wire recipe for one terminal call. */
 export function stateToRecipe(state: BuilderState, output: Record<string, unknown>): Recipe {
   const input = state.rawInput
@@ -114,7 +154,8 @@ export function stateToRecipe(state: BuilderState, output: Record<string, unknow
         channels: state.rawInput.channels,
       } as const)
     : ({ kind: 'encoded' } as const);
-  const ops = state.autoOrient ? [{ op: 'autoOrient' }, ...state.ops] : state.ops;
+  const withAutoOrient = state.autoOrient ? [{ op: 'autoOrient' }, ...state.ops] : state.ops;
+  const ops = insertGammaPair(withAutoOrient, state.gammaPair);
   return { v: 1, input, ops, output };
 }
 
