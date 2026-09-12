@@ -60,6 +60,7 @@
 //     hand-edited sidecar value stays visibly greyed rather than hidden, so
 //     the user can see it round-trips even though it does nothing here.
 
+import Foundation
 import MapleCore
 import MapleUI
 import SwiftUI
@@ -67,12 +68,19 @@ import SwiftUI
 struct LensCorrectionsSection: View {
   @Bindable var state: EditorState
 
-  /// Created/reloaded by the `.task(id:)` pair on `profileRow` — one keyed
-  /// on the session identity (a new asset means a brand-new resolver
-  /// target), one on `model.lensProfile` (a pick, an undo/redo, or a preset
-  /// apply all need a fresh resolve). `nil` only until the first task body
-  /// runs.
+  /// Created/reloaded by the single `.task(id:)` on `profileRow`, keyed on
+  /// both the session identity (a new asset needs a brand-new resolver
+  /// target — `EditSession.asset` is `let`, so a new asset is always a new
+  /// `EditSession`) and `model.lensProfile` (a pick, an undo/redo, or a
+  /// preset apply all need a fresh resolve). One task instead of one per
+  /// key: two independent `.task(id:)` modifiers both fire on first
+  /// appearance, and the second would redundantly reload the VM the first
+  /// just created. `lensProfileChoiceAssetID` tracks which asset the
+  /// current VM belongs to, so the task can tell "reload" (same asset,
+  /// `lensProfile` changed) from "replace" (asset changed) without
+  /// `LensProfileChoice` exposing its session back to the view.
   @State private var lensProfileChoice: LensProfileChoice?
+  @State private var lensProfileChoiceAssetID: UUID?
 
   private var session: EditSession { state.session }
 
@@ -248,14 +256,22 @@ struct LensCorrectionsSection: View {
         .foregroundStyle(MapleTokens.textMuted)
         .accessibilityIdentifier("editor-lens-profile-source")
     }
-    .task(id: session.asset.id) {
-      let newVM = LensProfileChoice(session: session)
-      lensProfileChoice = newVM
-      await newVM.reload()
+    .task(id: ProfileTaskKey(assetID: session.asset.id, lensProfile: session.model.lensProfile)) {
+      let vm: LensProfileChoice
+      if let existing = lensProfileChoice, lensProfileChoiceAssetID == session.asset.id {
+        vm = existing
+      } else {
+        vm = LensProfileChoice(session: session)
+        lensProfileChoice = vm
+        lensProfileChoiceAssetID = session.asset.id
+      }
+      await vm.reload()
     }
-    .task(id: session.model.lensProfile) {
-      await lensProfileChoice?.reload()
-    }
+  }
+
+  private struct ProfileTaskKey: Equatable {
+    let assetID: UUID
+    let lensProfile: String
   }
 
   private func slider(_ sub: ToolSubParam) -> some View {
