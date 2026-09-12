@@ -15,6 +15,7 @@ pub mod lensfun;
 mod auto;
 pub use auto::{
     applies, auto_match, compatible_lenses, evidence_for, resolve_auto, resolve_for_model,
+    set_auto_match_enabled,
 };
 mod registry;
 pub use registry::{

@@ -123,9 +123,7 @@ enum Cmd {
         /// Only run cases whose name contains this substring.
         #[arg(long = "cases-filter")]
         cases_filter: Option<String>,
-        /// Auto Profile override (#537). See `Render` doc-comment.
-        /// `xmp` is the default; the color-parity harness uses
-        /// `neutral` to keep the gate measuring ACR fidelity.
+        /// Auto Profile override (#537); the colour harness pins `neutral`.
         #[arg(long, value_enum, default_value_t = ProfileChoice::Xmp)]
         profile: ProfileChoice,
         /// Demosaic algorithm for every case (same choices as `render`).
@@ -137,6 +135,8 @@ enum Cmd {
         /// Output primaries for every case. See `Render`'s doc-comment.
         #[arg(long = "target-primaries", value_enum, default_value_t = PrimariesChoice::Srgb)]
         target_primaries: PrimariesChoice,
+        #[command(flatten)]
+        lens: commands::render_lens::LensProfileArgs,
     },
     /// Compare two PNGs via compare_images.py; print JSON; exit non-zero if
     /// --budget is set and mean ΔE exceeds it.
@@ -145,10 +145,8 @@ enum Cmd {
         reference: PathBuf,
         #[arg(long)]
         budget: Option<f32>,
-        /// Primaries the candidate was rendered in (#1339). `srgb`
-        /// (default) is a no-op; `p3` rotates the candidate to sRGB
-        /// primaries before diffing against the (always-sRGB) reference —
-        /// see `compare_images.py --source-primaries`.
+        /// Primaries the candidate was rendered in (#1339): `p3` rotates it to
+        /// sRGB before diffing (`compare_images.py --source-primaries`).
         #[arg(long = "source-primaries", value_enum, default_value_t = PrimariesChoice::Srgb)]
         source_primaries: PrimariesChoice,
     },
@@ -429,6 +427,7 @@ fn main() -> ExitCode {
             demosaic,
             film_lut_dir,
             target_primaries,
+            lens,
         } => run_or_exit(commands::batch::run(
             &manifest,
             &out_dir,
@@ -437,6 +436,7 @@ fn main() -> ExitCode {
             demosaic,
             film_lut_dir.as_deref(),
             target_primaries,
+            &lens,
         )),
         Cmd::Diff {
             candidate,
