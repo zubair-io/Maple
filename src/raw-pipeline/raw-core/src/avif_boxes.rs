@@ -37,14 +37,29 @@
 //! applies); a corrupt or truncated `ipma` yields no associations at all,
 //! so the primary item keeps its default orientation (1).
 //!
-//! ISO/IEC 23008-12 also defines a fixed application order for
-//! transformative item properties — clean-aperture crop, then rotation,
-//! then mirror — independent of the order those properties are stored in
-//! `ipco` or listed in `ipma`. Since this walker only tracks rotation and
-//! mirror, that reduces to "rotate, then mirror" no matter which of the two
-//! a file's `ipma` happens to list first, which is exactly what looking
-//! both up into the single static `ORIENTATION_TABLE[rotation][mirror]`
-//! already encodes — there's no per-file reordering to do.
+//! ISO/IEC 23008-12 defines a fixed application order for transformative
+//! item properties — clean-aperture crop, then rotation, then mirror —
+//! independent of the order those properties are stored in `ipco` or listed
+//! in `ipma`. Since this walker only tracks rotation and mirror, that
+//! reduces to "rotate, then mirror", which is what
+//! `ORIENTATION_TABLE[rotation][mirror]` encodes.
+//!
+//! The order matters: rotation and mirroring do not commute, and for an odd
+//! number of quarter turns the two orders disagree (`M∘R^k = R^(-k)∘M`). The
+//! table shipped through Task G2 encoded mirror-then-rotate, which reported
+//! the wrong orientation for exactly those four combinations — `irot ∈
+//! {1, 3}` with a mirror — and is fixed here (#3507 final fix wave, item 1).
+//!
+//! One measured caveat on top of the spec: libheif 1.20.2 (sharp's AVIF
+//! decoder) applies these properties in the order the file's `ipma` lists
+//! them, not the spec's fixed order. Reordering nothing but the two
+//! association bytes of a real sharp-written AVIF changes what it decodes
+//! to — `irot 3` + `imir 1` listed as `[irot, imir]` decodes as EXIF 5, and
+//! as `[imir, irot]` decodes as EXIF 7. Every writer in practice (libvips/
+//! libheif, libavif, and this crate) stores and associates `irot` before
+//! `imir`, which is the order the spec mandates and the order this table
+//! matches, so the two agree on every real file; a file that lists them the
+//! other way round is read here per the spec, not per libheif.
 //!
 //! ## irot/imir to EXIF orientation
 //!
@@ -87,14 +102,24 @@ pub struct AvifBoxes {
 /// `[rotation_steps][mirror]`, where mirror is 0 = none, 1 = axis 0
 /// (top/bottom exchanged), 2 = axis 1 (left/right exchanged). Rotation is
 /// counter-clockwise in 90-degree steps, as `irot` defines it — see the
-/// module doc for the source, the axis-convention caveat, and why a static
-/// rotation-then-mirror table is the right shape regardless of a file's own
-/// storage/association order.
+/// module doc for the source, the axis-convention caveat, and why the
+/// rotate-then-mirror order this encodes is the spec's.
+///
+/// Every one of the twelve entries is measured against libheif 1.20.2 —
+/// sharp's own AVIF decoder — by patching the `irot`/`imir` payload bytes
+/// of a real sharp-written AVIF (a one-byte edit each, so no other byte of
+/// the container changes), decoding the pixels through sharp, and searching
+/// all eight EXIF transforms of the source for the one that matches. Every
+/// combination matched exactly (mean absolute error 0, next-best 52), and
+/// the rows agree with what libvips *writes* for each EXIF orientation:
+/// nothing for 1, `imir 1` for 2, `irot 2` for 3, `imir 0` for 4,
+/// `irot 3 + imir 1` for 5, `irot 3` for 6, `irot 3 + imir 0` for 7,
+/// `irot 1` for 8.
 const ORIENTATION_TABLE: [[u16; 3]; 4] = [
     [1, 4, 2], // no rotation
-    [8, 7, 5], // 90 CCW
+    [8, 5, 7], // 90 CCW
     [3, 2, 4], // 180
-    [6, 5, 7], // 270 CCW
+    [6, 7, 5], // 270 CCW
 ];
 
 #[path = "avif_boxes_transform.rs"]
