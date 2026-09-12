@@ -10,10 +10,16 @@ use crate::error::Result;
 use crate::export::ExportFormat;
 use crate::icc;
 use crate::raster::RasterImage;
+use crate::raster_encode_jpeg::JpegOptions;
+use crate::raster_encode_png::PngOptions;
+use crate::raster_encode_tiff::TiffOptions;
 use crate::view::encode::TargetPrimaries;
 use image::codecs::png::PngEncoder;
 use image::codecs::webp::WebPEncoder;
 use image::{ExtendedColorType, ImageEncoder};
+
+#[cfg(feature = "avif")]
+use crate::raster_encode_avif::AvifOptions;
 
 /// Background a JPEG/TIFF encode composites transparent pixels over when the
 /// caller did not run `flatten`. Black, matching libvips.
@@ -33,6 +39,94 @@ pub struct RasterEncodeOptions {
     /// already be in this space — `RasterImage::to_colourspace` moves them
     /// (#3503).
     pub primaries: TargetPrimaries,
+}
+
+/// Per-format encode settings (#3506 F5). Replaces PR-A's flat
+/// `RasterEncodeOptions` for the recipe pipeline, which only carried a
+/// quality and an AVIF speed. `RasterEncodeOptions`/`encode_raster_opts`
+/// themselves are untouched — `raster_v2.rs` and `export::encode_raster_with`
+/// still call them directly, and their behaviour must not move.
+///
+/// `Avif` only exists when raw-core's `avif` feature is enabled: it carries
+/// [`crate::raster_encode_avif::AvifOptions`], and that module is itself
+/// gated (see `lib.rs`) so wasm — which never needs AVIF — doesn't pull in
+/// `ravif`/`rav1e`. `Webp` stays available either way (it is just a `bool`),
+/// but its *encoder* lives in the same gated module, so a `Webp` output still
+/// fails with a named error when the feature is off — see
+/// `encode_webp_lossless` below.
+#[derive(Clone, Debug)]
+pub enum RasterOutput {
+    Jpeg(JpegOptions),
+    Png(PngOptions),
+    Webp {
+        lossless: bool,
+    },
+    #[cfg(feature = "avif")]
+    Avif(AvifOptions),
+    Tiff(TiffOptions),
+    /// Native-size interleaved pixels, no container.
+    Raw,
+}
+
+/// Metadata blocks to embed, already in their canonical byte form.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EmbeddedMetadata<'a> {
+    pub icc: Option<&'a [u8]>,
+    pub exif: Option<&'a [u8]>,
+    pub xmp: Option<&'a [u8]>,
+}
+
+/// WebP encode/rejection. Delegates to `raster_encode_avif::encode_webp_opts`
+/// when the `avif` feature is on (that module bundles WebP alongside AVIF);
+/// otherwise fails by name rather than silently dropping the request, same
+/// as `export::encode_avif_rgba_with_speed`'s feature-gated pair.
+#[cfg(feature = "avif")]
+fn encode_webp_lossless(raster: &RasterImage, lossless: bool) -> Result<Vec<u8>> {
+    crate::raster_encode_avif::encode_webp_opts(raster, lossless)
+}
+#[cfg(not(feature = "avif"))]
+fn encode_webp_lossless(_raster: &RasterImage, _lossless: bool) -> Result<Vec<u8>> {
+    Err(crate::error::Error::UnsupportedFormat(
+        "WebP output requires raw-core's 'avif' feature (WebP and AVIF share \
+         an encoder module)"
+            .into(),
+    ))
+}
+
+/// Encode `raster` per the per-format `output`, embedding whatever metadata
+/// blocks the caller supplied. The recipe executor's `run_recipe` is the
+/// only caller today.
+pub fn encode_raster_output(
+    raster: &RasterImage,
+    output: &RasterOutput,
+    metadata: EmbeddedMetadata<'_>,
+) -> Result<Vec<u8>> {
+    let flattened = |r: &RasterImage| r.flatten(JPEG_FLATTEN_BACKGROUND);
+    match output {
+        RasterOutput::Raw => Ok(raster.data.clone()),
+        RasterOutput::Jpeg(o) => crate::raster_encode_jpeg::encode_jpeg_opts(
+            &flattened(raster),
+            o,
+            metadata.icc,
+            metadata.exif,
+            metadata.xmp,
+        ),
+        RasterOutput::Png(o) => crate::raster_encode_png::encode_png_opts(
+            raster,
+            o,
+            metadata.icc,
+            metadata.exif,
+            metadata.xmp,
+        ),
+        RasterOutput::Webp { lossless } => encode_webp_lossless(raster, *lossless),
+        #[cfg(feature = "avif")]
+        RasterOutput::Avif(o) => {
+            crate::raster_encode_avif::encode_avif_opts(raster, o, metadata.exif)
+        }
+        RasterOutput::Tiff(o) => {
+            crate::raster_encode_tiff::encode_tiff_opts(&flattened(raster), o, metadata.icc)
+        }
+    }
 }
 
 /// Composite a raster over an opaque background, returning a 3-channel
@@ -353,5 +447,33 @@ mod tests {
     fn avif_still_encodes_when_tagged_srgb() {
         let img = RasterImage::new_rgb(2, 2, vec![10; 12]);
         assert!(encode_raster_opts(&img, &opts(ExportFormat::Avif)).is_ok());
+    }
+
+    /// `RasterOutput::Webp { lossless: false }` must fail regardless of
+    /// whether the `avif` feature is on: the feature-on path rejects lossy
+    /// WebP by name (Maple's encoder is lossless-only), and the feature-off
+    /// path rejects the whole output by name (no encoder module at all).
+    #[test]
+    fn webp_lossy_is_refused_through_the_output_enum() {
+        let img = RasterImage::new_rgb(2, 1, vec![1, 2, 3, 4, 5, 6]);
+        assert!(encode_raster_output(
+            &img,
+            &RasterOutput::Webp { lossless: false },
+            EmbeddedMetadata::default()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_jpeg_output_flattens_alpha_over_black() {
+        let rgba = RasterImage::new_rgba(8, 8, vec![0, 255, 0, 0].repeat(64));
+        let bytes = encode_raster_output(
+            &rgba,
+            &RasterOutput::Jpeg(crate::raster_encode_jpeg::JpegOptions::default()),
+            EmbeddedMetadata::default(),
+        )
+        .unwrap();
+        let decoded = crate::raster::decode_raster(&bytes, Some("jpeg")).unwrap();
+        assert!(decoded.data[..3].iter().all(|&v| v < 24));
     }
 }

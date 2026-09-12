@@ -1,0 +1,381 @@
+//! The recipe's output stage (#3506, Task F5): the wire `Output` schema —
+//! JPEG/PNG/WebP/AVIF/TIFF encode options plus the alpha-only `Raw`
+//! passthrough — and its translation into `raster_encode::RasterOutput`.
+//! Split out of `raster_recipe.rs`/`raster_recipe_exec.rs` so those files
+//! stay focused on decode/resize/composite — the same file-per-family split
+//! the geometry and colour ops use (`raster_recipe_geometry.rs`,
+//! `raster_recipe_colour.rs`), applied here even though those two files
+//! haven't landed on this branch yet (#3502/#3503 are separate lanes still
+//! in flight): the convention is repo-wide, not conditional on landing
+//! order.
+//!
+//! `output_from_wire` is the one place that needs the `avif` feature: the
+//! wire schema below (plain `u8`/`bool`/`String` fields) has no feature
+//! dependency at all, but translating `Output::Avif` into a
+//! `RasterOutput::Avif(AvifOptions)` does, because `AvifOptions` lives in
+//! the feature-gated `raster_encode_avif` module (see `lib.rs` — wasm never
+//! enables `avif`, and `cargo test -p raw-core --lib` / the Windows CI job
+//! both build raw-core WITHOUT it). Requesting AVIF output on a build
+//! without the feature fails with a named error instead of a missing type.
+
+use serde::Deserialize;
+
+use crate::error::Result;
+use crate::raster_encode::RasterOutput;
+use crate::raster_encode_jpeg::{ChromaSubsampling, JpegOptions};
+use crate::raster_encode_png::PngOptions;
+use crate::raster_encode_tiff::{TiffCompression, TiffOptions};
+use crate::raster_recipe_exec::bad;
+
+#[cfg(feature = "avif")]
+use crate::raster_encode_avif::{AvifChroma, AvifOptions};
+
+fn eighty() -> u8 {
+    80
+}
+fn six() -> u8 {
+    6
+}
+fn two_five_six() -> u16 {
+    256
+}
+fn one() -> f64 {
+    1.0
+}
+fn fifty() -> u8 {
+    50
+}
+fn four() -> u8 {
+    4
+}
+fn eight() -> u8 {
+    8
+}
+fn yes() -> bool {
+    true
+}
+fn chroma_420() -> String {
+    "4:2:0".to_string()
+}
+fn chroma_444() -> String {
+    "4:4:4".to_string()
+}
+fn lzw() -> String {
+    "lzw".to_string()
+}
+
+/// The recipe's output stage: what container to encode into, and that
+/// container's own options. `deny_unknown_fields` on every struct variant —
+/// `Raw` is an empty-struct variant rather than a bare unit for the same
+/// reason `RecipeInput::Encoded {}` is (#3505 fix-round-2): serde only
+/// enforces `deny_unknown_fields` on the struct-variant deserialization
+/// path, so a bare unit here would silently accept
+/// `{"format":"raw","zzzStray":1}`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "format", rename_all = "lowercase", deny_unknown_fields)]
+pub enum Output {
+    #[serde(rename_all = "camelCase")]
+    Jpeg {
+        #[serde(default = "eighty")]
+        quality: u8,
+        #[serde(default)]
+        progressive: bool,
+        #[serde(default = "chroma_420")]
+        chroma_subsampling: String,
+        #[serde(default = "yes")]
+        optimise_coding: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Png {
+        #[serde(default = "six")]
+        compression_level: u8,
+        #[serde(default)]
+        adaptive_filtering: bool,
+        #[serde(default)]
+        palette: bool,
+        #[serde(default = "two_five_six")]
+        colours: u16,
+        #[serde(default = "one")]
+        dither: f64,
+    },
+    Webp {
+        /// Must be `true` — Maple's WebP encoder is lossless-only (D6).
+        #[serde(default = "yes")]
+        lossless: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Avif {
+        #[serde(default = "fifty")]
+        quality: u8,
+        #[serde(default = "four")]
+        effort: u8,
+        #[serde(default)]
+        lossless: bool,
+        #[serde(default = "chroma_444")]
+        chroma_subsampling: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    Tiff {
+        #[serde(default = "lzw")]
+        compression: String,
+        #[serde(default = "eight")]
+        bitdepth: u8,
+        #[serde(default = "yes")]
+        predictor: bool,
+    },
+    /// Native-size interleaved pixels, no container.
+    Raw {},
+}
+
+/// Translate the wire `Output` into the `RasterOutput` the encoder takes,
+/// validating every string-typed field (`chromaSubsampling`, `compression`)
+/// by name. Called once per recipe, from `raster_recipe_exec::run_recipe`.
+pub(crate) fn output_from_wire(output: &Output) -> Result<RasterOutput> {
+    Ok(match output {
+        Output::Raw {} => RasterOutput::Raw,
+        Output::Jpeg {
+            quality,
+            progressive,
+            chroma_subsampling,
+            optimise_coding,
+        } => RasterOutput::Jpeg(JpegOptions {
+            quality: *quality,
+            progressive: *progressive,
+            chroma_subsampling: ChromaSubsampling::from_wire(chroma_subsampling).ok_or_else(
+                || {
+                    bad(format!(
+                        "unsupported JPEG chromaSubsampling '{chroma_subsampling}'"
+                    ))
+                },
+            )?,
+            optimise_coding: *optimise_coding,
+        }),
+        Output::Png {
+            compression_level,
+            adaptive_filtering,
+            palette,
+            colours,
+            dither,
+        } => RasterOutput::Png(PngOptions {
+            compression_level: *compression_level,
+            adaptive_filtering: *adaptive_filtering,
+            palette: *palette,
+            colours: *colours,
+            dither: *dither,
+        }),
+        Output::Webp { lossless } => RasterOutput::Webp {
+            lossless: *lossless,
+        },
+        Output::Avif {
+            quality,
+            effort,
+            lossless,
+            chroma_subsampling,
+        } => avif_from_wire(*quality, *effort, *lossless, chroma_subsampling)?,
+        Output::Tiff {
+            compression,
+            bitdepth,
+            predictor,
+        } => RasterOutput::Tiff(TiffOptions {
+            compression: TiffCompression::from_wire(compression).ok_or_else(|| {
+                bad(format!(
+                    "unsupported TIFF compression '{compression}' (none, lzw, deflate, packbits)"
+                ))
+            })?,
+            bitdepth: *bitdepth,
+            predictor: *predictor,
+        }),
+    })
+}
+
+/// Split out so the `avif`-feature/no-`avif` split is one pair of small
+/// functions with matching signatures — the same dual-`#[cfg]` shape
+/// `export::encode_avif_rgba_with_speed` already uses — rather than an
+/// inline `#[cfg]` buried in `output_from_wire`'s match arm.
+#[cfg(feature = "avif")]
+fn avif_from_wire(
+    quality: u8,
+    effort: u8,
+    lossless: bool,
+    chroma_subsampling: &str,
+) -> Result<RasterOutput> {
+    Ok(RasterOutput::Avif(AvifOptions {
+        quality,
+        effort,
+        lossless,
+        chroma_subsampling: AvifChroma::from_wire(chroma_subsampling).ok_or_else(|| {
+            bad(format!(
+                "unsupported AVIF chromaSubsampling '{chroma_subsampling}'"
+            ))
+        })?,
+    }))
+}
+#[cfg(not(feature = "avif"))]
+fn avif_from_wire(
+    _quality: u8,
+    _effort: u8,
+    _lossless: bool,
+    _chroma_subsampling: &str,
+) -> Result<RasterOutput> {
+    Err(bad(
+        "AVIF output requires raw-core's 'avif' feature".to_string()
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::raster_recipe::parse_recipe;
+
+    fn output_json(body: &str) -> String {
+        format!(r#"{{"v":1,"input":{{"kind":"encoded"}},"ops":[],"output":{body}}}"#)
+    }
+
+    #[test]
+    fn jpeg_defaults_match_sharp() {
+        let r = parse_recipe(&output_json(r#"{"format":"jpeg"}"#)).unwrap();
+        match r.output {
+            Output::Jpeg {
+                quality,
+                progressive,
+                chroma_subsampling,
+                optimise_coding,
+            } => {
+                assert_eq!(quality, 80);
+                assert!(!progressive);
+                assert_eq!(chroma_subsampling, "4:2:0");
+                assert!(optimise_coding);
+            }
+            other => panic!("expected a jpeg output, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn png_defaults_match_sharp() {
+        let r = parse_recipe(&output_json(r#"{"format":"png"}"#)).unwrap();
+        match r.output {
+            Output::Png {
+                compression_level,
+                adaptive_filtering,
+                palette,
+                colours,
+                dither,
+            } => {
+                assert_eq!(compression_level, 6);
+                assert!(!adaptive_filtering);
+                assert!(!palette);
+                assert_eq!(colours, 256);
+                assert_eq!(dither, 1.0);
+            }
+            other => panic!("expected a png output, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn avif_defaults_match_sharp() {
+        let r = parse_recipe(&output_json(r#"{"format":"avif"}"#)).unwrap();
+        match r.output {
+            Output::Avif {
+                quality,
+                effort,
+                lossless,
+                chroma_subsampling,
+            } => {
+                assert_eq!(quality, 50);
+                assert_eq!(effort, 4);
+                assert!(!lossless);
+                assert_eq!(chroma_subsampling, "4:4:4");
+            }
+            other => panic!("expected an avif output, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tiff_defaults_match_sharp() {
+        let r = parse_recipe(&output_json(r#"{"format":"tiff"}"#)).unwrap();
+        match r.output {
+            Output::Tiff {
+                compression,
+                bitdepth,
+                predictor,
+            } => {
+                assert_eq!(compression, "lzw");
+                assert_eq!(bitdepth, 8);
+                assert!(predictor);
+            }
+            other => panic!("expected a tiff output, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn webp_defaults_to_lossless() {
+        let r = parse_recipe(&output_json(r#"{"format":"webp"}"#)).unwrap();
+        assert!(matches!(r.output, Output::Webp { lossless: true }));
+    }
+
+    /// Every variant of `Output` — the empty-struct `Raw` included — must
+    /// reject a stray key, mirroring `raster_recipe`'s own table for `Op`
+    /// and `RecipeInput` (#3505 fix-round-2's rule applies to every recipe
+    /// enum, not just the ones that existed when that fix landed).
+    #[test]
+    fn every_output_variant_rejects_a_stray_key() {
+        let cases: &[(&str, &str)] = &[
+            ("jpeg", r#"{"format":"jpeg","zzzStray":1}"#),
+            ("png", r#"{"format":"png","zzzStray":1}"#),
+            ("webp", r#"{"format":"webp","zzzStray":1}"#),
+            ("avif", r#"{"format":"avif","zzzStray":1}"#),
+            ("tiff", r#"{"format":"tiff","zzzStray":1}"#),
+            ("raw", r#"{"format":"raw","zzzStray":1}"#),
+        ];
+        for (variant, body) in cases {
+            let err = match parse_recipe(&output_json(body)) {
+                Err(e) => e,
+                Ok(_) => panic!("output:{variant} silently accepted a stray key"),
+            };
+            assert!(
+                format!("{err}").contains("zzzStray"),
+                "output:{variant}: expected the error to name zzzStray, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unsupported_jpeg_chroma_subsampling_is_named() {
+        let r = parse_recipe(&output_json(
+            r#"{"format":"jpeg","chromaSubsampling":"4:1:1"}"#,
+        ))
+        .unwrap();
+        let err = output_from_wire(&r.output).unwrap_err();
+        assert!(format!("{err}").contains("4:1:1"), "got: {err}");
+    }
+
+    #[test]
+    fn an_unsupported_tiff_compression_is_named() {
+        let r = parse_recipe(&output_json(r#"{"format":"tiff","compression":"zstd"}"#)).unwrap();
+        let err = output_from_wire(&r.output).unwrap_err();
+        assert!(format!("{err}").contains("zstd"), "got: {err}");
+    }
+
+    #[cfg(feature = "avif")]
+    #[test]
+    fn an_unsupported_avif_chroma_subsampling_is_named() {
+        let r = parse_recipe(&output_json(
+            r#"{"format":"avif","chromaSubsampling":"4:1:1"}"#,
+        ))
+        .unwrap();
+        let err = output_from_wire(&r.output).unwrap_err();
+        assert!(format!("{err}").contains("4:1:1"), "got: {err}");
+    }
+
+    /// Without the `avif` feature, AVIF output fails by name rather than
+    /// failing to compile — `RasterOutput::Avif` simply doesn't exist in
+    /// that build, so `output_from_wire` must route to the named error
+    /// instead.
+    #[cfg(not(feature = "avif"))]
+    #[test]
+    fn avif_output_without_the_feature_is_a_named_error() {
+        let r = parse_recipe(&output_json(r#"{"format":"avif"}"#)).unwrap();
+        let err = output_from_wire(&r.output).unwrap_err();
+        assert!(format!("{err}").contains("avif"), "got: {err}");
+    }
+}
