@@ -124,6 +124,21 @@ fn irot_and_imir_together_map_onto_orientation_five() {
 }
 
 #[test]
+fn the_association_order_decides_the_composition() {
+    // libheif applies the transform properties in the order `ipma` lists
+    // them, not the spec's fixed crop-rotate-mirror order — measured by
+    // swapping nothing but the two association bytes of a real
+    // sharp-written AVIF and decoding it through sharp: `irot 3` + `imir
+    // 1` listed as [irot, imir] decodes as EXIF 5, and as [imir, irot] as
+    // EXIF 7 (#3507 round 2). Maple reproduces both.
+    let props = [bx(b"irot", &[3]), bx(b"imir", &[1])].concat();
+    let forward = avif_with_ipco_and_associations(&props, &[1, 2]);
+    let reversed = avif_with_ipco_and_associations(&props, &[2, 1]);
+    assert_eq!(read_avif_boxes(&forward).transform, 5);
+    assert_eq!(read_avif_boxes(&reversed).transform, 7);
+}
+
+#[test]
 fn every_irot_imir_combination_matches_libheif() {
     // The full 12-entry table, each row measured against libheif 1.20.2 by
     // patching the irot/imir bytes of a sharp-written AVIF and matching the
