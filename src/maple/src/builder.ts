@@ -8,6 +8,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { pushComposite, pushEnsureAlpha, pushFlatten, pushRemoveAlpha } from './builder-alpha';
 import {
   pushGamma,
   pushGreyscale,
@@ -367,51 +368,25 @@ export class MapleImageBuilder {
 
   /** Composite overlay image(s) over the processed image (sharp's `composite`). */
   composite(layers: CompositeLayer[]): this {
-    const wire = layers.map((layer) => {
-      if ((layer.left === undefined) !== (layer.top === undefined)) {
-        throw new Error('composite: a layer must set both left and top, or neither');
-      }
-      const raw =
-        'data' in layer.input
-          ? {
-              width: layer.input.width,
-              height: layer.input.height,
-              channels: layer.input.channels,
-            }
-          : null;
-      const bytes = 'data' in layer.input ? layer.input.data : layer.input;
-      return {
-        aux: this.s.aux.add(bytes),
-        raw,
-        left: layer.left ?? null,
-        top: layer.top ?? null,
-        gravity: layer.gravity ?? 'centre',
-        blend: layer.blend ?? 'over',
-        tile: layer.tile ?? false,
-      };
-    });
-    this.s.ops.push({ op: 'composite', layers: wire });
+    pushComposite(this.s, layers);
     return this;
   }
 
   /** Merge the alpha channel with a background and drop it. */
   flatten(options?: { background?: Colour | string }): this {
-    this.s.ops.push({
-      op: 'flatten',
-      background: resolveColour(options?.background, [0, 0, 0, 255]),
-    });
+    pushFlatten(this.s, options);
     return this;
   }
 
   /** Ensure the image has an alpha channel, filled with `alpha` (0-1). */
   ensureAlpha(alpha = 1): this {
-    this.s.ops.push({ op: 'ensureAlpha', alpha: Math.max(0, Math.min(1, alpha)) });
+    pushEnsureAlpha(this.s, alpha);
     return this;
   }
 
   /** Drop the alpha channel without compositing. */
   removeAlpha(): this {
-    this.s.ops.push({ op: 'removeAlpha' });
+    pushRemoveAlpha(this.s);
     return this;
   }
 
