@@ -275,28 +275,30 @@ export function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): v
 }
 
 /**
- * `'srgb'` is the only named profile this branch will tag with.
+ * The named profiles Maple both CONVERTS into and tags with, matching
+ * sharp's own two.
  *
- * `'p3'` is rejected, not because there is no built-in Display P3 profile —
- * there is — but because tagging is all Maple does (#3507 final fix wave,
- * item 10). sharp's `withIccProfile('p3')` CONVERTS the pixels into Display
- * P3 and then tags them; Maple has no conversion on the bitmap pipeline
- * yet, so tagging would hand a reader sRGB pixels labelled as P3, which a
- * colour-managed viewer then stretches. `'srgb'` is safe for exactly the
- * reason `'p3'` is not: the pixels already are sRGB, so the tag is true.
+ * `'p3'` was a named error until the bitmap pipeline gained a primaries
+ * rotation (`toColourspace`, #3503): tagging alone would have handed a
+ * reader sRGB pixels labelled Display P3, which a colour-managed viewer
+ * then stretches. With the rotation in place the recipe executor moves the
+ * pixels into the named space and embeds the matching profile, so the tag
+ * and the samples agree — see `raster_recipe_exec::named_profile_primaries`.
  */
-const NAMED_ICC_PROFILES = new Set(['srgb']);
+const NAMED_ICC_PROFILES = new Set(['srgb', 'p3']);
 
 /**
- * Embed an ICC profile — `'srgb'` (Maple's own built-in profile, no bytes to
- * supply), a filesystem path (read now — Maple's `aux` blob needs real bytes
- * at call time, unlike sharp's own deferred-to-libvips read), or raw profile
- * bytes (a Maple extension beyond sharp's `string`-only signature).
+ * Embed an ICC profile — `'srgb'` or `'p3'` (Maple's own built-in profiles,
+ * no bytes to supply), a filesystem path (read now — Maple's `aux` blob
+ * needs real bytes at call time, unlike sharp's own deferred-to-libvips
+ * read), or raw profile bytes (a Maple extension beyond sharp's
+ * `string`-only signature).
  *
- * This TAGS the output; it never converts its pixels, which is where it
- * parts company with sharp. `'p3'` is therefore a named error rather than a
- * mislabelling (see [`NAMED_ICC_PROFILES`]), and `'cmyk'` — sharp's third
- * named value — is a named error because Maple has no CMYK support at all.
+ * A NAMED profile converts and tags, as sharp does. Supplied BYTES tag
+ * without converting — nothing here parses an arbitrary ICC profile, so
+ * there is no source space to rotate from; that is the one divergence from
+ * sharp, and it is in the package README. `'cmyk'` — sharp's third named
+ * value — is a named error because Maple has no CMYK support at all.
  */
 export function applyWithIccProfile(state: BuilderState, icc: string | Uint8Array | Buffer): void {
   if (icc instanceof Uint8Array) {
@@ -306,19 +308,12 @@ export function applyWithIccProfile(state: BuilderState, icc: string | Uint8Arra
     return;
   }
   if (typeof icc !== 'string') {
-    throw invalidParameter('icc', "'srgb', a file path, or a Buffer", icc);
+    throw invalidParameter('icc', "'srgb', 'p3', a file path, or a Buffer", icc);
   }
   if (icc === 'cmyk') {
     throw new Error(
       "withIccProfile('cmyk'): Maple has no CMYK ICC profile support — sharp accepts " +
         "'cmyk', Maple does not.",
-    );
-  }
-  if (icc === 'p3') {
-    throw new Error(
-      "withIccProfile('p3'): Maple tags the output without converting its pixels, so this " +
-        'would label sRGB pixels as Display P3 — sharp converts them first. Use ' +
-        "toColourspace('display-p3'), whose bitmap-pipeline wiring is #3503.",
     );
   }
   if (NAMED_ICC_PROFILES.has(icc)) {
