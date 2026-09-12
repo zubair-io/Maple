@@ -1,4 +1,24 @@
-# Imported lens profiles
+# Lens corrections
+
+Maple corrects lens distortion, lateral chromatic aberration and vignetting from three sources, in a fixed order of precedence:
+
+1. **Corrections embedded in the RAW** (a DNG `OpcodeList3`). These are the maker's own model for that exact lens and body and always win. They are never compounded with anything below.
+2. **An explicit selection** in the sidecar's `papp:LensProfile`: an imported LCP (`lcp1:` / `lcp1-ack:`, described under "Imported lens profiles" below) or a bundled lens picked by hand (`lensfun1:<maker>/<lens>@<mount>`).
+3. **The automatic match** from the bundled Lensfun database, when the RAW's EXIF make, model and lens name identify a calibrated lens.
+
+The master toggle (`crs:LensProfileEnable="0"`) turns all three off, and the three strength sliders scale each family independently. An automatic match writes nothing to the sidecar, like Auto Profile: the render is reproducible from the database snapshot pinned in the build.
+
+## Bundled Lensfun database
+
+raw-core ships a snapshot of the [Lensfun](https://github.com/lensfun/lensfun) calibration database (1,565 lenses, 1,051 bodies, 299 mounts at commit `12f5976`, 2026-09-11), converted at build time by `src/scripts/convert_lensfun_db.py` into `raw-core/src/lens_profile/lensfun/db.bin` and included into every host, so the xcframework, the Windows DLL, the API dylib and the wasm bundle all correct the same lenses the same way. The data is CC BY-SA 3.0; `ATTRIBUTION.md` next to the bundle carries the licence, the source commit and the conversion rules, and `COVERAGE.md` the counts and the entries that were skipped (non-rectilinear projections, placeholder lenses).
+
+Matching is exact after canonicalisation, never fuzzy: names are lowercased, a leading maker prefix is dropped, `f/` becomes `f` and whitespace is removed, so a body's `FE 24-70mm F4 ZA OSS` meets Lensfun's `FE 24-70mm f/4 ZA OSS`. The camera resolves to a mount and a crop factor; the lens must sit on that mount or on one the mount lists as compatible (adapted glass), and a calibration made on a smaller sensor is never used for a larger one. When Lensfun lists a lens once per crop factor, the set calibrated closest to the camera's sensor is used. An ambiguous name (`24-70mm`), an unknown body or an unknown lens means no correction and no error; `maple-cli inspect <raw>` prints what matched and every bundled lens the body can carry, and `maple-cli render --lens auto|off|<slug>` chooses.
+
+The models convert into raw-core's own calibration form by coefficient rescaling, the way `liblensfun` does it: both normalise the radius by the focal length, `ptlens` and TCA `poly3` need the odd-power radial terms `Perspective::radial_odd`, and the `1 − k1` (or `1 − a − b − c`) zoom factor is absorbed the way `liblensfun` absorbs it. `test-fixtures/qualification/lensfun-reference.json` holds `liblensfun`'s own answers for six camera/lens/focal cases, and `lens_profile::lensfun::tests_parity` reproduces them to 0.05 px and 1e-4 in gain. `src/scripts/test_lensfun_vs_lcp.sh` compares the bundled calibration with Adobe's LCP for the same lens on the Sony fixture, gated by the ceilings in `test-fixtures/qualification/lensfun-vs-lcp.json`.
+
+A shot outside a lens's calibrated focal, aperture or distance range is clamped to the nearest sample and reported in the render evidence as an approximation; for the bundled database that is applied as-is, since it is the product default, whereas an imported LCP still needs the user's explicit acknowledgement. A vignetting polynomial that crosses zero before this sensor's corners is dropped for that shot and reported.
+
+## Imported lens profiles
 
 Maple can apply a user-owned `.lcp` calibration to a RAW alongside the corrections embedded in the file. The profile is imported once, identified by the hash of its exact bytes, and selected per photo through one sidecar field. Distortion, lateral chromatic aberration and vignetting keep their independent strengths; a family the calibration does not cover stays inert. Corrections run in the shared scene-linear decode stage before the default crop, on the same prefix the GPU renderer consumes.
 

@@ -119,6 +119,33 @@ pub fn applies(raw: &RawImage, model: &AdjustmentModel) -> bool {
     !model.lens_profile.is_empty() || auto_match(raw).is_some()
 }
 
+/// Every bundled lens this RAW's body can carry, for the hosts' dropdown:
+/// `[{"slug", "maker", "model"}]`, empty when the body is not in the bundle.
+pub fn compatible_lenses(raw: &RawImage) -> serde_json::Value {
+    let db = lensfun::database();
+    let q = query_for(raw);
+    let Some(camera) = matcher::camera_named(db, q.make, q.camera) else {
+        return serde_json::json!([]);
+    };
+    matcher::compatible(db, camera)
+        .into_iter()
+        .map(|lens| {
+            let mount = lens
+                .mounts
+                .iter()
+                .copied()
+                .find(|m| *m == camera.mount)
+                .unwrap_or(lens.mounts[0]);
+            serde_json::json!({
+                "slug": matcher::slug(lens, &db.mounts[mount]),
+                "maker": lens.maker,
+                "model": lens.model,
+            })
+        })
+        .collect::<Vec<_>>()
+        .into()
+}
+
 /// The evidence JSON hosts display for `model` on this RAW, `Ok(None)` when
 /// nothing external applies.
 pub fn evidence_for(

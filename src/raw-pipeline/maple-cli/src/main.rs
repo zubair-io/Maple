@@ -409,7 +409,7 @@ fn main() -> ExitCode {
             profile,
             film_lut_dir.as_deref(),
             target_primaries,
-            lens.selection(),
+            &lens,
         )),
         Cmd::Resize {
             input,

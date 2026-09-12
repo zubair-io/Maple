@@ -47,6 +47,32 @@ pub fn run(path: &Path) -> Result<i32, Box<dyn std::error::Error>> {
     for (illum, _) in &raw.color_matrices {
         println!("    {:?}", illum);
     }
+    println!(
+        "  lens:       {} ({} mm f/{})",
+        raw.lens_metadata.lens_model.as_deref().unwrap_or("(none)"),
+        raw.focal_length.unwrap_or(0.0),
+        raw.aperture.unwrap_or(0.0)
+    );
+    // The bundled Lensfun match the develop path would apply, and every
+    // bundled lens this body can carry (`maple-cli render --lens <slug>`).
+    match raw_core::lens_profile::evidence_for(&raw, &raw_core::AdjustmentModel::default()) {
+        Ok(Some(evidence)) => println!("  lens correction: {evidence}"),
+        Ok(None) => println!("  lens correction: none (no embedded or bundled calibration)"),
+        Err(error) => println!("  lens correction: {error}"),
+    }
+    let compatible = raw_core::lens_profile::compatible_lenses(&raw);
+    println!(
+        "  bundled lenses for this body: {}",
+        compatible.as_array().map_or(0, Vec::len)
+    );
+    for lens in compatible.as_array().into_iter().flatten() {
+        println!(
+            "    {}  {} {}",
+            lens["slug"].as_str().unwrap_or(""),
+            lens["maker"].as_str().unwrap_or(""),
+            lens["model"].as_str().unwrap_or("")
+        );
+    }
 
     Ok(0)
 }
