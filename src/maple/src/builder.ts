@@ -25,6 +25,7 @@ import {
   resolveToRaw,
   runPipeline,
 } from './builder-exec';
+import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
 import {
   pushExtend,
   pushExtract,
@@ -36,14 +37,11 @@ import {
 import {
   createBuilderState,
   formatForPath,
-  isRawPath,
-  lastResizeWidth,
   resolveColour,
   resolveGravity,
   stateToOutput,
 } from './builder-state';
 import type { BuilderState } from './builder-state';
-import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
 import type {
   Colour,
   CompositeLayer,
