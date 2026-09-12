@@ -24,9 +24,19 @@ export interface ImageMetadata {
   hasProfile?: boolean;
   /** Colour space interpretation. Always `'srgb'` for Maple's bitmap decode. */
   space?: string;
-  /** Pixel depth name. Always `'uchar'` — Maple decodes to 8-bit. */
+  /**
+   * Sample depth the container declares, in sharp's own vocabulary:
+   * `'uchar'` for 8 bits per channel, `'ushort'` for the 16-bit samples a
+   * PNG or TIFF can carry. Decoding still normalises to 8-bit; this reports
+   * what the file holds.
+   */
   depth?: string;
-  /** Pixels per inch, when the container states one. */
+  /**
+   * Pixels per inch, when the container states one — rounded to a whole
+   * number, and absent at or below 25.4 dpi (libvips' 1 px/mm default),
+   * both of which match sharp. A JPEG that states no resolution at all
+   * reports 72, libvips' own assumption for that container.
+   */
   density?: number;
   /** Byte length of the input. */
   size?: number;

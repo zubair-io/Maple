@@ -130,13 +130,13 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `flatten()`                                        | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                                                                                                                                                                                                     |
 | `ensureAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                                                                          |
 | `removeAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                                                                          |
-| `metadata()`       | ✅    | plus `hasAlpha`/`hasProfile`/`space`/`depth`/`density`/`size`/`icc`/`exif`/`xmp`                                                                                                     |
-| `stats()`          | ✅    | per-channel moments, `isOpaque`, `entropy`, `sharpness`, `dominant`                                                                                                                  |
-| `keepMetadata()`   | ✅    | JPEG, PNG, TIFF, WebP keep every field their container can carry; AVIF keeps EXIF only (see below)                                                                                   |
-| `withMetadata()`   | ✅    | `{orientation, density}`, same validation as sharp; `autoOrient`/`.rotate()` neutralises a kept Orientation tag to `1` unless you also pass an explicit `orientation`                |
-| `withExif()`       | ⚠️    | takes a raw EXIF `Buffer`, not sharp's IFD object (`{IFD0: {...}}`) — rejected by name (#3588); not yet supported when developing a RAW file (`.jpg`/etc. from a `.dng` and friends) |
-| `withIccProfile()` | ⚠️    | `'srgb'`/`'p3'` or a path, like sharp, plus raw bytes; `'cmyk'` rejected (no CMYK support); no ICC on AVIF output (#3580); not yet supported when developing a RAW file              |
-| `withXmp()`        | ⚠️    | JPEG and PNG only — WebP, TIFF and AVIF have no XMP writer (see below); not yet supported when developing a RAW file                                                                 |
+| `metadata()`       | ✅    | plus `hasAlpha`/`hasProfile`/`space`/`depth`/`density`/`size`/`icc`/`exif`/`xmp`; `exif` comes back in the form its container stores it, byte-identical to sharp (see below)             |
+| `stats()`          | ✅    | per-channel moments, `isOpaque`, `entropy`, `sharpness`, `dominant`                                                                                                                      |
+| `keepMetadata()`   | ✅    | never fails: each container keeps every field it can carry and drops the rest silently, as sharp does — JPEG and PNG keep all four, WebP all but XMP, TIFF ICC only, AVIF EXIF only      |
+| `withMetadata()`   | ✅    | `{orientation, density}`, same validation as sharp; `autoOrient`/`.rotate()` neutralises a kept Orientation tag to `1` unless you also pass an explicit `orientation`                    |
+| `withExif()`       | ⚠️    | takes a raw EXIF `Buffer`, not sharp's IFD object (`{IFD0: {...}}`) — rejected by name (#3588); not yet supported when developing a RAW file (`.jpg`/etc. from a `.dng` and friends)     |
+| `withIccProfile()` | ⚠️    | TAGS without converting, unlike sharp: `'srgb'`, a path, or raw bytes; `'p3'` and `'cmyk'` rejected by name; no ICC on AVIF output (#3580); not yet supported when developing a RAW file |
+| `withXmp()`        | ⚠️    | JPEG and PNG only — WebP, TIFF and AVIF have no XMP writer, and asking for one explicitly is a named error (see below); not yet supported when developing a RAW file                     |
 | `blur()`                                           | ✅    | no argument = 3x3 box; a sigma = separable Gaussian. Byte-identical to sharp                                                                                                                                                                                                                                                                                             |
 | `sharpen()`                                        | ✅    | argument-less kernel and the `{sigma}` Lab mask path both byte-identical                                                                                                                                                                                                                                                                                                 |
 | `median()`                                         | ✅    | integer window 1..1000, no wider than the image, every band. Byte-identical                                                                                                                                                                                                                                                                                              |
@@ -379,24 +379,59 @@ encoder crate:
 | TIFF      | yes | no   | no  | no      |
 | AVIF      | no  | yes  | no  | no      |
 
-Asking for a field a container's encoder can't carry — `keepMetadata()` on an
-input that actually has that field, or an explicit `withExif()`/
-`withIccProfile()`/`withXmp()` call — is a named error at encode time (e.g.
-`"TIFF cannot embed EXIF"`), not a silent no-op. `keepMetadata()`'s own
-default sRGB fill (added when the input carries no ICC at all) is the one
-exception: on a container that can't write ICC, that default is dropped
-silently rather than errored, since it was never something you asked for.
+Naming a field a container's encoder can't carry — an explicit `withExif()`,
+`withIccProfile()`, `withXmp()` or `withMetadata({ density })` — is a named
+error at encode time (e.g. `"TIFF cannot embed EXIF"`), not a silent no-op.
+
+A field you did **not** name is dropped silently instead, which is what sharp
+does. `keepMetadata()` and `withMetadata()` sweep up every block the input
+carries, so holding the output container to blocks you never mentioned would
+fail calls sharp completes: `keepMetadata()` and
+`withMetadata({ orientation })` both succeed on all five containers, each
+writing what it can carry. The same goes for the default sRGB profile
+`keepMetadata()` adds when the input has none, and for the EXIF block
+`withMetadata({ orientation })` synthesises to hold the value — neither is
+something you asked for, so neither fails a container.
+
 Extending this table — WebP/TIFF/AVIF XMP, AVIF ICC, TIFF EXIF — is real
 follow-up work in the underlying `image`/`avif-serialize` crates; AVIF's ICC
-gap specifically is tracked as #3580.
+gap specifically is tracked as #3580. Where an encoder falls short of sharp,
+the content differs even though the call succeeds: a kept XMP packet is
+absent from WebP, TIFF and AVIF output, and a TIFF carries neither EXIF nor
+an orientation tag.
+
+**Reading metadata back.** `metadata().exif` is the block exactly as its
+container stores it — `Exif\0\0` + TIFF header for JPEG, WebP and AVIF, the
+bare TIFF header for PNG, and absent for a TIFF, whose IFD0 _is_ its EXIF.
+That is byte-for-byte what sharp returns for the same input. Internally every
+block is canonicalised to its TIFF header, so a cross-container
+`keepMetadata()` (a WebP or AVIF source to JPEG output) writes a block a
+reader can parse, and `withExif()` accepts either form.
+
+`metadata().density` follows libvips too: the EXIF `XResolution` wins over a
+JFIF or `pHYs` value, a JPEG that states no resolution reports 72, the value
+is rounded to a whole number, and anything at or below 25.4 dpi (libvips' own
+1 px/mm default) is reported as no density at all. WebP and AVIF never report
+one. `withMetadata({ density })` writes the EXIF resolution as well as the
+container's own field, so it survives a `keepMetadata()` that brought a
+different one along.
+
+**Orientation.** `.rotate()`/`autoOrient` honours whatever the container
+declares: a JPEG's APP1, a PNG `eXIf` chunk, a WebP `EXIF` chunk, a TIFF's
+own IFD0, or an AVIF's `irot`/`imir` transform properties. An AVIF is the one
+container `metadata()` reports post-transform (16×24 for a 24×16 image with
+`irot 3`), matching libheif and therefore sharp, while the decoded pixels stay
+coded-size with `orientation` as the flag `.rotate()` applies.
 
 **AVIF metadata.** Reading is complete: `metadata()` reports the real
 orientation from the container's `irot`/`imir` transform properties (not a
 hardcoded `1`), and returns the `Exif` and XMP items when present. Writing is
 EXIF-only: `avif-serialize`, the pure-Rust muxer behind Maple's AVIF encoder,
 can write an `Exif` item but has no writer for an ICC `colr` box or an XMP
-item (#3580), so `withIccProfile()` and `withXmp()` are silent no-ops on AVIF
-output. One more asymmetry: `metadata().orientation` on an AVIF source always
+item (#3580), so an explicit `withIccProfile()` or `withXmp()` on AVIF output
+is a named error (`"AVIF cannot embed an ICC profile"` /
+`"AVIF cannot embed XMP"`), while the same blocks swept up by
+`keepMetadata()` are dropped silently. One more asymmetry: `metadata().orientation` on an AVIF source always
 reads the `irot`/`imir` boxes, never the embedded EXIF item's own Orientation
 tag — so `withMetadata({ orientation: 6 }).avif()` writes a correct EXIF
 Orientation byte (verifiable by reading the raw `exif` buffer back), but the
@@ -405,9 +440,11 @@ it (#3586).
 
 **`stats()` precision.** Two small, known divergences from sharp's own
 numbers, both pre-existing and out of scope for this metadata/stats pass:
-`entropy` and `sharpness` differ by roughly a hundredth of a unit from
-sharp's own measurements because this crate's greyscale-luma conversion
-disagrees with libvips' by ±1 on a minority of pixels (#3572); and a
+`entropy` and `sharpness` differ from sharp's own measurements because this
+crate's greyscale-luma conversion disagrees with libvips' by ±1 on a minority
+of pixels (#3572) — up to 0.06 of a bit of entropy on noise (measured 0.052
+on 40×30 RGBA noise, and 4e-8 on an already-grey source, which is what ties
+the residual to the luma step); and a
 greyscale-plus-alpha (`La8`) PNG or TIFF can report `hasAlpha: true` from
 `metadata()` while `stats()` decodes it as fully opaque RGB, because
 `decode_raster` currently drops that alpha channel (#3574).
