@@ -44,10 +44,12 @@ fn jpeg_embeds_icc_exif_and_xmp() {
     assert_eq!(found.xmp.as_deref(), Some(XMP_PACKET));
 }
 
-/// `None` means "embed nothing", for every block including the ICC profile:
-/// a recipe that asked for no metadata must produce an UNTAGGED container.
+/// fix-round-1, item 2: a `None` icc means NO icc, full stop — no more
+/// "leave the container's own default profile tagging alone." Adding a
+/// default sRGB profile when the caller asked to `keep` is
+/// `resolve_metadata`'s job (see its own tests), not this encoder's.
 #[test]
-fn jpeg_with_no_metadata_embeds_nothing_at_all() {
+fn jpeg_with_no_resolved_metadata_embeds_none_at_all() {
     let bytes = encode_raster_output(
         &rgb(2, 2, 90),
         &RasterOutput::Jpeg(JpegOptions::default()),
@@ -205,4 +207,133 @@ fn a_jpeg_output_flattens_alpha_over_black() {
     .unwrap();
     let decoded = crate::raster::decode_raster(&bytes, Some("jpeg")).unwrap();
     assert!(decoded.data[..3].iter().all(|&v| v < 24));
+}
+
+#[test]
+fn tiff_with_no_resolved_icc_embeds_none() {
+    let bytes = encode_raster_output(
+        &rgb(2, 2, 200),
+        &RasterOutput::Tiff(TiffOptions::default()),
+        &meta(None, None, None, None),
+    )
+    .unwrap();
+    assert!(read_sidecars(&bytes).icc.is_none());
+}
+
+// ---- require_supported (fix-round-1, item 1) ----
+
+#[test]
+fn webp_rejects_xmp_and_density_by_name() {
+    let err = require_supported(
+        &meta(None, None, Some(XMP_PACKET), None),
+        "WebP",
+        &WEBP_CAPS,
+    )
+    .unwrap_err();
+    assert!(
+        format!("{err}").contains("WebP cannot embed XMP"),
+        "got: {err}"
+    );
+
+    let err =
+        require_supported(&meta(None, None, None, Some(72.0)), "WebP", &WEBP_CAPS).unwrap_err();
+    assert!(
+        format!("{err}").contains("WebP cannot embed a pixel density"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn webp_accepts_icc_and_exif() {
+    let icc = p3();
+    require_supported(
+        &meta(Some(&icc), Some(EXIF_TIFF), None, None),
+        "WebP",
+        &WEBP_CAPS,
+    )
+    .unwrap();
+}
+
+#[test]
+fn tiff_rejects_exif_xmp_and_density_by_name() {
+    let err = require_supported(&meta(None, Some(EXIF_TIFF), None, None), "TIFF", &TIFF_CAPS)
+        .unwrap_err();
+    assert!(
+        format!("{err}").contains("TIFF cannot embed EXIF"),
+        "got: {err}"
+    );
+
+    let err = require_supported(
+        &meta(None, None, Some(XMP_PACKET), None),
+        "TIFF",
+        &TIFF_CAPS,
+    )
+    .unwrap_err();
+    assert!(
+        format!("{err}").contains("TIFF cannot embed XMP"),
+        "got: {err}"
+    );
+
+    let err =
+        require_supported(&meta(None, None, None, Some(72.0)), "TIFF", &TIFF_CAPS).unwrap_err();
+    assert!(
+        format!("{err}").contains("TIFF cannot embed a pixel density"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn tiff_accepts_icc() {
+    let icc = p3();
+    require_supported(&meta(Some(&icc), None, None, None), "TIFF", &TIFF_CAPS).unwrap();
+}
+
+#[test]
+fn avif_rejects_icc_xmp_and_density_by_name() {
+    let icc = p3();
+    let err =
+        require_supported(&meta(Some(&icc), None, None, None), "AVIF", &AVIF_CAPS).unwrap_err();
+    assert!(
+        format!("{err}").contains("AVIF cannot embed an ICC profile"),
+        "got: {err}"
+    );
+
+    let err = require_supported(
+        &meta(None, None, Some(XMP_PACKET), None),
+        "AVIF",
+        &AVIF_CAPS,
+    )
+    .unwrap_err();
+    assert!(
+        format!("{err}").contains("AVIF cannot embed XMP"),
+        "got: {err}"
+    );
+
+    let err =
+        require_supported(&meta(None, None, None, Some(72.0)), "AVIF", &AVIF_CAPS).unwrap_err();
+    assert!(
+        format!("{err}").contains("AVIF cannot embed a pixel density"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn avif_accepts_exif() {
+    require_supported(&meta(None, Some(EXIF_TIFF), None, None), "AVIF", &AVIF_CAPS).unwrap();
+}
+
+/// The gate runs inside the ONE encode path, not only as a standalone
+/// function: a TIFF output with a resolved EXIF block fails there by name.
+#[test]
+fn the_encode_path_itself_applies_the_gate() {
+    let err = encode_raster_output(
+        &rgb(2, 2, 200),
+        &RasterOutput::Tiff(TiffOptions::default()),
+        &meta(None, Some(EXIF_TIFF), None, None),
+    )
+    .unwrap_err();
+    assert!(
+        format!("{err}").contains("TIFF cannot embed EXIF"),
+        "got: {err}"
+    );
 }
