@@ -778,6 +778,85 @@ class AuxBlob {
 }
 // src/builder-state.ts
 import * as path4 from "node:path";
+
+// src/builder-validate.ts
+var UNSUPPORTED = {
+  jpeg: [
+    "mozjpeg",
+    "trellisQuantisation",
+    "trellisQuantization",
+    "overshootDeringing",
+    "optimiseScans",
+    "optimizeScans",
+    "quantisationTable",
+    "quantizationTable",
+    "force"
+  ],
+  png: ["progressive", "quality", "effort", "force"],
+  webp: [
+    "alphaQuality",
+    "nearLossless",
+    "smartSubsample",
+    "smartDeblock",
+    "preset",
+    "effort",
+    "quality",
+    "loop",
+    "delay",
+    "minSize",
+    "mixed",
+    "force"
+  ],
+  avif: ["force"],
+  tiff: [
+    "tile",
+    "pyramid",
+    "bigtiff",
+    "xres",
+    "yres",
+    "miniswhite",
+    "quality",
+    "tileWidth",
+    "tileHeight",
+    "resolutionUnit",
+    "force"
+  ]
+};
+function rejectUnsupported(format, options) {
+  const offender = (UNSUPPORTED[format] ?? []).find((key) => options[key] !== undefined);
+  if (offender !== undefined) {
+    throw new Error(`${format}({ ${offender} }) is not supported by Maple's pure-Rust encoder. ` + `See the sharp parity table in the @justmaple/maple README.`);
+  }
+}
+function checkIntegerRange(name, value, lo, hi) {
+  if (value === undefined) {
+    return;
+  }
+  if (!Number.isInteger(value) || value < lo || value > hi) {
+    throw new Error(`Expected integer between ${lo} and ${hi} for ${name} ` + `but received ${value} of type ${typeof value}`);
+  }
+}
+function checkOptionRanges(format, options) {
+  const num = (key) => options[key];
+  if (format === "jpeg" || format === "avif") {
+    checkIntegerRange("quality", num("quality"), 1, 100);
+  }
+  if (format === "avif") {
+    checkIntegerRange("effort", num("effort"), 0, 9);
+  }
+  if (format === "png") {
+    checkIntegerRange("compressionLevel", num("compressionLevel"), 0, 9);
+    checkIntegerRange("colours", num("colours") ?? num("colors"), 2, 256);
+  }
+}
+function assertRawDevelopOutput(state) {
+  const offender = Object.keys(state.outputOptions ?? {}).find((key) => key !== "quality");
+  if (offender !== undefined) {
+    throw new Error(`${offender} is not supported on a RAW develop input yet — see #3579. ` + `Develop to a bitmap first, then re-encode it with the per-format options.`);
+  }
+}
+
+// src/builder-state.ts
 var RAW_EXTENSIONS = new Set([
   ".dng",
   ".raw",
@@ -828,6 +907,7 @@ function createBuilderState(input) {
     quality: 92,
     effort: null,
     output: null,
+    outputOptions: null,
     autoOrient: false,
     xmpPath: null,
     xmpXml: null,
@@ -872,54 +952,6 @@ function stateToRecipe(state, output) {
   const ops = insertGammaPair(withAutoOrient, state.gammaPair);
   return { v: 1, input, ops, output };
 }
-var UNSUPPORTED = {
-  jpeg: [
-    "mozjpeg",
-    "trellisQuantisation",
-    "trellisQuantization",
-    "overshootDeringing",
-    "optimiseScans",
-    "optimizeScans",
-    "quantisationTable",
-    "quantizationTable",
-    "force"
-  ],
-  png: ["progressive", "quality", "effort", "force"],
-  webp: [
-    "alphaQuality",
-    "nearLossless",
-    "smartSubsample",
-    "smartDeblock",
-    "preset",
-    "effort",
-    "quality",
-    "loop",
-    "delay",
-    "minSize",
-    "mixed",
-    "force"
-  ],
-  avif: ["bitdepth", "force"],
-  tiff: [
-    "tile",
-    "pyramid",
-    "bigtiff",
-    "xres",
-    "yres",
-    "miniswhite",
-    "quality",
-    "tileWidth",
-    "tileHeight",
-    "resolutionUnit",
-    "force"
-  ]
-};
-function rejectUnsupported(format, options) {
-  const offender = (UNSUPPORTED[format] ?? []).find((key) => options[key] !== undefined);
-  if (offender !== undefined) {
-    throw new Error(`${format}({ ${offender} }) is not supported by Maple's pure-Rust encoder. ` + `See the sharp parity table in the @justmaple/maple README.`);
-  }
-}
 function stateToOutput(state, fallback) {
   if (state.output) {
     return state.output;
@@ -932,6 +964,31 @@ function stateToOutput(state, fallback) {
     return { format, quality: state.quality };
   }
   return { format };
+}
+var QUALITY_FORMATS = new Set(["jpeg", "avif"]);
+var EFFORT_FORMATS = new Set(["avif"]);
+function applyQuality(state, quality) {
+  checkIntegerRange("quality", quality, 1, 100);
+  state.quality = quality;
+  const output = state.output;
+  if (output && QUALITY_FORMATS.has(String(output.format))) {
+    output.quality = quality;
+  }
+}
+function applyEffort(state, effort) {
+  checkIntegerRange("effort", effort, 0, 9);
+  state.effort = effort;
+  const output = state.output;
+  if (output && EFFORT_FORMATS.has(String(output.format))) {
+    output.effort = effort;
+  }
+}
+function applyFormat(state, format) {
+  state.format = format;
+  if (state.output && state.output.format !== format) {
+    state.output = null;
+    state.outputOptions = null;
+  }
 }
 var FORMAT_BY_EXT = {
   jpg: "jpeg",
@@ -974,6 +1031,44 @@ function resolveColour(value, fallback) {
 import * as crypto from "node:crypto";
 import * as fs6 from "node:fs/promises";
 import * as path7 from "node:path";
+
+// src/builder-alpha.ts
+var OPAQUE_BLACK = [0, 0, 0, 255];
+function pushComposite(state, layers) {
+  const wire = layers.map((layer) => {
+    if (layer.left === undefined !== (layer.top === undefined)) {
+      throw new Error("composite: a layer must set both left and top, or neither");
+    }
+    const raw = "data" in layer.input ? {
+      width: layer.input.width,
+      height: layer.input.height,
+      channels: layer.input.channels
+    } : null;
+    const bytes = "data" in layer.input ? layer.input.data : layer.input;
+    return {
+      aux: state.aux.add(bytes),
+      raw,
+      left: layer.left ?? null,
+      top: layer.top ?? null,
+      gravity: layer.gravity ?? "centre",
+      blend: layer.blend ?? "over",
+      tile: layer.tile ?? false
+    };
+  });
+  state.ops.push({ op: "composite", layers: wire });
+}
+function pushFlatten(state, options) {
+  state.ops.push({
+    op: "flatten",
+    background: resolveColour(options?.background, OPAQUE_BLACK)
+  });
+}
+function pushEnsureAlpha(state, alpha = 1) {
+  state.ops.push({ op: "ensureAlpha", alpha: Math.max(0, Math.min(1, alpha)) });
+}
+function pushRemoveAlpha(state) {
+  state.ops.push({ op: "removeAlpha" });
+}
 
 // src/builder-colour.ts
 function pushGreyscale(state, greyscale) {
@@ -1052,8 +1147,12 @@ function pushToColourspace(state, space) {
 
 // src/builder-encoders.ts
 function setJpegOutput(state, options) {
-  rejectUnsupported("jpeg", options ?? {});
+  const passed = options ?? {};
+  rejectUnsupported("jpeg", passed);
+  checkOptionRanges("jpeg", passed);
   state.format = "jpeg";
+  state.outputOptions = passed;
+  state.quality = options?.quality ?? 80;
   state.output = {
     format: "jpeg",
     quality: options?.quality ?? 80,
@@ -1063,36 +1162,50 @@ function setJpegOutput(state, options) {
   };
 }
 function setPngOutput(state, options) {
-  rejectUnsupported("png", options ?? {});
+  const passed = options ?? {};
+  rejectUnsupported("png", passed);
+  checkOptionRanges("png", passed);
+  const impliesPalette = [options?.colours, options?.colors, options?.dither].some((value) => value !== undefined);
   state.format = "png";
+  state.outputOptions = passed;
   state.output = {
     format: "png",
     compressionLevel: options?.compressionLevel ?? 6,
     adaptiveFiltering: options?.adaptiveFiltering ?? false,
-    palette: options?.palette ?? false,
+    palette: options?.palette ?? impliesPalette,
     colours: options?.colours ?? options?.colors ?? 256,
     dither: options?.dither ?? 1
   };
 }
 function setWebpOutput(state, options) {
-  rejectUnsupported("webp", options ?? {});
+  const passed = options ?? {};
+  rejectUnsupported("webp", passed);
   state.format = "webp";
+  state.outputOptions = passed;
   state.output = { format: "webp", lossless: options?.lossless ?? true };
 }
 function setAvifOutput(state, options) {
-  rejectUnsupported("avif", options ?? {});
+  const passed = options ?? {};
+  rejectUnsupported("avif", passed);
+  checkOptionRanges("avif", passed);
   state.format = "avif";
+  state.outputOptions = passed;
+  state.quality = options?.quality ?? 50;
+  state.effort = options?.effort ?? 4;
   state.output = {
     format: "avif",
     quality: options?.quality ?? 50,
     effort: options?.effort ?? 4,
     lossless: options?.lossless ?? false,
-    chromaSubsampling: options?.chromaSubsampling ?? "4:4:4"
+    chromaSubsampling: options?.chromaSubsampling ?? "4:4:4",
+    bitdepth: options?.bitdepth ?? 8
   };
 }
 function setTiffOutput(state, options) {
-  rejectUnsupported("tiff", options ?? {});
+  const passed = options ?? {};
+  rejectUnsupported("tiff", passed);
   state.format = "tiff";
+  state.outputOptions = passed;
   state.output = {
     format: "tiff",
     compression: options?.compression ?? "lzw",
@@ -1307,7 +1420,7 @@ function pushConvolve(state, kernel) {
 }
 
 // src/builder-geometry.ts
-var OPAQUE_BLACK = [0, 0, 0, 255];
+var OPAQUE_BLACK2 = [0, 0, 0, 255];
 function assertFinite(op, field, value) {
   if (!Number.isFinite(value)) {
     throw new Error(`${op}: ${field} must be finite (got ${value})`);
@@ -1322,7 +1435,7 @@ function pushRotate(state, angle, options) {
   state.ops.push({
     op: "rotate",
     angle,
-    background: resolveColour(options?.background, OPAQUE_BLACK)
+    background: resolveColour(options?.background, OPAQUE_BLACK2)
   });
 }
 function pushExtract(state, region) {
@@ -1354,7 +1467,7 @@ function pushExtend(state, options) {
     left: edges.left ?? 0,
     right: edges.right ?? 0,
     extendWith: opts.extendWith ?? "background",
-    background: resolveColour(opts.background, OPAQUE_BLACK)
+    background: resolveColour(opts.background, OPAQUE_BLACK2)
   });
 }
 function pushFlip(state) {
@@ -1371,7 +1484,7 @@ function pushTrim(state, options) {
   }
   state.ops.push({
     op: "trim",
-    background: options?.background === undefined ? null : resolveColour(options.background, OPAQUE_BLACK),
+    background: options?.background === undefined ? null : resolveColour(options.background, OPAQUE_BLACK2),
     threshold,
     margin: options?.margin ?? 0,
     lineArt: options?.lineArt ?? false
@@ -1412,6 +1525,7 @@ async function rawDevelopToFile(state, outputPath) {
   }
   const rawPath = state.inputPath;
   try {
+    assertRawDevelopOutput(state);
     return state.exportRecipe ? await exportRecipe({
       rawPath,
       xmpXml: state.xmpXml ?? undefined,
@@ -1495,12 +1609,12 @@ class MapleImageBuilder {
     return this;
   }
   toFormat(format, options) {
-    this.s.format = format;
+    applyFormat(this.s, format);
     if (options?.quality !== undefined) {
-      this.s.quality = Math.max(1, Math.min(100, options.quality));
+      applyQuality(this.s, options.quality);
     }
     if (options?.effort !== undefined) {
-      this.s.effort = Math.max(0, Math.min(9, options.effort));
+      applyEffort(this.s, options.effort);
     }
     return this;
   }
@@ -1525,11 +1639,11 @@ class MapleImageBuilder {
     return this;
   }
   format(format) {
-    this.s.format = format;
+    applyFormat(this.s, format);
     return this;
   }
   quality(quality) {
-    this.s.quality = Math.max(1, Math.min(100, quality));
+    applyQuality(this.s, quality);
     return this;
   }
   colorSpace(space) {
@@ -1594,42 +1708,19 @@ class MapleImageBuilder {
     return this;
   }
   composite(layers) {
-    const wire = layers.map((layer) => {
-      if (layer.left === undefined !== (layer.top === undefined)) {
-        throw new Error("composite: a layer must set both left and top, or neither");
-      }
-      const raw = "data" in layer.input ? {
-        width: layer.input.width,
-        height: layer.input.height,
-        channels: layer.input.channels
-      } : null;
-      const bytes = "data" in layer.input ? layer.input.data : layer.input;
-      return {
-        aux: this.s.aux.add(bytes),
-        raw,
-        left: layer.left ?? null,
-        top: layer.top ?? null,
-        gravity: layer.gravity ?? "centre",
-        blend: layer.blend ?? "over",
-        tile: layer.tile ?? false
-      };
-    });
-    this.s.ops.push({ op: "composite", layers: wire });
+    pushComposite(this.s, layers);
     return this;
   }
   flatten(options) {
-    this.s.ops.push({
-      op: "flatten",
-      background: resolveColour(options?.background, [0, 0, 0, 255])
-    });
+    pushFlatten(this.s, options);
     return this;
   }
   ensureAlpha(alpha = 1) {
-    this.s.ops.push({ op: "ensureAlpha", alpha: Math.max(0, Math.min(1, alpha)) });
+    pushEnsureAlpha(this.s, alpha);
     return this;
   }
   removeAlpha() {
-    this.s.ops.push({ op: "removeAlpha" });
+    pushRemoveAlpha(this.s);
     return this;
   }
   blur(options) {
@@ -2051,6 +2142,12 @@ export {
   AuxBlob,
   MAPLE_VERSION,
   MapleImageBuilder,
+  applyEffort,
+  applyFormat,
+  applyQuality,
+  assertRawDevelopOutput,
+  checkIntegerRange,
+  checkOptionRanges,
   createBuilderState,
   exportImage,
   exportRecipe,
