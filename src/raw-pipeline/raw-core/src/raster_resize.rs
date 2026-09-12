@@ -136,8 +136,39 @@ fn resolve_shrink(src: &RasterImage, options: &ResizeOptions) -> (f64, f64) {
 }
 
 /// The size one axis resizes to, from its shrink factor. Never below 1px.
+///
+/// Two details are load-bearing, and both were established by measuring
+/// sharp 0.34.5 / libvips 8.17.3 rather than by reading the C++:
+///
+/// 1. The RECIPROCAL. sharp hands libvips a scale, `1 / shrink`, and
+///    libvips multiplies by it. Computing `dim / shrink` instead — or
+///    computing the scale directly as `target / source`, which is what this
+///    used to do — lands on a different double, and the two disagree on
+///    exactly the cases that fall on a half. A 40x20 source into a 13x13
+///    `inside` box is the canonical one: `20 / (40 / 13)` is exactly 6.5,
+///    while `20 * (1 / (40 / 13))` is 6.4999999999999991, and sharp answers
+///    6.
+/// 2. Half-UP, not half-to-even. libvips rounds with `VIPS_ROUND_UINT`,
+///    C's `(unsigned)(x + 0.5)`, so `(x + 0.5).floor()` is the faithful
+///    spelling — not `f64::round` (which differs when `x + 0.5` itself
+///    rounds) and not `f64::round_ties_even`. Ties-to-even looks plausible
+///    because it also answers 6 for the 13x13 case above, but it is wrong:
+///    a 9x9 box gives an exact 4.5 where sharp answers 5, and a 17x17 box
+///    an exact 8.5 where sharp answers 9.
+///
+/// KNOWN GAP: at heavy downscales this is still one pixel out on the
+/// derived axis, because libvips does not resize in one step — it splits
+/// the scale into an integer `vips_shrink` plus a residual `vips_reduce`
+/// and rounds at each stage, which no single closed form reproduces. Over
+/// a 2560-case sweep of sources, targets, fits and clamps, 11 distinct
+/// shapes diverge, every one of them at a shrink factor of 6.35x or more
+/// and every one of them by exactly one pixel low in sharp (e.g. 400x200
+/// into `inside` 13x13: sharp 13x6, this 13x7). The same sweep scored 403
+/// mismatches before this file's #3502 work. Widening the pin further
+/// means porting `vips_resize`'s staging, which is a separate piece of
+/// work — see `src/maple/README.md` § sharp parity.
 fn scaled_dim(dim: u32, shrink: f64) -> u32 {
-    (dim as f64 / shrink).round().max(1.0) as u32
+    ((dim as f64 * (1.0 / shrink)) + 0.5).floor().max(1.0) as u32
 }
 
 /// `cover`: crop the resized image down to the target box at `position`.

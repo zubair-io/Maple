@@ -91,3 +91,54 @@ fn fill_honours_both_clamps_per_axis() {
     assert_eq!(fill(10, 100, true, false), (10, 20));
     assert_eq!(fill(100, 10, false, true), (100, 20));
 }
+
+/// The derived axis is rounded half-UP on `dim * (1 / shrink)`, which is
+/// how libvips sizes a resize. Measured against sharp 0.34.5 / libvips
+/// 8.17.3, a 40x20 source into an NxN `inside` box:
+///
+///   N  | 3   6   7   9   11   12   13   17   19   23   31
+///   -> | 3x2 6x3 7x4 9x5 11x6 12x6 13x6 17x9 19x10 23x12 31x16
+///
+/// Three of those pin the arithmetic rather than just the result. N = 13 is
+/// the case that rules out dividing by the shrink (`20 / (40 / 13)` is
+/// exactly 6.5 and rounds to 7; the reciprocal form is 6.4999999999999991
+/// and rounds to 6). N = 9 and N = 17 are the cases that rule out
+/// ties-to-even (an exact 4.5 and 8.5, which sharp resolves upward).
+#[test]
+fn the_derived_axis_rounds_the_way_libvips_sizes_a_resize() {
+    let inside = |n| {
+        let out = resize_raster(&wide(), &opts(n, n, ResizeFit::Inside)).unwrap();
+        (out.width, out.height)
+    };
+    assert_eq!(inside(3), (3, 2));
+    assert_eq!(inside(6), (6, 3));
+    assert_eq!(inside(7), (7, 4));
+    assert_eq!(inside(9), (9, 5), "an exact 4.5 rounds up, not to even");
+    assert_eq!(inside(11), (11, 6));
+    assert_eq!(inside(12), (12, 6));
+    assert_eq!(inside(13), (13, 6), "6.5 via the reciprocal rounds to 6");
+    assert_eq!(inside(17), (17, 9), "an exact 8.5 rounds up, not to even");
+    assert_eq!(inside(19), (19, 10));
+    assert_eq!(inside(23), (23, 12));
+    assert_eq!(inside(31), (31, 16));
+}
+
+/// The one place this still parts company with sharp, pinned so it is
+/// visible rather than folklore. libvips resizes in two stages — an integer
+/// `vips_shrink` then a residual `vips_reduce` — and rounds at each, so at
+/// heavy downscales its derived axis lands a pixel below any single-step
+/// rounding. Measured: sharp renders a 400x200 source into an `inside`
+/// 13x13 box at 13x6; the closed form here gives 13x7.
+///
+/// If a future change ports `vips_resize`'s staging, this test is the one
+/// to update — the assertion below is OUR number, not sharp's.
+#[test]
+fn a_heavy_downscale_still_differs_from_libvips_two_stage_rounding() {
+    let src = RasterImage::new_rgb(400, 200, vec![7; 400 * 200 * 3]);
+    let out = resize_raster(&src, &opts(13, 13, ResizeFit::Inside)).unwrap();
+    assert_eq!(
+        (out.width, out.height),
+        (13, 7),
+        "sharp answers 13x6 here — see scaled_dim's KNOWN GAP note"
+    );
+}
