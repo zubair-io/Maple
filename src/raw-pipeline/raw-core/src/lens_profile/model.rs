@@ -14,6 +14,10 @@ pub struct Frame {
 pub struct Perspective {
     pub frame: Frame,
     pub radial: [f64; 3],
+    /// Coefficients of `r` and `r³` — Lensfun's `ptlens` distortion and
+    /// `poly3` TCA models carry odd powers. Adobe profiles never set them;
+    /// both zero keeps the even-only evaluation path (no square root).
+    pub radial_odd: [f64; 2],
     pub tangential: [f64; 2],
     pub scale: f64,
 }
@@ -85,7 +89,14 @@ impl Perspective {
         let r2 = x * x + y * y;
         let [k1, k2, k3] = self.radial;
         let [p1, p2] = self.tangential;
-        let radial = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+        let even = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+        let radial = match self.radial_odd {
+            [0.0, 0.0] => even,
+            [c1, c3] => {
+                let r = r2.sqrt();
+                even + r * (c1 + r2 * c3)
+            }
+        };
         [
             self.scale * (x * radial + 2.0 * p1 * x * y + p2 * (r2 + 2.0 * x * x)),
             self.scale * (y * radial + p1 * (r2 + 2.0 * y * y) + 2.0 * p2 * x * y),
@@ -240,6 +251,7 @@ fn perspective(values: &BTreeMap<String, String>, fallback: f64) -> Result<Persp
     Ok(Perspective {
         frame: frame(values, fallback)?,
         radial: coefficients(values, "RadialDistortParam")?,
+        radial_odd: [0.0; 2],
         tangential: [
             number(values, "TangentialDistortParam1", Some(0.0))?,
             number(values, "TangentialDistortParam2", Some(0.0))?,
