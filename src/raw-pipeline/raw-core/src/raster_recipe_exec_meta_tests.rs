@@ -418,3 +418,44 @@ fn an_explicit_icc_to_avif_is_a_named_error() {
         "got: {err}"
     );
 }
+
+// ---- reconciliation with #3503: keep's fill follows the output primaries ----
+
+/// `keepMetadata()`/`withMetadata()` fill in a profile when the input
+/// carried none. That fill has to follow the primaries the recipe actually
+/// rotated into, or `.toColourspace('display-p3').withMetadata()` labels
+/// Display P3 samples as sRGB — the exact mislabelling
+/// `withIccProfile('p3')` used to be a named error to avoid.
+#[test]
+fn keeps_fill_profile_follows_a_to_colourspace_rotation() {
+    let source = jpeg_source(None, None);
+    let p3 = run(
+        r#"{"v":1,"input":{"kind":"encoded"},
+            "ops":[{"op":"toColourspace","space":"display-p3"}],
+            "output":{"format":"png"},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    let embedded = crate::raster_meta::read_sidecars(&p3.bytes).icc.unwrap();
+    assert_eq!(
+        embedded,
+        crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3),
+        "keep's fill tagged the P3 output with something other than the P3 profile"
+    );
+
+    // No rotation: the fill is still sRGB, which is what sharp writes.
+    let srgb = run(
+        r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
+            "output":{"format":"png"},
+            "metadata":{"keep":true}}"#,
+        &source,
+        &[],
+    );
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&srgb.bytes)
+            .icc
+            .as_deref(),
+        Some(crate::icc::profile_for(crate::view::encode::TargetPrimaries::Srgb).as_slice())
+    );
+}
