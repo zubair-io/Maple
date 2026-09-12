@@ -276,20 +276,31 @@ if (sharp === null) {
      *
      * The gap was invisible until the bit depth was pinned to 8 — before
      * that, libheif could not decode Maple's AVIF at all, so no comparison
-     * against libaom was possible. Measured deltas on this source (Maple
-     * minus sharp): -1.42 dB at quality 50, -6.49 dB at quality 80. Likely
-     * causes are `ColorModel::RGB` (three correlated planes, no YCbCr
-     * decorrelation) and `ravif`'s own quality-to-quantizer curve; tracked
-     * as #3583.
+     * against libaom was possible. It was then traced to `ColorModel::RGB`
+     * (three correlated planes, no YCbCr decorrelation) and fixed by
+     * switching to `ColorModel::YCbCr` — ravif's own default — in
+     * `raster_encode_avif.rs` (#3583). Measured deltas on this source (Maple
+     * minus sharp) after that fix: -0.18 dB at quality 30, -1.34 dB at
+     * quality 50, -5.72 dB at quality 80 (down from -1.42 and -6.49 at 50
+     * and 80 before it; 30 is new). The remaining gap is `ravif`'s own
+     * quality-to-quantizer curve versus libaom's.
      *
-     * These budgets are a ONE-WAY RATCHET, like `test-fixtures/budgets.json`:
+     * `AVIF_SIZE_CEILING_BYTES` catches the other half of a regression here:
+     * a change that silently made Maple's AVIF *larger* at the same quality
+     * would still pass the PSNR check (more bits usually means equal or
+     * better fidelity), so file size gets its own ceiling — measured Maple
+     * size at each quality, times 1.05.
+     *
+     * Both are a ONE-WAY RATCHET, like `test-fixtures/budgets.json`:
      * tightening one happens in the same commit that delivers the
-     * improvement. A regression past them fails here.
+     * improvement. A regression past either fails here.
      */
-    const AVIF_PSNR_BUDGET_DB: Record<number, number> = { 50: 1.6, 80: 7.0 };
+    const AVIF_PSNR_BUDGET_DB: Record<number, number> = { 30: 0.3, 50: 1.5, 80: 6.0 };
+    // Measured Maple sizes: 397 B / 584 B / 1122 B at quality 30 / 50 / 80.
+    const AVIF_SIZE_CEILING_BYTES: Record<number, number> = { 30: 417, 50: 614, 80: 1179 };
 
     it('AVIF fidelity stays inside its measured gap against sharp (#3583)', async () => {
-      for (const quality of [50, 80]) {
+      for (const quality of [30, 50, 80]) {
         const mine = await maple({ data: photo, width: W, height: H, channels: 3 })
           .avif({ quality })
           .toBuffer();
@@ -299,6 +310,7 @@ if (sharp === null) {
         const theirDb = psnr(theirPixels.raw, photo);
         const shortfall = theirDb - mineDb;
         expect(shortfall).toBeLessThanOrEqual(AVIF_PSNR_BUDGET_DB[quality]);
+        expect(mine.length).toBeLessThanOrEqual(AVIF_SIZE_CEILING_BYTES[quality]);
       }
     });
   });
