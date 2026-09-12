@@ -259,7 +259,7 @@ fn resolve_output_metadata(
     primaries: TargetPrimaries,
     auto_oriented: bool,
 ) -> Result<ResolvedMetadata> {
-    let resolved = resolve_metadata(&recipe.metadata, input, aux, auto_oriented)?;
+    let resolved = resolve_metadata(&recipe.metadata, input, aux, auto_oriented, primaries)?;
     let icc = match resolved.icc {
         Some(profile) => Some(profile),
         None => (primaries != TargetPrimaries::Srgb).then(|| icc::profile_for(primaries)),
@@ -330,10 +330,6 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
 #[cfg(test)]
 #[path = "raster_recipe_exec_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "raster_recipe_exec_meta_tests.rs"]
-mod meta_tests;
 
 #[cfg(test)]
 #[path = "raster_recipe_exec_meta_tests.rs"]
