@@ -266,10 +266,14 @@ fn convolve_filters_alpha_too() {
     // Colour is premultiplied by alpha before convolving (#3504 task E4 /
     // controller ruling on the E3 re-review), so the centre's colour is NOT
     // a plain (60 + 90 + 120) * 3 / 9 = 90 average of the stored bytes:
-    // premultiplying rounds each column to 60*10/255=2, 90*50/255=18,
-    // 120*30/255=14; the box averages those (integer path, truncating) to
-    // (2 + 18 + 14) * 3 / 9 = 11; unpremultiplying by the centre's own
-    // convolved alpha (30, computed below) gives round(11 * 255 / 30) = 94.
+    // premultiplying TRUNCATES (task E5 controller ruling (a)) each column
+    // to 60*10/255=2 (2.35 truncated), 90*50/255=17 (17.65 truncated, NOT
+    // rounded to 18), 120*30/255=14 (14.12 truncated); the box averages
+    // those (integer path, truncating) to (2 + 17 + 14) * 3 / 9 = 99 / 9 =
+    // 11 exactly; unpremultiplying by the centre's own convolved alpha (30,
+    // computed below) truncates 11 * 255 / 30 = 93.5 down to 93 — matching
+    // sharp 0.34.5's real output on this fixture (a rounded 94 was this
+    // test's value before the truncation fix).
     let row = [
         60u8, 60, 60, 10, // colour 60, alpha 10
         90, 90, 90, 50, // colour 90, alpha 50
@@ -278,7 +282,7 @@ fn convolve_filters_alpha_too() {
     let data = row.repeat(3);
     let img = RasterImage::new_rgba(3, 3, data);
     let out = img.convolve(3, 3, &[1.0; 9], 0.0, 0.0).unwrap();
-    assert_eq!(at(&out, 1, 1), 94);
+    assert_eq!(at(&out, 1, 1), 93);
     // Alpha at the centre is convolved too, not passed through: (10 + 50 +
     // 30) * 3 rows / 9 = 30 — NOT the original centre value of 50. Alpha
     // itself is never premultiplied, only colour, so this is unaffected by

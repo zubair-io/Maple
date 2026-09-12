@@ -190,6 +190,13 @@ pub(crate) fn convolve_separable(
 /// premultiply-around-the-convolution treatment `blur` uses above, rather
 /// than filtering straight-alpha colour band-by-band and leaking a
 /// transparent neighbour's stored colour into a partly opaque pixel.
+///
+/// Truncates rather than rounds (#3504 task E5 controller ruling (a)):
+/// `vips_premultiply` casts its alpha-scaled float to an int, which
+/// truncates toward zero, not `f64::round`'s round-half-away-from-zero.
+/// Measured against sharp 0.34.5 this was worth 1-6 levels on a
+/// partial-alpha blur/convolve (e.g. `convolve_filters_alpha_too`'s
+/// centre moved from a rounded 94 to sharp's real 93 once fixed).
 pub(crate) fn premultiply(src: &RasterImage) -> RasterImage {
     if src.channels != 4 {
         return src.clone();
@@ -199,7 +206,7 @@ pub(crate) fn premultiply(src: &RasterImage) -> RasterImage {
         .chunks_exact(4)
         .flat_map(|px| {
             let a = px[3] as f64 / 255.0;
-            let mul = |v: u8| (v as f64 * a).round() as u8;
+            let mul = |v: u8| (v as f64 * a) as u8;
             [mul(px[0]), mul(px[1]), mul(px[2]), px[3]]
         })
         .collect();
@@ -215,7 +222,9 @@ pub(crate) fn premultiply(src: &RasterImage) -> RasterImage {
 /// anyway).
 ///
 /// `pub(crate)` for the same reason as [`premultiply`] — shared with
-/// `raster_filter_ops.rs`'s `convolve`.
+/// `raster_filter_ops.rs`'s `convolve`. Truncates rather than rounds, for the same
+/// libvips-parity reason [`premultiply`]'s doc comment gives; the clamp
+/// still runs first so an out-of-range float can't wrap when cast.
 pub(crate) fn unpremultiply(src: &RasterImage) -> RasterImage {
     if src.channels != 4 {
         return src.clone();
@@ -228,7 +237,7 @@ pub(crate) fn unpremultiply(src: &RasterImage) -> RasterImage {
                 [0, 0, 0, 0]
             } else {
                 let a = px[3] as f64 / 255.0;
-                let unmul = |v: u8| (v as f64 / a).round().clamp(0.0, 255.0) as u8;
+                let unmul = |v: u8| (v as f64 / a).clamp(0.0, 255.0) as u8;
                 [unmul(px[0]), unmul(px[1]), unmul(px[2]), px[3]]
             }
         })
