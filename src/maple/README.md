@@ -148,6 +148,11 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 | `resize({ position })`                             | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                                                                                                                                                                                                       |
 | `resize({ kernel })`                               | ✅    | `nearest`, `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3`; `filter` is an alias; `mks2013`/`mks2021` throw by name                                                                                                                                                                                                                                                |
 | `resize({ withoutReduction })`                     | ✅    | `withoutReduction` wins when both clamps are set, as in sharp                                                                                                                                                                                                                                                                                                            |
+| `jpeg()`                                           | ✅    | `quality`, `progressive`, `chromaSubsampling`, `optimiseCoding`/`optimizeCoding`; `mozjpeg`, trellis quantisation (either spelling), `overshootDeringing`, `optimiseScans`/`optimizeScans`, `quantisationTable`/`quantizationTable` and `force` throw                                                                                                                    |
+| `png()`                                            | ✅    | `compressionLevel`, `adaptiveFiltering`, `palette`, `colours`/`colors`, `dither`; `progressive` (Adam7), `quality`, `effort` and `force` throw                                                                                                                                                                                                                          |
+| `webp()`                                           | ⚠️    | lossless + alpha only — `quality`, `{ lossless: false }`, the animation-only knobs (`smartDeblock`/`loop`/`delay`/`minSize`/`mixed`) and `force` all throw                                                                                                                                                                                                              |
+| `avif()`                                           | ⚠️    | `quality`, `effort`; `chromaSubsampling` and `lossless` only take their defaults (`'4:4:4'` / `false`) — the other value throws; `bitdepth` and `force` throw; `tune` isn't a real sharp option and is a harmless no-op                                                                                                                                                |
+| `tiff()`                                           | ✅    | `compression` (none/lzw/deflate/packbits — sharp's own `'jpeg'` default throws), `bitdepth` 8/16, `predictor` (`'horizontal'`/`'none'`; `'float'` throws); tiled/pyramid/bigtiff/resolution/`quality` options throw                                                                                                                                                    |
 
 **\* One known gap, at heavy downscales only.** Everything about how the
 target box is chosen matches sharp: the per-axis shrink factors and how each
@@ -260,9 +265,22 @@ sigma 3 a flat field comes back about 0.8% brighter (200 -> 202, 254 -> 255)
 in both engines.
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
-AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
-no alpha channel, so they composite over black — the same thing libvips does —
-unless you call `flatten({ background })` first.
+AVIF, survive every op and are written by PNG, WebP, AVIF and TIFF (via an
+`ExtraSamples` tag on the options path `.tiff()` drives). JPEG has no alpha
+channel, so it composites over black — the same thing libvips does — unless
+you call `flatten({ background })` first.
+
+**JPEG is not mozjpeg.** Maple encodes JPEG with the pure-Rust `jpeg-encoder`
+crate — progressive scans, 4:2:0/4:4:4 chroma and optimised Huffman tables, but
+no trellis quantisation. Measured against mozjpeg at matched quality
+(`bun run scripts/bench-jpeg-size.ts <photo>`), files come out larger: worst
+case **+45.4%** at quality 75, narrowing to **+14–17%** at quality 90. Closing
+that gap would mean linking a C library, which the Linux zero-dependency build
+audit forbids.
+
+**WebP is lossless only.** No pure-Rust lossy WebP encoder exists, so
+`webp({ lossless: false })` throws rather than silently handing back a much
+larger lossless file. Use `avif()` when you want a small lossy file.
 
 **TIFF `compression` defaults to `'lzw'`, not sharp's `'jpeg'`.** sharp's
 default TIFF compressor is JPEG-in-TIFF; Maple has no JPEG-in-TIFF encoder (the

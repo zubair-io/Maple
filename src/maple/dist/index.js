@@ -827,6 +827,7 @@ function createBuilderState(input) {
     format: null,
     quality: 92,
     effort: null,
+    output: null,
     autoOrient: false,
     xmpPath: null,
     xmpXml: null,
@@ -871,7 +872,58 @@ function stateToRecipe(state, output) {
   const ops = insertGammaPair(withAutoOrient, state.gammaPair);
   return { v: 1, input, ops, output };
 }
+var UNSUPPORTED = {
+  jpeg: [
+    "mozjpeg",
+    "trellisQuantisation",
+    "trellisQuantization",
+    "overshootDeringing",
+    "optimiseScans",
+    "optimizeScans",
+    "quantisationTable",
+    "quantizationTable",
+    "force"
+  ],
+  png: ["progressive", "quality", "effort", "force"],
+  webp: [
+    "alphaQuality",
+    "nearLossless",
+    "smartSubsample",
+    "smartDeblock",
+    "preset",
+    "effort",
+    "quality",
+    "loop",
+    "delay",
+    "minSize",
+    "mixed",
+    "force"
+  ],
+  avif: ["bitdepth", "force"],
+  tiff: [
+    "tile",
+    "pyramid",
+    "bigtiff",
+    "xres",
+    "yres",
+    "miniswhite",
+    "quality",
+    "tileWidth",
+    "tileHeight",
+    "resolutionUnit",
+    "force"
+  ]
+};
+function rejectUnsupported(format, options) {
+  const offender = (UNSUPPORTED[format] ?? []).find((key) => options[key] !== undefined);
+  if (offender !== undefined) {
+    throw new Error(`${format}({ ${offender} }) is not supported by Maple's pure-Rust encoder. ` + `See the sharp parity table in the @justmaple/maple README.`);
+  }
+}
 function stateToOutput(state, fallback) {
+  if (state.output) {
+    return state.output;
+  }
   const format = state.format ?? fallback;
   if (format === "avif") {
     return { format, quality: state.quality, effort: state.effort ?? 4 };
@@ -996,6 +1048,57 @@ function pushToColourspace(state, space) {
   }
   state.colorSpace = develop;
   state.ops.push({ op: "toColourspace", space });
+}
+
+// src/builder-encoders.ts
+function setJpegOutput(state, options) {
+  rejectUnsupported("jpeg", options ?? {});
+  state.format = "jpeg";
+  state.output = {
+    format: "jpeg",
+    quality: options?.quality ?? 80,
+    progressive: options?.progressive ?? false,
+    chromaSubsampling: options?.chromaSubsampling ?? "4:2:0",
+    optimiseCoding: options?.optimiseCoding ?? options?.optimizeCoding ?? true
+  };
+}
+function setPngOutput(state, options) {
+  rejectUnsupported("png", options ?? {});
+  state.format = "png";
+  state.output = {
+    format: "png",
+    compressionLevel: options?.compressionLevel ?? 6,
+    adaptiveFiltering: options?.adaptiveFiltering ?? false,
+    palette: options?.palette ?? false,
+    colours: options?.colours ?? options?.colors ?? 256,
+    dither: options?.dither ?? 1
+  };
+}
+function setWebpOutput(state, options) {
+  rejectUnsupported("webp", options ?? {});
+  state.format = "webp";
+  state.output = { format: "webp", lossless: options?.lossless ?? true };
+}
+function setAvifOutput(state, options) {
+  rejectUnsupported("avif", options ?? {});
+  state.format = "avif";
+  state.output = {
+    format: "avif",
+    quality: options?.quality ?? 50,
+    effort: options?.effort ?? 4,
+    lossless: options?.lossless ?? false,
+    chromaSubsampling: options?.chromaSubsampling ?? "4:4:4"
+  };
+}
+function setTiffOutput(state, options) {
+  rejectUnsupported("tiff", options ?? {});
+  state.format = "tiff";
+  state.output = {
+    format: "tiff",
+    compression: options?.compression ?? "lzw",
+    bitdepth: options?.bitdepth ?? 8,
+    predictor: options?.predictor ?? "horizontal"
+  };
 }
 
 // src/builder-exec.ts
@@ -1401,17 +1504,25 @@ class MapleImageBuilder {
     }
     return this;
   }
-  avif(options) {
-    return this.toFormat("avif", options);
-  }
   jpeg(options) {
-    return this.toFormat("jpeg", options);
+    setJpegOutput(this.s, options);
+    return this;
   }
-  png() {
-    return this.toFormat("png");
+  png(options) {
+    setPngOutput(this.s, options);
+    return this;
   }
   webp(options) {
-    return this.toFormat("webp", options);
+    setWebpOutput(this.s, options);
+    return this;
+  }
+  avif(options) {
+    setAvifOutput(this.s, options);
+    return this;
+  }
+  tiff(options) {
+    setTiffOutput(this.s, options);
+    return this;
   }
   format(format) {
     this.s.format = format;
@@ -1954,6 +2065,7 @@ export {
   loadNativeBinding,
   maple,
   nativeLibFilename,
+  rejectUnsupported,
   renderFilenameTemplate,
   renderPreview,
   renderThumbnail,
