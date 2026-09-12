@@ -420,38 +420,37 @@ different one along.
 whatever container it is in: a JPEG's APP1, a PNG `eXIf` chunk, a WebP `EXIF`
 chunk, a TIFF's own IFD0, or an AVIF's `Exif` item.
 
-An AVIF's `irot`/`imir` transform properties are a different thing and are
-handled differently: they are a transform of the **pixels**, not metadata, so
-decoding applies them, exactly as libheif (and therefore sharp) does. A 24×16
-AVIF with `irot 3` decodes as the rotated 16×24 image, `metadata()` reports
-16×24, and `.rotate()` has nothing further to do — measured against sharp on
-nine hand-patched AVIFs (`irot` 0..3, `imir` 0/1, both together, with and
-without an `Exif` Orientation): the default output matches sharp's in all
-nine, dimensions and pixels.
+An AVIF is the exception, and `metadata().orientation` is `undefined` for one
+however it was written. Its `irot`/`imir` transform properties are a transform
+of the **pixels**, not metadata, so decoding applies them, exactly as libheif
+(and therefore sharp) does: a 24×16 AVIF with `irot 3` decodes as the rotated
+16×24 image, `metadata()` reports 16×24, and `.rotate()` has nothing further
+to do. Its `Exif` item's Orientation tag is not surfaced either, because
+libvips does not surface it — and because libvips' own AVIF save writes the
+orientation into BOTH the box and the item, so honouring the tag on top of the
+baked box would rotate a sharp-written AVIF twice. The tag is still readable
+in the `exif` buffer.
 
-The one divergence is an AVIF whose `Exif` item carries an Orientation tag.
-Maple reports that tag in `metadata().orientation` and `.rotate()` applies it;
-libvips surfaces no orientation at all for a HEIF-family file, so sharp
-reports `undefined` and its `.rotate()` is a no-op there. Reporting it is what
-lets an orientation Maple wrote be read back (#3586) — but note that libvips'
-own AVIF save writes the orientation into BOTH the `irot` box and the `Exif`
-item, so on a sharp-written AVIF Maple's `.rotate()` applies a rotation sharp
-would not.
+Measured against sharp on nine hand-patched AVIFs (`irot` 0..3, `imir` 0/1,
+both together, and with and without an `Exif` Orientation): `metadata()`
+dimensions and `orientation`, the default output, and `.rotate()`'s output all
+match sharp on all nine, pixel for pixel.
 
 **AVIF metadata.** Reading is complete: `metadata()` reports the container's
 `irot`/`imir` transform in its dimensions (the transform itself is applied to
-the pixels — see **Orientation** above), the `Exif` item's Orientation tag as
-`orientation`, and the `Exif` and XMP items themselves. Writing is
+the pixels, and `orientation` is `undefined` — see **Orientation** above), and
+returns the `Exif` and XMP items. Writing is
 EXIF-only: `avif-serialize`, the pure-Rust muxer behind Maple's AVIF encoder,
 can write an `Exif` item but has no writer for an ICC `colr` box or an XMP
 item (#3580), so an explicit `withIccProfile()` or `withXmp()` on AVIF output
 is a named error (`"AVIF cannot embed an ICC profile"` /
 `"AVIF cannot embed XMP"`), while the same blocks swept up by
 `keepMetadata()` are dropped silently. `withMetadata({ orientation: 6 })
-.avif()` now round-trips: the value is written into the `Exif` item and read
-back by a subsequent `metadata()` call, which closes #3586's asymmetry (the
-`orientation` field used to report the `irot`/`imir` boxes instead, masking
-the tag that had just been written).
+.avif()` writes the value into the `Exif` item, where it stays readable in
+`metadata().exif`; the convenience `orientation` field stays `undefined` for
+an AVIF, which is what sharp reports too. That is how #3586 closes — matching
+sharp: the container transform is baked into the pixels and the EXIF tag is
+not surfaced, the same as libvips.
 
 **`stats()` precision.** Two small, known divergences from sharp's own
 numbers, both pre-existing and out of scope for this metadata/stats pass:

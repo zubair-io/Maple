@@ -475,7 +475,9 @@ export class MapleImageBuilder {
       throw new Error('normalizeOrientationInPlace requires a file path input');
     }
     const meta = await this.metadata();
-    if (meta.orientation <= 1) {
+    // `undefined` means the container declares no orientation to normalise
+    // (every AVIF, whose transform the decoder has already applied).
+    if ((meta.orientation ?? 1) <= 1) {
       return true; // Already normal
     }
     const ext = path.extname(this.s.inputPath) || '.jpg';

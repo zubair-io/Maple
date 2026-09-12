@@ -46,7 +46,9 @@ function metadataFromReply(reply: Record<string, unknown>): ImageMetadata {
     height: m.height as number,
     format: m.format as string,
     channels: m.channels as number,
-    orientation: m.orientation as number,
+    // JSON `null` for an AVIF, which reports no orientation at all (#3507
+    // round 3) — mapped to `undefined`, the shape sharp uses.
+    orientation: (m.orientation as number | null) ?? undefined,
     // Reaching this branch already ruled out a camera RAW file (routed to
     // `tier1PathMetadata`/`tier1BufMetadata` instead) — always `false` here.
     isRaw: false,

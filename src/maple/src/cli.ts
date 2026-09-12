@@ -348,7 +348,7 @@ export async function runCli(argv: string[]): Promise<number> {
         console.log(`  Dimensions:  ${meta.width} × ${meta.height} px`);
         console.log(`  Format:      ${meta.format.toUpperCase()}`);
         console.log(`  Channels:    ${meta.channels}`);
-        console.log(`  Orientation: ${meta.orientation}`);
+        console.log(`  Orientation: ${meta.orientation ?? 'not declared'}`);
         console.log(`  Is RAW:      ${meta.isRaw ? 'Yes' : 'No'}\n`);
       }
       return 0;
