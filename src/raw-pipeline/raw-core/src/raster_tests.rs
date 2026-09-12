@@ -236,8 +236,21 @@ mod cover_fit {
         assert_eq!((out.width, out.height), (50, 40));
     }
 
+    /// A single-axis `cover` scales BOTH axes by the requested axis's factor
+    /// and crops nothing — sharp's `ResolveShrink` copies the fixed axis's
+    /// shrink onto the free one for every canvas but `fill`, and the free
+    /// axis is then resolved against the RESIZED size, so there is no box
+    /// left to crop to. Measured against sharp 0.34.5 / libvips 8.17.3 on a
+    /// 400x200 source: `{ width: 100 }` -> 100x50, `{ height: 100 }` ->
+    /// 200x100, with or without `withoutEnlargement`.
+    ///
+    /// This is the opposite of what the box-is-the-source reading gave
+    /// (100x200 and 400x100, a full-height/full-width centre crop). The
+    /// package never passes a zero axis together with `cover` — it is the
+    /// C ABI's "keep this axis" encoding — but the FFI accepts it, so the
+    /// behaviour is pinned to sharp's rather than to our own invention.
     #[test]
-    fn cover_treats_a_zero_dimension_as_the_source_dimension() {
+    fn a_single_axis_cover_scales_both_axes_and_crops_nothing() {
         let cover = |w, h| {
             resize_raster(
                 &img(400, 200),
@@ -252,13 +265,10 @@ mod cover_fit {
             )
             .unwrap()
         };
-        // Height unspecified: the box is 100 x (source height), so the
-        // result is a 100px-wide centre crop at full height — not the
-        // 100x1 sliver a 1px height ceiling used to produce.
         let by_width = cover(100, 0);
-        assert_eq!((by_width.width, by_width.height), (100, 200));
+        assert_eq!((by_width.width, by_width.height), (100, 50));
         let by_height = cover(0, 100);
-        assert_eq!((by_height.width, by_height.height), (400, 100));
+        assert_eq!((by_height.width, by_height.height), (200, 100));
     }
 
     #[test]
