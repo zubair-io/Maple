@@ -60,9 +60,37 @@ fn median_preserves_a_step_edge() {
 }
 
 #[test]
-fn median_rejects_an_even_window() {
-    assert!(impulse(5).median(2).is_err());
+fn median_rejects_only_zero_not_an_even_window() {
+    // #3504 task E5 controller ruling (c): sharp/`vips_rank` accepts even
+    // windows, so only `size == 0` (and the ceiling, covered separately)
+    // is rejected now — `median(2)` must succeed.
+    assert!(impulse(5).median(2).is_ok());
     assert!(impulse(5).median(0).is_err());
+}
+
+#[test]
+fn median_size_2_matches_sharps_asymmetric_window() {
+    // Measured against sharp 0.34.5: a lone bright column (value 100) in an
+    // otherwise-flat 12x12 field of 0, `median(2)`'d, comes back with the
+    // spike visible at its own column AND the column to its RIGHT, never
+    // the column to its left — `sharp(raw).median(2).raw().toBuffer()` on
+    // this exact fixture gives `[...,0,0,0,0,0,100,100,0,0,0,0,0]` (indices
+    // 0-11), spike at column 5 in the input. That pins the window at pixel
+    // `x` as `[x-1, x]` (one tap low, none high), not `[x, x+1]` — see
+    // `median`'s doc comment for the general `before`/`after` formula this
+    // one case is checking.
+    let w = 12u32;
+    let h = 12u32;
+    let data: Vec<u8> = (0..h)
+        .flat_map(|_| (0..w).flat_map(|x| if x == 5 { [100u8; 3] } else { [0u8; 3] }))
+        .collect();
+    let img = RasterImage::new_rgb(w, h, data);
+    let out = img.median(2).unwrap();
+    let row: Vec<u8> = (0..w).map(|x| at(&out, x, 6)).collect();
+    let mut expected = vec![0u8; w as usize];
+    expected[5] = 100;
+    expected[6] = 100;
+    assert_eq!(row, expected);
 }
 
 #[test]
