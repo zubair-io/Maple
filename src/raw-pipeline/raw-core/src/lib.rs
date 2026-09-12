@@ -102,6 +102,10 @@ pub(crate) mod raster_recipe_colour;
 pub mod raster_recipe_exec;
 pub mod raster_recipe_filter;
 mod raster_recipe_geometry;
+/// The recipe's `metadata` block: parsing (`RecipeMetadata`) and resolution
+/// (`resolve_metadata`) — kept apart from `raster_recipe_exec` until the
+/// PR-C/D/E per-family executor split lands (#3507).
+pub mod raster_recipe_meta;
 pub mod raster_recipe_output;
 mod raster_recipe_resize;
 pub mod raster_rotate;

@@ -281,3 +281,42 @@ fn truncating_any_fixture_at_any_length_never_panics() {
         }
     }
 }
+
+/// A minimal IFD0 with a single Orientation entry set to `value` — the same
+/// 10-byte shape `EXIF_TIFF` uses at orientation 1.
+fn exif_with_orientation(value: u16) -> Vec<u8> {
+    let mut tiff = vec![0u8; 26];
+    tiff[..2].copy_from_slice(b"II");
+    tiff[2..4].copy_from_slice(&42u16.to_le_bytes());
+    tiff[4..8].copy_from_slice(&8u32.to_le_bytes());
+    tiff[8..10].copy_from_slice(&1u16.to_le_bytes());
+    tiff[10..12].copy_from_slice(&0x0112u16.to_le_bytes());
+    tiff[12..14].copy_from_slice(&3u16.to_le_bytes());
+    tiff[14..18].copy_from_slice(&1u32.to_le_bytes());
+    tiff[18..20].copy_from_slice(&value.to_le_bytes());
+    tiff
+}
+
+#[test]
+fn set_exif_orientation_rewrites_an_existing_tag() {
+    let block = set_exif_orientation(&exif_with_orientation(1), 6);
+    assert_eq!(crate::raster::exif_orientation_from_block(&block), Some(6));
+}
+
+#[test]
+fn set_exif_orientation_creates_a_block_when_there_is_none() {
+    let block = set_exif_orientation(&[], 3);
+    assert_eq!(crate::raster::exif_orientation_from_block(&block), Some(3));
+}
+
+#[test]
+fn set_exif_orientation_leaves_other_tags_alone() {
+    let original = exif_with_orientation(1);
+    let block = set_exif_orientation(&original, 8);
+    assert_eq!(block.len(), original.len(), "the block must not grow");
+    assert_eq!(
+        &block[..8],
+        &original[..8],
+        "the TIFF header must be intact"
+    );
+}

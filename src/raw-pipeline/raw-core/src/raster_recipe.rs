@@ -15,6 +15,7 @@
 
 use crate::error::{Error, Result};
 use crate::raster_recipe_filter::{BlurOp, ConvolveOp, MedianOp, SharpenOp, ThresholdOp};
+use crate::raster_recipe_meta::RecipeMetadata;
 use crate::raster_recipe_output::Output;
 use serde::Deserialize;
 
@@ -346,6 +347,11 @@ pub struct Recipe {
     #[serde(default)]
     pub ops: Vec<Op>,
     pub output: Output,
+    /// What to do with the input's own EXIF/ICC/XMP, and what EXIF
+    /// Orientation to write (#3507). Absent = strip everything (sharp's
+    /// default) — see `raster_recipe_meta::RecipeMetadata`.
+    #[serde(default)]
+    pub metadata: RecipeMetadata,
 }
 
 /// A recipe-level error naming the offending option and value. Shared by
