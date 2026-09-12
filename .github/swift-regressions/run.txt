@@ -47,3 +47,8 @@ WhiteBalancePresetTests
 # Sidecar fidelity for the imported-profile reference (#3476): pure
 # serialize/parse, no fixtures, no Metal.
 LensProfileXMPTests
+#
+# Apple Lens Corrections panel profile dropdown (#3567): pure evidence-JSON
+# decoding, LensProfileChoice.build's option ordering, and select(_:)'s
+# undoable-edit contract via EditSession.preview() (bytes-backed, no RAW).
+LensProfileChoiceTests
