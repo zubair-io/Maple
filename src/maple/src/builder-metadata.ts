@@ -253,9 +253,9 @@ export function applyWithMetadata(
  *
  * Diverges from sharp's own `withExif(exif: {IFD0?: Record<string,string>,
  * …})`, which takes an object of IFD tags and authors the TIFF block itself.
- * Maple has no IFD-object authoring yet (tracked as a follow-up, #3507
- * follow-up) — passing sharp's object shape here is rejected by name rather
- * than silently doing the wrong thing with it.
+ * Maple has no IFD-object authoring yet (tracked as a follow-up, #3588) —
+ * passing sharp's object shape here is rejected by name rather than
+ * silently doing the wrong thing with it.
  */
 export function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): void {
   if (!(exif instanceof Uint8Array)) {
@@ -263,7 +263,7 @@ export function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): v
       throw new Error(
         'withExif: Maple takes a raw EXIF TIFF-header block (a Buffer), not an IFD object ' +
           "like sharp's withExif({ IFD0: { ... } }) — IFD-object authoring is a follow-up " +
-          '(#3507 follow-up).',
+          '(#3588).',
       );
     }
     throw invalidParameter('exif', 'a Buffer', exif);
