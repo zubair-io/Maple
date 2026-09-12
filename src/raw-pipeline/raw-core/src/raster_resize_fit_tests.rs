@@ -54,3 +54,40 @@ fn a_single_axis_fill_leaves_the_other_axis_at_the_source_size() {
     let by_height = resize_raster(&wide(), &opts(0, 10, ResizeFit::Fill)).unwrap();
     assert_eq!((by_height.width, by_height.height), (40, 10));
 }
+
+/// `fill` is subject to `withoutEnlargement` and `withoutReduction` too, and
+/// per axis — it is the one canvas where the two axes carry different shrink
+/// factors, so one can be clamped while the other is not. Measured against
+/// sharp 0.34.5 / libvips 8.17.3 on a 40x20 source:
+///
+///   * `{ 100, 100, withoutReduction }`   -> 100x100 (both axes enlarge, so
+///     neither is a reduction and neither clamp bites)
+///   * `{ 100, 100, withoutEnlargement }` -> 40x20   (both held back)
+///   * `{ 10, 10, withoutReduction }`     -> 40x20   (both held back)
+///   * `{ 100, 10, withoutEnlargement }`  -> 40x10   (width held, height
+///     reduced)
+///   * `{ 10, 100, withoutEnlargement }`  -> 10x20   (height held, width
+///     reduced)
+///   * `{ 100, 10, withoutReduction }`    -> 100x20  (height held, width
+///     enlarged)
+#[test]
+fn fill_honours_both_clamps_per_axis() {
+    let fill = |w, h, woe, wor| {
+        let out = resize_raster(
+            &wide(),
+            &ResizeOptions {
+                without_enlargement: woe,
+                without_reduction: wor,
+                ..opts(w, h, ResizeFit::Fill)
+            },
+        )
+        .unwrap();
+        (out.width, out.height)
+    };
+    assert_eq!(fill(100, 100, false, true), (100, 100));
+    assert_eq!(fill(100, 100, true, false), (40, 20));
+    assert_eq!(fill(10, 10, false, true), (40, 20));
+    assert_eq!(fill(100, 10, true, false), (40, 10));
+    assert_eq!(fill(10, 100, true, false), (10, 20));
+    assert_eq!(fill(100, 10, false, true), (100, 20));
+}
