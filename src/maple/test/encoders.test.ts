@@ -111,4 +111,60 @@ describe('Encoder options', () => {
     const input = await src();
     expect(() => maple(input).jpeg({ mozjpeg: true } as never)).toThrow(/mozjpeg/);
   });
+
+  // #3506 F6: cross-checked the full sharp option list per format and named
+  // every option Maple silently dropped before this task. One case per new
+  // rejection, all synchronous (same reasoning as the mozjpeg case above).
+  it('rejects the American spelling of trellisQuantization by name', async () => {
+    const input = await src();
+    expect(() => maple(input).jpeg({ trellisQuantization: true } as never)).toThrow(
+      /trellisQuantization/,
+    );
+  });
+
+  it('rejects force on every format that has it', async () => {
+    const input = await src();
+    expect(() => maple(input).jpeg({ force: false } as never)).toThrow(/force/);
+    expect(() => maple(input).png({ force: false } as never)).toThrow(/force/);
+    expect(() => maple(input).webp({ force: false } as never)).toThrow(/force/);
+    expect(() => maple(input).avif({ force: false } as never)).toThrow(/force/);
+    expect(() => maple(input).tiff({ force: false } as never)).toThrow(/force/);
+  });
+
+  it('rejects png quantiser options quality and effort by name', async () => {
+    const input = await src();
+    expect(() => maple(input).png({ quality: 50 } as never)).toThrow(/quality/);
+    expect(() => maple(input).png({ effort: 5 } as never)).toThrow(/effort/);
+  });
+
+  it('rejects webp quality and the animation-only options by name', async () => {
+    const input = await src();
+    expect(() => maple(input).webp({ quality: 50 } as never)).toThrow(/quality/);
+    expect(() => maple(input).webp({ smartDeblock: true } as never)).toThrow(/smartDeblock/);
+    expect(() => maple(input).webp({ loop: 0 } as never)).toThrow(/loop/);
+    expect(() => maple(input).webp({ delay: 100 } as never)).toThrow(/delay/);
+    expect(() => maple(input).webp({ minSize: true } as never)).toThrow(/minSize/);
+    expect(() => maple(input).webp({ mixed: true } as never)).toThrow(/mixed/);
+  });
+
+  it('rejects tiff quality, tileWidth, tileHeight and resolutionUnit by name', async () => {
+    const input = await src();
+    expect(() => maple(input).tiff({ quality: 80 } as never)).toThrow(/quality/);
+    expect(() => maple(input).tiff({ tileWidth: 256 } as never)).toThrow(/tileWidth/);
+    expect(() => maple(input).tiff({ tileHeight: 256 } as never)).toThrow(/tileHeight/);
+    expect(() => maple(input).tiff({ resolutionUnit: 'inch' } as never)).toThrow(/resolutionUnit/);
+  });
+
+  it('no longer rejects avif({ tune }) — tune is not a real sharp option', async () => {
+    // #3506 F6: `tune` was never a sharp option (`avif()` delegates to
+    // `heif()`, whose documented surface has no `tune` field at all); F5
+    // rejected it by name in error. `.avif()` only ever lifts its four known
+    // fields onto the wire output, so a stray `tune` key is simply ignored —
+    // it must no longer throw the way `rejectUnsupported` used to make it.
+    const out = await maple(await src(48, 48))
+      .avif({ tune: 'ssim' } as never)
+      .toBuffer();
+    const meta = await maple(out).metadata();
+    expect(meta.format).toBe('avif');
+  });
 });
