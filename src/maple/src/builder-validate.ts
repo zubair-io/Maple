@@ -107,8 +107,18 @@ export function rejectUnsupported(format: string, options: Record<string, unknow
  * off sharp should see the message they already know rather than Maple's
  * serde error naming a JSON column. `undefined` passes (the option is simply
  * absent); a non-integer fails, as it does in sharp.
+ *
+ * Exported so `builder-state.ts`'s `applyQuality`/`applyEffort` — which back
+ * `.quality()`, `.toFormat(fmt, { quality, effort })` and the `options.quality`
+ * branch of `.toFormat()` — throw the same message rather than the silent
+ * `Math.max`/`Math.min` clamp those two used before this fix.
  */
-function checkIntegerRange(name: string, value: number | undefined, lo: number, hi: number): void {
+export function checkIntegerRange(
+  name: string,
+  value: number | undefined,
+  lo: number,
+  hi: number,
+): void {
   if (value === undefined) {
     return;
   }

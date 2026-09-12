@@ -370,6 +370,41 @@ describe('Encoder options', () => {
     expect(() => maple(input).avif({ effort: 9, quality: 100 })).not.toThrow();
   });
 
+  // `.quality()`/`.toFormat(fmt, { quality, effort })` used to clamp out-of-range
+  // values silently (`Math.max`/`Math.min` in `applyQuality`/`applyEffort`):
+  // `.quality(0)` encoded at 1 and `.quality(500)` at 100 without a word,
+  // same for `.toFormat('avif', { effort: 99 })` landing on 9. They now throw
+  // in sharp's own wording, same as every per-format method above.
+  it('quality()/toFormat() range-check like the per-format methods', async () => {
+    const input = await src();
+    const cases: Array<[() => unknown, RegExp]> = [
+      [
+        () => maple(input).quality(0),
+        /Expected integer between 1 and 100 for quality but received 0/,
+      ],
+      [
+        () => maple(input).quality(500),
+        /Expected integer between 1 and 100 for quality but received 500/,
+      ],
+      [
+        () => maple(input).toFormat('jpeg', { quality: 0 }),
+        /Expected integer between 1 and 100 for quality but received 0/,
+      ],
+      [
+        () => maple(input).toFormat('avif', { effort: 99 }),
+        /Expected integer between 0 and 9 for effort but received 99/,
+      ],
+    ];
+    for (const [call, message] of cases) {
+      expect(call).toThrow(message);
+    }
+    // The ends of every range still pass.
+    expect(() => maple(input).quality(1)).not.toThrow();
+    expect(() => maple(input).quality(100)).not.toThrow();
+    expect(() => maple(input).toFormat('avif', { effort: 0 })).not.toThrow();
+    expect(() => maple(input).toFormat('avif', { effort: 9 })).not.toThrow();
+  });
+
   it('no longer rejects avif({ tune }) — tune is not a real sharp option', async () => {
     // #3506 F6: `tune` was never a sharp option (`avif()` delegates to
     // `heif()`, whose documented surface has no `tune` field at all); F5
