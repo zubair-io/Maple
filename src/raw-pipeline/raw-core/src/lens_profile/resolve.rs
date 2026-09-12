@@ -25,8 +25,23 @@ pub struct SampleWeight {
     pub focus_m: f64,
 }
 
+/// Where a resolved calibration came from. Hosts show it, and the apply
+/// path uses it to decide whether an approximation needs the user's
+/// explicit acknowledgement (an imported LCP) or is applied as-is (the
+/// bundled database, whose automatic matches are the product default).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Source {
+    Lcp,
+    Lensfun {
+        maker: String,
+        model: String,
+        db_version: String,
+    },
+}
+
 #[derive(Clone, Debug)]
 pub struct Resolution {
+    pub source: Source,
     pub calibration: Calibration,
     /// Per-family evidence, since many profiles store separate sample sets.
     pub distortion_samples: Vec<SampleWeight>,
@@ -38,7 +53,7 @@ pub struct Resolution {
     pub unsupported: Vec<String>,
 }
 
-struct Record {
+pub(super) struct Record {
     index: usize,
     axes: [f64; 3],
     focal: f64,
@@ -78,13 +93,33 @@ impl LensProfile {
                 unsupported.join("; ")
             });
         }
+        resolve_records(records, target_axes(query), unsupported, Source::Lcp)
+    }
+}
+
+/// The resolver's interpolation axes for a shot: log focal length, APEX
+/// aperture and reciprocal focus distance, each `None` when the RAW did
+/// not record it.
+pub(super) fn target_axes(query: &LensQuery<'_>) -> [Option<f64>; 3] {
+    let positive = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0);
+    [
+        Some(query.focal_mm.ln()),
+        positive(query.f_number).map(|v| 2.0 * v.log2()),
+        positive(query.focus_m).map(|v| 1.0 / v),
+    ]
+}
+
+/// Select and blend the per-family samples for a shot. Shared by the LCP
+/// path (records built from parsed samples) and the Lensfun path (records
+/// built from the bundle), so both interpolate identically.
+pub(super) fn resolve_records(
+    records: Vec<Record>,
+    target: [Option<f64>; 3],
+    unsupported: Vec<String>,
+    source: Source,
+) -> Result<Resolution, String> {
+    {
         let mut approximations = Vec::new();
-        let positive = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0);
-        let target = [
-            Some(query.focal_mm.ln()),
-            positive(query.f_number).map(|v| 2.0 * v.log2()),
-            positive(query.focus_m).map(|v| 1.0 / v),
-        ];
         let distortion = select(&records, &target, 0, &mut approximations);
         let ca = select(&records, &target, 1, &mut approximations);
         let vignette = select(&records, &target, 2, &mut approximations);
@@ -112,6 +147,7 @@ impl LensProfile {
         approximations.sort();
         approximations.dedup();
         Ok(Resolution {
+            source,
             calibration,
             distortion_samples: evidence(&distortion),
             ca_samples: evidence(&ca),
@@ -167,6 +203,28 @@ fn matches(sample: &LensSample, query: &LensQuery<'_>) -> bool {
 }
 
 impl Record {
+    /// A bundled Lensfun sample already converted into a `Calibration`
+    /// carrying one family. `aperture_apex` and `focus_m` are the sample's
+    /// own axes when it has them (vignetting) and the query's otherwise, so
+    /// a family without that axis never reads as out of range on it.
+    pub(super) fn lensfun(
+        index: usize,
+        focal: f64,
+        aperture_apex: f64,
+        focus_m: f64,
+        calibration: Calibration,
+    ) -> Self {
+        Self {
+            index,
+            focal,
+            aperture: aperture_apex,
+            focus: focus_m,
+            axes: [focal.ln(), aperture_apex, 1.0 / focus_m],
+            key: format!("lensfun:{index}:{focal}:{aperture_apex}:{focus_m}"),
+            calibration,
+        }
+    }
+
     fn new(index: usize, sample: &LensSample) -> Result<Self, String> {
         let focal = model::number(&sample.properties, "FocalLength", None)?;
         let aperture = model::number(&sample.properties, "ApertureValue", None)?;

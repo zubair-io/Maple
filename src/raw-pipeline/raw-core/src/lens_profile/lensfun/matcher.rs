@@ -73,15 +73,24 @@ pub fn find<'a>(
         return None;
     }
     let mounts = usable_mounts(db, camera.mount);
-    db.lenses.iter().find_map(|lens| {
-        let mount = serves(lens, camera, &mounts)?;
-        lens_named(lens, &wanted).then(|| Match {
+    // Lensfun keeps alternate calibration sets as separate entries with the
+    // same name and a different crop factor; like liblensfun, take the one
+    // calibrated closest to (and not larger than) the camera's sensor.
+    db.lenses
+        .iter()
+        .filter(|lens| lens_named(lens, &wanted))
+        .filter_map(|lens| serves(lens, camera, &mounts).map(|mount| (lens, mount)))
+        .min_by(|a, b| {
+            (camera.crop / a.0.crop)
+                .total_cmp(&(camera.crop / b.0.crop))
+                .then_with(|| a.0.model.cmp(&b.0.model))
+        })
+        .map(|(lens, mount)| Match {
             camera,
             lens,
             mount: &db.mounts[mount],
             slug: slug(lens, &db.mounts[mount]),
         })
-    })
 }
 
 /// Every rectilinear lens a body can carry with a usable calibration,
