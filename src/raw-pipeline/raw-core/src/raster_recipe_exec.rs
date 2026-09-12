@@ -231,27 +231,13 @@ fn named_profile_primaries(recipe: &Recipe) -> Option<TargetPrimaries> {
 }
 
 /// The metadata the container is actually written with: the recipe's own
-/// `metadata` block (#3507) resolved against the input, with one addition
-/// only the output stage can supply — the ICC profile that follows the
-/// primaries `toColourspace` rotated the pixels into (#3506/#3503).
+/// `metadata` block (#3507) resolved against the input, for the primaries the
+/// output is actually in.
 ///
-/// ICC precedence, highest first:
-///
-/// 1. An explicit `withIccProfile` — `metadata.icc` bytes or
-///    `metadata.iccName` ("srgb"/"p3"). The caller named a profile; it wins.
-///    A NAMED one also rotates the pixels into that space before the encode
-///    (see `named_profile_primaries`), so the tag and the samples agree.
-/// 2. `keep`'s sweep of the input's own profile, or the default fill `keep`
-///    applies when the input carried none (sharp's `withMetadata()` adds one
-///    there).
-/// 3. The primaries profile, when `toColourspace('display-p3')` actually
-///    rotated the pixels out of sRGB. Without this an explicitly-converted
-///    P3 image would ship untagged and render as sRGB.
-/// 4. Nothing. A default (no `toColourspace`, no `metadata`) recipe ships
-///    UNTAGGED, which is what sharp does and what `test/oracle.test.ts`
-///    pins: sharp colour-manages on decode as soon as any profile is
-///    present, so an sRGB-tagged PNG came back with 12 008 of 12 288 bytes
-///    changed rather than passed through.
+/// The ICC precedence lives in `resolve_metadata` — all five tiers of it, in
+/// one place. This wrapper exists only to hand it the two things it cannot
+/// work out for itself: the primaries `toColourspace` rotated into, and
+/// whether an `autoOrient` already applied the input's orientation.
 fn resolve_output_metadata(
     recipe: &Recipe,
     input: &[u8],
@@ -259,12 +245,7 @@ fn resolve_output_metadata(
     primaries: TargetPrimaries,
     auto_oriented: bool,
 ) -> Result<ResolvedMetadata> {
-    let resolved = resolve_metadata(&recipe.metadata, input, aux, auto_oriented, primaries)?;
-    let icc = match resolved.icc {
-        Some(profile) => Some(profile),
-        None => (primaries != TargetPrimaries::Srgb).then(|| icc::profile_for(primaries)),
-    };
-    Ok(ResolvedMetadata { icc, ..resolved })
+    resolve_metadata(&recipe.metadata, input, aux, auto_oriented, primaries)
 }
 
 pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeResult> {

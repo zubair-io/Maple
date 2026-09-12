@@ -118,7 +118,10 @@ pub struct ResolvedMetadata {
 /// note to fix it once one existed; PR-D's is on this base now. Getting it
 /// wrong is not cosmetic: `.toColourspace('display-p3').withMetadata()`
 /// would fill in an sRGB profile over Display P3 samples, which is the
-/// mislabelling `withIccProfile('p3')` was a named error to avoid.
+/// mislabelling `withIccProfile('p3')` was a named error to avoid. A recipe
+/// that rotated is answered by the rotation profile before this fill is
+/// reached at all (see `resolve_metadata`'s precedence list); the fill's own
+/// primaries-awareness is what keeps the two consistent.
 fn default_icc(primaries: TargetPrimaries) -> Vec<u8> {
     crate::icc::profile_for(primaries)
 }
@@ -233,7 +236,7 @@ pub fn resolve_metadata(
     };
     // `keep` mirrors sharp's `withMetadata()`: an ICC profile already
     // present is copied through as-is, and one that's absent gets a default
-    // sRGB profile added (see `default_icc`'s doc) — `keep: false` with no
+    // profile added (see `default_icc`'s doc) — `keep: false` with no
     // supplied override means no ICC at all, matching sharp's own default.
     let supplied_icc = match supplied("icc", metadata.icc)? {
         Some(bytes) => Some(bytes),
@@ -244,10 +247,29 @@ pub fn resolve_metadata(
     };
     // Only an ICC the caller named counts as requested: an explicit
     // override or a named built-in profile. Neither `keep`'s sweep of the
-    // input's own profile nor the default sRGB fill below is something to
-    // hold a can't-write-ICC format (AVIF, #3580) to — see the field's doc.
+    // input's own profile, nor the rotation profile, nor the default fill
+    // below is something to hold a can't-write-ICC format (AVIF, #3580) to
+    // — see the field's doc.
     let icc_requested = supplied_icc.is_some();
+    // THE ICC PRECEDENCE, highest first. All of it lives here so there is one
+    // place to read the rule off:
+    //
+    //   1. an explicit `withIccProfile` — bytes or a named built-in;
+    //   2. the ROTATION profile, when a `toColourspace` actually moved the
+    //      pixels out of sRGB;
+    //   3. `keep`'s sweep of the input's own profile;
+    //   4. `keep`'s fill, which follows the output primaries;
+    //   5. nothing — a default recipe ships untagged, as sharp does.
+    //
+    // (2) outranks (3) because the samples decide, not the source file: a
+    // `keepMetadata().toColourspace('display-p3')` would otherwise tag
+    // Display P3 pixels with the input's sRGB profile, and a colour-managed
+    // reader then renders them wrong. `keep` still carries the input's
+    // profile for every recipe that did not rotate, which is every recipe
+    // sharp's own `keepMetadata()` is compared against.
+    let rotated = primaries != TargetPrimaries::Srgb;
     let icc = supplied_icc
+        .or_else(|| rotated.then(|| crate::icc::profile_for(primaries)))
         .or_else(|| kept.icc.clone())
         .or_else(|| metadata.keep.then(|| default_icc(primaries)));
     let supplied_xmp = supplied("xmp", metadata.xmp)?;
