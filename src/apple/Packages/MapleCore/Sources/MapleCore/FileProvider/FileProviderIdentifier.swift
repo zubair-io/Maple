@@ -33,10 +33,19 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     /// `GET /api/assets/<id>/thumb`. Surfaces under
     /// `.mapleThumbsDir(folderID:parentRelativePath:)`.
     case thumb(assetID: String)
+    /// Synthetic `.maple/previews/` container (#3571). Children are one
+    /// `.preview(assetID:)` per indexed image in `parentRelativePath`,
+    /// named `<filename>.avif` — the server's on-disk preview name.
+    case maplePreviewsDir(folderID: String, parentRelativePath: String)
+    /// The developed 1280 px preview AVIF for an asset, served from the
+    /// server-side `.maple/previews/` cache via `GET /api/fs/preview?path=`.
+    /// Surfaces under `.maplePreviewsDir(folderID:parentRelativePath:)`.
+    case preview(assetID: String)
 
     public enum DecodeError: Error {
         case invalidPrefix, malformedFolder, malformedFile, malformedSidecar, malformedTrash,
-             malformedMapleDir, malformedThumbsDir, malformedThumb, badBase64
+             malformedMapleDir, malformedThumbsDir, malformedThumb, malformedPreviewsDir,
+             malformedPreview, badBase64
     }
 
     public var rawValue: String {
@@ -60,6 +69,10 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             return "mapledirthumbs/\(folderID):\(Self.b64urlEncode(parentRelativePath))"
         case .thumb(let assetID):
             return "thumb/\(assetID)"
+        case .maplePreviewsDir(let folderID, let parentRelativePath):
+            return "mapledirpreviews/\(folderID):\(Self.b64urlEncode(parentRelativePath))"
+        case .preview(let assetID):
+            return "preview/\(assetID)"
         }
     }
 
@@ -130,6 +143,20 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             self = .mapleThumbsDir(folderID: folderID, parentRelativePath: path)
             return
         }
+        // Same rule for `mapledirpreviews/` (#3571): longer prefix first.
+        if let body = rawValue.dropPrefixIfPresent("mapledirpreviews/") {
+            guard let colon = body.firstIndex(of: ":") else {
+                throw DecodeError.malformedPreviewsDir
+            }
+            let folderID = String(body[..<colon])
+            if folderID.isEmpty { throw DecodeError.malformedPreviewsDir }
+            let encoded = String(body[body.index(after: colon)...])
+            guard let path = Self.b64urlDecode(encoded) else {
+                throw DecodeError.badBase64
+            }
+            self = .maplePreviewsDir(folderID: folderID, parentRelativePath: path)
+            return
+        }
         if let body = rawValue.dropPrefixIfPresent("mapledir/") {
             guard let colon = body.firstIndex(of: ":") else {
                 throw DecodeError.malformedMapleDir
@@ -147,6 +174,12 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             let assetID = String(body)
             if assetID.isEmpty { throw DecodeError.malformedThumb }
             self = .thumb(assetID: assetID)
+            return
+        }
+        if let body = rawValue.dropPrefixIfPresent("preview/") {
+            let assetID = String(body)
+            if assetID.isEmpty { throw DecodeError.malformedPreview }
+            self = .preview(assetID: assetID)
             return
         }
         throw DecodeError.invalidPrefix

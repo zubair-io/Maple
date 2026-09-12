@@ -99,7 +99,9 @@ final class DeferredFolderEnumeratorChangesTests: XCTestCase {
         // A deleted RAW takes its canonical sidecar with it (#3563).
         XCTAssertEqual(observer.deleted.map(\.rawValue),
                        [FileProviderIdentifier.asset("a2").rawValue,
-                        MapleItem.sidecarIdentifier(assetID: "a2").rawValue])
+                        MapleItem.sidecarIdentifier(assetID: "a2").rawValue,
+                        FileProviderIdentifier.thumb(assetID: "a2").rawValue,
+                        FileProviderIdentifier.preview(assetID: "a2").rawValue])
         // Anchor advances past the whole page even though one row was
         // filtered out — otherwise we would re-scan it forever.
         XCTAssertEqual(observer.finishedAnchor.map(FolderChangeMatching.parseAnchor), 13)
@@ -144,7 +146,17 @@ final class DeferredFolderEnumeratorChangesTests: XCTestCase {
         wait(for: [observer.done], timeout: 5)
 
         XCTAssertNil(observer.failure)
-        XCTAssertEqual(observer.updated.map(\.filename), ["one.dng", "one.xmp", "three.dng"])
+        // RAW, sidecar, then its `.maple/thumbs/` and `.maple/previews/`
+        // entries (#3571) re-versioned by the sidecar mtime.
+        XCTAssertEqual(observer.updated.map(\.filename),
+                       ["one.dng", "one.xmp",
+                        MapleThumbCacheKey.thumbFilename(forRawBasename: "one.dng"), "one.dng.avif",
+                        "three.dng",
+                        MapleThumbCacheKey.thumbFilename(forRawBasename: "three.dng"), "three.dng.avif"])
+        let preview = observer.updated.first { $0.filename == "one.dng.avif" }
+        XCTAssertEqual(preview?.parentItemIdentifier.rawValue,
+                       FileProviderIdentifier.maplePreviewsDir(folderID: "F1", parentRelativePath: "d").rawValue)
+        XCTAssertEqual(preview?.contentModificationDate, Date(timeIntervalSince1970: 1_700_000_123))
         let sidecar = observer.updated.first { $0.filename == "one.xmp" } as? MapleItem
         XCTAssertEqual(sidecar?.itemIdentifier, MapleItem.sidecarIdentifier(assetID: "a1a1a1a1a1a1a1a1a1a1a1a1"))
         XCTAssertEqual(sidecar?.contentModificationDate,
