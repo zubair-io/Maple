@@ -289,22 +289,30 @@ fn lanczos2(x: f64) -> f64 {
     }
 }
 
+/// The `lanczos2` window as a `fast_image_resize` filter.
+///
+/// `Filter::new` rejects exactly one thing — a support that is not finite
+/// and positive — and the support here is the literal `2.0`, so it cannot
+/// fail. Naming that lets `resize_alg` be infallible instead of threading a
+/// `Result` for an error no input can produce. `fr::Filter` is a `Copy`
+/// struct of a `&'static str`, a function pointer and an `f64`, with no
+/// allocation behind it, so there is nothing to cache either.
+fn lanczos2_filter() -> fr::Filter {
+    fr::Filter::new("lanczos2", lanczos2, 2.0)
+        .expect("lanczos2's support of 2.0 is finite and positive")
+}
+
 /// Map a [`FilterAlg`] onto the `fast_image_resize` algorithm it drives.
-fn resize_alg(filter: FilterAlg) -> Result<fr::ResizeAlg> {
-    let convolution = |t| fr::ResizeAlg::Convolution(t);
-    Ok(match filter {
+fn resize_alg(filter: FilterAlg) -> fr::ResizeAlg {
+    let convolution = fr::ResizeAlg::Convolution;
+    match filter {
         FilterAlg::Nearest => fr::ResizeAlg::Nearest,
         FilterAlg::Bilinear => convolution(fr::FilterType::Bilinear),
         FilterAlg::CatmullRom => convolution(fr::FilterType::CatmullRom),
         FilterAlg::Mitchell => convolution(fr::FilterType::Mitchell),
         FilterAlg::Lanczos3 => convolution(fr::FilterType::Lanczos3),
-        FilterAlg::Lanczos2 => convolution(fr::FilterType::Custom(
-            fr::Filter::new("lanczos2", lanczos2, 2.0).map_err(|e| Error::Decode {
-                path: "<memory>".into(),
-                reason: format!("lanczos2 filter construction failed: {e:?}"),
-            })?,
-        )),
-    })
+        FilterAlg::Lanczos2 => convolution(fr::FilterType::Custom(lanczos2_filter())),
+    }
 }
 
 /// The `fast_image_resize` call itself.
@@ -351,7 +359,7 @@ fn resample(src: &RasterImage, dst_w: u32, dst_h: u32, filter: FilterAlg) -> Res
     let mut dst_image = fr::images::Image::new(dst_w, dst_h, pixel_type);
 
     let fr_opts = fr::ResizeOptions {
-        algorithm: resize_alg(filter)?,
+        algorithm: resize_alg(filter),
         mul_div_alpha: true,
         ..Default::default()
     };

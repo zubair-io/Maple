@@ -10,7 +10,7 @@ use crate::export::ExportFormat;
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
 use crate::raster_encode::{container_supports_alpha, encode_raster_opts, RasterEncodeOptions};
 use crate::raster_recipe_geometry::apply_geometry_op;
-use crate::raster_recipe_resize::apply_resize_op;
+use crate::raster_recipe_resize::{apply_resize_op, ResizeOpArgs};
 
 /// What a recipe produced: the encoded bytes (or raw pixels for
 /// `Output::Raw`) plus the dimensions actually written.
@@ -72,14 +72,16 @@ fn apply_op(image: RasterImage, op: &Op, aux: &[u8]) -> Result<RasterImage> {
             background,
         } => apply_resize_op(
             &image,
-            *width,
-            *height,
-            fit,
-            position,
-            kernel,
-            *without_enlargement,
-            *without_reduction,
-            *background,
+            &ResizeOpArgs {
+                width: *width,
+                height: *height,
+                fit,
+                position,
+                kernel,
+                without_enlargement: *without_enlargement,
+                without_reduction: *without_reduction,
+                background: *background,
+            },
         ),
         Op::Flatten { background } => {
             Ok(image.flatten([background[0], background[1], background[2]]))
