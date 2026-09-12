@@ -234,8 +234,9 @@ fn resolve_output_metadata(
     input: &[u8],
     aux: &[u8],
     primaries: TargetPrimaries,
+    auto_oriented: bool,
 ) -> Result<ResolvedMetadata> {
-    let resolved = resolve_metadata(&recipe.metadata, input, aux)?;
+    let resolved = resolve_metadata(&recipe.metadata, input, aux, auto_oriented)?;
     let icc = match resolved.icc {
         Some(profile) => Some(profile),
         None => (primaries != TargetPrimaries::Srgb).then(|| icc::profile_for(primaries)),
@@ -245,6 +246,11 @@ fn resolve_output_metadata(
 
 pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeResult> {
     let decoded = decode_input(recipe, input)?;
+    // `autoOrient` rotated the pixels to match whatever Orientation the
+    // input declared, so a resolved EXIF block that still says otherwise
+    // would tell the next reader to rotate them again — `resolve_metadata`
+    // neutralises it to 1 (#3507 fix-round-1, item 3).
+    let auto_oriented = recipe.ops.iter().any(|op| matches!(op, Op::AutoOrient {}));
     // The decoder's output is sRGB; `apply_op` threads the ACTUAL current
     // primaries alongside the image so a `ToColourspace` op rotates from
     // where the pixels are, not from an assumed sRGB (#3503 fix-round-1).
@@ -277,7 +283,7 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     if is_avif_output(&output) {
         crate::export::reject_untagged_avif_p3(crate::export::ExportFormat::Avif, primaries)?;
     }
-    let metadata = resolve_output_metadata(recipe, input, aux, primaries)?;
+    let metadata = resolve_output_metadata(recipe, input, aux, primaries, auto_oriented)?;
     let bytes = encode_raster_output(&processed, &output, &metadata)?;
     let channels = channels_written(&processed, &output);
     Ok(RecipeResult {
