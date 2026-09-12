@@ -51,13 +51,11 @@ export declare class MapleImageBuilder {
     /**
      * Target colourspace. For bitmaps this rotates the primaries and tags the
      * output with the matching ICC profile; for the RAW develop path it also
-     * selects the export primaries, as it did in Tier 1. `'b-w'` is the
-     * greyscale conversion, the same thing `greyscale()` does — which is what
-     * it means in sharp too.
+     * selects the export primaries, as it did in Tier 1.
      */
-    toColourspace(space: 'srgb' | 'display-p3' | 'p3' | 'b-w'): this;
+    toColourspace(space: 'srgb' | 'display-p3' | 'p3'): this;
     /** Alternative spelling of `toColourspace`. */
-    toColorspace(space: 'srgb' | 'display-p3' | 'p3' | 'b-w'): this;
+    toColorspace(space: 'srgb' | 'display-p3' | 'p3'): this;
     /** Convert to 8-bit greyscale, three identical channels. */
     greyscale(greyscale?: boolean): this;
     /** Alternative spelling of `greyscale`. */
@@ -74,12 +72,8 @@ export declare class MapleImageBuilder {
     gamma(gamma?: number, gammaOut?: number): this;
     /** `a * input + b`, per channel or scalar. */
     linear(a?: number | number[], b?: number | number[]): this;
-    /**
-     * Produce the negative. `{ alpha: false }` spares the alpha channel, and
-     * `negate(false)` is a no-op — sharp's own signature (and the same shape
-     * as `greyscale(false)`).
-     */
-    negate(options?: boolean | {
+    /** Produce the negative. `{ alpha: false }` spares the alpha channel. */
+    negate(options?: {
         alpha?: boolean;
     }): this;
     /** Stretch luminance between the given percentiles. */

@@ -117,32 +117,31 @@ const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 
 ## sharp parity
 
-| sharp method                                       | Maple | Notes                                                                                                                                                                                                                                                                                                                  |
-| :------------------------------------------------- | :---- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extract()`                                        | ✅    | `{ left, top, width, height }`                                                                                                                                                                                                                                                                                         |
-| `extend()`                                         | ✅    | background only — `extendWith: 'copy' \| 'repeat' \| 'mirror'` throws by name                                                                                                                                                                                                                                          |
-| `rotate(angle)`                                    | ✅    | 90/180/270 exact; other angles bilinear into the rotated box                                                                                                                                                                                                                                                           |
-| `rotate()`                                         | ✅    | no argument = EXIF auto-orient, as in sharp                                                                                                                                                                                                                                                                            |
-| `flip()`                                           | ✅    |                                                                                                                                                                                                                                                                                                                        |
-| `flop()`                                           | ✅    |                                                                                                                                                                                                                                                                                                                        |
-| `trim()`                                           | ✅    | `{ background, threshold, margin }` — `margin` is a Maple extension, not in sharp's `trim` options; `lineArt` throws by name; an all-background image is returned unchanged, matching sharp                                                                                                                            |
-| `composite()`                                      | ✅    | `over`, `multiply`, `screen`, `add`, `darken`, `lighten`, `dest-in`, `dest-out`                                                                                                                                                                                                                                        |
-| `flatten()`                                        | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                                                                                                                                                   |
-| `ensureAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                        |
-| `removeAlpha()`                                    | ✅    |                                                                                                                                                                                                                                                                                                                        |
-| `greyscale()` / `grayscale()`                      | ✅    | Rec.709 luma reduced in linear light (de-gamma, weight, re-gamma), three identical channels                                                                                                                                                                                                                            |
-| `gamma()`                                          | ✅    | an assembly-time pair around the `resize` op: `gamma` itself before it, `1/gammaOut` after; residual ≤1 — a single-code artefact at input 255 for `gammaOut` 1/1.5 and 1/3, where libvips' own float chain returns 254 rather than 255                                                                                 |
-| `linear()`                                         | ✅    | scalar or per-channel `a` and `b`, on the encoded samples; a 4-element vector is rejected by name (sharp applies the 4th element to alpha on RGBA input — this op never touches alpha)                                                                                                                                 |
-| `negate()`                                         | ✅    | `{ alpha: false }` spares the alpha channel                                                                                                                                                                                                                                                                            |
-| `normalise()` / `normalize()`                      | ✅    | percentile stretch of CIELAB L\*, chroma preserved                                                                                                                                                                                                                                                                     |
-| `modulate()`                                       | ✅    | brightness/lightness on L\*, saturation on C\*, hue rotation, in CIELCh                                                                                                                                                                                                                                                |
-| `tint()`                                           | ✅    | linear-light luma as `greyscale`, then a\*/b\* from the tint; colour as `{r,g,b}` or `#rgb`/`#rrggbb`/`#rrggbbaa` (no CSS names); residual max 3, from the composed CIELAB matrices (#3581)                                                                                                                            |
-| `toColourspace()` / `toColorspace()`               | ⚠️    | takes `srgb`, `display-p3`/`p3` and `b-w`; other libvips interpretation names error by name. Closer to sharp's `withIccProfile` than to its `toColourspace`, which takes interpretation names and silently ignores `display-p3`. `'b-w'` raw output is 3 identical bands, like `greyscale()` above — sharp's is 1 band |
-| `toFormat('avif')` + `toColourspace('display-p3')` | ❌    | rejected by name. This crate does not write AVIF's `colr` box yet, and an untagged P3 AVIF reads back as sRGB and double-stretches; sharp tags it. Export sRGB, or use JPEG/PNG/TIFF/WebP for a P3 deliverable                                                                                                         |
-| `resize({ fit })`                                  | ✅\*  | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                                                                                                                                               |
-| `resize({ position })`                             | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                                                                                                                                                     |
-| `resize({ kernel })`                               | ✅    | `nearest`, `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3`; `filter` is an alias; `mks2013`/`mks2021` throw by name                                                                                                                                                                                              |
-| `resize({ withoutReduction })`                     | ✅    | `withoutReduction` wins when both clamps are set, as in sharp                                                                                                                                                                                                                                                          |
+| sharp method                         | Maple | Notes                                                                                                                                                                                          |
+| :------------------------------------ | :---- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extract()`                     | ✅    | `{ left, top, width, height }`                                                                                                                                                                 |
+| `extend()`                      | ✅    | background only — `extendWith: 'copy' \| 'repeat' \| 'mirror'` throws by name                                                                                                                  |
+| `rotate(angle)`                 | ✅    | 90/180/270 exact; other angles bilinear into the rotated box                                                                                                                                   |
+| `rotate()`                      | ✅    | no argument = EXIF auto-orient, as in sharp                                                                                                                                                    |
+| `flip()`                        | ✅    |                                                                                                                                                                                                 |
+| `flop()`                        | ✅    |                                                                                                                                                                                                 |
+| `trim()`                        | ✅    | `{ background, threshold, margin }` — `margin` is a Maple extension, not in sharp's `trim` options; `lineArt` throws by name; an all-background image is returned unchanged, matching sharp   |
+| `composite()`                   | ✅    | `over`, `multiply`, `screen`, `add`, `darken`, `lighten`, `dest-in`, `dest-out`                                                                                                                |
+| `flatten()`                     | ✅    | background as `{r,g,b}` or `#rrggbb`                                                                                                                                                           |
+| `ensureAlpha()`                 | ✅    |                                                                                                                                                                                                 |
+| `removeAlpha()`                 | ✅    |                                                                                                                                                                                                 |
+| `greyscale()` / `grayscale()`        | ✅    | Rec.709 luma reduced in linear light (de-gamma, weight, re-gamma), three identical channels |
+| `gamma()`                            | ✅    | an assembly-time pair around the `resize` op: `gamma` itself before it, `1/gammaOut` after  |
+| `linear()`                           | ✅    | scalar or per-channel `a` and `b`, on the encoded samples                                   |
+| `negate()`                           | ✅    | `{ alpha: false }` spares the alpha channel                                                 |
+| `normalise()` / `normalize()`        | ✅    | percentile stretch of CIELAB L\*, chroma preserved                                          |
+| `modulate()`                         | ✅    | brightness/lightness on L\*, saturation on C\*, hue rotation, in CIELCh                     |
+| `tint()`                             | ✅    | reduces to the same linear-light luma as `greyscale`, then takes a\*/b\* from the tint      |
+| `toColourspace()` / `toColorspace()` | ✅    | `srgb` and `display-p3`; the output carries the matching ICC profile                        |
+| `resize({ fit })`               | ✅\*  | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                       |
+| `resize({ position })`          | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                             |
+| `resize({ kernel })`            | ✅    | `nearest`, `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3`; `filter` is an alias; `mks2013`/`mks2021` throw by name                                                                      |
+| `resize({ withoutReduction })`  | ✅    | `withoutReduction` wins when both clamps are set, as in sharp                                                                                                                                  |
 
 **\* One known gap, at heavy downscales only.** Everything about how the
 target box is chosen matches sharp: the per-axis shrink factors and how each
@@ -175,18 +174,6 @@ same linear-light luma rather than CIELAB lightness; `modulate` and
 primaries currently are — not always from sRGB — so chaining
 `.toColourspace('display-p3').toColourspace('srgb')` round-trips the pixels
 instead of rotating twice in the same direction.
-
-**`toColourspace` is not a drop-in for sharp's.** sharp's takes libvips
-_interpretation_ names (`srgb`, `b-w`, `lab`, `cmyk`, `rgb16`, …) and
-measurably **ignores** `'display-p3'` — `AttrAsEnum` falls back to sRGB, so
-the bytes come out identical to an untouched image and nothing is tagged.
-Maple's method is closer to sharp's `withIccProfile`: it rotates primaries
-and tags the file. It takes `'srgb'`, `'display-p3'`/`'p3'` and `'b-w'` (the
-greyscale conversion — which is what that name means in sharp too, and the
-documented companion to `greyscale()`), and throws by name on any other
-interpretation name. Ported code calling `.toColourspace('display-p3')`
-therefore gets different — and actually tagged — pixels than it did under
-sharp.
 
 Alpha is carried end to end: a 4-channel input, and the alpha item of a decoded
 AVIF, survive every op and are written by PNG, WebP and AVIF. JPEG and TIFF have
@@ -228,44 +215,6 @@ so 20×20 is the final size, where sharp resizes to 20×20 first and then
 extends by 5 on every side (measured: sharp 30×30, Maple 20×20). Call
 `.resize()` before `extend`/`flip`/`flop`/`rotate(angle)` and after `trim`
 if you want sharp's staging.
-
-Repeated `.resize()` calls are **not** a divergence: sharp has a single
-resize stage, so the last call wins, and Maple's `.resize()` drops any
-earlier `resize` op for the same reason. Measured on 32x32 noise,
-`.resize(16).resize(8)` is byte-identical to `.resize(8)` in both libraries.
-
-The colour ops are fixed stages in sharp too, and this is where call order
-bites hardest. Every one of them runs at a fixed point in sharp's pipeline
-(`src/pipeline.cc`, line numbers from sharp 0.34.5) while Maple runs it
-where you called it. The last column is the measured max per-channel
-difference vs sharp on 32x32 colour noise for each order — the "sharp's own
-order" figure is what you get by calling the ops in the order sharp would
-have applied them, and it is the one to aim for:
-
-| op                           | sharp stage                                   | Maple                                | measured, sharp's own order vs the other one                                                                                                       |
-| :--------------------------- | :-------------------------------------------- | :----------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gamma` (in)                 | 364, immediately before resize                | spliced before the first `resize` op | matches (0)                                                                                                                                        |
-| `greyscale`                  | 369, after gamma-in, still before resize      | call order                           | `.greyscale().resize(16)` **4**, `.resize(16).greyscale()` **24** (lanczos3; both 1 with `nearest`)                                                |
-| `modulate`                   | 625, after resize and composite               | call order                           | `.modulate({saturation:0}).tint(…)` **3**, `.tint(…).modulate({saturation:0})` **151**                                                             |
-| `gamma` (out)                | 743, after composite, blur and sharpen        | spliced after that same `resize` op  | `.gamma(3).resize(16).composite(…)` **89** (the composite falls between the pair in sharp; without gamma the same chain is 1)                      |
-| `linear`                     | 748, after gamma-out                          | call order                           | `.linear(1.2,-10).negate()` **0**, `.negate().linear(1.2,-10)` **31**                                                                              |
-| `normalise`                  | 755, after linear                             | call order                           | `.linear(1.6,-40).normalise()` **1**, `.normalise().linear(1.6,-40)` **42**                                                                        |
-| `tint`                       | 781, after normalise                          | call order                           | see `modulate`                                                                                                                                     |
-| `toColourspace` + output ICC | 799 / 826, the output stage after every op    | call order                           | `.modulate(…).toColourspace('display-p3')` **1**, `.toColourspace('display-p3').modulate(…)` **21** (vs sharp `.modulate(…).withIccProfile('p3')`) |
-| `negate`                     | **840, last of all**, after the ICC transform | call order                           | see `linear`                                                                                                                                       |
-
-The numbers in the last column are the measured max difference on this
-README's 32x32 noise fixture specifically, not a property of the op pair
-itself — a different fixture gives different magnitudes; treat them as
-illustrative of the direction and rough scale of the divergence, not a
-budget.
-
-`gamma` is the one op whose position Maple resolves rather than takes
-literally, because its whole purpose is to move the resize into a different
-encoding. Everything else is call order, so **call the colour ops in the
-stage order above** if you are porting a sharp pipeline and want the same
-pixels. Resolving the whole op list into sharp's stage order at assembly
-time, the way `gamma` already is, is tracked separately.
 
 ## Native Core & Linux Support
 
