@@ -393,6 +393,34 @@ mod container_orientation {
     }
 
     #[test]
+    fn a_tiff_with_no_orientation_tag_still_reports_one() {
+        // libvips' TIFF loader always reports an orientation — measured:
+        // sharp says `1` for a plain TIFF and for one whose Orientation
+        // entry was removed, where the same treatment of a JPEG, PNG or
+        // WebP gives `undefined` (#3507 round 4).
+        let mut bytes = b"II\x2a\x00".to_vec();
+        bytes.extend_from_slice(&8u32.to_le_bytes());
+        let entries: [(u16, u16, u32, u32); 4] = [
+            (0x0100, 3, 1, 4),  // ImageWidth
+            (0x0101, 3, 1, 2),  // ImageLength
+            (0x0102, 3, 1, 8),  // BitsPerSample
+            (0x0111, 4, 1, 62), // StripOffsets — where the pixels start
+        ];
+        bytes.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, kind, count, value) in entries {
+            bytes.extend_from_slice(&tag.to_le_bytes());
+            bytes.extend_from_slice(&kind.to_le_bytes());
+            bytes.extend_from_slice(&count.to_le_bytes());
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // no next IFD
+        bytes.extend_from_slice(&[128u8; 4 * 2]); // 4x2 greyscale pixels
+        let meta = probe_raster_metadata(&bytes).unwrap();
+        assert_eq!(meta.format, "tiff");
+        assert_eq!(meta.orientation, Some(1));
+    }
+
+    #[test]
     fn a_png_exif_chunk_orientation_reaches_the_probe_and_the_decode() {
         let bytes = png_with_exif(6);
         assert_eq!(probe_raster_metadata(&bytes).unwrap().orientation, Some(6));
@@ -414,7 +442,7 @@ mod container_orientation {
     }
 
     #[test]
-    fn a_container_with_no_exif_stays_at_orientation_one() {
+    fn a_container_that_declares_no_orientation_reports_none() {
         let data = vec![10u8; 8 * 4 * 3];
         let mut out: Vec<u8> = Vec::new();
         {
@@ -427,7 +455,12 @@ mod container_orientation {
                 .write_image_data(&data)
                 .unwrap();
         }
-        assert_eq!(probe_raster_metadata(&out).unwrap().orientation, Some(1));
+        // `undefined`, not `1`, is what sharp reports for a JPEG, PNG or
+        // WebP that declares no orientation — measured on sharp 0.34.5 for
+        // a container with no EXIF block and for one whose Orientation
+        // entry was removed (#3507 round 4). Decoding still treats it as
+        // the identity.
+        assert_eq!(probe_raster_metadata(&out).unwrap().orientation, None);
         assert_eq!(
             decode_raster(&out, None).unwrap().orientation,
             crate::image::ExifOrientation::Normal

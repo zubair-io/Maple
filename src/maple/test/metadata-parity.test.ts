@@ -101,6 +101,53 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     }
   });
 
+  it.skipIf(skip)('an undeclared orientation is absent, exactly where sharp says so', async () => {
+    // `undefined`, not `1`, when the container declares nothing — with TIFF
+    // the exception, since libvips' TIFF loader always reports one (#3507
+    // round 4). Every expectation here is read off sharp, including the
+    // TIFF row, so the exception cannot drift.
+    for (const format of CONTAINERS) {
+      for (const [label, build] of [
+        ['nothing asked', (p: ReturnType<typeof sharp>) => p],
+        ['density only', (p: ReturnType<typeof sharp>) => p.withMetadata({ density: 96 })],
+        ['orientation 1', (p: ReturnType<typeof sharp>) => p.withMetadata({ orientation: 1 })],
+        ['orientation 6', (p: ReturnType<typeof sharp>) => p.withMetadata({ orientation: 6 })],
+      ] as const) {
+        const raw = base();
+        const buf = await build(sharp(raw.data, { raw })).toFormat(format).toBuffer();
+        const theirs = (await sharp(buf).metadata()).orientation;
+        const mine = (await maple(buf).metadata()).orientation;
+        expect(mine ?? null, `${format} / ${label}`).toBe(theirs ?? null);
+      }
+    }
+  });
+
+  it.skipIf(skip)('an EXIF block with no Orientation entry is absent too', async () => {
+    // The other half of "declares nothing": a block that exists but has no
+    // Orientation entry. Same answer as no block at all for JPEG, PNG and
+    // WebP; still `1` for a TIFF.
+    for (const format of CONTAINERS) {
+      const raw = base();
+      const src = await sharp(raw.data, { raw })
+        .withMetadata({ orientation: 6, density: 96 })
+        .toFormat(format)
+        .toBuffer();
+      // Rename every IFD0 Orientation entry (tag 0x0112, SHORT, count 1) to
+      // an id nothing reads, in place, so no offset in the block moves.
+      const buf = Buffer.from(src);
+      for (let i = 0; i + 12 <= buf.length; i++) {
+        if (buf.readUInt16LE(i) === 0x0112 && buf.readUInt16LE(i + 2) === 3) {
+          buf.writeUInt16LE(0xbeef, i);
+        } else if (buf.readUInt16BE(i) === 0x0112 && buf.readUInt16BE(i + 2) === 3) {
+          buf.writeUInt16BE(0xbeef, i);
+        }
+      }
+      const theirs = (await sharp(buf).metadata()).orientation;
+      const mine = (await maple(buf).metadata()).orientation;
+      expect(mine ?? null, `${format} with the Orientation entry removed`).toBe(theirs ?? null);
+    }
+  });
+
   it.skipIf(skip)('default output matches sharp pixel for pixel, transforms included', async () => {
     // An AVIF's `irot`/`imir` is applied to the pixels by libheif while it
     // decodes, so it has to be baked in here too or the default output
