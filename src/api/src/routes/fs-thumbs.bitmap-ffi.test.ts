@@ -29,13 +29,19 @@ function get(p: string): Promise<Response> {
 
 describe('GET /api/fs/thumb — bitmap branch, FFI dylib unavailable', () => {
   let tmp: string | null = null;
+  let originalRoots: string | undefined;
 
   beforeEach(async () => {
+    originalRoots = process.env.MAPLE_ROOTS;
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-fs-thumb-bitmap-ffi-')));
     process.env.MAPLE_ROOTS = tmp;
   });
 
   afterEach(async () => {
+    // Bun evaluates every test module in one process: leave the env exactly as
+    // found so sibling suites don't inherit this temp root.
+    if (originalRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = originalRoots;
     if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
     tmp = null;
   });
