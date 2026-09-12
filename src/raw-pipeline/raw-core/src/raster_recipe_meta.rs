@@ -154,7 +154,14 @@ pub fn resolve_metadata(
             })
             .transpose()
     };
-    let exif_base = supplied("exif", metadata.exif)?.or(kept.exif);
+    // A caller-supplied block is canonicalised the same way a container's
+    // own is (#3507 final fix wave, item 3): `withExif(sharpMeta.exif)` is
+    // the obvious thing to write, and sharp hands out an `Exif\0\0`-
+    // introduced block for three of the five containers. Every encoder
+    // below wants the bare TIFF header.
+    let exif_base = supplied("exif", metadata.exif)?
+        .map(|block| crate::raster_meta::canonical_exif(&block).0.to_vec())
+        .or(kept.exif);
     let neutralised = if auto_oriented {
         exif_base
             .as_deref()
