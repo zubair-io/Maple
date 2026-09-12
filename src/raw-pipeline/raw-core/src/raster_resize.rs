@@ -122,15 +122,16 @@ fn resolve_shrink(src: &RasterImage, options: &ResizeOptions) -> (f64, f64) {
     };
     // Both clamps apply to every canvas, `fill` included, and per axis —
     // `ResolveShrink` runs them after the canvas switch, on both factors.
-    let no_up = if options.without_enlargement {
+    // They are mutually exclusive there, not cumulative: sharp writes
+    // `if (withoutReduction) { … } else if (withoutEnlargement) { … }`, so
+    // setting both does NOT pin the scale at 1 — `withoutReduction` simply
+    // wins and the enlargement clamp never runs.
+    if options.without_reduction {
+        (raw.0.min(1.0), raw.1.min(1.0))
+    } else if options.without_enlargement {
         (raw.0.max(1.0), raw.1.max(1.0))
     } else {
         raw
-    };
-    if options.without_reduction {
-        (no_up.0.min(1.0), no_up.1.min(1.0))
-    } else {
-        no_up
     }
 }
 

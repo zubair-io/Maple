@@ -182,17 +182,48 @@ fn without_reduction_still_crops_for_cover() {
     assert_eq!((out.width, out.height), (10, 10));
 }
 
+/// Setting both clamps does NOT pin the scale at 1. sharp's `ResolveShrink`
+/// tries them in order — `if (withoutReduction) … else if
+/// (withoutEnlargement) …` — so `withoutReduction` wins outright and the
+/// enlargement clamp never runs. Measured against sharp 0.34.5 / libvips
+/// 8.17.3 on a 40x20 source with BOTH flags set:
+///
+///   * `{ 100, 100, inside }`  -> 100x50  (enlarged, despite
+///     `withoutEnlargement`)
+///   * `{ 100, 100, cover }`   -> 100x100
+///   * `{ 100, 100, outside }` -> 200x100
+///   * `{ 10, 10, inside }`    -> 40x20   (the reduction clamp holds it at
+///     the source, which is where the old "returns the source unchanged"
+///     reading came from — it is only true for a shrinking target)
 #[test]
-fn without_reduction_and_without_enlargement_together_return_the_source_unchanged() {
-    // sharp: when both are set and the target differs, the source comes
-    // back as-is — the enlargement clamp pins the scale at <= 1, the
-    // reduction clamp pins it at >= 1, so 1.0 is the only value left.
-    let mut o = opts(10, 10, ResizeFit::Inside);
-    o.without_enlargement = true;
-    o.without_reduction = true;
-    let out = resize_raster(&wide(), &o).unwrap();
-    assert_eq!((out.width, out.height), (40, 20));
-    assert_eq!(out.data, wide().data);
+fn without_reduction_wins_when_both_clamps_are_set() {
+    let both = |w, h, fit| {
+        let out = resize_raster(
+            &wide(),
+            &ResizeOptions {
+                without_enlargement: true,
+                without_reduction: true,
+                ..opts(w, h, fit)
+            },
+        )
+        .unwrap();
+        (out.width, out.height)
+    };
+    assert_eq!(both(100, 100, ResizeFit::Inside), (100, 50));
+    assert_eq!(both(100, 100, ResizeFit::Cover), (100, 100));
+    assert_eq!(both(100, 100, ResizeFit::Outside), (200, 100));
+
+    let shrinking = resize_raster(
+        &wide(),
+        &ResizeOptions {
+            without_enlargement: true,
+            without_reduction: true,
+            ..opts(10, 10, ResizeFit::Inside)
+        },
+    )
+    .unwrap();
+    assert_eq!((shrinking.width, shrinking.height), (40, 20));
+    assert_eq!(shrinking.data, wide().data);
 }
 
 #[test]
