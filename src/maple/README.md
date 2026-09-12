@@ -325,6 +325,15 @@ default TIFF compressor is JPEG-in-TIFF; Maple has no JPEG-in-TIFF encoder (the
 `pyramid`, `bigtiff` and the resolution/quality options with no lossless
 encoder to apply them to (`quality`, `tileWidth`, `tileHeight`,
 `resolutionUnit`, `xres`, `yres`, `miniswhite`) are rejected the same way.
+**TIFF `bitdepth` shares sharp's name but not its domain.** Maple accepts `8`
+(default) and `16`; sharp accepts `1`, `2`, `4` and `8`, and reaches 16-bit
+TIFF through `toColourspace('rgb16')` instead. So `1`/`2`/`4` throw here and
+`16` is a Maple extension rather than parity. Maple's widening is `v * 257`,
+the exact full-scale map from [0, 255] to [0, 65535] (hand-parsed strip
+bytes: `20, 20, 20, 4, 1, 1` → `5140, 5140, 5140, 1028, 257, 257`); libvips'
+`rgb16` gives `5120, 5120, 5120, 1024, 511, 511`, roughly ×256 with
+rounding.
+
 `predictor` takes sharp's string form (`'horizontal'` default, `'none'`);
 `'float'` is a real sharp value the `tiff` crate cannot produce and is also a
 named rejection. It is a request rather than a guarantee, and is dropped in
