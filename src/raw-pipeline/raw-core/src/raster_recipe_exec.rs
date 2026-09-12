@@ -16,6 +16,7 @@ use crate::raster_recipe_colour::{apply_colour_op, output_primaries};
 use crate::export::ExportFormat;
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
 use crate::raster_encode::{container_supports_alpha, encode_raster_opts, RasterEncodeOptions};
+use crate::raster_recipe_filter::apply_filter_op;
 use crate::raster_recipe_geometry::apply_geometry_op;
 use crate::raster_recipe_resize::{apply_resize_op, ResizeOpArgs};
 use crate::view::encode::TargetPrimaries;
@@ -62,6 +63,14 @@ fn apply_op(
     op: &Op,
     aux: &[u8],
 ) -> Result<(RasterImage, TargetPrimaries)> {
+    // Filter ops (`blur`/`sharpen`/`median`/`threshold`/`convolve`, #3504
+    // task E4) live in `raster_recipe_filter.rs` to keep this file under its
+    // 400-line soft budget; try that dispatcher first and fall through to
+    // the match below for everything else. No filter op touches the
+    // primaries, so the incoming value is threaded straight back out.
+    if let Some(result) = apply_filter_op(&image, op) {
+        return result.map(|filtered| (filtered, primaries));
+    }
     match op {
         Op::AutoOrient {} => {
             let mut oriented = image;
@@ -139,6 +148,13 @@ fn apply_op(
         | Op::Modulate { .. }
         | Op::Tint { .. }
         | Op::ToColourspace { .. } => apply_colour_op(image, primaries, op),
+        Op::Blur { .. }
+        | Op::Sharpen { .. }
+        | Op::Median { .. }
+        | Op::Threshold { .. }
+        | Op::Convolve { .. } => {
+            unreachable!("apply_filter_op handles every filter op and always returns Some")
+        }
     }
 }
 
