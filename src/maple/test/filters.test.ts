@@ -215,4 +215,42 @@ describe('Filters', () => {
         .toBuffer(),
     ).rejects.toThrow(/expected 9/);
   });
+
+  it('rejects a non-integer convolve scale by name', () => {
+    // sharp's own `convolve()` (`lib/operation.js`) only honours `scale`
+    // when `is.integer()` passes — a non-integer is silently replaced by
+    // the kernel's own sum instead of erroring. Measured on sharp 0.34.5:
+    // `scale: 4.5` over a flat 30 field with a box-of-9 kernel leaves the
+    // field at 30 (scale silently replaced by the kernel sum of 9, not
+    // applied as 4.5). Maple rejects rather than silently diverging.
+    expect(() =>
+      maple(Buffer.alloc(0)).convolve({
+        width: 3,
+        height: 3,
+        kernel: Array(9).fill(1),
+        scale: 4.5,
+      }),
+    ).toThrow(/scale/);
+  });
+
+  it('rejects a non-integer convolve offset by name', () => {
+    expect(() =>
+      maple(Buffer.alloc(0)).convolve({
+        width: 3,
+        height: 3,
+        kernel: Array(9).fill(1),
+        offset: 0.5,
+      }),
+    ).toThrow(/offset/);
+  });
+
+  it('still accepts integer scale and offset', async () => {
+    const src = await png(stepEdge(8, 2));
+    const out = await maple(src)
+      .convolve({ width: 3, height: 3, kernel: Array(9).fill(1), scale: 9, offset: 0 })
+      .toFormat('png')
+      .toBuffer();
+    // No throw, and a valid image comes back.
+    expect((await pixels(out)).length).toBeGreaterThan(0);
+  });
 });
