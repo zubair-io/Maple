@@ -354,10 +354,8 @@ fn apply_pixel(p: &mut [f32; 3], a: &PartialAdjustments, w: f32) {
     //    luma coincide.
     if let Some(h) = a.highlights {
         let h_amount = w * h / 100.0;
-        let h_denom = 1.0 + h_amount * 2.0;
-        let h_expand = 1.0 + 2.0 * h_amount.abs();
         let y = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
-        let gain = highlights_mult(y, h_amount, h_denom, h_expand);
+        let gain = highlights_mult(y, h_amount);
         p[0] *= gain;
         p[1] *= gain;
         p[2] *= gain;

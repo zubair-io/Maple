@@ -257,18 +257,19 @@ fn local_tint_pushes_magenta() {
 }
 
 #[test]
-fn local_highlights_reduce_bright_tones_and_stay_finite() {
-    // +highlights compresses bright-but-unclipped tones downward. A pixel
-    // at Y≈0.8 (inside the H_W0=0.25 engagement band) should darken.
+fn local_highlights_negative_recover_bright_tones_and_stay_finite() {
+    // -highlights (Adobe: recover) compresses bright-but-unclipped tones
+    // downward. A pixel at Y≈0.8 (inside the H_W0=0.25 engagement band)
+    // should darken.
     let layers = full_mask_layer(PartialAdjustments {
-        highlights: Some(100.0),
+        highlights: Some(-100.0),
         ..Default::default()
     });
     let mut img = flat_image(2, 1, 0.8);
     apply(&mut img, &layers, &[]);
     assert!(
         img.pixels[1][0] < 0.8,
-        "+highlights should reduce Y≈0.8: {}",
+        "-highlights should reduce Y≈0.8: {}",
         img.pixels[1][0]
     );
     // w=0 side untouched.
