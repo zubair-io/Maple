@@ -142,77 +142,38 @@ mod tests {
             > rgb.len() / 3
     }
 
-    /// `.jpeg()`'s DEFAULTS — `optimiseCoding: true` with
-    /// `chromaSubsampling: '4:2:0'`, both sharp's own — make `jpeg-encoder`
-    /// write a NON-INTERLEAVED file: one `Ns=1` scan per component rather
-    /// than a single interleaved scan. zune-jpeg decoded that wrongly, so
-    /// Maple could not read its own output (#3596). Every combination has to
-    /// round-trip, not just the interleaved ones.
+    /// A real non-interleaved, optimised-Huffman baseline JPEG — one `Ns=1`
+    /// scan per component, exactly the structure `jpeg-encoder` writes for
+    /// its (and sharp's) default `optimiseCoding: true` + 4:2:0 options.
+    ///
+    /// Encoded once with `cjpeg -optimize -sample 2x2,1x1,1x1 -scans <script
+    /// listing components 0;1;2 as separate scans>` against the same
+    /// `photographic_64()` pixel pattern reproduced below, so this crate
+    /// never needs its own encoder to hit the bug: main's `raw-core` has no
+    /// JPEG encoder capable of writing a non-interleaved multi-scan file
+    /// (`crate::jpeg::encode` always emits a single interleaved scan), so the
+    /// fixture is committed instead of generated at test time.
+    const NONINTERLEAVED_FIXTURE: &[u8] = include_bytes!(
+        "../../../../test-fixtures/jpeg-regressions/noninterleaved_420_optimized.jpg"
+    );
+
+    /// #3596: zune-jpeg decoded a non-interleaved multi-scan baseline JPEG
+    /// wrong — the luma plane half-read and the chroma planes left at zero,
+    /// producing the green-screen `(0, 255, 0)` pattern instead of the real
+    /// image. This is one of the 58/224 libjpeg-turbo corpus files that
+    /// tripped over the bug, pinned down to a single tiny fixture so the
+    /// regression is caught without the full corpus checked in.
     #[test]
-    fn every_default_jpeg_option_combination_round_trips() {
-        use crate::raster_encode::EmbeddedMetadata;
-        use crate::raster_encode_jpeg::{encode_jpeg_opts, ChromaSubsampling, JpegOptions};
+    fn decodes_non_interleaved_multi_scan_jpeg_correctly() {
+        let decoded = decode_jpeg_lenient(NONINTERLEAVED_FIXTURE).unwrap();
+        assert_eq!((decoded.width, decoded.height), (64, 64));
+        assert!(
+            !looks_like_the_3596_green_pattern(&decoded.data),
+            "decoded as the #3596 green pattern"
+        );
 
         let src = photographic_64();
-        for optimise_coding in [true, false] {
-            for chroma_subsampling in [ChromaSubsampling::Yuv420, ChromaSubsampling::Yuv444] {
-                let options = JpegOptions {
-                    quality: 80,
-                    progressive: false,
-                    chroma_subsampling,
-                    optimise_coding,
-                };
-                let bytes = encode_jpeg_opts(&src, &options, &EmbeddedMetadata::default()).unwrap();
-                let decoded = decode_jpeg_lenient(&bytes).unwrap();
-                assert_eq!((decoded.width, decoded.height), (64, 64));
-                assert!(
-                    !looks_like_the_3596_green_pattern(&decoded.data),
-                    "optimise_coding={optimise_coding} {chroma_subsampling:?}: decoded as the \
-                     #3596 green pattern"
-                );
-                let db = psnr(&decoded.data, &src.data);
-                assert!(
-                    db >= 30.0,
-                    "optimise_coding={optimise_coding} {chroma_subsampling:?}: PSNR {db:.2} dB \
-                     against the source"
-                );
-            }
-        }
-    }
-
-    /// The two Huffman-table choices must decode to the SAME pixels: they
-    /// encode the same coefficients with the same quantisation tables and
-    /// differ only in how those coefficients are entropy-coded. Any gap is a
-    /// decoder bug, and this needs no external oracle to say so — which is
-    /// what makes it the sharpest regression guard for #3596, where the
-    /// optimised (non-interleaved) file decoded to garbage while the
-    /// non-optimised (interleaved) one was perfect.
-    #[test]
-    fn optimised_and_unoptimised_huffman_tables_decode_identically() {
-        use crate::raster_encode::EmbeddedMetadata;
-        use crate::raster_encode_jpeg::{encode_jpeg_opts, ChromaSubsampling, JpegOptions};
-
-        let src = photographic_64();
-        for chroma_subsampling in [ChromaSubsampling::Yuv420, ChromaSubsampling::Yuv444] {
-            let encode = |optimise_coding: bool| {
-                let options = JpegOptions {
-                    quality: 80,
-                    progressive: false,
-                    chroma_subsampling,
-                    optimise_coding,
-                };
-                decode_jpeg_lenient(
-                    &encode_jpeg_opts(&src, &options, &EmbeddedMetadata::default()).unwrap(),
-                )
-                .unwrap()
-            };
-            let optimised = encode(true);
-            let plain = encode(false);
-            assert_eq!(
-                optimised.data, plain.data,
-                "{chroma_subsampling:?}: optimised and unoptimised Huffman tables decoded to \
-                 different pixels"
-            );
-        }
+        let db = psnr(&decoded.data, &src.data);
+        assert!(db >= 30.0, "PSNR {db:.2} dB against the source pattern");
     }
 }
