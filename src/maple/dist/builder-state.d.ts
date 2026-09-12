@@ -7,8 +7,8 @@
 import { AuxBlob, type Recipe, type RecipeOp } from './recipe';
 import type { Colour, ExportColorSpace, ExportFormat, ExportRecipe, RawPixelInput } from './types';
 export declare function isRawPath(filePath: string): boolean;
-/** `ResizeOptions.filter` → the recipe's `resize` op `kernel` wire value. */
-export declare function kernelFromFilter(filter?: 'lanczos3' | 'bilinear' | 'nearest'): string;
+/** Translate a `position` or `gravity` value to its wire spelling. */
+export declare function resolveGravity(value: string | undefined): string;
 /**
  * The `gamma(gamma, gammaOut)` op pair, held apart from `ops` because its
  * position is resolved at ASSEMBLY time (`stateToRecipe`), not at call time

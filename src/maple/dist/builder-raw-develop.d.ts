@@ -2,7 +2,8 @@
  * RAW-develop terminal path for `MapleImageBuilder` — a recipe- or
  * XMP-driven development of an actual RAW file, as opposed to the bitmap
  * recipe pipeline in `builder-exec.ts`. Split out of `builder.ts` to make
- * room for Tier 2's colour ops (#3503) inside the file-size budget.
+ * room for Tier 2's geometry methods (#3501) and colour ops (#3503) inside
+ * the file-size budget.
  */
 import type { BuilderState } from './builder-state';
 import type { ExportResult } from './types';
