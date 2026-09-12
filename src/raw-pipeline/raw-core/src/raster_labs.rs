@@ -82,11 +82,17 @@ fn tables() -> &'static Tables {
         y2v[256] = y2v[255];
         let cbrt = (0..QUANT)
             .map(|i| {
-                let y = i as f64 / QUANT as f64;
-                if y < 0.008856 {
-                    (7.787 * y) as f32 + (16.0f32 / 116.0)
+                // `XYZ2Lab.c:97`: `float Y = (double) i / QUANT_ELEMENTS`
+                // narrows to `float` on assignment, and the dark-branch
+                // multiply that follows (`XYZ2Lab.c:100`, `7.787F * Y`) is
+                // done in `float`, not `double`. Narrowing after the
+                // multiply instead of before it disagrees on 71 of this
+                // table's 100,000 entries.
+                let y = (i as f64 / QUANT as f64) as f32;
+                if (y as f64) < 0.008856 {
+                    7.787_f32 * y + (16.0f32 / 116.0)
                 } else {
-                    (y as f32).cbrt()
+                    y.cbrt()
                 }
             })
             .collect();
@@ -123,20 +129,27 @@ pub(crate) fn srgb_to_labs(rgb: [u8; 3]) -> [i32; 3] {
     let l = 116.0 * cby - 16.0;
     let a = 500.0 * (cbx - cby);
     let bb = 200.0 * (cby - cbz);
-    // Lab → LabS: clip, then truncate into a signed short.
+    // Lab → LabS: clip, then truncate into a signed short. `Lab2LabS.c:66`
+    // multiplies libvips' `float` Lab sample by an untyped (double) literal
+    // constant — `p[0] * (32767.0 / 100.0)` promotes to `double` — so the
+    // scale itself has to happen in `f64`, not `f32`, before truncating.
     [
-        ((l * (32767.0 / 100.0)) as i32).clamp(0, 32767),
-        ((a * (32768.0 / 128.0)) as i32).clamp(-32768, 32767),
-        ((bb * (32768.0 / 128.0)) as i32).clamp(-32768, 32767),
+        ((l as f64 * (32767.0 / 100.0)) as i32).clamp(0, 32767),
+        ((a as f64 * (32768.0 / 128.0)) as i32).clamp(-32768, 32767),
+        ((bb as f64 * (32768.0 / 128.0)) as i32).clamp(-32768, 32767),
     ]
 }
 
 /// `vips_colourspace(LABS → sRGB)` for one pixel — the inverse of
 /// [`srgb_to_labs`], and an exact one for every byte triple.
 pub(crate) fn labs_to_srgb(labs: [i32; 3]) -> [u8; 3] {
-    let l = labs[0] as f32 / (32767.0 / 100.0);
-    let a = labs[1] as f32 / (32768.0 / 128.0);
-    let b = labs[2] as f32 / (32768.0 / 128.0);
+    // `LabS2Lab.c:62`: `q[0] = p[0] / (32767.0 / 100.0)` divides the
+    // `signed short` sample by that same double literal constant in
+    // `double`, then narrows to the output's `float` on assignment — so
+    // the division has to happen in `f64` before the value becomes `f32`.
+    let l = (labs[0] as f64 / (32767.0 / 100.0)) as f32;
+    let a = (labs[1] as f64 / (32768.0 / 128.0)) as f32;
+    let b = (labs[2] as f64 / (32768.0 / 128.0)) as f32;
     // Lab → XYZ. `vips_col_Lab2XYZ_helper` keeps `cby` and `tmp` in
     // `double` and stores each of X/Y/Z back to an `f32`.
     let (y, cby) = if l < 8.0 {
