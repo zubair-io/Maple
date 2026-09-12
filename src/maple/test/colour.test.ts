@@ -338,6 +338,23 @@ describe('Colour ops', () => {
     expect(raw.data[raw.data.length - 1]).toBe(255);
   });
 
+  it('tint() accepts #rgb/#rrggbb/#rrggbbaa and rejects anything else by name', async () => {
+    // `#ff8000` measured against real sharp 0.34.5 on 32x32 noise: within 1.
+    const short = await maple(await png([100, 100, 100]))
+      .tint('#f80')
+      .toRawAlpha();
+    const long = await maple(await png([100, 100, 100]))
+      .tint('#ff8800')
+      .toRawAlpha();
+    expect(Array.from(short.data.subarray(0, 3))).toEqual(Array.from(long.data.subarray(0, 3)));
+    // A 6-character non-hex string used to slip past the length check and
+    // surface as a recipe parse failure about a null f64 (#3503 review I6).
+    // sharp accepts CSS names and `rgb()`; Maple does not, and says so.
+    for (const bad of ['orange', 'rgb(255,128,0)', '#12345', 'zzzzzz']) {
+      expect(() => maple(solid([1, 2, 3])).tint(bad)).toThrow(/Unrecognised colour/);
+    }
+  });
+
   it('normalise() at the default 1/99 matches sharp on a colour image', async () => {
     // The bounds come from libvips `vips_percent`, which is not a rank
     // search: it thresholds the cumulative histogram of trunc(L*) —
