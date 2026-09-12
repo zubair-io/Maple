@@ -209,6 +209,27 @@ fn is_avif_output(_output: &RasterOutput) -> bool {
     false
 }
 
+/// The primaries a `metadata.iccName` names, when it names one.
+///
+/// `withIccProfile('srgb'|'p3')` CONVERTS and tags (#3507 reconciliation with
+/// #3503): the caller named a colour space by name, so the pixels are rotated
+/// into it and the matching profile is embedded — which is what sharp does,
+/// via lcms. Before `to_colourspace` existed on this base, `'p3'` was a named
+/// error rather than a silent mislabel; it is a real conversion now.
+///
+/// Caller-supplied profile BYTES (`withIccProfile(buffer)` or a file path)
+/// still tag without converting: nothing here parses an arbitrary ICC
+/// profile, so there is no `from`/`to` pair to rotate between. That
+/// divergence from sharp is documented in the package README.
+fn named_profile_primaries(recipe: &Recipe) -> Option<TargetPrimaries> {
+    match recipe.metadata.icc_name.as_deref()? {
+        "srgb" => Some(TargetPrimaries::Srgb),
+        "p3" => Some(TargetPrimaries::P3),
+        // `resolve_metadata` rejects any other name, by name.
+        _ => None,
+    }
+}
+
 /// The metadata the container is actually written with: the recipe's own
 /// `metadata` block (#3507) resolved against the input, with one addition
 /// only the output stage can supply — the ICC profile that follows the
@@ -218,6 +239,8 @@ fn is_avif_output(_output: &RasterOutput) -> bool {
 ///
 /// 1. An explicit `withIccProfile` — `metadata.icc` bytes or
 ///    `metadata.iccName` ("srgb"/"p3"). The caller named a profile; it wins.
+///    A NAMED one also rotates the pixels into that space before the encode
+///    (see `named_profile_primaries`), so the tag and the samples agree.
 /// 2. `keep`'s sweep of the input's own profile, or the default fill `keep`
 ///    applies when the input carried none (sharp's `withMetadata()` adds one
 ///    there).
@@ -275,7 +298,17 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
             },
         )?;
     let output = output_from_wire(&recipe.output)?;
-    let primaries = output_primaries(recipe)?;
+    // Where the pixels are after the ops, and where the recipe wants them.
+    // A `withIccProfile('srgb'|'p3')` names an output space, so it moves them
+    // there on top of whatever `toColourspace` did — see
+    // `named_profile_primaries`.
+    let op_primaries = output_primaries(recipe)?;
+    let primaries = named_profile_primaries(recipe).unwrap_or(op_primaries);
+    let processed = if primaries == op_primaries {
+        processed
+    } else {
+        processed.to_colourspace(op_primaries, primaries)
+    };
     // AVIF carries no ICC box at all (`ravif` 0.13 writes none), so a
     // Display P3 AVIF request is rejected by name here rather than silently
     // shipping untagged — and therefore mis-rendering — P3 samples. Same
@@ -297,6 +330,10 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
 #[cfg(test)]
 #[path = "raster_recipe_exec_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "raster_recipe_exec_meta_tests.rs"]
+mod meta_tests;
 
 #[cfg(test)]
 #[path = "raster_recipe_exec_meta_tests.rs"]
