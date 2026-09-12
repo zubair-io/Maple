@@ -6,6 +6,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getFfiSymbols } from './ffi-symbols';
+import { createRasterAnalyzeBinding } from './native-raster-analyze';
+import type { RasterAnalyzeBinding } from './native-raster-analyze';
 import { createRasterPipelineBinding } from './native-raster-pipeline';
 import type { RasterPipelineBinding } from './native-raster-pipeline';
 import { createRasterV2Binding } from './native-raster-v2';
@@ -15,7 +17,8 @@ import type { FilenameResult, FilenameTemplateArgs } from './types';
 
 const RENDER_OUT_CAP = 1024;
 
-export interface NativeBinding extends RasterV2Binding, RasterPipelineBinding {
+export interface NativeBinding
+  extends RasterV2Binding, RasterPipelineBinding, RasterAnalyzeBinding {
   exportDevelopedToFile(
     rawPath: string,
     xmpPath: string | null,
@@ -453,6 +456,8 @@ export function loadNativeBinding(): NativeBinding {
     ),
 
     ...createRasterPipelineBinding(lib, ptr, getLastError),
+
+    ...createRasterAnalyzeBinding(lib, ptr, getLastError),
 
     renderFilenameTemplate(args) {
       const templateBuf = Buffer.from(args.template + '\0', 'utf-8');
