@@ -22,8 +22,12 @@
 //! helper touches is re-derived from that real file rather than assumed,
 //! except where noted.
 
+// Everything below is `avif`-gated: these cases read boxes back out of a
+// file the real encoder wrote, so without the feature there is nothing to
+// write one with — and the glob import would then be unused.
 #[cfg(feature = "avif")]
 use super::tests::bx;
+#[cfg(feature = "avif")]
 use super::*;
 
 /// Find the first top-level box of type `kind` in `data[start..end]`.
