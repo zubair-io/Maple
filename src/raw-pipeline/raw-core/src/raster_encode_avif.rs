@@ -215,7 +215,14 @@ pub fn encode_avif_opts(
         .with_bit_depth(depth)
         .with_internal_color_model(ColorModel::YCbCr);
     let encoder = match meta.exif {
-        Some(block) => base.with_exif(block.to_vec()),
+        // ISO/IEC 23008-12 Annex A.2.1: an `Exif` item's payload starts with
+        // a 4-byte offset to the TIFF header, and `avif-serialize` (what
+        // `ravif` writes the item through) does not add it. Without the
+        // prefix this crate's own `avif_boxes` reader — and libheif, and so
+        // sharp — consumes `II*\0` as that offset and hands back a block
+        // four bytes short, so an EXIF round-trip through AVIF came back
+        // truncated (#3507).
+        Some(block) => base.with_exif([&[0u8; 4][..], block].concat()),
         None => base,
     };
     let (w, h) = (raster.width as usize, raster.height as usize);
