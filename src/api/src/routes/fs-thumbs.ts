@@ -333,6 +333,19 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       };
     }
 
+    // Video posters and bitmaps both render through the native pool: check it
+    // up front so a missing dylib is an actionable 503 (same as the RAW branch
+    // below) instead of a generic 500 out of the catch — "FFI bitmap pool
+    // error for jpg: ffi-pool: raw-ffi dylib not available" is true but
+    // useless to an operator who doesn't yet know these go through the pool.
+    if ((isVideo || renderViaFfiBitmapPool) && !ffiPool().available()) {
+      set.status = 503;
+      return {
+        error:
+          'Thumbnail FFI not built — run scripts/build-raw-ffi.sh to build native/libraw_ffi.* first',
+      };
+    }
+
     if (isVideo) {
       const poster = await renderVideoPosterThumb(real, thumbPath, sizePx);
       if (!poster.ok) {
@@ -340,19 +353,6 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
         return { error: poster.error };
       }
     } else if (renderViaFfiBitmapPool) {
-      // Same actionable 503 as the RAW branch below, checked up front rather
-      // than left to surface as a generic 500 out of the catch: without this,
-      // a missing dylib turned into "FFI bitmap pool error for jpg: ffi-pool:
-      // raw-ffi dylib not available" — true, but useless to an operator who
-      // doesn't yet know that bitmap thumbs go through the same native pool
-      // as RAW ones.
-      if (!ffiPool().available()) {
-        set.status = 503;
-        return {
-          error:
-            'Thumbnail FFI not built — run scripts/build-raw-ffi.sh to build native/libraw_ffi.* first',
-        };
-      }
       try {
         const result = await renderImageThumbToFileViaPool(
           real,
