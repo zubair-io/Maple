@@ -210,40 +210,40 @@ mod tests {
                  different pixels"
             );
         }
+    }
 
-        /// A real non-interleaved, optimised-Huffman baseline JPEG — one `Ns=1`
-        /// scan per component, exactly the structure `jpeg-encoder` writes for
-        /// its (and sharp's) default `optimiseCoding: true` + 4:2:0 options.
-        ///
-        /// Encoded once with `cjpeg -optimize -sample 2x2,1x1,1x1 -scans <script
-        /// listing components 0;1;2 as separate scans>` against the same
-        /// `photographic_64()` pixel pattern reproduced below, so this crate
-        /// never needs its own encoder to hit the bug: main's `raw-core` has no
-        /// JPEG encoder capable of writing a non-interleaved multi-scan file
-        /// (`crate::jpeg::encode` always emits a single interleaved scan), so the
-        /// fixture is committed instead of generated at test time.
-        const NONINTERLEAVED_FIXTURE: &[u8] = include_bytes!(
-            "../../../../test-fixtures/jpeg-regressions/noninterleaved_420_optimized.jpg"
+    /// A real non-interleaved, optimised-Huffman baseline JPEG — one `Ns=1`
+    /// scan per component, exactly the structure `jpeg-encoder` writes for
+    /// its (and sharp's) default `optimiseCoding: true` + 4:2:0 options.
+    ///
+    /// Encoded once with `cjpeg -optimize -sample 2x2,1x1,1x1 -scans <script
+    /// listing components 0;1;2 as separate scans>` against the same
+    /// `photographic_64()` pixel pattern reproduced below, so this crate
+    /// never needs its own encoder to hit the bug: main's `raw-core` has no
+    /// JPEG encoder capable of writing a non-interleaved multi-scan file
+    /// (`crate::jpeg::encode` always emits a single interleaved scan), so the
+    /// fixture is committed instead of generated at test time.
+    const NONINTERLEAVED_FIXTURE: &[u8] = include_bytes!(
+        "../../../../test-fixtures/jpeg-regressions/noninterleaved_420_optimized.jpg"
+    );
+
+    /// #3596: zune-jpeg decoded a non-interleaved multi-scan baseline JPEG
+    /// wrong — the luma plane half-read and the chroma planes left at zero,
+    /// producing the green-screen `(0, 255, 0)` pattern instead of the real
+    /// image. This is one of the 58/224 libjpeg-turbo corpus files that
+    /// tripped over the bug, pinned down to a single tiny fixture so the
+    /// regression is caught without the full corpus checked in.
+    #[test]
+    fn decodes_non_interleaved_multi_scan_jpeg_correctly() {
+        let decoded = decode_jpeg_lenient(NONINTERLEAVED_FIXTURE).unwrap();
+        assert_eq!((decoded.width, decoded.height), (64, 64));
+        assert!(
+            !looks_like_the_3596_green_pattern(&decoded.data),
+            "decoded as the #3596 green pattern"
         );
 
-        /// #3596: zune-jpeg decoded a non-interleaved multi-scan baseline JPEG
-        /// wrong — the luma plane half-read and the chroma planes left at zero,
-        /// producing the green-screen `(0, 255, 0)` pattern instead of the real
-        /// image. This is one of the 58/224 libjpeg-turbo corpus files that
-        /// tripped over the bug, pinned down to a single tiny fixture so the
-        /// regression is caught without the full corpus checked in.
-        #[test]
-        fn decodes_non_interleaved_multi_scan_jpeg_correctly() {
-            let decoded = decode_jpeg_lenient(NONINTERLEAVED_FIXTURE).unwrap();
-            assert_eq!((decoded.width, decoded.height), (64, 64));
-            assert!(
-                !looks_like_the_3596_green_pattern(&decoded.data),
-                "decoded as the #3596 green pattern"
-            );
-
-            let src = photographic_64();
-            let db = psnr(&decoded.data, &src.data);
-            assert!(db >= 30.0, "PSNR {db:.2} dB against the source pattern");
-        }
+        let src = photographic_64();
+        let db = psnr(&decoded.data, &src.data);
+        assert!(db >= 30.0, "PSNR {db:.2} dB against the source pattern");
     }
 }
