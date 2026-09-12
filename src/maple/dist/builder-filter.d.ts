@@ -36,17 +36,25 @@ import type { BuilderState } from './builder-state';
 import type { ConvolveKernel, SharpenOptions } from './types';
 /** Blur. No argument = a fast 3x3 box blur; a sigma = a Gaussian.
  *
+ * `true` is sharp's deprecated "apply the mild blur?" boolean and means the
+ * same thing as no argument; `false` means "don't", so nothing is pushed at
+ * all — sharp gates the stage on a non-zero sigma, which also keeps a
+ * `blur(false)` from dragging a 4-channel image through the premultiply
+ * sandwich.
+ *
  * Note that sharp's Gaussian is an **exact identity** for every sigma up to
  * 0.557, because libvips truncates the mask at 20% of the peak amplitude
  * and that leaves a 1x1 mask. `blur(0.4)` doing nothing is sharp's real
  * behaviour, not a Maple shortcut. */
-export declare function pushBlur(state: BuilderState, options?: number | {
+export declare function pushBlur(state: BuilderState, options?: number | boolean | {
     sigma?: number;
 }): void;
 /**
  * Unsharp mask on the L* channel (sharp's `sharpen`).
  *
- * No argument is sharp's fast mild 3x3 kernel. A bare number is sharp's
+ * No argument is sharp's fast mild 3x3 kernel, and so is `true` (its
+ * deprecated boolean form); `false` pushes nothing, since sharp gates the
+ * stage on a non-zero sigma. A bare number is sharp's
  * deprecated-but-live positional form, `sharpen(sigma)`, and is accepted
  * here for the same reason `blur` accepts one — the two idioms should not
  * diverge inside one file. One deliberate narrowing: sharp's positional
@@ -56,7 +64,7 @@ export declare function pushBlur(state: BuilderState, options?: number | {
  * further-deprecated `sharpen(sigma, flat, jagged)` triple is not accepted;
  * pass `{ sigma, m1, m2 }`.
  */
-export declare function pushSharpen(state: BuilderState, options?: number | SharpenOptions): void;
+export declare function pushSharpen(state: BuilderState, options?: number | boolean | SharpenOptions): void;
 /** Square median filter; `size` is any integer sharp/`vips_rank` accepts. */
 export declare function pushMedian(state: BuilderState, size: number): void;
 /**
@@ -70,8 +78,13 @@ export declare function pushMedian(state: BuilderState, size: number): void;
  * `threshold(128, {})` is not. Measured on sharp 0.34.5, that flip is worth
  * a max diff of 255 on 31% of the samples of a 32x32 noise fixture, so it
  * is not a corner case.
+ *
+ * A threshold of **0 is a no-op**, not "whiten everything": sharp gates the
+ * stage on `threshold != 0`. `threshold(false)` resolves to that same 0 and
+ * `threshold(true)` to 128, sharp's deprecated boolean form. The zero case
+ * is enforced in raw-core rather than here, so a raw recipe gets it too.
  */
-export declare function pushThreshold(state: BuilderState, threshold: number, options?: {
+export declare function pushThreshold(state: BuilderState, threshold: number | boolean, options?: {
     greyscale?: boolean;
     grayscale?: boolean;
 }): void;
