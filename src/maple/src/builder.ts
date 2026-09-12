@@ -38,12 +38,16 @@ import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-ra
 import {
   createBuilderState,
   formatForPath,
+  isRawPath,
+  lastResizeWidth,
+  rejectUnsupported,
   resolveColour,
   resolveGravity,
   stateToOutput,
 } from './builder-state';
 import type { BuilderState } from './builder-state';
 import type {
+  AvifOutputOptions,
   Colour,
   CompositeLayer,
   ConvolveKernel,
@@ -55,6 +59,8 @@ import type {
   ExtendOptions,
   ExtractRegion,
   ImageMetadata,
+  JpegOutputOptions,
+  PngOutputOptions,
   RawPixelInput,
   RawPixels,
   RawPixelsAny,
@@ -63,7 +69,9 @@ import type {
   SharpenOptions,
   TensorOptions,
   TensorResult,
+  TiffOutputOptions,
   TrimOptions,
+  WebpOutputOptions,
 } from './types';
 
 export class MapleImageBuilder {
@@ -173,24 +181,68 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Encode as AVIF (sugar for `toFormat('avif', options)`) */
-  avif(options?: EncodeOptions): this {
-    return this.toFormat('avif', options);
+  /** Encode as JPEG with sharp's options. */
+  jpeg(options?: JpegOutputOptions): this {
+    rejectUnsupported('jpeg', (options ?? {}) as Record<string, unknown>);
+    this.s.format = 'jpeg';
+    this.s.output = {
+      format: 'jpeg',
+      quality: options?.quality ?? 80,
+      progressive: options?.progressive ?? false,
+      chromaSubsampling: options?.chromaSubsampling ?? '4:2:0',
+      optimiseCoding: options?.optimiseCoding ?? options?.optimizeCoding ?? true,
+    };
+    return this;
   }
 
-  /** Encode as JPEG (sugar for `toFormat('jpeg', options)`) */
-  jpeg(options?: EncodeOptions): this {
-    return this.toFormat('jpeg', options);
+  /** Encode as PNG with sharp's options. */
+  png(options?: PngOutputOptions): this {
+    rejectUnsupported('png', (options ?? {}) as Record<string, unknown>);
+    this.s.format = 'png';
+    this.s.output = {
+      format: 'png',
+      compressionLevel: options?.compressionLevel ?? 6,
+      adaptiveFiltering: options?.adaptiveFiltering ?? false,
+      palette: options?.palette ?? false,
+      colours: options?.colours ?? options?.colors ?? 256,
+      dither: options?.dither ?? 1.0,
+    };
+    return this;
   }
 
-  /** Encode as PNG (sugar for `toFormat('png')`) */
-  png(): this {
-    return this.toFormat('png');
+  /** Encode as lossless WebP. `{ lossless: false }` throws — see the README. */
+  webp(options?: WebpOutputOptions): this {
+    rejectUnsupported('webp', (options ?? {}) as Record<string, unknown>);
+    this.s.format = 'webp';
+    this.s.output = { format: 'webp', lossless: options?.lossless ?? true };
+    return this;
   }
 
-  /** Encode as WebP (sugar for `toFormat('webp', options)`) */
-  webp(options?: EncodeOptions): this {
-    return this.toFormat('webp', options);
+  /** Encode as AVIF with sharp's options. */
+  avif(options?: AvifOutputOptions): this {
+    rejectUnsupported('avif', (options ?? {}) as Record<string, unknown>);
+    this.s.format = 'avif';
+    this.s.output = {
+      format: 'avif',
+      quality: options?.quality ?? 50,
+      effort: options?.effort ?? 4,
+      lossless: options?.lossless ?? false,
+      chromaSubsampling: options?.chromaSubsampling ?? '4:4:4',
+    };
+    return this;
+  }
+
+  /** Encode as TIFF with sharp's options. */
+  tiff(options?: TiffOutputOptions): this {
+    rejectUnsupported('tiff', (options ?? {}) as Record<string, unknown>);
+    this.s.format = 'tiff';
+    this.s.output = {
+      format: 'tiff',
+      compression: options?.compression ?? 'lzw',
+      bitdepth: options?.bitdepth ?? 8,
+      predictor: options?.predictor ?? true,
+    };
+    return this;
   }
 
   /** Set output container format */

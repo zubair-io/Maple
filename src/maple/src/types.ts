@@ -147,6 +147,41 @@ export interface TrimOptions {
   lineArt?: false;
 }
 
+export interface JpegOutputOptions {
+  quality?: number;
+  progressive?: boolean;
+  chromaSubsampling?: '4:2:0' | '4:4:4';
+  optimiseCoding?: boolean;
+  optimizeCoding?: boolean;
+}
+
+export interface PngOutputOptions {
+  compressionLevel?: number;
+  adaptiveFiltering?: boolean;
+  palette?: boolean;
+  colours?: number;
+  colors?: number;
+  dither?: number;
+}
+
+export interface WebpOutputOptions {
+  /** Must be `true`: Maple's WebP encoder is lossless-only. */
+  lossless?: boolean;
+}
+
+export interface AvifOutputOptions {
+  quality?: number;
+  effort?: number;
+  lossless?: boolean;
+  chromaSubsampling?: '4:4:4' | '4:2:0';
+}
+
+export interface TiffOutputOptions {
+  compression?: 'none' | 'lzw' | 'deflate' | 'packbits';
+  bitdepth?: 8 | 16;
+  predictor?: boolean;
+}
+
 export interface TensorOptions {
   targetSize?: number;
   layout?: 'nchw' | 'hwc';
