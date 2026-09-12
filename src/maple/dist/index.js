@@ -805,19 +805,12 @@ function isRawPath(filePath) {
   const ext = path4.extname(filePath).toLowerCase();
   return RAW_EXTENSIONS.has(ext);
 }
-var POSITION_TO_GRAVITY = {
-  top: "north",
-  "right top": "northeast",
-  right: "east",
-  "right bottom": "southeast",
-  bottom: "south",
-  "left bottom": "southwest",
-  left: "west",
-  "left top": "northwest",
-  center: "centre"
-};
-function resolveGravity(value) {
-  return value === undefined ? "centre" : POSITION_TO_GRAVITY[value] ?? value;
+function kernelFromFilter(filter) {
+  if (filter === "bilinear")
+    return "linear";
+  if (filter === "nearest")
+    return "nearest";
+  return "lanczos3";
 }
 function createBuilderState(input) {
   const base = {
@@ -912,7 +905,7 @@ function resolveColour(value, fallback) {
   }
   const hex = value.replace(/^#/, "");
   const full = hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex;
-  if (!/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(full)) {
+  if (full.length !== 6 && full.length !== 8) {
     throw new Error(`Unrecognised colour '${value}': expected #rgb, #rrggbb or #rrggbbaa`);
   }
   const byte = (i) => parseInt(full.slice(i * 2, i * 2 + 2), 16);
@@ -943,31 +936,13 @@ function pushGamma(state, gamma, gammaOut) {
     after: { op: "gamma", exponent: 1 / out }
   };
 }
-function coefficients(v) {
-  if (typeof v === "number") {
-    return [v, v, v];
-  }
-  if (v.length === 1) {
-    return [v[0], v[0], v[0]];
-  }
-  if (v.length === 3) {
-    return [v[0], v[1], v[2]];
-  }
-  const alphaNote = v.length === 4 ? " (sharp applies a 4th element to alpha; this op never touches alpha)" : "";
-  throw new Error(`linear: vector must have 1 or 3 elements, got ${v.length}${alphaNote}`);
+function triple(v) {
+  return typeof v === "number" ? [v, v, v] : [v[0], v[1] ?? v[0], v[2] ?? v[0]];
 }
-var coefficientLength = (v) => typeof v === "number" ? 1 : v.length;
 function pushLinear(state, a = 1, b = 0) {
-  if (coefficientLength(a) !== coefficientLength(b)) {
-    throw new Error("Expected a and b to be arrays of the same length");
-  }
-  state.ops.push({ op: "linear", a: coefficients(a), b: coefficients(b) });
+  state.ops.push({ op: "linear", a: triple(a), b: triple(b) });
 }
-function pushNegate(state, options) {
-  if (options === false) {
-    return;
-  }
-  const alpha = typeof options === "object" ? options.alpha ?? true : true;
+function pushNegate(state, alpha) {
   state.ops.push({ op: "negate", alpha });
 }
 function pushNormalise(state, lower, upper) {
@@ -980,21 +955,8 @@ function pushTint(state, tint) {
   const [r, g, b] = resolveColour(tint, [0, 0, 0, 255]);
   state.ops.push({ op: "tint", rgb: [r, g, b] });
 }
-var DEVELOP_SPACE = {
-  srgb: "srgb",
-  "display-p3": "display-p3",
-  p3: "display-p3"
-};
 function pushToColourspace(state, space) {
-  if (space === "b-w") {
-    state.ops.push({ op: "greyscale" });
-    return;
-  }
-  const develop = DEVELOP_SPACE[space];
-  if (develop === undefined) {
-    throw new Error(`unsupported colourspace '${space}' (expected srgb, display-p3, p3 or b-w)`);
-  }
-  state.colorSpace = develop;
+  state.colorSpace = space === "srgb" ? "srgb" : "display-p3";
   state.ops.push({ op: "toColourspace", space });
 }
 
@@ -1120,161 +1082,6 @@ async function resolveTensor(state, options) {
   };
 }
 
-// src/builder-filter.ts
-var BLUR_SIGMA = [0.3, 1000];
-var SHARPEN_SIGMA = [0.000001, 10];
-var SHARPEN_PARAM = [0, 1e6];
-var KERNEL_DIM = [3, 1001];
-function invalidParameter(name, expected, actual) {
-  return new Error(`Expected ${expected} for ${name} but received ${String(actual)} of type ${typeof actual}`);
-}
-function requireNumber(name, value, [lo, hi]) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < lo || value > hi) {
-    throw invalidParameter(name, `number between ${lo} and ${hi}`, value);
-  }
-  return value;
-}
-function requireInteger(name, value, [lo, hi]) {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < lo || value > hi) {
-    throw invalidParameter(name, `integer between ${lo} and ${hi}`, value);
-  }
-  return value;
-}
-function pushBlur(state, options) {
-  if (options === false) {
-    return;
-  }
-  if (options === undefined || options === true) {
-    state.ops.push({ op: "blur", sigma: null });
-    return;
-  }
-  const sigma = typeof options === "number" ? requireNumber("sigma", options, BLUR_SIGMA) : requireNumber("options.sigma", options.sigma, BLUR_SIGMA);
-  state.ops.push({ op: "blur", sigma });
-}
-function pushSharpen(state, options) {
-  if (options === false) {
-    return;
-  }
-  const mild = options === undefined || options === true;
-  const numeric = typeof options === "number";
-  const sigma = mild ? null : numeric ? requireNumber("sigma", options, SHARPEN_SIGMA) : requireNumber("options.sigma", options.sigma, SHARPEN_SIGMA);
-  const params = mild || numeric ? {} : options;
-  const param = (name, fallback) => params[name] === undefined ? fallback : requireNumber(`options.${name}`, params[name], SHARPEN_PARAM);
-  state.ops.push({
-    op: "sharpen",
-    sigma,
-    m1: param("m1", 1),
-    m2: param("m2", 2),
-    x1: param("x1", 2),
-    y2: param("y2", 10),
-    y3: param("y3", 20)
-  });
-}
-function pushMedian(state, size) {
-  state.ops.push({ op: "median", size: requireInteger("size", size, [1, 1000]) });
-}
-function pushThreshold(state, threshold, options) {
-  state.ops.push({
-    op: "threshold",
-    value: typeof threshold === "boolean" ? threshold ? 128 : 0 : requireInteger("threshold", threshold, [0, 255]),
-    greyscale: typeof options !== "object" || options.greyscale === true || options.grayscale === true
-  });
-}
-function pushConvolve(state, kernel) {
-  const width = requireInteger("width", kernel.width, KERNEL_DIM);
-  const height = requireInteger("height", kernel.height, KERNEL_DIM);
-  if (!Array.isArray(kernel.kernel) || kernel.kernel.length !== width * height) {
-    throw invalidParameter("kernel", `an array of ${width * height} values for a ${width}x${height} kernel`, kernel.kernel);
-  }
-  kernel.kernel.forEach((v, i) => requireNumber(`kernel[${i}]`, v, [-Number.MAX_VALUE, Number.MAX_VALUE]));
-  if (kernel.scale !== undefined && !Number.isInteger(kernel.scale)) {
-    throw new Error(`convolve: scale ${kernel.scale} must be an integer (sharp requires an integer scale)`);
-  }
-  if (kernel.offset !== undefined && !Number.isInteger(kernel.offset)) {
-    throw new Error(`convolve: offset ${kernel.offset} must be an integer (sharp requires an integer offset)`);
-  }
-  state.ops.push({
-    op: "convolve",
-    width,
-    height,
-    kernel: kernel.kernel,
-    scale: kernel.scale ?? null,
-    offset: kernel.offset ?? 0
-  });
-}
-
-// src/builder-geometry.ts
-var OPAQUE_BLACK = [0, 0, 0, 255];
-function assertFinite(op, field, value) {
-  if (!Number.isFinite(value)) {
-    throw new Error(`${op}: ${field} must be finite (got ${value})`);
-  }
-}
-function pushRotate(state, angle, options) {
-  if (angle === undefined) {
-    state.autoOrient = true;
-    return;
-  }
-  assertFinite("rotate", "angle", angle);
-  state.ops.push({
-    op: "rotate",
-    angle,
-    background: resolveColour(options?.background, OPAQUE_BLACK)
-  });
-}
-function pushExtract(state, region) {
-  assertFinite("extract", "left", region.left);
-  assertFinite("extract", "top", region.top);
-  assertFinite("extract", "width", region.width);
-  assertFinite("extract", "height", region.height);
-  state.ops.push({
-    op: "extract",
-    left: region.left,
-    top: region.top,
-    width: region.width,
-    height: region.height
-  });
-}
-function pushExtend(state, options) {
-  const edges = typeof options === "number" ? { top: options, bottom: options, left: options, right: options } : options;
-  const opts = typeof options === "number" ? {} : options;
-  for (const field of ["top", "bottom", "left", "right"]) {
-    const value = edges[field];
-    if (value !== undefined) {
-      assertFinite("extend", field, value);
-    }
-  }
-  state.ops.push({
-    op: "extend",
-    top: edges.top ?? 0,
-    bottom: edges.bottom ?? 0,
-    left: edges.left ?? 0,
-    right: edges.right ?? 0,
-    extendWith: opts.extendWith ?? "background",
-    background: resolveColour(opts.background, OPAQUE_BLACK)
-  });
-}
-function pushFlip(state) {
-  state.ops.push({ op: "flip" });
-}
-function pushFlop(state) {
-  state.ops.push({ op: "flop" });
-}
-function pushTrim(state, options) {
-  const threshold = options?.threshold ?? 10;
-  assertFinite("trim", "threshold", threshold);
-  if (options?.margin !== undefined) {
-    assertFinite("trim", "margin", options.margin);
-  }
-  state.ops.push({
-    op: "trim",
-    background: options?.background === undefined ? null : resolveColour(options.background, OPAQUE_BLACK),
-    threshold,
-    margin: options?.margin ?? 0,
-    lineArt: options?.lineArt ?? false
-  });
-}
-
 // src/builder-raw-develop.ts
 import * as fs5 from "node:fs/promises";
 import * as os from "node:os";
@@ -1297,40 +1104,26 @@ async function rawDevelopToBuffer(state, toFile) {
     } catch {}
   }
 }
-var RAW_DEVELOP_OPS = new Set(["resize", "toColourspace"]);
-function unsupportedOpError(state) {
-  const unsupported = state.ops.find((op) => !RAW_DEVELOP_OPS.has(op.op));
-  return unsupported === undefined ? null : `${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` + "Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.";
-}
 async function rawDevelopToFile(state, outputPath) {
-  const unsupported = unsupportedOpError(state);
-  if (unsupported) {
-    return { ok: false, outPath: outputPath, error: unsupported };
-  }
   const rawPath = state.inputPath;
-  try {
-    return state.exportRecipe ? await exportRecipe({
+  if (state.exportRecipe) {
+    return exportRecipe({
       rawPath,
       xmpXml: state.xmpXml ?? undefined,
       recipe: state.exportRecipe,
       filmPath: state.filmPath,
       outPath: outputPath
-    }) : await exportImage({
-      rawPath,
-      xmpPath: state.xmpPath,
-      format: state.format ?? undefined,
-      quality: state.quality,
-      colorSpace: state.colorSpace,
-      maxLongEdge: state.maxLongEdge || lastResizeWidth(state),
-      outPath: outputPath
     });
-  } catch (error) {
-    return {
-      ok: false,
-      outPath: outputPath,
-      error: error instanceof Error ? error.message : String(error)
-    };
   }
+  return exportImage({
+    rawPath,
+    xmpPath: state.xmpPath,
+    format: state.format ?? undefined,
+    quality: state.quality,
+    colorSpace: state.colorSpace,
+    maxLongEdge: state.maxLongEdge || lastResizeWidth(state),
+    outPath: outputPath
+  });
 }
 
 // src/builder.ts
@@ -1352,43 +1145,20 @@ class MapleImageBuilder {
     return this;
   }
   resize(optionsOrWidth, height) {
-    const opts = typeof optionsOrWidth === "number" || optionsOrWidth === null || optionsOrWidth === undefined ? { width: optionsOrWidth ?? 0, height: height ?? 0 } : optionsOrWidth;
+    const opts = typeof optionsOrWidth === "number" || optionsOrWidth === null ? { width: optionsOrWidth ?? 0, height: height ?? 0 } : optionsOrWidth;
     this.s.ops = this.s.ops.filter((op) => op.op !== "resize");
     this.s.ops.push({
       op: "resize",
       width: Math.max(0, opts.width ?? 0),
       height: Math.max(0, opts.height ?? 0),
       fit: opts.fit ?? "inside",
-      position: resolveGravity(opts.position ?? opts.gravity),
-      kernel: opts.kernel ?? opts.filter ?? "lanczos3",
-      withoutEnlargement: opts.withoutEnlargement ?? true,
-      withoutReduction: opts.withoutReduction ?? false,
-      background: resolveColour(opts.background, [0, 0, 0, 255])
+      kernel: kernelFromFilter(opts.filter),
+      withoutEnlargement: opts.withoutEnlargement ?? true
     });
     return this;
   }
-  rotate(angle, options) {
-    pushRotate(this.s, angle, options);
-    return this;
-  }
-  extract(region) {
-    pushExtract(this.s, region);
-    return this;
-  }
-  extend(options) {
-    pushExtend(this.s, options);
-    return this;
-  }
-  flip() {
-    pushFlip(this.s);
-    return this;
-  }
-  flop() {
-    pushFlop(this.s);
-    return this;
-  }
-  trim(options) {
-    pushTrim(this.s, options);
+  rotate() {
+    this.s.autoOrient = true;
     return this;
   }
   toFormat(format, options) {
@@ -1448,7 +1218,7 @@ class MapleImageBuilder {
     return this;
   }
   negate(options) {
-    pushNegate(this.s, options);
+    pushNegate(this.s, options?.alpha ?? true);
     return this;
   }
   normalise(options) {
@@ -1519,26 +1289,6 @@ class MapleImageBuilder {
   }
   removeAlpha() {
     this.s.ops.push({ op: "removeAlpha" });
-    return this;
-  }
-  blur(options) {
-    pushBlur(this.s, options);
-    return this;
-  }
-  sharpen(options) {
-    pushSharpen(this.s, options);
-    return this;
-  }
-  median(size = 3) {
-    pushMedian(this.s, size);
-    return this;
-  }
-  threshold(threshold = 128, options) {
-    pushThreshold(this.s, threshold, options);
-    return this;
-  }
-  convolve(kernel) {
-    pushConvolve(this.s, kernel);
     return this;
   }
   async toRawAlpha() {
@@ -1950,6 +1700,7 @@ export {
   isMusl,
   isNativeAvailable,
   isRawPath,
+  kernelFromFilter,
   lastResizeWidth,
   loadNativeBinding,
   maple,
@@ -1958,7 +1709,6 @@ export {
   renderPreview,
   renderThumbnail,
   resolveColour,
-  resolveGravity,
   resolvePlatformPackageLib,
   runCli,
   stateToOutput,

@@ -4,7 +4,7 @@
  * Provides a unified chaining interface for RAW photo development,
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
-import type { Colour, CompositeLayer, ConvolveKernel, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, SharpenOptions, TensorOptions, TensorResult, TrimOptions } from './types';
+import type { Colour, CompositeLayer, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, TensorOptions, TensorResult, TrimOptions } from './types';
 export declare class MapleImageBuilder {
     private readonly s;
     constructor(input: string | Uint8Array | Buffer | RawPixelInput);
@@ -51,13 +51,11 @@ export declare class MapleImageBuilder {
     /**
      * Target colourspace. For bitmaps this rotates the primaries and tags the
      * output with the matching ICC profile; for the RAW develop path it also
-     * selects the export primaries, as it did in Tier 1. `'b-w'` is the
-     * greyscale conversion, the same thing `greyscale()` does — which is what
-     * it means in sharp too.
+     * selects the export primaries, as it did in Tier 1.
      */
-    toColourspace(space: 'srgb' | 'display-p3' | 'p3' | 'b-w'): this;
+    toColourspace(space: 'srgb' | 'display-p3' | 'p3'): this;
     /** Alternative spelling of `toColourspace`. */
-    toColorspace(space: 'srgb' | 'display-p3' | 'p3' | 'b-w'): this;
+    toColorspace(space: 'srgb' | 'display-p3' | 'p3'): this;
     /** Convert to 8-bit greyscale, three identical channels. */
     greyscale(greyscale?: boolean): this;
     /** Alternative spelling of `greyscale`. */
@@ -74,12 +72,8 @@ export declare class MapleImageBuilder {
     gamma(gamma?: number, gammaOut?: number): this;
     /** `a * input + b`, per channel or scalar. */
     linear(a?: number | number[], b?: number | number[]): this;
-    /**
-     * Produce the negative. `{ alpha: false }` spares the alpha channel, and
-     * `negate(false)` is a no-op — sharp's own signature (and the same shape
-     * as `greyscale(false)`).
-     */
-    negate(options?: boolean | {
+    /** Produce the negative. `{ alpha: false }` spares the alpha channel. */
+    negate(options?: {
         alpha?: boolean;
     }): this;
     /** Stretch luminance between the given percentiles. */
@@ -119,33 +113,6 @@ export declare class MapleImageBuilder {
     ensureAlpha(alpha?: number): this;
     /** Drop the alpha channel without compositing. */
     removeAlpha(): this;
-    /**
-     * Blur. No argument (or `true`) = a fast 3x3 box blur; a sigma = a
-     * Gaussian; `false` = no blur, as in sharp.
-     */
-    blur(options?: number | boolean | {
-        sigma?: number;
-    }): this;
-    /**
-     * Unsharp mask on the L* channel (sharp's `sharpen`). No argument is
-     * sharp's fast mild 3x3 kernel, and so is `true`; `false` is no sharpen.
-     * A bare number is its deprecated positional `sharpen(sigma)` form — see
-     * `pushSharpen` for the one domain difference between that form and the
-     * object form.
-     */
-    sharpen(options?: number | boolean | SharpenOptions): this;
-    /** Square median filter; `size` defaults to 3, sharp's own default. */
-    median(size?: number): this;
-    /**
-     * Binarise at `threshold`; `greyscale` decides via linear-light luma. A
-     * threshold of `0` (or `false`) is a no-op, as in sharp; `true` is 128.
-     */
-    threshold(threshold?: number | boolean, options?: {
-        greyscale?: boolean;
-        grayscale?: boolean;
-    }): this;
-    /** Convolve with an arbitrary kernel. */
-    convolve(kernel: ConvolveKernel): this;
     /** Native-size interleaved pixels, alpha preserved when the source has it. */
     toRawAlpha(): Promise<RawPixelsAny>;
     /** Inspect image dimensions, format, orientation without full decode */
