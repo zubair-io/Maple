@@ -116,10 +116,24 @@ pub unsafe extern "C" fn maple_lens_profile_resolve_file(
                 raw_core::decode_cache::decode_bytes_cached(&key, &bytes, ext)
                     .map_err(|e| e.to_string())?
             };
-            Ok(raw_core::lens_profile::resolve_for_raw(&raw,&reference)?
-                .map(|resolution| resolution.metadata().to_string())
-                .unwrap_or_else(|| format!(r#"{{"source":"{}","confidence":"embedded","approximations":[],"unsupported":[],"hasDistortion":{},"hasCa":{},"hasVignetting":{}}}"#,
-                    if raw.has_lens_corrections() {"embedded"} else {"none"}, raw.has_lens_corrections(), !raw.lens_correction_ca_inert(), raw.has_lens_corrections())))
+            let model = raw_core::AdjustmentModel {
+                lens_profile: reference,
+                ..Default::default()
+            };
+            Ok(raw_core::lens_profile::evidence_for(&raw, &model)?
+                .map(|evidence| evidence.to_string())
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "source": if raw.has_lens_corrections() { "embedded" } else { "none" },
+                        "confidence": "embedded",
+                        "approximations": [],
+                        "unsupported": [],
+                        "hasDistortion": raw.has_lens_corrections(),
+                        "hasCa": !raw.lens_correction_ca_inert(),
+                        "hasVignetting": raw.has_lens_corrections(),
+                    })
+                    .to_string()
+                }))
         };
         output_json(output as *mut *mut c_char, resolve())
     })
@@ -130,6 +144,43 @@ pub unsafe extern "C" fn maple_free_lens_profile_json(json: *mut c_char) {
     if !json.is_null() {
         drop(CString::from_raw(json));
     }
+}
+
+/// Every bundled Lensfun lens the RAW's body can carry, for the Lens
+/// panel's dropdown: `[{"slug","maker","model"}]`, `[]` for an unknown body.
+#[no_mangle]
+pub unsafe extern "C" fn maple_lens_profile_compatible(
+    path: *const c_char,
+    out_json: *mut *mut c_char,
+) -> i32 {
+    if out_json.is_null() {
+        return 1;
+    }
+    *out_json = std::ptr::null_mut();
+    if path.is_null() {
+        return 1;
+    }
+    let Ok(path) = CStr::from_ptr(path).to_str() else {
+        return 2;
+    };
+    let path = std::path::PathBuf::from(path);
+    let output = out_json as usize;
+    with_large_stack(move || {
+        let list = || -> Result<String, String> {
+            let key = raw_core::decode_cache::CacheKey::from_path(&path)
+                .ok_or("RAW source is not available")?;
+            let raw = if let Some(raw) = raw_core::decode_cache::get(&key) {
+                raw
+            } else {
+                let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+                let ext = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+                raw_core::decode_cache::decode_bytes_cached(&key, &bytes, ext)
+                    .map_err(|e| e.to_string())?
+            };
+            Ok(raw_core::lens_profile::compatible_lenses(&raw).to_string())
+        };
+        output_json(output as *mut *mut c_char, list())
+    })
 }
 
 #[cfg(test)]

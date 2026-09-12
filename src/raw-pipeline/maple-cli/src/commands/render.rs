@@ -185,14 +185,20 @@ pub fn run(
     profile: ProfileChoice,
     film_lut_dir: Option<&Path>,
     target_primaries: PrimariesChoice,
-    lens_profile: Option<(&Path, bool)>,
+    lens: &render_lens::LensProfileArgs,
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let mut model = match params {
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
     };
-    if let Some((path, acknowledged)) = lens_profile {
+    if let Some((path, acknowledged)) = lens.selection() {
         render_lens::apply_lens_profile_selection(&mut model, path, acknowledged)?;
+    }
+    if let Some(choice) = lens.lens.as_deref() {
+        render_lens::apply_lens_choice(&mut model, choice)?;
+    }
+    if render_lens::maybe_dump_warp(raw, &model, lens.lens_warp_out.as_deref())? {
+        return Ok(0);
     }
     // CLI override for Auto Profile (#537). `Xmp` honours the sidecar;
     // `Neutral` pins the view transform for the color-parity harness;

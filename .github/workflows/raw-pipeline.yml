@@ -33,6 +33,9 @@ on:
       - 'test-fixtures/budgets.json'
       - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/test_lensfun_vs_lcp.sh'
+      - 'src/scripts/lens_warp_diff.py'
+      - 'test-fixtures/qualification/lensfun-vs-lcp.json'
       - 'src/scripts/check_wgsl.sh'
       - 'src/scripts/compare_images.py'
       - 'src/scripts/test_pano_pipeline.sh'
@@ -56,6 +59,9 @@ on:
       - 'test-fixtures/budgets.json'
       - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/test_lensfun_vs_lcp.sh'
+      - 'src/scripts/lens_warp_diff.py'
+      - 'test-fixtures/qualification/lensfun-vs-lcp.json'
       - 'src/scripts/check_wgsl.sh'
       - 'src/scripts/compare_images.py'
       - 'src/scripts/test_pano_pipeline.sh'
@@ -530,6 +536,14 @@ jobs:
       - name: Run color-pipeline harness
         if: steps.probe.outputs.have_fixtures == 'true'
         run: bash src/scripts/test_color_pipeline.sh
+
+      # Bundled Lensfun calibration vs Adobe's LCP for the same lens (#3564).
+      # Needs the Sony fixture AND Adobe's profile on the runner; the script
+      # skip-passes when either is absent, so this is a real gate only on a
+      # machine that has both and a visible no-op everywhere else.
+      - name: Lensfun-vs-LCP warp gate (test_lensfun_vs_lcp.sh)
+        if: steps.probe.outputs.have_fixtures == 'true'
+        run: bash src/scripts/test_lensfun_vs_lcp.sh
 
       # Soft-pass branch: still invoke the script so its own skip-pass
       # message lands in the log (helps a self-hosted-runner debugger
