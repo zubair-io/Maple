@@ -256,6 +256,13 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     // does for sRGB WebP ("stays untagged, matching pre-#3503 output"), and
     // this output stage now matches it for every format rather than just
     // WebP.
+    //
+    // EXIF and XMP stay `None` here regardless: they wait on PR-G (#3507),
+    // which adds the recipe's metadata block and the `withMetadata`-shaped
+    // surface that fills it — the two fields are populated from there
+    // rather than from the recipe's output stage. Until PR-G lands, the
+    // encoder-side coverage in `raster_encode_{jpeg,png,tiff}_tests.rs` is
+    // what keeps those two paths honest.
     let primaries = output_primaries(recipe)?;
     if is_avif_output(&output) {
         crate::export::reject_untagged_avif_p3(crate::export::ExportFormat::Avif, primaries)?;
