@@ -26,13 +26,7 @@ import {
   setTiffOutput,
   setWebpOutput,
 } from './builder-encoders';
-import {
-  inputBytes,
-  resolveMetadata,
-  resolveTensor,
-  resolveToRaw,
-  runPipeline,
-} from './builder-exec';
+import { inputBytes, resolveTensor, resolveToRaw, runPipeline } from './builder-exec';
 import { pushBlur, pushConvolve, pushMedian, pushSharpen, pushThreshold } from './builder-filter';
 import {
   pushExtend,
@@ -42,6 +36,15 @@ import {
   pushRotate,
   pushTrim,
 } from './builder-geometry';
+import {
+  applyKeepMetadata,
+  applyWithExif,
+  applyWithIccProfile,
+  applyWithMetadata,
+  applyWithXmp,
+  resolveMetadata,
+  resolveStats,
+} from './builder-metadata';
 import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
 import {
   applyEffort,
@@ -67,6 +70,7 @@ import type {
   ExtendOptions,
   ExtractRegion,
   ImageMetadata,
+  ImageStats,
   JpegOutputOptions,
   PngOutputOptions,
   RawPixelInput,
@@ -491,6 +495,41 @@ export class MapleImageBuilder {
   /** Extract raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace) */
   async toRawRgb(options?: TensorOptions): Promise<TensorResult> {
     return resolveTensor(this.s, options);
+  }
+
+  /** Pixel-derived statistics for every channel (sharp's `stats`). */
+  async stats(): Promise<ImageStats> {
+    return resolveStats(this.s);
+  }
+
+  /** Keep every metadata block from the input (sharp's `keepMetadata`). */
+  keepMetadata(): this {
+    applyKeepMetadata(this.s);
+    return this;
+  }
+
+  /** Keep most metadata and optionally set the orientation or density (sharp's `withMetadata`). */
+  withMetadata(options?: { orientation?: number; density?: number }): this {
+    applyWithMetadata(this.s, options);
+    return this;
+  }
+
+  /** Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`). */
+  withExif(exif: Uint8Array | Buffer): this {
+    applyWithExif(this.s, exif);
+    return this;
+  }
+
+  /** Embed this ICC profile. */
+  withIccProfile(icc: Uint8Array | Buffer): this {
+    applyWithIccProfile(this.s, icc);
+    return this;
+  }
+
+  /** Embed this XMP packet. */
+  withXmp(xmp: string | Uint8Array | Buffer): this {
+    applyWithXmp(this.s, xmp);
+    return this;
   }
 
   /** Render or resize image directly to an in-memory Buffer */
