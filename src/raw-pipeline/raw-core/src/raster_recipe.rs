@@ -112,25 +112,23 @@ fn lanczos3() -> String {
 fn opaque_black() -> [u8; 4] {
     [0, 0, 0, 255]
 }
-/// `pub(crate)` so `raster_recipe_filter.rs`'s `SharpenOp` (moved out per
-/// #3504 task E5 controller ruling (d)) can reuse it for `m1`'s default —
-/// this is still the only default fn `EnsureAlpha` needs from this file.
+/// `one`, `ten` and `yes` are `pub(crate)` because
+/// `raster_recipe_filter.rs`'s wire structs (moved out per #3504 task E5
+/// controller ruling (d)) default `m1`, `y2` and `greyscale` to the same
+/// three values `ensureAlpha`, `trim` and `negate` do here — one definition
+/// each, not a second copy over there.
 pub(crate) fn one() -> f64 {
     1.0
 }
 fn background_mode() -> String {
     "background".to_string()
 }
-/// `trim`'s default threshold, and `sharpen`'s default `y2` — shared with
-/// `raster_recipe_filter` rather than duplicated there.
 pub(crate) fn ten() -> f64 {
     10.0
 }
 fn unit_gain() -> [f64; 3] {
     [1.0, 1.0, 1.0]
 }
-/// `negate`'s `alpha` default, and `threshold`'s `greyscale` default —
-/// shared with `raster_recipe_filter` rather than duplicated there.
 pub(crate) fn yes() -> bool {
     true
 }
@@ -393,10 +391,11 @@ pub fn parse_recipe(json: &str) -> Result<Recipe> {
     Ok(recipe)
 }
 
-// Tests live in the sibling `raster_recipe_tests.rs` so this file stays
-// under the 400-LOC file-size budget (#3503 Task D6 added eight colour `Op`
-// variants). Same `#[path]` split pattern as `view/encode.rs` /
-// `stages/blur.rs`.
+// Tests live in the sibling `raster_recipe_tests.rs`, and the filter
+// variants' wire structs in `raster_recipe_filter.rs`, so this file stays
+// under the 400-LOC budget now that #3503's eight colour `Op` variants and
+// #3504's five filter ones have landed. Same `#[path]` split pattern as
+// `view/encode.rs`.
 #[cfg(test)]
 #[path = "raster_recipe_tests.rs"]
 mod tests;
