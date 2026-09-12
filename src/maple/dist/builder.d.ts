@@ -90,7 +90,18 @@ export declare class MapleImageBuilder {
     private rawDevelopToFile;
     /** Render or resize image directly to an in-memory Buffer */
     toBuffer(): Promise<Buffer>;
-    /** Execute export or resize and write to output file */
+    /**
+     * Execute export or resize and write to output file.
+     *
+     * Both branches return `{ ok: false, error }` on failure rather than
+     * throwing — including `assertRawDevelopOutput`'s synchronous rejection of
+     * an unsupported per-format option on a RAW-develop input, which used to
+     * escape as a rejected promise while every other `toFile` failure (a
+     * native export error, a bitmap encode error) already came back this way.
+     * `toBuffer()` on a RAW-develop input still throws: `rawDevelopToBuffer`
+     * calls this method internally and re-throws on `!ok`, so that behaviour
+     * is unchanged.
+     */
     toFile(outputPath: string): Promise<ExportResult>;
     /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
     toRaw(): Promise<RawPixels>;
