@@ -62,6 +62,18 @@ fn bad(reason: String) -> Error {
     }
 }
 
+/// Drop a metadata block that exceeds [`crate::raster_meta::MAX_SIDECAR_BYTES`].
+///
+/// Every block in this reply is base64'd into one JSON document that then
+/// crosses the FFI through a 64 KB size probe and a second, full-size
+/// buffer, so an oversized block costs ~2.3× its own size in transient
+/// allocation on both sides of the boundary. See that constant's doc for
+/// the ceiling and why an over-cap block is reported absent rather than as
+/// an error (#3507 final fix wave, item 5).
+fn capped(block: Option<&[u8]>) -> Option<&[u8]> {
+    block.filter(|b| b.len() <= crate::raster_meta::MAX_SIDECAR_BYTES)
+}
+
 fn metadata_value(bytes: &[u8]) -> Result<Value> {
     let probe = crate::raster::probe_raster_metadata(bytes)?;
     let sidecars = crate::raster_meta::read_sidecars(bytes);
@@ -81,12 +93,12 @@ fn metadata_value(bytes: &[u8]) -> Result<Value> {
         "depth": depth_value(bytes, &probe.format),
         "density": sidecars.density,
         "size": bytes.len(),
-        "icc": sidecars.icc.as_deref().map(base64),
+        "icc": capped(sidecars.icc.as_deref()).map(base64),
         // Handed back in the form the container stored it, introducer and
         // all, because that is what sharp returns (#3507 final fix wave,
         // item 3 — see `RasterSidecars::exif_as_stored`).
-        "exif": sidecars.exif_as_stored().as_deref().map(base64),
-        "xmp": sidecars.xmp.as_deref().map(base64),
+        "exif": capped(sidecars.exif_as_stored().as_deref()).map(base64),
+        "xmp": capped(sidecars.xmp.as_deref()).map(base64),
     }))
 }
 
