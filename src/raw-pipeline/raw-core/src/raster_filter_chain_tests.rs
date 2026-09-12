@@ -125,6 +125,42 @@ fn a_blur_then_convolve_run_matches_sharp_on_an_alpha_ramp() {
 }
 
 #[test]
+fn a_mask_sharpen_at_very_low_alpha_is_byte_exact() {
+    // The case that exposed the colour chain: at alpha 3 the unpremultiply
+    // multiplies everything by 85, so a single code of disagreement in the
+    // premultiplied domain shows up as 85. `raster_labs` and the LabS
+    // transfer's own off-by-one between them bring this to 0 — measured on
+    // sharp 0.34.5 for this 8x4 60/200 step edge at alpha 3, row y=1.
+    let data = (0..4u32)
+        .flat_map(|_| {
+            (0..8u32).flat_map(|x| {
+                let v = if x < 4 { 60u8 } else { 200 };
+                [v, v, v, 3]
+            })
+        })
+        .collect();
+    let out = RasterImage::new_rgba(8, 4, data)
+        .sharpen(&SharpenOptions {
+            sigma: Some(1.5),
+            ..SharpenOptions::default()
+        })
+        .unwrap();
+    assert_eq!(
+        row(&out, 1),
+        vec![
+            [0, 0, 0, 3],
+            [0, 0, 0, 3],
+            [0, 0, 0, 3],
+            [0, 0, 0, 3],
+            [255, 255, 255, 3],
+            [170, 170, 170, 3],
+            [170, 170, 170, 3],
+            [170, 170, 170, 3],
+        ]
+    );
+}
+
+#[test]
 fn only_an_image_with_alpha_is_premultiplied() {
     // The premultiply round trip costs a level on partial alpha even where
     // the filter itself is a no-op: a flat (80, 80, 80, 200) field comes
