@@ -5,7 +5,7 @@
 
 use std::io::Cursor;
 
-use image::{DynamicImage, GenericImageView, ImageReader};
+use image::{DynamicImage, GenericImageView, ImageDecoder, ImageReader};
 
 use crate::error::{Error, Result};
 use crate::image::ExifOrientation;
@@ -92,6 +92,11 @@ pub struct RasterMetadata {
     pub format: String,
     pub channels: u8,
     pub orientation: u16,
+    /// Whether the container's own colour type carries an alpha channel
+    /// (#3507 controller ruling). Derived from the real container header for
+    /// every non-AVIF format (see [`channels_and_alpha_from_header`]); AVIF
+    /// keeps its box-derived value (Task G2's `ispe`/alpha-item read).
+    pub has_alpha: bool,
 }
 
 /// Quick probing of raster image dimensions and format from raw bytes.
@@ -107,6 +112,7 @@ pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
             // properties (#3507). Before this, `.rotate()` on an AVIF source
             // was a silent no-op.
             orientation: crate::avif_boxes::read_avif_boxes(bytes).orientation,
+            has_alpha: probe.has_alpha,
         });
     }
 
@@ -159,14 +165,44 @@ pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
 
     // Try to extract EXIF orientation if available in the first 64KB
     let orientation = extract_exif_orientation(bytes).unwrap_or(1);
+    let (channels, has_alpha) = channels_and_alpha_from_header(bytes);
 
     Ok(RasterMetadata {
         width,
         height,
         format: final_format.into(),
-        channels: 3, // Default assumed sRGB channels
+        channels,
         orientation,
+        has_alpha,
     })
+}
+
+/// Real channel count and alpha presence for a non-AVIF container, read
+/// straight from its header (`image::ImageDecoder::color_type()`) rather
+/// than assumed. #3507 controller ruling: this replaces a hard-coded
+/// `channels: 3` that made `RasterMetadata` unable to ever report a real
+/// alpha channel for a JPEG/PNG/TIFF/WebP source, which is a real
+/// `metadata()` parity bug against sharp — measured against sharp 0.34.5,
+/// see `raster_tests.rs`'s `probe_channels_and_has_alpha_match_sharp_*`
+/// cases. Mirrors the header-level probe Task G4's `raster_analyze` used to
+/// carry locally (now collapsed onto this field — see that module's doc).
+///
+/// A decoder-construction failure here — after `probe_raster_metadata`
+/// already succeeded at reading dimensions above — shouldn't happen in
+/// practice; falls back to `(3, false)` rather than turning an advisory
+/// field probe into a hard error.
+fn channels_and_alpha_from_header(bytes: &[u8]) -> (u8, bool) {
+    match ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_decoder().ok())
+    {
+        Some(decoder) => {
+            let color = decoder.color_type();
+            (color.channel_count(), color.has_alpha())
+        }
+        None => (3, false),
+    }
 }
 
 /// Decode a non-RAW bitmap (JPEG, PNG, WebP, TIFF) from in-memory bytes into a RasterImage.
@@ -347,49 +383,8 @@ pub fn is_avif(bytes: &[u8]) -> bool {
             .any(|w| w == b"avif" || w == b"avis" || w == b"mif1")
 }
 
-/// Feature gate so the AVIF branch compiles to a clean error when raw-core is
-/// built without `avif` (raw-wasm), and to the real decoder otherwise.
-mod avif_decode_gate {
-    use super::*;
-
-    /// Container-level facts needed by `probe_raster_metadata`, mirrored from
-    /// `avif_decode::AvifProbe` so this module has a concrete return type
-    /// whether or not the `avif_decode` module exists in this build.
-    pub(crate) struct AvifProbeLite {
-        pub width: u32,
-        pub height: u32,
-        pub has_alpha: bool,
-    }
-
-    #[cfg(feature = "avif")]
-    pub(crate) fn decode(bytes: &[u8]) -> Result<RasterImage> {
-        crate::avif_decode::decode_avif(bytes)
-    }
-    #[cfg(not(feature = "avif"))]
-    pub(crate) fn decode(_bytes: &[u8]) -> Result<RasterImage> {
-        Err(Error::Decode {
-            path: "<memory>".into(),
-            reason: "AVIF decoding requires the `avif` feature".into(),
-        })
-    }
-
-    #[cfg(feature = "avif")]
-    pub(crate) fn probe(bytes: &[u8]) -> Result<AvifProbeLite> {
-        let probe = crate::avif_decode::probe_avif(bytes)?;
-        Ok(AvifProbeLite {
-            width: probe.width,
-            height: probe.height,
-            has_alpha: probe.has_alpha,
-        })
-    }
-    #[cfg(not(feature = "avif"))]
-    pub(crate) fn probe(_bytes: &[u8]) -> Result<AvifProbeLite> {
-        Err(Error::Decode {
-            path: "<memory>".into(),
-            reason: "AVIF probing requires the `avif` feature".into(),
-        })
-    }
-}
+#[path = "raster_avif_gate.rs"]
+mod avif_decode_gate;
 
 #[cfg(test)]
 #[path = "raster_tests.rs"]
