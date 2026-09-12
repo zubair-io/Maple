@@ -905,7 +905,7 @@ function resolveColour(value, fallback) {
   }
   const hex = value.replace(/^#/, "");
   const full = hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex;
-  if (full.length !== 6 && full.length !== 8) {
+  if (!/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(full)) {
     throw new Error(`Unrecognised colour '${value}': expected #rgb, #rrggbb or #rrggbbaa`);
   }
   const byte = (i) => parseInt(full.slice(i * 2, i * 2 + 2), 16);
@@ -936,13 +936,31 @@ function pushGamma(state, gamma, gammaOut) {
     after: { op: "gamma", exponent: 1 / out }
   };
 }
-function triple(v) {
-  return typeof v === "number" ? [v, v, v] : [v[0], v[1] ?? v[0], v[2] ?? v[0]];
+function coefficients(v) {
+  if (typeof v === "number") {
+    return [v, v, v];
+  }
+  if (v.length === 1) {
+    return [v[0], v[0], v[0]];
+  }
+  if (v.length === 3) {
+    return [v[0], v[1], v[2]];
+  }
+  const alphaNote = v.length === 4 ? " (sharp applies a 4th element to alpha; this op never touches alpha)" : "";
+  throw new Error(`linear: vector must have 1 or 3 elements, got ${v.length}${alphaNote}`);
 }
+var coefficientLength = (v) => typeof v === "number" ? 1 : v.length;
 function pushLinear(state, a = 1, b = 0) {
-  state.ops.push({ op: "linear", a: triple(a), b: triple(b) });
+  if (coefficientLength(a) !== coefficientLength(b)) {
+    throw new Error("Expected a and b to be arrays of the same length");
+  }
+  state.ops.push({ op: "linear", a: coefficients(a), b: coefficients(b) });
 }
-function pushNegate(state, alpha) {
+function pushNegate(state, options) {
+  if (options === false) {
+    return;
+  }
+  const alpha = typeof options === "object" ? options.alpha ?? true : true;
   state.ops.push({ op: "negate", alpha });
 }
 function pushNormalise(state, lower, upper) {
@@ -955,8 +973,21 @@ function pushTint(state, tint) {
   const [r, g, b] = resolveColour(tint, [0, 0, 0, 255]);
   state.ops.push({ op: "tint", rgb: [r, g, b] });
 }
+var DEVELOP_SPACE = {
+  srgb: "srgb",
+  "display-p3": "display-p3",
+  p3: "display-p3"
+};
 function pushToColourspace(state, space) {
-  state.colorSpace = space === "srgb" ? "srgb" : "display-p3";
+  if (space === "b-w") {
+    state.ops.push({ op: "greyscale" });
+    return;
+  }
+  const develop = DEVELOP_SPACE[space];
+  if (develop === undefined) {
+    throw new Error(`unsupported colourspace '${space}' (expected srgb, display-p3, p3 or b-w)`);
+  }
+  state.colorSpace = develop;
   state.ops.push({ op: "toColourspace", space });
 }
 
@@ -1218,7 +1249,7 @@ class MapleImageBuilder {
     return this;
   }
   negate(options) {
-    pushNegate(this.s, options?.alpha ?? true);
+    pushNegate(this.s, options);
     return this;
   }
   normalise(options) {
