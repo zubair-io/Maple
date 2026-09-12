@@ -232,3 +232,101 @@ fn a_probe_reports_the_real_orientation() {
     // pixels, but `read_avif_boxes` is what feeds it the orientation.
     assert_eq!(read_avif_boxes(&file).orientation, 8);
 }
+
+/// A hand-built AVIF-shaped file whose `iloc` uses `base_offset_size = 4`:
+/// one `Exif` item (id 1) and one `mime`/XMP item (id 2), each located as
+/// `base_offset + extent_offset` with the split chosen by the caller. The
+/// payload bytes are appended after `meta`, and the offsets are patched in
+/// a second pass once their real file position is known (the `iloc` box's
+/// size doesn't depend on the values, so the two passes agree on layout).
+fn avif_with_located_items(
+    exif_item: &[u8],
+    xmp_item: &[u8],
+    split: fn(usize) -> (u32, u32),
+) -> Vec<u8> {
+    let build = |exif_at: usize, xmp_at: usize| -> Vec<u8> {
+        let ftyp = bx(b"ftyp", b"avif\0\0\0\0avifmif1");
+        let pitm = bx(b"pitm", &[0u8, 0, 0, 0, 0, 9]); // primary item is the image
+        let mut iinf_payload = vec![0u8, 0, 0, 0];
+        iinf_payload.extend_from_slice(&2u16.to_be_bytes());
+        for (id, kind) in [(1u16, b"Exif"), (2u16, b"mime")] {
+            let mut infe = vec![2u8, 0, 0, 0];
+            infe.extend_from_slice(&id.to_be_bytes());
+            infe.extend_from_slice(&[0, 0]);
+            infe.extend_from_slice(kind);
+            infe.push(0);
+            iinf_payload.extend(bx(b"infe", &infe));
+        }
+        let iinf = bx(b"iinf", &iinf_payload);
+        // iloc version 0: offset_size 4, length_size 4, base_offset_size 4.
+        let mut iloc_payload = vec![0u8, 0, 0, 0, 0x44, 0x40];
+        iloc_payload.extend_from_slice(&2u16.to_be_bytes());
+        for (id, at, len) in [
+            (1u16, exif_at, exif_item.len()),
+            (2u16, xmp_at, xmp_item.len()),
+        ] {
+            let (base, extent) = split(at);
+            iloc_payload.extend_from_slice(&id.to_be_bytes());
+            iloc_payload.extend_from_slice(&[0, 0]); // data_reference_index
+            iloc_payload.extend_from_slice(&base.to_be_bytes());
+            iloc_payload.extend_from_slice(&1u16.to_be_bytes()); // extent_count
+            iloc_payload.extend_from_slice(&extent.to_be_bytes());
+            iloc_payload.extend_from_slice(&(len as u32).to_be_bytes());
+        }
+        let iloc = bx(b"iloc", &iloc_payload);
+        let meta = bx(b"meta", &[vec![0u8, 0, 0, 0], pitm, iinf, iloc].concat());
+        [ftyp, meta].concat()
+    };
+    let header_len = build(0, 0).len();
+    let mut out = build(header_len, header_len + exif_item.len());
+    out.extend_from_slice(exif_item);
+    out.extend_from_slice(xmp_item);
+    out
+}
+
+/// The `Exif` item payload shape ISO/IEC 23008-12 Annex A.2.1 defines: a
+/// 4-byte offset to the TIFF header, then the block.
+fn exif_item_payload(tiff: &[u8]) -> Vec<u8> {
+    [&[0u8, 0, 0, 0][..], tiff].concat()
+}
+
+#[test]
+fn iloc_base_offset_locates_the_metadata_items() {
+    // libheif/libvips and libavif put the item's real file position in
+    // `base_offset` and leave `extent_offset` at 0 — ignoring the base
+    // offset made every such file's `exif`/`xmp` read from byte 0 (#3507
+    // final fix wave, item 2; measured on a sharp-written AVIF whose
+    // `exif` came back as its own `ftypavif...` header).
+    let tiff = b"II*\0\x08\0\0\0\0\0";
+    let xmp = b"<x:xmpmeta/>";
+    let file = avif_with_located_items(&exif_item_payload(tiff), xmp, |at| (at as u32, 0));
+    let boxes = read_avif_boxes(&file);
+    assert_eq!(boxes.exif.as_deref(), Some(&tiff[..]));
+    assert_eq!(boxes.xmp.as_deref(), Some(&xmp[..]));
+}
+
+#[test]
+fn iloc_splits_the_location_across_base_and_extent_offsets() {
+    // Either field may carry part of the location; the item starts at
+    // their sum.
+    let tiff = b"MM\0*\0\0\0\x08\0\0";
+    let xmp = b"<x:xmpmeta id=\"2\"/>";
+    // `saturating_sub` only matters for the layout pass's placeholder
+    // offsets of 0; the real second pass is always past the header.
+    let file = avif_with_located_items(&exif_item_payload(tiff), xmp, |at| {
+        ((at as u32).saturating_sub(4), 4)
+    });
+    let boxes = read_avif_boxes(&file);
+    assert_eq!(boxes.exif.as_deref(), Some(&tiff[..]));
+    assert_eq!(boxes.xmp.as_deref(), Some(&xmp[..]));
+}
+
+#[test]
+fn iloc_offset_sum_that_overflows_yields_no_items() {
+    let file = avif_with_located_items(&exif_item_payload(b"II*\0\x08\0\0\0"), b"x", |_| {
+        (u32::MAX, u32::MAX)
+    });
+    let boxes = read_avif_boxes(&file);
+    assert_eq!(boxes.exif, None);
+    assert_eq!(boxes.xmp, None);
+}
