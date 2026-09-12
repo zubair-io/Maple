@@ -92,7 +92,12 @@ pub struct AvifOptions {
     /// read (sharp itself refuses anything but 8 on a prebuilt binary), so
     /// 8 is the default here too. 12 is a real sharp value `ravif` cannot
     /// produce and is rejected by name — see [`bit_depth_for`].
-    pub bitdepth: u8,
+    ///
+    /// `u16`, not `u8`: an out-of-range wire value (300) must reach
+    /// `bit_depth_for`'s own error message intact rather than first being
+    /// narrowed to `u8::MAX` (255) on the way in — see
+    /// `raster_recipe_output.rs`.
+    pub bitdepth: u16,
 }
 
 impl Default for AvifOptions {
@@ -118,7 +123,7 @@ impl Default for AvifOptions {
 /// still reading Maple's output during the #3499 migration, uses. Leaving
 /// the builder's default in place is how AVIF output silently became
 /// unreadable before this call was added.
-fn bit_depth_for(bitdepth: u8) -> Option<BitDepth> {
+fn bit_depth_for(bitdepth: u16) -> Option<BitDepth> {
     match bitdepth {
         8 => Some(BitDepth::Eight),
         10 => Some(BitDepth::Ten),
