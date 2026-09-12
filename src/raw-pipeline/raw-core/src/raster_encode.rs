@@ -2,9 +2,11 @@
 //!
 //! `export::encode_raster_rgb` flattened every raster to RGB before encoding,
 //! so a 4-channel input and the alpha item of a decoded AVIF were both thrown
-//! away at the last step. Here PNG, WebP and AVIF write the alpha channel, and
-//! JPEG and TIFF — containers with no alpha — composite over black, which is
-//! what libvips/sharp do when an alpha channel reaches a JPEG encoder.
+//! away at the last step. Here PNG, WebP, AVIF and TIFF write the alpha
+//! channel — TIFF as an `ExtraSamples` (tag 338) declaration next to its RGB
+//! samples, exactly as libvips does — and only JPEG, which has no alpha
+//! channel at all, composites over black, which is also what libvips/sharp do
+//! when an alpha channel reaches a JPEG encoder.
 
 use crate::error::Result;
 use crate::export::ExportFormat;
@@ -123,8 +125,14 @@ pub fn encode_raster_output(
         RasterOutput::Avif(o) => {
             crate::raster_encode_avif::encode_avif_opts(raster, o, metadata.exif)
         }
+        // NOT flattened: `encode_tiff_opts` writes a 4-channel raster as RGB
+        // plus one unassociated alpha sample (`ExtraSamples` = 2), which is
+        // byte-for-byte the declaration `sharp().tiff()` writes for an RGBA
+        // input. Compositing here instead would make `.tiff()` the one
+        // options-path container that silently loses alpha — and it did,
+        // until this call site caught up with the encoder (#3545).
         RasterOutput::Tiff(o) => {
-            crate::raster_encode_tiff::encode_tiff_opts(&flattened(raster), o, metadata.icc)
+            crate::raster_encode_tiff::encode_tiff_opts(raster, o, metadata.icc)
         }
     }
 }
