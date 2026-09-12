@@ -230,6 +230,73 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     expect(theirs.orientation).toBeUndefined();
   });
 
+  it.skipIf(skip)('a TIFF states the resolved orientation in its own IFD0', async () => {
+    // libvips treats orientation as a property of the image, not as
+    // metadata, so its TIFF save writes tag 274 even with every metadata
+    // field stripped (#3507 round 5, N2). Maple wrote 1 in all of these.
+    const raw = base();
+    const jpegO6 = await sharp(raw.data, { raw })
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toBuffer();
+    const plain = await sharp(raw.data, { raw }).jpeg().toBuffer();
+    const cases = [
+      ['default', (b: ReturnType<typeof maple>) => b],
+      ['keep', (b: ReturnType<typeof maple>) => b.keepMetadata()],
+      [
+        'keep+orientation 5',
+        (b: ReturnType<typeof maple>) => b.keepMetadata().withMetadata({ orientation: 5 }),
+      ],
+      ['orientation 5 only', (b: ReturnType<typeof maple>) => b.withMetadata({ orientation: 5 })],
+      ['autoOrient+keep', (b: ReturnType<typeof maple>) => b.rotate().keepMetadata()],
+    ] as const;
+    for (const [sourceName, source] of [
+      ['JPEG orientation 6', jpegO6],
+      ['plain JPEG', plain],
+    ] as const) {
+      for (const [caseName, apply] of cases) {
+        const mine = await (apply(maple(source)) as ReturnType<typeof maple>)
+          .toFormat('tiff')
+          .toBuffer();
+        const theirs = await (apply(sharp(source) as never) as ReturnType<typeof sharp>)
+          .toFormat('tiff')
+          .toBuffer();
+        expect((await sharp(mine).metadata()).orientation, `${sourceName} / ${caseName}`).toBe(
+          (await sharp(theirs).metadata()).orientation,
+        );
+      }
+    }
+  });
+
+  it.skipIf(skip)('keepMetadata() from an AVIF neutralises the kept orientation', async () => {
+    // The AVIF's own irot/imir is baked into the pixels at decode, so an
+    // orientation kept from its Exif item would tell the next reader to
+    // rotate them again. sharp writes 1 there (#3507 round 5, N1).
+    const raw = base();
+    const src = await sharp(raw.data, { raw }).withMetadata({ orientation: 6 }).avif().toBuffer();
+    for (const [caseName, apply] of [
+      ['keep', (b: ReturnType<typeof maple>) => b.keepMetadata()],
+      [
+        'keep+orientation 5',
+        (b: ReturnType<typeof maple>) => b.keepMetadata().withMetadata({ orientation: 5 }),
+      ],
+    ] as const) {
+      const mine = await (apply(maple(src)) as ReturnType<typeof maple>).jpeg().toBuffer();
+      const theirs = await (apply(sharp(src) as never) as ReturnType<typeof sharp>)
+        .jpeg()
+        .toBuffer();
+      const mineMeta = await sharp(mine).metadata();
+      const theirsMeta = await sharp(theirs).metadata();
+      expect(mineMeta.orientation, `${caseName} orientation`).toBe(theirsMeta.orientation);
+      // The kept EXIF block itself survives at full length either way.
+      expect(mineMeta.exif!.length, `${caseName} exif length`).toBe(theirsMeta.exif!.length);
+      expect([mineMeta.width, mineMeta.height], `${caseName} dimensions`).toEqual([
+        theirsMeta.width,
+        theirsMeta.height,
+      ]);
+    }
+  });
+
   it.skipIf(skip)('metadata().density matches sharp across containers and values', async () => {
     for (const density of [26, 25.4, 72, 96, 300]) {
       for (const format of CONTAINERS) {
