@@ -45,17 +45,30 @@ export function setJpegOutput(state: BuilderState, options?: JpegOutputOptions):
   };
 }
 
-/** Encode as PNG with sharp's options. */
+/**
+ * Encode as PNG with sharp's options.
+ *
+ * `colours`/`colors`/`dither` imply `palette: true`, exactly as sharp's own
+ * `png()` does (`lib/output.js`: `else if ([quality, effort, colours, colors,
+ * dither].some(is.defined)) this._setBooleanOption('pngPalette', true)`).
+ * Maple's encoder only reaches the quantiser when `palette` is set, so
+ * without the implication `png({ colours: 4 })` wrote a plain 24-bit RGB PNG
+ * with no `PLTE` chunk at all while sharp wrote an indexed one. An explicit
+ * `palette` always wins, in either direction.
+ */
 export function setPngOutput(state: BuilderState, options?: PngOutputOptions): void {
   const passed = (options ?? {}) as Record<string, unknown>;
   rejectUnsupported('png', passed);
+  const impliesPalette = [options?.colours, options?.colors, options?.dither].some(
+    (value) => value !== undefined,
+  );
   state.format = 'png';
   state.outputOptions = passed;
   state.output = {
     format: 'png',
     compressionLevel: options?.compressionLevel ?? 6,
     adaptiveFiltering: options?.adaptiveFiltering ?? false,
-    palette: options?.palette ?? false,
+    palette: options?.palette ?? impliesPalette,
     colours: options?.colours ?? options?.colors ?? 256,
     dither: options?.dither ?? 1.0,
   };
