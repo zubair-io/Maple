@@ -1,8 +1,10 @@
 /**
  * Terminal execution for `MapleImageBuilder`: turn the accumulated state into
  * native calls — the recipe pipeline (`runPipeline`) plus the Tier 1
- * metadata/decode/tensor entry points that don't go through it. Split out of
- * `builder.ts` for the file-size budget (#3505).
+ * decode/tensor entry points that don't go through it. Split out of
+ * `builder.ts` for the file-size budget (#3505). `metadata()`/`stats()` and
+ * the metadata `with*` methods live in `builder-metadata.ts` (#3507); the
+ * RAW-develop terminals live in `builder-raw-develop.ts` (#3504).
  */
 
 import * as fs from 'node:fs/promises';
@@ -10,7 +12,7 @@ import * as path from 'node:path';
 import type { NativeBinding } from './native';
 import { loadNativeBinding } from './native';
 import { isRawPath, lastResizeWidth, stateToRecipe, type BuilderState } from './builder-state';
-import type { ImageMetadata, RawPixels, TensorOptions, TensorResult } from './types';
+import type { RawPixels, TensorOptions, TensorResult } from './types';
 
 export interface PipelineOutput {
   buffer: Buffer;
@@ -55,54 +57,6 @@ export function runPipeline(
     width: res.width,
     height: res.height,
     channels: res.channels,
-  };
-}
-
-/** Dimensions, format and orientation without a full decode. */
-export async function resolveMetadata(state: BuilderState): Promise<ImageMetadata> {
-  const native = loadNativeBinding();
-
-  if (state.rawInput) {
-    return {
-      width: state.rawInput.width,
-      height: state.rawInput.height,
-      format: 'raw',
-      channels: state.rawInput.channels,
-      orientation: 1,
-    };
-  }
-
-  if (state.inputBytes) {
-    const res = native.rasterProbeMetadataBuf(state.inputBytes);
-    if (!res.ok || !res.metadata) {
-      throw new Error(res.error || 'Failed to probe metadata');
-    }
-    return {
-      width: res.metadata.width,
-      height: res.metadata.height,
-      format: res.metadata.format,
-      channels: res.metadata.channels,
-      orientation: res.metadata.orientation,
-      isRaw: res.metadata.format === 'dng',
-    };
-  }
-
-  if (!state.inputPath) {
-    throw new Error('No input provided to MapleImageBuilder');
-  }
-
-  const res = native.rasterProbeMetadata(state.inputPath);
-  if (!res.ok || !res.metadata) {
-    throw new Error(res.error || `Failed to probe metadata for ${state.inputPath}`);
-  }
-
-  return {
-    width: res.metadata.width,
-    height: res.metadata.height,
-    format: res.metadata.format || path.extname(state.inputPath).replace('.', '').toLowerCase(),
-    channels: res.metadata.channels,
-    orientation: res.metadata.orientation,
-    isRaw: isRawPath(state.inputPath) || res.metadata.format === 'dng',
   };
 }
 

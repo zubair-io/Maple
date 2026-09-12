@@ -19,11 +19,28 @@ export type RecipeInput =
   | { kind: 'encoded' }
   | { kind: 'raw'; width: number; height: number; channels: number };
 
+/**
+ * What to do with the input's own EXIF/ICC/XMP, and what EXIF Orientation to
+ * write (#3507). Mirrors `raw-core/src/raster_recipe_meta.rs::RecipeMetadata`
+ * field-for-field. `keep: false` (the default) strips everything, matching
+ * sharp's own default; caller-supplied `exif`/`icc`/`xmp` (via `aux`) win
+ * over `keep`.
+ */
+export interface RecipeMetadata {
+  keep: boolean;
+  orientation?: number;
+  density?: number;
+  exif?: AuxRef;
+  icc?: AuxRef;
+  xmp?: AuxRef;
+}
+
 export interface Recipe {
   v: 1;
   input: RecipeInput;
   ops: RecipeOp[];
   output: Record<string, unknown>;
+  metadata: RecipeMetadata;
 }
 
 /**

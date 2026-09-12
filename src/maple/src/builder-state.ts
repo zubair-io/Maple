@@ -7,7 +7,7 @@
 
 import * as path from 'node:path';
 import { checkIntegerRange } from './builder-validate';
-import { AuxBlob, type Recipe, type RecipeOp } from './recipe';
+import { AuxBlob, type Recipe, type RecipeMetadata, type RecipeOp } from './recipe';
 import type { Colour, ExportColorSpace, ExportFormat, ExportRecipe, RawPixelInput } from './types';
 
 const RAW_EXTENSIONS = new Set([
@@ -98,6 +98,8 @@ export interface BuilderState {
    */
   outputOptions: Record<string, unknown> | null;
   autoOrient: boolean;
+  /** `keepMetadata`/`withMetadata`/`withExif`/`withIccProfile`/`withXmp` state. */
+  metadata: RecipeMetadata;
   // RAW-develop fields, unchanged from Tier 1.
   xmpPath: string | null;
   xmpXml: string | null;
@@ -120,6 +122,7 @@ export function createBuilderState(
     output: null,
     outputOptions: null,
     autoOrient: false,
+    metadata: { keep: false },
     xmpPath: null,
     xmpXml: null,
     colorSpace: 'srgb',
@@ -173,7 +176,7 @@ export function stateToRecipe(state: BuilderState, output: Record<string, unknow
     : ({ kind: 'encoded' } as const);
   const withAutoOrient = state.autoOrient ? [{ op: 'autoOrient' }, ...state.ops] : state.ops;
   const ops = insertGammaPair(withAutoOrient, state.gammaPair);
-  return { v: 1, input, ops, output };
+  return { v: 1, input, ops, output, metadata: state.metadata };
 }
 
 /**
