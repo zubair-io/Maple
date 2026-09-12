@@ -434,7 +434,6 @@ describe('Colour ops', () => {
   it('toColourspace("display-p3") rotates a saturated red and tags the JPEG', async () => {
     const src = await png([255, 0, 0]);
     const p3 = await maple(src).toColourspace('display-p3').toFormat('jpeg').toBuffer();
-    expect(Array.from(p3.subarray(0, 0))).toEqual([]); // sanity: p3 is a Buffer
     expect(p3.includes(Buffer.from('ICC_PROFILE\0', 'latin1'))).toBe(true);
     const raw = await maple(p3).toRawAlpha();
     const [r, g, b] = Array.from(raw.data.subarray(0, 3));
@@ -457,13 +456,25 @@ describe('Colour ops', () => {
     expect(a.equals(b)).toBe(true);
   });
 
-  it('rejects an unsupported colourspace by name', async () => {
-    await expect(
-      maple(await png([1, 2, 3]))
-        .toColourspace('cmyk' as never)
-        .toFormat('png')
-        .toBuffer(),
-    ).rejects.toThrow(/cmyk/);
+  it('toColourspace("b-w") is the greyscale conversion, as in sharp', async () => {
+    // sharp reaches `image.colourspace(B_W)` for both `greyscale()` and
+    // `toColourspace('b-w')`, and measurably returns the same pixels for
+    // each (px0 58 on 32x32 noise). It is the one libvips interpretation
+    // name sharp's toColourspace takes that Maple can honour (#3503 I2).
+    const src = await png([200, 40, 40]);
+    const viaSpace = await maple(src).toColourspace('b-w').toRawAlpha();
+    const viaGreyscale = await maple(src).greyscale().toRawAlpha();
+    expect(Buffer.from(viaSpace.data).equals(Buffer.from(viaGreyscale.data))).toBe(true);
+  });
+
+  it('rejects an unsupported colourspace by name', () => {
+    // Synchronous, because the RAW-develop path never sees the op list: the
+    // old code mapped anything that was not 'srgb' to Display P3 there, so a
+    // typo silently changed the export space (#3503 review).
+    expect(() => maple(solid([1, 2, 3])).toColourspace('cmyk' as never)).toThrow(/cmyk/);
+    expect(() => maple(solid([1, 2, 3])).toColourspace('lab' as never)).toThrow(
+      /unsupported colourspace 'lab'/,
+    );
   });
 
   it('toColourspace("display-p3") then ("srgb") round-trips the pixels', async () => {

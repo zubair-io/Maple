@@ -155,16 +155,39 @@ export function pushTint(state: BuilderState, tint: Colour | string): void {
   state.ops.push({ op: 'tint', rgb: [r, g, b] });
 }
 
+/** The RAW-develop export space each accepted name selects (Tier 1's `colorSpace()`). */
+const DEVELOP_SPACE: Record<string, 'srgb' | 'display-p3'> = {
+  srgb: 'srgb',
+  'display-p3': 'display-p3',
+  p3: 'display-p3',
+};
+
 /**
  * Target colourspace. For bitmaps this pushes a recipe op that rotates the
- * primaries and tags the output with the matching ICC profile — accepted
- * names and error-by-name rejection (`b-w`/`cmyk`/`lab`/…) both live
- * raw-core side (`raster_recipe_colour::primaries_from_wire`), so an
- * unsupported name is not re-validated here. `state.colorSpace` also moves,
- * for the RAW-develop path (`colorSpace()`, Tier 1), which does its own
- * colour management and never sees this op.
+ * primaries and tags the output with the matching ICC profile.
+ *
+ * `'b-w'` is the one libvips interpretation name sharp's own
+ * `toColourspace` takes that Maple can honour, and it means exactly what
+ * `greyscale()` means — sharp reaches `image.colourspace(B_W)` either way —
+ * so it pushes the greyscale op rather than a primaries rotation (#3503
+ * review I2). Everything else is either a primaries name or an error.
+ *
+ * An unrecognised name throws HERE rather than only raw-core side. The
+ * RAW-develop path never sees `state.ops`, so the previous
+ * `space === 'srgb' ? 'srgb' : 'display-p3'` silently exported Display P3
+ * for any unrecognised string — including `'b-w'` and typos — where Tier 1
+ * exported sRGB (#3503 review, cross-task consistency). `gamma`/`gammaOut`
+ * already validate synchronously in this file, so the shape matches.
  */
 export function pushToColourspace(state: BuilderState, space: string): void {
-  state.colorSpace = space === 'srgb' ? 'srgb' : 'display-p3';
+  if (space === 'b-w') {
+    state.ops.push({ op: 'greyscale' });
+    return;
+  }
+  const develop = DEVELOP_SPACE[space];
+  if (develop === undefined) {
+    throw new Error(`unsupported colourspace '${space}' (expected srgb, display-p3, p3 or b-w)`);
+  }
+  state.colorSpace = develop;
   state.ops.push({ op: 'toColourspace', space });
 }
