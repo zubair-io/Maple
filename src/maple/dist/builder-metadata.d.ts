@@ -54,15 +54,17 @@ export declare function applyWithMetadata(state: BuilderState, options?: {
  */
 export declare function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): void;
 /**
- * Embed an ICC profile — `'srgb'` (Maple's own built-in profile, no bytes to
- * supply), a filesystem path (read now — Maple's `aux` blob needs real bytes
- * at call time, unlike sharp's own deferred-to-libvips read), or raw profile
- * bytes (a Maple extension beyond sharp's `string`-only signature).
+ * Embed an ICC profile — `'srgb'` or `'p3'` (Maple's own built-in profiles,
+ * no bytes to supply), a filesystem path (read now — Maple's `aux` blob
+ * needs real bytes at call time, unlike sharp's own deferred-to-libvips
+ * read), or raw profile bytes (a Maple extension beyond sharp's
+ * `string`-only signature).
  *
- * This TAGS the output; it never converts its pixels, which is where it
- * parts company with sharp. `'p3'` is therefore a named error rather than a
- * mislabelling (see [`NAMED_ICC_PROFILES`]), and `'cmyk'` — sharp's third
- * named value — is a named error because Maple has no CMYK support at all.
+ * A NAMED profile converts and tags, as sharp does. Supplied BYTES tag
+ * without converting — nothing here parses an arbitrary ICC profile, so
+ * there is no source space to rotate from; that is the one divergence from
+ * sharp, and it is in the package README. `'cmyk'` — sharp's third named
+ * value — is a named error because Maple has no CMYK support at all.
  */
 export declare function applyWithIccProfile(state: BuilderState, icc: string | Uint8Array | Buffer): void;
 /**
