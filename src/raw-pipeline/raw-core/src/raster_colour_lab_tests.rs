@@ -191,6 +191,13 @@ fn compressed_ramp() -> RasterImage {
 /// The percentile thresholds real libvips 8.17.3 `vips_percent` returns for a
 /// designed L* distribution, measured by calling its own C entry point.
 /// `(percent, threshold)` pairs.
+///
+/// Reproduce these against the real library with
+/// `src/scripts/parity/vips-percent-probe.c` (see its header for build/run
+/// instructions) — it links libvips-cpp straight from sharp's own
+/// `node_modules` and calls `vips_percent` (plus the `vips_hist_find` ->
+/// `vips_hist_cum` -> `vips_hist_norm` chain) directly, so these 23 pairs
+/// are pinned against the real library, not a reimplementation of it.
 fn vips_percent_reference(ls: &[f32], expected: &[(f64, i32)]) {
     let norm = normalised_cumulative_luma(ls.iter().copied());
     for &(p, want) in expected {
