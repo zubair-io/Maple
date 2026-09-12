@@ -54,23 +54,42 @@ fn sixteen_bit_widens_the_samples() {
     assert_eq!((decoded.width, decoded.height), (16, 16));
 }
 
+/// A solid-colour raster: nothing but horizontal runs, which is the input
+/// PackBits (a pure run-length coder) is for. The `ramp` source below has no
+/// runs at all once the horizontal predictor is off, so PackBits *expands*
+/// it — that is the codec working as designed, not a defect, and libvips
+/// behaves the same way (measured: `sharp().tiff({compression:'packbits'})`
+/// on a noise source is larger than its uncompressed output too).
+fn runs(w: u32, h: u32) -> RasterImage {
+    RasterImage::new_rgb(w, h, vec![40u8; (w * h * 3) as usize])
+}
+
 #[test]
 fn compression_actually_shrinks_the_file() {
-    let src = ramp(64, 64);
-    let plain = encode_tiff_opts(
-        &src,
-        &TiffOptions {
-            compression: TiffCompression::None,
-            ..opts()
-        },
-        None,
-    )
-    .unwrap();
-    for compression in [
-        TiffCompression::Lzw,
-        TiffCompression::Deflate,
-        TiffCompression::Packbits,
-    ] {
+    let uncompressed = |src: &RasterImage| {
+        encode_tiff_opts(
+            src,
+            &TiffOptions {
+                compression: TiffCompression::None,
+                ..opts()
+            },
+            None,
+        )
+        .unwrap()
+        .len()
+    };
+    // LZW and Deflate are the two compressors that keep the horizontal
+    // predictor (see `the_horizontal_predictor_is_written_only_for_lzw_and_deflate`)
+    // and both are dictionary coders, so a gradient is enough. PackBits
+    // gets a run-heavy source instead — it is run-length only, and with no
+    // predictor to flatten the gradient into runs it would grow the ramp.
+    let cases = [
+        (TiffCompression::Lzw, ramp(64, 64)),
+        (TiffCompression::Deflate, ramp(64, 64)),
+        (TiffCompression::Packbits, runs(64, 64)),
+    ];
+    for (compression, src) in cases {
+        let plain = uncompressed(&src);
         let packed = encode_tiff_opts(
             &src,
             &TiffOptions {
@@ -81,10 +100,9 @@ fn compression_actually_shrinks_the_file() {
         )
         .unwrap();
         assert!(
-            packed.len() < plain.len(),
-            "{compression:?} ({}) did not beat uncompressed ({})",
+            packed.len() < plain,
+            "{compression:?} ({}) did not beat uncompressed ({plain})",
             packed.len(),
-            plain.len()
         );
     }
 }
@@ -255,6 +273,50 @@ fn tag_317_reflects_the_predictor_choice() {
             tag, expected_tag,
             "predictor: {predictor} wrote the wrong tag 317"
         );
+    }
+}
+
+/// TIFF 6.0 defines tag 317 only for LZW and Deflate. libtiff ignores it on
+/// an uncompressed or PackBits strip and reads the differenced bytes back as
+/// pixels, so `predictor: true` must be dropped for those two compressors —
+/// which is also what libvips does (measured: `sharp().tiff()` omits 317
+/// entirely for `none`/`packbits`). Before this narrowing,
+/// `tiff({ compression: 'none' })` — an ordinary call, no predictor
+/// mention — handed back a file that decoded to garbage everywhere but in
+/// the crate that wrote it.
+///
+/// The cross-decoder half of this gate (libtiff, via sharp) lives in
+/// `src/maple/test/oracle.test.ts`; the `tiff` crate cannot catch the bug
+/// itself because it un-differences whatever the tag claims, so encoder and
+/// decoder cancel out.
+#[test]
+fn the_horizontal_predictor_is_written_only_for_lzw_and_deflate() {
+    let cases = [
+        (TiffCompression::None, 1u16),
+        (TiffCompression::Lzw, 2),
+        (TiffCompression::Deflate, 2),
+        (TiffCompression::Packbits, 1),
+    ];
+    for (compression, expected_tag) in cases {
+        let src = ramp(16, 16);
+        let bytes = encode_tiff_opts(
+            &src,
+            &TiffOptions {
+                compression,
+                predictor: true,
+                ..opts()
+            },
+            None,
+        )
+        .unwrap();
+        let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(&bytes)).unwrap();
+        let tag: u16 = decoder.get_tag_unsigned(Tag::Predictor).unwrap();
+        assert_eq!(
+            tag, expected_tag,
+            "{compression:?} with predictor: true wrote tag 317 = {tag}"
+        );
+        let decoded = crate::raster::decode_raster(&bytes, Some("tiff")).unwrap();
+        assert_eq!(decoded.data, src.data, "{compression:?} was not lossless");
     }
 }
 
