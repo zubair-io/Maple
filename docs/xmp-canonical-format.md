@@ -208,6 +208,8 @@ The schema's single source of truth is `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/
 | `crs:DefringeGreenHueLo`                  | `defringeGreenHueLo`                 | 0 – 100                           | 40                    |
 | `crs:DefringeGreenHueHi`                  | `defringeGreenHueHi`                 | 0 – 100                           | 60                    |
 
+`crs:Highlights2012` (`highlights`) follows Adobe direction (positive brightens). Flipped 2026-09 without migration; sidecars written by earlier Maple builds with a non-zero value render in the opposite direction from how they were authored.
+
 The seven `crs:Perspective*` keys (#3410) are Adobe's own, read and written **unrescaled**: a Lightroom sidecar's `crs:PerspectiveVertical="-20"` loads as −20 and saves back as −20. What one unit buys geometrically is Maple's own decision — Adobe documents no mapping — and is pinned by the constants in `raw-core/src/stages/perspective/matrix.rs`; see [pipeline](pipeline.md) § Geometry tail. Swift groups the seven under one nested `Perspective` value type where the other three implementations keep them flat, purely to fit `AdjustmentModel.swift` inside the file budget — the wire form, the field names and the copy/paste group are identical everywhere.
 
 Band suffixes are `Red`, `Orange`, `Yellow`, `Green`, `Aqua`, `Blue`, `Purple`, `Magenta` for all four eight-band groups. Crop, culling, metadata, the point tone curves and local adjustments have their own sections below.
