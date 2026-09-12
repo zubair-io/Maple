@@ -51,14 +51,13 @@ fn exposure_preserves_scene_headroom() {
 }
 
 #[test]
-fn highlights_positive_compresses_above_knee() {
-    // Neutral pixel above the knee: Y = 2.0 > 1.0 (#1103 response).
-    // Shape: Y_new = 1 + 1/3 (the kept pre-#1103 compression), times the
-    // weighted gain g = 2^(−0.7·1·w_h(2)) with w_h saturated at 1.
-    // All channels land at (4/3)·2^−0.7 ≈ 0.8208.
+fn highlights_negative_compresses_above_knee() {
+    // Adobe direction: NEGATIVE recovers. Neutral pixel above the knee,
+    // Y = 2.0: shape 1 + 1/3 (the kept compression) times the weighted
+    // gain 2^(−0.7·1·w_h(2)), w_h saturated at 1 → (4/3)·2^−0.7 ≈ 0.8208.
     let mut img = fresh_img([2.0, 2.0, 2.0]);
     let mut m = model_default();
-    m.highlights = 100.0;
+    m.highlights = -100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
     let expected = (1.0 + 1.0 / 3.0) * (-0.7_f32).exp2();
@@ -96,9 +95,9 @@ fn highlights_engages_below_the_knee() {
     apply(&mut img, &m);
     let p = img.pixels[0];
     assert!(
-        (p[0] - 0.7 * g).abs() < 1e-4,
+        (p[0] - 0.7 / g).abs() < 1e-4,
         "+100 expected {}, got {}",
-        0.7 * g,
+        0.7 / g,
         p[0]
     );
 
@@ -108,9 +107,9 @@ fn highlights_engages_below_the_knee() {
     apply(&mut img, &m);
     let p = img.pixels[0];
     assert!(
-        (p[0] - 0.7 / g).abs() < 1e-4,
+        (p[0] - 0.7 * g).abs() < 1e-4,
         "-100 expected {}, got {}",
-        0.7 / g,
+        0.7 * g,
         p[0]
     );
 }

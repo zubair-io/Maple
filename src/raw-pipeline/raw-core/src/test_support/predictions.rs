@@ -35,31 +35,33 @@ pub fn predict_brightness(scene: f32, b_slider: f32) -> f32 {
     scene * gain
 }
 
-/// scene_tone_controls::apply, step 2 (#1103, tone/zoom design § 4.2).
-/// Highlights — for a neutral input R=G=B=scene, Y collapses to scalar
-/// `scene` and (on a uniform field) the detail mask degenerates to the
-/// per-pixel curve, so the output is `scene · highlights_mult(scene)`:
+/// scene_tone_controls::apply, step 2 (#1103, tone/zoom design § 4.2),
+/// **Adobe direction** (`crs:Highlights2012`). For a neutral input
+/// R=G=B=scene, Y collapses to scalar `scene` and (on a uniform field) the
+/// detail mask degenerates to the per-pixel curve, so the output is
+/// `scene · highlights_mult(scene)`, expressed in the RECOVER amount
+/// `r = −h_slider/100`:
 ///
-/// - weighted gain `exp2(−0.7 · h/100 · smoothstep(0.25, 1.0, Y))` — engages
-///   below the clip point (positive h darkens toward the knee, negative h
-///   brightens; sign conventions unchanged; the 0.25 band floor is the
-///   calibrated value — see `H_W0` in the stage);
-/// - above the knee (Y > 1), sign-branched shape: h ≥ 0 keeps the
-///   `1 + (Y−1)/(1+2h)` compression; h < 0 expands by `1 + (Y−1)·(1+2|h|)` —
+/// - weighted gain `exp2(−0.7 · r · smoothstep(0.25, 1.0, Y))` — engages
+///   below the clip point (positive `h_slider` brightens toward the knee,
+///   negative recovers; the 0.25 band floor is the calibrated value — see
+///   `H_W0` in the stage);
+/// - above the knee (Y > 1), sign-branched shape: r ≥ 0 keeps the
+///   `1 + (Y−1)/(1+2r)` compression; r < 0 expands by `1 + (Y−1)·(1+2|r|)` —
 ///   the pole-free mirror (#1081 / PR #1117; the legacy shared denominator
-///   crossed zero at h = −50).
+///   crossed zero at r = −50, i.e. h_slider = +50).
 pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
     if h_slider.abs() < 1e-3 {
         return scene;
     }
-    let h_amount = h_slider / 100.0;
+    let recover = -h_slider / 100.0;
     let w = smoothstep(0.25, 1.0, scene);
-    let g = (-0.7 * h_amount * w).exp2();
+    let g = (-0.7 * recover * w).exp2();
     let shape = if scene > 1.0 {
-        let y_new = if h_amount >= 0.0 {
-            1.0 + (scene - 1.0) / (1.0 + h_amount * 2.0)
+        let y_new = if recover >= 0.0 {
+            1.0 + (scene - 1.0) / (1.0 + 2.0 * recover)
         } else {
-            1.0 + (scene - 1.0) * (1.0 + 2.0 * h_amount.abs())
+            1.0 + (scene - 1.0) * (1.0 + 2.0 * recover.abs())
         };
         y_new / scene
     } else {

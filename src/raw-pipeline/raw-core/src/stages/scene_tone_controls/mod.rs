@@ -162,40 +162,38 @@ pub(crate) fn shadows_mult(y: f32, s_amount: f32) -> f32 {
     1.0 + ((S_GAIN_EV * s_amount).exp2() - 1.0) * w
 }
 
-/// Highlights multiplier at luma `y` (#1103, spec § 4.2). `h_amount` =
-/// slider/100; `h_denom`/`h_expand` are hoisted by the caller.
+/// Highlights multiplier at luma `y` (#1103, spec § 4.2), **Adobe direction**
+/// (`crs:Highlights2012`): `h_amount = highlights / 100`, positive BRIGHTENS
+/// bright-but-unclipped tones and expands above the knee, negative RECOVERS
+/// (darkens toward the knee, compresses above it). Pre-fix the stage ran the
+/// opposite way while writing Adobe's key, so an ACR sidecar rendered
+/// inverted (measured on all 18 reference fixtures, 2026-09-11).
 ///
-/// Two composed factors, both uniform scalars (hue-preserving):
+/// Internally the maths is expressed in the RECOVER amount `r = −h`:
 ///
-/// 1. **Weighted gain** `g = exp2(−H_GAIN_EV · h · w_h(Y))` with
-///    `w_h(Y) = smoothstep(H_W0, H_W1, Y)` — this is what makes the slider
-///    act below clip: positive h darkens bright-but-unclipped tones toward
-///    the knee, negative h brightens them. Sign convention UNCHANGED:
-///    positive = recover/compress, negative = gain (matches the pre-#1103
-///    above-knee directions, so existing sidecars do not invert).
-/// 2. **Above-knee shape** (Y > 1), sign-branched:
-///    - h ≥ 0: the existing `Y' = 1 + (Y−1)/(1 + 2h)` compression is KEPT
-///      (spec: scene range is shaped, never clipped — AgX still owns final
-///      path-to-white).
-///    - h < 0: `Y' = 1 + (Y−1)·(1 + 2|h|)` — the pole-free mirror from
-///      #1081 / PR #1117. The legacy shared denominator crossed zero at
-///      h = −50 (silent identity at exactly −50, ~167× blowups just above,
-///      negative RGB below). Both branch factors are ≥ 1: NO POLE anywhere
-///      in the slider range. Do not collapse the branches back into one
-///      denominator.
+/// 1. **Weighted gain** `g = exp2(−H_GAIN_EV · r · w_h(Y))`,
+///    `w_h(Y) = smoothstep(H_W0, H_W1, Y)`.
+/// 2. **Above-knee shape** (Y > 1), sign-branched on `r`:
+///    - r ≥ 0: `Y' = 1 + (Y−1)/(1 + 2r)` (compression);
+///    - r < 0: `Y' = 1 + (Y−1)·(1 + 2|r|)` (the pole-free expansion from
+///      #1081 / PR #1117). Both factors are ≥ 1: NO POLE anywhere in the
+///      slider range. Do not collapse the branches into one denominator.
 ///
-/// Monotone in Y on both signs (see the H_GAIN_EV bound above; above the
-/// knee `w_h ≡ 1` so `g` is constant and the shape term is increasing), and
-/// continuous through the knee (shape → 1 as Y → 1⁺).
+/// Monotone in Y on both signs (see the H_GAIN_EV bound above) and
+/// continuous through the knee. Mirrored verbatim in
+/// `raw-gpu/src/scene_tone_sh.wgsl`, `raw-gpu/src/local_adjustments.wgsl`,
+/// `raw-gpu/src/scene_tone_controls.rs` (oracle) and
+/// `test_support/predictions.rs`.
 #[inline]
-pub(crate) fn highlights_mult(y: f32, h_amount: f32, h_denom: f32, h_expand: f32) -> f32 {
+pub(crate) fn highlights_mult(y: f32, h_amount: f32) -> f32 {
+    let recover = -h_amount;
     let w = smoothstep(H_W0, H_W1, y);
-    let g = (-H_GAIN_EV * h_amount * w).exp2();
+    let g = (-H_GAIN_EV * recover * w).exp2();
     let shape = if y > 1.0 {
-        let y_new = if h_amount >= 0.0 {
-            1.0 + (y - 1.0) / h_denom
+        let y_new = if recover >= 0.0 {
+            1.0 + (y - 1.0) / (1.0 + 2.0 * recover)
         } else {
-            1.0 + (y - 1.0) * h_expand
+            1.0 + (y - 1.0) * (1.0 + 2.0 * recover.abs())
         };
         y_new / y
     } else {
@@ -346,9 +344,7 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
     // Highlights (#1103): weighted-gain amount + the sign-branched
     // above-knee factors (see `highlights_mult`).
     let h_amount = model.highlights / 100.0;
-    let h_denom = 1.0 + h_amount * 2.0; // ≥ 1 whenever the h ≥ 0 branch uses it
-    let h_expand = 1.0 + 2.0 * h_amount.abs(); // ≥ 1, used by the h < 0 branch
-                                               // Shadows (#1103): see `shadows_mult`.
+    // Shadows (#1103): see `shadows_mult`.
     let s_amount = model.shadows / 100.0;
     // Whites: smoothstep-weighted upper-end gain (see step 4). The negative
     // side is floored at the monotonicity bound (#1918, WHITES_MIN_GAIN);
@@ -395,9 +391,7 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
     // 2. Highlights — masked pass (#1103). The luma the multiplier (and its
     //    regional blur) sees is the post-exposure/brightness state.
     if apply_highlights {
-        masked_multiplier_pass(img, mask_radius, |y| {
-            highlights_mult(y, h_amount, h_denom, h_expand)
-        });
+        masked_multiplier_pass(img, mask_radius, |y| highlights_mult(y, h_amount));
     }
 
     // 3. Shadows — masked pass (#1103), reading the post-highlights state.

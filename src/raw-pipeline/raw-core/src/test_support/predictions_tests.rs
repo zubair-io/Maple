@@ -288,7 +288,8 @@ fn shadows_zero_is_identity() {
 /// #1103 — closed-form pins for the reworked responses (guards against
 /// silently re-deriving different constants on either side):
 /// shadows: Y→0 ⇒ w→1 ⇒ mult → exp2(±1.5) = 2.8284 / 0.3536.
-/// highlights above knee at h=−50, Y=2: shape = (1+1·2)/2, g = 2^0.35.
+/// highlights above knee (Adobe direction) at h=+50, Y=2: shape = (1+1·2)/2,
+/// g = 2^0.35.
 #[test]
 fn sh_rework_closed_form_pins() {
     assert!((predict_shadows(0.0, 100.0) - 0.0).abs() < 1e-9); // 0·mult = 0
@@ -304,19 +305,19 @@ fn sh_rework_closed_form_pins() {
         "shadows -100 deep mult {} != 0.354",
         m_minus
     );
-    let h = predict_highlights(2.0, -50.0);
+    let h = predict_highlights(2.0, 50.0);
     let expect = 3.0 * (0.35_f32).exp2(); // (1+(2−1)·2) · 2^(0.7·0.5·1)
     assert!(
         (h - expect).abs() < 1e-4,
-        "highlights -50 @Y=2: {} != {}",
+        "highlights +50 @Y=2: {} != {}",
         h,
         expect
     );
-    let hp = predict_highlights(2.0, 100.0);
+    let hp = predict_highlights(2.0, -100.0);
     let expect_p = (4.0 / 3.0) * (-0.7_f32).exp2(); // (1+1/3) · 2^−0.7
     assert!(
         (hp - expect_p).abs() < 1e-4,
-        "highlights +100 @Y=2: {} != {}",
+        "highlights -100 @Y=2: {} != {}",
         hp,
         expect_p
     );

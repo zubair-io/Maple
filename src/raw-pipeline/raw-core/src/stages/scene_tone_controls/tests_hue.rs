@@ -302,14 +302,14 @@ fn scene_referred_does_not_clip_negatives_introduced_upstream() {
 
 #[test]
 fn exposure_and_highlights_compose() {
-    // Exposure +1 doubles 0.6 → 1.2 (above knee). Then highlights +100
-    // applies the #1103 response at the post-exposure luma: shape
-    // (1 + 0.2/3)/1.2 times weighted gain 2^(−0.7·w_h(1.2)) with w_h
-    // saturated at 1 → out = 1.0667 · 2^−0.7 ≈ 0.6566.
+    // Exposure +1 doubles 0.6 → 1.2 (above knee). Then highlights −100
+    // (Adobe: recover) applies the #1103 response at the post-exposure
+    // luma: shape (1 + 0.2/3)/1.2 times weighted gain 2^(−0.7·w_h(1.2))
+    // with w_h saturated at 1 → out = 1.0667 · 2^−0.7 ≈ 0.6566.
     let mut img = fresh_img([0.6, 0.6, 0.6]);
     let mut m = model_default();
     m.exposure = 1.0;
-    m.highlights = 100.0;
+    m.highlights = -100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
     let expected = (1.0 + 0.2 / 3.0) * (-0.7_f32).exp2();
