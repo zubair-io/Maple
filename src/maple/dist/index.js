@@ -1021,32 +1021,65 @@ async function resolveTensor(state, options) {
 }
 
 // src/builder-filter.ts
+var BLUR_SIGMA = [0.3, 1000];
+var SHARPEN_SIGMA = [0.000001, 10];
+var SHARPEN_PARAM = [0, 1e6];
+var KERNEL_DIM = [3, 1001];
+function invalidParameter(name, expected, actual) {
+  return new Error(`Expected ${expected} for ${name} but received ${String(actual)} of type ${typeof actual}`);
+}
+function requireNumber(name, value, [lo, hi]) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < lo || value > hi) {
+    throw invalidParameter(name, `number between ${lo} and ${hi}`, value);
+  }
+  return value;
+}
+function requireInteger(name, value, [lo, hi]) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < lo || value > hi) {
+    throw invalidParameter(name, `integer between ${lo} and ${hi}`, value);
+  }
+  return value;
+}
 function pushBlur(state, options) {
-  const sigma = typeof options === "number" ? options : options?.sigma;
-  state.ops.push({ op: "blur", sigma: sigma ?? null });
+  if (options === undefined) {
+    state.ops.push({ op: "blur", sigma: null });
+    return;
+  }
+  const sigma = typeof options === "number" ? requireNumber("sigma", options, BLUR_SIGMA) : requireNumber("options.sigma", options.sigma, BLUR_SIGMA);
+  state.ops.push({ op: "blur", sigma });
 }
 function pushSharpen(state, options) {
+  const numeric = typeof options === "number";
+  const sigma = options === undefined ? null : numeric ? requireNumber("sigma", options, SHARPEN_SIGMA) : requireNumber("options.sigma", options.sigma, SHARPEN_SIGMA);
+  const params = options === undefined || numeric ? {} : options;
+  const param = (name, fallback) => params[name] === undefined ? fallback : requireNumber(`options.${name}`, params[name], SHARPEN_PARAM);
   state.ops.push({
     op: "sharpen",
-    sigma: options?.sigma ?? null,
-    m1: options?.m1 ?? 1,
-    m2: options?.m2 ?? 2,
-    x1: options?.x1 ?? 2,
-    y2: options?.y2 ?? 10,
-    y3: options?.y3 ?? 20
+    sigma,
+    m1: param("m1", 1),
+    m2: param("m2", 2),
+    x1: param("x1", 2),
+    y2: param("y2", 10),
+    y3: param("y3", 20)
   });
 }
 function pushMedian(state, size) {
-  state.ops.push({ op: "median", size });
+  state.ops.push({ op: "median", size: requireInteger("size", size, [1, 1000]) });
 }
 function pushThreshold(state, threshold, options) {
   state.ops.push({
     op: "threshold",
-    value: threshold,
-    greyscale: options?.greyscale ?? options?.grayscale ?? true
+    value: requireInteger("threshold", threshold, [0, 255]),
+    greyscale: typeof options !== "object" || options.greyscale === true || options.grayscale === true
   });
 }
 function pushConvolve(state, kernel) {
+  const width = requireInteger("width", kernel.width, KERNEL_DIM);
+  const height = requireInteger("height", kernel.height, KERNEL_DIM);
+  if (!Array.isArray(kernel.kernel) || kernel.kernel.length !== width * height) {
+    throw invalidParameter("kernel", `an array of ${width * height} values for a ${width}x${height} kernel`, kernel.kernel);
+  }
+  kernel.kernel.forEach((v, i) => requireNumber(`kernel[${i}]`, v, [-Number.MAX_VALUE, Number.MAX_VALUE]));
   if (kernel.scale !== undefined && !Number.isInteger(kernel.scale)) {
     throw new Error(`convolve: scale ${kernel.scale} must be an integer (sharp requires an integer scale)`);
   }
@@ -1055,8 +1088,8 @@ function pushConvolve(state, kernel) {
   }
   state.ops.push({
     op: "convolve",
-    width: kernel.width,
-    height: kernel.height,
+    width,
+    height,
     kernel: kernel.kernel,
     scale: kernel.scale ?? null,
     offset: kernel.offset ?? 0
@@ -1085,7 +1118,14 @@ async function rawDevelopToBuffer(state, toFile) {
     } catch {}
   }
 }
+function assertNoUnsupportedOps(state) {
+  const unsupported = state.ops.find((op) => op.op !== "resize");
+  if (unsupported) {
+    throw new Error(`${unsupported.op} is not supported on a RAW develop input yet — see #3504/#3495. ` + "Develop the RAW to a bitmap first (toBuffer/toFile), then apply it to that.");
+  }
+}
 function rawDevelopToFile(state, outputPath) {
+  assertNoUnsupportedOps(state);
   const rawPath = state.inputPath;
   if (state.exportRecipe) {
     return exportRecipe({
