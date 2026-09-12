@@ -1,10 +1,11 @@
 //! Per-pixel colour ops (#3503).
 //!
-//! * `greyscale` is Rec.709 luma taken in LINEAR light: de-gamma each
-//!   channel, weight, re-gamma. This is a deliberate reversal of the plan's
-//!   D3 note that these ops stay on encoded values — D3 was written before
-//!   measuring `greyscale()`/`toColourspace('b-w')` against real sharp
-//!   0.34.5 output, which round-trips through `srgb_degamma`/`srgb_gamma`
+//! * `greyscale` is Rec.709 luma taken in LINEAR light — see [`bw_luma`],
+//!   which is now the crate's ONE black-and-white reduction, shared with
+//!   the tint LUT and with `threshold`'s filter-lane use. This is a
+//!   deliberate reversal of the plan's D3 note that these ops stay on
+//!   encoded values — D3 was written before measuring
+//!   `greyscale()`/`toColourspace('b-w')` against real sharp 0.34.5 output
 //!   (confirmed: pure red -> 127, pure green -> 220, pure blue -> 76; an
 //!   encoded-values matrix would give 54/182/18 instead). `gamma` and
 //!   `linear` genuinely DO stay on the encoded samples — that IS what
@@ -29,10 +30,7 @@
 //! `negate_alpha = true`, which is sharp's documented default.
 
 use crate::raster::RasterImage;
-use crate::view::encode::{srgb_degamma, srgb_gamma};
-
-/// Rec.709 luma coefficients — the sRGB -> B_W matrix libvips uses.
-pub const REC709_LUMA: [f64; 3] = [0.2126, 0.7152, 0.0722];
+use crate::raster_labs::srgb_to_bw;
 
 /// Rewrite the colour samples of every pixel, leaving alpha untouched.
 fn map_colour(src: &RasterImage, f: impl Fn([u8; 3]) -> [u8; 3]) -> RasterImage {
@@ -55,11 +53,6 @@ fn map_colour(src: &RasterImage, f: impl Fn([u8; 3]) -> [u8; 3]) -> RasterImage 
     }
 }
 
-#[inline]
-fn to_byte(v: f64) -> u8 {
-    v.round().clamp(0.0, 255.0) as u8
-}
-
 /// libvips' float -> uchar step: clip into 0..=255 and **truncate**.
 ///
 /// `vips_cast`'s own documentation is explicit — "Floats are truncated (not
@@ -71,24 +64,35 @@ fn to_byte(v: f64) -> u8 {
 /// coefficient pair in the gate below, `floor` misses 0 samples where
 /// `round` misses 113-135 of them.
 ///
-/// Deliberately NOT the same conversion as [`to_byte`]: `bw_luma` (and the
-/// CIELAB ops that share it) go through libvips' *colourspace* machinery,
+/// Deliberately NOT the same conversion as [`bw_luma`]: that one (and the
+/// CIELAB ops that share it) goes through libvips' *colourspace* machinery,
 /// which measurably rounds — flooring there would make #3572 worse.
 #[inline]
 fn to_uchar_trunc(v: f64) -> u8 {
     v.clamp(0.0, 255.0) as u8
 }
 
-/// Rec.709 luma in LINEAR light: de-gamma each channel, weight by
-/// [`REC709_LUMA`], re-gamma, round — what `vips_colourspace(sRGB -> B_W)`
-/// (and so sharp's `greyscale()`/`toColourspace('b-w')`) actually measures.
-/// `pub(crate)` so a future filters lane can share the same reduction rather
-/// than re-deriving it.
+/// The crate's ONE black-and-white reduction: Rec.709 luma in LINEAR light
+/// — what `vips_colourspace(sRGB -> B_W)`, and so sharp's `greyscale()`,
+/// `toColourspace('b-w')` and `threshold({greyscale: true})`, actually
+/// measures.
+///
+/// The arithmetic lives in [`crate::raster_labs::srgb_to_bw`], which is
+/// `vips_col_scRGB2BW` stage for stage: the linear channels come out of the
+/// same 256-entry `v2Y` transfer lookup libvips' Lab chain uses and the
+/// weighted sum goes back out through the same interpolated `Y2v` one. This
+/// file used to compute it with Maple's own sRGB transfer functions
+/// (`view::encode`'s `srgb_degamma`/`srgb_gamma`), which agreed with libvips
+/// on every pin in the gate below but not on every input — and through the
+/// filter lane's `threshold` a single code of luma either side of the
+/// threshold flips a whole sample between 0 and 255 (#3572). The two
+/// implementations are collapsed into that one so `greyscale`,
+/// `toColourspace('b-w')`, the tint LUT and `threshold` cannot drift apart:
+/// measured against sharp 0.34.5 over a 13,824-colour sweep of the sRGB
+/// cube, `srgb_to_bw` disagrees on 0 colours where this file's own
+/// conversion disagreed on some.
 pub(crate) fn bw_luma(rgb: [u8; 3]) -> u8 {
-    let linear_y = (0..3)
-        .map(|i| REC709_LUMA[i] * srgb_degamma(rgb[i] as f32 / 255.0) as f64)
-        .sum::<f64>();
-    to_byte(srgb_gamma(linear_y as f32) as f64 * 255.0)
+    srgb_to_bw(rgb)
 }
 
 impl RasterImage {
