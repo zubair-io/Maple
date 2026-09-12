@@ -10,6 +10,15 @@ export interface ImageMetadata {
   height: number;
   format: string;
   channels: number;
+  /**
+   * The EXIF Orientation the container's metadata declares, 1..=8, and `1`
+   * when it declares none. `.rotate()`/`autoOrient` applies this.
+   *
+   * An AVIF's `irot`/`imir` transform is NOT reported here: it is applied to
+   * the pixels during decode, the way libheif does it, so `width`/`height`
+   * are already post-transform and there is nothing left to rotate. What
+   * this reports for an AVIF is its `Exif` item's own Orientation tag.
+   */
   orientation: number;
   isRaw?: boolean;
   /**
