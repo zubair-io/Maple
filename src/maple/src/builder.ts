@@ -237,9 +237,13 @@ export class MapleImageBuilder {
   }
 
   /**
-   * sharp's `gamma(gamma, gammaOut)`: exponent `1/gamma` before the resize,
-   * exponent `gammaOut` after it. With the defaults (2.2, 2.2) the pair is a
-   * net identity and the RESIZE is what happens in the changed encoding.
+   * sharp's `gamma(gamma, gammaOut)`. Our recipe's `gamma{exponent}` op is
+   * a plain `x ** exponent` (unlike libvips' `vips_gamma`, which computes
+   * `x ** (1/exponent)`), so matching sharp's net effect means pushing
+   * `exponent: gamma` before the resize and `exponent: 1/gammaOut` after
+   * it — see `builder-colour.ts`'s `pushGamma` for the full derivation.
+   * With the defaults (2.2, 2.2) the pair is a net identity and the
+   * RESIZE is what happens in the changed encoding.
    */
   gamma(gamma = 2.2, gammaOut?: number): this {
     pushGamma(this.s, gamma, gammaOut);
