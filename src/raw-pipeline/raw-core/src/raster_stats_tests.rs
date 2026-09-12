@@ -294,3 +294,42 @@ fn dominant_tie_break_picks_the_lower_bin_regardless_of_raster_order() {
         assert_eq!(dominant, [24, 24, 24], "tie must resolve to the lower bin");
     }
 }
+
+/// The tie-break order `dominant_of` documents, as four fixtures measured
+/// against sharp 0.34.5 (#3507 final fix wave, item 10). Each is one pixel
+/// per cell, so every listed cell ties at a count of 1, and the winner is
+/// decided purely by scan order.
+#[test]
+fn dominant_ties_break_in_libvips_scan_order() {
+    /// A colour landing in histogram cell `(r, g, b)`: the cell centre,
+    /// which `dominant_bin` maps back to that cell.
+    fn colour(cell: (usize, usize, usize)) -> [u8; 3] {
+        [
+            (cell.0 * 16 + 8) as u8,
+            (cell.1 * 16 + 8) as u8,
+            (cell.2 * 16 + 8) as u8,
+        ]
+    }
+    let cases: [(&[(usize, usize, usize)], (usize, usize, usize)); 5] = [
+        // Lowest green wins, even from the highest red.
+        (&[(1, 14, 6), (8, 0, 7)], (8, 0, 7)),
+        // Same red and green: lowest blue wins.
+        (&[(3, 5, 9), (3, 5, 2)], (3, 5, 2)),
+        // Same green: lowest red wins.
+        (&[(9, 7, 0), (2, 7, 0)], (2, 7, 0)),
+        // Three ways: green first, then red — so neither the lowest red
+        // (0,3,15) nor the lowest blue (15,1,0) wins.
+        (&[(0, 3, 15), (5, 1, 1), (15, 1, 0)], (5, 1, 1)),
+        // A cell with a real majority is picked regardless of order.
+        (&[(4, 4, 4), (4, 4, 4), (9, 9, 9)], (4, 4, 4)),
+    ];
+    for (cells, expected) in cases {
+        let data: Vec<u8> = cells.iter().flat_map(|&cell| colour(cell)).collect();
+        let raster = RasterImage::new_rgb(cells.len() as u32, 1, data);
+        assert_eq!(
+            compute_stats(&raster).unwrap().dominant,
+            colour(expected),
+            "cells {cells:?} should resolve to {expected:?}"
+        );
+    }
+}
