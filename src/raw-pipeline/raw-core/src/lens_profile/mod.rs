@@ -13,7 +13,9 @@ pub use apply::apply;
 pub(crate) mod metadata;
 pub mod lensfun;
 mod auto;
-pub use auto::{applies, auto_match, evidence_for, resolve_auto, resolve_for_model};
+pub use auto::{
+    applies, auto_match, compatible_lenses, evidence_for, resolve_auto, resolve_for_model,
+};
 mod registry;
 pub use registry::{
     apply_for_raw, clear_cache, has_capacity, parse_reference, profile_id, register,

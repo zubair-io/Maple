@@ -64,7 +64,7 @@ pub fn run(
             profile,
             film_lut_dir,
             target_primaries,
-            None,
+            &super::render_lens::LensProfileArgs::default(),
         ) {
             Ok(_) => {
                 eprintln!("ok  {}", case.name);

@@ -20,16 +20,15 @@ use wasm_bindgen::prelude::*;
 /// with its own `OpcodeList3` reports `embedded`: raw-core gives authored
 /// corrections priority and never resolves an external profile for it.
 pub(crate) fn metadata(raw: &RawImage, model: &AdjustmentModel) -> Option<String> {
-    if model.lens_profile.is_empty() {
-        return None;
-    }
     let mut value = if raw.has_lens_corrections() {
+        if model.lens_profile.is_empty() {
+            return None;
+        }
         embedded_metadata()
     } else {
-        raw_core::lens_profile::resolve_for_raw(raw, &model.lens_profile)
+        raw_core::lens_profile::evidence_for(raw, model)
             .ok()
             .flatten()?
-            .metadata()
     };
     value["reference"] = model.lens_profile.clone().into();
     value["enabled"] = raw_core::lens_profile::corrections_enabled(model).into();
@@ -97,11 +96,25 @@ pub fn resolve_lens_profile(bytes: &[u8], ext: &str, reference: &str) -> Result<
     let key = raw_core::decode_cache::CacheKey::from_bytes(bytes);
     let raw = raw_core::decode_cache::decode_bytes_cached(&key, bytes, ext)
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let metadata = raw_core::lens_profile::resolve_for_raw(&raw, reference)
+    let model = AdjustmentModel {
+        lens_profile: reference.to_owned(),
+        ..Default::default()
+    };
+    let metadata = raw_core::lens_profile::evidence_for(&raw, &model)
         .map_err(|e| JsError::new(&e))?
-        .map(|resolution| resolution.metadata())
         .unwrap_or_else(embedded_metadata);
     Ok(metadata.to_string())
+}
+
+/// Every bundled Lensfun lens this RAW's body can carry, for the Lens
+/// Corrections dropdown: `[{"slug","maker","model"}]`, `[]` when the body
+/// is not in the bundle.
+#[wasm_bindgen(js_name = compatibleLensProfiles)]
+pub fn compatible_lens_profiles(bytes: &[u8], ext: &str) -> Result<String, JsError> {
+    let key = raw_core::decode_cache::CacheKey::from_bytes(bytes);
+    let raw = raw_core::decode_cache::decode_bytes_cached(&key, bytes, ext)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(raw_core::lens_profile::compatible_lenses(&raw).to_string())
 }
 
 #[cfg(test)]
