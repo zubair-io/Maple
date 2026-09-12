@@ -54,15 +54,18 @@ pub struct RasterMetadata {
 /// This is metadata only. An AVIF's `irot`/`imir` is a transform of the
 /// pixels themselves, baked in at decode (round 2) — never routed through
 /// here, or `.rotate()` would apply it a second time.
-pub(super) fn container_orientation(bytes: &[u8]) -> u16 {
-    if let Some(orientation) = extract_exif_orientation(bytes) {
-        return orientation;
-    }
-    crate::raster_meta::read_sidecars(bytes)
-        .exif
-        .as_deref()
-        .and_then(exif_orientation_from_block)
-        .unwrap_or(1)
+///
+/// `None` means the container declares nothing: no EXIF block at all, or a
+/// block whose IFD0 has no Orientation entry. That is the distinction sharp
+/// reports as `undefined` rather than `1` — see
+/// [`probe_raster_metadata`]'s TIFF exception (#3507 round 4).
+pub(super) fn container_orientation(bytes: &[u8]) -> Option<u16> {
+    extract_exif_orientation(bytes).or_else(|| {
+        crate::raster_meta::read_sidecars(bytes)
+            .exif
+            .as_deref()
+            .and_then(exif_orientation_from_block)
+    })
 }
 
 /// Quick probing of raster image dimensions and format from raw bytes.
@@ -146,7 +149,20 @@ pub fn probe_raster_metadata(bytes: &[u8]) -> Result<RasterMetadata> {
         }
     };
 
-    let orientation = Some(container_orientation(bytes));
+    // Absent unless the container actually declares one — `undefined`, not
+    // `1`, is what sharp reports for a JPEG, PNG or WebP that declares
+    // nothing (measured on sharp 0.34.5 across all four: no EXIF block, and
+    // an EXIF block with the Orientation entry removed, both `undefined`).
+    //
+    // TIFF is the exception, measured the same way: libvips' TIFF loader
+    // always reports an orientation, so a TIFF with no Orientation tag
+    // reads back as `1` rather than absent. A DNG is a TIFF container and
+    // follows it.
+    let declared = container_orientation(bytes);
+    let orientation = match final_format {
+        "tiff" | "dng" => Some(declared.unwrap_or(1)),
+        _ => declared,
+    };
     let (channels, has_alpha) = channels_and_alpha_from_header(bytes);
 
     Ok(RasterMetadata {

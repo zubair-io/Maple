@@ -418,10 +418,18 @@ different one along.
 
 **Orientation.** `.rotate()`/`autoOrient` honours the EXIF Orientation
 whatever container it is in: a JPEG's APP1, a PNG `eXIf` chunk, a WebP `EXIF`
-chunk, a TIFF's own IFD0, or an AVIF's `Exif` item.
+chunk or a TIFF's own IFD0.
 
-An AVIF is the exception, and `metadata().orientation` is `undefined` for one
-however it was written. Its `irot`/`imir` transform properties are a transform
+`metadata().orientation` is `undefined` when the container declares none — no
+EXIF block, or a block with no Orientation entry — rather than `1`, which is
+what sharp reports in that state. A TIFF is the exception and reports `1`
+either way, because libvips' TIFF loader always states an orientation;
+measured across all five containers, with an orientation of 1, an orientation
+of 6, no EXIF block at all, and an EXIF block whose Orientation entry was
+removed.
+
+An AVIF is the other exception, and `metadata().orientation` is `undefined`
+for one however it was written. Its `irot`/`imir` transform properties are a transform
 of the **pixels**, not metadata, so decoding applies them, exactly as libheif
 (and therefore sharp) does: a 24×16 AVIF with `irot 3` decodes as the rotated
 16×24 image, `metadata()` reports 16×24, and `.rotate()` has nothing further
