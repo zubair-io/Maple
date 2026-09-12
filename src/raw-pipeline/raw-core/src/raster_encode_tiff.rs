@@ -40,6 +40,15 @@
 //! sharp's `compression: 'jpeg' | 'webp' | 'zstd' | 'jp2k' | 'ccittfax4'`
 //! and its `tile`/`pyramid`/`bigtiff` options are not implemented and are
 //! rejected by name at the recipe layer.
+//!
+//! A TIFF states its orientation as IFD0 tag 274, not inside an EXIF block
+//! (there is no EXIF block here at all), so `EmbeddedMetadata::orientation`
+//! is written as that tag — and libvips writes it from the image's own
+//! orientation whether or not any metadata was kept: measured on sharp
+//! 0.34.5, a TIFF written from a source with EXIF Orientation 6 carries tag
+//! 274 = 6 in all of the default, `keepMetadata()` and
+//! `withMetadata({orientation})` cases, and 1 after an `autoOrient`. Maple
+//! wrote 1 in every one of them before #3507 round 5.
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
@@ -134,6 +143,29 @@ fn predictor_for(options: &TiffOptions, has_alpha: bool) -> Predictor {
     }
 }
 
+/// The IFD0 entries `new_image` does not write itself: the ICC profile and
+/// the Orientation tag. Tags come back out in ascending order however they
+/// go in — the `tiff` crate keeps the directory in a `BTreeMap` — so no
+/// ordering care is needed.
+fn write_ifd0_metadata<W, K>(
+    ifd: &mut tiff::encoder::DirectoryEncoder<'_, W, K>,
+    meta: &EmbeddedMetadata<'_>,
+) -> Result<()>
+where
+    W: std::io::Write + std::io::Seek,
+    K: tiff::encoder::TiffKind,
+{
+    if let Some(profile) = meta.icc {
+        ifd.write_tag(Tag::IccProfile, profile)
+            .map_err(tiff_error)?;
+    }
+    if let Some(orientation) = meta.orientation {
+        ifd.write_tag(Tag::Orientation, orientation)
+            .map_err(tiff_error)?;
+    }
+    Ok(())
+}
+
 pub fn encode_tiff_opts(
     raster: &RasterImage,
     options: &TiffOptions,
@@ -175,12 +207,7 @@ pub fn encode_tiff_opts(
                     .extra_samples(&[ExtraSamples::UnassociatedAlpha])
                     .map_err(tiff_error)?;
             }
-            if let Some(profile) = meta.icc {
-                image
-                    .encoder()
-                    .write_tag(Tag::IccProfile, profile)
-                    .map_err(tiff_error)?;
-            }
+            write_ifd0_metadata(image.encoder(), meta)?;
             image.write_data(&widened).map_err(tiff_error)?;
         } else {
             let mut image = encoder
@@ -191,12 +218,7 @@ pub fn encode_tiff_opts(
                     .extra_samples(&[ExtraSamples::UnassociatedAlpha])
                     .map_err(tiff_error)?;
             }
-            if let Some(profile) = meta.icc {
-                image
-                    .encoder()
-                    .write_tag(Tag::IccProfile, profile)
-                    .map_err(tiff_error)?;
-            }
+            write_ifd0_metadata(image.encoder(), meta)?;
             image.write_data(&raster.data).map_err(tiff_error)?;
         }
     }
