@@ -2251,6 +2251,7 @@ dependencies = [
 name = "raw-ffi"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "image",
  "maple-pano",
  "raw-core",
