@@ -107,9 +107,10 @@ pub fn parse_cube(text: &str, path_display: &str) -> Result<CubeLut, String> {
             continue;
         }
         if let Some(rest) = strip_keyword(line, "LUT_3D_SIZE") {
-            let n: usize = rest.trim().parse().map_err(|_| {
-                format!("{path_display}:{line_no}: invalid LUT_3D_SIZE {rest:?}")
-            })?;
+            let n: usize = rest
+                .trim()
+                .parse()
+                .map_err(|_| format!("{path_display}:{line_no}: invalid LUT_3D_SIZE {rest:?}"))?;
             size = Some(n);
             continue;
         }
@@ -138,9 +139,7 @@ pub fn parse_cube(text: &str, path_display: &str) -> Result<CubeLut, String> {
         } else {
             domain_max_line
         };
-        let where_ = offending_line
-            .map(|l| format!(":{l}"))
-            .unwrap_or_default();
+        let where_ = offending_line.map(|l| format!(":{l}")).unwrap_or_default();
         return Err(format!(
             "{path_display}{where_}: unsupported domain {domain_min:?}..{domain_max:?} \
              (only 0 0 0 .. 1 1 1 is supported)"

@@ -58,7 +58,10 @@ LUT_3D_SIZE 2
 1.0 0.0 0.0
 ";
     let err = parse_cube(bad, "bad.cube").expect_err("should reject short data");
-    assert!(err.contains("bad.cube"), "error should carry file context: {err}");
+    assert!(
+        err.contains("bad.cube"),
+        "error should carry file context: {err}"
+    );
     assert!(
         err.contains("8") && err.contains('2'),
         "error should report expected vs found triples: {err}"
@@ -79,7 +82,10 @@ LUT_3D_SIZE 2
 1.0 1.0 1.0
 ";
     let err = parse_cube(bad, "bad.cube").expect_err("should reject malformed row");
-    assert!(err.contains("bad.cube:3"), "error should point at line 3: {err}");
+    assert!(
+        err.contains("bad.cube:3"),
+        "error should point at line 3: {err}"
+    );
 }
 
 #[test]
@@ -96,14 +102,20 @@ LUT_3D_SIZE 2
 1.0 1.0 1.0
 ";
     let err = parse_cube(bad, "bad.cube").expect_err("should reject non-finite value");
-    assert!(err.contains("bad.cube:3"), "error should point at line 3: {err}");
+    assert!(
+        err.contains("bad.cube:3"),
+        "error should point at line 3: {err}"
+    );
 }
 
 #[test]
 fn parse_cube_rejects_missing_size() {
     let bad = "0.0 0.0 0.0\n";
     let err = parse_cube(bad, "bad.cube").expect_err("should reject missing LUT_3D_SIZE");
-    assert!(err.contains("LUT_3D_SIZE"), "error should name the missing directive: {err}");
+    assert!(
+        err.contains("LUT_3D_SIZE"),
+        "error should name the missing directive: {err}"
+    );
 }
 
 #[test]
@@ -122,7 +134,10 @@ DOMAIN_MAX 2.0 1.0 1.0
 1.0 1.0 1.0
 ";
     let err = parse_cube(bad, "bad.cube").expect_err("should reject a non 0..1 domain");
-    assert!(err.contains("domain"), "error should name the domain problem: {err}");
+    assert!(
+        err.contains("domain"),
+        "error should name the domain problem: {err}"
+    );
     // Line context: DOMAIN_MAX (the offending directive) is on line 3.
     assert!(
         err.contains("bad.cube:3"),
@@ -172,7 +187,10 @@ fn parsed_cube_round_trips_through_mlut_codec() {
     let decoded = raw_core::film::decode_mlut(&bytes).expect("should decode");
     assert_eq!(decoded.size, cube.size);
     for (a, b) in decoded.data.iter().zip(cube.data.iter()) {
-        assert!((a - b).abs() < 1e-3, "f16 round-trip drift too large: {a} vs {b}");
+        assert!(
+            (a - b).abs() < 1e-3,
+            "f16 round-trip drift too large: {a} vs {b}"
+        );
     }
 }
 
@@ -220,7 +238,10 @@ fn derive_name_digit_then_trailing_letter_suffix_uppercases_letter_only() {
     assert_eq!(derive_name("fuji_800z"), "Fuji 800Z");
     assert_eq!(derive_name("kodak_portra_160_vc"), "Kodak Portra 160 VC");
     assert_eq!(derive_name("fuji_provia_400x"), "Fuji Provia 400X");
-    assert_eq!(derive_name("polaroid_px_100uv_cold"), "Polaroid PX 100UV Cold");
+    assert_eq!(
+        derive_name("polaroid_px_100uv_cold"),
+        "Polaroid PX 100UV Cold"
+    );
 }
 
 #[test]
@@ -236,7 +257,10 @@ fn strip_category_prefix_removes_only_leading_match() {
         "kodak_portra_400"
     );
     // No matching prefix: returned unchanged rather than mangled.
-    assert_eq!(strip_category_prefix("kodak_portra_400", "slide"), "kodak_portra_400");
+    assert_eq!(
+        strip_category_prefix("kodak_portra_400", "slide"),
+        "kodak_portra_400"
+    );
 }
 
 // ---- catalog emission ------------------------------------------------------
