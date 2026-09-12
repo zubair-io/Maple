@@ -1,0 +1,114 @@
+import { describe, expect, it } from 'bun:test';
+import { maple } from '../src/index.ts';
+
+/** Gate for #3506: encoder options through the real FFI. */
+describe('Encoder options', () => {
+  const noise = (w: number, h: number) => ({
+    data: new Uint8Array(
+      Array.from({ length: w * h * 3 }, (_, i) => (Math.imul(i, 2654435761) >>> 13) & 0xff),
+    ),
+    width: w,
+    height: h,
+    channels: 3 as const,
+  });
+  const src = (w = 64, h = 64) => maple(noise(w, h)).toFormat('png').toBuffer();
+
+  it('jpeg({ progressive }) writes a progressive scan', async () => {
+    const out = await maple(await src())
+      .jpeg({ progressive: true })
+      .toBuffer();
+    const hasSof2 = out.some((b, i) => b === 0xff && out[i + 1] === 0xc2);
+    expect(hasSof2).toBe(true);
+  });
+
+  it('jpeg({ chromaSubsampling: "4:4:4" }) is larger than 4:2:0', async () => {
+    const input = await src();
+    const a = await maple(input).jpeg({ quality: 80 }).toBuffer();
+    const b = await maple(input).jpeg({ quality: 80, chromaSubsampling: '4:4:4' }).toBuffer();
+    expect(b.length).toBeGreaterThan(a.length);
+  });
+
+  it('png({ compressionLevel }) changes the file size', async () => {
+    const input = await src();
+    const fast = await maple(input).png({ compressionLevel: 0 }).toBuffer();
+    const best = await maple(input).png({ compressionLevel: 9 }).toBuffer();
+    expect(best.length).toBeLessThanOrEqual(fast.length);
+  });
+
+  it('png({ palette: true }) writes an indexed PNG', async () => {
+    const flat = {
+      data: new Uint8Array(
+        Array.from({ length: 64 * 64 }, (_, i) => [(i % 5) * 40, 200, 128]).flat(),
+      ),
+      width: 64,
+      height: 64,
+      channels: 3 as const,
+    };
+    const out = await maple(flat).png({ palette: true, colours: 16 }).toBuffer();
+    expect(out.includes(Buffer.from('PLTE'))).toBe(true);
+  });
+
+  // NOTE: deviates from the F5 brief, which used `chromaSubsampling: '4:2:0'`
+  // here. The vendored ravif 0.13 hard-codes 4:4:4 chroma planes in every
+  // encode path (see raster_encode_avif.rs's module doc), so `'4:2:0'` is a
+  // named rejection, not a working option — using it would make this
+  // round-trip test itself fail. `'4:4:4'` (sharp's own AVIF default) is
+  // the value this encoder actually produces.
+  it('avif({ effort, chromaSubsampling }) round-trips', async () => {
+    const out = await maple(await src(48, 48))
+      .avif({ quality: 55, effort: 8, chromaSubsampling: '4:4:4' })
+      .toBuffer();
+    const meta = await maple(out).metadata();
+    expect([meta.width, meta.height, meta.format]).toEqual([48, 48, 'avif']);
+  });
+
+  it('avif({ chromaSubsampling: "4:2:0" }) is a named rejection', async () => {
+    await expect(
+      maple(await src())
+        .avif({ chromaSubsampling: '4:2:0' })
+        .toBuffer(),
+    ).rejects.toThrow(/4:2:0/);
+  });
+
+  // NOTE: deviates from the F5 brief, which asserted this round-trips
+  // exactly. F4 (raw-core commit 51266ce1a) made AVIF `lossless: true` a
+  // named rejection instead: the vendored rav1e never reaches true AV1
+  // lossless mode (its base_q_idx floor is 1, not 0 — see
+  // raster_encode_avif.rs's module doc), so quality-100 "lossless" was
+  // exact only on smooth test images, not in general. This test now pins
+  // the rejection rather than a guarantee the encoder doesn't provide.
+  it('avif({ lossless: true }) is a named rejection, not a silent lossy fallback', async () => {
+    await expect(
+      maple(await src())
+        .avif({ lossless: true })
+        .toBuffer(),
+    ).rejects.toThrow(/lossless/);
+  });
+
+  it('tiff({ compression }) shrinks the file', async () => {
+    const input = await src();
+    const plain = await maple(input).tiff({ compression: 'none' }).toBuffer();
+    const lzw = await maple(input).tiff({ compression: 'lzw' }).toBuffer();
+    const deflate = await maple(input).tiff({ compression: 'deflate' }).toBuffer();
+    expect(lzw.length).toBeLessThan(plain.length);
+    expect(deflate.length).toBeLessThan(plain.length);
+  });
+
+  it('webp({ lossless: false }) fails with a message naming the limitation', async () => {
+    await expect(
+      maple(await src())
+        .webp({ lossless: false })
+        .toBuffer(),
+    ).rejects.toThrow(/lossless-only/);
+  });
+
+  // NOTE: deviates from the F5 brief's `.rejects.toThrow()` shape.
+  // `rejectUnsupported` runs synchronously inside `.jpeg()` itself (by
+  // design — the same immediate-validation style `composite()`'s
+  // left/top check already uses), so the throw happens while building the
+  // chain, not inside the `toBuffer()` promise; `.rejects` never sees it.
+  it('rejects mozjpeg and trellisQuantisation by name', async () => {
+    const input = await src();
+    expect(() => maple(input).jpeg({ mozjpeg: true } as never)).toThrow(/mozjpeg/);
+  });
+});
