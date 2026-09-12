@@ -10,7 +10,7 @@
 //! * PNG: `eXIf`, `iCCP` (zlib-deflated), the `XML:com.adobe.xmp` keyword
 //!   in an `iTXt` (plain or zlib-compressed, per its own compression flag),
 //!   a `tEXt` (plain — the form libvips writes) or a `zTXt` (deflated), and
-//!   `pHYs` for density. Every zlib stream here is inflated under the
+//!   `pHYs` for density, defaulting to 72 dpi like a JPEG's. Every zlib stream here is inflated under the
 //!   [`MAX_SIDECAR_BYTES`] ceiling — see `inflate_bounded`.
 //! * TIFF: the IFD0 `InterColorProfile` (34675) and `XMLPacket` (700) tags.
 //!   No EXIF block — a TIFF's IFD0 *is* its EXIF, and sharp reports none for
@@ -127,11 +127,12 @@ fn reportable_density(dpi: f64) -> Option<f64> {
 /// reported 25.4 on 8 of 8 PNG fixtures (#3507 final fix wave, item 7).
 const MIN_REPORTED_DPI: f64 = 25.4;
 
-/// What libvips' JPEG loader assumes when a JPEG states no resolution in
-/// either its JFIF segment or its EXIF block (measured: sharp reports 72
-/// for a mozjpeg-written JPEG that carries neither, and mozjpeg writes no
-/// JFIF density segment at all).
-const JPEG_DEFAULT_DPI: f64 = 72.0;
+/// What libvips' JPEG and PNG loaders assume for a file that states no
+/// resolution at all — measured: sharp reports 72 both for a
+/// mozjpeg-written JPEG (mozjpeg writes no JFIF density segment) and for a
+/// PNG carrying no `pHYs` chunk. The TIFF, WebP and AVIF loaders have no
+/// such default: they report nothing.
+const DEFAULT_DPI: f64 = 72.0;
 
 /// Ceiling on a single metadata block, in bytes (16 MiB).
 ///
@@ -266,14 +267,22 @@ fn read_png(bytes: &[u8]) -> RasterSidecars {
                     .and_then(|rest| rest.get(1..))
                     .and_then(inflate_bounded);
             }
-            b"pHYs" if payload.len() >= 9 && payload[8] == 1 => {
-                // Via pixels per millimetre, the unit libvips itself
+            b"pHYs" if payload.len() >= 9 => {
+                // Both via pixels per millimetre, the unit libvips itself
                 // carries, so the ubiquitous `pHYs` of 1000 px/m lands on
                 // exactly 25.4 dpi and is suppressed rather than landing a
                 // floating-point hair above it.
-                let per_metre =
+                let per_unit =
                     u32::from_be_bytes([payload[0], payload[1], payload[2], payload[3]]) as f64;
-                found.density = Some(per_metre / 1000.0 * 25.4);
+                found.density = Some(match payload[8] {
+                    1 => per_unit / 1000.0 * 25.4, // unit specifier: metre
+                    // Unit 0 means the two values are an aspect ratio with
+                    // no physical unit, and libvips reads the X value as
+                    // px/mm regardless (measured: a `pHYs` of 3:1 with unit
+                    // 0 reads back through sharp as 76, which is 3 × 25.4
+                    // rounded).
+                    _ => per_unit * 25.4,
+                });
             }
             b"IDAT" | b"IEND" => break,
             _ => {}
@@ -284,15 +293,17 @@ fn read_png(bytes: &[u8]) -> RasterSidecars {
         };
         idx = next;
     }
-    // Same precedence as a JPEG's — an `eXIf` resolution wins over `pHYs`
-    // (measured: a PNG carrying a 300 dpi `pHYs` and a 25.4 dpi `eXIf`
-    // reads back as no density at all through sharp) — but with no default:
-    // a PNG that states nothing has no density.
+    // Same precedence and default as a JPEG's: an `eXIf` resolution wins
+    // over `pHYs` (measured: a PNG carrying a 300 dpi `pHYs` and a 25.4 dpi
+    // `eXIf` reads back as no density at all through sharp), and a PNG with
+    // no `pHYs` at all is 72 dpi — measured: sharp reports 72 for a PNG
+    // this crate's own encoder wrote, which writes no `pHYs` unless asked.
     found.density = found
         .exif
         .as_deref()
         .and_then(exif_resolution_dpi)
         .or(found.density)
+        .or(Some(DEFAULT_DPI))
         .and_then(reportable_density);
     found
 }
