@@ -107,16 +107,54 @@ fn imir_maps_onto_the_exif_mirrors() {
 #[test]
 fn irot_and_imir_together_map_onto_the_transposed_orientations() {
     let props = [bx(b"irot", &[1]), bx(b"imir", &[1])].concat();
-    // 90 CCW plus a left-right mirror is EXIF 5 (transpose).
+    // 90 CCW then a left-right mirror is EXIF 7 (transverse), not 5: the
+    // mirror runs on the already-rotated image, so the left/right axis it
+    // exchanges is the rotated one. Measured against libheif 1.20.2 (#3507
+    // final fix wave, item 1) — this assertion pinned 5 before that.
+    assert_eq!(read_avif_boxes(&avif_with_ipco(&props)).orientation, 7);
+}
+
+#[test]
+fn irot_and_imir_together_map_onto_orientation_five() {
+    // ORIENTATION_TABLE[1][1] == 5: 90 CCW (irot step 1) then a top/bottom
+    // mirror (imir axis 0) is EXIF 5 (transpose) — measured against
+    // libheif 1.20.2; this assertion pinned 7 before the fix.
+    let props = [bx(b"irot", &[1]), bx(b"imir", &[0])].concat();
     assert_eq!(read_avif_boxes(&avif_with_ipco(&props)).orientation, 5);
 }
 
 #[test]
-fn irot_and_imir_together_map_onto_orientation_seven() {
-    // ORIENTATION_TABLE[1][1] == 7: 90 CCW (irot step 1) plus a
-    // top/bottom mirror (imir axis 0).
-    let props = [bx(b"irot", &[1]), bx(b"imir", &[0])].concat();
-    assert_eq!(read_avif_boxes(&avif_with_ipco(&props)).orientation, 7);
+fn every_irot_imir_combination_matches_libheif() {
+    // The full 12-entry table, each row measured against libheif 1.20.2 by
+    // patching the irot/imir bytes of a sharp-written AVIF and matching the
+    // decoded pixels to one of the eight EXIF transforms of the source (see
+    // `ORIENTATION_TABLE`'s doc). Kept as one table-driven case so a future
+    // edit to the table has to disagree with the measurement to pass.
+    const MEASURED: [(u8, Option<u8>, u16); 12] = [
+        (0, None, 1),
+        (0, Some(0), 4),
+        (0, Some(1), 2),
+        (1, None, 8),
+        (1, Some(0), 5),
+        (1, Some(1), 7),
+        (2, None, 3),
+        (2, Some(0), 2),
+        (2, Some(1), 4),
+        (3, None, 6),
+        (3, Some(0), 7),
+        (3, Some(1), 5),
+    ];
+    for (angle, axis, expected) in MEASURED {
+        let props = match axis {
+            Some(axis) => [bx(b"irot", &[angle]), bx(b"imir", &[axis])].concat(),
+            None => bx(b"irot", &[angle]),
+        };
+        assert_eq!(
+            read_avif_boxes(&avif_with_ipco(&props)).orientation,
+            expected,
+            "irot {angle} imir {axis:?} should be EXIF {expected}"
+        );
+    }
 }
 
 #[test]
