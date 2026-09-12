@@ -18,7 +18,12 @@ export declare class MapleImageBuilder {
     resize(optionsOrWidth: ResizeOptions | number | null, height?: number | null): this;
     /** Automatically rotate according to EXIF orientation */
     rotate(): this;
-    /** Set output container format and optional quality/effort */
+    /**
+     * Set output container format and optional quality/effort.
+     *
+     * Naming a different container than an earlier `.jpeg()`/`.png()`/… call
+     * discards that call's options — see `applyFormat`.
+     */
     toFormat(format: ExportFormat, options?: EncodeOptions): this;
     /** Encode as JPEG with sharp's options. */
     jpeg(options?: JpegOutputOptions): this;
@@ -32,7 +37,15 @@ export declare class MapleImageBuilder {
     tiff(options?: TiffOutputOptions): this;
     /** Set output container format */
     format(format: ExportFormat): this;
-    /** Set output quality (1..100) */
+    /**
+     * Set output quality (1..100). Reaches an earlier `.jpeg()`/`.avif()`
+     * call's output too; PNG, WebP and TIFF have no quality knob in Maple's
+     * encoders, so there is nothing for it to change there.
+     *
+     * Last call wins, in both directions: `.quality(30).jpeg()` encodes at
+     * `.jpeg()`'s own default of 80 (the per-format call is the later, more
+     * specific instruction), while `.jpeg().quality(30)` encodes at 30.
+     */
     quality(quality: number): this;
     /** Set target primaries / ICC profile */
     colorSpace(space: ExportColorSpace): this;

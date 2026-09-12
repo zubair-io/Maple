@@ -11,12 +11,8 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  assertRawDevelopOutput,
-  isRawPath,
-  lastResizeWidth,
-  type BuilderState,
-} from './builder-state';
+import { isRawPath, lastResizeWidth, type BuilderState } from './builder-state';
+import { assertRawDevelopOutput } from './builder-validate';
 import { exportImage, exportRecipe } from './export';
 import type { ExportResult } from './types';
 

@@ -9,5 +9,6 @@ export * from './native';
 export * from './export';
 export * from './recipe';
 export * from './builder-state';
+export * from './builder-validate';
 export * from './builder';
 export { runCli } from './cli';
