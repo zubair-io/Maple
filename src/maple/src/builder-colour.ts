@@ -12,9 +12,10 @@
  * value in its error — that error surfaces here as a rejected promise with
  * the same text, so it is not duplicated. `gamma`/`gammaOut` are the one
  * exception: sharp's `[1.0, 3.0]` bound applies to the user-facing values,
- * not to the wire `exponent` (which is `1/gamma` for the pre-resize
- * instance and so is usually well outside that range) — so that check has
- * to happen here, before the reciprocal is taken.
+ * not to the wire `exponent` (the pre-resize instance's wire value IS
+ * `gamma` directly, but the post-resize instance's is `1/gammaOut`, which
+ * is usually well outside that range) — so that check has to happen here,
+ * before the reciprocal is taken.
  */
 
 import { resolveColour } from './builder-state';
@@ -34,9 +35,18 @@ function checkGammaRange(name: string, value: number): void {
 }
 
 /**
- * sharp's `gamma(gamma, gammaOut)`: exponent `1/gamma` before the resize,
- * exponent `gammaOut` after it. With the defaults (2.2, 2.2) the pair is a
- * net identity and the RESIZE is what happens in the changed encoding.
+ * sharp's `gamma(gamma, gammaOut)`. libvips' `vips_gamma(image, exponent)`
+ * computes `x ** (1/exponent)` — NOT a direct power law — so sharp's
+ * pipeline calls `Gamma(image, 1/gamma)` before the resize (which nets to
+ * `x ** gamma`, darkening for `gamma > 1`) and `Gamma(image, gammaOut)`
+ * after it (which nets to `x ** (1/gammaOut)`, brightening for `gammaOut >
+ * 1`). Our recipe's own `gamma{exponent}` op is a PLAIN `x ** exponent`
+ * (see `raster_colour.rs`), unlike `vips_gamma` — so reproducing sharp's
+ * net effect through our op means emitting the wire exponents the other
+ * way round from what a naive reading of sharp's call suggests: `gamma`
+ * itself before the resize, and `1/gammaOut` after it. With the defaults
+ * (2.2, 2.2) the pair is a net identity and the RESIZE is what happens in
+ * the changed encoding.
  *
  * The pair is recorded in `state.gammaPair`, not spliced into `state.ops`
  * here — sharp's `gamma`/`resize` are fixed pipeline STAGES, so the pair's
@@ -52,8 +62,8 @@ export function pushGamma(state: BuilderState, gamma: number, gammaOut?: number)
   const out = gammaOut ?? gamma;
   checkGammaRange('gammaOut', out);
   state.gammaPair = {
-    before: { op: 'gamma', exponent: 1 / gamma },
-    after: { op: 'gamma', exponent: out },
+    before: { op: 'gamma', exponent: gamma },
+    after: { op: 'gamma', exponent: 1 / out },
   };
 }
 

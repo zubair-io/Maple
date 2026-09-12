@@ -9,12 +9,14 @@
 //! so a malformed or hostile recipe's out-of-range values must be caught
 //! HERE, before the op ever runs, or not at all. `gamma`/`gammaOut`'s own
 //! `[1.0, 3.0]` sharp-side range is validated in the TS builder instead (see
-//! `builder-colour.ts`): the wire `exponent` field is not the user-facing
-//! `gamma`/`gammaOut` value but `1/gamma` for the pre-resize instance, so a
-//! `[1.0, 3.0]` bound on the wire field itself would reject nearly every
-//! legitimate call (`1/2.2 ≈ 0.4545`). What IS checked here is that the wire
-//! exponent is finite, which protects a hand-crafted recipe sent straight
-//! over the FFI rather than through the builder.
+//! `builder-colour.ts`): the wire `exponent` field is the user-facing
+//! `gamma` value directly for the PRE-resize instance, but `1/gammaOut` for
+//! the POST-resize one (#3503 fix-round-2 — our `gamma` op is a plain power
+//! law, unlike libvips' own reciprocal `vips_gamma`), so a `[1.0, 3.0]`
+//! bound on the wire field itself would reject nearly every legitimate
+//! post-resize call (`1/2.2 ≈ 0.4545`). What IS checked here is that the
+//! wire exponent is finite, which protects a hand-crafted recipe sent
+//! straight over the FFI rather than through the builder.
 
 use crate::raster::RasterImage;
 use crate::raster_recipe::{bad, Op, Recipe};
