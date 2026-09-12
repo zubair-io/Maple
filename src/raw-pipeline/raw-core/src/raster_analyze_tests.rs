@@ -287,3 +287,32 @@ fn metadata_and_stats_both_work_on_a_real_avif() {
     assert_eq!(reply["metadata"]["height"], 2);
     assert_eq!(reply["stats"]["channels"].as_array().unwrap().len(), 3);
 }
+
+#[test]
+fn an_oversized_metadata_block_is_reported_absent() {
+    // Everything in the reply is base64'd into one JSON document, so a
+    // block has to be bounded before it reaches the FFI (#3507 final fix
+    // wave, item 5). At the ceiling it still goes out; one byte over, it's
+    // reported absent rather than as an error.
+    let cap = crate::raster_meta::MAX_SIDECAR_BYTES;
+    let block = vec![0u8; cap + 1];
+    assert!(capped(Some(&block)).is_none());
+    assert!(capped(Some(&block[..cap])).is_some());
+    assert!(capped(None).is_none());
+}
+
+#[test]
+fn metadata_reports_no_exif_for_a_tiff() {
+    // sharp returns no `exif` for a TIFF; this used to return the whole
+    // file (#3507 final fix wave, item 5).
+    let bytes = {
+        let mut out = b"II\x2a\x00".to_vec();
+        out.extend_from_slice(&8u32.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // zero IFD0 entries
+        out.extend_from_slice(&0u32.to_le_bytes()); // no next IFD
+        out
+    };
+    // A zero-entry TIFF has no image, so go straight at the sidecar reader
+    // rather than through `analyze` (which probes dimensions first).
+    assert_eq!(crate::raster_meta::read_sidecars(&bytes).exif, None);
+}

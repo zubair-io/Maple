@@ -10,10 +10,11 @@
 //! * PNG: `eXIf`, `iCCP` (zlib-deflated), `iTXt` with the
 //!   `XML:com.adobe.xmp` keyword (plain or zlib-compressed, per its own
 //!   compression flag), and `pHYs` for density.
-//! * TIFF: the IFD0 `InterColorProfile` (34675) and `XMLPacket` (700) tags,
-//!   with the whole file standing in as the EXIF block. Only a byte-sized
-//!   TIFF type (BYTE/ASCII/UNDEFINED) is trusted to mean "the declared count
-//!   is a byte length".
+//! * TIFF: the IFD0 `InterColorProfile` (34675) and `XMLPacket` (700) tags.
+//!   No EXIF block — a TIFF's IFD0 *is* its EXIF, and sharp reports none for
+//!   a TIFF (see `read_tiff`). Only a byte-sized TIFF type
+//!   (BYTE/ASCII/UNDEFINED) is trusted to mean "the declared count is a byte
+//!   length".
 //! * WebP: the `EXIF`, `ICCP` and `XMP ` RIFF chunks.
 //! * AVIF: the `Exif` and `mime` (XMP) items `crate::avif_boxes` reads out of
 //!   the container's `meta`/`iinf`/`iloc` item boxes — a completely
@@ -96,6 +97,23 @@ pub fn canonical_exif(block: &[u8]) -> (&[u8], bool) {
         None => (block, false),
     }
 }
+
+/// Ceiling on a single metadata block, in bytes (16 MiB).
+///
+/// Two jobs, one number (#3507 final fix wave, items 5 and 9). It bounds
+/// the zlib inflate of a PNG `iCCP`/`iTXt`/`zTXt` chunk, where a 66 KB file
+/// could otherwise expand to 64 MB (measured: 67,108,864 bytes of `icc` in
+/// 1,826 ms from a crafted 66,516-byte PNG); and it bounds what
+/// `metadata()` hands back across the FFI, where every block is base64'd
+/// into one JSON reply at ~133% of its size. A block over the ceiling is
+/// reported as absent rather than as an error: a hostile or simply unusual
+/// file should not make `metadata()` fail, which is the same call
+/// `read_sidecars` already makes for a corrupt `iCCP` zlib stream.
+///
+/// 16 MiB is far above anything real — the largest ICC profiles in
+/// circulation are a few MB, a JPEG APP1 EXIF block cannot exceed 64 KB by
+/// construction, and an XMP packet is kilobytes.
+pub const MAX_SIDECAR_BYTES: usize = 16 << 20;
 
 const EXIF_INTRO: &[u8] = b"Exif\0\0";
 const ICC_INTRO: &[u8] = b"ICC_PROFILE\0";
@@ -355,8 +373,20 @@ fn parse_png_itxt_xmp(rest: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// IFD0 tags 34675 (`InterColorProfile`) and 700 (`XMLPacket`). The whole
-/// file is the EXIF block for a TIFF, which is how libvips reports it too.
+/// IFD0 tags 34675 (`InterColorProfile`) and 700 (`XMLPacket`), and no EXIF
+/// block at all.
+///
+/// A TIFF's IFD0 is its EXIF, so there is no separate block to hand back,
+/// and sharp reports none: measured on sharp 0.34.5, `metadata().exif` is
+/// absent for every TIFF (both a plain one and one written with
+/// `withMetadata({orientation:6})`, whose orientation sharp reads out of
+/// the IFD0 itself). This used to return the whole file instead, which the
+/// claim "that is how libvips reports it too" does not support — measured
+/// on a 48,000,350-byte uncompressed TIFF, `metadata()` took 431 ms and
+/// handed back a 48 MB `exif` buffer to be base64'd across the FFI, against
+/// sharp's 1 ms and no `exif` at all (#3507 final fix wave, item 5). The
+/// orientation a TIFF declares is unaffected: `container_orientation` reads
+/// it straight out of the file's own TIFF header.
 fn read_tiff(bytes: &[u8]) -> RasterSidecars {
     let little = bytes.starts_with(b"II");
     let u16_at = |i: usize| -> Option<u16> {
@@ -377,10 +407,7 @@ fn read_tiff(bytes: &[u8]) -> RasterSidecars {
             u32::from_be_bytes([b[0], b[1], b[2], b[3]])
         })
     };
-    let mut found = RasterSidecars {
-        exif: Some(bytes.to_vec()),
-        ..Default::default()
-    };
+    let mut found = RasterSidecars::default();
     let Some(ifd) = u32_at(4).map(|v| v as usize) else {
         return found;
     };
