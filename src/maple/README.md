@@ -270,6 +270,20 @@ AVIF, survive every op and are written by PNG, WebP, AVIF and TIFF (via an
 channel, so it composites over black — the same thing libvips does — unless
 you call `flatten({ background })` first.
 
+**Per-format options on a RAW develop input.** A RAW file, an `.xmp()`
+sidecar or a `.recipe()` routes through the RAW development pipeline, whose
+export surface is container + `quality` + colourspace + long-edge cap. So
+`maple('photo.dng').jpeg({ quality: 80 })` works, and any other per-format
+option — `progressive`, `chromaSubsampling`, `palette`, `compression`,
+`effort`, … — throws by name rather than being quietly ignored (see #3579).
+Develop to a bitmap first and re-encode it if you need them.
+
+`.quality()` and the per-format methods are last-call-wins in both
+directions: `.jpeg().quality(30)` encodes at 30, while `.quality(30).jpeg()`
+encodes at `.jpeg()`'s own default of 80. Likewise `.toFormat()` naming a
+different container than an earlier `.jpeg()`/`.png()`/… discards that call's
+options, and naming the same container keeps them.
+
 **JPEG is not mozjpeg.** Maple encodes JPEG with the pure-Rust `jpeg-encoder`
 crate — progressive scans, 4:2:0/4:4:4 chroma and optimised Huffman tables, but
 no trellis quantisation. Measured against mozjpeg at matched quality

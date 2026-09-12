@@ -43,10 +43,11 @@ import {
 } from './builder-geometry';
 import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
 import {
+  applyEffort,
+  applyFormat,
+  applyQuality,
   createBuilderState,
   formatForPath,
-  isRawPath,
-  lastResizeWidth,
   resolveColour,
   resolveGravity,
   stateToOutput,
@@ -175,14 +176,19 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /** Set output container format and optional quality/effort */
+  /**
+   * Set output container format and optional quality/effort.
+   *
+   * Naming a different container than an earlier `.jpeg()`/`.png()`/… call
+   * discards that call's options — see `applyFormat`.
+   */
   toFormat(format: ExportFormat, options?: EncodeOptions): this {
-    this.s.format = format;
+    applyFormat(this.s, format);
     if (options?.quality !== undefined) {
-      this.s.quality = Math.max(1, Math.min(100, options.quality));
+      applyQuality(this.s, options.quality);
     }
     if (options?.effort !== undefined) {
-      this.s.effort = Math.max(0, Math.min(9, options.effort));
+      applyEffort(this.s, options.effort);
     }
     return this;
   }
@@ -219,13 +225,21 @@ export class MapleImageBuilder {
 
   /** Set output container format */
   format(format: ExportFormat): this {
-    this.s.format = format;
+    applyFormat(this.s, format);
     return this;
   }
 
-  /** Set output quality (1..100) */
+  /**
+   * Set output quality (1..100). Reaches an earlier `.jpeg()`/`.avif()`
+   * call's output too; PNG, WebP and TIFF have no quality knob in Maple's
+   * encoders, so there is nothing for it to change there.
+   *
+   * Last call wins, in both directions: `.quality(30).jpeg()` encodes at
+   * `.jpeg()`'s own default of 80 (the per-format call is the later, more
+   * specific instruction), while `.jpeg().quality(30)` encodes at 30.
+   */
   quality(quality: number): this {
-    this.s.quality = Math.max(1, Math.min(100, quality));
+    applyQuality(this.s, quality);
     return this;
   }
 

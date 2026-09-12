@@ -28,8 +28,14 @@ import type {
 
 /** Encode as JPEG with sharp's options. */
 export function setJpegOutput(state: BuilderState, options?: JpegOutputOptions): void {
-  rejectUnsupported('jpeg', (options ?? {}) as Record<string, unknown>);
+  const passed = (options ?? {}) as Record<string, unknown>;
+  rejectUnsupported('jpeg', passed);
   state.format = 'jpeg';
+  state.outputOptions = passed;
+  // Also the RAW-develop field: `exportImage` reads `state.quality`, never
+  // `state.output`, so a `.jpeg({ quality })` on a RAW input would otherwise
+  // export at the builder's own 92 default.
+  state.quality = options?.quality ?? 80;
   state.output = {
     format: 'jpeg',
     quality: options?.quality ?? 80,
@@ -41,8 +47,10 @@ export function setJpegOutput(state: BuilderState, options?: JpegOutputOptions):
 
 /** Encode as PNG with sharp's options. */
 export function setPngOutput(state: BuilderState, options?: PngOutputOptions): void {
-  rejectUnsupported('png', (options ?? {}) as Record<string, unknown>);
+  const passed = (options ?? {}) as Record<string, unknown>;
+  rejectUnsupported('png', passed);
   state.format = 'png';
+  state.outputOptions = passed;
   state.output = {
     format: 'png',
     compressionLevel: options?.compressionLevel ?? 6,
@@ -55,15 +63,23 @@ export function setPngOutput(state: BuilderState, options?: PngOutputOptions): v
 
 /** Encode as lossless WebP. `{ lossless: false }` throws — see the README. */
 export function setWebpOutput(state: BuilderState, options?: WebpOutputOptions): void {
-  rejectUnsupported('webp', (options ?? {}) as Record<string, unknown>);
+  const passed = (options ?? {}) as Record<string, unknown>;
+  rejectUnsupported('webp', passed);
   state.format = 'webp';
+  state.outputOptions = passed;
   state.output = { format: 'webp', lossless: options?.lossless ?? true };
 }
 
 /** Encode as AVIF with sharp's options. */
 export function setAvifOutput(state: BuilderState, options?: AvifOutputOptions): void {
-  rejectUnsupported('avif', (options ?? {}) as Record<string, unknown>);
+  const passed = (options ?? {}) as Record<string, unknown>;
+  rejectUnsupported('avif', passed);
   state.format = 'avif';
+  state.outputOptions = passed;
+  // See `setJpegOutput`: `state.quality`/`state.effort` are what the
+  // RAW-develop export and `stateToOutput`'s fallback read.
+  state.quality = options?.quality ?? 50;
+  state.effort = options?.effort ?? 4;
   state.output = {
     format: 'avif',
     quality: options?.quality ?? 50,
@@ -76,8 +92,10 @@ export function setAvifOutput(state: BuilderState, options?: AvifOutputOptions):
 
 /** Encode as TIFF with sharp's options. */
 export function setTiffOutput(state: BuilderState, options?: TiffOutputOptions): void {
-  rejectUnsupported('tiff', (options ?? {}) as Record<string, unknown>);
+  const passed = (options ?? {}) as Record<string, unknown>;
+  rejectUnsupported('tiff', passed);
   state.format = 'tiff';
+  state.outputOptions = passed;
   state.output = {
     format: 'tiff',
     compression: options?.compression ?? 'lzw',
