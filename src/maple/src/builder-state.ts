@@ -190,8 +190,10 @@ export function stateToRecipe(state: BuilderState, output: Record<string, unknow
  * - AVIF: `tune` is not a sharp option at all (dropped, F6) — `avif()`
  *   delegates to `heif({ ...options, compression: 'av1' })`, whose
  *   documented surface is `quality`/`lossless`/`effort`/`chromaSubsampling`/
- *   `bitdepth` only. `bitdepth` stays: Maple's AVIF encoder has no 8/10/12
- *   selection.
+ *   `bitdepth` only, and every one of those five is honoured. `bitdepth` is
+ *   NOT in this list: `ravif` exposes 8- and 10-bit output, so `8`/`10` are
+ *   real and only sharp's third value, `12`, is rejected — by name, from
+ *   `encode_avif_opts`, where the error can quote the value.
  * - TIFF: `quality` (sharp's JPEG-in-TIFF quality knob — moot without a
  *   JPEG-in-TIFF encoder, see the README parity note), `tileWidth`/
  *   `tileHeight` (meaningless without `tile`, already rejected), and
@@ -224,7 +226,7 @@ const UNSUPPORTED: Record<string, string[]> = {
     'mixed',
     'force',
   ],
-  avif: ['bitdepth', 'force'],
+  avif: ['force'],
   tiff: [
     'tile',
     'pyramid',
