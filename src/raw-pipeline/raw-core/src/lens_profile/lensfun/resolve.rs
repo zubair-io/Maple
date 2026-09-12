@@ -60,9 +60,26 @@ pub fn resolve(
         ));
     }
     let base = records.len();
+    let mut unsupported = Vec::new();
     for (i, s) in lens.vignetting.iter().enumerate() {
+        let v = vignette(s, crop, width, height);
+        // A polynomial fitted on a smaller or squarer frame can cross zero
+        // before this sensor's corners; that sample cannot serve this shot.
+        let corners = [
+            [0.0, 0.0],
+            [width - 1.0, 0.0],
+            [0.0, height - 1.0],
+            [width - 1.0, height - 1.0],
+        ];
+        if corners.iter().any(|c| v.gain(width, height, *c).is_none()) {
+            unsupported.push(format!(
+                "Vignetting sample {}mm f/{} does not cover this frame's corners",
+                s.focal, s.aperture
+            ));
+            continue;
+        }
         let calibration = Calibration {
-            vignette: Some(vignette(s, crop, width, height)),
+            vignette: Some(v),
             ..empty()
         };
         let apex = 2.0 * s.aperture.log2();
@@ -80,7 +97,7 @@ pub fn resolve(
     resolve_records(
         records,
         target,
-        Vec::new(),
+        unsupported,
         Source::Lensfun {
             maker: lens.maker.clone(),
             model: lens.model.clone(),

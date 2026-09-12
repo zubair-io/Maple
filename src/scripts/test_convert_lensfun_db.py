@@ -20,13 +20,13 @@ class Conversion(unittest.TestCase):
         self.assertAlmostEqual(s, 2.0, places=6)
         out = convert_distortion("ptlens", dict(a=0.01, b=-0.02, c=0.005), 24.0, 1.0, 1.5)
         d = 1 - 0.01 + 0.02 - 0.005
-        self.assertAlmostEqual(out["scale"], d)
+        self.assertAlmostEqual(out["scale"], 1.0)  # liblensfun absorbs the zoom d
         self.assertAlmostEqual(out["even"][0], -0.02 * s**2 / d**3)
         self.assertAlmostEqual(out["odd"][0], 0.005 * s / d**2)
         self.assertAlmostEqual(out["odd"][1], 0.01 * s**3 / d**4)
     def test_poly3_folds_1_minus_k1_into_scale(self):
         out = convert_distortion("poly3", dict(k1=-0.1), 50.0, 1.0, 1.5)
-        self.assertAlmostEqual(out["scale"], 1.1)
+        self.assertAlmostEqual(out["scale"], 1.0)  # liblensfun absorbs the zoom d
         self.assertAlmostEqual(out["even"][0], -0.1 * (50.0 / hugin_scale_mm(1.0, 1.5))**2 / 1.1**3)
     def test_vignetting_uses_corner_scale(self):
         k = convert_vignetting("pa", dict(k1=-0.3, k2=0.4, k3=-0.5), 24.0, 1.0)

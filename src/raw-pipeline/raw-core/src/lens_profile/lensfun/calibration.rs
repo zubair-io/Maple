@@ -14,12 +14,19 @@ use crate::lens_profile::model::{Chromatic, Frame, Perspective, Vignette};
 /// Full-frame diagonal, the crop-factor reference.
 pub const FULL_FRAME_DIAGONAL_MM: f64 = 43.266_615_305_567_875;
 
+/// `liblensfun` measures pixel coordinates at pixel centres: the optical
+/// centre of a `w`-wide frame is index `(w − 1) / 2`, and the sensor
+/// diagonal spans `hypot(w, h)` pixels (its `Width + 1` on `Width = w − 1`).
+/// The frame reproduces both so the parity tests compare like with like.
 pub fn frame(real_focal_mm: f64, camera_crop: f64, width: f64, height: f64) -> Frame {
     let focal_px = real_focal_mm * camera_crop * width.hypot(height) / FULL_FRAME_DIAGONAL_MM;
     let focal = focal_px / width.max(height);
     Frame {
         focal: [focal, focal],
-        center: [0.5, 0.5],
+        center: [
+            (width - 1.0) / (2.0 * width),
+            (height - 1.0) / (2.0 * height),
+        ],
     }
 }
 
@@ -111,7 +118,7 @@ mod tests {
             6000.0,
             4000.0,
         );
-        assert!(v.gain(6000.0, 4000.0, [3000.0, 2000.0]).unwrap() == 1.0);
+        assert!(v.gain(6000.0, 4000.0, [2999.5, 1999.5]).unwrap() == 1.0);
         let c = chromatic(
             &TcaSample {
                 focal: 24.0,

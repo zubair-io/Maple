@@ -13,7 +13,15 @@
 pub fn canonical(maker: &str, name: &str) -> String {
     let lower = name.to_lowercase();
     let maker = maker.to_lowercase();
-    let stripped = lower.strip_prefix(&format!("{maker} ")).unwrap_or(&lower);
+    let first = maker.split_whitespace().next().unwrap_or("");
+    let stripped = lower
+        .strip_prefix(&format!("{maker} "))
+        .or_else(|| {
+            (!first.is_empty())
+                .then(|| lower.strip_prefix(&format!("{first} ")))
+                .flatten()
+        })
+        .unwrap_or(&lower);
     stripped
         .replace("f/", "f")
         .chars()
