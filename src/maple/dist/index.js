@@ -1068,11 +1068,6 @@ function resolveColour(value, fallback) {
   const byte = (i) => parseInt(full.slice(i * 2, i * 2 + 2), 16);
   return [byte(0), byte(1), byte(2), full.length === 8 ? byte(3) : 255];
 }
-// src/builder.ts
-import * as crypto from "node:crypto";
-import * as fs7 from "node:fs/promises";
-import * as path7 from "node:path";
-
 // src/builder-alpha.ts
 var OPAQUE_BLACK = [0, 0, 0, 255];
 function pushComposite(state, layers) {
@@ -1335,6 +1330,59 @@ async function resolveTensor(state, options) {
   };
 }
 
+// src/builder-maintain.ts
+import * as crypto from "node:crypto";
+import * as fs5 from "node:fs/promises";
+import * as path5 from "node:path";
+async function validateIntegrity(metadata, decode) {
+  try {
+    const meta = await metadata();
+    if (meta.width <= 0 || meta.height <= 0) {
+      return false;
+    }
+    await decode();
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function normalizeOrientationInPlace(state, metadata, develop) {
+  const inputPath = state.inputPath;
+  if (!inputPath) {
+    throw new Error("normalizeOrientationInPlace requires a file path input");
+  }
+  const meta = await metadata();
+  if ((meta.orientation ?? 1) <= 1) {
+    return true;
+  }
+  const ext = path5.extname(inputPath) || ".jpg";
+  const tempOut = `${inputPath}.orient_tmp.${Date.now()}.${crypto.randomUUID()}${ext}`;
+  const res = await develop(state.format || meta.format || "jpeg", tempOut);
+  if (!res.ok) {
+    try {
+      await fs5.unlink(tempOut);
+    } catch {}
+    throw new Error(res.error || "Failed to normalize orientation");
+  }
+  await fs5.rename(tempOut, inputPath);
+  return true;
+}
+async function bitmapToFile(state, outputPath) {
+  await fs5.mkdir(path5.dirname(outputPath), { recursive: true });
+  try {
+    const bytes = await inputBytes(state);
+    const out = runPipeline(state, bytes, stateToOutput(state, formatForPath(outputPath)));
+    await fs5.writeFile(outputPath, out.buffer);
+    return { ok: true, outPath: outputPath };
+  } catch (error) {
+    return {
+      ok: false,
+      outPath: outputPath,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 // src/builder-filter.ts
 var BLUR_SIGMA = [0.3, 1000];
 var SHARPEN_SIGMA = [0.000001, 10];
@@ -1492,28 +1540,28 @@ function pushTrim(state, options) {
 
 // src/builder-metadata.ts
 import * as fsSync from "node:fs";
-import * as fs6 from "node:fs/promises";
-import * as path6 from "node:path";
+import * as fs7 from "node:fs/promises";
+import * as path7 from "node:path";
 
 // src/builder-raw-develop.ts
-import * as fs5 from "node:fs/promises";
+import * as fs6 from "node:fs/promises";
 import * as os from "node:os";
-import * as path5 from "node:path";
+import * as path6 from "node:path";
 function isRawDevelop(state) {
   return state.inputPath !== null && (state.exportRecipe !== null || state.xmpPath !== null || state.xmpXml !== null || isRawPath(state.inputPath));
 }
 async function rawDevelopToBuffer(state, toFile) {
   const ext = state.format ? `.${state.format === "jpeg" ? "jpg" : state.format}` : ".jpg";
-  const tmpFile = path5.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  const tmpFile = path6.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
   try {
     const fileRes = await toFile(tmpFile);
     if (!fileRes.ok) {
       throw new Error(fileRes.error || "Failed to develop RAW to buffer");
     }
-    return await fs5.readFile(tmpFile);
+    return await fs6.readFile(tmpFile);
   } finally {
     try {
-      await fs5.unlink(tmpFile);
+      await fs6.unlink(tmpFile);
     } catch {}
   }
 }
@@ -1605,7 +1653,7 @@ async function tier1PathMetadata(inputPath) {
   return {
     width: res.metadata.width,
     height: res.metadata.height,
-    format: res.metadata.format || path6.extname(inputPath).replace(".", "").toLowerCase(),
+    format: res.metadata.format || path7.extname(inputPath).replace(".", "").toLowerCase(),
     channels: res.metadata.channels,
     orientation: res.metadata.orientation,
     isRaw: isRawPath(inputPath) || res.metadata.format === "dng"
@@ -1644,7 +1692,7 @@ async function resolveMetadata(state) {
   if (!state.inputPath) {
     throw new Error("No input provided to MapleImageBuilder");
   }
-  const bytes = await fs6.readFile(state.inputPath);
+  const bytes = await fs7.readFile(state.inputPath);
   return metadataFromReply(await analyzeBytes(bytes, ["metadata"]));
 }
 function renderRawInputToPng(r) {
@@ -1663,7 +1711,7 @@ async function resolveStats(state) {
   if (state.rawInput) {
     return statsFromReply(await analyzeBytes(renderRawInputToPng(state.rawInput), ["stats"]));
   }
-  const bytes = state.inputBytes ?? (state.inputPath ? await fs6.readFile(state.inputPath) : null);
+  const bytes = state.inputBytes ?? (state.inputPath ? await fs7.readFile(state.inputPath) : null);
   if (!bytes) {
     throw new Error("No input provided to MapleImageBuilder");
   }
@@ -1713,7 +1761,7 @@ function applyWithExif(state, exif) {
   state.metadata.exif = state.aux.add(exif);
   track(state, "withExif");
 }
-var NAMED_ICC_PROFILES = new Set(["srgb"]);
+var NAMED_ICC_PROFILES = new Set(["srgb", "p3"]);
 function applyWithIccProfile(state, icc) {
   if (icc instanceof Uint8Array) {
     state.metadata.icc = state.aux.add(icc);
@@ -1722,13 +1770,10 @@ function applyWithIccProfile(state, icc) {
     return;
   }
   if (typeof icc !== "string") {
-    throw invalidParameter2("icc", "'srgb', a file path, or a Buffer", icc);
+    throw invalidParameter2("icc", "'srgb', 'p3', a file path, or a Buffer", icc);
   }
   if (icc === "cmyk") {
     throw new Error("withIccProfile('cmyk'): Maple has no CMYK ICC profile support — sharp accepts " + "'cmyk', Maple does not.");
-  }
-  if (icc === "p3") {
-    throw new Error("withIccProfile('p3'): Maple tags the output without converting its pixels, so this " + "would label sRGB pixels as Display P3 — sharp converts them first. Use " + "toColourspace('display-p3'), whose bitmap-pipeline wiring is #3503.");
   }
   if (NAMED_ICC_PROFILES.has(icc)) {
     state.metadata.iccName = icc;
@@ -1962,36 +2007,10 @@ class MapleImageBuilder {
     return resolveMetadata(this.s);
   }
   async validateIntegrity() {
-    try {
-      const meta = await this.metadata();
-      if (meta.width <= 0 || meta.height <= 0)
-        return false;
-      await this.toBuffer();
-      return true;
-    } catch {
-      return false;
-    }
+    return validateIntegrity(() => this.metadata(), () => this.toBuffer());
   }
   async normalizeOrientationInPlace() {
-    if (!this.s.inputPath) {
-      throw new Error("normalizeOrientationInPlace requires a file path input");
-    }
-    const meta = await this.metadata();
-    if ((meta.orientation ?? 1) <= 1) {
-      return true;
-    }
-    const ext = path7.extname(this.s.inputPath) || ".jpg";
-    const tempOut = `${this.s.inputPath}.orient_tmp.${Date.now()}.${crypto.randomUUID()}${ext}`;
-    const targetFmt = this.s.format || meta.format || "jpeg";
-    const res = await this.rotate().format(targetFmt).toFile(tempOut);
-    if (!res.ok) {
-      try {
-        await fs7.unlink(tempOut);
-      } catch {}
-      throw new Error(res.error || "Failed to normalize orientation");
-    }
-    await fs7.rename(tempOut, this.s.inputPath);
-    return true;
+    return normalizeOrientationInPlace(this.s, () => this.metadata(), (format, out) => this.rotate().format(format).toFile(out));
   }
   async toRawRgb(options) {
     return resolveTensor(this.s, options);
@@ -2027,22 +2046,7 @@ class MapleImageBuilder {
     return runPipeline(this.s, bytes, stateToOutput(this.s, "jpeg")).buffer;
   }
   async toFile(outputPath) {
-    if (isRawDevelop(this.s)) {
-      return await rawDevelopToFile(this.s, outputPath);
-    }
-    await fs7.mkdir(path7.dirname(outputPath), { recursive: true });
-    try {
-      const bytes = await inputBytes(this.s);
-      const out = runPipeline(this.s, bytes, stateToOutput(this.s, formatForPath(outputPath)));
-      await fs7.writeFile(outputPath, out.buffer);
-      return { ok: true, outPath: outputPath };
-    } catch (error) {
-      return {
-        ok: false,
-        outPath: outputPath,
-        error: error instanceof Error ? error.message : String(error)
-      };
-    }
+    return isRawDevelop(this.s) ? await rawDevelopToFile(this.s, outputPath) : await bitmapToFile(this.s, outputPath);
   }
   async toRaw() {
     return resolveToRaw(this.s);
