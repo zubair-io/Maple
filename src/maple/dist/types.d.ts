@@ -198,43 +198,6 @@ export interface AvifOutputOptions {
     effort?: number;
     lossless?: boolean;
     chromaSubsampling?: '4:4:4' | '4:2:0';
-}
-export interface TiffOutputOptions {
-    compression?: 'none' | 'lzw' | 'deflate' | 'packbits';
-    bitdepth?: 8 | 16;
-    /**
-     * sharp's string form: `'horizontal'` (default) or `'none'`.
-     * `'float'` is a real sharp value Maple's encoder cannot produce
-     * (the `tiff` crate has no float-predictor path) and is rejected by
-     * name. Forced to `'none'` regardless of this setting when the raster
-     * carries alpha — see the README's parity notes.
-     */
-    predictor?: 'horizontal' | 'none';
-}
-export interface JpegOutputOptions {
-    quality?: number;
-    progressive?: boolean;
-    chromaSubsampling?: '4:2:0' | '4:4:4';
-    optimiseCoding?: boolean;
-    optimizeCoding?: boolean;
-}
-export interface PngOutputOptions {
-    compressionLevel?: number;
-    adaptiveFiltering?: boolean;
-    palette?: boolean;
-    colours?: number;
-    colors?: number;
-    dither?: number;
-}
-export interface WebpOutputOptions {
-    /** Must be `true`: Maple's WebP encoder is lossless-only. */
-    lossless?: boolean;
-}
-export interface AvifOutputOptions {
-    quality?: number;
-    effort?: number;
-    lossless?: boolean;
-    chromaSubsampling?: '4:4:4' | '4:2:0';
     /**
      * Bits per channel in the AV1 bitstream: `8` (the default, matching
      * sharp's own `avif()`) or `10`. sharp's third value, `12`, is rejected by
