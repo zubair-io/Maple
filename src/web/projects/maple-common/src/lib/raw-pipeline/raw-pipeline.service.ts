@@ -22,7 +22,12 @@ import {
   dispatchImportLensProfile,
   restoreRequestedLensProfile,
 } from './raw-pipeline.lens-profile-request';
+import {
+  dispatchCompatibleLensProfiles,
+  dispatchLensProfileEvidence,
+} from './raw-pipeline.lens-profile-choice-request';
 import type { ImportedLensProfile, LensProfileStatus } from '../lens/lens-profile.types';
+import type { CompatibleLensProfile, LensProfileEvidence } from '../lens/lens-profile-choice.types';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import type { SampleQueue } from './raw-pipeline.samplers';
 import {
@@ -398,6 +403,31 @@ export class RawPipelineService implements OnDestroy {
   importLensProfile(xml: string, bytes: Uint8Array, ext: string): Promise<ImportedLensProfile> {
     return this.sampleQueue((worker, id, register) =>
       dispatchImportLensProfile(worker, id, register, xml, bytes, ext),
+    );
+  }
+
+  /**
+   * Every bundled Lensfun lens `bytes`' camera body can carry, for the Lens
+   * Corrections profile dropdown (#3569). `[]` for an unknown body.
+   */
+  compatibleLensProfiles(bytes: Uint8Array, ext: string): Promise<CompatibleLensProfile[]> {
+    return this.sampleQueue((worker, id, register) =>
+      dispatchCompatibleLensProfiles(worker, id, register, bytes, ext),
+    );
+  }
+
+  /**
+   * Resolve `reference` (`''` = the automatic match) against `bytes` for the
+   * profile dropdown (#3569) — independent of any render, so the picker
+   * reflects a pick immediately rather than waiting for the next develop.
+   */
+  lensProfileEvidence(
+    bytes: Uint8Array,
+    ext: string,
+    reference: string,
+  ): Promise<LensProfileEvidence> {
+    return this.sampleQueue((worker, id, register) =>
+      dispatchLensProfileEvidence(worker, id, register, bytes, ext, reference),
     );
   }
 

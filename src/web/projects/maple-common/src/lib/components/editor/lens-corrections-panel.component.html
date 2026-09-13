@@ -5,7 +5,9 @@
      (caInertOnly()) when the panel is active but its WarpRectilinear opcode
      has no per-plane divergence — see the .ts file banner for why the two
      dims don't compound. #3479: the import block above the controls is the
-     other way the panel comes alive (an imported LCP profile). -->
+     other way the panel comes alive (an imported LCP profile). #3569: the
+     profile dropdown above THAT picks a bundled Lensfun match instead. -->
+<lens-profile-select />
 <lens-profile-import />
 <div
   class="flex min-h-0 flex-col gap-2.5 p-2.5"
@@ -97,8 +99,9 @@
 </div>
 
 <!-- The camera-calibration note describes the bundled profile situation;
-     it is moot while an imported profile is what the renderer applies. -->
-@if (!imported()) {
+     it is moot once an imported OR bundled profile is what applies — the
+     dropdown above already says so (#3569). -->
+@if (!imported() && !bundledMatch()) {
   @if (lensSupport(); as support) {
     <section
       aria-label="Lens support"

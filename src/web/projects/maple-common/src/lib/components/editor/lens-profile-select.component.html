@@ -1,0 +1,19 @@
+<!-- LensProfileSelectComponent — the bundled-Lensfun profile dropdown
+     (#3569). See the .ts file banner for the resolve-directly-not-via-render
+     shape and its Apple twin. -->
+<div class="flex flex-col gap-1.5 pb-1" data-testid="lens-profile-select">
+  <mui-text variant="tool-label" color="muted">Profile</mui-text>
+  <mui-select
+    ariaLabel="Lens profile"
+    [value]="reference()"
+    [options]="options()"
+    [disabled]="selectDisabled()"
+    data-testid="lens-profile-select-input"
+    (valueChange)="select($event)"
+  />
+  @if (sourceDescription(); as description) {
+    <mui-text color="muted" [block]="true" data-testid="lens-profile-select-source">
+      {{ description }}
+    </mui-text>
+  }
+</div>
