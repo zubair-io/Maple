@@ -46,17 +46,15 @@ function errMessage(e: unknown): string {
  *  3. Orientation: every encoder in this pipeline bakes EXIF orientation
  *     into pixels at encode time (raw-ffi's `bake_orientation`, Maple's
  *     `.rotate()`) and never carries an orientation tag forward — see
- *     `thumbs/apply-orientation.ts`'s module doc. A tag other than `1` here
- *     means some path landed a cache entry that still depends on a tag no
- *     reader (server route, Apple, web) applies. NOTE: this check is
- *     currently structurally dead in practice — Maple's AVIF metadata probe
- *     hardcodes `orientation: 1` unconditionally (no irot/imir/EXIF handling
- *     yet in `avif_decode.rs`), and this pipeline's own AVIF encoder never
- *     writes an orientation box either, so `meta.orientation` is always `1`
- *     for every `.avif` file this function sees today. It's kept as
- *     defence-in-depth and will start actually engaging once the probe
- *     learns to read AVIF orientation (#3507) — until then it only ever
- *     protects formats whose probe reads EXIF/orientation metadata.
+ *     `thumbs/apply-orientation.ts`'s module doc. Maple's AVIF probe now
+ *     reads the real container transform (#3507) and, matching sharp/
+ *     libvips exactly, reports `orientation: undefined` whenever the file
+ *     carries no EXIF Orientation item — which is every AVIF this pipeline
+ *     writes, since it bakes rotation into pixels and never writes that
+ *     item. `1` remains accepted too (an explicit "no rotation" tag reads
+ *     the same as no tag at all). Any OTHER value means some path landed a
+ *     cache entry that still depends on a tag no reader (server route,
+ *     Apple, web) applies.
  *  4. Integrity: a full pixel decode must succeed. `.metadata()` alone is
  *     NOT sufficient — it can return a plausible width/height read straight
  *     from the AVIF's meta/header box even when the pixel payload is
@@ -88,7 +86,7 @@ export async function checkAvifOutput(
       reason: `dimensions ${meta.width}x${meta.height} exceed expected long edge ${expectedLongEdgePx} (+${DIMENSION_TOLERANCE_PX}px tolerance)`,
     };
   }
-  if (meta.orientation !== 1) {
+  if (meta.orientation !== undefined && meta.orientation !== 1) {
     return {
       ok: false,
       reason: `unexpected orientation tag ${meta.orientation} — this pipeline bakes rotation into pixels and writes no orientation tag`,
