@@ -28,7 +28,8 @@
 use super::*;
 use crate::dither::dither_and_quantize;
 use crate::full_chain::oracle::{
-    cpu_oracle, nonidentity_curve, nonidentity_lut, scene_linear_rgba, Case,
+    cpu_oracle, cpu_oracle_pre_dehaze, nonidentity_curve, nonidentity_lut, scene_linear_rgba,
+    shared_airlight, Case,
 };
 use crate::{CancelToken, GpuContext, LiveSession};
 
@@ -151,23 +152,15 @@ fn cpu_reference_u8(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<u8> {
 /// fixture into a `LiveSession`, run the gated chain to its final f32 buffer, then
 /// present (dither/quantize FS → `Bgra8Unorm` → readback → RGB).
 ///
-/// Uses the CPU-READBACK airlight session (`new_with_airlight_readback`): this is
-/// a PRESENT-shader gate vs the CPU `develop`+`render` oracle, so it must share
-/// the oracle's `compute_airlight`. The fixture here is `scene_linear_rgba`, whose
-/// dark channel is FLAT (saturated primaries every 11 px → every window's min is
-/// 0.1) — so "top 0.1%" is an all-tied selection where the on-GPU histogram
-/// (whole-image average) and the CPU sort legitimately diverge (~20 LSB after
-/// dehaze=45), NEITHER being "the airlight". That degeneracy is a property of this
-/// synthetic image, not the present path; the on-GPU airlight's end-to-end dehaze
-/// parity is gated on a HAZY fixture in `live_session/tests.rs`. (#1033)
-fn gpu_present_u8(
-    ctx: &GpuContext,
-    input: &[f32],
-    w: u32,
-    h: u32,
-    inputs: &crate::FullChainInputs,
-) -> Vec<u8> {
-    gpu_present_u8_with_geometry(ctx, input, w, h, inputs, crate::PresentGeometry::IDENTITY)
+/// AIRLIGHT (#3602): the GPU chain is handed the SAME `[f32; 3]` the CPU oracle
+/// uses — `oracle::shared_airlight`, measured once on the oracle's own pre-dehaze
+/// buffer — via `AirlightSource::Cpu`; it must not measure its own. Why, and the
+/// numbers behind it, are in `present_gate_shared_airlight_is_load_bearing`
+/// below. Sharing A removes a global reduction this gate does not measure; the
+/// on-GPU reduction and the readback split keep their own gates
+/// (`airlight/tests.rs`, `live_session/airlight_tests.rs`, `live_session/tests.rs`).
+fn gpu_present_u8(ctx: &GpuContext, input: &[f32], w: u32, h: u32, case: &Case) -> Vec<u8> {
+    gpu_present_u8_with_geometry(ctx, input, w, h, case, crate::PresentGeometry::IDENTITY)
 }
 
 /// [`gpu_present_u8`] with a manual-geometry homography armed on the present
@@ -177,14 +170,27 @@ fn gpu_present_u8_with_geometry(
     input: &[f32],
     w: u32,
     h: u32,
-    inputs: &crate::FullChainInputs,
+    case: &Case,
     geometry: crate::PresentGeometry,
 ) -> Vec<u8> {
-    let session = LiveSession::new_with_airlight_readback(ctx, input, w, h).expect("session");
-    let cancel = CancelToken::new();
+    let a = shared_airlight(input, w, h, case);
+    gpu_present_u8_with_airlight(ctx, input, w, h, case, geometry, a)
+}
+
+/// [`gpu_present_u8_with_geometry`] with the airlight chosen by the caller — the
+/// seam the #3602 regression test uses to prove the shared A is load-bearing.
+fn gpu_present_u8_with_airlight(
+    ctx: &GpuContext,
+    input: &[f32],
+    w: u32,
+    h: u32,
+    case: &Case,
+    geometry: crate::PresentGeometry,
+    airlight: [f32; 3],
+) -> Vec<u8> {
+    let session = LiveSession::new(ctx, input, w, h).expect("session");
     let final_idx = session
-        .render_chain_to_f32(ctx, inputs, &cancel)
-        .expect("chain-to-f32 ok")
+        .encode_chain_f32_fixed_airlight(ctx, &case.gpu_inputs(), airlight)
         .expect("uncancelled chain-to-f32 returns Some");
     present_chain_to_offscreen(ctx, &session, final_idx, geometry).expect("offscreen present ok")
 }
@@ -224,8 +230,7 @@ fn offscreen_present_matches_cpu_render_within_1_lsb() {
         ("mild", mild_case()),
         ("aggressive", aggressive_case()),
     ] {
-        let inputs = case.gpu_inputs();
-        let got = gpu_present_u8(&ctx, &input, w, h, &inputs);
+        let got = gpu_present_u8(&ctx, &input, w, h, &case);
         let want = cpu_reference_u8(&input, w, h, &case);
 
         let (max_delta, frac) = byte_diff(&got, &want);
@@ -259,9 +264,7 @@ fn present_paints_the_image_not_the_clear_color() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64u32, 64u32);
     let input = scene_linear_rgba(w as usize, h as usize);
-    let inputs = aggressive_case().gpu_inputs();
-
-    let got = gpu_present_u8(&ctx, &input, w, h, &inputs);
+    let got = gpu_present_u8(&ctx, &input, w, h, &aggressive_case());
     let min = *got.iter().min().unwrap();
     let max = *got.iter().max().unwrap();
     // The clear colour is a single grey ~127; a real image spans a wide range.
@@ -310,8 +313,7 @@ fn offscreen_present_row_alignment_misaligned_width() {
         ("mild", mild_case()),
         ("aggressive", aggressive_case()),
     ] {
-        let inputs = case.gpu_inputs();
-        let got = gpu_present_u8(&ctx, &input, w, h, &inputs);
+        let got = gpu_present_u8(&ctx, &input, w, h, &case);
         let want = cpu_reference_u8(&input, w, h, &case);
         assert_eq!(got.len(), want.len(), "[{name}] length mismatch");
 
@@ -344,6 +346,87 @@ fn offscreen_present_row_alignment_misaligned_width() {
             w * 4
         );
     }
+}
+
+/// #3602 REGRESSION GATE — the shared airlight is load-bearing, not incidental.
+///
+/// Dehaze measures A from whatever buffer it is handed, and the GPU's pre-dehaze
+/// buffer agrees with the CPU oracle's only to the chains' float tolerance
+/// (~5e-6 absolute, measured on Metal at this size). On a photograph that is
+/// invisible — the dark channel has structure, its top-0.1% cut sits 4–9% below
+/// its maximum, and A moves by <2e-7 relative. On THIS fixture the dark channel
+/// is flat: saturated primaries every 11 px pin every 15×15 window's min, so
+/// after the aggressive chain the whole top of the distribution spans 4.2e-5
+/// relative — an order of magnitude BELOW that tolerance. `atmospheric_light`'s
+/// exact top-0.1% rank cut then ranks pure float noise; the two sides select
+/// different pixels from a ~631-member tied pool containing the fixture's 1-in-11
+/// HDR seed at (5.0, 3.0, 1.5), A moves ~6%, and the recovery divide turns that
+/// into ~60/255. Which side of that a run landed on came down to the exact GPU,
+/// which is what made the Metal CI job flake.
+///
+/// So: present the same chain twice, once with the shared A and once with an A
+/// re-measured from a buffer drifted by `GPU_PRE_DEHAZE_DRIFT`. Deterministic and
+/// hardware-independent — the drift is a fixed CPU-side constant, not something a
+/// particular GPU has to produce.
+#[test]
+fn present_gate_shared_airlight_is_load_bearing() {
+    /// Max |GPU − CPU| over the pre-dehaze buffer, measured at 300×200 on this
+    /// project's reference Mac (Metal): 4.6e-6 for the aggressive case.
+    const GPU_PRE_DEHAZE_DRIFT: f32 = 5e-6;
+
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (300u32, 200u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let case = aggressive_case();
+    let want = cpu_reference_u8(&input, w, h, &case);
+
+    // 1. The gate as it now stands: ONE airlight, both sides. Within budget.
+    let shared = shared_airlight(&input, w, h, &case);
+    let (shared_delta, _) = byte_diff(&gpu_present_u8(&ctx, &input, w, h, &case), &want);
+    assert!(
+        shared_delta <= MAX_BYTE_DELTA,
+        "sharing the airlight must keep the present within {MAX_BYTE_DELTA} LSB, got \
+         {shared_delta}"
+    );
+
+    // 2. What measuring A per side costs. The drifted buffer is numerically the
+    //    same image; only the last few ULPs differ.
+    let drifted: Vec<f32> = cpu_oracle_pre_dehaze(&input, w, h, &case)
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            // Per PIXEL, alternating sign — a uniform shift reorders nothing.
+            let d = GPU_PRE_DEHAZE_DRIFT;
+            v + if (i / 4) % 2 == 0 { d } else { -d }
+        })
+        .collect();
+    let drifted_airlight = crate::compute_airlight(&drifted, w as usize, h as usize);
+    let airlight_shift = (0..3)
+        .map(|i| (drifted_airlight[i] - shared[i]).abs())
+        .fold(0.0f32, f32::max);
+    let (drifted_delta, _) = byte_diff(
+        &gpu_present_u8_with_airlight(
+            &ctx,
+            &input,
+            w,
+            h,
+            &case,
+            crate::PresentGeometry::IDENTITY,
+            drifted_airlight,
+        ),
+        &want,
+    );
+    eprintln!(
+        "AIRLIGHT SHARING [#3602, aggressive, {w}x{h}]: shared A = {shared:?} → max byte delta \
+         {shared_delta}; A re-measured from a buffer drifted by {GPU_PRE_DEHAZE_DRIFT:e} = \
+         {drifted_airlight:?} (shift {airlight_shift:.4}) → max byte delta {drifted_delta}"
+    );
+    assert!(
+        drifted_delta > MAX_BYTE_DELTA,
+        "this gate is vacuous unless a per-side airlight actually breaks it: a {GPU_PRE_DEHAZE_DRIFT:e} \
+         drift moved A by {airlight_shift:.4} yet the present only moved {drifted_delta} LSB. If the \
+         fixture's dark channel gained real structure, drop this test and let both sides measure A."
+    );
 }
 
 /// A pre-cancelled token abandons the chain-to-f32 render before encoding
@@ -414,16 +497,10 @@ fn identity_geometry_present_is_byte_identical_to_no_geometry() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64u32, 64u32);
     let input = scene_linear_rgba(w as usize, h as usize);
-    let inputs = mild_case().gpu_inputs();
-    let plain = gpu_present_u8(&ctx, &input, w, h, &inputs);
-    let flagged = gpu_present_u8_with_geometry(
-        &ctx,
-        &input,
-        w,
-        h,
-        &inputs,
-        crate::PresentGeometry::IDENTITY,
-    );
+    let case = mild_case();
+    let plain = gpu_present_u8(&ctx, &input, w, h, &case);
+    let flagged =
+        gpu_present_u8_with_geometry(&ctx, &input, w, h, &case, crate::PresentGeometry::IDENTITY);
     assert_eq!(plain, flagged, "identity geometry perturbed the present");
     assert!(!crate::PresentGeometry::IDENTITY.is_active());
 }
@@ -454,7 +531,7 @@ fn offscreen_present_with_manual_geometry_matches_the_cpu_warp() {
             &input,
             w,
             h,
-            &case.gpu_inputs(),
+            &case,
             crate::PresentGeometry::from_inverse(inverse.0),
         );
         let want = cpu_reference_warped_u8(&input, w, h, &case, &geometry);
@@ -499,7 +576,7 @@ fn manual_geometry_surround_is_black_on_the_gpu_present() {
         &input,
         w,
         h,
-        &mild_case().gpu_inputs(),
+        &mild_case(),
         crate::PresentGeometry::from_inverse(inverse.0),
     );
     let row = 32usize;
