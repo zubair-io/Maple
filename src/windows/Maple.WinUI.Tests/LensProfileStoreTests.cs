@@ -69,6 +69,28 @@ namespace Maple.WinUI.Tests
             }));
         }
 
+        /// <summary>A bundled Lensfun pick (#3564/#3568) — Automatic ("") or
+        /// an explicit `lensfun1:&lt;slug&gt;` — never needs THIS store: the
+        /// database is compiled into raw-core, so nothing on
+        /// `%LOCALAPPDATA%` backs it. Before this exclusion,
+        /// <see cref="LensProfileStore.RestoreForFile"/> would call
+        /// <see cref="LensProfileStore.Digest"/> on a `lensfun1:` reference
+        /// and throw — turning every bundled-lens pick into a decode failure.</summary>
+        [Fact]
+        public void BundledLensfunReferencesNeverRequireTheImportedProfileStore()
+        {
+            Assert.False(LensProfileStore.RequiresProfile(new AdjustmentState
+            {
+                LensProfile = "lensfun1:sony/fe-24-70mm-f4-za-oss@sony-e",
+                LensCorrectionDistortion = 50,
+            }));
+            LensProfileStore.RestoreForFile("missing.dng", new AdjustmentState
+            {
+                LensProfile = "lensfun1:sony/fe-24-70mm-f4-za-oss@sony-e",
+                LensCorrectionDistortion = 50,
+            });
+        }
+
         [Fact]
         public void DisabledOrZeroStrengthSelectionsRestoreWithoutTouchingTheCore()
         {
@@ -119,6 +141,46 @@ namespace Maple.WinUI.Tests
             Assert.Contains("Covers: distortion, vignetting", text);
             Assert.Contains("Approximation: focal 24 mm below calibrated 35 mm", text);
             Assert.Contains("Unsupported: Sample 2: Version2PerspectiveModel", text);
+        }
+
+        /// <summary>The `lensfun` source (#3564/#3568): `lens`/`dbVersion`
+        /// decode into the record, `Lensfun` reads true, and `Describe()`
+        /// names the matched lens rather than falling through to the LCP
+        /// import wording ("Imported profile matches…") that predates the
+        /// bundled database.</summary>
+        [Fact]
+        public void ResolveJsonMapsTheLensfunSourceWithLensAndDbVersion()
+        {
+            using var document = JsonDocument.Parse("""
+                {"source":"lensfun","lens":"Sony FE 24-70mm f/4 ZA OSS","dbVersion":"12f5976 (2026-09-11)",
+                 "confidence":"in-range","hasDistortion":true,"hasCa":true,"hasVignetting":true,
+                 "approximations":[],"unsupported":[]}
+                """);
+            var resolution = LensProfileStore.ParseResolution(document.RootElement);
+
+            Assert.True(resolution.Lensfun);
+            Assert.False(resolution.Imported);
+            Assert.False(resolution.Embedded);
+            Assert.Equal("Sony FE 24-70mm f/4 ZA OSS", resolution.Lens);
+            Assert.Equal("12f5976 (2026-09-11)", resolution.DbVersion);
+            Assert.Contains("Lensfun match: Sony FE 24-70mm f/4 ZA OSS (database 12f5976 (2026-09-11))", resolution.Describe());
+            Assert.Contains("Covers: distortion, chromatic aberration, vignetting", resolution.Describe());
+        }
+
+        /// <summary>Every other source omits `lens`/`dbVersion` entirely
+        /// (never `null`) — <see cref="LensProfileStore.ParseResolution"/>
+        /// must read the absence as `null`, not throw.</summary>
+        [Fact]
+        public void ResolveJsonWithoutLensOrDbVersionDecodesToNull()
+        {
+            using var document = JsonDocument.Parse("""
+                {"source":"lcp","confidence":"in-range","hasDistortion":true,"hasCa":false,
+                 "hasVignetting":true,"approximations":[],"unsupported":[]}
+                """);
+            var resolution = LensProfileStore.ParseResolution(document.RootElement);
+            Assert.Null(resolution.Lens);
+            Assert.Null(resolution.DbVersion);
+            Assert.False(resolution.Lensfun);
         }
 
         [Theory]

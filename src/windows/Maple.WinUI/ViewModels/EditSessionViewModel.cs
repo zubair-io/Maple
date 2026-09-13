@@ -247,6 +247,7 @@ namespace Maple.WinUI.ViewModels
         private void DecodeCurrent(PhotoItem photo)
         {
             ResetLensProfileState();   // #3480 — EditSessionViewModel.LensProfile.cs
+            RefreshLensProfileChoices(photo);   // #3568 — the profile dropdown's option list
             var generation = Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
 
