@@ -298,26 +298,15 @@ impl Case {
     }
 }
 
-/// The CPU reference: run the SAME stages in the SAME order by calling the real
-/// `raw-core` stage functions on an `Image`, then the full view tail (incl.
-/// `srgb_gamma_encode` in its render position). Returns a flat interleaved RGBA
-/// buffer (alpha = 1.0).
-///
-/// CRUCIAL for the LIVE gate: every scene-linear `apply` fn here short-circuits
-/// at its no-op threshold (e.g. `vibrance::apply` returns early at `|v| < 1e-3`),
-/// so a neutral `Case` yields the same pixels the *gated* `build_live_chain`
-/// produces (which OMITS those passes) — but NOT what the *ungated*
-/// `build_full_chain_passes` produces (which runs them unconditionally). That
-/// gap is exactly what `live_chain/tests.rs` measures.
-pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
+/// The scene-linear stages in develop order UP TO (but not including) dehaze —
+/// the exact buffer `raw_core::stages::dehaze::apply` measures its atmospheric
+/// light from. Each `apply` short-circuits at its own no-op threshold, which is
+/// what the gated `build_live_chain`'s pass-inclusion `if`s replicate.
+fn pre_dehaze_image(input: &[f32], w: u32, h: u32, case: &Case) -> Image {
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
     for (i, chunk) in input.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
-
-    // --- scene-linear stages, in develop order (each short-circuits at its
-    //     no-op threshold; that early-return is the behavior the live builder's
-    //     `if` guards replicate at the pass-inclusion level) ---
     if let Some(p) = &case.capture {
         raw_core::stages::capture_sharpening::apply_capture_sharpening(&mut img, &rc_capture(p));
     }
@@ -335,6 +324,52 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     raw_core::stages::hsl::apply_model(&mut img, &case.model);
     raw_core::stages::clarity::apply(&mut img, case.model.clarity);
     raw_core::stages::texture::apply(&mut img, case.model.texture);
+    img
+}
+
+/// [`pre_dehaze_image`] as an interleaved RGBA f32 buffer (alpha = 1.0) — the
+/// shape [`crate::compute_airlight`] takes. (#3602)
+pub fn cpu_oracle_pre_dehaze(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
+    let img = pre_dehaze_image(input, w, h, case);
+    let mut out = Vec::with_capacity(input.len());
+    for p in &img.pixels {
+        out.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
+    }
+    out
+}
+
+/// The ONE atmospheric light a chain-output parity gate must hand to BOTH sides
+/// (#3602). Dehaze measures A from its own input buffer, so the GPU chain and
+/// this CPU oracle each measure it from a buffer that agrees with the other only
+/// to the chains' float tolerance (~5e-6 absolute, measured on Metal). That is
+/// harmless on a photograph, whose dark channel has structure — but on a
+/// synthetic fixture whose dark channel is flatter than that tolerance,
+/// `atmospheric_light`'s exact top-0.1% rank cut ranks pure float noise and the
+/// two sides select different pixels, moving A by ~6% and the presented bytes by
+/// ~60/255. Gates that compare GPU bytes against this oracle therefore pin A
+/// here, on the CPU oracle's own pre-dehaze buffer, and feed it to the GPU chain
+/// as `AirlightSource::Cpu`. Zero when dehaze is inactive (A is then unused).
+pub fn shared_airlight(input: &[f32], w: u32, h: u32, case: &Case) -> [f32; 3] {
+    if case.model.dehaze.abs() < 1e-3 {
+        return [0.0; 3];
+    }
+    let pre = cpu_oracle_pre_dehaze(input, w, h, case);
+    crate::compute_airlight(&pre, w as usize, h as usize)
+}
+
+/// The CPU reference: run the SAME stages in the SAME order by calling the real
+/// `raw-core` stage functions on an `Image`, then the full view tail (incl.
+/// `srgb_gamma_encode` in its render position). Returns a flat interleaved RGBA
+/// buffer (alpha = 1.0).
+///
+/// CRUCIAL for the LIVE gate: every scene-linear `apply` fn here short-circuits
+/// at its no-op threshold (e.g. `vibrance::apply` returns early at `|v| < 1e-3`),
+/// so a neutral `Case` yields the same pixels the *gated* `build_live_chain`
+/// produces (which OMITS those passes) — but NOT what the *ungated*
+/// `build_full_chain_passes` produces (which runs them unconditionally). That
+/// gap is exactly what `live_chain/tests.rs` measures.
+pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
+    let mut img = pre_dehaze_image(input, w, h, case);
     raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);
     // Defringe (#3411) — develop's 12a slot, between dehaze and local
     // adjustments. Both amounts default to 0, so every pre-#3411 case
