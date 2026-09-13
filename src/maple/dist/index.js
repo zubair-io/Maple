@@ -340,6 +340,7 @@ function getFfiSymbols(FFIType) {
 
 // src/native-raster-analyze.ts
 var NEED_LARGER_BUFFER = 100;
+var MAX_ANALYZE_REPLY_BYTES = 64 * 1024 * 1024;
 function createRasterAnalyzeBinding(lib, ptr, getLastError) {
   return {
     rasterAnalyzeBuf(input, requestJson) {
@@ -354,6 +355,12 @@ function createRasterAnalyzeBinding(lib, ptr, getLastError) {
       }
       if (rc0 !== NEED_LARGER_BUFFER) {
         return { ok: false, error: getLastError() || `Analyze failed with code ${rc0}` };
+      }
+      if (needed() > MAX_ANALYZE_REPLY_BYTES) {
+        return {
+          ok: false,
+          error: `Analyze reply of ${needed()} bytes exceeds the ${MAX_ANALYZE_REPLY_BYTES}-byte limit`
+        };
       }
       const grown = Buffer.alloc(needed());
       const rc = call(grown);
@@ -1364,7 +1371,12 @@ async function normalizeOrientationInPlace(state, metadata, develop) {
     } catch {}
     throw new Error(res.error || "Failed to normalize orientation");
   }
-  await fs5.rename(tempOut, inputPath);
+  try {
+    await fs5.rename(tempOut, inputPath);
+  } catch (error) {
+    await fs5.unlink(tempOut).catch(() => {});
+    throw error;
+  }
   return true;
 }
 async function bitmapToFile(state, outputPath) {
