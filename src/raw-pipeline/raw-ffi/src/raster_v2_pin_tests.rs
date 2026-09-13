@@ -22,8 +22,20 @@
 //!   that is the #3502 fix, pinned separately in raw-core's resize tests.
 //!
 //! A hash mismatch here means one of: the resize arithmetic moved, the
-//! resampler's weights moved, or the JPEG encoder was upgraded. All three are
-//! worth a deliberate look; none should happen silently.
+//! resampler's weights moved, the JPEG encoder was upgraded, or the embedded
+//! sRGB ICC profile changed (`icc::profile_for`, embedded by
+//! `encode_raster_rgb`). All are worth a deliberate look; none should happen
+//! silently. The encoded LENGTH stays a stronger signal for the first three,
+//! since the ICC profile is a fixed 6684-byte block — a length-only match
+//! with a hash mismatch points at the profile, not the resize.
+//!
+//! Re-pinned 2026-09-13 after #3582 fixed `icc.rs`'s `trc_tag()` (it was
+//! writing the OETF into a curve tag that must hold the EOTF, making every
+//! ICC-tagged export render ~2x too bright in a colour-managed reader).
+//! That changed the embedded profile's bytes with no change to pixel
+//! placement — confirmed by an empty `raster_resize.rs` / `raster_geometry.rs`
+//! / `raster_composite.rs` diff across the fix. The encoded length held
+//! (7378 / 7392), only the hash moved.
 
 use super::*;
 use std::ffi::CString;
@@ -94,7 +106,7 @@ fn tier_1_inside_thumbnail_bytes_are_pinned() {
     assert_eq!(len, 7378, "encoded length moved: {hash}");
     assert_eq!(
         hash,
-        "eca9203d12a9775ec4709fe834dd39a5353150358eb98baeb82c0f9b8a49677f"
+        "abaeb9428ba6ff830c1485ecd09ea32154535d67ee9302fdafc89d5e7cb0a38b"
     );
 }
 
@@ -104,6 +116,6 @@ fn tier_1_cover_thumbnail_bytes_are_pinned() {
     assert_eq!(len, 7392, "encoded length moved: {hash}");
     assert_eq!(
         hash,
-        "7b78a3dc46728ea379ba2eeded727762c8734d441f98ef09ae4838ad42cc6f39"
+        "51311a9ce529f487b3728f087258eff15bf5f09e7ec6db37c6b9b2c4c624c7f1"
     );
 }
