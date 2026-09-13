@@ -7,6 +7,16 @@
 /** rc from the C ABI for "your buffer was too small; `*out_len` is the size". */
 const NEED_LARGER_BUFFER = 100;
 
+/**
+ * Upper bound on the second-pass allocation `*out_len` drives. The Rust side
+ * already caps each sidecar block it will return at 16 MiB
+ * (`raster_meta.rs`'s `MAX_SIDECAR_BYTES`), so a reply carrying every field
+ * (icc + exif + xmp, each base64'd to ~1.34x, plus stats) comfortably fits
+ * well under this; a `*out_len` above it means a corrupt reply or a hostile
+ * native layer, not a legitimate image.
+ */
+const MAX_ANALYZE_REPLY_BYTES = 64 * 1024 * 1024;
+
 export interface RasterAnalyzeBinding {
   rasterAnalyzeBuf(
     input: Uint8Array,
@@ -42,6 +52,12 @@ export function createRasterAnalyzeBinding(
       }
       if (rc0 !== NEED_LARGER_BUFFER) {
         return { ok: false, error: getLastError() || `Analyze failed with code ${rc0}` };
+      }
+      if (needed() > MAX_ANALYZE_REPLY_BYTES) {
+        return {
+          ok: false,
+          error: `Analyze reply of ${needed()} bytes exceeds the ${MAX_ANALYZE_REPLY_BYTES}-byte limit`,
+        };
       }
       const grown = Buffer.alloc(needed());
       const rc = call(grown);

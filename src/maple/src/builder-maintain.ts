@@ -75,7 +75,12 @@ export async function normalizeOrientationInPlace(
     } catch {}
     throw new Error(res.error || 'Failed to normalize orientation');
   }
-  await fs.rename(tempOut, inputPath);
+  try {
+    await fs.rename(tempOut, inputPath);
+  } catch (error) {
+    await fs.unlink(tempOut).catch(() => {});
+    throw error;
+  }
   return true;
 }
 
