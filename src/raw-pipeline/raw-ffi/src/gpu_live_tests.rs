@@ -148,6 +148,15 @@ fn masked_model() -> AdjustmentModel {
                     temperature: Some(1500.0),
                     tint: Some(6.0),
                     hue: Some(-20.0),
+                    texture: Some(15.0),
+                    clarity: Some(-10.0),
+                    // Dehaze stays off in this fixture (module doc): the 8x8
+                    // fixture's flat dark channel makes the GPU-vs-CPU
+                    // airlight comparison degenerate.
+                    dehaze: None,
+                    sharpness: Some(35.0),
+                    luminance_noise: Some(20.0),
+                    defringe: Some(40.0),
                 },
             },
             LocalAdjustment {
