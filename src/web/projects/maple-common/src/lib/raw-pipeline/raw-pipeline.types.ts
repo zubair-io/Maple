@@ -8,6 +8,17 @@ import type {
   LensProfileStatus,
   LensProfileSuccess,
 } from '../lens/lens-profile.types';
+// Lens Corrections profile dropdown (#3569) — its own request/response pair,
+// separate from the render-reply-fed shapes above (see the file banner on
+// `lens-profile-choice.types.ts` for why).
+import type {
+  LensProfileCompatibleError,
+  LensProfileCompatibleRequest,
+  LensProfileCompatibleSuccess,
+  LensProfileEvidenceError,
+  LensProfileEvidenceRequest,
+  LensProfileEvidenceSuccess,
+} from '../lens/lens-profile-choice.types';
 // Shared types for raw-pipeline worker communication.
 
 // `DecodeRequest` lives in its own file (#3479, file-size budget) and is
@@ -291,6 +302,10 @@ export type WorkerResponse =
   | LensProfileError
   | LensProfileFetch
   | LensProfileStatus
+  | LensProfileCompatibleSuccess
+  | LensProfileCompatibleError
+  | LensProfileEvidenceSuccess
+  | LensProfileEvidenceError
   | DecodeSuccess
   | DecodeError
   | DecodeSceneLinearSuccess
@@ -452,6 +467,8 @@ export type WorkerRequest =
   | import('./raw-pipeline.native-detail.types').CloseNativeDetailRequest
   | LensProfileRequest
   | LensProfileRestored
+  | LensProfileCompatibleRequest
+  | LensProfileEvidenceRequest
   | DecodeRequest
   | DevelopNonRawRequest
   | DecodeSceneLinearRequest

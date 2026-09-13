@@ -208,6 +208,30 @@ const settleLensProfile: Settler<'lens-profile'> = (msg, handler) => {
   return false;
 };
 
+const settleLensProfileCompatible: Settler<'lens-profile-compatible'> = (msg, handler) => {
+  if (msg.type === 'lens-profile-compatible-success') {
+    handler.resolve(msg.lenses);
+    return true;
+  }
+  if (msg.type === 'lens-profile-compatible-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
+const settleLensProfileEvidence: Settler<'lens-profile-evidence'> = (msg, handler) => {
+  if (msg.type === 'lens-profile-evidence-success') {
+    handler.resolve(msg.evidence);
+    return true;
+  }
+  if (msg.type === 'lens-profile-evidence-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
 const settleExport: Settler<'export'> = (msg, handler) => {
   if (msg.type === 'export-success') {
     handler.resolve({
@@ -256,6 +280,8 @@ const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
   'sample-range': settleSampleRange,
   'register-mask-raster': settleRegisterMaskRaster,
   'lens-profile': settleLensProfile,
+  'lens-profile-compatible': settleLensProfileCompatible,
+  'lens-profile-evidence': settleLensProfileEvidence,
   export: settleExport,
 };
 
