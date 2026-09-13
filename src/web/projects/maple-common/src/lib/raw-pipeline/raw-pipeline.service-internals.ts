@@ -1,5 +1,6 @@
 import type { CameraSupport } from '../state/camera-support';
 import type { ImportedLensProfile, LensProfileResolution } from '../lens/lens-profile.types';
+import type { CompatibleLensProfile, LensProfileEvidence } from '../lens/lens-profile-choice.types';
 // raw-pipeline.service-internals.ts
 // Extracted from raw-pipeline.service.ts (pure code move — no behaviour change).
 // Contains: public session result types (OpenedLiveSession, RenderedLiveSession)
@@ -80,6 +81,18 @@ export type PendingHandler =
       kind: 'lens-profile';
       /** Resolves with the registered profile + its resolution for the RAW (#3479). */
       resolve: (profile: ImportedLensProfile) => void;
+      reject: (err: Error) => void;
+    }
+  | {
+      kind: 'lens-profile-compatible';
+      /** Every bundled lens the RAW's body can carry (#3569). */
+      resolve: (lenses: CompatibleLensProfile[]) => void;
+      reject: (err: Error) => void;
+    }
+  | {
+      kind: 'lens-profile-evidence';
+      /** The resolver's verdict for one reference (#3569). */
+      resolve: (evidence: LensProfileEvidence) => void;
       reject: (err: Error) => void;
     }
   | {
