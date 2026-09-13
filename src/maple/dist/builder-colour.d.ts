@@ -44,10 +44,26 @@ export declare function pushGreyscale(state: BuilderState, greyscale: boolean): 
  * second `.gamma()` call replaces the pending pair, matching sharp.
  */
 export declare function pushGamma(state: BuilderState, gamma: number, gammaOut?: number): void;
-/** `a * input + b`, per channel or scalar. */
+/**
+ * `a * input + b`, per channel or scalar.
+ *
+ * `a` and `b` must be the same length, counting a scalar as length 1 — so
+ * `linear(1.2, [0, 10, -10])` is rejected, exactly as sharp rejects it
+ * (`lib/operation.js`: `linearA.length !== linearB.length`).
+ */
 export declare function pushLinear(state: BuilderState, a?: number | number[], b?: number | number[]): void;
-/** Produce the negative. `alpha: false` spares the alpha channel. */
-export declare function pushNegate(state: BuilderState, alpha: boolean): void;
+/**
+ * Produce the negative. `{ alpha: false }` spares the alpha channel.
+ *
+ * `negate(false)` DISABLES the op, as in sharp: `this.options.negate =
+ * is.bool(options) ? options : true` (`lib/operation.js:584`). Measured —
+ * sharp's `negate(false)` returns the source pixels untouched. This lane's
+ * own `greyscale(false)` already worked that way, so the pair was
+ * internally inconsistent (#3503 review I4).
+ */
+export declare function pushNegate(state: BuilderState, options?: boolean | {
+    alpha?: boolean;
+}): void;
 /** Stretch luminance between the given percentiles. */
 export declare function pushNormalise(state: BuilderState, lower: number, upper: number): void;
 /** Scale L* and C* and rotate hue, in CIELCh. */
@@ -56,11 +72,19 @@ export declare function pushModulate(state: BuilderState, brightness: number, sa
 export declare function pushTint(state: BuilderState, tint: Colour | string): void;
 /**
  * Target colourspace. For bitmaps this pushes a recipe op that rotates the
- * primaries and tags the output with the matching ICC profile — accepted
- * names and error-by-name rejection (`b-w`/`cmyk`/`lab`/…) both live
- * raw-core side (`raster_recipe_colour::primaries_from_wire`), so an
- * unsupported name is not re-validated here. `state.colorSpace` also moves,
- * for the RAW-develop path (`colorSpace()`, Tier 1), which does its own
- * colour management and never sees this op.
+ * primaries and tags the output with the matching ICC profile.
+ *
+ * `'b-w'` is the one libvips interpretation name sharp's own
+ * `toColourspace` takes that Maple can honour, and it means exactly what
+ * `greyscale()` means — sharp reaches `image.colourspace(B_W)` either way —
+ * so it pushes the greyscale op rather than a primaries rotation (#3503
+ * review I2). Everything else is either a primaries name or an error.
+ *
+ * An unrecognised name throws HERE rather than only raw-core side. The
+ * RAW-develop path never sees `state.ops`, so the previous
+ * `space === 'srgb' ? 'srgb' : 'display-p3'` silently exported Display P3
+ * for any unrecognised string — including `'b-w'` and typos — where Tier 1
+ * exported sRGB (#3503 review, cross-task consistency). `gamma`/`gammaOut`
+ * already validate synchronously in this file, so the shape matches.
  */
 export declare function pushToColourspace(state: BuilderState, space: string): void;
