@@ -533,6 +533,12 @@ async fn map_u8_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Result<Ve
 #[path = "present_chain/tests.rs"]
 mod tests;
 
+// The #3602 shared-airlight contract, in its own file for the same budget; it
+// reuses `tests`' fixtures and present helpers (`pub(super)` there).
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "present_chain/airlight_tests.rs"]
+mod airlight_tests;
+
 #[cfg(all(test, target_vendor = "apple"))]
 #[path = "present_chain/reservation_tests.rs"]
 mod reservation_tests;
