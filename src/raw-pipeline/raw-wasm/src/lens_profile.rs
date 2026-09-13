@@ -44,6 +44,25 @@ fn embedded_metadata() -> serde_json::Value {
     })
 }
 
+/// `evidence_for` returning `Ok(None)` collapses two distinct situations —
+/// the RAW's own `OpcodeList3` already won, or nothing (bundle or explicit
+/// selection) matched at all — that a bare `"embedded"` verdict cannot tell
+/// apart. Mirrors raw-ffi's `maple_lens_profile_resolve_file` fallback
+/// exactly (`raw-ffi/src/lens_profile.rs`), so the Lens Corrections dropdown
+/// (#3569) reports "no match" rather than misreporting embedded corrections
+/// that were never there.
+fn fallback_metadata(raw: &raw_core::RawImage) -> serde_json::Value {
+    serde_json::json!({
+        "source": if raw.has_lens_corrections() { "embedded" } else { "none" },
+        "confidence": "embedded",
+        "approximations": [],
+        "unsupported": [],
+        "hasDistortion": raw.has_lens_corrections(),
+        "hasCa": !raw.lens_correction_ca_inert(),
+        "hasVignetting": raw.has_lens_corrections(),
+    })
+}
+
 /// Register user-owned LCP bytes in this worker's process cache. Returns
 /// the inventory JSON (`reference`, `name`, `make`, `camera`, `lens`,
 /// `sampleCount`) the import panel shows.
@@ -102,7 +121,7 @@ pub fn resolve_lens_profile(bytes: &[u8], ext: &str, reference: &str) -> Result<
     };
     let metadata = raw_core::lens_profile::evidence_for(&raw, &model)
         .map_err(|e| JsError::new(&e))?
-        .unwrap_or_else(embedded_metadata);
+        .unwrap_or_else(|| fallback_metadata(&raw));
     Ok(metadata.to_string())
 }
 

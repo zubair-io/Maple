@@ -33,6 +33,10 @@ import {
   lensProfileRestored,
   restoreLensProfile,
 } from './raw-pipeline.lens-profile';
+import {
+  fetchLensProfileEvidence,
+  listCompatibleLensProfiles,
+} from './raw-pipeline.lens-profile-choice';
 import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
@@ -102,6 +106,17 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   }
   if (req.type === 'import-lens-profile') {
     await importLensProfile(req);
+    return;
+  }
+  // Lens Corrections profile dropdown (#3569): compatible-lens list + one
+  // reference's evidence, both computed directly off `bytes` — no sidecar
+  // to restore, so these skip the `'xmp' in req` restore check below.
+  if (req.type === 'lens-profile-compatible') {
+    await listCompatibleLensProfiles(req);
+    return;
+  }
+  if (req.type === 'lens-profile-evidence') {
+    await fetchLensProfileEvidence(req);
     return;
   }
   if ('xmp' in req) await restoreLensProfile(req.xmp ?? null);

@@ -40,8 +40,24 @@
 // not cover — a strength for an uncalibrated family is inert in raw-core.
 // Embedded corrections still win: a RAW with its own opcodes reports the
 // profile as `embedded`, and the opcode gates above apply unchanged.
+//
+// #3569: a bundled Lensfun match (automatic, or a manual `lensfun1:` pick
+// from `LensProfileSelectComponent`'s dropdown) is a THIRD way the panel
+// comes alive — the develop path already applies it with no `OpcodeList3`
+// and no imported LCP, so leaving the toggle/sliders looking inert while
+// that's happening would visibly contradict what the render is doing.
+// `profileSelect` reads the dropdown's own resolved evidence (a `viewChild`
+// signal query, since that state lives in the child, not here) the same way
+// `imported` above reads the render-fed capability signal for an LCP match.
 
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
@@ -49,6 +65,7 @@ import { MuiTextComponent } from '../../ui/text/mui-text.component';
 import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
 import { DEFAULT_LENS_CORRECTION_CAPABILITY } from '../../state/library-store-lens-corrections';
 import { LensProfileImportComponent } from './lens-profile-import.component';
+import { LensProfileSelectComponent } from './lens-profile-select.component';
 
 const DISTORTION_RANGE = ADJUSTMENT_RANGES.lensCorrectionDistortion;
 const CA_RANGE = ADJUSTMENT_RANGES.lensCorrectionCa;
@@ -57,7 +74,12 @@ const VIGNETTING_RANGE = ADJUSTMENT_RANGES.lensCorrectionVignetting;
 @Component({
   selector: 'lens-corrections-panel',
   standalone: true,
-  imports: [MuiLivingSliderComponent, MuiTextComponent, LensProfileImportComponent],
+  imports: [
+    MuiLivingSliderComponent,
+    MuiTextComponent,
+    LensProfileSelectComponent,
+    LensProfileImportComponent,
+  ],
   templateUrl: './lens-corrections-panel.component.html',
   host: { class: 'block min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -96,27 +118,82 @@ export class LensCorrectionsPanelComponent {
       ? profile
       : undefined;
   });
+  /** The profile dropdown, once it renders (#3569) — `undefined` only for
+   *  the render tick before the child view exists. */
+  private readonly profileSelect = viewChild(LensProfileSelectComponent);
+  /** The dropdown's resolved evidence for the reference currently in effect,
+   *  when it's a bundled Lensfun match — `imported`'s counterpart for the
+   *  OTHER external source a RAW can carry no `OpcodeList3` for. */
+  readonly bundledMatch = computed(() => {
+    const evidence = this.profileSelect()?.evidence();
+    return evidence?.source === 'lensfun' ? evidence : undefined;
+  });
+  /** Whether the dropdown has anything to pick beyond Automatic — mirrors
+   *  Apple's `isAvailable` counting a pickable-but-not-yet-picked lens as
+   *  "something for the toggle to turn on", not only a resolved match. */
+  private readonly hasBundledOption = computed(
+    () => (this.profileSelect()?.compatibleLenses().length ?? 0) > 0,
+  );
   /** Whole panel: toggle + all three sliders. */
   readonly panelDisabled = computed<boolean>(
-    () => !this.capabilities().hasLensCorrections && !this.imported(),
+    () =>
+      !this.capabilities().hasLensCorrections &&
+      !this.imported() &&
+      !this.bundledMatch() &&
+      !this.hasBundledOption(),
   );
-  readonly distortionDisabled = computed<boolean>(() => {
+  /**
+   * Per-family coverage from whichever resolved source currently applies,
+   * in the same precedence the develop path itself uses: a bundled Lensfun
+   * match, else an imported LCP, else the embedded opcode (assumed to cover
+   * distortion + vignetting; CA per its own `lensCorrectionCaInert` flag),
+   * else no coverage at all — which happens when the panel is "available"
+   * only because the dropdown has something pickable (#3569's
+   * `hasBundledOption`) but nothing has actually resolved yet, e.g. right
+   * after opening an asset the bundle doesn't auto-match. Unifying the three
+   * strengths through one source of truth is what keeps that last case from
+   * silently falling back to "enabled" the way three separate ad-hoc
+   * `imported ? … : …` ternaries did before this ticket.
+   */
+  private readonly resolvedCoverage = computed<{
+    hasDistortion: boolean;
+    hasCa: boolean;
+    hasVignetting: boolean;
+  }>(() => {
+    const bundled = this.bundledMatch();
+    if (bundled) {
+      return {
+        hasDistortion: bundled.hasDistortion,
+        hasCa: bundled.hasCa,
+        hasVignetting: bundled.hasVignetting,
+      };
+    }
     const imported = this.imported();
-    return this.panelDisabled() || (!!imported && !imported.hasDistortion);
+    if (imported) {
+      return {
+        hasDistortion: imported.hasDistortion ?? false,
+        hasCa: imported.hasCa ?? false,
+        hasVignetting: imported.hasVignetting ?? false,
+      };
+    }
+    const caps = this.capabilities();
+    return caps.hasLensCorrections
+      ? { hasDistortion: true, hasCa: !caps.lensCorrectionCaInert, hasVignetting: true }
+      : { hasDistortion: false, hasCa: false, hasVignetting: false };
   });
-  readonly vignettingDisabled = computed<boolean>(() => {
-    const imported = this.imported();
-    return this.panelDisabled() || (!!imported && !imported.hasVignetting);
-  });
+  readonly distortionDisabled = computed<boolean>(
+    () => this.panelDisabled() || !this.resolvedCoverage().hasDistortion,
+  );
+  readonly vignettingDisabled = computed<boolean>(
+    () => this.panelDisabled() || !this.resolvedCoverage().hasVignetting,
+  );
   /** True only when the panel IS active but the CA scale is a structural
-   *  no-op — the narrower case the dim class gates on (see file banner).
-   *  With an imported profile that is "the calibration has no CA model". */
-  readonly caInertOnly = computed<boolean>(() => {
-    const imported = this.imported();
-    return imported
-      ? !imported.hasCa
-      : this.capabilities().hasLensCorrections && this.capabilities().lensCorrectionCaInert;
-  });
+   *  no-op — the narrower case the dim class gates on (see file banner);
+   *  `!panelDisabled()` is what keeps this from ALSO firing (and
+   *  double-dimming) while the whole-panel opacity already covers it. */
+  readonly caInertOnly = computed<boolean>(
+    () => !this.panelDisabled() && !this.resolvedCoverage().hasCa,
+  );
   readonly caDisabled = computed<boolean>(() => this.panelDisabled() || this.caInertOnly());
 
   // In-progress drag values — `null` when no gesture is live, in which

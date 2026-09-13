@@ -16,6 +16,10 @@ import { LensCorrectionsPanelComponent } from './lens-corrections-panel.componen
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { LensProfileResolution } from '../../lens/lens-profile.types';
+import type {
+  CompatibleLensProfile,
+  LensProfileEvidence,
+} from '../../lens/lens-profile-choice.types';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { LensCorrectionCapability } from '../../state/library-store-lens-corrections';
 import { cameraSupportFromJson } from '../../state/camera-support';
@@ -100,12 +104,31 @@ class FakeLibraryStateService {
   // The import block reads these too (#3479); the panel specs never pick a file.
   backend = 'hosted';
   focusedAsset = () => ({ id: ASSET_ID, filename: 'photo.dng' });
-  bytesForAsset = vi.fn();
+  // The profile dropdown (#3569) fetches these on every render; a fixed
+  // empty answer keeps it a harmless "Automatic — no match" passenger in
+  // every spec below that isn't about the dropdown itself.
+  bytesForAsset = vi.fn(async () => new Uint8Array());
 }
 
 // The import block's only pipeline reads: the worker import (never invoked
-// here) and the availability broadcast.
-const fakePipeline = { importLensProfile: vi.fn(), lensProfileStatus: signal(null) };
+// here) and the availability broadcast. `compatibleLensProfiles`/
+// `lensProfileEvidence` back the profile dropdown (#3569) — see
+// `lens-profile-select.component.spec.ts` for its own dedicated coverage.
+const NO_MATCH_EVIDENCE: LensProfileEvidence = {
+  source: 'none',
+  confidence: 'embedded',
+  hasDistortion: false,
+  hasCa: false,
+  hasVignetting: false,
+  approximations: [],
+  unsupported: [],
+};
+const fakePipeline = {
+  importLensProfile: vi.fn(),
+  lensProfileStatus: signal(null),
+  compatibleLensProfiles: vi.fn(async (): Promise<CompatibleLensProfile[]> => []),
+  lensProfileEvidence: vi.fn(async (): Promise<LensProfileEvidence> => NO_MATCH_EVIDENCE),
+};
 
 function makeFixture() {
   const library = new FakeLibraryStateService();
@@ -377,5 +400,74 @@ describe('LensCorrectionsPanelComponent — imported lens profile (#3479)', () =
     expect(component.imported()).toBeUndefined();
     expect(component.panelDisabled()).toBe(false);
     expect(component.caDisabled()).toBe(false);
+  });
+});
+
+// #3569 — a bundled Lensfun match is a THIRD way the panel comes alive,
+// read from the profile dropdown's own resolved evidence (`viewChild`) since
+// that state lives in `LensProfileSelectComponent`, not here. Verified live
+// against a real fixture (Canon EOS 5D Mark III + EF70-200mm f/2.8L IS II
+// USM, no embedded OpcodeList3) before this gate existed: the toggle and
+// sliders were disabled even though the develop path was already applying
+// the automatic match.
+describe('LensCorrectionsPanelComponent — bundled Lensfun match (#3569)', () => {
+  const LENSFUN_MATCH: LensProfileEvidence = {
+    source: 'lensfun',
+    confidence: 'in-range',
+    lens: 'Canon EF 70-200mm f/2.8L IS II USM',
+    dbVersion: '12f5976',
+    hasDistortion: true,
+    hasCa: false,
+    hasVignetting: true,
+    approximations: [],
+    unsupported: [],
+  };
+
+  it('enables the panel for an automatic bundled match with no OpcodeList3', async () => {
+    fakePipeline.compatibleLensProfiles.mockResolvedValueOnce([
+      {
+        slug: 'canon/ef-70-200mm-f2.8l-is-ii-usm@canon-ef',
+        maker: 'Canon',
+        model: 'EF 70-200mm f/2.8L IS II USM',
+      },
+    ]);
+    fakePipeline.lensProfileEvidence.mockResolvedValueOnce(LENSFUN_MATCH);
+    const { fixture, component, library } = makeFixture();
+    library.seedLensCorrections(ASSET_ID, false, true);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(component.panelDisabled()).toBe(false));
+    fixture.detectChanges();
+
+    expect(component.bundledMatch()?.lens).toBe('Canon EF 70-200mm f/2.8L IS II USM');
+    expect(component.distortionDisabled()).toBe(false);
+    expect(component.vignettingDisabled()).toBe(false);
+    // The matched calibration carries no CA model — same "family alone
+    // stays inert" shape as the imported-LCP case above.
+    expect(component.caInertOnly()).toBe(true);
+    expect(component.caDisabled()).toBe(true);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="lens-corrections-toggle"]')).toHaveProperty(
+      'disabled',
+      false,
+    );
+    expect(el.querySelector('[data-testid="lens-support"]')).toBeNull();
+  });
+
+  it('enables just the toggle when nothing matched automatically but a lens is pickable', async () => {
+    fakePipeline.compatibleLensProfiles.mockResolvedValueOnce([
+      { slug: 'canon/ef-50mm-f1.2l-usm@canon-ef', maker: 'Canon', model: 'EF 50mm f/1.2L USM' },
+    ]);
+    // `lensProfileEvidence` keeps the module default (no match) — Automatic
+    // resolves to nothing, but the dropdown still has something to pick.
+    const { fixture, component, library } = makeFixture();
+    library.seedLensCorrections(ASSET_ID, false, true);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(component.panelDisabled()).toBe(false));
+    fixture.detectChanges();
+
+    expect(component.bundledMatch()).toBeUndefined();
+    // No resolved coverage yet — each strength stays disabled until a pick resolves.
+    expect(component.distortionDisabled()).toBe(true);
+    expect(component.vignettingDisabled()).toBe(true);
   });
 });
