@@ -147,6 +147,16 @@ export async function resolveMetadata(state: BuilderState): Promise<ImageMetadat
     throw new Error('No input provided to MapleImageBuilder');
   }
   const bytes = await fs.readFile(state.inputPath);
+  // `isRawPath` only looks at the extension — a genuine camera RAW file
+  // reaching here with an unrecognised or missing one (renamed, extracted
+  // from an archive, uploaded without one) must still content-sniff as
+  // `dng` and route to the header-only probe, the same check the
+  // `inputBytes` branch above already makes. analyze()'s bitmap reader is
+  // untested against RAW containers.
+  const probe = loadNativeBinding().rasterProbeMetadataBuf(bytes);
+  if (probe.ok && probe.metadata?.format === 'dng') {
+    return tier1BufMetadata(probe.metadata);
+  }
   return metadataFromReply(await analyzeBytes(bytes, ['metadata']));
 }
 
@@ -195,6 +205,18 @@ export async function resolveStats(state: BuilderState): Promise<ImageStats> {
   const bytes = state.inputBytes ?? (state.inputPath ? await fs.readFile(state.inputPath) : null);
   if (!bytes) {
     throw new Error('No input provided to MapleImageBuilder');
+  }
+  // `isRawDevelop`'s own `isRawPath` check only looks at the extension — a
+  // genuine camera RAW file reaching here with an unrecognised or missing
+  // one still needs the develop pipeline, not the bitmap stats path, which
+  // is untested against RAW containers (mirrors `resolveMetadata`'s same
+  // content-sniff fallback).
+  if (state.inputPath && !isRawDevelop(state)) {
+    const probe = loadNativeBinding().rasterProbeMetadataBuf(bytes);
+    if (probe.ok && probe.metadata?.format === 'dng') {
+      const developed = await rawDevelopToBuffer(state, (out) => rawDevelopToFile(state, out));
+      return statsFromReply(await analyzeBytes(developed, ['stats']));
+    }
   }
   return statsFromReply(await analyzeBytes(bytes, ['stats']));
 }

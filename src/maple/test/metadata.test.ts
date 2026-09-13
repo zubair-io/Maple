@@ -240,6 +240,30 @@ describe('Metadata and stats', () => {
     expect(meta.icc).toBeUndefined();
   });
 
+  it('metadata()/stats() content-sniff a camera RAW file with no recognised extension', async () => {
+    // `isRawPath` only looks at the extension — copy the fixture to an
+    // extensionless path (a renamed upload, an archive extraction) and
+    // confirm both still route through the RAW-aware path rather than
+    // analyze()'s bitmap-only reader, which would either throw or return
+    // garbage on undemosaiced sensor data.
+    const tmpPath = path.join(
+      await fs.mkdtemp(path.join(os.tmpdir(), 'maple-dng-noext-')),
+      'upload',
+    );
+    await fs.copyFile(fixtureDng, tmpPath);
+    try {
+      const meta = await maple(tmpPath).metadata();
+      expect(meta.format).toBe('dng');
+      expect(meta.isRaw).toBe(true);
+
+      const direct = await maple(tmpPath).jpeg().quality(92).stats();
+      const fromExtension = await maple(fixtureDng).jpeg().quality(92).stats();
+      expect(direct).toEqual(fromExtension);
+    } finally {
+      await fs.rm(path.dirname(tmpPath), { recursive: true, force: true });
+    }
+  });
+
   it('metadata is stripped by default and kept by keepMetadata()', async () => {
     const source = await maple(ramp(16, 16)).withExif(exifBlock(6)).jpeg().toBuffer();
     const stripped = await maple(source).jpeg().toBuffer();
