@@ -4,9 +4,10 @@ using System.Runtime.InteropServices;
 namespace Maple.WinUI.Native
 {
     /// <summary>
-    /// Imported lens profiles (#2435 / #3480) — the C# mirrors of
-    /// raw-ffi/src/lens_profile.rs. Every JSON-returning entry hands back a
-    /// heap string the caller owns and must release exactly once through
+    /// Imported LCP (#2435 / #3480) and bundled Lensfun (#3564 / #3568) lens
+    /// profiles — the C# mirrors of raw-ffi/src/lens_profile.rs. Every
+    /// JSON-returning entry hands back a heap string the caller owns and
+    /// must release exactly once through
     /// <see cref="maple_free_lens_profile_json"/>; `0` = success, any other
     /// code carries its message in <see cref="RawFfi.maple_last_error"/> on
     /// the calling thread. `Services/LensProfileStore.cs` is the only caller.
@@ -40,17 +41,30 @@ namespace Maple.WinUI.Native
         /// <summary>Resolve a registered reference against the RAW at
         /// `path` (its real capture metadata; decoded through the shared
         /// decode cache, so a call after a develop is warm). Success JSON:
-        /// `source` (`lcp` | `embedded` | `none`), `confidence` (`in-range`
-        /// | `approximate` | `embedded`), `hasDistortion` / `hasCa` /
-        /// `hasVignetting`, `approximations[]`, `unsupported[]`, and per
-        /// family (`distortion` / `ca` / `vignetting`) the interpolated
-        /// calibration samples. An empty reference reports the embedded
-        /// state alone. 8 = not registered, camera/lens mismatch, or an
-        /// unsupported model — `maple_last_error` says which.</summary>
+        /// `source` (`lensfun` | `lcp` | `embedded` | `none`), `lens` /
+        /// `dbVersion` (present only on the `lensfun` branch), `confidence`
+        /// (`in-range` | `approximate` | `embedded`), `hasDistortion` /
+        /// `hasCa` / `hasVignetting`, `approximations[]`, `unsupported[]`,
+        /// and per family (`distortion` / `ca` / `vignetting`) the
+        /// interpolated calibration samples. An empty reference asks for
+        /// the automatic match (the bundled Lensfun database, #3564) rather
+        /// than reporting the embedded state alone. 8 = not registered,
+        /// camera/lens mismatch, or an unsupported model — `maple_last_error`
+        /// says which.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int maple_lens_profile_resolve_file(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string reference,
+            out IntPtr outJson);
+
+        /// <summary>Every bundled Lensfun lens the RAW's camera body can
+        /// carry (#3564/#3568), for the Lens panel's dropdown: success JSON
+        /// `[{"slug","maker","model"}]`, `[]` for an unknown body. Each
+        /// `slug` is the exact suffix of a `lensfun1:&lt;slug&gt;` reference
+        /// this build's `select` would write.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_lens_profile_compatible(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
             out IntPtr outJson);
 
         /// <summary>Release a JSON string returned by any entry above. Null
