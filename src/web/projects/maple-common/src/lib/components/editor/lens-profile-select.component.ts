@@ -51,6 +51,32 @@ interface LensProfileOption {
 const AUTOMATIC_OPTION: LensProfileOption = { value: '', label: 'Automatic' };
 const BUNDLED_PREFIX = 'lensfun1:';
 
+// Name the matched lens even when Automatic (no explicit pick) is in effect —
+// the dropdown itself just reads "Automatic", so this is the only place a
+// Lensfun auto-match is named at all.
+function describeLensfunMatch(evidence: LensProfileEvidence): string {
+  const lens = evidence.lens ? `${evidence.lens} · ` : '';
+  return `${lens}Lensfun database ${evidence.dbVersion ?? ''} · CC BY-SA 3.0`.trim();
+}
+
+function describeLensProfileSource(
+  evidence: LensProfileEvidence | undefined,
+  reference: string,
+): string {
+  switch (evidence?.source) {
+    case 'lensfun':
+      return describeLensfunMatch(evidence);
+    case 'lcp':
+      return 'Imported profile';
+    case 'embedded':
+      return 'Embedded corrections';
+    case 'none':
+      return reference ? 'No lens correction data' : 'Automatic — no match';
+    default:
+      return '';
+  }
+}
+
 @Component({
   selector: 'lens-profile-select',
   standalone: true,
@@ -103,24 +129,7 @@ export class LensProfileSelectComponent {
   readonly sourceDescription = computed<string>(() => {
     if (this.loadError()) return this.loadError();
     if (this.isLoading()) return 'Resolving the lens profile…';
-    const evidence = this.evidence();
-    switch (evidence?.source) {
-      case 'lensfun': {
-        // Name the matched lens even when Automatic (no explicit pick) is in
-        // effect — the dropdown itself just reads "Automatic", so this line
-        // is the only place a Lensfun auto-match is named at all.
-        const lens = evidence.lens ? `${evidence.lens} · ` : '';
-        return `${lens}Lensfun database ${evidence.dbVersion ?? ''} · CC BY-SA 3.0`.trim();
-      }
-      case 'lcp':
-        return 'Imported profile';
-      case 'embedded':
-        return 'Embedded corrections';
-      case 'none':
-        return this.reference() ? 'No lens correction data' : 'Automatic — no match';
-      default:
-        return '';
-    }
+    return describeLensProfileSource(this.evidence(), this.reference());
   });
 
   readonly selectDisabled = computed<boolean>(
