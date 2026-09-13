@@ -23,6 +23,47 @@ use crate::full_chain::FullChainInputs;
 use crate::live_chain::build_live_split;
 
 impl LiveSession {
+    /// Run the gated chain to its final f32 buffer in ONE submit with a
+    /// CALLER-SUPPLIED airlight, returning the ping-pong index holding the result
+    /// (the present pass reads it). Test seam for #3602.
+    ///
+    /// Both shipping paths measure A themselves — the default on-GPU reduction
+    /// from the GPU's post-prefix buffer, the readback fallback from that same
+    /// buffer on the CPU — so each measures it from a buffer that agrees with a
+    /// CPU oracle's only to the two chains' float tolerance. A parity gate that
+    /// compares GPU bytes against a CPU oracle needs BOTH sides on ONE A, because
+    /// `atmospheric_light`'s top-0.1% rank cut is not reproducible across that
+    /// tolerance when the dark channel is flat (see
+    /// `full_chain::oracle::shared_airlight`). Nothing shipping calls this.
+    #[cfg(test)]
+    pub(crate) fn encode_chain_f32_fixed_airlight(
+        &self,
+        ctx: &GpuContext,
+        inputs: &FullChainInputs<'_>,
+        airlight: [f32; 3],
+    ) -> Option<usize> {
+        let sig = crate::live_chain::chain_signature(inputs, self.image.dims(), self.session_id);
+        ctx.frame_pool.borrow_mut().begin_frame(sig);
+        let passes = crate::live_chain::build_live_chain(inputs, AirlightSource::Cpu(airlight));
+        let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("present-gate-fixed-airlight-encoder"),
+            });
+        encoder.copy_buffer_to_buffer(
+            &self.image.buffer,
+            0,
+            &self.ping_pong[0],
+            0,
+            self.image.byte_len(),
+        );
+        let final_idx = self.encode_chain(ctx, &mut encoder, &pass_refs, 0, None);
+        ctx.queue.submit(Some(encoder.finish()));
+        ctx.frame_pool.borrow_mut().end_frame();
+        final_idx
+    }
+
     /// The C5a CPU-readback FALLBACK path (`airlight_readback_fallback == true`):
     /// run the pre-dehaze PREFIX, read the post-prefix buffer back,
     /// `compute_airlight` from the EXACT buffer dehaze sees, then run the dehaze
