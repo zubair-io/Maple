@@ -10,28 +10,36 @@ using Microsoft.UI.Xaml.Media;
 using Maple.UI.Atoms;
 using Maple.WinUI.Models;
 using Maple.WinUI.Services;
+using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
 {
-    /// <summary>The Lens group's profile block (#2435 / #3480): master
-    /// toggle, import / clear, the current selection and what the decode
-    /// resolved. The three strength rows below it are ordinary
-    /// commit-on-release slider rows (AdjustmentSections "Lens").</summary>
+    /// <summary>The Lens group's profile block: master toggle, the profile
+    /// dropdown (#3564/#3568 — Automatic, every bundled Lensfun lens the
+    /// RAW's camera body can carry, and the imported LCP reference (#2435/
+    /// #3480) when the sidecar already names one) plus its source line,
+    /// import, and what the decode resolved. Same dropdown and source line
+    /// as the Apple panel (`LensCorrectionsSection.swift`'s `profileRow`) —
+    /// `LensProfileChoiceLogic`/`EditSessionViewModel.LensProfile.cs` own the
+    /// FFI round trip and the pure evidence-to-options mapping; this file
+    /// only renders the published state. The three strength rows below it
+    /// are ordinary commit-on-release slider rows (AdjustmentSections
+    /// "Lens").</summary>
     public sealed partial class MainWindow
     {
         private readonly ToggleSwitch _lensProfileToggle = new()
         {
             OnContent = "Lens profile corrections", OffContent = "Lens profile corrections", FontSize = 11,
         };
+        private readonly ComboBox _lensProfileBox = new() { FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+        private readonly MuiText _lensProfileSourceLine = new()
+        {
+            Variant = MuiTextVariant.Body, ColorRole = MuiTextColorRole.Muted,
+        };
         private readonly MuiButton _importLensProfile = new()
         {
             Label = "Import lens profile…", Variant = MuiButtonVariant.Secondary, ButtonSize = MuiButtonSize.Sm,
         };
-        private readonly MuiButton _clearLensProfile = new()
-        {
-            Label = "Use embedded only", Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm,
-        };
-        private readonly MuiText _lensProfileSelection = new() { Variant = MuiTextVariant.Body };
         private readonly MuiText _lensProfileDescription = new()
         {
             Variant = MuiTextVariant.Body, ColorRole = MuiTextColorRole.Muted,
@@ -54,22 +62,35 @@ namespace Maple.WinUI
             };
             PanelLensHost.Children.Add(_lensProfileToggle);
 
-            AutomationProperties.SetName(_importLensProfile, "Import lens profile");
-            AutomationProperties.SetName(_clearLensProfile, "Use embedded lens corrections only");
-            _importLensProfile.Click += async (_, _) => await ImportLensProfileAsync();
-            _clearLensProfile.Click += (_, _) => ViewModel.SelectLensProfile("");
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            buttons.Children.Add(_importLensProfile);
-            buttons.Children.Add(_clearLensProfile);
-            PanelLensHost.Children.Add(buttons);
+            // The dropdown's `value` IS the exact string
+            // `model.LensProfile` holds ("" for Automatic, `lensfun1:…`, or
+            // the sidecar's existing `lcp1(-ack):…`), so the picker's
+            // selection and the model are never out of sync — the same
+            // binding shape LensCorrectionsSection.swift's MuiSelect uses.
+            AutomationProperties.SetName(_lensProfileBox, "Lens profile");
+            _lensProfileBox.SelectionChanged += (_, _) =>
+            {
+                if (_syncingLensPanel || _lensProfileBox.SelectedItem is not LensProfileOption option)
+                    return;
+                ViewModel.SelectLensProfile(option.Value);
+            };
+            PanelLensHost.Children.Add(_lensProfileBox);
 
-            PanelLensHost.Children.Add(_lensProfileSelection);
+            AutomationProperties.SetName(_lensProfileSourceLine, "Lens profile source");
+            PanelLensHost.Children.Add(_lensProfileSourceLine);
+
+            AutomationProperties.SetName(_importLensProfile, "Import lens profile");
+            _importLensProfile.Click += async (_, _) => await ImportLensProfileAsync();
+            PanelLensHost.Children.Add(_importLensProfile);
+
             PanelLensHost.Children.Add(_lensProfileDescription);
             PanelLensHost.Children.Add(_lensProfileStatus);
             ViewModel.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName is nameof(ViewModel.LensProfileResolution)
-                    or nameof(ViewModel.LensProfileMessage) or nameof(ViewModel.LensProfileFailed))
+                    or nameof(ViewModel.LensProfileMessage) or nameof(ViewModel.LensProfileFailed)
+                    or nameof(ViewModel.LensProfileOptions) or nameof(ViewModel.LensProfileSourceLine)
+                    or nameof(ViewModel.LensProfileChoicesLoading))
                     SyncLensPanel();
             };
             SyncLensPanel();
@@ -82,11 +103,27 @@ namespace Maple.WinUI
             _syncingLensPanel = true;
             try
             {
+                var available = ViewModel.LensProfileIsAvailable;
                 _lensProfileToggle.IsOn = model.LensProfileEnable == ToggleMode.On;
-                _lensProfileToggle.IsEnabled = hasPhoto;
+                _lensProfileToggle.IsEnabled = hasPhoto && available;
                 _importLensProfile.IsEnabled = hasPhoto;
-                _clearLensProfile.IsEnabled = hasPhoto && !string.IsNullOrEmpty(model.LensProfile);
-                _lensProfileSelection.Text = DescribeLensSelection(model.LensProfile);
+
+                var options = ViewModel.LensProfileOptions;
+                if (!ReferenceEquals(_lensProfileBox.ItemsSource, options))
+                    _lensProfileBox.ItemsSource = options;
+                var selected = IndexOfOption(options, model.LensProfile);
+                if (_lensProfileBox.SelectedIndex != selected)
+                    _lensProfileBox.SelectedIndex = selected;
+                // `available` gates the whole group here, the same way
+                // Apple's `controls` VStack applies one `.disabled(!isAvailable)`
+                // across the toggle, the dropdown and the three strength
+                // sliders — false (and therefore fully greyed) until the
+                // first refresh completes, matching that "old default" note.
+                _lensProfileBox.IsEnabled = hasPhoto && available && !ViewModel.LensProfileChoicesLoading;
+
+                _lensProfileSourceLine.Text = ViewModel.LensProfileChoicesLoading
+                    ? "Checking this photo's lens…" : ViewModel.LensProfileSourceLine;
+
                 var failed = ViewModel.LensProfileFailed;
                 _lensProfileDescription.Text = failed ? string.Empty : ViewModel.LensProfileMessage;
                 _lensProfileDescription.Visibility = failed ? Visibility.Collapsed : Visibility.Visible;
@@ -104,23 +141,12 @@ namespace Maple.WinUI
             finally { _syncingLensPanel = false; }
         }
 
-        private static string DescribeLensSelection(string reference)
+        private static int IndexOfOption(IReadOnlyList<LensProfileOption> options, string value)
         {
-            if (string.IsNullOrEmpty(reference))
-                return "No imported profile — embedded DNG corrections only.";
-            try
-            {
-                var digest = LensProfileStore.Digest(reference);
-                return LensProfileStore.IsAcknowledged(reference)
-                    ? $"Imported profile {digest[..12]}… (approximations accepted)"
-                    : $"Imported profile {digest[..12]}…";
-            }
-            catch (LensProfileException)
-            {
-                // A foreign sidecar naming a reference version this build
-                // cannot read: the decode reports the same thing as an error.
-                return "Unsupported lens profile reference in the sidecar.";
-            }
+            for (var i = 0; i < options.Count; i++)
+                if (options[i].Value == value)
+                    return i;
+            return -1;
         }
 
         private async Task ImportLensProfileAsync()

@@ -271,6 +271,15 @@
          SelectionLogic.cs is. -->
     <Compile Include="..\Maple.WinUI\Services\WhiteBalanceSampler.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\ViewModels\WhiteBalancePickLogic.cs" LinkBase="ViewModels" />
+    <!-- The bundled-Lensfun profile dropdown (#3564/#3568):
+         `ViewModels\LensProfileChoiceLogic.cs` is the WinUI-free option-list/
+         source-line mapping the Lens panel's ComboBox renders — plain C#
+         (System/System.Collections.Generic/System.Linq only) over the
+         already-linked `LensProfileResolution`/`CompatibleLens` records in
+         `Services\LensProfileStore.cs`, split out of MainWindow.LensProfile.cs
+         the same way WhiteBalancePickLogic.cs is split out of
+         MainWindow.WhiteBalance.cs. -->
+    <Compile Include="..\Maple.WinUI\ViewModels\LensProfileChoiceLogic.cs" LinkBase="ViewModels" />
     <Compile Include="..\Maple.WinUI\Generated\CapabilityRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\CameraSupportRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\CameraSupportMetadata.cs" LinkBase="Services" />
