@@ -121,4 +121,25 @@ public sealed class LensProfileStoreNativeTests(ITestOutputHelper output)
         Assert.Contains("missing from this device", missing.Message);
         output.WriteLine("Actual native refusals: mismatch refused on import and on restore (acknowledged), unknown digest reported missing.");
     }
+
+    /// <summary>The profile dropdown's compatible-lens list (#3564/#3568)
+    /// against the real core: the fixture's synthetic "Maple Test / Cold
+    /// Export Fixture" body matches nothing in the bundled Lensfun database,
+    /// so `maple_lens_profile_compatible` must succeed with an empty list —
+    /// never an error — and an automatic-match resolve (empty reference)
+    /// against that same unmatched body reports source "none".</summary>
+    [Fact]
+    public void Compatible_lenses_is_empty_and_automatic_match_reports_none_for_an_unmatched_body()
+    {
+        if (!NativeAvailable()) return;
+        using var fixture = new ExportLensProfileFixture();
+
+        var compatible = LensProfileStore.Compatible(fixture.RawPath);
+        Assert.Empty(compatible);
+
+        var auto = LensProfileStore.AssessForFile(fixture.RawPath, "");
+        Assert.NotNull(auto);
+        Assert.False(auto!.Lensfun);
+        output.WriteLine("Actual native lookup: an unmatched camera body returns [] compatible lenses and a non-lensfun automatic match.");
+    }
 }

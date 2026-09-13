@@ -26,15 +26,22 @@ namespace Maple.WinUI.Services
         string Family, double FocalMm, double? ApertureApex, double? FocusM, double Weight);
 
     /// <summary>What the core resolved for one RAW: where corrections come
-    /// from and which families the calibration covers. Source `lcp` is the
-    /// imported profile, `embedded` the DNG's own OpcodeList3 (which always
-    /// wins), `none` no correction data at all.</summary>
+    /// from and which families the calibration covers. Source `lensfun` is
+    /// an automatic or manually-picked bundled Lensfun match (#3564), `lcp`
+    /// the imported profile (#3480), `embedded` the DNG's own OpcodeList3
+    /// (which always wins over both), `none` no correction data at all.
+    /// `Lens`/`DbVersion` are populated only on the `lensfun` branch — the
+    /// matched lens's display name and the bundled database's version, the
+    /// same pair Apple's `Evidence.lens`/`dbVersion` decode
+    /// (LensProfileChoice.swift).</summary>
     public sealed record LensProfileResolution(
         string Source, string Confidence,
         bool HasDistortion, bool HasCa, bool HasVignetting,
         IReadOnlyList<string> Approximations, IReadOnlyList<string> Unsupported,
-        IReadOnlyList<LensProfileSample> Samples)
+        IReadOnlyList<LensProfileSample> Samples,
+        string? Lens = null, string? DbVersion = null)
     {
+        public bool Lensfun => Source == "lensfun";
         public bool Imported => Source == "lcp";
         public bool Embedded => Source == "embedded";
         public bool Approximate => Confidence == "approximate";
@@ -55,9 +62,11 @@ namespace Maple.WinUI.Services
             }.Where(f => f != null);
             var lines = new List<string>
             {
-                Approximate
-                    ? "Imported profile matches; the frame is outside the calibrated range (approximate)."
-                    : "Imported profile matches within the calibrated range.",
+                Lensfun
+                    ? $"Lensfun match: {Lens ?? "unknown lens"} (database {DbVersion ?? "unknown"})."
+                    : Approximate
+                        ? "Imported profile matches; the frame is outside the calibrated range (approximate)."
+                        : "Imported profile matches within the calibrated range.",
                 "Covers: " + (families.Any() ? string.Join(", ", families) : "no supported family"),
             };
             lines.AddRange(Approximations.Select(a => "Approximation: " + a));
@@ -65,6 +74,12 @@ namespace Maple.WinUI.Services
             return string.Join("\n", lines);
         }
     }
+
+    /// <summary>One bundled Lensfun lens the current RAW's camera body can
+    /// carry (#3564/#3568): `maple_lens_profile_compatible`'s
+    /// `[{"slug","maker","model"}]`. `Slug` is the exact suffix of the
+    /// `lensfun1:&lt;slug&gt;` reference picking it writes.</summary>
+    public sealed record CompatibleLens(string Slug, string Maker, string Model);
 
     /// <summary>The outcome of importing one `.lcp` for one photo.</summary>
     public sealed record ImportedLensProfile(
@@ -93,6 +108,15 @@ namespace Maple.WinUI.Services
         private static readonly Regex ReferenceShape =
             new("\\Alcp1(-ack)?:([0-9a-f]{64})\\z", RegexOptions.Compiled);
 
+        /// <summary>A manual bundled-Lensfun pick (#3564/#3568) — `lensfun1:
+        /// &lt;maker/model@mount&gt;` — never needs this store: the database
+        /// is compiled into raw-core itself, so there is nothing to register
+        /// or restore from `%LOCALAPPDATA%`.</summary>
+        private const string BundledLensfunPrefix = "lensfun1:";
+
+        private static bool IsBundledLensfunReference(string reference) =>
+            reference.StartsWith(BundledLensfunPrefix, StringComparison.Ordinal);
+
         public static string DirectoryPath { get; } = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Maple", "LensProfiles");
@@ -116,12 +140,17 @@ namespace Maple.WinUI.Services
         public static string StoredPath(string reference) =>
             Path.Combine(DirectoryPath, Digest(reference) + ".lcp");
 
-        /// <summary>Whether developing <paramref name="model"/> needs the
-        /// profile bytes at all — the C# side of raw-core's
-        /// `corrections_enabled`: the master toggle off, or every strength at
-        /// zero, renders without any external profile.</summary>
+        /// <summary>Whether developing <paramref name="model"/> needs THIS
+        /// STORE'S bytes at all — the C# side of raw-core's
+        /// `corrections_enabled`, narrowed to the imported-LCP half of it:
+        /// the master toggle off, every strength at zero, an empty selection
+        /// (Automatic) or a bundled `lensfun1:` pick all need nothing from
+        /// this store — the automatic match and every bundled lens live in
+        /// raw-core's own compiled-in database (#3564), never in
+        /// `%LOCALAPPDATA%`.</summary>
         public static bool RequiresProfile(AdjustmentState model) =>
             !string.IsNullOrEmpty(model.LensProfile)
+            && !IsBundledLensfunReference(model.LensProfile)
             && model.LensProfileEnable == ToggleMode.On
             && (model.LensCorrectionDistortion != 0
                 || model.LensCorrectionCa != 0
@@ -166,8 +195,34 @@ namespace Maple.WinUI.Services
             var selected = ReadResult(
                 RawFfi.maple_lens_profile_selected(bytes, (nuint)bytes.Length, out var json), json);
             var reference = Text(selected, "reference");
-            if (reference.Length > 0 && selected.GetProperty("enabled").GetBoolean())
+            // A bundled Lensfun pick needs no restore — see RequiresProfile.
+            if (reference.Length > 0 && !IsBundledLensfunReference(reference)
+                && selected.GetProperty("enabled").GetBoolean())
                 RestoreReference(rawPath, reference);
+        }
+
+        /// <summary>Every bundled Lensfun lens <paramref name="rawPath"/>'s
+        /// camera body can carry (#3564/#3568), for the Lens panel's
+        /// dropdown. Empty when the body has no camera match, or the native
+        /// core could not be asked — never a reason to fail the panel, only
+        /// to leave the dropdown with Automatic alone.</summary>
+        public static IReadOnlyList<CompatibleLens> Compatible(string rawPath)
+        {
+            try
+            {
+                var result = ReadResult(RawFfi.maple_lens_profile_compatible(rawPath, out var json), json);
+                return result.ValueKind == JsonValueKind.Array
+                    ? result.EnumerateArray()
+                        .Select(entry => new CompatibleLens(Text(entry, "slug"), Text(entry, "maker"), Text(entry, "model")))
+                        .ToArray()
+                    : Array.Empty<CompatibleLens>();
+            }
+            catch (Exception error) when (error is LensProfileException or JsonException
+                or KeyNotFoundException or DllNotFoundException or EntryPointNotFoundException)
+            {
+                DiagLog.Write($"[lens] compatible {Path.GetFileName(rawPath)}: {error.Message}");
+                return Array.Empty<CompatibleLens>();
+            }
         }
 
         /// <summary>raw-core's `resolve_for_raw` wording for a reference this
@@ -264,12 +319,24 @@ namespace Maple.WinUI.Services
                 result.GetProperty("hasDistortion").GetBoolean(),
                 result.GetProperty("hasCa").GetBoolean(),
                 result.GetProperty("hasVignetting").GetBoolean(),
-                Strings(result, "approximations"), Strings(result, "unsupported"), samples);
+                Strings(result, "approximations"), Strings(result, "unsupported"), samples,
+                OptionalText(result, "lens"), OptionalText(result, "dbVersion"));
         }
 
         private static string Text(JsonElement element, string key) =>
             element.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
                 ? value.GetString() ?? "" : "";
+
+        /// <summary>Like <see cref="Text"/>, but `null` (not `""`) when the
+        /// key is missing or JSON `null` — raw-core's `lens`/`dbVersion` are
+        /// explicit `null` on the `lcp` branch and absent entirely on the
+        /// embedded/none fallback shape (`raw-ffi/src/lens_profile.rs`'s two
+        /// different object literals for one FFI entry point); this treats
+        /// both the same way Apple's `Evidence.lens`/`dbVersion`
+        /// (`Decodable` `Optional`) does.</summary>
+        private static string? OptionalText(JsonElement element, string key) =>
+            element.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString() : null;
 
         private static byte[] ReadBounded(string path)
         {
