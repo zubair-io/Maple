@@ -1705,6 +1705,10 @@ async function resolveMetadata(state) {
     throw new Error("No input provided to MapleImageBuilder");
   }
   const bytes = await fs7.readFile(state.inputPath);
+  const probe = loadNativeBinding().rasterProbeMetadataBuf(bytes);
+  if (probe.ok && probe.metadata?.format === "dng") {
+    return tier1BufMetadata(probe.metadata);
+  }
   return metadataFromReply(await analyzeBytes(bytes, ["metadata"]));
 }
 function renderRawInputToPng(r) {
@@ -1726,6 +1730,13 @@ async function resolveStats(state) {
   const bytes = state.inputBytes ?? (state.inputPath ? await fs7.readFile(state.inputPath) : null);
   if (!bytes) {
     throw new Error("No input provided to MapleImageBuilder");
+  }
+  if (state.inputPath && !isRawDevelop(state)) {
+    const probe = loadNativeBinding().rasterProbeMetadataBuf(bytes);
+    if (probe.ok && probe.metadata?.format === "dng") {
+      const developed = await rawDevelopToBuffer(state, (out) => rawDevelopToFile(state, out));
+      return statsFromReply(await analyzeBytes(developed, ["stats"]));
+    }
   }
   return statsFromReply(await analyzeBytes(bytes, ["stats"]));
 }
