@@ -99,7 +99,13 @@ fn mild_case() -> Case {
 }
 
 /// An aggressive case: every gated stage engaged, incl. a luma point curve AND
-/// dehaze (so the present's dehaze-split chain-to-f32 path is exercised end to end).
+/// dehaze — so the present runs over the full spatial chain, dehaze's transmission
+/// and recovery kernels included. Since #3602 it does NOT exercise the dehaze-split
+/// chain-to-f32 path: this gate pins one shared airlight and takes the
+/// single-submit `encode_chain_f32_fixed_airlight` instead, because the split path
+/// measures A from the GPU's own pre-dehaze buffer and this fixture's dark channel
+/// is too flat for that to be reproducible (see `gpu_present_u8` below). The split
+/// path keeps its own gates in `live_session/{tests,airlight_tests}.rs`.
 pub(super) fn aggressive_case() -> Case {
     let model = AdjustmentModel {
         temperature: 4800.0,
@@ -154,8 +160,9 @@ pub(super) fn cpu_reference_u8(input: &[f32], w: u32, h: u32, case: &Case) -> Ve
 /// AIRLIGHT (#3602): the GPU chain is handed the SAME `[f32; 3]` the CPU oracle
 /// uses — `oracle::shared_airlight`, measured once on the oracle's own pre-dehaze
 /// buffer — via `AirlightSource::Cpu`; it must not measure its own. Why, and the
-/// numbers behind it, are in `present_gate_shared_airlight_is_load_bearing`
-/// below. Sharing A removes a global reduction this gate does not measure; the
+/// numbers behind it, are in `present_chain/airlight_tests.rs`
+/// (`present_gate_shared_airlight_is_load_bearing`). Sharing A removes a global
+/// reduction this gate does not measure; the
 /// on-GPU reduction and the readback split keep their own gates
 /// (`airlight/tests.rs`, `live_session/airlight_tests.rs`, `live_session/tests.rs`).
 pub(super) fn gpu_present_u8(
