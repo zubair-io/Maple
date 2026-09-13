@@ -7,8 +7,8 @@
 import { AuxBlob, type Recipe, type RecipeMetadata, type RecipeOp } from './recipe';
 import type { Colour, ExportColorSpace, ExportFormat, ExportRecipe, RawPixelInput } from './types';
 export declare function isRawPath(filePath: string): boolean;
-/** `ResizeOptions.filter` → the recipe's `resize` op `kernel` wire value. */
-export declare function kernelFromFilter(filter?: 'lanczos3' | 'bilinear' | 'nearest'): string;
+/** Translate a `position` or `gravity` value to its wire spelling. */
+export declare function resolveGravity(value: string | undefined): string;
 /**
  * The `gamma(gamma, gammaOut)` op pair, held apart from `ops` because its
  * position is resolved at ASSEMBLY time (`stateToRecipe`), not at call time
@@ -40,6 +40,14 @@ export interface BuilderState {
      * `.toFormat()`/`.quality()`/`.format()` — see `stateToOutput`.
      */
     output: Record<string, unknown> | null;
+    /**
+     * The option object the caller actually passed to that per-format method,
+     * as opposed to `output`, which is that object merged over every default.
+     * Kept so `assertRawDevelopOutput` can tell "the caller asked for
+     * progressive scans" from "progressive defaulted to false" — only the
+     * former is worth refusing on a RAW-develop input.
+     */
+    outputOptions: Record<string, unknown> | null;
     autoOrient: boolean;
     /** `keepMetadata`/`withMetadata`/`withExif`/`withIccProfile`/`withXmp` state. */
     metadata: RecipeMetadata;
@@ -60,8 +68,6 @@ export interface BuilderState {
 export declare function createBuilderState(input: string | Uint8Array | Buffer | RawPixelInput): BuilderState;
 /** Assemble the wire recipe for one terminal call. */
 export declare function stateToRecipe(state: BuilderState, output: Record<string, unknown>): Recipe;
-/** Throw if the caller passed an option this encoder cannot honour. */
-export declare function rejectUnsupported(format: string, options: Record<string, unknown>): void;
 /**
  * Output object for the current output selection: the full per-format
  * object set by `.jpeg()`/`.png()`/`.webp()`/`.avif()`/`.tiff()` when one
@@ -69,6 +75,38 @@ export declare function rejectUnsupported(format: string, options: Record<string
  * fallback (format plus quality/effort where those apply).
  */
 export declare function stateToOutput(state: BuilderState, fallback: ExportFormat): Record<string, unknown>;
+/**
+ * Apply a `quality` to both the RAW-develop field and, when a per-format
+ * method already set one, the wire output object.
+ *
+ * `stateToOutput` returns `state.output` verbatim whenever it is set, so
+ * writing only `state.quality` would leave `.jpeg().quality(30)` silently
+ * encoding at the `.jpeg()` default — measured before this fix at 1436 B,
+ * byte-identical to a plain `.jpeg()`, against 716 B for
+ * `.jpeg({ quality: 30 })`.
+ *
+ * Out of range throws in sharp's own wording (`checkIntegerRange`) rather
+ * than silently clamping — `.quality(0)` used to encode at 1 and
+ * `.quality(500)` at 100, both without a word to the caller.
+ */
+export declare function applyQuality(state: BuilderState, quality: number): void;
+/**
+ * `applyQuality`'s counterpart for AVIF's `effort` (0 fastest … 9 slowest).
+ * Out of range throws rather than clamping — see `applyQuality`.
+ */
+export declare function applyEffort(state: BuilderState, effort: number): void;
+/**
+ * Select the output container for `.format()` / `.toFormat()`.
+ *
+ * Naming a *different* container than the one a per-format method already
+ * configured discards that method's options: `stateToOutput` prefers
+ * `state.output` over `state.format`, so keeping a stale `.jpeg()` output
+ * around would make `.jpeg({ progressive: true }).toFormat('png')` hand back
+ * a JPEG — the caller's last instruction silently ignored. Naming the same
+ * container keeps the options, so `.jpeg({ progressive: true })
+ * .toFormat('jpeg', { quality: 30 })` still writes progressive scans.
+ */
+export declare function applyFormat(state: BuilderState, format: ExportFormat): void;
 /** Infer the output container from a path extension, defaulting to JPEG. */
 export declare function formatForPath(outputPath: string): ExportFormat;
 /**
