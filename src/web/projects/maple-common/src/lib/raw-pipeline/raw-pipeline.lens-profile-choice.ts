@@ -15,9 +15,29 @@ import type {
   LensProfileCompatibleRequest,
   LensProfileEvidenceRequest,
 } from '../lens/lens-profile-choice.types';
+import type { WorkerRequest } from './raw-pipeline.types';
 import { ensureReady } from './raw-pipeline.worker-handlers';
 
-export async function listCompatibleLensProfiles(req: LensProfileCompatibleRequest): Promise<void> {
+/**
+ * Dispatch entry for the two lens-profile-dropdown request kinds — read-only
+ * queries computed directly off `bytes`, so they skip the legacy dispatch's
+ * `'xmp' in req` sidecar-restore step. Returns whether it handled `req`, so
+ * the worker's dispatch can `return` on a hit and fall through otherwise;
+ * keeps this pair out of the main dispatch switch's line count (#2311).
+ */
+export async function tryHandleLensProfileChoiceRequest(req: WorkerRequest): Promise<boolean> {
+  if (req.type === 'lens-profile-compatible') {
+    await listCompatibleLensProfiles(req);
+    return true;
+  }
+  if (req.type === 'lens-profile-evidence') {
+    await fetchLensProfileEvidence(req);
+    return true;
+  }
+  return false;
+}
+
+async function listCompatibleLensProfiles(req: LensProfileCompatibleRequest): Promise<void> {
   try {
     await ensureReady();
     const lenses = compatibleLensProfilesFromJson(
@@ -37,7 +57,7 @@ export async function listCompatibleLensProfiles(req: LensProfileCompatibleReque
   }
 }
 
-export async function fetchLensProfileEvidence(req: LensProfileEvidenceRequest): Promise<void> {
+async function fetchLensProfileEvidence(req: LensProfileEvidenceRequest): Promise<void> {
   try {
     await ensureReady();
     const json = resolveLensProfile(new Uint8Array(req.bytes), req.ext, req.reference);
