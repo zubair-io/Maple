@@ -12,15 +12,14 @@
  * a future code path lands a thumb in `.maple/thumbs/` that still carries
  * an orientation tag, this catches it before it's served to the client.
  *
- * NOTE — currently structurally dead for the AVIF files this actually runs
- * on in production: Maple's AVIF metadata probe hardcodes `orientation: 1`
- * unconditionally (no irot/imir/EXIF handling yet), and this pipeline's own
- * AVIF encoder never writes an orientation box either, so the "missing or 1"
- * no-op branch is guaranteed to fire for every real call site today (they
- * only ever pass a `.maple/thumbs/*.avif` path). This is defence-in-depth
- * that only actually engages for formats whose probe reads EXIF/orientation
- * metadata — it becomes live for AVIF once the probe learns to read AVIF
- * orientation (#3507).
+ * Maple's AVIF probe now reads the real container transform (#3507) and
+ * reports `orientation: undefined` whenever the file carries no EXIF
+ * Orientation item — which is every AVIF this pipeline writes, since it
+ * bakes rotation into pixels and never writes that item. The "missing or 1"
+ * no-op branch above is still guaranteed to fire for every real call site
+ * today (they only ever pass a `.maple/thumbs/*.avif` path); this stays
+ * defence-in-depth for a future code path that lands a thumb still carrying
+ * a real tag.
  */
 
 import { maple } from 'maple';
