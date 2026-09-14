@@ -12,17 +12,28 @@
 //! `Worker` thread. (This is why the `napi` dependency deliberately does not
 //! enable the `async` feature; see the manifest.)
 //!
-//! Module map (filled in by later tasks in the same plan):
-//!   - `filename`      — `renderFilenameTemplate` / `validateFilename`
-//!   - `raster_probe`  — header probe / native-size RGB8 decode
+//! Module map:
+//!   - `filename` — `renderFilenameTemplate` / `validateFilename`
+//!   - `raster_probe` — header probe / native-size RGB8 decode
 //!   - `raster_render` — the v2 render entry points (fit/filter/format/effort)
 //!   - `raster_resize` — the Tier-1 resize-to-file/-buf + tensor extraction
-//!   - `pipeline`      — the bitmap recipe executor + analyze
-//!   - `develop`       — RAW-develop export + thumbnail extraction
+//!   - `pipeline` — the bitmap recipe executor + analyze
+//!   - `develop_common` — shared big-stack-decode / XMP-load / atomic-write
+//!     helpers for the two `develop_*` modules below
+//!   - `develop_export` — RAW-develop export: `exportDevelopedToFile` /
+//!     `exportRecipeToFile`
+//!   - `develop_preview` — thumbnail extraction + RAW-develop preview:
+//!     `renderThumbnailAvifToFile` / `renderThumbnailPreviewJpegToFile` /
+//!     `renderDevelopJpegToFile`
 
 #[macro_use]
 extern crate napi_derive;
 
+mod develop_common;
+mod develop_export;
+mod develop_preview;
+#[cfg(test)]
+mod develop_tests;
 mod error;
 mod filename;
 #[cfg(test)]
@@ -38,6 +49,11 @@ mod raster_render;
 mod raster_render_tests;
 mod raster_resize;
 
+pub use develop_export::{export_developed_to_file, export_recipe_to_file};
+pub use develop_preview::{
+    render_develop_jpeg_to_file, render_thumbnail_avif_to_file,
+    render_thumbnail_preview_jpeg_to_file,
+};
 pub use filename::{
     render_filename_template, validate_filename, FilenameResult, FilenameTemplateArgs,
     ValidateFilenameResult,
