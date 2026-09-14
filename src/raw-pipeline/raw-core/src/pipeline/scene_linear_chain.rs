@@ -106,6 +106,7 @@ pub fn apply_scene_linear_chain(
         noise_profile,
         iso,
         mask_long_edge,
+        whites_anchor_ev,
     } = *opts;
     use crate::stages::{
         clarity, color_grade, defringe, dehaze, display_tone_curve, grain, hsl, local_adjustments,
@@ -142,6 +143,7 @@ pub fn apply_scene_linear_chain(
     let mut img = stage("ffi_chain_unpack_fp16", || {
         endcaps::unpack_fp16(in_fp16_rgba, width, height)
     });
+    img.whites_anchor_ev = whites_anchor_ev;
 
     // Per-stage application — mirrors `develop_scene_linear_from_raw_with_quality`
     // from `pipeline.rs:182-192`. The order MUST match the Rust reference so
@@ -238,7 +240,9 @@ pub fn apply_scene_linear_chain(
         noise_reduction::apply_color(&mut img, model.nr_color, noise_profile, iso)
     });
     if !skip_agx {
-        stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
+        stage("ffi_chain_agx", || {
+            agx::apply(&mut img, model.contrast, model.whites)
+        });
     } else {
         // Non-RAW input (skip_agx) is already display-referred — a JPEG /
         // HEIF / pano frame that baked its own tone curve at capture, per
@@ -379,6 +383,7 @@ fn apply_scene_linear_chain_f32_inner(
         noise_profile,
         iso,
         mask_long_edge,
+        whites_anchor_ev,
     } = *opts;
     use crate::stages::{
         clarity, color_grade, dehaze, display_tone_curve, grain, hsl, local_adjustments,
@@ -415,6 +420,7 @@ fn apply_scene_linear_chain_f32_inner(
     let mut img = stage("ffi_chain_unpack_f32", || {
         endcaps::unpack_f32(in_f32_rgba, width, height)
     });
+    img.whites_anchor_ev = whites_anchor_ev;
 
     // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
     // sibling) verbatim. The order MUST match the Rust reference so
@@ -490,7 +496,9 @@ fn apply_scene_linear_chain_f32_inner(
         noise_reduction::apply_color(&mut img, model.nr_color, noise_profile, iso)
     });
     if !skip_agx {
-        stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
+        stage("ffi_chain_agx", || {
+            agx::apply(&mut img, model.contrast, model.whites)
+        });
     } else {
         // Non-RAW retag — see the fp16 sibling for the full rationale. #2478
         img.space = ColorSpace::DisplayLinearRec2020;

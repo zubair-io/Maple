@@ -396,6 +396,7 @@ public actor ImageEditPipeline {
     /// hand-off via `DecodedSnapshot` so `NativeDetailRenderer` can
     /// thread the SAME gain into a deep-zoom / native-detail tile.
     public let aeGain: Float
+    public let whitesAnchorEv: Float
     /// Whether this RAW carries lens-correction opcodes at all, and
     /// whether the CA/distortion sliders specifically are inert
     /// (#2231, #3189) — see `MapleSceneLinearImageData`'s matching doc
@@ -482,6 +483,7 @@ public actor ImageEditPipeline {
       iso: imageData.iso,
       wbFrame: imageData.wbFrame,
       aeGain: imageData.aeGain,
+      whitesAnchorEv: imageData.whitesAnchorEv,
       hasLensCorrections: imageData.hasLensCorrections,
       lensCorrectionCaInert: imageData.lensCorrectionCaInert,
       lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
@@ -600,6 +602,7 @@ public actor ImageEditPipeline {
       iso: imageData.iso,
       wbFrame: imageData.wbFrame,
       aeGain: imageData.aeGain,
+      whitesAnchorEv: imageData.whitesAnchorEv,
       hasLensCorrections: imageData.hasLensCorrections,
       lensCorrectionCaInert: imageData.lensCorrectionCaInert,
       lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
@@ -901,6 +904,7 @@ public actor ImageEditPipeline {
     decodedTemperature: Double,
     decodedTint: Double,
     wbFrame: WbSliderFrame? = nil,
+    whitesAnchorEv: Float = .nan,
     skipAgX: Bool,
     assetID: UUID? = nil,
     noiseProfile: [Float]? = nil,
@@ -928,7 +932,7 @@ public actor ImageEditPipeline {
         skipAgX: skipAgX,
         width: w,
         height: h,
-        wbFrame: wbFrame
+        wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv
       )
     }
     if let cacheKey, let hit = sceneLinearChainCache.get(cacheKey) {
@@ -949,7 +953,7 @@ public actor ImageEditPipeline {
       decodedTint: decodedTint,
       skipAgX: skipAgX,
       iso: iso,
-      wbFrame: wbFrame
+      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv
     )
 
     // #1959 — input-readback cache check. `scaled` is a pure function
@@ -1117,6 +1121,7 @@ public actor ImageEditPipeline {
     decodedTemperature: Double,
     decodedTint: Double,
     wbFrame: WbSliderFrame? = nil,
+    whitesAnchorEv: Float = .nan,
     skipAgX: Bool,
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
@@ -1139,7 +1144,7 @@ public actor ImageEditPipeline {
       decodedTint: decodedTint,
       skipAgX: skipAgX,
       iso: iso,
-      wbFrame: wbFrame
+      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv
     )
 
     // Same input-readback cache check as `applySceneLinearChainViaFFI` —
@@ -1548,6 +1553,7 @@ public actor ImageEditPipeline {
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
     wbFrame: WbSliderFrame? = nil,
+    whitesAnchorEv: Float = .nan,
     // #3190 review follow-up: `FilmLookCube.apply` (baked/fit in sRGB,
     // same as the Auto Profile cube) runs on THIS function's output at
     // every call site that has a film look active. When nil (every
@@ -1638,7 +1644,7 @@ public actor ImageEditPipeline {
           let key = SceneLinearChainCache.make(
             assetID: assetID, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
-            skipAgX: false, width: w, height: h, wbFrame: frame
+            skipAgX: false, width: w, height: h, wbFrame: frame, whitesAnchorEv: whitesAnchorEv
           )
           return sceneLinearChainCache.get(key) == nil
         }()
@@ -1646,7 +1652,7 @@ public actor ImageEditPipeline {
           let fusedEncoded = applyChainAndEncodeViaFusedFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
-            wbFrame: frame,
+            wbFrame: frame, whitesAnchorEv: whitesAnchorEv,
             skipAgX: false,
             noiseProfile: noiseProfile,
             iso: iso,
@@ -1680,7 +1686,7 @@ public actor ImageEditPipeline {
     let chained = applySceneLinearChainViaFFI(
       scaled, model: model,
       decodedTemperature: decodedTemp, decodedTint: decodedTint,
-      wbFrame: frame,
+      wbFrame: frame, whitesAnchorEv: whitesAnchorEv,
       skipAgX: false,
       assetID: assetID,
       noiseProfile: noiseProfile,

@@ -164,6 +164,7 @@ fn run_gpu_chain_limit(
 fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) -> Vec<f32> {
     let mut img =
         raw_core::image::Image::new(w, h, raw_core::image::ColorSpace::SceneLinearRec2020);
+    img.whites_anchor_ev = Some(crate::full_chain::oracle::frame_whites_anchor(input));
     for (i, chunk) in input.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
@@ -284,7 +285,7 @@ fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) ->
 
     // Stage 14: AgX
     if stage_idx <= limit {
-        raw_core::view::agx::apply(&mut img, case.model.contrast);
+        raw_core::view::agx::apply(&mut img, case.model.contrast, case.model.whites);
     }
     stage_idx += 1;
 
@@ -365,7 +366,7 @@ fn full_gpu_chain_matches_composed_cpu_oracle() {
         ("aggressive", aggressive_case()),
         ("film", film_case()),
     ] {
-        let inputs = case.gpu_inputs();
+        let inputs = case.gpu_inputs_for(&input);
         let (prefix, suffix) = build_split(&inputs, [0.0; 3]);
         let num_passes = prefix.len() + suffix.len();
 

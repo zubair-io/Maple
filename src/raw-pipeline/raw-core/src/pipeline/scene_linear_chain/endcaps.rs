@@ -43,6 +43,7 @@ pub(super) fn unpack_fp16(in_fp16_rgba: &[u16], width: u32, height: u32) -> Imag
         height,
         pixels,
         space: ColorSpace::SceneLinearRec2020,
+        whites_anchor_ev: None,
     }
 }
 
@@ -77,6 +78,7 @@ pub(super) fn unpack_f32(in_f32_rgba: &[f32], width: u32, height: u32) -> Image 
         height,
         pixels,
         space: ColorSpace::SceneLinearRec2020,
+        whites_anchor_ev: None,
     }
 }
 

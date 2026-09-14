@@ -23,6 +23,7 @@ pub(crate) struct ChainInputs<'a> {
     pub wb_frame: raw_core::stages::wb_camera::SliderFrameExport,
     pub noise_profile: Option<&'a [f32]>,
     pub iso: u32,
+    pub whites_anchor_ev: f32,
 }
 
 impl<'a> ChainInputs<'a> {
@@ -39,6 +40,10 @@ impl<'a> ChainInputs<'a> {
             // The per-tick buffer is the whole frame at viewport scale, so the
             // S/H detail mask anchors on the buffer itself (#2476).
             mask_long_edge: None,
+            whites_anchor_ev: self
+                .whites_anchor_ev
+                .is_finite()
+                .then_some(self.whites_anchor_ev),
         }
     }
 }
@@ -263,5 +268,6 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         wb_frame,
         noise_profile: noise_profile_slice,
         iso,
+        whites_anchor_ev: p.whites_anchor_ev,
     }
 }

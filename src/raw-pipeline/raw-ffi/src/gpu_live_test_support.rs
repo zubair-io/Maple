@@ -111,7 +111,17 @@ pub(super) fn owned_arrays(
     }
 }
 
+pub(super) fn input_whites_anchor(input: &[f32]) -> f32 {
+    if input.is_empty() {
+        return f32::NAN;
+    }
+    raw_core::view::whites_anchor::measure(input.len() / 4, |i| {
+        [input[i * 4], input[i * 4 + 1], input[i * 4 + 2]]
+    })
+}
+
 pub(super) fn make_params(
+    input: &[f32],
     model: &AdjustmentModel,
     wb_method: WbMethod,
     lut_size: usize,
@@ -126,6 +136,7 @@ pub(super) fn make_params(
         WbMethod::Cat16 => 0,
     };
     MapleGpuLiveParams {
+        whites_anchor_ev: input_whites_anchor(input),
         temperature: model.temperature,
         tint: model.tint,
         wb_method: wb,

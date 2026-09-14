@@ -38,6 +38,7 @@ fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
         wb_temperature: 6500.0,
         wb_tint: 0.0,
         tone: [0.0; 6],
+        whites_anchor_ev: 0.0,
         tone_curves: ToneCurveInputs {
             parametric: [0.0; 4],
             parametric_split: [25.0, 50.0, 75.0],

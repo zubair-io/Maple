@@ -202,6 +202,8 @@ pub struct MapleSceneLinearBufferF32 {
     /// UTF-8 JSON camera key and actual resolver outcome; owned by this buffer.
     /// Null when empty or unassessed. Freed by maple_free_scene_linear_buffer_f32.
     pub camera_support_json: *mut std::ffi::c_char,
+    /// Full-frame pre-AE scene-white anchor in EV above 0.18 (#3601).
+    pub whites_anchor_ev: f32,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -232,6 +234,7 @@ impl MapleSceneLinearBufferF32 {
             wb_frame_render_cct_warm: 0.0,
             wb_frame_render_fm_cold: [0.0; 9],
             wb_frame_render_fm_warm: [0.0; 9],
+            whites_anchor_ev: f32::NAN,
             ae_gain: 1.0,
             has_lens_corrections: 0,
             lens_correction_ca_inert: 1,

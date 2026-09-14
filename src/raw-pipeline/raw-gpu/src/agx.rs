@@ -1,9 +1,11 @@
 //! AgX view transform — a P2 view-transform WGSL port (epic #925 / #990).
 //!
-//! Ports `raw_core::view::agx::apply` (post-#435): the per-pixel AgX chain
+//! Ports `raw_core::view::agx::apply` (post-#435, plus the whites
+//! white-point remap): the per-pixel AgX chain
 //!   inset matrix
-//!     -> ratio-preserving sigmoid (sigmoid the max channel, scale RGB by
-//!        sigmoid(n)/n — hue invariant)
+//!     -> ratio-preserving sigmoid (whites white-point remap, THEN contrast
+//!        slope, both inside the sigmoid; sigmoid the max channel, scale RGB
+//!        by sigmoid(n)/n — hue invariant)
 //!     -> outset matrix
 //!     -> Oklab hue-preserving gamut compression to [0, 1]^3
 //! with the sigmoid evaluated by sampling the SAME baked 512-entry LUT
@@ -17,19 +19,20 @@
 //! 1. [`apply_agx`] — the CPU oracle: a line-for-line port of `agx_pixel`
 //!    over a flat RGBA f32 buffer (alpha untouched), sampling the embedded
 //!    LUT bytes (the same `agx_lut.bin` raw-core embeds).
-//! 2. [`AgxPass`] — the GPU-resident [`Pass`]; carries `contrast`. The kernel
-//!    concatenates the generated color matrices (Oklab round-trip) AND the
-//!    generated AgX coeffs (inset/outset + scalars), and uploads the LUT to a
-//!    read-only storage buffer (binding 3) like `auto_profile_curve`'s flat
-//!    curve.
+//! 2. [`AgxPass`] — the GPU-resident [`Pass`]; carries `contrast` and
+//!    `whites`. The kernel concatenates the generated color matrices (Oklab
+//!    round-trip) AND the generated AgX coeffs (inset/outset + scalars), and
+//!    uploads the LUT to a read-only storage buffer (binding 3) like
+//!    `auto_profile_curve`'s flat curve.
 //! 3. The headless parity test ([`mod tests`], in `agx/tests.rs`) — GPU vs the
 //!    real `raw_core::view::agx::apply` (via the test-only `raw-core` dev-dep)
 //!    `< 1e-4`, on a buffer exercising the neutral axis, saturated primaries
 //!    (the Oklab gamut-compress path), and deep shadow (the ratio-floor
-//!    branch), at BOTH contrast 0 and a nonzero contrast (so the slope
-//!    modulation is gated, not a contrast-0-only false green). The full #435
-//!    transform — ratio sigmoid + outset + Oklab hue restoration — is the
-//!    gated path.
+//!    branch), at BOTH contrast 0 and a nonzero contrast, AND at nonzero
+//!    whites (both signs, alone and combined with nonzero contrast) — so
+//!    neither modulation is a contrast/whites-0-only false green. The full
+//!    #435 transform — ratio sigmoid + outset + Oklab hue restoration — is
+//!    the gated path.
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
@@ -58,6 +61,49 @@ const AGX_MID_GRAY: f32 = 0.18;
 const AGX_MID_NORM: f32 = -AGX_MIN_EV / (AGX_MAX_EV - AGX_MIN_EV);
 /// Deep-shadow floor for the ratio scale (raw-core `RATIO_FLOOR`).
 const AGX_RATIO_FLOOR: f32 = 1e-6;
+
+// ── Whites white-point remap (mirror raw_core::view::agx_whites) ───────────
+// Same constants raw-core's `view::agx_whites` module defines and the
+// generated WGSL bakes into `agx.wgsl`; duplicated here for the CPU oracle.
+// The parity test pins the oracle (and the GPU) to raw-core, so a
+// transcription error here can't mask a kernel bug. See raw-core's
+// `agx_whites` module doc for the bump/ramp shape derivation and the
+// monotonicity bounds these constants must stay under.
+const WHITES_POS_LO: f32 = 0.46;
+const WHITES_POS_MID: f32 = 0.73;
+const WHITES_POS_HI: f32 = 1.07;
+const WHITES_POS_AMP: f32 = 0.20;
+const WHITES_NEG_LO: f32 = 0.505;
+const WHITES_NEG_HI: f32 = 1.173;
+const WHITES_NEG_AMT: f32 = 0.159;
+
+/// Cubic-Hermite smoothstep, matching `agx_whites::smoothstep`'s definition.
+#[inline]
+fn whites_smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Forward remap of a normalised-log value for slider `whites` in
+/// `[-100, 100]`. Mirrors raw-core's `agx_whites::remap_norm` EXACTLY (both
+/// branches): `whites > 0` is a bump-weighted displacement, `whites < 0` is
+/// a ramp-weighted compression.
+#[inline]
+fn whites_remap_norm(norm: f32, whites: f32) -> f32 {
+    if whites.abs() < 1e-3 {
+        return norm;
+    }
+    if whites > 0.0 {
+        let amp = WHITES_POS_AMP * (whites / 100.0);
+        let bump = whites_smoothstep(WHITES_POS_LO, WHITES_POS_MID, norm)
+            * (1.0 - whites_smoothstep(WHITES_POS_MID, WHITES_POS_HI, norm));
+        norm + amp * bump
+    } else {
+        let mag = -whites / 100.0;
+        let ramp = whites_smoothstep(WHITES_NEG_LO, WHITES_NEG_HI, norm);
+        norm - WHITES_NEG_AMT * mag * ramp
+    }
+}
 
 type Mat3 = [[f32; 3]; 3];
 
@@ -305,13 +351,15 @@ fn log_encode(channel: f32) -> f32 {
 }
 
 /// Apply AgX to a single pixel. Line-for-line port of `raw_core` `agx_pixel`.
-fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
+/// `whites` is the white-point remap from `whites_remap_norm`, applied to
+/// the normalised log value BEFORE the contrast slope.
+fn agx_pixel(scene: [f32; 3], slope: f32, whites: f32) -> [f32; 3] {
     let inset = mul3(&AGX_INSET_MATRIX, scene);
 
     // Ratio-preserving sigmoid (mirror of norm_sigmoid_ratio + the inner
     // sigmoid_curve closure).
     let sigmoid_curve = |x: f32| -> f32 {
-        let norm = log_encode(x);
+        let norm = whites_remap_norm(log_encode(x), whites);
         let modulated = AGX_MID_NORM + (norm - AGX_MID_NORM) * slope;
         sample_lut(modulated)
     };
@@ -331,13 +379,14 @@ fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
 
 /// Apply AgX across an interleaved RGBA f32 buffer (alpha untouched). This is
 /// the CPU oracle — a line-for-line port of `raw_core::view::agx::apply` /
-/// `agx_pixel`. `contrast` in [-100, +100]; 0 is the reference Sobotka sigmoid.
-/// Input must be scene-linear Rec.2020; output is display-linear Rec.2020.
-pub fn apply_agx(buf: &mut [f32], contrast: f32) {
+/// `agx_pixel`. `contrast` and `whites` in [-100, +100]; 0/0 is the reference
+/// Sobotka sigmoid. Input must be scene-linear Rec.2020; output is
+/// display-linear Rec.2020.
+pub fn apply_agx(buf: &mut [f32], contrast: f32, whites: f32) {
     // slope = 1 + (contrast/100)*0.5. At +100 -> 1.5x, at -100 -> 0.5x.
     let slope = 1.0 + (contrast / 100.0) * 0.5;
     for px in buf.chunks_exact_mut(4) {
-        let out = agx_pixel([px[0], px[1], px[2]], slope);
+        let out = agx_pixel([px[0], px[1], px[2]], slope, whites);
         px[0] = out[0];
         px[1] = out[1];
         px[2] = out[2];
@@ -346,24 +395,29 @@ pub fn apply_agx(buf: &mut [f32], contrast: f32) {
 }
 
 /// `repr(C)` params uniform shared by the WGSL kernel (`agx.wgsl`). `count` is
-/// the RGBA pixel count; `contrast` is the slider value; `_pad*` round to 16
-/// bytes. (`params`, not `meta` — `meta` is a reserved WGSL keyword.)
+/// the RGBA pixel count; `contrast` and `whites` are the slider values;
+/// `_pad1` rounds to 16 bytes. (`params`, not `meta` — `meta` is a reserved
+/// WGSL keyword.)
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
     count: u32,
     contrast: f32,
-    _pad0: u32,
+    whites: f32,
     _pad1: u32,
 }
 
-/// A GPU-resident AgX view-transform stage. Carries `contrast` ([-100, +100];
-/// 0 = reference Sobotka sigmoid). The device, pipeline, and ping-pong buffers
-/// come from the [`GpuContext`] / [`ChainRunner`]; the baked LUT is uploaded
-/// to storage binding 3 inside `encode`.
+/// A GPU-resident AgX view-transform stage. Carries `contrast` and `whites`
+/// ([-100, +100] each; 0/0 = reference Sobotka sigmoid). The device,
+/// pipeline, and ping-pong buffers come from the [`GpuContext`] /
+/// [`ChainRunner`]; the baked LUT is uploaded to storage binding 3 inside
+/// `encode`.
 pub struct AgxPass {
     /// Contrast slider value in `[-100, +100]`. 0 is the reference sigmoid.
     pub contrast: f32,
+    /// Whites slider value in `[-100, +100]`. 0 is the reference sigmoid
+    /// (no white-point remap).
+    pub whites: f32,
 }
 
 impl Pass for AgxPass {
@@ -381,7 +435,7 @@ impl Pass for AgxPass {
         let params = Params {
             count: pixel_count,
             contrast: self.contrast,
-            _pad0: 0,
+            whites: self.whites,
             _pad1: 0,
         };
         // Baked LUT in a READ-ONLY STORAGE buffer (4-byte stride). A uniform

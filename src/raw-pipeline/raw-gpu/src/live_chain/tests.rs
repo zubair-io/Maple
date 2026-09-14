@@ -162,7 +162,7 @@ fn neutral_live_chain_matches_cpu_and_omits_noop_passes() {
     let (w, h) = (8usize, 8usize);
     let input = scene_linear_rgba(w, h);
     let case = neutral_case();
-    let inputs = case.gpu_inputs();
+    let inputs = case.gpu_inputs_for(&input);
 
     // (a) Structural: the neutral chain is EXACTLY the view tail. No WB, no tone,
     //     no vibrance/saturation/clarity/texture/dehaze/sharpen/NR — every one is
@@ -357,7 +357,7 @@ fn single_stage_active_includes_exactly_that_pass_and_matches_cpu() {
 
     for s in single_stage_cases() {
         let case = single_stage_case(&s);
-        let inputs = case.gpu_inputs();
+        let inputs = case.gpu_inputs_for(&input);
 
         // (a) exactly one pass added over the neutral floor.
         let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));

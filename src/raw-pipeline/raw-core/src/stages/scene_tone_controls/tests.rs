@@ -222,81 +222,18 @@ fn shadows_leaves_midtones_alone() {
 }
 
 #[test]
-fn whites_midtone_untouched_at_y_half() {
-    // Ticket #267 acceptance — a pixel at Y=0.5 must change by <1%.
-    // smoothstep(0.5, 1.0, 0.5) == 0 → gain = 1.0 → no change.
-    let mut img = fresh_img([0.5, 0.5, 0.5]);
-    let mut m = model_default();
-    m.whites = 100.0;
-    apply(&mut img, &m);
-    let p = img.pixels[0];
-    for &c in &p {
-        assert!(
-            (c - 0.5).abs() / 0.5 < 0.01,
-            "Y=0.5 should not lift, got {}",
-            c
-        );
+fn whites_is_not_a_scene_linear_operation() {
+    // The global whites slider is a view-transform parameter (view::agx_whites);
+    // this stage must be bit-exact identity for any whites value.
+    for w in [-100.0f32, -50.0, 50.0, 100.0] {
+        for v in [0.05f32, 0.5, 0.95, 2.0] {
+            let mut img = fresh_img([v, v, v]);
+            let mut m = model_default();
+            m.whites = w;
+            apply(&mut img, &m);
+            assert_eq!(img.pixels[0], [v, v, v], "whites={w} v={v}");
+        }
     }
-}
-
-#[test]
-fn whites_lifts_upper_end_substantially() {
-    // Ticket #267 acceptance — a pixel near diffuse white must lift
-    // by ≥20% at whites=+100. For input [0.95, 0.95, 0.95]:
-    // Y=0.95, w = smoothstep(0.5, 1.0, 0.95) → t=0.9, w = 0.81*1.2 = 0.972.
-    // gain = 1 + 0.5*0.972 = 1.486. p_new = 0.95 * 1.486 ≈ 1.412.
-    // Lift ratio ≈ 0.486 — well above the 20% bar.
-    let mut img = fresh_img([0.95, 0.95, 0.95]);
-    let mut m = model_default();
-    m.whites = 100.0;
-    apply(&mut img, &m);
-    let p = img.pixels[0];
-    let lift = (p[0] - 0.95) / 0.95;
-    assert!(lift >= 0.20, "expected ≥20% lift at Y=0.95, got {}", lift);
-}
-
-#[test]
-fn whites_preserves_neutral_hue() {
-    // Uniform scalar gain → ratios preserved across all channels.
-    let mut img = fresh_img([1.2, 0.9, 0.6]);
-    let mut m = model_default();
-    m.whites = 50.0;
-    apply(&mut img, &m);
-    let p = img.pixels[0];
-    // R:G = 1.2/0.9 = 1.333; R:B = 1.2/0.6 = 2.0. Both must be preserved.
-    let ratio_rg = p[0] / p[1];
-    let ratio_rb = p[0] / p[2];
-    assert!(
-        (ratio_rg - 4.0 / 3.0).abs() < 1e-4,
-        "R:G {} ≠ 1.333",
-        ratio_rg
-    );
-    assert!((ratio_rb - 2.0).abs() < 1e-4, "R:B {} ≠ 2.0", ratio_rb);
-}
-
-#[test]
-fn whites_symmetric_negative_pulls_bright_values_down() {
-    // Ticket #267 — symmetric for negative whites. Y=0.95, whites=-100
-    // pulls brightness down without touching midtones. Check that
-    // the same Y=0.5 pixel remains within 1% under the same setting.
-    let mut img_bright = fresh_img([0.95, 0.95, 0.95]);
-    let mut img_mid = fresh_img([0.5, 0.5, 0.5]);
-    let mut m = model_default();
-    m.whites = -100.0;
-    apply(&mut img_bright, &m);
-    apply(&mut img_mid, &m);
-    let p_bright = img_bright.pixels[0];
-    let p_mid = img_mid.pixels[0];
-    assert!(
-        p_bright[0] < 0.95,
-        "expected pull-down at Y=0.95, got {}",
-        p_bright[0]
-    );
-    assert!(
-        (p_mid[0] - 0.5).abs() / 0.5 < 0.01,
-        "Y=0.5 should not move, got {}",
-        p_mid[0]
-    );
 }
 
 #[test]
@@ -403,7 +340,7 @@ fn blacks_positive_leaves_midtones_alone() {
 }
 
 /// Build a 1-row image whose pixels are neutral greys stepping through
-/// `values` — a luma ramp. Whites/blacks are per-pixel point ops, so each
+/// `values` — a luma ramp. Blacks is a per-pixel point op, so each
 /// pixel's output luma is `T(value)`; a monotone `T` must leave the ramp
 /// non-decreasing.
 fn grey_ramp(values: &[f32]) -> Image {
@@ -412,30 +349,6 @@ fn grey_ramp(values: &[f32]) -> Image {
         *px = [v, v, v];
     }
     img
-}
-
-#[test]
-fn whites_negative_transfer_is_monotone_across_range() {
-    // #1918 — the whites point op `T(Y) = Y·(1 + a·smoothstep(0.5, 1.0, Y))`
-    // (a = whites/200) went non-monotone at whites ≈ −67, inverting local
-    // tonal order (a solarization band). Flooring the negative gain
-    // (WHITES_MIN_GAIN) keeps T monotone across the full range. Sweep a fine
-    // luma ramp (incl. the Y ≈ 0.82 danger zone) and assert non-decreasing.
-    let values: Vec<f32> = (0..=400).map(|i| i as f32 * 0.005).collect(); // 0.0 .. 2.0
-    for &whites in &[-67.0_f32, -100.0] {
-        let mut img = grey_ramp(&values);
-        let mut m = model_default();
-        m.whites = whites;
-        apply(&mut img, &m);
-        for w in img.pixels.windows(2) {
-            assert!(
-                w[1][0] >= w[0][0] - 1e-6,
-                "whites={whites}: non-monotone (solarization) at {} -> {}",
-                w[0][0],
-                w[1][0]
-            );
-        }
-    }
 }
 
 #[test]

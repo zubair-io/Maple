@@ -372,7 +372,7 @@ mod tests {
                 let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
                 img.pixels[0] = base;
                 crate::stages::saturation::apply(&mut img, sat); // real slider stage
-                crate::view::agx::apply(&mut img, 0.0);
+                crate::view::agx::apply(&mut img, 0.0, 0.0);
                 rec2020_to_srgb(&mut img);
                 let lab = srgb_linear_to_oklab(img.pixels[0]);
                 chromas.push((lab[1] * lab[1] + lab[2] * lab[2]).sqrt());

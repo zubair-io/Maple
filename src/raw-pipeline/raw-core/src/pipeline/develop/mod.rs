@@ -255,6 +255,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     dump_after("02_highlight_recovery", &camera_rgb);
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
+    let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
     // Camera-space user white balance (#1726): moves the temperature/tint
     // sliders upstream of DCP, in camera-native linear RGB, matching ACR —
     // bounded to what the sensor can physically report per channel (the
@@ -410,6 +411,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // opt out per-image via `papp:AutoExposure="Off"` for strict
     // scene-referred output, in which case the stage is a bit-identical
     // no-op.
+    scene.whites_anchor_ev = Some(whites_anchor_ev);
     let ae_gain = stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
     // Post-DCP white balance: skipped when the camera-space stage above

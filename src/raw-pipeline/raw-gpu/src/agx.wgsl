@@ -2,8 +2,9 @@
 // Rec.2020). A P2 view-transform stage (epic #925 / #990).
 //
 // Line-for-line WGSL port of `raw_core::view::agx::apply` -> `agx_pixel`
-// (post-#435: inset -> log encode -> ratio-preserving sigmoid -> outset ->
-// Oklab hue-preserving gamut compression). Mirrors the GLSL shader at
+// (post-#435: inset -> log encode -> whites white-point remap -> ratio-
+// preserving sigmoid -> outset -> Oklab hue-preserving gamut compression).
+// Mirrors the GLSL shader at
 // src/web/projects/maple-common/src/lib/webgl/shaders/agx-view-transform.ts,
 // but matches raw-core's runtime path exactly by sampling the SAME baked
 // 512-entry LUT (agx_lut.bin) raw-core's `sample_lut` reads, uploaded to a
@@ -23,6 +24,11 @@
 // agx_hue_restoration.rs):
 //   * log_encode: floor = MID_GRAY * 2^MIN_EV; clamp log2 to [MIN_EV, MAX_EV].
 //   * sample_lut: linear interp; idx = clamp(x,0,1) * (SIZE-1); i1 capped.
+//   * whites remap (raw-core view::agx_whites, a bump-shaped displacement
+//     for whites > 0 and a ramp-shaped compression for whites < 0; pinned
+//     via WHITES_POS_LO/MID/HI/AMP and WHITES_NEG_LO/HI/AMT): applied to
+//     the normalized-log value BEFORE the contrast slope, inside the
+//     sigmoid closure.
 //   * contrast: slope = 1 + (contrast/100)*0.5; pivot the normalized-log
 //     value around AGX_MID_NORM BEFORE sampling the LUT.
 //   * ratio sigmoid: n = max(R,G,B); if n <= 1e-6 (RATIO_FLOOR) sigmoid the
@@ -35,7 +41,7 @@
 struct Params {
     count: u32,      // number of RGBA pixels
     contrast: f32,   // -100..+100; 0 = reference Sobotka sigmoid
-    _pad0: u32,
+    whites: f32,     // -100..+100; white-point remap (raw-core view::agx_whites)
     _pad1: u32,
 };
 
@@ -50,6 +56,47 @@ struct Params {
 // Deep-shadow floor for the ratio scale (raw-core RATIO_FLOOR). Below this
 // the ratio sn/n would diverge; treat as a pure neutral.
 const AGX_RATIO_FLOOR: f32 = 1.0e-6;
+
+// Whites white-point remap (raw-core view::agx_whites). Pinned to
+// raw-core's `view::agx_whites::{WHITES_POS_LO, WHITES_POS_MID,
+// WHITES_POS_HI, WHITES_POS_AMP, WHITES_NEG_LO, WHITES_NEG_HI,
+// WHITES_NEG_AMT}` — the parity test fails if they drift. See raw-core's
+// module doc (`agx_whites.rs`) for the bump/ramp shape derivation and the
+// monotonicity bounds these constants must stay under.
+const WHITES_POS_LO: f32 = 0.46;
+const WHITES_POS_MID: f32 = 0.73;
+const WHITES_POS_HI: f32 = 1.07;
+const WHITES_POS_AMP: f32 = 0.20;
+const WHITES_NEG_LO: f32 = 0.505;
+const WHITES_NEG_HI: f32 = 1.173;
+const WHITES_NEG_AMT: f32 = 0.159;
+
+// Cubic-Hermite smoothstep, matching raw-core's `agx_whites::smoothstep`
+// exactly (`t*t*(3-2*t)`) — hand-rolled rather than WGSL's builtin
+// `smoothstep` so the GPU path stays bit-for-bit pinned to the CPU oracle,
+// not to whatever curve a given WGSL implementation's builtin uses.
+fn agx_whites_smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = clamp((x - e0) / (e1 - e0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// Forward remap of a normalised-log value for slider `whites` in
+// [-100, 100]. Mirrors raw-core's `agx_whites::remap_norm` EXACTLY (both
+// branches): whites > 0 is a bump-weighted displacement (smoothstep rising
+// then falling back to identity), whites < 0 is a ramp-weighted
+// compression (single rising smoothstep).
+fn agx_whites_remap(norm: f32, whites: f32) -> f32 {
+    if (abs(whites) < 1e-3) { return norm; }
+    if (whites > 0.0) {
+        let amp = WHITES_POS_AMP * (whites / 100.0);
+        let bump = agx_whites_smoothstep(WHITES_POS_LO, WHITES_POS_MID, norm)
+            * (1.0 - agx_whites_smoothstep(WHITES_POS_MID, WHITES_POS_HI, norm));
+        return norm + amp * bump;
+    }
+    let mag = -whites / 100.0;
+    let ramp = agx_whites_smoothstep(WHITES_NEG_LO, WHITES_NEG_HI, norm);
+    return norm - WHITES_NEG_AMT * mag * ramp;
+}
 
 // Sign-preserving cube root (WGSL has no `cbrt`; pow(x,1/3) is NaN for x<0).
 // Mirrors Rust's f32::cbrt — same helper as the display_encode kernel.
@@ -79,25 +126,27 @@ fn agx_sample_lut(x: f32) -> f32 {
     return agx_lut[i0] * (1.0 - f) + agx_lut[i1] * f;
 }
 
-// The 1D AgX sigmoid in normalized-log space: log-encode, apply contrast
-// modulation around AGX_MID_NORM, then LUT-sample. Mirrors raw-core's
-// `sigmoid_curve` closure (with `slope` precomputed by the caller).
-fn agx_sigmoid_curve(x: f32, slope: f32) -> f32 {
-    let norm = agx_log_encode(x);
+// The 1D AgX sigmoid in normalized-log space: log-encode, apply the whites
+// white-point remap, apply contrast modulation around AGX_MID_NORM, then
+// LUT-sample. Mirrors raw-core's `sigmoid_curve` closure (with `slope`
+// precomputed by the caller) — the whites remap runs BEFORE the slope
+// modulation, exactly as `agx_pixel`'s closure does.
+fn agx_sigmoid_curve(x: f32, slope: f32, whites: f32) -> f32 {
+    let norm = agx_whites_remap(agx_log_encode(x), whites);
     let modulated = AGX_MID_NORM + (norm - AGX_MID_NORM) * slope;
     return agx_sample_lut(modulated);
 }
 
 // Ratio-preserving sigmoid: sigmoid the max channel, scale RGB by the same
 // factor (hue invariant). Mirrors raw-core `norm_sigmoid_ratio`.
-fn agx_ratio_sigmoid(inset: vec3<f32>, slope: f32) -> vec3<f32> {
+fn agx_ratio_sigmoid(inset: vec3<f32>, slope: f32, whites: f32) -> vec3<f32> {
     let n = max(max(inset.x, inset.y), inset.z);
     if (n <= AGX_RATIO_FLOOR) {
         // Deep shadow: sigmoid the floor once, return the neutral.
-        let v = agx_sigmoid_curve(AGX_RATIO_FLOOR, slope);
+        let v = agx_sigmoid_curve(AGX_RATIO_FLOOR, slope, whites);
         return vec3<f32>(v, v, v);
     }
-    let sn = agx_sigmoid_curve(n, slope);
+    let sn = agx_sigmoid_curve(n, slope, whites);
     let ratio = sn / n;
     return inset * ratio;
 }
@@ -232,8 +281,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     //    ratio-preserving sigmoid handles deep shadow uniformly.
     let inset = mul_agx_inset(px.rgb);
 
-    // 2) Ratio-preserving sigmoid (hue invariant).
-    let sig = agx_ratio_sigmoid(inset, slope);
+    // 2) Ratio-preserving sigmoid (hue invariant). The whites white-point
+    //    remap runs inside the sigmoid, before the contrast slope.
+    let sig = agx_ratio_sigmoid(inset, slope, params.whites);
 
     // 3) Outset matrix back to Rec.2020 primaries.
     let outc = mul_agx_outset(sig);

@@ -100,7 +100,9 @@ fn develop_display_for_auto_fit(
         }
         None => develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality)?,
     };
-    stage("agx", || agx::apply(&mut scene, auto_model.contrast));
+    stage("agx", || {
+        agx::apply(&mut scene, auto_model.contrast, auto_model.whites)
+    });
     stage("color_grade", || {
         color_grade::apply_model(&mut scene, &auto_model)
     });

@@ -241,6 +241,7 @@ public final class GpuLiveDriver {
   public func open(
     width: Int, height: Int, inputShape: UInt32 = 0,
     identity: GpuUploadIdentity, noiseProfile: [Float]? = nil, iso: UInt32 = 0,
+    whitesAnchorEv: Float = .nan,
     pixels: @escaping @Sendable () throws -> [Float]
   ) async throws {
     try Task.checkCancellation()
@@ -259,7 +260,8 @@ public final class GpuLiveDriver {
       let data = try pixels()
       try Task.checkCancellation()
       let prepared = try GpuLiveSession(
-        pixels: data, width: width, height: height, noiseProfile: noiseProfile, iso: iso)
+        pixels: data, width: width, height: height, noiseProfile: noiseProfile, iso: iso,
+        whitesAnchorEv: whitesAnchorEv)
       if Task.isCancelled {
         await prepared.close()
         throw CancellationError()

@@ -53,6 +53,7 @@ fn noisy_scene(w: u32, h: u32, noise_amp: f32) -> Image {
 
 fn clone_img(img: &Image) -> Image {
     Image {
+        whites_anchor_ev: None,
         width: img.width,
         height: img.height,
         pixels: img.pixels.clone(),

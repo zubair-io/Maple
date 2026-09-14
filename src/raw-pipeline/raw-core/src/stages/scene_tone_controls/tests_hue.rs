@@ -221,38 +221,6 @@ fn highlights_preserves_hue_on_arbitrary_saturated_above_knee() {
     }
 }
 
-#[test]
-fn whites_preserves_hue_on_arbitrary_saturated() {
-    // Sweep saturated near-white colours through whites=±50; assert
-    // uniform scaling (already tested for one neutral case above —
-    // this adds saturated coverage).
-    let cases: &[[f32; 3]] = &[[0.95, 0.70, 0.50], [0.50, 0.70, 0.95], [0.95, 0.95, 0.40]];
-    for &slider in &[50.0_f32, -50.0] {
-        for &input in cases {
-            let mut img = fresh_img(input);
-            let mut m = model_default();
-            m.whites = slider;
-            apply(&mut img, &m);
-            let p = img.pixels[0];
-            let s_r = p[0] / input[0];
-            let s_g = p[1] / input[1];
-            let s_b = p[2] / input[2];
-            assert!(
-                (s_r - s_g).abs() / s_r.abs().max(1e-6) < 0.001,
-                "whites={} hue drift on {:?}",
-                slider,
-                input
-            );
-            assert!(
-                (s_r - s_b).abs() / s_r.abs().max(1e-6) < 0.001,
-                "whites={} hue drift on {:?}",
-                slider,
-                input
-            );
-        }
-    }
-}
-
 // ----------------------------------------------------------------
 // Scene-referred placement: these tests pin that the stage operates
 // in scene-linear Rec.2020 (so it can see values > 1.0 unclipped)

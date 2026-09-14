@@ -88,7 +88,7 @@ fn render_ffi(
     let curve = nonidentity_curve();
     let lut = nonidentity_lut(9);
     let arr = owned_arrays(model, &curve, &lut);
-    let mut params = make_params(model, WbMethod::Cat16, 9, &arr);
+    let mut params = make_params(&input, model, WbMethod::Cat16, 9, &arr);
     let mut bins = vec![0u32; 128 * 128];
     let mut stats = MapleScopeStats {
         frame: 0,

@@ -89,7 +89,7 @@ Cargo features on `raw-core` that change what gets tested:
 | `stage-dump`   | Writes one OpenEXR per pipeline stage to `$MAPLE_STAGE_DUMP`. Adds ~2 MB; diagnostics only.   |
 | `gpu`          | Pulls in the `raw-gpu` crate (wgpu/WGSL). Off by default so CPU-only builds don't carry wgpu. |
 
-The integration targets under `raw-core/tests/` are the synthetic gates' entry points: `grey_invariants`, `grey_adjustments`, `grey_adjustments_display`, `grey_dcp_phase1`, `color_chart_invariants`, plus `golden` and the ACR-fitting helpers.
+The integration targets under `raw-core/tests/` are the synthetic gates' entry points: `grey_invariants`, `grey_adjustments`, `grey_adjustments_display`, `grey_adjustments_wb`, `grey_dcp_phase1`, `color_chart_invariants`, plus `golden` and the ACR-fitting helpers.
 
 The `build-raw-ffi` job also compile-gates `cargo build --bin maple-cli --features pano`, which is the only always-on CI step that compiles `maple-pano` with its ML stack.
 

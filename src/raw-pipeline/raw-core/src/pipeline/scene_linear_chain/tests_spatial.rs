@@ -26,6 +26,7 @@ fn edge_and_chroma_f32(w: u32, h: u32) -> Vec<f32> {
 /// staged reference can be compared lane-for-lane.
 fn image_from_f32_rgba(buf: &[f32], w: u32, h: u32) -> crate::image::Image {
     crate::image::Image {
+        whites_anchor_ev: None,
         width: w,
         height: h,
         pixels: buf.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect(),

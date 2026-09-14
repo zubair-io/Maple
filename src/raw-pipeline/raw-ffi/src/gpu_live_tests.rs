@@ -50,6 +50,8 @@ pub(super) fn cpu_reference(
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
 
+    img.whites_anchor_ev = Some(super::gpu_live_test_support::input_whites_anchor(input));
+
     // Scene-linear stages, develop order (capture_sharpening omitted — the FFI
     // cases leave it disabled, matching the decode-boundary contract).
     raw_core::stages::white_balance::apply(&mut img, model.temperature, model.tint, wb_method);
@@ -79,7 +81,7 @@ pub(super) fn cpu_reference(
     raw_core::stages::noise_reduction::apply_color(&mut img, model.nr_color, None, 100);
 
     // View tail: agx → rec2020_to_srgb → srgb_gamma_encode → curve → LUT.
-    raw_core::view::agx::apply(&mut img, model.contrast);
+    raw_core::view::agx::apply(&mut img, model.contrast, model.whites);
     raw_core::view::encode::rec2020_to_srgb(&mut img);
     raw_core::view::encode::srgb_gamma_encode(&mut img);
     let mut rgb: Vec<f32> = Vec::with_capacity(img.pixels.len() * 3);
@@ -242,7 +244,7 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
         ("masked", masked_model(), WbMethod::Cat16),
     ] {
         let arr = owned_arrays(&model, &curve, &lut);
-        let params = make_params(&model, wb_method, lut_size, &arr);
+        let params = make_params(&input, &model, wb_method, lut_size, &arr);
 
         // Open → render → close.
         let mut handle = MapleGpuLiveSession {
@@ -328,6 +330,7 @@ pub(super) fn direct_raw_gpu(
         }
     };
     let inputs = FullChainInputs {
+        whites_anchor_ev: super::gpu_live_test_support::input_whites_anchor(input.as_ref()),
         wb_matrix,
         wb_temperature: model.temperature,
         wb_tint: model.tint,
@@ -490,7 +493,7 @@ fn gpu_live_rerender_is_byte_identical() {
     let curve = nonidentity_curve();
     let lut = nonidentity_lut(9);
     let arr = owned_arrays(&model, &curve, &lut);
-    let params = make_params(&model, WbMethod::Cat16, 9, &arr);
+    let params = make_params(&input, &model, WbMethod::Cat16, 9, &arr);
 
     let mut handle = MapleGpuLiveSession {
         inner: std::ptr::null_mut(),

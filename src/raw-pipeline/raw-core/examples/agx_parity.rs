@@ -61,7 +61,7 @@ fn main() -> std::io::Result<()> {
     // Run AgX.
     let mut img = Image::new(W as u32, H as u32, ColorSpace::SceneLinearRec2020);
     img.pixels.copy_from_slice(&pixels);
-    raw_core::view::agx::apply(&mut img, 0.0);
+    raw_core::view::agx::apply(&mut img, 0.0, 0.0);
 
     // Write output f32s.
     let mut f_out = File::create(out_dir.join("agx_parity_out.f32"))?;

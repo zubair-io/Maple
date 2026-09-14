@@ -67,7 +67,7 @@ fn gpu_params_nonraw(
     decoded_tint: f32,
 ) -> MapleGpuLiveParams {
     let model = AdjustmentModel::default();
-    let mut params = make_params(&model, WbMethod::Cat16, 2, arr);
+    let mut params = make_params(&[], &model, WbMethod::Cat16, 2, arr);
     params.temperature = temperature;
     params.tint = tint;
     params.decoded_temperature = decoded_temperature;
@@ -82,6 +82,7 @@ fn gpu_params_nonraw(
 /// it is directly comparable to the GPU chain's pre-view-tail WB-only effect.
 fn cpu_params_nonraw() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
+        whites_anchor_ev: f32::NAN,
         temperature: LIVE_TEMP,
         tint: LIVE_TINT,
         exposure: 0.0,

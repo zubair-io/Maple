@@ -45,7 +45,9 @@ pub fn render_from_scene_linear(
     // way to see exactly what entered AgX. Numbered `00` so it sorts
     // before stages 16/17 in the dump dir.
     dump_after("00_synthetic_input", &scene);
-    stage("synth_agx", || agx::apply(&mut scene, model.contrast));
+    stage("synth_agx", || {
+        agx::apply(&mut scene, model.contrast, model.whites)
+    });
     dump_after("16_agx", &scene);
     // Display-referred point curves (#2232) — same post-AgX position as the
     // RAW path.
@@ -168,7 +170,9 @@ pub fn render_from_scene_linear_with_chain(
         noise_reduction::apply_color(&mut scene, model.nr_color, None, 100)
     });
     dump_after("15_nr_color", &scene);
-    stage("synth_agx", || agx::apply(&mut scene, model.contrast));
+    stage("synth_agx", || {
+        agx::apply(&mut scene, model.contrast, model.whites)
+    });
     dump_after("16_agx", &scene);
     // Display-referred point curves (#2232) — same post-AgX position as the
     // RAW path.

@@ -141,6 +141,19 @@ pub fn render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain(
     quality: RenderQuality,
     cancel: CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>, f32)> {
+    let (w, h, pixels, gain, _) =
+        render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
+            raw, model, quality, cancel,
+        )?;
+    Ok((w, h, pixels, gain))
+}
+
+pub fn render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>, f32, f32)> {
     let (scene, ae_gain) = develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         raw, model, quality, cancel,
     )?;
@@ -158,7 +171,15 @@ pub fn render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain(
     let (w, h, oriented_f32) = stage("apply_orientation_rgba", || {
         apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
     });
-    Ok((w, h, oriented_f32, ae_gain))
+    Ok((
+        w,
+        h,
+        oriented_f32,
+        ae_gain,
+        scene
+            .whites_anchor_ev
+            .expect("develop captures full-frame Whites anchor"),
+    ))
 }
 
 /// Sized scene-linear render entry. Same shared development chain as
@@ -278,6 +299,24 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain
     max_long_edge: u32,
     cancel: CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>, f32)> {
+    let (w, h, pixels, gain, _) =
+        render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
+            raw,
+            model,
+            quality,
+            max_long_edge,
+            cancel,
+        )?;
+    Ok((w, h, pixels, gain))
+}
+
+pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>, f32, f32)> {
     let (scene, ae_gain) = develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         raw,
         model,
@@ -299,5 +338,13 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain
     let (w, h, oriented_f32) = stage("apply_orientation_rgba_sized", || {
         apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
     });
-    Ok((w, h, oriented_f32, ae_gain))
+    Ok((
+        w,
+        h,
+        oriented_f32,
+        ae_gain,
+        scene
+            .whites_anchor_ev
+            .expect("develop captures full-frame Whites anchor"),
+    ))
 }

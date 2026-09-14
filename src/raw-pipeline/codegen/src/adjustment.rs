@@ -160,7 +160,7 @@ pub(crate) fn emit_swift(schema: &[FieldSpec]) -> String {
     // `AdjustmentModel`: the selective-paste UI on both platforms needs it
     // independently of any one model instance.
     s.push_str(&crate::adjustment_groups::emit_swift());
-    s
+    crate::swift_indentation(&s)
 }
 
 // -------------------------------------------------------------------------

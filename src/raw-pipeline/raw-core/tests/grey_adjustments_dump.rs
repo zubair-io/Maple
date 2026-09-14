@@ -83,11 +83,6 @@ fn dump_scene_linear_deltas() {
             predict_shadows(L, 50.0),
         );
         dump(
-            &format!("{}/whites +50", pl),
-            worst_delta(L, |m| m.whites = 50.0, |s| predict_whites(s, 50.0)),
-            predict_whites(L, 50.0),
-        );
-        dump(
             &format!("{}/blacks +50", pl),
             worst_delta(L, |m| m.blacks = 50.0, |s| predict_blacks(s, 50.0)),
             predict_blacks(L, 50.0),

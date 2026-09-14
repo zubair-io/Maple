@@ -38,6 +38,8 @@ extension RenderActor {
     /// parameter so a native-detail tile matches the full-image AE
     /// brightness of the buffer currently on screen.
     public let aeGain: Float
+    /// Full-frame Whites anchor; retain this when a tile buffer exports NaN.
+    public let whitesAnchorEv: Float
     /// The decode-cache write generation the cached buffer was written
     /// under (#2049) — see `RenderActor.decodeGeneration`. Threaded into
     /// `presentViaGpuLive` so the GPU-live upload identity can detect a
