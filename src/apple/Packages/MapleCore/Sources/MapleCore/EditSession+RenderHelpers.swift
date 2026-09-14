@@ -93,7 +93,7 @@ extension EditSession {
     // CIImage graph below — see `EditSession+FilmExport.swift` for why.
     // Returns `nil` (falls through) for every other case: no look,
     // non-RAW, sourceless, or an FFI render failure.
-    if let filmExport = try await renderExportWithFilmLook(quality: qualityOverride) {
+    if !isFast, let filmExport = try await renderExportWithFilmLook(quality: qualityOverride) {
       return filmExport
     }
     // Resolve the look BEFORE the render (#3190 review follow-up): a
@@ -114,22 +114,12 @@ extension EditSession {
       qualityOverride: qualityOverride,
       targetPrimariesOverride: filmActive ? .srgb : nil
     )
-    // Non-RAW film-look export (#2713): the CIImage-graph path above has
-    // no FFI film-look stage (`maple_render_file_with_film` is RAW-only
-    // — see `EditSession+FilmExport.swift`'s file header), so a JPEG/
-    // HEIF export with a look previously came out unlooked even though
-    // the live canvas shows it. `renderActor.renderForExport`'s output
-    // is already display-encoded (sRGB when film is active, per the pin
-    // above) — the same domain the interactive canvas's CPU fallback
-    // composites `FilmLookCube` onto (`EditSession+Render.swift`) — so
-    // apply it here the same way. Gated on `!asset.isRaw`: the RAW path
-    // above is either bit-exact (a resolved look) or intentionally
-    // look-less (no look), and this must not change either of those
-    // outcomes. `FilmLookCube.apply` is itself a no-op when
-    // `model.filmLook` has no resolvable lattice, so this is safe to
-    // call unconditionally for every non-RAW export.
+    // Non-RAW (and fast RAW) film-look export (#2713): the CIImage-graph
+    // path above has no FFI film-look stage (`maple_render_file_with_film`
+    // is full-RAW only), so apply `FilmLookCube` directly on the
+    // display-encoded CIImage result.
     let developed =
-      asset.isRaw
+      (!isFast && asset.isRaw)
       ? image
       : FilmLookCube.apply(
         to: image, lattice: filmLattice, strengthPct: exportModel.filmStrength)

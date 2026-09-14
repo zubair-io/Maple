@@ -35,12 +35,21 @@ extension RenderActor {
     let m = model
 
     if !asset.isRaw {
-      guard
-        let decoded = await pipeline.decodeSceneLinearNonRaw(
-          asset: asset, targetSize: targetSize
-        )
-      else {
-        throw RenderError.pipelineFailed
+      let decoded: CIImage
+      if targetSize != nil,
+        decodedForAssetID == asset.id,
+        let cached = decodedImage
+      {
+        decoded = cached
+      } else {
+        guard
+          let freshlyDecoded = await pipeline.decodeSceneLinearNonRaw(
+            asset: asset, targetSize: targetSize
+          )
+        else {
+          throw RenderError.pipelineFailed
+        }
+        decoded = freshlyDecoded
       }
       return await Task.detached(priority: .userInitiated) {
         autoreleasepool {
@@ -52,36 +61,67 @@ extension RenderActor {
       }.value
     }
 
-    // Export uses one immutable snapshot of the live edits, including
-    // decode-baked fields. A remote or not-yet-saved sidecar must not
-    // silently select defaults (#3357).
-    let sidecar = FileManager.default.temporaryDirectory
-      .appendingPathComponent("maple-export-\(UUID().uuidString).xmp")
-    let xml = XMPSerializer.serialize(model: m, culling: CullingState())
-    try xml.write(to: sidecar, atomically: true, encoding: .utf8)
-    defer { try? FileManager.default.removeItem(at: sidecar) }
     let quality: PipelineRenderer.Quality =
       qualityOverride ?? (targetSize != nil ? .preview : (AmazeFlag.isEnabled ? .amaze : .full))
+
+    let liveBaked = RawCoreBridge.stripAppleGPUStages(m)
+    let canReuseCachedDecode =
+      targetSize != nil
+      && decodedForAssetID == asset.id
+      && decodedImage != nil
+      && decodedProfile == m.profile
+      && decodedAutoExposure == m.autoExposure
+      && (decodedBakedModel == liveBaked
+        || (decodedBakedModel == nil
+          && liveBaked == RawCoreBridge.stripAppleGPUStages(AdjustmentModel())))
+
     let decodeResult: ImageEditPipeline.SceneLinearDecodeResult?
-    if let targetSize {
-      decodeResult = await pipeline.decodeSceneLinearSized(
-        asset: asset, targetSize: targetSize, xmpPath: sidecar, quality: quality,
-        profileOverride: asset.isRaw ? m.profile : nil,
-        autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+    if canReuseCachedDecode, let cached = decodedImage {
+      decodeResult = ImageEditPipeline.SceneLinearDecodeResult(
+        image: cached,
+        noiseProfile: decodedNoiseProfile,
+        iso: decodedISO,
+        wbFrame: decodedWbFrame,
+        aeGain: decodedAeGain,
+        hasLensCorrections: decodedHasLensCorrections,
+        lensCorrectionCaInert: decodedLensCorrectionCaInert,
+        lensCorrectionDistortionInert: decodedLensCorrectionDistortionInert,
+        cameraSupport: decodedCameraSupport
       )
     } else {
-      decodeResult = await pipeline.decodeSceneLinear(
-        asset: asset, quality: quality, xmpPath: sidecar,
-        profileOverride: asset.isRaw ? m.profile : nil,
-        autoExposureOverride: asset.isRaw ? m.autoExposure : nil
-      )
+      // Export uses one immutable snapshot of the live edits, including
+      // decode-baked fields. A remote or not-yet-saved sidecar must not
+      // silently select defaults (#3357).
+      let sidecar = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maple-export-\(UUID().uuidString).xmp")
+      let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+      try xml.write(to: sidecar, atomically: true, encoding: .utf8)
+      defer { try? FileManager.default.removeItem(at: sidecar) }
+      if let targetSize {
+        decodeResult = await pipeline.decodeSceneLinearSized(
+          asset: asset, targetSize: targetSize, xmpPath: sidecar, quality: quality,
+          profileOverride: asset.isRaw ? m.profile : nil,
+          autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+        )
+      } else {
+        decodeResult = await pipeline.decodeSceneLinear(
+          asset: asset, quality: quality, xmpPath: sidecar,
+          profileOverride: asset.isRaw ? m.profile : nil,
+          autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+        )
+      }
     }
     guard let exportDecodeResult = decodeResult else {
       throw RenderError.pipelineFailed
     }
     let profileLUT: CIFilter?
-    if m.profile == .auto {
-      let url = try await rawRenderSource.url(for: asset)
+    let lutSourceURL: URL?
+    if canReuseCachedDecode {
+      lutSourceURL = await rawRenderSource.stagedURLIfAvailable(for: asset)
+    } else {
+      lutSourceURL = try? await rawRenderSource.url(for: asset)
+    }
+    if m.profile == .auto, let url = lutSourceURL {
       let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }

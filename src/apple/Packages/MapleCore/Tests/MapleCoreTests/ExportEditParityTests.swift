@@ -85,6 +85,107 @@ final class ExportEditParityTests: XCTestCase {
     }
   }
 
+  func testFastExportReusesDecodedImageWithoutInvokingBytesProvider() async throws {
+    final class Counter: @unchecked Sendable {
+      private let lock = NSLock()
+      private var count = 0
+      func increment() {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+      }
+      var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+      }
+    }
+
+    let counter = Counter()
+    let dummyImage = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 256, height: 256))
+    let asset = AssetRef(
+      displayName: "test.cr2",
+      hintExtension: "cr2",
+      bytesProvider: {
+        counter.increment()
+        return Data()
+      }
+    )
+    let actor = RenderActor(pipeline: ImageEditPipeline())
+    var model = AdjustmentModel.default
+    model.exposure = 0.5
+    await actor._testSeedDecodedCache(
+      asset: asset,
+      decoded: dummyImage,
+      rawResolution: CGSize(width: 256, height: 256),
+      bakedModel: RawCoreBridge.stripAppleGPUStages(model),
+      profile: model.profile,
+      autoExposure: model.autoExposure
+    )
+
+    let targetSize = CGSize(width: 256, height: 256)
+    let exported = try await actor.renderForExport(
+      asset: asset,
+      model: model,
+      asShot: nil,
+      targetSize: targetSize,
+      qualityOverride: .preview
+    )
+
+    XCTAssertEqual(
+      counter.value, 0, "Fast export must reuse cached decode without invoking bytesProvider")
+    XCTAssertEqual(exported.extent.size, targetSize)
+  }
+
+  func testFastExportReusesDecodedImageForNonRawWithoutReDecoding() async throws {
+    final class Counter: @unchecked Sendable {
+      private let lock = NSLock()
+      private var count = 0
+      func increment() {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+      }
+      var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+      }
+    }
+
+    let counter = Counter()
+    let dummyImage = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 128, height: 128))
+    let asset = AssetRef(
+      displayName: "photo.jpg",
+      hintExtension: "jpg",
+      bytesProvider: {
+        counter.increment()
+        return Data()
+      }
+    )
+    let actor = RenderActor(pipeline: ImageEditPipeline())
+    let model = AdjustmentModel.default
+    await actor._testSeedDecodedCache(
+      asset: asset,
+      decoded: dummyImage,
+      rawResolution: CGSize(width: 128, height: 128)
+    )
+
+    let targetSize = CGSize(width: 128, height: 128)
+    let exported = try await actor.renderForExport(
+      asset: asset,
+      model: model,
+      asShot: nil,
+      targetSize: targetSize,
+      qualityOverride: .preview
+    )
+
+    XCTAssertEqual(
+      counter.value, 0,
+      "Non-RAW fast export must reuse cached decode without invoking bytesProvider")
+    XCTAssertEqual(exported.extent.size, targetSize)
+  }
+
   private func pixels(_ image: CIImage) throws -> [UInt8] {
     let scaled = MapleExporter.scaledImage(image, maxSide: 256)
     let width = Int(scaled.extent.width)

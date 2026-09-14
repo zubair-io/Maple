@@ -34,6 +34,15 @@ actor RawRenderSource {
     }
   }
 
+  /// Returns the staged file URL if already available or actively staging,
+  /// without initiating a new remote fetch.
+  func stagedURLIfAvailable(for asset: AssetRef) async -> URL? {
+    let asset = originalAsset ?? asset
+    if let url = asset.primaryURL { return url }
+    guard let pending else { return nil }
+    return try? await pending.value.url
+  }
+
   /// Metadata, decode and profile fitting share one download and one staged
   /// file. Mapping avoids retaining an additional full-RAW Data cache across
   /// the session; consumers release their mapping when their work completes.
