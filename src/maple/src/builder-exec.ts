@@ -45,6 +45,8 @@ export async function runPipeline(
   bytes: Uint8Array,
   output: Record<string, unknown>,
 ): Promise<PipelineOutput> {
+  // Resolve file-backed metadata before serializing its final aux offsets.
+  await state.aux.resolve();
   const recipe = stateToRecipe(state, output);
   const res = await callNative('rasterPipelineBuf', [
     bytes,
