@@ -9,10 +9,11 @@
  * "Tensor.location must be a string." and dead-letters the image.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import * as mapleMod from 'maple';
 import { solidJpeg } from '../test-support/synth-image.ts';
 
-import { OnnxFaceDetector, ThumbDecodeError } from './face-detector.ts';
+import { isNativeLoadFailure, OnnxFaceDetector, ThumbDecodeError } from './face-detector.ts';
 import {
   setFaceModelLoaderForTests,
   type FaceModels,
@@ -303,5 +304,112 @@ describe('OnnxFaceDetector — degenerate bbox', () => {
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(ThumbDecodeError);
     expect((err as Error).message).toContain('invalid crop geometry');
+  });
+});
+
+describe('isNativeLoadFailure', () => {
+  it('recognises the "library not found" message shape', () => {
+    const err = new Error(
+      'Maple native library (libmaple_core.dylib) not found. Build it with cargo build --release -p raw-ffi or set MAPLE_NATIVE_LIB.',
+    );
+    expect(isNativeLoadFailure(err)).toBe(true);
+  });
+
+  it('recognises the "requires Bun" message shape', () => {
+    const err = new Error('Maple native bindings currently require Bun (bun:ffi).');
+    expect(isNativeLoadFailure(err)).toBe(true);
+  });
+
+  it('returns false for an unrelated Error message (a real decode failure)', () => {
+    const err = new Error('unsupported image format');
+    expect(isNativeLoadFailure(err)).toBe(false);
+  });
+
+  it('returns false for a non-Error thrown value', () => {
+    expect(isNativeLoadFailure('some string')).toBe(false);
+    expect(isNativeLoadFailure(null)).toBe(false);
+    expect(isNativeLoadFailure(undefined)).toBe(false);
+    expect(
+      isNativeLoadFailure({ message: 'Maple native bindings currently require Bun (bun:ffi).' }),
+    ).toBe(false);
+  });
+});
+
+describe('OnnxFaceDetector — native dylib load failure propagation (#3623 follow-up guard)', () => {
+  /**
+   * A broken/missing native library must abort loudly (a retryable throw
+   * the stage runner's retry/backoff path handles), never get folded into
+   * `ThumbDecodeError` — which the stage handlers treat as a permanent
+   * per-asset skip. We simulate this by making the real `maple(...)` call
+   * throw one of `loadNativeBinding()`'s exact two message shapes, via
+   * `spyOn` on the `maple` package's namespace export (restored in
+   * `finally`) — the same pattern this file's sibling
+   * `face-bootstrap.never-throws.test.ts` uses for a same-repo module,
+   * confirmed here to also apply to the external `maple` package's
+   * namespace binding.
+   */
+  it('detectFaces re-throws a native-load failure untouched, not wrapped in ThumbDecodeError', async () => {
+    setFaceModelLoaderForTests(
+      async (): Promise<FaceModels> => ({
+        detector: { run: async () => ({}) },
+        recognizer: { run: async () => ({}) },
+        Tensor: FakeTensorCtor,
+        paths: { detector: 'stub', recognizer: 'stub' },
+      }),
+    );
+    const nativeErr = new Error('Maple native bindings currently require Bun (bun:ffi).');
+    const mapleSpy = spyOn(mapleMod, 'maple').mockImplementation(() => {
+      throw nativeErr;
+    });
+
+    try {
+      const detector = new OnnxFaceDetector();
+      let err: unknown = null;
+      try {
+        await detector.detectFaces(await makeTinyJpeg());
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBe(nativeErr);
+      expect(err).not.toBeInstanceOf(ThumbDecodeError);
+    } finally {
+      mapleSpy.mockRestore();
+    }
+  });
+
+  it('embedFace (via alignFaceCrop) re-throws a native-load failure untouched, not wrapped in ThumbDecodeError', async () => {
+    setFaceModelLoaderForTests(
+      async (): Promise<FaceModels> => ({
+        detector: { run: async () => ({}) },
+        recognizer: { run: async () => ({}) },
+        Tensor: FakeTensorCtor,
+        paths: { detector: 'stub', recognizer: 'stub' },
+      }),
+    );
+    const nativeErr = new Error(
+      'Maple native library (libmaple_core.dylib) not found. Build it with cargo build --release -p raw-ffi or set MAPLE_NATIVE_LIB.',
+    );
+    const mapleSpy = spyOn(mapleMod, 'maple').mockImplementation(() => {
+      throw nativeErr;
+    });
+
+    try {
+      const detector = new OnnxFaceDetector();
+      const detection = {
+        bbox: { x: 0.2, y: 0.2, w: 0.4, h: 0.4 },
+        confidence: 0.9,
+        landmarks: [],
+      };
+      let err: unknown = null;
+      try {
+        await detector.embedFace(await makeTinyJpeg(), detection);
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBe(nativeErr);
+      expect(err).not.toBeInstanceOf(ThumbDecodeError);
+    } finally {
+      mapleSpy.mockRestore();
+    }
   });
 });

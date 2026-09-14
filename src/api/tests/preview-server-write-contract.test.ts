@@ -62,9 +62,9 @@ describe('preview stage output passes the full #2014 validator (#1997)', () => {
   ) {
     const file = path.join(dir, filename);
     const { width, height, background } = createOpts;
-    let builder = maple(solidRgb(width, height, [background.r, background.g, background.b])).toFormat(
-      'jpeg',
-    );
+    let builder = maple(
+      solidRgb(width, height, [background.r, background.g, background.b]),
+    ).toFormat('jpeg');
     if (withMetadata) builder = builder.withMetadata(withMetadata);
     await writeFile(file, await builder.toBuffer());
 
@@ -96,7 +96,12 @@ describe('preview stage output passes the full #2014 validator (#1997)', () => {
   it('a rotated (EXIF orientation 6) JPEG source produces a preview with baked pixels and no leftover orientation tag', async () => {
     const result = await renderAndValidate(
       'rotated-contract.jpg',
-      { width: 1800, height: 900, channels: 3, background: { r: 200, g: 60, b: 60 } },
+      {
+        width: 1800,
+        height: 900,
+        channels: 3,
+        background: { r: 200, g: 60, b: 60 },
+      },
       { orientation: 6 },
     );
     // validateAvifOutput's orientation check (point 3 in its doc) fails the

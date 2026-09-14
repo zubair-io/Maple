@@ -58,10 +58,17 @@ function enforceByteBudget(frames: readonly SampledFrame[]): SampledFrame[] {
  * Sample a bounded, deterministic set of frames from `videoPath`, ready to
  * send to the vision provider in one multi-image request.
  *
- * Returns `{ ok: false, reason }` — never throws — for every condition the
- * design doc calls a terminal skip: no runnable ffmpeg, no video stream, a
- * probe timeout, or a clip with no frame that could be decoded at all. The
- * stage handler maps this straight to `StageResult.skip`.
+ * Returns `{ ok: false, reason }` for every condition the design doc calls a
+ * terminal skip: no runnable ffmpeg, no video stream, a probe timeout, or a
+ * clip with no frame that could be decoded at all. The stage handler maps
+ * this straight to `StageResult.skip`. This function does NOT itself throw
+ * for any of those four conditions — but it is not a blanket "never
+ * throws": `extractFramesJpeg` deliberately re-throws (rather than folding
+ * into `no-decodable-frame`) when the failure is a broken/missing native
+ * `maple` library rather than a genuine per-frame decode failure, since that
+ * is an environment misconfiguration the stage runner's retry path should
+ * see, not a permanent per-asset skip. That throw is intentionally left
+ * uncaught here and propagates to the caller.
  */
 export async function sampleVideoFrames(
   videoPath: string,
