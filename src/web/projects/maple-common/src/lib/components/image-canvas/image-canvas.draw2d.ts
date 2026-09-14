@@ -194,6 +194,17 @@ function ensureGradientImage(url: string, repaint: () => void): HTMLImageElement
  * clips at a fraction of the VIEWPORT, matching the divider overlay (which is
  * positioned at % of the wrap).
  */
+/**
+ * Blank the 2D canvas's own backing store (#3610) — the component calls this
+ * only while the GPU live path owns presentation. `drawCanvas2d` never runs
+ * in that state (it would paint the mock-asset gradient placeholder over a
+ * null bitmap), so without this the 2D canvas kept showing its last pre-GPU
+ * frame for as long as GPU stayed active — a stale, misaligned second image.
+ */
+export function clearCanvas2d(canvas: HTMLCanvasElement): void {
+  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+}
+
 export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): void {
   const { wrapW, wrapH, canvasW, canvasH, pan, bitmap, split, gradientUrl } = inputs;
   const generation = (canvasPaintGeneration.get(canvas) ?? 0) + 1;

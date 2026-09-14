@@ -35,6 +35,7 @@ import {
   computeRefineTargetLongEdge,
   computeViewportTargetLongEdge,
   drawCanvas2d,
+  clearCanvas2d,
 } from './image-canvas.draw2d';
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
 import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
@@ -338,6 +339,8 @@ export class ImageCanvasComponent
         // live path the OffscreenCanvas holds the pixels (worker-owned); we only
         // CSS-position/scale it (viewport-res, #1080). `draw()` = flag-off path.
         if (this.gpuPresent.active()) {
+          // #3610: keep the 2D canvas (unused while `draw()` is skipped) blank.
+          if (this.canvasRef?.nativeElement) clearCanvas2d(this.canvasRef.nativeElement);
           this.gpuPresent.applyView();
         } else {
           this.draw();
