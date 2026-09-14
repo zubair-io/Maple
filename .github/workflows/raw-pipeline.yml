@@ -44,6 +44,7 @@ on:
       - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
       - 'src/scripts/test_tone_exposure.sh'
+      - 'src/scripts/acr-reference/**'
       - 'tools/tone_exposure_gate.py'
       - 'tools/tone_sprint_report.py'
       - 'test-fixtures/tone-exposure/**'
@@ -74,6 +75,7 @@ on:
       - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
       - 'src/scripts/test_tone_exposure.sh'
+      - 'src/scripts/acr-reference/**'
       - 'tools/tone_exposure_gate.py'
       - 'tools/tone_sprint_report.py'
       - 'test-fixtures/tone-exposure/**'
@@ -515,6 +517,8 @@ jobs:
         run: bash tools/qualification/record.sh --check color_chart cpu-reference -- bash src/scripts/test_synthetic_color_chart.sh
       - name: Grey adjustments gate (test_grey_adjustments.sh) + evidence check
         run: bash tools/qualification/record.sh --check grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
+      - name: ACR reference settings integrity tests
+        run: python3 -m unittest discover -s src/scripts/acr-reference -p test_reference_settings.py
       - name: ACR one-stop Exposure response gate
         run: bash src/scripts/test_tone_exposure.sh
       - name: Grey DCP gate (test_grey_dcp.sh) + evidence check
