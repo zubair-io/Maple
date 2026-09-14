@@ -76,6 +76,14 @@ raw-core = { path = "../raw-core", features = ["avif"] }
 # NOTE: the `2` line, not `3` — napi-build versions independently of `napi`
 # (`[package.metadata.workspaces] independent = true` in napi's manifest) and
 # has no 3.x release at all. 2.4.2 is the current build-support crate for
-# napi 3.x; it is what emits the macOS `-undefined dynamic_lookup` cdylib link
-# args that let the addon leave `napi_*` unresolved until the host binds them.
+# napi 3.x.
+#
+# It emits the per-platform link args a Node addon needs: `-undefined
+# dynamic_lookup` on macOS, `-z nodelete` on Linux/BSD (a `pthread_key_create`
+# destructor use-after-unload bug), and the `libnode.dll` search on
+# windows-gnu. Note that with `dyn-symbols` on (see above) this crate does NOT
+# rely on the macOS dynamic-lookup flag to bind `napi_*` — `nm -u` on the built
+# dylib reports zero undefined `napi_*` symbols. The flag stays because
+# napi-build emits it unconditionally and it is harmless, not because anything
+# here depends on it.
 napi-build = "2"
