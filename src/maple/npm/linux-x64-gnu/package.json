@@ -4,7 +4,8 @@
   "description": "Native binary for @justmaple/maple on Linux x64 (glibc)",
   "main": "libraw_ffi.so",
   "files": [
-    "libraw_ffi.so"
+    "libraw_ffi.so",
+    "raw-napi.linux-x64-gnu.node"
   ],
   "os": [
     "linux"

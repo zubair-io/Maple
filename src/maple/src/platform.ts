@@ -114,16 +114,15 @@ export function getPlatformBinaryFilename(platform = process.platform): string {
 }
 
 /**
- * Platform-specific napi addon filename, GUESSING at napi-rs's own
- * per-platform naming convention (`<crate>.<platform>-<arch>[-<abi>].node`)
- * for when a published `@justmaple/maple-<platform>` package carries a
- * prebuilt addon. PROVISIONAL: this has not been verified against a real
- * `@napi-rs/cli` `napi build` invocation or any real CI-produced artifact —
- * Task 9 owns the real per-platform build+rename step and MUST verify (or
- * correct) this string against that actual output before anything depends
- * on it in production; this just needs to agree with that naming once it
- * exists — see `resolvePlatformNapiAddon`'s local-dev fallback below for how
- * this package resolves an addon before that exists.
+ * Platform-specific napi addon filename: `raw-napi.<platform>-<arch>[-<abi>].node`.
+ * CONFIRMED (#3509 Task 9): this is the exact filename
+ * `.github/workflows/publish-package.yml`'s `build-linux`/`build-macos`/
+ * `build-windows` jobs produce (plain `cargo build`/`cargo zigbuild` on the
+ * cargo-native `.so`/`.dylib`/`.dll`, renamed to this convention by hand —
+ * there is no `@napi-rs/cli` in this repo's toolchain), and what
+ * `assemble-packages.ts` copies into each `npm/<platform>/` package under
+ * this same name. Keep this function and those two build/assemble sites in
+ * sync on any future rename.
  */
 export function getPlatformNapiFilename(
   platform = process.platform,
