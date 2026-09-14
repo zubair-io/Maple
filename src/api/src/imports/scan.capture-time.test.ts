@@ -9,6 +9,8 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { maple } from 'maple';
+import { solidRgb } from '../test-support/synth-image.ts';
 import { scanFolder, buildImportFiles } from './scan.ts';
 
 let previousMapleRoots: string | undefined;
@@ -38,23 +40,66 @@ describe('EXIF capture time', () => {
   let exifRoot: string;
   let exifFolderName: string;
 
-  /** A real 4x4 JPEG with a genuine embedded EXIF DateTimeOriginal tag
-   * (`IFD2` is sharp's grouping key for the Exif sub-IFD), stamped with an
-   * mtime in a deliberately DIFFERENT month — bucketing must follow the EXIF
-   * date, not the file's mtime. */
+  /**
+   * A minimal, valid little-endian raw EXIF TIFF block whose Exif sub-IFD
+   * carries a real `DateTimeOriginal` tag (0x9003) — the actual nested
+   * structure a camera writes (IFD0 → an ExifIFD pointer, tag 0x8769 →
+   * the Exif sub-IFD → the tag itself), not a flattened convenience
+   * shortcut. Maple's `withExif()` takes this raw form directly (it
+   * diverges from sharp's `{ IFD0: {...} }` object shape — see the
+   * @justmaple/maple README's `withExif()` row, tracked upstream as #3588).
+   *
+   * Layout (byte offsets):
+   *   0-7    "II" + magic(42) + offset-to-IFD0(8)
+   *   8-25   IFD0: 1 entry — tag 0x8769 (ExifIFD ptr) → offset 26; next-IFD 0
+   *   26-43  Exif sub-IFD: 1 entry — tag 0x9003 (DateTimeOriginal), ASCII,
+   *          count 20, value offset 44; next-IFD 0
+   *   44-63  the 20-byte ASCII string "YYYY:MM:DD HH:MM:SS\0"
+   */
+  function dateTimeOriginalExifBlock(dateTimeOriginal: string): Buffer {
+    const value = `${dateTimeOriginal}\0`;
+    if (value.length !== 20) {
+      throw new Error(
+        `test setup: DateTimeOriginal must be the 19-char "YYYY:MM:DD HH:MM:SS" form, got "${dateTimeOriginal}"`,
+      );
+    }
+    const EXIF_IFD_OFFSET = 26;
+    const STRING_OFFSET = 44;
+    const buf = Buffer.alloc(STRING_OFFSET + 20);
+    buf.write('II', 0, 'ascii');
+    buf.writeUInt16LE(42, 2);
+    buf.writeUInt32LE(8, 4);
+    // IFD0: one entry, the ExifIFD pointer.
+    buf.writeUInt16LE(1, 8);
+    buf.writeUInt16LE(0x8769, 10);
+    buf.writeUInt16LE(4, 12); // type LONG
+    buf.writeUInt32LE(1, 14);
+    buf.writeUInt32LE(EXIF_IFD_OFFSET, 18);
+    buf.writeUInt32LE(0, 22); // no next IFD
+    // Exif sub-IFD: one entry, DateTimeOriginal.
+    buf.writeUInt16LE(1, EXIF_IFD_OFFSET);
+    buf.writeUInt16LE(0x9003, EXIF_IFD_OFFSET + 2);
+    buf.writeUInt16LE(2, EXIF_IFD_OFFSET + 4); // type ASCII
+    buf.writeUInt32LE(20, EXIF_IFD_OFFSET + 6);
+    buf.writeUInt32LE(STRING_OFFSET, EXIF_IFD_OFFSET + 10);
+    buf.writeUInt32LE(0, EXIF_IFD_OFFSET + 14); // no next IFD
+    buf.write(value, STRING_OFFSET, 'ascii');
+    return buf;
+  }
+
+  /** A real 4x4 JPEG with a genuine embedded EXIF DateTimeOriginal tag,
+   * stamped with an mtime in a deliberately DIFFERENT month — bucketing
+   * must follow the EXIF date, not the file's mtime. */
   async function putJpegWithExifDate(
     rel: string,
     exifDateTimeOriginal: string,
     mtimeUtc: string,
   ): Promise<void> {
-    const { default: sharp } = await import('sharp');
     const abs = path.join(exifRoot, rel);
     await fs.mkdir(path.dirname(abs), { recursive: true });
-    const buf = await sharp({
-      create: { width: 4, height: 4, channels: 3, background: { r: 0, g: 0, b: 0 } },
-    })
-      .withMetadata({ exif: { IFD2: { DateTimeOriginal: exifDateTimeOriginal } } })
-      .jpeg()
+    const buf = await maple(solidRgb(4, 4, [0, 0, 0]))
+      .withExif(dateTimeOriginalExifBlock(exifDateTimeOriginal))
+      .toFormat('jpeg')
       .toBuffer();
     await fs.writeFile(abs, buf);
     const when = new Date(mtimeUtc);
