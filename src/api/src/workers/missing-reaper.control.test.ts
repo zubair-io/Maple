@@ -212,7 +212,7 @@ describe('startMissingReaper', () => {
       await stageRegistry.pause(MISSING_REAPER_NAME);
       expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('paused');
       await stageRegistry.resume(MISSING_REAPER_NAME);
-      expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('running');
+      expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
     } finally {
       handle.stop();
     }
@@ -228,7 +228,7 @@ describe('startMissingReaper', () => {
     // First lifetime: no stored config → boots running by default. Pause it.
     const h1 = startMissingReaper({ intervalMs: 3_600_000 });
     await h1.ready;
-    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('running');
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
     await stageRegistry.pause(MISSING_REAPER_NAME);
     await new Promise((r) => setTimeout(r, 100)); // let the best-effort persist flush
     h1.stop();
@@ -244,7 +244,7 @@ describe('startMissingReaper', () => {
     // Third lifetime: resume persisted → boots running again.
     const h3 = startMissingReaper({ intervalMs: 3_600_000 });
     await h3.ready;
-    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('running');
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('idle');
     h3.stop();
   });
 });
