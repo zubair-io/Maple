@@ -25,10 +25,17 @@ mod error;
 mod filename;
 #[cfg(test)]
 mod filename_tests;
+mod raster_probe;
+#[cfg(test)]
+mod raster_probe_tests;
 
 pub use filename::{
     render_filename_template, validate_filename, FilenameResult, FilenameTemplateArgs,
     ValidateFilenameResult,
+};
+pub use raster_probe::{
+    raster_decode_rgb8_buf, raster_probe_metadata, raster_probe_metadata_buf, RasterDecodeResult,
+    RasterMetadata, RasterProbeResult,
 };
 
 /// Smoke-test export: proves the crate builds into a loadable addon and that a
