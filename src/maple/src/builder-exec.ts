@@ -5,13 +5,18 @@
  * `builder.ts` for the file-size budget (#3505). `metadata()`/`stats()` and
  * the metadata `with*` methods live in `builder-metadata.ts` (#3507); the
  * RAW-develop terminals live in `builder-raw-develop.ts` (#3504).
+ *
+ * Every native call below goes through `callNative` (#3508) instead of
+ * `loadNativeBinding()` directly, so by default it runs on the in-package
+ * worker pool rather than blocking whichever thread calls `toBuffer`/
+ * `toFile`/`toRaw`/`toRawRgb`. `runPipeline`, `resolveToRaw` and
+ * `resolveTensor` are therefore all `async` now, same as `metadata()`/
+ * `stats()` already were.
  */
 
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
-import type { NativeBinding } from './native';
-import { loadNativeBinding } from './native';
-import { isRawPath, lastResizeWidth, stateToRecipe, type BuilderState } from './builder-state';
+import { callNative } from './worker-pool';
+import { lastResizeWidth, stateToRecipe, type BuilderState } from './builder-state';
 import type { RawPixels, TensorOptions, TensorResult } from './types';
 
 export interface PipelineOutput {
@@ -35,14 +40,17 @@ export async function inputBytes(state: BuilderState): Promise<Uint8Array> {
   throw new Error('No input provided to MapleImageBuilder');
 }
 
-export function runPipeline(
+export async function runPipeline(
   state: BuilderState,
   bytes: Uint8Array,
   output: Record<string, unknown>,
-): PipelineOutput {
-  const native = loadNativeBinding();
+): Promise<PipelineOutput> {
   const recipe = stateToRecipe(state, output);
-  const res = native.rasterPipelineBuf(bytes, JSON.stringify(recipe), state.aux.bytes());
+  const res = await callNative('rasterPipelineBuf', [
+    bytes,
+    JSON.stringify(recipe),
+    state.aux.bytes(),
+  ]);
   if (
     !res.ok ||
     !res.buffer ||
@@ -60,8 +68,8 @@ export function runPipeline(
   };
 }
 
-function decodeRgb8(native: NativeBinding, bytes: Uint8Array, autoOrient: boolean): RawPixels {
-  const res = native.rasterDecodeRgb8Buf(bytes, autoOrient);
+async function decodeRgb8(bytes: Uint8Array, autoOrient: boolean): Promise<RawPixels> {
+  const res = await callNative('rasterDecodeRgb8Buf', [bytes, autoOrient]);
   if (!res.ok || !res.buffer || res.width === undefined || res.height === undefined) {
     throw new Error(res.error || 'Failed to decode to RGB8');
   }
@@ -75,10 +83,9 @@ function decodeRgb8(native: NativeBinding, bytes: Uint8Array, autoOrient: boolea
 
 /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
 export async function resolveToRaw(state: BuilderState): Promise<RawPixels> {
-  const native = loadNativeBinding();
   if (state.rawInput) {
     const r = state.rawInput;
-    const png = native.rasterFromRawRenderBuf(
+    const png = await callNative('rasterFromRawRenderBuf', [
       r.data,
       r.width,
       r.height,
@@ -90,17 +97,17 @@ export async function resolveToRaw(state: BuilderState): Promise<RawPixels> {
       'png',
       0,
       0,
-    );
+    ]);
     if (!png.ok || !png.buffer) {
       throw new Error(png.error || 'Failed to normalise raw pixels');
     }
-    return decodeRgb8(native, png.buffer, state.autoOrient);
+    return decodeRgb8(png.buffer, state.autoOrient);
   }
   const bytes = state.inputBytes ?? (state.inputPath ? await fs.readFile(state.inputPath) : null);
   if (!bytes || bytes.length === 0) {
     throw new Error('Input image is empty');
   }
-  return decodeRgb8(native, bytes, state.autoOrient);
+  return decodeRgb8(bytes, state.autoOrient);
 }
 
 /** Raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace). */
@@ -108,8 +115,6 @@ export async function resolveTensor(
   state: BuilderState,
   options?: TensorOptions,
 ): Promise<TensorResult> {
-  const native = loadNativeBinding();
-
   let bytes = state.inputBytes;
   if (!bytes && state.inputPath) {
     bytes = await fs.readFile(state.inputPath);
@@ -123,7 +128,7 @@ export async function resolveTensor(
   const normNum =
     options?.normalize === 'insightface' ? 1 : options?.normalize === 'zeroToOne' ? 2 : 0;
 
-  const res = native.rasterExtractTensor(bytes, targetSize, layoutNum, normNum);
+  const res = await callNative('rasterExtractTensor', [bytes, targetSize, layoutNum, normNum]);
   if (!res.ok || !res.tensor) {
     throw new Error(res.error || 'Failed to extract tensor');
   }
