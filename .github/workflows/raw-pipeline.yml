@@ -154,9 +154,11 @@ jobs:
       # workspace member that CI never compiles, and would rot on the first
       # raw-core API change. Same failure class this job was created for.
       #
-      # Linux needs no Node toolchain to build it: napi-sys 3 resolves every
-      # `napi_*` symbol out of the host process with libloading at load time,
-      # so nothing links against libnode. (Only the windows-gnu target needs a
+      # Linux needs no Node toolchain to build it. The addon never links
+      # against libnode: with the `dyn-symbols` feature this crate enables,
+      # napi-sys binds every `napi_*` symbol out of the already-running host
+      # process with libloading at load time, so there is nothing for the
+      # linker to resolve at build time. (Only the windows-gnu target needs a
       # real libnode.dll, and this runner is linux-gnu.)
       - name: cargo build -p raw-napi (compile gate)
         working-directory: src/raw-pipeline
