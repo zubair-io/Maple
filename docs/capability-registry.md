@@ -27,7 +27,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — corpus changed since the record
+  - `grey_adjustments` — satisfied
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
@@ -50,7 +50,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — corpus changed since the record
+  - `grey_adjustments` — satisfied
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
@@ -73,7 +73,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — corpus changed since the record
+  - `grey_adjustments` — satisfied
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
@@ -96,7 +96,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — corpus changed since the record
+  - `grey_adjustments` — satisfied
   - `synthetic_grey` — satisfied
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
@@ -119,7 +119,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — satisfied
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — corpus changed since the record
+  - `grey_adjustments` — satisfied
   - `gpu_chain_parity_metal` — recorded on pipeline v2, current is v5
   - `apple_canvas_golden` — no record
 
@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 41
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs`, `src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs`
-- Record: corpus changed since the record — 39 of 39 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v5, schema v5, commit `ed9ebdbd0f34029af2ec56b259afe761b7f648bd`, recorded 2026-09-13T10:49:01Z
+- Record: satisfied — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v5, schema v5, commit `7b3377d0debddad9f11aad4cd5450abdc578fb62`, recorded 2026-09-14T06:01:17Z
 
 ### `synthetic_grey`
 

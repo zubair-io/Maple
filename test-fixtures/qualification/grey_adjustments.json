@@ -1,13 +1,13 @@
 {
   "backend": "cpu-reference",
   "command": "bash src/scripts/test_grey_adjustments.sh",
-  "corpus_hash": "blake3:462f871fe4a5b14a5e20908b583252ef5254e2c6a856aef1147c49282d8a54eb",
-  "executed_cases": 39,
-  "expected_cases": 39,
+  "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
+  "executed_cases": 41,
+  "expected_cases": 41,
   "failed_cases": 0,
-  "git_sha": "ed9ebdbd0f34029af2ec56b259afe761b7f648bd",
+  "git_sha": "7b3377d0debddad9f11aad4cd5450abdc578fb62",
   "pipeline_version": 5,
-  "recorded_at": "2026-09-13T10:49:01Z",
+  "recorded_at": "2026-09-14T06:01:17Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "grey_adjustments"
