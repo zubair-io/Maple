@@ -77,16 +77,19 @@ extension EditSession {
     let exportModel = model
     let isFast = sizeOption == .fast
     let qualityOverride: PipelineRenderer.Quality? = isFast ? .preview : nil
-    let targetSize: CGSize? =
-      isFast
-      ? (fastTargetSize
+    let targetSize: CGSize? = {
+      guard isFast else { return nil }
+      let rawTarget =
+        fastTargetSize
         ?? (nativeImageSize != .zero
           ? CanvasMath(
             viewportPx: CGSize(width: 1920, height: 1080), nativeImageSize: nativeImageSize,
             pixelScale: 0
           ).fastTargetSize : nil)
-          ?? CGSize(width: 2048, height: 2048))
-      : nil
+      let maxEdge = max(rawTarget?.width ?? 0, rawTarget?.height ?? 0)
+      let resolvedEdge = maxEdge > 0 ? maxEdge : 2040
+      return CGSize(width: resolvedEdge, height: resolvedEdge)
+    }()
 
     // Film look (epic #2683, Task 10): a RAW asset with a resolved look
     // routes through `maple_render_file_with_film` instead of the plain

@@ -155,13 +155,13 @@ final class MapleExporterTests: XCTestCase {
 
   func testExportSizeOptionDefaultsAndDisplayNames() {
     let defaultOptions = ExportOptions(format: .jpegSRGB)
-    XCTAssertEqual(defaultOptions.sizeOption, .full)
+    XCTAssertEqual(defaultOptions.sizeOption, .fast)
 
-    let fastOptions = ExportOptions(format: .jpegSRGB, sizeOption: .fast)
-    XCTAssertEqual(fastOptions.sizeOption, .fast)
+    let fullOptions = ExportOptions(format: .jpegSRGB, sizeOption: .full)
+    XCTAssertEqual(fullOptions.sizeOption, .full)
 
     XCTAssertEqual(ExportSizeOption.allCases, [.fast, .full])
-    XCTAssertEqual(ExportSizeOption.fast.displayName, "Fast (Fit)")
+    XCTAssertEqual(ExportSizeOption.fast.displayName, "2040px")
     XCTAssertEqual(ExportSizeOption.full.displayName, "Full Size")
   }
 }

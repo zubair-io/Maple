@@ -25,7 +25,7 @@ public enum ExportSizeOption: String, Sendable, CaseIterable {
 
   public var displayName: String {
     switch self {
-    case .fast: return "Fast (Fit)"
+    case .fast: return "2040px"
     case .full: return "Full Size"
     }
   }
@@ -40,13 +40,13 @@ public struct ExportOptions: Sendable {
   public var sizeOption: ExportSizeOption
 
   public static let defaults = ExportOptions(
-    format: .jpegSRGB, quality: 0.92, maxSidePixels: nil, sizeOption: .full)
+    format: .jpegSRGB, quality: 0.92, maxSidePixels: nil, sizeOption: .fast)
 
   public init(
     format: ExportFileFormat,
     quality: Double = 0.92,
     maxSidePixels: Int? = nil,
-    sizeOption: ExportSizeOption = .full
+    sizeOption: ExportSizeOption = .fast
   ) {
     self.format = format
     self.quality = quality

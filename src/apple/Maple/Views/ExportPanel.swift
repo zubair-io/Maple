@@ -34,7 +34,7 @@ struct ExportPanel: View {
         Section("Resolution") {
           Picker("Resolution", selection: $vm.sizeOption) {
             ForEach(ExportSizeOption.allCases, id: \.self) { opt in
-              Text(opt.displayName).tag(opt)
+              Text(vm.sizeOptionTitle(opt, session: session)).tag(opt)
             }
           }
           .pickerStyle(.segmented)
@@ -55,7 +55,7 @@ struct ExportPanel: View {
         Section("Output") {
           Text("File: \(vm.outputFileName(for: session.asset))")
             .foregroundStyle(.secondary)
-          Text(vm.sizeOption == .fast ? "Size: Fit to screen" : "Size: Full resolution")
+          Text(vm.outputDimensionsDescription(for: session))
             .foregroundStyle(.secondary)
         }
 

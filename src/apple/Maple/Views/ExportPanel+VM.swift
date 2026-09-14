@@ -55,7 +55,7 @@ final class ExportPanelVM {
 
   var format: ExportFileFormat = .jpegSRGB
   var quality: Double = 0.92
-  var sizeOption: ExportSizeOption = .full
+  var sizeOption: ExportSizeOption = .fast
   private(set) var isExporting = false
   private(set) var exportError: String?
   /// Non-nil once `stageForSharing` has written the file; the panel binds
@@ -108,6 +108,69 @@ final class ExportPanelVM {
 
   func outputFileName(for asset: AssetRef) -> String {
     "\(asset.displayName).\(format.fileExtension)"
+  }
+
+  // MARK: - Resolution & Dimensions
+
+  /// Returns the estimated target long edge in pixels for `.fast` export.
+  func fastExportLongEdge(for session: EditSession) -> Int {
+    let rawTarget =
+      session.fastTargetSize
+      ?? (session.nativeImageSize != .zero
+        ? CanvasMath(
+          viewportPx: CGSize(width: 1920, height: 1080), nativeImageSize: session.nativeImageSize,
+          pixelScale: 0
+        ).fastTargetSize : nil)
+    let maxEdge = max(rawTarget?.width ?? 0, rawTarget?.height ?? 0)
+    return maxEdge > 0 ? Int(maxEdge.rounded()) : 2040
+  }
+
+  /// Resolution label for a size option, e.g. "2040px" or "Full Size".
+  func sizeOptionTitle(_ option: ExportSizeOption, session: EditSession? = nil) -> String {
+    switch option {
+    case .fast:
+      if let session {
+        let edge = fastExportLongEdge(for: session)
+        return "\(edge)px"
+      }
+      return option.displayName
+    case .full:
+      return option.displayName
+    }
+  }
+
+  /// Estimated output pixel dimensions for the current asset and size option.
+  func outputDimensions(for session: EditSession) -> CGSize? {
+    let native = session.nativeImageSize
+    guard native.width > 0, native.height > 0 else { return nil }
+    switch sizeOption {
+    case .full:
+      return native
+    case .fast:
+      let edge = CGFloat(fastExportLongEdge(for: session))
+      let maxNative = max(native.width, native.height)
+      guard maxNative > 0 else { return nil }
+      let scale = min(edge / maxNative, 1.0)
+      return CGSize(
+        width: (native.width * scale).rounded(),
+        height: (native.height * scale).rounded()
+      )
+    }
+  }
+
+  /// Formatted description for the Output section, e.g. "Size: 2040 × 1360 px".
+  func outputDimensionsDescription(for session: EditSession) -> String {
+    if let dims = outputDimensions(for: session) {
+      let w = Int(dims.width)
+      let h = Int(dims.height)
+      switch sizeOption {
+      case .fast:
+        return "Size: \(w) × \(h) px"
+      case .full:
+        return "Size: \(w) × \(h) px (Full)"
+      }
+    }
+    return sizeOption == .fast ? "Size: 2040px" : "Size: Full resolution"
   }
 
   // MARK: - Attempts

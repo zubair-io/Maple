@@ -333,7 +333,7 @@ final class ExportPanelVMTests: XCTestCase {
 
   // MARK: - Resolution Options
 
-  func testSizeOptionDefaultsToFullAndPassesToRenderer() async throws {
+  func testSizeOptionDefaultsToFastAndPassesToRenderer() async throws {
     let image = stubImage
     var renderedSizeOption: ExportSizeOption?
     let vm = ExportPanelVM(
@@ -344,15 +344,19 @@ final class ExportPanelVMTests: XCTestCase {
       encode: { _, _ in Data([0x01]) }
     )
 
-    XCTAssertEqual(vm.sizeOption, .full)
-    XCTAssertEqual(vm.options.sizeOption, .full)
-
-    vm.sizeOption = .fast
+    XCTAssertEqual(vm.sizeOption, .fast)
     XCTAssertEqual(vm.options.sizeOption, .fast)
 
     let session = EditSession.preview()
-    await vm.stageForSharing(session: session, in: directory)
+    XCTAssertEqual(vm.sizeOptionTitle(.fast, session: session), "2040px")
+    XCTAssertEqual(vm.sizeOptionTitle(.full, session: session), "Full Size")
 
+    await vm.stageForSharing(session: session, in: directory)
     XCTAssertEqual(renderedSizeOption, .fast)
+
+    vm.sizeOption = .full
+    XCTAssertEqual(vm.options.sizeOption, .full)
+    await vm.stageForSharing(session: session, in: directory)
+    XCTAssertEqual(renderedSizeOption, .full)
   }
 }
