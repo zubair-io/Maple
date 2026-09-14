@@ -94,7 +94,7 @@ export async function bitmapToFile(state: BuilderState, outputPath: string): Pro
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   try {
     const bytes = await inputBytes(state);
-    const out = runPipeline(state, bytes, stateToOutput(state, formatForPath(outputPath)));
+    const out = await runPipeline(state, bytes, stateToOutput(state, formatForPath(outputPath)));
     await fs.writeFile(outputPath, out.buffer);
     return { ok: true, outPath: outputPath };
   } catch (error) {

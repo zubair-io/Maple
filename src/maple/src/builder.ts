@@ -439,7 +439,7 @@ export class MapleImageBuilder {
   /** Native-size interleaved pixels, alpha preserved when the source has it. */
   async toRawAlpha(): Promise<RawPixelsAny> {
     const bytes = await inputBytes(this.s);
-    const out = runPipeline(this.s, bytes, { format: 'raw' });
+    const out = await runPipeline(this.s, bytes, { format: 'raw' });
     return {
       data: new Uint8Array(out.buffer.buffer, out.buffer.byteOffset, out.buffer.byteLength),
       width: out.width,
@@ -526,7 +526,7 @@ export class MapleImageBuilder {
       return await rawDevelopToBuffer(this.s, (outputPath) => this.toFile(outputPath));
     }
     const bytes = await inputBytes(this.s);
-    return runPipeline(this.s, bytes, stateToOutput(this.s, 'jpeg')).buffer;
+    return (await runPipeline(this.s, bytes, stateToOutput(this.s, 'jpeg'))).buffer;
   }
 
   /**
