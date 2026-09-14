@@ -36,18 +36,22 @@ jobs:
             zig_target: x86_64-unknown-linux-gnu.2.31
             pkg_name: maple-linux-x64-gnu
             libc_type: glibc
+            platform_dir: linux-x64-gnu
           - target: x86_64-unknown-linux-musl
             zig_target: x86_64-unknown-linux-musl
             pkg_name: maple-linux-x64-musl
             libc_type: musl
+            platform_dir: linux-x64-musl
           - target: aarch64-unknown-linux-gnu
             zig_target: aarch64-unknown-linux-gnu.2.31
             pkg_name: maple-linux-arm64-gnu
             libc_type: glibc
+            platform_dir: linux-arm64-gnu
           - target: aarch64-unknown-linux-musl
             zig_target: aarch64-unknown-linux-musl
             pkg_name: maple-linux-arm64-musl
             libc_type: musl
+            platform_dir: linux-arm64-musl
     steps:
       - uses: actions/checkout@v4
 
@@ -95,23 +99,26 @@ jobs:
       # the zero-dependency invariant that step enforces for the bun:ffi
       # dylib doesn't apply the same way to this artifact.
       #
-      # Filename convention `raw-napi.<platform-dir>.node` (platform-dir being
-      # `matrix.pkg_name` with the `maple-` prefix stripped, e.g.
-      # `linux-x64-gnu`) matches `getPlatformNapiFilename()` in
-      # `src/maple/src/platform.ts` exactly — keep the two in sync.
+      # Filename convention `raw-napi.<platform_dir>.node` (`platform_dir` is
+      # a literal matrix field, one per entry above, equal to `pkg_name` with
+      # the `maple-` prefix stripped, e.g. `linux-x64-gnu`) matches
+      # `getPlatformNapiFilename()` in `src/maple/src/platform.ts` exactly —
+      # keep the two in sync. A literal matrix field is used here rather than
+      # deriving this at expression-eval time: GitHub Actions expressions have
+      # no string-replace function, so this cannot be computed inline.
       - name: Build raw-napi (${{ matrix.pkg_name }})
         env:
           RUSTFLAGS: ${{ matrix.libc_type == 'musl' && '-C target-feature=-crt-static' || '' }}
         run: |
           cargo zigbuild --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-napi --target ${{ matrix.zig_target }}
           cp "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_napi.so" \
-             "src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ replace(matrix.pkg_name, 'maple-', '') }}.node"
+             "src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node"
 
       - name: Upload Linux napi artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.pkg_name }}-napi
-          path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ replace(matrix.pkg_name, 'maple-', '') }}.node
+          path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node
           if-no-files-found: error
 
   build-macos:
@@ -123,8 +130,10 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             pkg_name: maple-darwin-arm64
+            platform_dir: darwin-arm64
           - target: x86_64-apple-darwin
             pkg_name: maple-darwin-x64
+            platform_dir: darwin-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -152,19 +161,21 @@ jobs:
 
       # napi addon (#3509) — see the build-linux job's equivalent step for why
       # this is not subject to a linkage audit. Filename convention
-      # `raw-napi.<platform-dir>.node` matches `getPlatformNapiFilename()` in
+      # `raw-napi.<platform_dir>.node` (literal matrix field, see build-linux's
+      # equivalent comment for why it's a literal rather than a derived
+      # expression) matches `getPlatformNapiFilename()` in
       # `src/maple/src/platform.ts` exactly.
       - name: Build raw-napi (${{ matrix.pkg_name }})
         run: |
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-napi --target ${{ matrix.target }}
           cp "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_napi.dylib" \
-             "src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ replace(matrix.pkg_name, 'maple-', '') }}.node"
+             "src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node"
 
       - name: Upload macOS napi artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.pkg_name }}-napi
-          path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ replace(matrix.pkg_name, 'maple-', '') }}.node
+          path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node
           if-no-files-found: error
 
   build-windows:
