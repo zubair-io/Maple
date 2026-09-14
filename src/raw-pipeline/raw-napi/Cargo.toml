@@ -8,6 +8,12 @@ edition.workspace = true
 # that only shows up as a confusing resolver error on an older toolchain.
 # Every other workspace member keeps inheriting 1.83; only this crate, which is
 # the only one that depends on napi, carries the raised floor.
+#
+# Nothing builds differently because of this: `rust-toolchain.toml` pins
+# `channel = "stable"`, which is far past both numbers. The workspace's 1.83
+# and this 1.88 being out of step is a documentation inconsistency, not a
+# build one — it is recorded here so the next person to touch the workspace
+# floor knows this crate cannot follow it down.
 rust-version = "1.88"
 license.workspace = true
 
@@ -23,17 +29,35 @@ crate-type = ["cdylib"]
 # napi-rs 3 (#3509, epic #3495). Pinned to the `3` line, resolving to 3.12.4 at
 # the time this crate landed.
 #
-# `default-features = false` drops the two defaults deliberately:
-#   - `napi4` — superseded by `napi6` below, which enables napi1..napi5 too.
-#   - `dyn-symbols` — marked "Deprecated feature" in napi-sys 3.x's own
-#     manifest and referenced by no `cfg` in its source: napi-sys 3 ALWAYS
-#     resolves the `napi_*` symbols out of the host process with `libloading`.
-#     That is what makes one built addon load unchanged under Node, Bun and
-#     Electron, and it is not something this flag turns on or off any more.
+# Declared as literal inline versions rather than promoted to the workspace's
+# `[workspace.dependencies]`: raw-napi is the only crate in the tree that
+# depends on the napi family, and a workspace entry exists to keep a version
+# consistent across SEVERAL consumers. Promote them if a second consumer ever
+# appears; until then a workspace entry would just put the pin somewhere other
+# than the crate that owns it.
 #
 # `napi6` (N-API version 6: Node 10.20+/12.17+/14+) is the ceiling this crate's
 # bindings need — strings, buffers/typed arrays, objects and `Task`/`AsyncTask`
-# are all at or below it. Every supported Node LTS is far past it.
+# are all at or below it. Every supported Node LTS is far past it. It implies
+# `napi1..napi5`, which is the only reason `default-features = false` is here:
+# it drops the default `napi4` as redundant. `dyn-symbols`, the other default,
+# is re-listed explicitly below because we very much do want it.
+#
+# `dyn-symbols` (upstream's own default, kept): it selects how the `napi_*`
+# symbols get bound, and napi-sys 3.3.1's `src/lib.rs` really does branch on it.
+#   - ON  — the symbols are function pointers in a static table that
+#           `napi_sys::setup()` fills from the host process via `libloading`.
+#           A symbol the host lacks degrades to a stub that names itself on
+#           stderr ("Node-API symbol X has not been loaded").
+#   - OFF — plain `extern "C"` declarations left undefined in the object file
+#           for the OS loader to bind, which on macOS works only because
+#           napi-build passes `-undefined dynamic_lookup`.
+# Two reasons to keep it on. It costs nothing: `libloading` is a NON-optional
+# dependency of napi-sys either way, so switching it off saves no weight. And
+# `target_env = "msvc"` takes the libloading path unconditionally, flag or not
+# — so turning it off would leave this crate binding symbols one way on
+# macOS/Linux and another way on Windows, which is a poor property for a crate
+# whose whole job (Task 6) is shipping prebuilt binaries for all three.
 #
 # Deliberately NOT enabled: `async`. It is an alias for `tokio_rt` and pulls a
 # whole Tokio runtime into the addon. Every operation `@justmaple/maple` needs
@@ -41,7 +65,7 @@ crate-type = ["cdylib"]
 # `AsyncTask` pair — which `src/task.rs` and `src/async_work.rs` export
 # unconditionally, with no feature gate. Adding `async` would buy a second
 # scheduler nobody asked for.
-napi = { version = "3", default-features = false, features = ["napi6"] }
+napi = { version = "3", default-features = false, features = ["napi6", "dyn-symbols"] }
 napi-derive = "3"
 # `avif` unconditionally on, mirroring raw-ffi: the thumbnail encoder this
 # crate's later bindings call is AVIF-only, so there is no build variant of
