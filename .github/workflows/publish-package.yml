@@ -413,11 +413,31 @@ jobs:
 
       - name: Install the package fresh (local directory, not the registry — this PR hasn't published yet)
         working-directory: src/maple
+        # --omit=optional: this job tests against the LOCALLY assembled
+        # napi/bun:ffi binaries this run just produced (previous step), not
+        # anything from the registry, and skipping the
+        # `@justmaple/maple-<platform>` optionalDependencies avoids racing a
+        # concurrent publish elsewhere in this same workflow run touching
+        # the same package names on the live registry.
         run: |
-          npm install
+          npm install --omit=optional
           npm run build
 
       - name: Run the Node-native smoke test under real Node 22 (no Bun, no bun:test)
         working-directory: src/maple
+        env:
+          # Belt-and-suspenders pin at THIS run's freshly-assembled bun:ffi
+          # dylib (mirrors the `publish` job's own MAPLE_NATIVE_LIB pin
+          # above), guarding the bun:ffi fallback path against ever
+          # resolving a stale binary from some other candidate directory.
+          # NOTE: this does NOT pin what answers `validateFilename`/
+          # `renderFilenameTemplate` specifically — since #3509 those two
+          # try the napi addon (`raw-napi.linux-x64-gnu.node`) FIRST, and
+          # there is no `MAPLE_NATIVE_LIB`-equivalent override for the napi
+          # path. This job's own "Assemble..." step above already places
+          # both this run's real `.so` and real `.node` under
+          # `npm/linux-x64-gnu/`, so both resolve correctly either way here
+          # — this pin is defense-in-depth, not the thing making it work.
+          MAPLE_NATIVE_LIB: ${{ github.workspace }}/src/maple/npm/linux-x64-gnu/libraw_ffi.so
         run: |
           node scripts/node-smoke-test.mjs
