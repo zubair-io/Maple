@@ -21,6 +21,16 @@
 #[macro_use]
 extern crate napi_derive;
 
+mod error;
+mod filename;
+#[cfg(test)]
+mod filename_tests;
+
+pub use filename::{
+    render_filename_template, validate_filename, FilenameResult, FilenameTemplateArgs,
+    ValidateFilenameResult,
+};
+
 /// Smoke-test export: proves the crate builds into a loadable addon and that a
 /// trivial `#[napi]` function round-trips through a host's N-API loader.
 ///
