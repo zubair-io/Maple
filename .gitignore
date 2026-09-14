@@ -18,6 +18,8 @@ test-fixtures/*
 # Exception: the per-luma-band tone-slider budget table IS committed (CI
 # ratchet for src/scripts/test_tone_bands.sh).
 !test-fixtures/tone_band_budgets.json
+# Compact genuine ACR +/-1 EV regression corpus (#3631).
+!test-fixtures/tone-exposure/
 # IS committed — harness-written evidence records for the capability
 # registry (#2430); `tools/codegen.sh` reads them and CI checks them
 # against a fresh run. See docs/testing.md § "Capability registry".

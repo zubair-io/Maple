@@ -43,6 +43,10 @@ on:
       - 'src/scripts/test_synthetic_grey.sh'
       - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
+      - 'src/scripts/test_tone_exposure.sh'
+      - 'tools/tone_exposure_gate.py'
+      - 'tools/tone_sprint_report.py'
+      - 'test-fixtures/tone-exposure/**'
       - 'src/scripts/test_grey_dcp.sh'
       - 'src/scripts/test_banding.sh'
       - 'src/scripts/banding_check.py'
@@ -69,6 +73,10 @@ on:
       - 'src/scripts/test_synthetic_grey.sh'
       - 'src/scripts/test_synthetic_color_chart.sh'
       - 'src/scripts/test_grey_adjustments.sh'
+      - 'src/scripts/test_tone_exposure.sh'
+      - 'tools/tone_exposure_gate.py'
+      - 'tools/tone_sprint_report.py'
+      - 'test-fixtures/tone-exposure/**'
       - 'src/scripts/test_grey_dcp.sh'
       - 'src/scripts/test_banding.sh'
       - 'src/scripts/banding_check.py'
@@ -507,6 +515,8 @@ jobs:
         run: bash tools/qualification/record.sh --check color_chart cpu-reference -- bash src/scripts/test_synthetic_color_chart.sh
       - name: Grey adjustments gate (test_grey_adjustments.sh) + evidence check
         run: bash tools/qualification/record.sh --check grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
+      - name: ACR one-stop Exposure response gate
+        run: bash src/scripts/test_tone_exposure.sh
       - name: Grey DCP gate (test_grey_dcp.sh) + evidence check
         run: bash tools/qualification/record.sh --check grey_dcp cpu-reference -- bash src/scripts/test_grey_dcp.sh
       - name: banding_check.py unit tests
