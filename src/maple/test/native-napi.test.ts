@@ -1,7 +1,12 @@
 import { describe, expect, it, afterEach } from 'bun:test';
-import { tryLoadNapiBinding, _resetNapiBindingForTests } from '../src/native-napi';
+import {
+  getNapiLoadError,
+  tryLoadNapiBinding,
+  _resetNapiBindingForTests,
+} from '../src/native-napi';
 
 afterEach(() => {
+  delete process.env.MAPLE_NAPI;
   _resetNapiBindingForTests();
 });
 
@@ -120,5 +125,33 @@ describe('napi binding resolution', () => {
     );
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
+  });
+
+  it('getNapiLoadError() is null before any resolution attempt and after a successful one', () => {
+    // Fresh module state per `afterEach`'s reset — `cached` is `undefined`
+    // and `lastLoadError` was just cleared.
+    const napi = tryLoadNapiBinding();
+    if (!napi) return; // successful-load assertion only meaningful when one loads
+    expect(getNapiLoadError()).toBeNull();
+  });
+
+  it('MAPLE_NAPI=0 forces tryLoadNapiBinding() to return null and records why (the escape hatch worker-pool.test.ts uses to force the bun:ffi/pool path)', () => {
+    process.env.MAPLE_NAPI = '0';
+    _resetNapiBindingForTests();
+    expect(tryLoadNapiBinding()).toBeNull();
+    const err = getNapiLoadError();
+    expect(err).not.toBeNull();
+    expect(err!.message).toMatch(/MAPLE_NAPI=0/);
+  });
+
+  it('_resetNapiBindingForTests clears a remembered load error along with the cache', () => {
+    process.env.MAPLE_NAPI = '0';
+    _resetNapiBindingForTests();
+    tryLoadNapiBinding();
+    expect(getNapiLoadError()).not.toBeNull();
+    delete process.env.MAPLE_NAPI;
+    _resetNapiBindingForTests();
+    // Not yet re-resolved (lazy), so the stale error must already be gone.
+    expect(getNapiLoadError()).toBeNull();
   });
 });
