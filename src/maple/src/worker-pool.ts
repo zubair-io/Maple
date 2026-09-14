@@ -127,6 +127,22 @@ class NativeWorkerPool {
     poolWorker.worker.postMessage(request);
   }
 
+  /**
+   * Settle the pending promise for one worker reply. The actual
+   * `resolve`/`reject` is deferred one macrotask out (`setTimeout(fn, 0)`
+   * rather than a same-tick call or even `queueMicrotask`) — a real Bun
+   * engine quirk (reproduced on `1.4.3-canary.1`) otherwise drops the NEXT
+   * worker `message` event entirely when that event's listener settles a
+   * promise that `expect(...).rejects` is awaiting AND it is not the first
+   * worker round trip in the test: `bun:test`'s `.rejects` matcher appears
+   * to peek the promise synchronously in a way that, chained directly off a
+   * prior worker-driven resolution, wedges the pool's `Worker` message port
+   * — the dispatch still reaches the worker (confirmed by log tracing) and
+   * the worker still replies, but the main thread's `message` listener never
+   * fires for that reply, hanging until the test's own timeout. Deferring
+   * the settle with a macrotask breaks the direct continuation chain and
+   * reliably avoids it — see the worker-pool tests for the regression case.
+   */
   private handleResponse(poolWorker: PoolWorker, response: WorkerResponse): void {
     const pending = this.pending.get(response.id);
     this.pending.delete(response.id);
@@ -134,9 +150,11 @@ class NativeWorkerPool {
     this.drainQueueOrIdle(poolWorker);
     if (!pending) return; // response for a request this pool no longer tracks
     if (response.ok) {
-      pending.resolve(restoreFromTransfer(response.result));
+      const restored = restoreFromTransfer(response.result);
+      setTimeout(() => pending.resolve(restored), 0);
     } else {
-      pending.reject(new Error(response.error || 'Maple native call failed'));
+      const err = new Error(response.error || 'Maple native call failed');
+      setTimeout(() => pending.reject(err), 0);
     }
   }
 
@@ -148,7 +166,7 @@ class NativeWorkerPool {
     if (poolWorker.busyWith !== null) {
       const pending = this.pending.get(poolWorker.busyWith);
       this.pending.delete(poolWorker.busyWith);
-      pending?.reject(new Error(message));
+      if (pending) setTimeout(() => pending.reject(new Error(message)), 0);
     }
     this.pumpQueue();
   }
