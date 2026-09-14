@@ -1,0 +1,2683 @@
+{
+  "issue": 3633,
+  "photoshop_version": "27.10.0",
+  "camera_raw_version": "18.6 (2698)",
+  "audited_png_count": 264,
+  "profiles": {
+    "test_0005": "Adobe Standard",
+    "test_0008": "Adobe Standard v2",
+    "test_0011": "Adobe Standard",
+    "test_0012": "Adobe Standard",
+    "test_0015": "Adobe Standard",
+    "test_0017": "Adobe Standard"
+  },
+  "profile_selection": "Recorded effective original baseline profile pinned after rendering; every corrected PNG verified to match. Future reproduction uses explicit Adobe-only sidecars.",
+  "raws": [
+    {
+      "fixture": "test_0005",
+      "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e"
+    },
+    {
+      "fixture": "test_0008",
+      "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754"
+    },
+    {
+      "fixture": "test_0011",
+      "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e"
+    },
+    {
+      "fixture": "test_0012",
+      "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f"
+    },
+    {
+      "fixture": "test_0015",
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d"
+    },
+    {
+      "fixture": "test_0017",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "test_0005/baseline",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "76807be532e217f3df407f2816c26c0e9c50321126c37a6604bff9e328d1b26c",
+      "corrected_png_sha256": "0c900a60883f07353e0c22f3ce63de9a31b1a600b70102f1e7b7607bc70e65c5",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0005/baseline",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b6ebf1e49e118f1c2b6d55dede00645332a03c6559bafd543bddba900fd1e31c",
+      "corrected_png_sha256": "2ceb03f0c421d15f996adec8c6fabb195fc8318b5abebe0ef33e8022b42c4e17",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0005/blacks_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0e3774447e9c1a8e89f9ea1d83436e58f2262cdb8fb2c32c5c2a5d4a92a627a3",
+      "corrected_png_sha256": "0002d65f1cb9da109285d3706e093f306d24f19dd8424287290f707e7ec21724",
+      "maple_xmp_sha256": "1f82cd681dd1609be85085bca162d87319cc0622676d2260242cca6c008c961f",
+      "adobe_xmp_sha256": "a9c82723b271d9b6575d7d27c6cf3b8069f8d6df2dd1c79c3cfffeb60f58581e"
+    },
+    {
+      "name": "test_0005/blacks_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "072d72b6c8eafead70b1abc1ad73a0b5a0218cc8d8c7e4429266041455dba23c",
+      "corrected_png_sha256": "62318eb44081043e8c2247b2a18f85de96b74d86d56df5620e52813939792f38",
+      "maple_xmp_sha256": "f1b014a1b53cc340a4b30f15c9114c7839ee6b1cb24673902c23f7ef5919ec38",
+      "adobe_xmp_sha256": "d1d79390eac252332614641a0ebcadf6e290632e2d9de63fbac43711b32cf8f0"
+    },
+    {
+      "name": "test_0005/clarity_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "6746f744b81c64ee52be7750ddd749e77dd8c6139ae4e9d122ceb2f2e6bf4e82",
+      "corrected_png_sha256": "cec682f235d4e9a9636e6cb0d23b183176239fb7a44f456c2cac89d5370ed27b",
+      "maple_xmp_sha256": "bfa7c713ebad300e8a2edfbbe9ede5152db04ad1572e1c436ba0c69bc28f4f1a",
+      "adobe_xmp_sha256": "fa0e9b9e14056d2aea2e4a94d1d4c1bed92bffa4641dabf6e349d46e40b5e434"
+    },
+    {
+      "name": "test_0005/clarity_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c0344de2c67c17dfd833bf602a206c551882b128700f6427b84ea409da80bfc7",
+      "corrected_png_sha256": "5968a04c91052b6e2efd34d5dc5c7c03ad8a1d24b103dfdf56d7c9ec91aed9af",
+      "maple_xmp_sha256": "9e2a695548d7f62dfc4bce482b66f65e05b860646e7d4371521a0728f7f2a757",
+      "adobe_xmp_sha256": "ca71666aede1d131f483a2432e69257a5564dd4fecee56b1166990c065e2e0be"
+    },
+    {
+      "name": "test_0005/contrast_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9338292ad66fb5122679b2f95760e0e182f3a828b8bb8240943d39a7045e251b",
+      "corrected_png_sha256": "a385863f9812f3baa80663b5098787f65b8bb6fa792543fdaf6f5c9f0ec02ffb",
+      "maple_xmp_sha256": "9aab6ca6dbb151847c5f3a724d7f32f8fc8dd2a8bb05f7035ffc68c4ca2c5887",
+      "adobe_xmp_sha256": "196fa03ac31c82253f052a5ff44992ffc3398b3bae52750561b542c936c07f58"
+    },
+    {
+      "name": "test_0005/contrast_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b58070b4a46a69dab86bbab0218ef60a794a3f7d5b212407e1e3f4008477cc03",
+      "corrected_png_sha256": "3b8ba39a75a847195ae88ad4cd56cb48c37793427ffc6ad5ee7cffbf795aabbc",
+      "maple_xmp_sha256": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+      "adobe_xmp_sha256": "ea9092d5af988cbede578f712983e1b538f21ddd82b94a14f93a75967a67b5cf"
+    },
+    {
+      "name": "test_0005/dehaze_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "f6c0a0c60b83fc30b3a6148a12c3c3b37a151457dea0982dfe9178880ac332b2",
+      "corrected_png_sha256": "9ab9effcf5b4e25c7cafc0e3e57f8c7d5a2eb4f3784c4e3a457657ecb53231f9",
+      "maple_xmp_sha256": "e1eb911788f66211a084dd2f936b6b8445404ed8e63a8a166cf2b2f1549c113b",
+      "adobe_xmp_sha256": "3f578ffe1af515da4d792b106b586bf6a8973bf360970561dfae672b1ed35e75"
+    },
+    {
+      "name": "test_0005/dehaze_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "67ca17b5b39d6691ad8727499affe7a4099cab7df31a94a8b1ade133f7258d63",
+      "corrected_png_sha256": "d69098a1c9f7808893df993765ad5e18eb24d00504a048d662c04d989cfa601d",
+      "maple_xmp_sha256": "b9275d5e96e7918f97509c80e44d494bad906119a5a0529af2f1f9e01ad67850",
+      "adobe_xmp_sha256": "5174755870cb89c19d95c301af67a98cb2398a6c5eea702a7d51fe0431ff5c82"
+    },
+    {
+      "name": "test_0005/exposure_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3dc4ddfe653989da09beb8746492e54a4b5d8833aa15a83e73ff52cff0c46be0",
+      "corrected_png_sha256": "f18ef3d1a515118088af6f1367932670a0ee351b79ac738490652882ab94570d",
+      "maple_xmp_sha256": "c7f37eed852b2c7ce5762e68e39407d257fcc307c5b7ed56a6dd1d7924acd7bc",
+      "adobe_xmp_sha256": "2cce7d8f8dcefac9b17567643dfd3344843a38d1fb20ad2982ef562d1b7a816c"
+    },
+    {
+      "name": "test_0005/exposure_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "d4818ad9dfd892b8d451a0bd363a204af9fc930db7a5c4ce9f4b4cd585706dcc",
+      "corrected_png_sha256": "bae4fc2b310d895a236938e27f90336540a5b3b3aff03e290f7b84fd0b6685f5",
+      "maple_xmp_sha256": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+      "adobe_xmp_sha256": "d4e0b48de719bdba686bb710d5a7eac625cd383003c3b66941206c6c8ccbaf2e"
+    },
+    {
+      "name": "test_0005/highlights_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9fdfa72fbe6e3418ff13a7a4e5c8a4313c604105057b11e785148be1ffaedb5f",
+      "corrected_png_sha256": "ee068da7248e9a627863c49f38a064e5a96b7fb88c2791f25f3b8161d32a1053",
+      "maple_xmp_sha256": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+      "adobe_xmp_sha256": "2c5bed07f080c4717e054d72d9e4110cf27e7e41b8089a112f71a3837be1df6f"
+    },
+    {
+      "name": "test_0005/highlights_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "bac978ef1b9735819d58fba38f0b980b1855a16dd0c3c4e473699882ffe8044f",
+      "corrected_png_sha256": "8630106d7cb399c4b781637e9f11c28bcc98828c628d8496949df2b560754fc6",
+      "maple_xmp_sha256": "634d95ad3e8b5143cc5e2d87868806b53daf0777e42fdbc6293d91757ecc2325",
+      "adobe_xmp_sha256": "9d544b52f0f0848b0021ff4596f2f396715fb2785bc421fab7a6453ab8b49a5b"
+    },
+    {
+      "name": "test_0005/nr_color_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "cd1de2ca466f2a00aa6d3731eb307530686bd50dc27d9c913b7cb08793a1ef70",
+      "corrected_png_sha256": "91a7bf766e40dfb7499a8cb669861ad7758207162a699754388852fcef758956",
+      "maple_xmp_sha256": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+      "adobe_xmp_sha256": "0c0c9b9439a2a5d1cc50d2528f5a6015ed07cfda597d7bd55b853f8bc5b50180"
+    },
+    {
+      "name": "test_0005/nr_color_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "7861837be558080c1f2bf0a77c17f4544cb0326f52bdf7e5aab9845a04830ed5",
+      "corrected_png_sha256": "7d73a5f463d6b5bde029b310d490a6c85822658f70aed6fce6629632f0f93e75",
+      "maple_xmp_sha256": "17b5bc0e8b00b1c1529c8e7f6a0f35e9a47091e5f1771a07b3732e7a73fad650",
+      "adobe_xmp_sha256": "cbcc49a2c11cd44fdb69f7c2f3eac1a7f37e5b4f6e715ebf0fe2166c8206c2da"
+    },
+    {
+      "name": "test_0005/nr_luminance_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "075fa5e7b801c0b617af1460bdfc3d79b2b59e23f5762c199ed5bcb5c4ba367b",
+      "corrected_png_sha256": "acbfe78c1c511a2ce169ccfa2eedde7457452975d65e9238e611f7f9e295dd49",
+      "maple_xmp_sha256": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+      "adobe_xmp_sha256": "ae39669ffca3aedeeafd43451f6189189e44263bcc8dce2c45dd32c19f9bf2dd"
+    },
+    {
+      "name": "test_0005/saturation_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "fd59289591c541192b222a0dfa2afe75e585d09162439cef2213ef96e5e8856e",
+      "corrected_png_sha256": "027a02fae40a82dd26dd4bb26d88289a37bf6f6006f8c5ad14b5eb65b555f140",
+      "maple_xmp_sha256": "d6d7cf4385626feb2a939efa4dc9d22e1e49492bdfce34644f98aba3d543fa5f",
+      "adobe_xmp_sha256": "ee994cdc84acb9b54335162a1c7da0499db81b4b2121c1d789fd80f015d4d794"
+    },
+    {
+      "name": "test_0005/saturation_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "8c2312c1a159a34f00e9488b976209ef45a6e4f1f945672dae99738f26d91498",
+      "corrected_png_sha256": "503498c1872337508f6f6c4a6c8a64cbd3d252bcda21d1cae08dd2c3171171b6",
+      "maple_xmp_sha256": "16464187ebb189337b2d8149486e4c32fb302414a2e149da02cc74eff264a57e",
+      "adobe_xmp_sha256": "b5aca515ca7fe4315610eef49e7313b54814f134d216fda00cb391f8ded4f379"
+    },
+    {
+      "name": "test_0005/shadows_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ccb96271467e25bbd11bb2cad3a4257750e9f2bb5b5e2830e64227b68230221c",
+      "corrected_png_sha256": "bc6b8e20cd4363e010ff9a6521c5370251614b2ddf7123694dc00fcb465a4d73",
+      "maple_xmp_sha256": "db9fc5a31e109e93262478b765b000bc2d588d13a4dab5ff9d166d6a279fdbe0",
+      "adobe_xmp_sha256": "a481aa485c5edce550854343d74929b1f2dc309ad52aa4fa43dc3d498aaa1bec"
+    },
+    {
+      "name": "test_0005/shadows_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "7da9b4515269a5fdb674c8615009d34ea6458e987434c41cd171d9522c75174c",
+      "corrected_png_sha256": "5fc2e4fffed7eeaa69affbaa40392ea56190f741d358b49e6baa6d139996de3d",
+      "maple_xmp_sha256": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+      "adobe_xmp_sha256": "fe763ad730dacef780f4226135d43e84ba734f38ee9afac4820893608f919f2d"
+    },
+    {
+      "name": "test_0005/sharpen_amount_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "864b37d94afbaf04ab9f2a27409c690b0734be2e1fee1a695616bf4f9c2705da",
+      "corrected_png_sha256": "f332e94bff9a5697537da02c20b4b3351c3ff37230567d147f2c7c20663a3478",
+      "maple_xmp_sha256": "a945d8e64b4791b4d9b58a2fc777b3c39c3b6ce340bc48c329554feeea8011a5",
+      "adobe_xmp_sha256": "84212c27c3fb9b09bc01000adac061e699649292adbf3df67e5f36eff41766dc"
+    },
+    {
+      "name": "test_0005/sharpen_amount_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "e17ffe2bbfc6d4c64b554211ff5019d1e3b32c290c36c9fb9bf12ec1f5484315",
+      "corrected_png_sha256": "5ac6c028cd10cffbe94a4cc99067d8a1cd719980e9721167fa95a9819e9d53f2",
+      "maple_xmp_sha256": "c6042f1be7bc4d5f021a5926841455a1d993fba119c34e962fabc2675d63d923",
+      "adobe_xmp_sha256": "0bc2a2a225f677040ede5ccb53cf1ab7259bbfe93f545593c4bfc219c1fa64e6"
+    },
+    {
+      "name": "test_0005/sharpen_detail_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "bd29fa3a9caf2041dc453d1164685bb3e5e3a447144978bbb0081d34d5b04544",
+      "corrected_png_sha256": "22c069a9fa82598245be202a19ff22374fecce20ba613ecaca894d8706bd8b58",
+      "maple_xmp_sha256": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+      "adobe_xmp_sha256": "2434b7d9767e15a992d0dc9a1b1cf9669fb8dfa4b8442dd6d1a25781b281b6af"
+    },
+    {
+      "name": "test_0005/sharpen_detail_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "7622b1672458c1bcecb6ee1c3da85af4335c43d9c312ce130dc7e92f795137f0",
+      "corrected_png_sha256": "85c61425da3e71cff44f4b70c501c0d4f5040273b8f6011006dad622fbcd0689",
+      "maple_xmp_sha256": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+      "adobe_xmp_sha256": "8df3f461674350dc75adaa90a7696ff1d5617bb15b81a6a1995b2653396bc355"
+    },
+    {
+      "name": "test_0005/sharpen_masking_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "4177ab2f702811e5895a1e4f0b36769510342b6e834f95545926c555080389cc",
+      "corrected_png_sha256": "1e0919862bea2fb521566572aac5cff96c917b25ccce87b8ecbb36dfe483ac18",
+      "maple_xmp_sha256": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+      "adobe_xmp_sha256": "a1049435f90282f3952a714f2814908a74d4e925a11217f3cef1c23c65903c04"
+    },
+    {
+      "name": "test_0005/sharpen_radius_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "acfe7f171aa8911f2a426edcfcd8e771487a5297f53bf63def5a8690f1806dae",
+      "corrected_png_sha256": "619b3910c26807023030a7158fa9ad1762ecc93adb32bacd424c25bb37bfe6e7",
+      "maple_xmp_sha256": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+      "adobe_xmp_sha256": "22fac59618fd9a63723b41e5aad1d4f4e07cb8c530df738e253ed43ea643dcb3"
+    },
+    {
+      "name": "test_0005/sharpen_radius_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "75f7f3b5f5db86bdbef86d4d6a4244bed9ba123e9637f169fac6abe531a16431",
+      "corrected_png_sha256": "fca840dde7b2fb1fa86c0dc211376dfc5845486e2bf514aa8715cbe596e700a9",
+      "maple_xmp_sha256": "ffcc6ae09dbc31f554386a79af942bca9812605bb1a302de84cd13c63e6375c0",
+      "adobe_xmp_sha256": "7d19f2d5c9a2bbe4d234fef7746c9bda86001991baf90241846734c89a3fac0f"
+    },
+    {
+      "name": "test_0005/temperature_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "026170e447c410c7eb88a8bc90d021e5e0fe4a0b1c034fe1a9eae0f6bbbbb73a",
+      "corrected_png_sha256": "eace53342da0f6758cb8c51371c4cf151be2d824f9d4ef766f823adb870ec0aa",
+      "maple_xmp_sha256": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+      "adobe_xmp_sha256": "7e3759393bdb289ea8de240b491ae185f8c3842233d353dbf9e80b8ea882737e"
+    },
+    {
+      "name": "test_0005/temperature_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "419cee8a2d44649116500ba6b418d8e733d103eb2a33b8bfb02083a54ebc13c7",
+      "corrected_png_sha256": "dd7e9c8fb244c18b761906bf285a094c31d7998c5613ab51e31999ac376e5aa0",
+      "maple_xmp_sha256": "d99801a14c09932169924b2302415eb39426b705a9edb5c50d148e3dfa15992e",
+      "adobe_xmp_sha256": "f1c654499b5d09321f613fd04292b3ab33599fab7439618f23fb981b3c965a14"
+    },
+    {
+      "name": "test_0005/texture_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "eddb43a346d10fd5d6f6824cfd312e05ddbe8fa5f992b1d17e16579256d4bf89",
+      "corrected_png_sha256": "d6b17aedea60438d1f38d7ebe80d328c73b468c0382429a21cf7186c2f760b00",
+      "maple_xmp_sha256": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+      "adobe_xmp_sha256": "d7e2d273ed6c1a5e40a7154c405a66cd98ce7a456dd9cd7d1c27afb8b26b2f90"
+    },
+    {
+      "name": "test_0005/texture_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "11c17d3a20e13006c3baf21ecb4f1f6524b0e4d399ad890ba1aedc2d77cdfba5",
+      "corrected_png_sha256": "1f0b86c3136b028f98ba53f52c1509ec065e675ae605cf9a45f287364720476a",
+      "maple_xmp_sha256": "4c4c8ede82f537ab7b749929ca659615367e9747ddb25d06b0ab61405152ab9f",
+      "adobe_xmp_sha256": "ad0fcbdb41252cee75da85ebb226f8d84d2b6db1e570f64d8a9f30aec34bc4d1"
+    },
+    {
+      "name": "test_0005/tint_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3c892929d8a146533d75bcdb86f9474a4d8560f89cb998cbeed5e7101d65f01e",
+      "corrected_png_sha256": "5a4ae8ac79f40462771df01ebec51c0a49108a1bc72c8544d72dafe1ea398534",
+      "maple_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "e54dad0a965ae6df23b4cdb1f58ef8f2e731eb00214fe4f56ca3b5481bed2858"
+    },
+    {
+      "name": "test_0005/tint_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c450ce1968202c6226a79986e4e1f2d6cf8c2e642f164aa464af7cba6e784a53",
+      "corrected_png_sha256": "432d0e4c4f645f783c127514ae57d1df4be787b8e8b407f53b27a95a1905aee2",
+      "maple_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "03b4ca3df878e2a36a88e203debbdf384065c0efec5546f26789887b665a0342"
+    },
+    {
+      "name": "test_0005/vibrance_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "db2a8013fcb453e6ed8ecf10b36fc3116e19a73806fed83096eb941f8b60f437",
+      "corrected_png_sha256": "f931419064cb03b85462056de66ec00f4f3797956d8d29d6fef4af4ca9d8fe83",
+      "maple_xmp_sha256": "2d8e0c447a012f7eaa323bc2200a3086d4b295dec292b82219771dc0087afba9",
+      "adobe_xmp_sha256": "d393e38c2c158010c188c1952d5686641277204176fabd9f421be3122389ab15"
+    },
+    {
+      "name": "test_0005/vibrance_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ca956e42117c288cd05c0e4b88becb07b0e83cf285a6d77c2bb2b2b03e6a6755",
+      "corrected_png_sha256": "c7afce7bc78b956d0e6dab9ebff645ba320b59a3d6761146e80ed93d2c2ec8d9",
+      "maple_xmp_sha256": "37425186952af760870ea3fd259ed0f5016a31abaa806638d04b046a26166cb3",
+      "adobe_xmp_sha256": "6df2334aa90ef5f014982781a3aff27eaefe30f436d51334e952fbdeaeccc32f"
+    },
+    {
+      "name": "test_0005/wb_auto",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0b5c68803479b9ee45994c38dc4fa7ffcd8d4d960960e41b93e22532b31f8213",
+      "corrected_png_sha256": "8850efcbe84d186c46e33fbed9edc10fdde96aed015cc1577410d01a2a1456d5",
+      "maple_xmp_sha256": "5ffc4db74020a2fdc0bd21da04ea40dae715a374f8cd40114d541f3d6c9cab3f",
+      "adobe_xmp_sha256": "c33bb05ed9eddb19648c138af589338d19355e27b8a42d6b6c7b573bceef2352"
+    },
+    {
+      "name": "test_0005/wb_cloudy",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "2627d3eef1cce9465a74e9ebfe9e1a7d05fd377de90de9ddf6a0afa482a52e77",
+      "corrected_png_sha256": "e9ee8a19b65e637388480a60e33e7b608d359f020be967f7eae387d0d8ac4cae",
+      "maple_xmp_sha256": "ee3af5243d1bbcc53442b5dbb268ea010a77a6cfbe6a84d0fabd573691f06cb6",
+      "adobe_xmp_sha256": "d8217e9d6e575f14633ba95b2ec035934e48ca15c4aab9433e8b05eb7dd3ea62"
+    },
+    {
+      "name": "test_0005/wb_daylight",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "5960f7d0eaf5829562101541ce1db5f7e0e4f681a8969f7fd75c37ead8688170",
+      "corrected_png_sha256": "05793bf93cc582cd08bd912f6cf5b201607136dc2631b4b0fa843900be2fd936",
+      "maple_xmp_sha256": "6f699378fa166d2b371111ff9260f19c6baa5f7569a70048b1fbb482e1ada225",
+      "adobe_xmp_sha256": "86c2d0753a63d07a1123d3463ef1126298ba0f5649320925328adb9e0ad76111"
+    },
+    {
+      "name": "test_0005/wb_flash",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "044bbeb8857bd2465775edb37d174fd28ff199b9902fdab3b2369156c419225f",
+      "corrected_png_sha256": "278cb64ad7adbbf1dfba5b0cd78acc876d8ecb3b5e772d1cad4b9018d1f39a4d",
+      "maple_xmp_sha256": "dddba9e356dac04044dd09aa5d11f1bf0e6288092d1e9ec343faed707a7ed6d5",
+      "adobe_xmp_sha256": "0e389dcabe0c3ae01b4557e516b456b4d6cb886256f05022cf921d9241b8324a"
+    },
+    {
+      "name": "test_0005/wb_shade",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "55f6b06960c0572e65cd671253db295603f3e90e94c03004eab5028c36e5bbbf",
+      "corrected_png_sha256": "34e77167b559a9428fafe9a49d54a239dc9e839f5c49f731616b797c46365d22",
+      "maple_xmp_sha256": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+      "adobe_xmp_sha256": "426c740145df54343d8663a659dd922f4767a55155e60b28ccf21e7f969da81e"
+    },
+    {
+      "name": "test_0005/wb_tungsten",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "d43b3eb246264a949607daeb08076ce42d3567dede695e4f1fbed7cab9627e4a",
+      "corrected_png_sha256": "3db2d8e50d0e0c2858bd91f5fc6b9742e54f16fcb97dac10a40a1867538a9c15",
+      "maple_xmp_sha256": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+      "adobe_xmp_sha256": "18d846067f0c35232295528a219461c6dfc86fe74d60bb3c696c99f7a5b301ab"
+    },
+    {
+      "name": "test_0005/whites_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "e3052dfbf1e0cae23d65bea536f7fd69e0976cfd25c80edc5c4ba297e3235f2b",
+      "corrected_png_sha256": "335056acf479120589dc05b2ff23fdb7ef00470efbdbc777a7a4071feb93e71c",
+      "maple_xmp_sha256": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+      "adobe_xmp_sha256": "0ad7249d6cd13fd3e24cd127720f7f209f79529bddc4713f44ffc0f94fd0e2f6"
+    },
+    {
+      "name": "test_0005/whites_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "dbf9d104a48839d6865d05c1976d236a2ab84f9d4af1193a03eba6168cb0978c",
+      "corrected_png_sha256": "cb4944cb1b846fc8e8005bb00584b92cb6225c86997e94af3b51a2b86afbc412",
+      "maple_xmp_sha256": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+      "adobe_xmp_sha256": "c7a2d69a3a7cec0cd94d8b1912e071572f43face7fac6fd0ddd3118fd55d23f3"
+    },
+    {
+      "name": "test_0008/baseline",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "68471fe0d7f0772ba106636ad662bbfbdb7ca7ebe1b98091210772fdc6c9f0c7",
+      "corrected_png_sha256": "c0ac715c97d934a499628abf800259464066e3b200426c81ba04fe22ca97fe37",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "ae4f3dea5cec5a7cce6a8c907b0f13fb05e9974f38de73863783c1728af40035"
+    },
+    {
+      "name": "test_0008/baseline",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "dd4dd42a672f6f569a03a6a924f31b2a4f0b135cf7bcf86eb78086d7f0e235b1",
+      "corrected_png_sha256": "66e2bf7df8cfbf0c5fd8b9ac3a4dfaf2d75e1e549da74434e0f162ef25a4f7b3",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "ae4f3dea5cec5a7cce6a8c907b0f13fb05e9974f38de73863783c1728af40035"
+    },
+    {
+      "name": "test_0008/blacks_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "18f3d4cf18c4220065ccab2cb91a5dfb8081783f221a61da611a272ac8948cd6",
+      "corrected_png_sha256": "8421e2719b3571bdedaa847e590b7a249f93ebabf00e64cc728c101dabdf2bea",
+      "maple_xmp_sha256": "1f82cd681dd1609be85085bca162d87319cc0622676d2260242cca6c008c961f",
+      "adobe_xmp_sha256": "0a134ed7c04f1a6d7765bf69cc22058e9784f59237c62763cc89a1f0f054bc5c"
+    },
+    {
+      "name": "test_0008/blacks_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "8ed9d32c5ea129e6445f4ccd7ee847a2a556fb1e796eb16ef0c3edda45394537",
+      "corrected_png_sha256": "f66aae5040c1d94ee1524032881841f6430c3c7c6a91293ace5815cd91c29729",
+      "maple_xmp_sha256": "f1b014a1b53cc340a4b30f15c9114c7839ee6b1cb24673902c23f7ef5919ec38",
+      "adobe_xmp_sha256": "894d76f19c37d65a871753c450cd167fe0047bd7a4804227782174e67e78d0a4"
+    },
+    {
+      "name": "test_0008/clarity_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "0fea6370b2bd6957f349e0848072719dcce9386b06de26914ef4dee222bb3e31",
+      "corrected_png_sha256": "ba45cc0c7f9fa4baba1232ee1f7c0c45b3568bb5810567e2827ba372fcf54708",
+      "maple_xmp_sha256": "bfa7c713ebad300e8a2edfbbe9ede5152db04ad1572e1c436ba0c69bc28f4f1a",
+      "adobe_xmp_sha256": "84946e38f0da2d6c27d1b5f26dfdfdf387e1062030a06b82cc9fd6580da4a91e"
+    },
+    {
+      "name": "test_0008/clarity_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "c1644685353d0dbb36ffe69a7e64a773e097a03c388399052ec696add3218025",
+      "corrected_png_sha256": "a56252ba16515f6e20111822c734efa2ad92f1d48f6c68afc7e2da98d49e03cd",
+      "maple_xmp_sha256": "9e2a695548d7f62dfc4bce482b66f65e05b860646e7d4371521a0728f7f2a757",
+      "adobe_xmp_sha256": "0172d0829835641ff61f6f12144f4ea52eb572586a4fc8d35627d46e8fbc3487"
+    },
+    {
+      "name": "test_0008/contrast_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "ecfe9bacfe1c2755daa8e3d06fe80c2765ca729217ee364bed39df19c178af72",
+      "corrected_png_sha256": "33e38c7517016053dfe80afc5d9882152960077142acc50ef0337e37fb472984",
+      "maple_xmp_sha256": "9aab6ca6dbb151847c5f3a724d7f32f8fc8dd2a8bb05f7035ffc68c4ca2c5887",
+      "adobe_xmp_sha256": "fc1095f4fa02fc81948763330149bbedd4ea71d184a87d7017caa881464353c1"
+    },
+    {
+      "name": "test_0008/contrast_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "26e47420137e2ed18bb22869cb90508907eea931710cbf0906d59bff7386a9fd",
+      "corrected_png_sha256": "9e28a4968a776daa86216e25e7772606de058f4c596f938809553b3f9bab7954",
+      "maple_xmp_sha256": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+      "adobe_xmp_sha256": "ca30b518f2073627611c87c32da385d4a9f264e0d92cf84362a8cf69de626f24"
+    },
+    {
+      "name": "test_0008/dehaze_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "822eca0a2c50fa5e931fca18c2e5cfa69f8b5515fe654d469af076d07a41a73e",
+      "corrected_png_sha256": "9afd3a0f6b6ce5bbab0ef0c106e0dd55eace4291d8a0031af8bbc3b0241de901",
+      "maple_xmp_sha256": "e1eb911788f66211a084dd2f936b6b8445404ed8e63a8a166cf2b2f1549c113b",
+      "adobe_xmp_sha256": "95f40d30753a73170a0b97c880499ddfee8c35656cdf83c35a3dd1f521830289"
+    },
+    {
+      "name": "test_0008/dehaze_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "f2887434b2389094dcc227ed2504d8f97a3fa21efcdc5fcac765854f5235d6e0",
+      "corrected_png_sha256": "bf604e8756789b1a528ab934d81e7a763c910afbc17c30fbf32d9f352e340723",
+      "maple_xmp_sha256": "b9275d5e96e7918f97509c80e44d494bad906119a5a0529af2f1f9e01ad67850",
+      "adobe_xmp_sha256": "9f5934caaa51b8a32a80937d98b95f7001c63ec1419cf46c8ee21426fc1b3539"
+    },
+    {
+      "name": "test_0008/exposure_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "7f5110347648f40e3116f14567934503f280c728020657ad21b1e4dee4b16cee",
+      "corrected_png_sha256": "03f971c9401bede73a86c9ca50569bab067d49054206cd8bde05b974b3de2e69",
+      "maple_xmp_sha256": "c7f37eed852b2c7ce5762e68e39407d257fcc307c5b7ed56a6dd1d7924acd7bc",
+      "adobe_xmp_sha256": "5b750daba2bbc571634859ea62a3eec8cd447ed4afc670c8b24859344f1e24bc"
+    },
+    {
+      "name": "test_0008/exposure_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "bd2529762bd37f040bf361d23a3565958d0b94342f412ddc12767d61d829bcd3",
+      "corrected_png_sha256": "248a94286f050d1853be17d13fabc9e31ffa4ecd26e714cb0a52bced551a7056",
+      "maple_xmp_sha256": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+      "adobe_xmp_sha256": "3918a5bb3edeae90fcfb591ce34470e953c958bc99434ef09936151d2b878697"
+    },
+    {
+      "name": "test_0008/highlights_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "a957b4cd36ac75707f6c68d9ef64d8355299dc456795cd5895dff15d1ae71b04",
+      "corrected_png_sha256": "fd94b6de8ca076d2bcadf56a1f2d0a06b4839efb5921387cec50d6cc4baf656d",
+      "maple_xmp_sha256": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+      "adobe_xmp_sha256": "70f72ed0817c4d970f04dc8da8f99605b16577b1f201ad038b71814d85d4e600"
+    },
+    {
+      "name": "test_0008/highlights_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "86dad785ae5b1f0400c0adfb257ee4cd56770eec460694e567fad72de14e4eca",
+      "corrected_png_sha256": "b199254e6f151e9ffae26b4a0c91632faaa81cb1db6f525f12baf74aab8d9ea3",
+      "maple_xmp_sha256": "634d95ad3e8b5143cc5e2d87868806b53daf0777e42fdbc6293d91757ecc2325",
+      "adobe_xmp_sha256": "b203ce7d84d139b9b8c29e88d4eb09673dcbe669a2f98f488d4b6dbc00ed2c37"
+    },
+    {
+      "name": "test_0008/nr_color_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "61aefbf3c2c4d4aaabbee64112e4fb52dc08ea7cfe127f2c59bc82580c537a0e",
+      "corrected_png_sha256": "14fe6344f70de029e315a311c5f56be8e372df47427176bde2f34b410a9d9484",
+      "maple_xmp_sha256": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+      "adobe_xmp_sha256": "dcade096183d1046542334e993bfa89c8d2eafa679714998fffbd9b921c19e7d"
+    },
+    {
+      "name": "test_0008/nr_color_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "672824e1296e62cf768b249374874b77b728bedca9d58b9579bfb1f1b137f80c",
+      "corrected_png_sha256": "5b38d9fcf0f985ec638694b2c77618fd540f885f4a012d74ee94512373e67a2d",
+      "maple_xmp_sha256": "17b5bc0e8b00b1c1529c8e7f6a0f35e9a47091e5f1771a07b3732e7a73fad650",
+      "adobe_xmp_sha256": "3abf05545ae562635a3189b1ea19a2a59e03e106b5918f6f7d2008699b473378"
+    },
+    {
+      "name": "test_0008/nr_luminance_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "a1ca3a5c5f3f6f97647c95dbf68e28ede1b42b812651a098a10e6b800763af6a",
+      "corrected_png_sha256": "58d00d937e9749c12e48cfc9506c52b299a623d2c90380f0d45ed4c1041ff116",
+      "maple_xmp_sha256": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+      "adobe_xmp_sha256": "01f2c0c5045687c85247beee019ff649f1a39ccca8e6667b5def761db0a9edeb"
+    },
+    {
+      "name": "test_0008/saturation_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "b2c435967fdc784c09847ec8d0db707e8104523133a2623ead7bdbd3c01633be",
+      "corrected_png_sha256": "b9a2d9cda5def8b5d70cab3b55b033052c2fb33f5b9b288746129f849181c7b3",
+      "maple_xmp_sha256": "d6d7cf4385626feb2a939efa4dc9d22e1e49492bdfce34644f98aba3d543fa5f",
+      "adobe_xmp_sha256": "fc6bea1fb268275c83a4c8b7cb781807bd7cfd9c942b69065c73327846e9eac1"
+    },
+    {
+      "name": "test_0008/saturation_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "7cb217b2fc66a17d00a53795ed95625758c618789adca092a7a3661975929933",
+      "corrected_png_sha256": "16361bafc8e74e97958830487755c48963cc3cfc17146aff2fc70e455ac40c1a",
+      "maple_xmp_sha256": "16464187ebb189337b2d8149486e4c32fb302414a2e149da02cc74eff264a57e",
+      "adobe_xmp_sha256": "59b2e888acec119199db698785459ac979aa6da26757f9e5aa0a6a1c43af6755"
+    },
+    {
+      "name": "test_0008/shadows_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "70e9bd1eeb09f1cb16694a0a8be7b49858d945a05a040e213c8fb80d7dd85380",
+      "corrected_png_sha256": "3da06cd431850c853c59abda2464f4cc0c0e22d806391a7a0f8734bdeba49bd9",
+      "maple_xmp_sha256": "db9fc5a31e109e93262478b765b000bc2d588d13a4dab5ff9d166d6a279fdbe0",
+      "adobe_xmp_sha256": "0a6e3d6c9e046c6f509d977efcd5a373d193b2e6539f03d190243248a43223f3"
+    },
+    {
+      "name": "test_0008/shadows_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "40bcf47eb8293570c42c558fe1d570779187a17276a4e86c2b0e51b6af5d438a",
+      "corrected_png_sha256": "a5142ce5cad6d056277a7de9758046eba81e49dd98b6a8f1a999a6fe7fc50328",
+      "maple_xmp_sha256": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+      "adobe_xmp_sha256": "ab0c6a430c1b99f2964e9d7e26125e9745ce5fda358f173093f9dfae032892fe"
+    },
+    {
+      "name": "test_0008/sharpen_amount_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "044845d736373bd2377c86aada8c8e44755074d9afdf45f4c11deeb46fbd564c",
+      "corrected_png_sha256": "bb0b5ba237690b48d5bafd31522dbe5ba939a30e5e2b2e4dbff580261dc2e3ea",
+      "maple_xmp_sha256": "a945d8e64b4791b4d9b58a2fc777b3c39c3b6ce340bc48c329554feeea8011a5",
+      "adobe_xmp_sha256": "af42873504e8868829e68342f56600786b9680fd3e942197091995afe60a2f20"
+    },
+    {
+      "name": "test_0008/sharpen_amount_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "9e8d04796b321c03d687cafa1e6a5fe0b422a9c4dae48a43971ae7deafb294fc",
+      "corrected_png_sha256": "57c01dd9de58631548b9d7fcbe3b17f1394016ee3791f64fcb32ba8a93dee865",
+      "maple_xmp_sha256": "c6042f1be7bc4d5f021a5926841455a1d993fba119c34e962fabc2675d63d923",
+      "adobe_xmp_sha256": "1c94da94271ba3751bec4e42f2a109fb65fbf146c54f9db415e3cabdf531302e"
+    },
+    {
+      "name": "test_0008/sharpen_detail_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "944fadcdf75ceb7f8be084127c37bdec3ac8105d0890d9613a1ea969581f984b",
+      "corrected_png_sha256": "a9a4f94bd940cb2600b03f7073ebe4691e1d0bc5b8c408771021905d6f3a4395",
+      "maple_xmp_sha256": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+      "adobe_xmp_sha256": "1abca7a0114d35f5a08da9952e8b6ade1eb1d7c7d32358a578b3b6c46ee17818"
+    },
+    {
+      "name": "test_0008/sharpen_detail_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "4835954be41f66ad51c45fde55514f56be22a1c7292b0c1936e2456b8a5831b6",
+      "corrected_png_sha256": "522eb0a5de0ca1face7e175d16f866e2b01eee755072faa17bb92bec901483d7",
+      "maple_xmp_sha256": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+      "adobe_xmp_sha256": "7cb0f258381f83db019a121f853f2a2accb5aa22aaf881007cb133554ab46138"
+    },
+    {
+      "name": "test_0008/sharpen_masking_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "8361738b787b1287bf8206ec6003f8427cf46f64a01d854c423bdcc3a96684c6",
+      "corrected_png_sha256": "610dc01acd0d637b1396190e15f1fe9ebf907114c632480429869d8a4d4d8a6d",
+      "maple_xmp_sha256": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+      "adobe_xmp_sha256": "6376081a84912d70a7950007c3289eb1f730f8b103354ab8c97f517003cb8e14"
+    },
+    {
+      "name": "test_0008/sharpen_radius_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "45bb8e801a106b4846f6daa9de36b36d569d66776296e3b232a45d5a65d11542",
+      "corrected_png_sha256": "3f18e04ec893339326f7d8fb935d9e62b968a263749c81353ed9431ff76769aa",
+      "maple_xmp_sha256": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+      "adobe_xmp_sha256": "008cedaf9a843961ec2c15d3f243d50e9f51b5c44baa40af113cedd15972175d"
+    },
+    {
+      "name": "test_0008/sharpen_radius_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "924d4ebf4b43d40f96fa66358d4870507ffd9f7ba22567a661494c30a15af51b",
+      "corrected_png_sha256": "da885411a461e9bad0ae6c26d7d0c50e59b328dcb93cace49a94908e8e45d492",
+      "maple_xmp_sha256": "ffcc6ae09dbc31f554386a79af942bca9812605bb1a302de84cd13c63e6375c0",
+      "adobe_xmp_sha256": "35b65f0c6676abef873366fb1197394af1c318d5f2814ca5a201fd9cca0401d5"
+    },
+    {
+      "name": "test_0008/temperature_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "afe9f5fa4570bb6354f4136e5382687dcd1978bb5262a474d63aa4c414916ab8",
+      "corrected_png_sha256": "5b2dd3583433013a30676907ecd446f6948979ae71fb7666036105b8982c06fc",
+      "maple_xmp_sha256": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+      "adobe_xmp_sha256": "2fe56664c7f2197213dc996cbfeafca7142e56ff1fed07dc06b075459d1dd6f2"
+    },
+    {
+      "name": "test_0008/temperature_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "bd6f7185fa2432f920b391515ac1a71b569b2d793d10c3038e84070570f21a60",
+      "corrected_png_sha256": "24ee30a183145e51cb53d765063b40c9adf860cab1a133bd41e4cc66cd80974f",
+      "maple_xmp_sha256": "d99801a14c09932169924b2302415eb39426b705a9edb5c50d148e3dfa15992e",
+      "adobe_xmp_sha256": "5d9a4178734c17242fcc8d404cc11aba53a3d17d3caaeae188917a2e1dc5e13f"
+    },
+    {
+      "name": "test_0008/texture_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "5b998189573b89eaecfec8f997acf8834efec8b2ee113921414d3a442ae7c854",
+      "corrected_png_sha256": "6c0ca8d72cbd19251ac4e6f6eda628b4bf1e35931b36bdbb426a9dc204bbc8e0",
+      "maple_xmp_sha256": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+      "adobe_xmp_sha256": "a2efffb64914aab72b72ff65c3d1299ba1d46835f186c1b7327152b1f710238c"
+    },
+    {
+      "name": "test_0008/texture_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "b7a22c9ffd7c3746bf0078bbc6cf3bb02f16a15483a009caca7cab5919bbb665",
+      "corrected_png_sha256": "c9a4dc974ba7062e25e1aab8f47f47a7fe5abf824f3e0cc88dd5d62e60f912e5",
+      "maple_xmp_sha256": "4c4c8ede82f537ab7b749929ca659615367e9747ddb25d06b0ab61405152ab9f",
+      "adobe_xmp_sha256": "7e99c579a02c8e80c82120a21c486819243729c2be639be4fbbf9a17a9bd82f5"
+    },
+    {
+      "name": "test_0008/tint_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "1939c34dff5fc51363f7d03b5483e21a1b60632aed09907d4453ffdd045d4bfd",
+      "corrected_png_sha256": "64833dcb2754aa15ede3e077f8e3293f6a6a88507ea704aa90d238babde0874d",
+      "maple_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "86b12b40b10425a03f17f6ebe330e864ef6bb2f4c9996c3e981887473b591242"
+    },
+    {
+      "name": "test_0008/tint_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "4b88c4107e9c9599d66772728deddf255eb8d38a892cd5e8182dbd875d182765",
+      "corrected_png_sha256": "43f7de32f8d08c5adec7e0ab240c2d4ea18c11cca12a394b4a90a96c690aca45",
+      "maple_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "cc3472e4f025a3b69658ce115ccc6680b56b45152d1eeccd807629fcb7f874d9"
+    },
+    {
+      "name": "test_0008/vibrance_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "b1b647b5dda63b27506e5181f48e7459f1416714b4bacb17ad3eea7d9d9f897a",
+      "corrected_png_sha256": "38f5be7c92bf99f32f3ab5e5bef8c253a1b4b959d211929702b888fa05f9c606",
+      "maple_xmp_sha256": "2d8e0c447a012f7eaa323bc2200a3086d4b295dec292b82219771dc0087afba9",
+      "adobe_xmp_sha256": "75e6ca53fe33ada6a67e793ba8ca7ba16725b367d7464af82a5cc43e8e576437"
+    },
+    {
+      "name": "test_0008/vibrance_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "9fc9379ce73ab860b4d76e701660afd3eabda1d7e1d754d7f20236676313c288",
+      "corrected_png_sha256": "f2bd5bfa40a9ea3ec1b21b95f4ba63e18f828dc34d97e57c6caf9179ef8a5e5f",
+      "maple_xmp_sha256": "37425186952af760870ea3fd259ed0f5016a31abaa806638d04b046a26166cb3",
+      "adobe_xmp_sha256": "87c25dc543160a49e3a5b1f41be92c7e5ae72b1a05a49141c9ea3c4ef8c2023c"
+    },
+    {
+      "name": "test_0008/wb_auto",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "0cbdfa6ae369924ea6f17ba636f6076c7b09b65a15370b64b299195690251848",
+      "corrected_png_sha256": "bfda7f98684810f9727181e0f8e5e45d2d52cd891dc0814f42f0aaa30645bd88",
+      "maple_xmp_sha256": "5ffc4db74020a2fdc0bd21da04ea40dae715a374f8cd40114d541f3d6c9cab3f",
+      "adobe_xmp_sha256": "6c4d2525292fe1daf1641603c1b8a34e2aa7a326cf6a455122f715ebab243731"
+    },
+    {
+      "name": "test_0008/wb_cloudy",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "dd6a21ceecb03c869b5481e808eee21915014f7eecaa7d831f5ad2c37bfecb9d",
+      "corrected_png_sha256": "62d9dfd458e991e371e135af9cf18adb2e05c76f23475e85ec9ff9a842ec6b37",
+      "maple_xmp_sha256": "ee3af5243d1bbcc53442b5dbb268ea010a77a6cfbe6a84d0fabd573691f06cb6",
+      "adobe_xmp_sha256": "0c420dc2a66bd59ede0b69ffbd344308336c5bbbcb035edf140e6346ffff8978"
+    },
+    {
+      "name": "test_0008/wb_daylight",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "096a43bb41ff36e6880a736530c47937a93da8217aaa832a0df7be398c233e42",
+      "corrected_png_sha256": "346899db88026f546e310fca387817edf2b37ffe86e1a4bb2c3402e4dc9bf84f",
+      "maple_xmp_sha256": "6f699378fa166d2b371111ff9260f19c6baa5f7569a70048b1fbb482e1ada225",
+      "adobe_xmp_sha256": "ccfb1af27456e8b3d25b9fdeee20ded7ee92eafa153895ae6f2eac01716ea20f"
+    },
+    {
+      "name": "test_0008/wb_flash",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "aa390194f7017a9d83872785eb16f5ef53ac2ad07c29ec1add8f64987fe3d6a3",
+      "corrected_png_sha256": "2d6f711b569663c1add1bcc9c772bcc2a0c977b2b0d7d37d768be134dd122793",
+      "maple_xmp_sha256": "dddba9e356dac04044dd09aa5d11f1bf0e6288092d1e9ec343faed707a7ed6d5",
+      "adobe_xmp_sha256": "3d8d4e9b45b0b6278e9145ffe21f02297b443e26618dff6458d94cbb25dbc0fd"
+    },
+    {
+      "name": "test_0008/wb_shade",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "4fa88be0ffc3c1c4592a24f762e334c685e7d4d00f9198efd97104b8d18dc9fd",
+      "corrected_png_sha256": "07267a27d11c6d2f38d3d792a6309e5bd0d10b00f6ecbf3a3384cb6a1f9a5b2d",
+      "maple_xmp_sha256": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+      "adobe_xmp_sha256": "b828f90410d53958bc4d3feac49dc385f683ee66483ac5ace265451402b0e448"
+    },
+    {
+      "name": "test_0008/wb_tungsten",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "487f9eacd2fe6918b1bad21aab22a0a788aacf3beca1016a4b4b2937818972b4",
+      "corrected_png_sha256": "67aa0d04eeb25968745234df56775a9f301ed765fa7d25b542f8a4ed5ca6076b",
+      "maple_xmp_sha256": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+      "adobe_xmp_sha256": "ba4afb1191815b0e782d5bb139f07f10ccd25d0a4d364e79c88917f03ca9a006"
+    },
+    {
+      "name": "test_0008/whites_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "de8665cc4fea4aaa2285a80866114940b053e18014945bf0fd9323c3754e68c6",
+      "corrected_png_sha256": "1518d3dbb2dbc76143a453f4d1a32e7946bccfa6c211c8c9dbb9c665952478a2",
+      "maple_xmp_sha256": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+      "adobe_xmp_sha256": "41d2b1aa57758e263075cc442d0189b58679429a769091461dbd0f6472a8ed1e"
+    },
+    {
+      "name": "test_0008/whites_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard v2",
+      "process_version": "11.0",
+      "original_png_sha256": "469419cf4de9c44923e531aed0ad842a866575cdb718e2e1ec1c4ce577f7528c",
+      "corrected_png_sha256": "9c2cc392f2601a8756b51a4fa86c3124d36e2e750f22f7fec287de8440a35830",
+      "maple_xmp_sha256": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+      "adobe_xmp_sha256": "bcc88fb6920cba98df3e2402729b42a4fdd4859fe285d98f6ca1007b7f687801"
+    },
+    {
+      "name": "test_0011/baseline",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b64750bc587b3a98ac137ad0ca341421318c9877007d84e5b431fb8ce36fdaa4",
+      "corrected_png_sha256": "eb0964fca514f80816250b685665f8767790c89ae9958be78e9696844a1da687",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0011/baseline",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "cbfe4a40a2eabe33477069c7766114dcfb291b3ccc4a092471cf4d8ae082ab69",
+      "corrected_png_sha256": "5d3b509bc0423ae4fdf1e78df9907ced1ef813121838d16d2e73aeb396e5a69c",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0011/blacks_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "8026103b0cfa919f939570a66dde585278ed51fb9e7e6c3360803f25539cb5da",
+      "corrected_png_sha256": "95ec202b465ec01d923888368cafee635703a41375e0a2787721dac2cfa4b569",
+      "maple_xmp_sha256": "1f82cd681dd1609be85085bca162d87319cc0622676d2260242cca6c008c961f",
+      "adobe_xmp_sha256": "a9c82723b271d9b6575d7d27c6cf3b8069f8d6df2dd1c79c3cfffeb60f58581e"
+    },
+    {
+      "name": "test_0011/blacks_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "79b07cc0db3fb3aeb1e59d0fb2e9f29b1eab80d4a831a35a7b03e721d103ff64",
+      "corrected_png_sha256": "1c9d6e6ab4c568fbe816054514d5d82023c282dd98a604e830f0e1baa46a5362",
+      "maple_xmp_sha256": "f1b014a1b53cc340a4b30f15c9114c7839ee6b1cb24673902c23f7ef5919ec38",
+      "adobe_xmp_sha256": "d1d79390eac252332614641a0ebcadf6e290632e2d9de63fbac43711b32cf8f0"
+    },
+    {
+      "name": "test_0011/clarity_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3cb2bb2e3d84e0c872db5a480b58bafc803f1e6e2dd6b8e52dde28f233d80527",
+      "corrected_png_sha256": "040a51bc5b3aec27a7f59eb51ef9f8e82f85e87bfb47b87b3fb484b541199d41",
+      "maple_xmp_sha256": "bfa7c713ebad300e8a2edfbbe9ede5152db04ad1572e1c436ba0c69bc28f4f1a",
+      "adobe_xmp_sha256": "fa0e9b9e14056d2aea2e4a94d1d4c1bed92bffa4641dabf6e349d46e40b5e434"
+    },
+    {
+      "name": "test_0011/clarity_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "38fee813a9225b288fd0f3d19e311d0cf1485e9a39cf023195e44baebaa44e43",
+      "corrected_png_sha256": "8050bedf09beff267257ce9317d30c210b827044f7b869f74200feffd2e1ecca",
+      "maple_xmp_sha256": "9e2a695548d7f62dfc4bce482b66f65e05b860646e7d4371521a0728f7f2a757",
+      "adobe_xmp_sha256": "ca71666aede1d131f483a2432e69257a5564dd4fecee56b1166990c065e2e0be"
+    },
+    {
+      "name": "test_0011/contrast_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "979d5b2d8aa5119463bf1228548d7e8ef67649008f33c25547dee440cdd9f504",
+      "corrected_png_sha256": "1231e4b3ae4a90f64e49bf003176acbd59b78684d6f902282b78a0e180642c56",
+      "maple_xmp_sha256": "9aab6ca6dbb151847c5f3a724d7f32f8fc8dd2a8bb05f7035ffc68c4ca2c5887",
+      "adobe_xmp_sha256": "196fa03ac31c82253f052a5ff44992ffc3398b3bae52750561b542c936c07f58"
+    },
+    {
+      "name": "test_0011/contrast_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "053b01c2333bf783a602876eb2d25522195784dfb903e246aa06c526992e1c24",
+      "corrected_png_sha256": "477c184dc5266a474b150267ece954db1fb5b4e990815f0286297d28b7096c65",
+      "maple_xmp_sha256": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+      "adobe_xmp_sha256": "ea9092d5af988cbede578f712983e1b538f21ddd82b94a14f93a75967a67b5cf"
+    },
+    {
+      "name": "test_0011/dehaze_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "7ceeea1984c022c5fdf8daf92f82ad4dece54e88c7ea05ae62b6973015b01876",
+      "corrected_png_sha256": "f91e462f97c2490666db6c93f7c132f18f4623afba6bf00b133f7da5fbfaaebd",
+      "maple_xmp_sha256": "e1eb911788f66211a084dd2f936b6b8445404ed8e63a8a166cf2b2f1549c113b",
+      "adobe_xmp_sha256": "3f578ffe1af515da4d792b106b586bf6a8973bf360970561dfae672b1ed35e75"
+    },
+    {
+      "name": "test_0011/dehaze_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "85aa0154f63a82976c8eb2378356b01cc69a27049e37bf1e05fdf158baf44658",
+      "corrected_png_sha256": "dd192605885eda64ba3fb7309418a2604bd9ff9868d6937eacb250d36e8d5d96",
+      "maple_xmp_sha256": "b9275d5e96e7918f97509c80e44d494bad906119a5a0529af2f1f9e01ad67850",
+      "adobe_xmp_sha256": "5174755870cb89c19d95c301af67a98cb2398a6c5eea702a7d51fe0431ff5c82"
+    },
+    {
+      "name": "test_0011/exposure_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "09678ebb08717d195a2a318578924949b6e84cd4ea25f2c1e41667de69e69998",
+      "corrected_png_sha256": "6a38ed13e5d73f2ac2f269884e8f3c6bdbff97c1494e476f084d0f4a84656282",
+      "maple_xmp_sha256": "c7f37eed852b2c7ce5762e68e39407d257fcc307c5b7ed56a6dd1d7924acd7bc",
+      "adobe_xmp_sha256": "2cce7d8f8dcefac9b17567643dfd3344843a38d1fb20ad2982ef562d1b7a816c"
+    },
+    {
+      "name": "test_0011/exposure_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "825d1b93fbdf7ac7077feb196f6e315110dd749210da435e1bfb2fe56f9c851e",
+      "corrected_png_sha256": "bd370d77163a27a7f3eca227970ccdcca2d2302e906fbb091954cd596585c21e",
+      "maple_xmp_sha256": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+      "adobe_xmp_sha256": "d4e0b48de719bdba686bb710d5a7eac625cd383003c3b66941206c6c8ccbaf2e"
+    },
+    {
+      "name": "test_0011/highlights_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3120639c50ff91a50e62f20d389b9aad2e68463edf100e65ea12196e73fdf4d9",
+      "corrected_png_sha256": "fcddd71ed972857bdd14ece55070b5a9c96b92ef5249c0009bbc4f338d3f6574",
+      "maple_xmp_sha256": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+      "adobe_xmp_sha256": "2c5bed07f080c4717e054d72d9e4110cf27e7e41b8089a112f71a3837be1df6f"
+    },
+    {
+      "name": "test_0011/highlights_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "2152cd407f8947861d58be2893420b371832f18e0ccfb9435d4a57f5fd23aa3b",
+      "corrected_png_sha256": "42f1dec64b015d6f22755ec95dd90214b19a6a875e7344219d5e5d27e2421b08",
+      "maple_xmp_sha256": "634d95ad3e8b5143cc5e2d87868806b53daf0777e42fdbc6293d91757ecc2325",
+      "adobe_xmp_sha256": "9d544b52f0f0848b0021ff4596f2f396715fb2785bc421fab7a6453ab8b49a5b"
+    },
+    {
+      "name": "test_0011/nr_color_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "acdd3c79ad354076ba31d63626dd6441f2faa7b3076553e17e324b291c44b014",
+      "corrected_png_sha256": "b5cc3c1b1553d35ec023efac146f55f10d3c40376c42f215e168ee12c57546eb",
+      "maple_xmp_sha256": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+      "adobe_xmp_sha256": "0c0c9b9439a2a5d1cc50d2528f5a6015ed07cfda597d7bd55b853f8bc5b50180"
+    },
+    {
+      "name": "test_0011/nr_color_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c28cd03a2ba459e24d70912012ac5fd7a991626149ea8f4b83e128f85744aa9a",
+      "corrected_png_sha256": "7a4083ed4dccb0ea3fcb3af7da879d0b13ada44b76b1ec2c52d291b5fa36f507",
+      "maple_xmp_sha256": "17b5bc0e8b00b1c1529c8e7f6a0f35e9a47091e5f1771a07b3732e7a73fad650",
+      "adobe_xmp_sha256": "cbcc49a2c11cd44fdb69f7c2f3eac1a7f37e5b4f6e715ebf0fe2166c8206c2da"
+    },
+    {
+      "name": "test_0011/nr_luminance_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c983341ed2d39b0543944de6701cc742d635a9d8fa64fff2ed856e06f8255415",
+      "corrected_png_sha256": "092497db9ef4ff17f791ece6fed6da8725d2041b9670ca072f379e9b3cacbd92",
+      "maple_xmp_sha256": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+      "adobe_xmp_sha256": "ae39669ffca3aedeeafd43451f6189189e44263bcc8dce2c45dd32c19f9bf2dd"
+    },
+    {
+      "name": "test_0011/saturation_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c60fe8d0fabf433eb056f6c268df21f4770a017a56be7d71305fb1c38998d1da",
+      "corrected_png_sha256": "1d52d08bdd5f784ec8c496e727e9ea4bb1cc145e1a8e5ccabd427447dcf9b1c5",
+      "maple_xmp_sha256": "d6d7cf4385626feb2a939efa4dc9d22e1e49492bdfce34644f98aba3d543fa5f",
+      "adobe_xmp_sha256": "ee994cdc84acb9b54335162a1c7da0499db81b4b2121c1d789fd80f015d4d794"
+    },
+    {
+      "name": "test_0011/saturation_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9456e905a47fa75404a54dd66e41608f444e5186fe5637eab43c5e1389106900",
+      "corrected_png_sha256": "3158dd35fc6b4cce5befd763e50dfe7532e6903d257ca06fdd6b4c0db767bb8c",
+      "maple_xmp_sha256": "16464187ebb189337b2d8149486e4c32fb302414a2e149da02cc74eff264a57e",
+      "adobe_xmp_sha256": "b5aca515ca7fe4315610eef49e7313b54814f134d216fda00cb391f8ded4f379"
+    },
+    {
+      "name": "test_0011/shadows_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "107c655d8538448cf7868b1f6a7d6d0e085681cf518ee13e0e8af4260755fd5f",
+      "corrected_png_sha256": "eb94fb8eca2438827dceaa209542d01d60faa86db67af1fcc608f5ae73abfa18",
+      "maple_xmp_sha256": "db9fc5a31e109e93262478b765b000bc2d588d13a4dab5ff9d166d6a279fdbe0",
+      "adobe_xmp_sha256": "a481aa485c5edce550854343d74929b1f2dc309ad52aa4fa43dc3d498aaa1bec"
+    },
+    {
+      "name": "test_0011/shadows_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b6c83bbb69e23f9b353f959d2be6b49075b75c727269dba946d6e03617e646d9",
+      "corrected_png_sha256": "06566de6b4f498f4d555446b704ac9df41a0336fee60914b52b5dd2cf089f5a2",
+      "maple_xmp_sha256": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+      "adobe_xmp_sha256": "fe763ad730dacef780f4226135d43e84ba734f38ee9afac4820893608f919f2d"
+    },
+    {
+      "name": "test_0011/sharpen_amount_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "a7b152dfc5a3f3f9dac90ffe9c3a3bccbcdc66d27199ddbfbbd8c2da97770820",
+      "corrected_png_sha256": "01718c2d1e134ad8f998de451eed35ed2e2b11bece5ff88219b23c257b828e61",
+      "maple_xmp_sha256": "a945d8e64b4791b4d9b58a2fc777b3c39c3b6ce340bc48c329554feeea8011a5",
+      "adobe_xmp_sha256": "84212c27c3fb9b09bc01000adac061e699649292adbf3df67e5f36eff41766dc"
+    },
+    {
+      "name": "test_0011/sharpen_amount_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0fe8000973ccc0718cc51c644f2e0d5b748ae4084b8be371feb4dc03f42e8a93",
+      "corrected_png_sha256": "0ba788fe065af7416806289337436bb15b01bcdde3d13cf39f6f9267b5733434",
+      "maple_xmp_sha256": "c6042f1be7bc4d5f021a5926841455a1d993fba119c34e962fabc2675d63d923",
+      "adobe_xmp_sha256": "0bc2a2a225f677040ede5ccb53cf1ab7259bbfe93f545593c4bfc219c1fa64e6"
+    },
+    {
+      "name": "test_0011/sharpen_detail_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "1fbbb5925f7966ea88b5d620b44a88557a135083eede7e7a571c4b54f001cde5",
+      "corrected_png_sha256": "72b07a5229f6722b2a9ed956f2f6bb2830fd8b0eb7121d0284a4971ec9234acf",
+      "maple_xmp_sha256": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+      "adobe_xmp_sha256": "2434b7d9767e15a992d0dc9a1b1cf9669fb8dfa4b8442dd6d1a25781b281b6af"
+    },
+    {
+      "name": "test_0011/sharpen_detail_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "fd3ea0573321780dc7c548c9cc65cff63ae820503ab84a217e7e36661701bd32",
+      "corrected_png_sha256": "f7318612b7ae28c4456670793b96c4c132eeca12e1a5c7be1f300313b9b7499d",
+      "maple_xmp_sha256": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+      "adobe_xmp_sha256": "8df3f461674350dc75adaa90a7696ff1d5617bb15b81a6a1995b2653396bc355"
+    },
+    {
+      "name": "test_0011/sharpen_masking_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "4ed31d76ec52623550379573001dfb745ceae2e088a30f31d76420da6c4f8a36",
+      "corrected_png_sha256": "576fddb4edefac8bdcc15a9f98f7a2a1d398b971484046fccccfac13da3b615e",
+      "maple_xmp_sha256": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+      "adobe_xmp_sha256": "a1049435f90282f3952a714f2814908a74d4e925a11217f3cef1c23c65903c04"
+    },
+    {
+      "name": "test_0011/sharpen_radius_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "192e44d252f11359dec3b164367488f1f5f0e923e7c21172dda6b7691d6163e3",
+      "corrected_png_sha256": "28d798bcea6130d8ee4fbb52fe6fc5ede3812e5ddefd84aaca393559603e0cd3",
+      "maple_xmp_sha256": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+      "adobe_xmp_sha256": "22fac59618fd9a63723b41e5aad1d4f4e07cb8c530df738e253ed43ea643dcb3"
+    },
+    {
+      "name": "test_0011/sharpen_radius_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "d7bee453baca4fa2e4ce37256f73b807bed97c2278fad8c8dadaf1ad7d755754",
+      "corrected_png_sha256": "116080ff5347dddc16ede4639773e7c2e6d6fb2b28f53797b02440ab7c7ee33f",
+      "maple_xmp_sha256": "ffcc6ae09dbc31f554386a79af942bca9812605bb1a302de84cd13c63e6375c0",
+      "adobe_xmp_sha256": "7d19f2d5c9a2bbe4d234fef7746c9bda86001991baf90241846734c89a3fac0f"
+    },
+    {
+      "name": "test_0011/temperature_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "cf0393e310a0c92510d769698d2ac17d4ae22f11680a8728f2387d360b693679",
+      "corrected_png_sha256": "170203c4f24f9e81153eb2a45c214a14de55349b05d70e3a28d707a608783f5f",
+      "maple_xmp_sha256": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+      "adobe_xmp_sha256": "7e3759393bdb289ea8de240b491ae185f8c3842233d353dbf9e80b8ea882737e"
+    },
+    {
+      "name": "test_0011/temperature_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "720fd906b71134721e02af97b0c6b68ebd9ec8fe349e50a80311c5d32a20b552",
+      "corrected_png_sha256": "1e2f4a8d075863e85b9827bf7187eabc5d0ce13825537ec8e465ca142f021532",
+      "maple_xmp_sha256": "d99801a14c09932169924b2302415eb39426b705a9edb5c50d148e3dfa15992e",
+      "adobe_xmp_sha256": "f1c654499b5d09321f613fd04292b3ab33599fab7439618f23fb981b3c965a14"
+    },
+    {
+      "name": "test_0011/texture_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "1b8735c64fa88685fce6b2d33c49fb2bbe3d26bafc3c3b6195012c9cc71bb306",
+      "corrected_png_sha256": "ed40e8f3bc55495d668f39c0a8a2948de2d8804c906af1f2773a4855053c1283",
+      "maple_xmp_sha256": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+      "adobe_xmp_sha256": "d7e2d273ed6c1a5e40a7154c405a66cd98ce7a456dd9cd7d1c27afb8b26b2f90"
+    },
+    {
+      "name": "test_0011/texture_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "af9f9187fe4dee98d4e39f42b46d7acfeeedb2b8d8dfaeeebb78ea2ab0c19ee6",
+      "corrected_png_sha256": "776978bd30837ea6e8c422b2ecadc9b289f0d98fd2d86735de1ddd88a7303131",
+      "maple_xmp_sha256": "4c4c8ede82f537ab7b749929ca659615367e9747ddb25d06b0ab61405152ab9f",
+      "adobe_xmp_sha256": "ad0fcbdb41252cee75da85ebb226f8d84d2b6db1e570f64d8a9f30aec34bc4d1"
+    },
+    {
+      "name": "test_0011/tint_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0a3e8e2a4ff4f2645cfb8e35fdfeb902496974d20cc0f839773fd8cbd8e23a6c",
+      "corrected_png_sha256": "f1b5cfcd2e91d606869858cc8cb6dc6446b6cd9c681d8044cfcbaabb8f82b77d",
+      "maple_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "e54dad0a965ae6df23b4cdb1f58ef8f2e731eb00214fe4f56ca3b5481bed2858"
+    },
+    {
+      "name": "test_0011/tint_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "5573c3dc74a6490bdea33541ca637b4965fd5afacc201a77ffc34d8375e8be5b",
+      "corrected_png_sha256": "9f72fe0623cae18702d3098e6bb043f6ba94176eb5d63b07f1285f59f5ad6341",
+      "maple_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "03b4ca3df878e2a36a88e203debbdf384065c0efec5546f26789887b665a0342"
+    },
+    {
+      "name": "test_0011/vibrance_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ec355070d9aa52a013de4415da7b952d8ed5ac7a85fa14124b1afe0748ec7b7f",
+      "corrected_png_sha256": "5505485b64145587072b1ed01da9ff2929f86bd018afaf24bb8f407c5cef391a",
+      "maple_xmp_sha256": "2d8e0c447a012f7eaa323bc2200a3086d4b295dec292b82219771dc0087afba9",
+      "adobe_xmp_sha256": "d393e38c2c158010c188c1952d5686641277204176fabd9f421be3122389ab15"
+    },
+    {
+      "name": "test_0011/vibrance_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "d61ee81f7d09290ca4227c0e6af125096b5ef22d8d1d09cb25e7d0b14a463a74",
+      "corrected_png_sha256": "ede0f7be44036d24cd4cc68791fccbc8525e4a2dacf52b3b17a42c2691cec7ff",
+      "maple_xmp_sha256": "37425186952af760870ea3fd259ed0f5016a31abaa806638d04b046a26166cb3",
+      "adobe_xmp_sha256": "6df2334aa90ef5f014982781a3aff27eaefe30f436d51334e952fbdeaeccc32f"
+    },
+    {
+      "name": "test_0011/wb_auto",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3e09da1bbfbe49823b6fe2b74d9955162d0e87942b3362008abb538c0533f1a8",
+      "corrected_png_sha256": "f1f9829f803ee264ae35a1dcff595d1596dbfe407991506b89eb3973331ea793",
+      "maple_xmp_sha256": "5ffc4db74020a2fdc0bd21da04ea40dae715a374f8cd40114d541f3d6c9cab3f",
+      "adobe_xmp_sha256": "c33bb05ed9eddb19648c138af589338d19355e27b8a42d6b6c7b573bceef2352"
+    },
+    {
+      "name": "test_0011/wb_cloudy",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "baf28738740b8323f51374dad23a8949556e87e2309b67119fde4bfdb09097a5",
+      "corrected_png_sha256": "dcc42693b97057ef2e95d8b53628565aa56c7f7b82f327462ff8481c2b6e6917",
+      "maple_xmp_sha256": "ee3af5243d1bbcc53442b5dbb268ea010a77a6cfbe6a84d0fabd573691f06cb6",
+      "adobe_xmp_sha256": "d8217e9d6e575f14633ba95b2ec035934e48ca15c4aab9433e8b05eb7dd3ea62"
+    },
+    {
+      "name": "test_0011/wb_daylight",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9e00ab28198c9e09aaf7f23f5bd7853ccb09870cf99266aad317b95b53e4fb25",
+      "corrected_png_sha256": "565c659a0edfe7adeadc28cfffaadcd71c7c1a51eea226d66db3bdca33eb99b2",
+      "maple_xmp_sha256": "6f699378fa166d2b371111ff9260f19c6baa5f7569a70048b1fbb482e1ada225",
+      "adobe_xmp_sha256": "86c2d0753a63d07a1123d3463ef1126298ba0f5649320925328adb9e0ad76111"
+    },
+    {
+      "name": "test_0011/wb_flash",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ff50623c239287ecc5ab6aebeb79a66b45311f0d2fe6b1ed6c0bdd6f4fefcc86",
+      "corrected_png_sha256": "dbc50fa6be37caac22fdce73784fa6ace9fea574119edbca1160e62bf15364e6",
+      "maple_xmp_sha256": "dddba9e356dac04044dd09aa5d11f1bf0e6288092d1e9ec343faed707a7ed6d5",
+      "adobe_xmp_sha256": "0e389dcabe0c3ae01b4557e516b456b4d6cb886256f05022cf921d9241b8324a"
+    },
+    {
+      "name": "test_0011/wb_shade",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "944030ee43ff0d8ec812b66ef0dd188146d52512bf9779afc1af601302b4d1ab",
+      "corrected_png_sha256": "1e35897cd6b16c153f168687de5eb0a24656e0eded86d2fb5b80671f8da81852",
+      "maple_xmp_sha256": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+      "adobe_xmp_sha256": "426c740145df54343d8663a659dd922f4767a55155e60b28ccf21e7f969da81e"
+    },
+    {
+      "name": "test_0011/wb_tungsten",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0a32a1e3f5dbf0b83cf19e98deeb7fbc8efcab48d153ffaaddc4f8699952f3b4",
+      "corrected_png_sha256": "1717609a9623bdb9dbafdd747cace38fc4817741c472ecadfafe9cc251d7dba2",
+      "maple_xmp_sha256": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+      "adobe_xmp_sha256": "18d846067f0c35232295528a219461c6dfc86fe74d60bb3c696c99f7a5b301ab"
+    },
+    {
+      "name": "test_0011/whites_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "837f6269748abd092de2b78edd8a77c63eb5f587cea311e699b6ace443d7a1ee",
+      "corrected_png_sha256": "e6aeea5f0c4fb2f35028bf21f064fcc42688fb46609081e9cebbdbda4c84a03a",
+      "maple_xmp_sha256": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+      "adobe_xmp_sha256": "0ad7249d6cd13fd3e24cd127720f7f209f79529bddc4713f44ffc0f94fd0e2f6"
+    },
+    {
+      "name": "test_0011/whites_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c1feb9886ad0382af16794bf6f3e079e7f607f085f3567a6925ac74cc6ef877a",
+      "corrected_png_sha256": "14c6d0d0f84706acc1d3aa7ef31c7be010228846151da475c7a151dd7aa6a85c",
+      "maple_xmp_sha256": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+      "adobe_xmp_sha256": "c7a2d69a3a7cec0cd94d8b1912e071572f43face7fac6fd0ddd3118fd55d23f3"
+    },
+    {
+      "name": "test_0012/baseline",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "254bb97abc6a17e62609fb56a2c7dd530010b0bd5f576974ad7c52f883b01da2",
+      "corrected_png_sha256": "40ab949e0a0d3f11d80cac93aee8dedec3bf421880727603abeb869904866212",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0012/baseline",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9a24251a7d2bcd4eeeeb0b6ee902321dc5eb01a95959e1d16ac89bd9aeffe22a",
+      "corrected_png_sha256": "8028795b6a2dba1d174c4482710c312ca78ad67ede8a437d550eea2b64f09a72",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0012/blacks_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "66ed11c3315b55e53b87ef7b952149f142d7221129647a410d3468c4ea3a22c5",
+      "corrected_png_sha256": "cbfa382d868357908c55ebeccb88276192d2e9b5c1cc61c661a5800ecce31b3c",
+      "maple_xmp_sha256": "1f82cd681dd1609be85085bca162d87319cc0622676d2260242cca6c008c961f",
+      "adobe_xmp_sha256": "a9c82723b271d9b6575d7d27c6cf3b8069f8d6df2dd1c79c3cfffeb60f58581e"
+    },
+    {
+      "name": "test_0012/blacks_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ea9bc457304d125041f0914c623fa8a67af3a20dfd24e75a115b9b8eaa68edf9",
+      "corrected_png_sha256": "8809d5e74b7029de2043f5542ce48b1368d4095c07e70e447e52402b29aea8bd",
+      "maple_xmp_sha256": "f1b014a1b53cc340a4b30f15c9114c7839ee6b1cb24673902c23f7ef5919ec38",
+      "adobe_xmp_sha256": "d1d79390eac252332614641a0ebcadf6e290632e2d9de63fbac43711b32cf8f0"
+    },
+    {
+      "name": "test_0012/clarity_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0a91a29ff522f2d701315f221eea874cea258fbcb5e96873a85256792e71db28",
+      "corrected_png_sha256": "187745a00a82bcde6a11d063aa4c7cb7ffb1697dc3f5e323f245f29d3e77c04d",
+      "maple_xmp_sha256": "bfa7c713ebad300e8a2edfbbe9ede5152db04ad1572e1c436ba0c69bc28f4f1a",
+      "adobe_xmp_sha256": "fa0e9b9e14056d2aea2e4a94d1d4c1bed92bffa4641dabf6e349d46e40b5e434"
+    },
+    {
+      "name": "test_0012/clarity_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ec1143913d5234476fa6e49cc0bf54f5ed4b4a8345193c58b8ed8f8a72f91ec4",
+      "corrected_png_sha256": "9fb1d1979157b32ea83d3c1080c91df2b9003b74fd0dd3c3d6b23a8349cbeafc",
+      "maple_xmp_sha256": "9e2a695548d7f62dfc4bce482b66f65e05b860646e7d4371521a0728f7f2a757",
+      "adobe_xmp_sha256": "ca71666aede1d131f483a2432e69257a5564dd4fecee56b1166990c065e2e0be"
+    },
+    {
+      "name": "test_0012/contrast_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "66e6cb056af7656c91b09d62c7baf1edf69750ae7f89a92b59a6386ea808cb4e",
+      "corrected_png_sha256": "cd09baaa7681c36ee5992915134dcc380ff99d2a221162f97231a93bb8ddd8ee",
+      "maple_xmp_sha256": "9aab6ca6dbb151847c5f3a724d7f32f8fc8dd2a8bb05f7035ffc68c4ca2c5887",
+      "adobe_xmp_sha256": "196fa03ac31c82253f052a5ff44992ffc3398b3bae52750561b542c936c07f58"
+    },
+    {
+      "name": "test_0012/contrast_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "86961706c0e7b02e5a0f5cdb33c3a65d075e416a8bb8d12643539bc4786d077f",
+      "corrected_png_sha256": "f5e800f203516c0b91c96e9af656f85f4998791f5513a36094b9c85d1881415d",
+      "maple_xmp_sha256": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+      "adobe_xmp_sha256": "ea9092d5af988cbede578f712983e1b538f21ddd82b94a14f93a75967a67b5cf"
+    },
+    {
+      "name": "test_0012/dehaze_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "00ec1afd17267e484c2e03027e2af0000ed81cb4c906eadec30ba7ab97b2db62",
+      "corrected_png_sha256": "02ca08df5c6a99d7d04bf0a91b23f41b870848cd0c333ace2f8e7b7097b29be8",
+      "maple_xmp_sha256": "e1eb911788f66211a084dd2f936b6b8445404ed8e63a8a166cf2b2f1549c113b",
+      "adobe_xmp_sha256": "3f578ffe1af515da4d792b106b586bf6a8973bf360970561dfae672b1ed35e75"
+    },
+    {
+      "name": "test_0012/dehaze_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "8279f30f8d62af85237aebb7c3f547684cc7bde222491ae1a4972f14ea334446",
+      "corrected_png_sha256": "920bd162c0667ea4283ddf7f05eafa5dfb8ecb1cc6fc584e6d2723d9a08ceb26",
+      "maple_xmp_sha256": "b9275d5e96e7918f97509c80e44d494bad906119a5a0529af2f1f9e01ad67850",
+      "adobe_xmp_sha256": "5174755870cb89c19d95c301af67a98cb2398a6c5eea702a7d51fe0431ff5c82"
+    },
+    {
+      "name": "test_0012/exposure_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b9cee2355888b95d6ea334c540f6b2623523d6b473db4a4a37ab8aaa5660d80c",
+      "corrected_png_sha256": "cdd3a18891720e9f0c97babb463411701ac0b88bf9af29ec10be016463592f13",
+      "maple_xmp_sha256": "c7f37eed852b2c7ce5762e68e39407d257fcc307c5b7ed56a6dd1d7924acd7bc",
+      "adobe_xmp_sha256": "2cce7d8f8dcefac9b17567643dfd3344843a38d1fb20ad2982ef562d1b7a816c"
+    },
+    {
+      "name": "test_0012/exposure_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ca227621ff4ba18891dd561ba4febf70492f85366dc2d1f2eac8cc5926aab6cf",
+      "corrected_png_sha256": "f08487e197824cb857cb9fd5297995024316c5941c8254811f47bdfe15edca65",
+      "maple_xmp_sha256": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+      "adobe_xmp_sha256": "d4e0b48de719bdba686bb710d5a7eac625cd383003c3b66941206c6c8ccbaf2e"
+    },
+    {
+      "name": "test_0012/highlights_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "e172ccef83de1bbf68db097e014d3ef1507e5301ce3793c6fe880c2047f66aed",
+      "corrected_png_sha256": "55080b9671de08f729fd23d788e47ba2e25e741ed98f0c50368c3106217dfe96",
+      "maple_xmp_sha256": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+      "adobe_xmp_sha256": "2c5bed07f080c4717e054d72d9e4110cf27e7e41b8089a112f71a3837be1df6f"
+    },
+    {
+      "name": "test_0012/highlights_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "99e61e5b6d260732a0b9d0e0628661368080f926727925194502bc4428b3abf5",
+      "corrected_png_sha256": "4bfb68d9661efb38dda6d7b82c9594675b6fb9fc125e73b6fb896548b147fd73",
+      "maple_xmp_sha256": "634d95ad3e8b5143cc5e2d87868806b53daf0777e42fdbc6293d91757ecc2325",
+      "adobe_xmp_sha256": "9d544b52f0f0848b0021ff4596f2f396715fb2785bc421fab7a6453ab8b49a5b"
+    },
+    {
+      "name": "test_0012/nr_color_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "30e3e31fbe6ebb49b72cd649b67c38d8a0fef673ff679d393d79aa7a41f80eb1",
+      "corrected_png_sha256": "064f2b4e5be1f17a73f73292dae8ca03cd1a2ee055a4182117524e9e1e83bb7e",
+      "maple_xmp_sha256": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+      "adobe_xmp_sha256": "0c0c9b9439a2a5d1cc50d2528f5a6015ed07cfda597d7bd55b853f8bc5b50180"
+    },
+    {
+      "name": "test_0012/nr_color_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "1a26c4b157ea15fd0cee5899591b3e6296e60debb1cffa816473d2b4a40c9b10",
+      "corrected_png_sha256": "97af679d939337579e892a27e3d8c55481068957288d61b9530cb019a4b11710",
+      "maple_xmp_sha256": "17b5bc0e8b00b1c1529c8e7f6a0f35e9a47091e5f1771a07b3732e7a73fad650",
+      "adobe_xmp_sha256": "cbcc49a2c11cd44fdb69f7c2f3eac1a7f37e5b4f6e715ebf0fe2166c8206c2da"
+    },
+    {
+      "name": "test_0012/nr_luminance_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "12107bcfe7ebd8bf078c3b84224347342ea3627508168769f02627b25721424f",
+      "corrected_png_sha256": "06cce970ae576677bc80f98dda9a33d2c181c27613667e79bdf73b779215feb1",
+      "maple_xmp_sha256": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+      "adobe_xmp_sha256": "ae39669ffca3aedeeafd43451f6189189e44263bcc8dce2c45dd32c19f9bf2dd"
+    },
+    {
+      "name": "test_0012/saturation_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b3022148da1c91a8448ab333efb4e9d027a22435a6332b98bd6602284ac3b332",
+      "corrected_png_sha256": "368fa4d5561faad90fb64599c8f149819469906af7ef2f12bd9f45c93feda2e7",
+      "maple_xmp_sha256": "d6d7cf4385626feb2a939efa4dc9d22e1e49492bdfce34644f98aba3d543fa5f",
+      "adobe_xmp_sha256": "ee994cdc84acb9b54335162a1c7da0499db81b4b2121c1d789fd80f015d4d794"
+    },
+    {
+      "name": "test_0012/saturation_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3daeceee606f68cad72a41a60a539f35d651f206089b4cef14f9301f3a8767cf",
+      "corrected_png_sha256": "8af08cd54456445c6275e3a7c1300ff5913900d8e8f35118a587b9719195d2c7",
+      "maple_xmp_sha256": "16464187ebb189337b2d8149486e4c32fb302414a2e149da02cc74eff264a57e",
+      "adobe_xmp_sha256": "b5aca515ca7fe4315610eef49e7313b54814f134d216fda00cb391f8ded4f379"
+    },
+    {
+      "name": "test_0012/shadows_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "036a835f991fb51624b65dfc9e305778ded2ad1aec8ab9cfceeb00853f2f8558",
+      "corrected_png_sha256": "a11c4290488872fd718a2061313d39cc28455c6b18141bfbceaed09ed6e6e961",
+      "maple_xmp_sha256": "db9fc5a31e109e93262478b765b000bc2d588d13a4dab5ff9d166d6a279fdbe0",
+      "adobe_xmp_sha256": "a481aa485c5edce550854343d74929b1f2dc309ad52aa4fa43dc3d498aaa1bec"
+    },
+    {
+      "name": "test_0012/shadows_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "cd7639aaa035770db0bc2d25adf937a9c87a2becbaea0429716701c6ddc406fc",
+      "corrected_png_sha256": "911f962ae5f85f7d41e2893d90db0c2adc88bad01a3ec718eae2aab7426486a8",
+      "maple_xmp_sha256": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+      "adobe_xmp_sha256": "fe763ad730dacef780f4226135d43e84ba734f38ee9afac4820893608f919f2d"
+    },
+    {
+      "name": "test_0012/sharpen_amount_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "5acab0cde55844e43e4f71eef48dff74d9419a72184df4261a0f10b3faa81fd6",
+      "corrected_png_sha256": "939d2fa0edd3f3d75d3ed120f9ad5177f634d1130599d3e3679c5cb8ed4c597c",
+      "maple_xmp_sha256": "a945d8e64b4791b4d9b58a2fc777b3c39c3b6ce340bc48c329554feeea8011a5",
+      "adobe_xmp_sha256": "84212c27c3fb9b09bc01000adac061e699649292adbf3df67e5f36eff41766dc"
+    },
+    {
+      "name": "test_0012/sharpen_amount_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "a00b05b63aa0e405bdd8df1e49b9dd9ab6d8ed6a0aa0059e6c37a8ce86955c9b",
+      "corrected_png_sha256": "52ee02ff17c28d4c6a65ee891a1e61f79358bc29df802725cd8c5adc2b2e3f39",
+      "maple_xmp_sha256": "c6042f1be7bc4d5f021a5926841455a1d993fba119c34e962fabc2675d63d923",
+      "adobe_xmp_sha256": "0bc2a2a225f677040ede5ccb53cf1ab7259bbfe93f545593c4bfc219c1fa64e6"
+    },
+    {
+      "name": "test_0012/sharpen_detail_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0afedeaf9a8a6f2b558dda82cc99751c7b594eb966b79a9fec22e1af62e4f04d",
+      "corrected_png_sha256": "11ee762cde3eeb4e0e29682f1dffaf83c06a2c52725f58bd59344a4dced2ca5e",
+      "maple_xmp_sha256": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+      "adobe_xmp_sha256": "2434b7d9767e15a992d0dc9a1b1cf9669fb8dfa4b8442dd6d1a25781b281b6af"
+    },
+    {
+      "name": "test_0012/sharpen_detail_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "4906f64b5f8bb501c7b00d9681a2d7f26b633a957872a30ea748e6333b2e3177",
+      "corrected_png_sha256": "1b93d965df6bcb440cb7cb89ff412fb617461a8e66791ad14cf5ff702fd01674",
+      "maple_xmp_sha256": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+      "adobe_xmp_sha256": "8df3f461674350dc75adaa90a7696ff1d5617bb15b81a6a1995b2653396bc355"
+    },
+    {
+      "name": "test_0012/sharpen_masking_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3982d312535c324993e2b86c4a79cd30e4eefc4faf4d31757e921af2790fdaeb",
+      "corrected_png_sha256": "d1ce12153f583f5d14c967d05b696b9c281e81ac29cde8ad3714e324bb946c1b",
+      "maple_xmp_sha256": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+      "adobe_xmp_sha256": "a1049435f90282f3952a714f2814908a74d4e925a11217f3cef1c23c65903c04"
+    },
+    {
+      "name": "test_0012/sharpen_radius_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "85feb6d32dcdb41a9e9801c436c35eaf5427b2ce9036e428438ee82a373ae992",
+      "corrected_png_sha256": "8c7219f2286b71b032b3fe9dd66a68e995d45e9c636431e62ed21b583b22c752",
+      "maple_xmp_sha256": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+      "adobe_xmp_sha256": "22fac59618fd9a63723b41e5aad1d4f4e07cb8c530df738e253ed43ea643dcb3"
+    },
+    {
+      "name": "test_0012/sharpen_radius_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "f9ec163990758c081f1e8a816cf9b88cf7996b6c14f827be389379e8f89e4647",
+      "corrected_png_sha256": "406113472b2bd8c73389cedc5034614ca5be31ec2d8955efb93034a0b150dc67",
+      "maple_xmp_sha256": "ffcc6ae09dbc31f554386a79af942bca9812605bb1a302de84cd13c63e6375c0",
+      "adobe_xmp_sha256": "7d19f2d5c9a2bbe4d234fef7746c9bda86001991baf90241846734c89a3fac0f"
+    },
+    {
+      "name": "test_0012/temperature_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "d0b45c1c19923654010949b305fc1119b84d529c35ffde05b267aea4962d9797",
+      "corrected_png_sha256": "da1cb01ec88fd4ee8fc0b6a4f12045dc00fddac8db83814c1effd536211c3351",
+      "maple_xmp_sha256": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+      "adobe_xmp_sha256": "7e3759393bdb289ea8de240b491ae185f8c3842233d353dbf9e80b8ea882737e"
+    },
+    {
+      "name": "test_0012/temperature_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "e524dc31d3c8bd753927af2501266a073b298f1866580e7765270b26911885cb",
+      "corrected_png_sha256": "e8c88998383c25d411defde753829a2057a3ac6c07a33a419a0e2900bc44f489",
+      "maple_xmp_sha256": "d99801a14c09932169924b2302415eb39426b705a9edb5c50d148e3dfa15992e",
+      "adobe_xmp_sha256": "f1c654499b5d09321f613fd04292b3ab33599fab7439618f23fb981b3c965a14"
+    },
+    {
+      "name": "test_0012/texture_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "050c35e1d8e59d551882863473021f0707cb6246de5d78a0134c4b500e0b8876",
+      "corrected_png_sha256": "fb1b0827d0f70c79f09ce93eb3e1c826d616f433eed38a52bda967c32882e4cb",
+      "maple_xmp_sha256": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+      "adobe_xmp_sha256": "d7e2d273ed6c1a5e40a7154c405a66cd98ce7a456dd9cd7d1c27afb8b26b2f90"
+    },
+    {
+      "name": "test_0012/texture_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "65c9a6f108dfb2f796b289e840a1c7a09ecbdd56ecaecf4a1b7c92d65f0b144e",
+      "corrected_png_sha256": "f4e3b1d80c3fe647a0bdf5d12eaf62eb843b7f86c6c01ea71af78291cb60c7b2",
+      "maple_xmp_sha256": "4c4c8ede82f537ab7b749929ca659615367e9747ddb25d06b0ab61405152ab9f",
+      "adobe_xmp_sha256": "ad0fcbdb41252cee75da85ebb226f8d84d2b6db1e570f64d8a9f30aec34bc4d1"
+    },
+    {
+      "name": "test_0012/tint_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "a69d021f1e824c7bcd900abc609c9d920f55de914e6520ba1536d84a48a227fd",
+      "corrected_png_sha256": "7c1b8e7fa4bffc8c04a6b35bd403a7baba8a5e1ff4b95dede3efc523d960983a",
+      "maple_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "e54dad0a965ae6df23b4cdb1f58ef8f2e731eb00214fe4f56ca3b5481bed2858"
+    },
+    {
+      "name": "test_0012/tint_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "d59976fe34edfd3c0dd59e778fd5a8637cab67ffcbe7c066d2604cd1b3aeb789",
+      "corrected_png_sha256": "843609233bf6481dea69486abb5f1f49a020d362917206f713c89c9358ca8623",
+      "maple_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "03b4ca3df878e2a36a88e203debbdf384065c0efec5546f26789887b665a0342"
+    },
+    {
+      "name": "test_0012/vibrance_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "49d15e42bb7738b9629fe17678be2b376b913cc839c4b05daa55a96686274091",
+      "corrected_png_sha256": "22f9cc73d9503861d2c4f2ad8cf6110a822eb91d188ffdd580fdf3673a3738e1",
+      "maple_xmp_sha256": "2d8e0c447a012f7eaa323bc2200a3086d4b295dec292b82219771dc0087afba9",
+      "adobe_xmp_sha256": "d393e38c2c158010c188c1952d5686641277204176fabd9f421be3122389ab15"
+    },
+    {
+      "name": "test_0012/vibrance_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ca12459d08bac43ac0184a1b456fcf086da4622dfae5e3337c9f7eaf41cc97fa",
+      "corrected_png_sha256": "302beb3cca93f940dd8c19c048049123956d9d9fff46621f7176a2a52db37fb8",
+      "maple_xmp_sha256": "37425186952af760870ea3fd259ed0f5016a31abaa806638d04b046a26166cb3",
+      "adobe_xmp_sha256": "6df2334aa90ef5f014982781a3aff27eaefe30f436d51334e952fbdeaeccc32f"
+    },
+    {
+      "name": "test_0012/wb_auto",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "67ac482a3546886c940797048674385497cd08eac60e11596c418b134b9ed638",
+      "corrected_png_sha256": "dcc41f4607ebbfef4bcf98ca2620e9c10133d08d992415e998a82c4024f7879e",
+      "maple_xmp_sha256": "5ffc4db74020a2fdc0bd21da04ea40dae715a374f8cd40114d541f3d6c9cab3f",
+      "adobe_xmp_sha256": "c33bb05ed9eddb19648c138af589338d19355e27b8a42d6b6c7b573bceef2352"
+    },
+    {
+      "name": "test_0012/wb_cloudy",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "87fad1bd8ae7f6b16f4a5f24837203b904e8c3cf2cc3739a7be5f2ab1c3a89e8",
+      "corrected_png_sha256": "34eae90302e3b5206bc59053988ed551de4b04ae02f646dd26c8acc133164125",
+      "maple_xmp_sha256": "ee3af5243d1bbcc53442b5dbb268ea010a77a6cfbe6a84d0fabd573691f06cb6",
+      "adobe_xmp_sha256": "d8217e9d6e575f14633ba95b2ec035934e48ca15c4aab9433e8b05eb7dd3ea62"
+    },
+    {
+      "name": "test_0012/wb_daylight",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "f6a9fc59ca957c0464118d9fe7876b34c8d8586c4ed4e355501cac39678a1bee",
+      "corrected_png_sha256": "73fc3a36645bbb0191ab7ed7be93eb86f248e35b0ecde000aee3678c0539295a",
+      "maple_xmp_sha256": "6f699378fa166d2b371111ff9260f19c6baa5f7569a70048b1fbb482e1ada225",
+      "adobe_xmp_sha256": "86c2d0753a63d07a1123d3463ef1126298ba0f5649320925328adb9e0ad76111"
+    },
+    {
+      "name": "test_0012/wb_flash",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ef29707079f8491f145b3503de7ab54bc58026ed737cc223c8cc157acca95f55",
+      "corrected_png_sha256": "f865b20114efad0203b49b04f2d86446622b3c28c3df4fe4307e8fe00fcecc14",
+      "maple_xmp_sha256": "dddba9e356dac04044dd09aa5d11f1bf0e6288092d1e9ec343faed707a7ed6d5",
+      "adobe_xmp_sha256": "0e389dcabe0c3ae01b4557e516b456b4d6cb886256f05022cf921d9241b8324a"
+    },
+    {
+      "name": "test_0012/wb_shade",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3dde249016f2dcfae67ff25c5690b89a056fc8302c9f7a1a92caf4daabd0e423",
+      "corrected_png_sha256": "3ac6ca4b4cd6310078ab0764fcfa29e12a00d182255f03256af56976663f46a4",
+      "maple_xmp_sha256": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+      "adobe_xmp_sha256": "426c740145df54343d8663a659dd922f4767a55155e60b28ccf21e7f969da81e"
+    },
+    {
+      "name": "test_0012/wb_tungsten",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0615876f09bd0798b71f0a6d0ae9960ff078e49c8bca4c4f01272f1032e2b970",
+      "corrected_png_sha256": "c280c3e4829d8d9fdf5217e585c6862c8f3b747423635fb54bbddac5a5e95752",
+      "maple_xmp_sha256": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+      "adobe_xmp_sha256": "18d846067f0c35232295528a219461c6dfc86fe74d60bb3c696c99f7a5b301ab"
+    },
+    {
+      "name": "test_0012/whites_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "41311f327cfd9b61612c2a15b778a9b65ca97aae5f41895610a469d0e2050a90",
+      "corrected_png_sha256": "782c7031e2bf963b31889118a2bcdc259c7f848908b4a513c3f3810c3f79d975",
+      "maple_xmp_sha256": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+      "adobe_xmp_sha256": "0ad7249d6cd13fd3e24cd127720f7f209f79529bddc4713f44ffc0f94fd0e2f6"
+    },
+    {
+      "name": "test_0012/whites_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9a815043e9302361362a24e4ab4b0304ba524d482edd3e5ebc5e6821bae91b3f",
+      "corrected_png_sha256": "54349654e9c4c55ec6f23ac9f2de9b95873005874e830a38a11a31e102fb8966",
+      "maple_xmp_sha256": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+      "adobe_xmp_sha256": "c7a2d69a3a7cec0cd94d8b1912e071572f43face7fac6fd0ddd3118fd55d23f3"
+    },
+    {
+      "name": "test_0015/baseline",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "1fcd5d2b0e4a9172840c08e21ed0e08ef8c7fdba485d37354f4b152bfec94eb0",
+      "corrected_png_sha256": "16568c242902f88428d433c7d2e7476c7da7ef9128e10079efda7701918ebf70",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0015/baseline",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "f376ee10727ff120ee31afbe3414032bdd24395115cec82e05f9e413974ca747",
+      "corrected_png_sha256": "6722294d60786bd99cefd7e415a725101bff7a481a0aa03e81ed62c6076d5e8b",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0015/blacks_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "dbfd20e6207cffdc17a4b5b1e6ee47800ab3f29a770204a74ee09ae8776844d1",
+      "corrected_png_sha256": "24bf867fda6583e9575a4ce5c32324452154a702b17062af08405b0ed1135d6b",
+      "maple_xmp_sha256": "1f82cd681dd1609be85085bca162d87319cc0622676d2260242cca6c008c961f",
+      "adobe_xmp_sha256": "a9c82723b271d9b6575d7d27c6cf3b8069f8d6df2dd1c79c3cfffeb60f58581e"
+    },
+    {
+      "name": "test_0015/blacks_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "5d4ac0f09fc339f94c5babfc2aa5ad9b953505a393070a968b502ff24bdba55d",
+      "corrected_png_sha256": "ee6349b792ccc25403344a6cebaad3976bb98353885f60620b5b7ae81549684c",
+      "maple_xmp_sha256": "f1b014a1b53cc340a4b30f15c9114c7839ee6b1cb24673902c23f7ef5919ec38",
+      "adobe_xmp_sha256": "d1d79390eac252332614641a0ebcadf6e290632e2d9de63fbac43711b32cf8f0"
+    },
+    {
+      "name": "test_0015/clarity_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "25a9c330fcad7ed478777c524bbe269f826197121dac3cb4668f2b28271163f3",
+      "corrected_png_sha256": "2963090bbf967eb10f1f96c315c27e4863b984d10b7117b56ec2d9ea436c4abc",
+      "maple_xmp_sha256": "bfa7c713ebad300e8a2edfbbe9ede5152db04ad1572e1c436ba0c69bc28f4f1a",
+      "adobe_xmp_sha256": "fa0e9b9e14056d2aea2e4a94d1d4c1bed92bffa4641dabf6e349d46e40b5e434"
+    },
+    {
+      "name": "test_0015/clarity_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "889538c4ba0776a218afa6d6a1480b67b32ddee109fa10af58cb2dd93f0decfa",
+      "corrected_png_sha256": "389364f7ffecd27c321fbdc880499615cb1bb2df69bc33610042981fd421d3c4",
+      "maple_xmp_sha256": "9e2a695548d7f62dfc4bce482b66f65e05b860646e7d4371521a0728f7f2a757",
+      "adobe_xmp_sha256": "ca71666aede1d131f483a2432e69257a5564dd4fecee56b1166990c065e2e0be"
+    },
+    {
+      "name": "test_0015/contrast_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "bdcd70f98bb1553b5a3d6a6e0c6634f179ad6bc2028c1e897c502726c94bafb4",
+      "corrected_png_sha256": "79fb6867a61ae99416fe8860b936a90fa079cb6db8a79af36edf13fcbee3ac49",
+      "maple_xmp_sha256": "9aab6ca6dbb151847c5f3a724d7f32f8fc8dd2a8bb05f7035ffc68c4ca2c5887",
+      "adobe_xmp_sha256": "196fa03ac31c82253f052a5ff44992ffc3398b3bae52750561b542c936c07f58"
+    },
+    {
+      "name": "test_0015/contrast_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c68f05c471181ce3826ee08a983c3f58dc66d8873d1cb241e613f185304859bc",
+      "corrected_png_sha256": "a2844b5671e67a111f3d30576eab103c8dcb991e8a876cbfdd3b003af02175dd",
+      "maple_xmp_sha256": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+      "adobe_xmp_sha256": "ea9092d5af988cbede578f712983e1b538f21ddd82b94a14f93a75967a67b5cf"
+    },
+    {
+      "name": "test_0015/dehaze_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b39c4356e84fcbbe2878a1298670105b82f8f1efc102d937bb82e6e2a3cced60",
+      "corrected_png_sha256": "9ddfba7d79ff4aef193944daf1ba6333c7b05dc13b39ee8af4458d01152bb8d9",
+      "maple_xmp_sha256": "e1eb911788f66211a084dd2f936b6b8445404ed8e63a8a166cf2b2f1549c113b",
+      "adobe_xmp_sha256": "3f578ffe1af515da4d792b106b586bf6a8973bf360970561dfae672b1ed35e75"
+    },
+    {
+      "name": "test_0015/dehaze_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "332aade484d2a0178c2b68c6a8d0ca27f29c96ac7bbc44114d39c3fd85ec10de",
+      "corrected_png_sha256": "bf1462146130fb684215aa4c0f0900e43aaa84b931ae3c9165aaf8d833597710",
+      "maple_xmp_sha256": "b9275d5e96e7918f97509c80e44d494bad906119a5a0529af2f1f9e01ad67850",
+      "adobe_xmp_sha256": "5174755870cb89c19d95c301af67a98cb2398a6c5eea702a7d51fe0431ff5c82"
+    },
+    {
+      "name": "test_0015/exposure_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9c81aef2c2c110b273c5859000c0e5f841d1f680c456cae22f9a3e94ffe56ed0",
+      "corrected_png_sha256": "6b8d81ab90598b817dc70104a4573eba2249fa154ccc42d8d3e68d6a14ec55c3",
+      "maple_xmp_sha256": "c7f37eed852b2c7ce5762e68e39407d257fcc307c5b7ed56a6dd1d7924acd7bc",
+      "adobe_xmp_sha256": "2cce7d8f8dcefac9b17567643dfd3344843a38d1fb20ad2982ef562d1b7a816c"
+    },
+    {
+      "name": "test_0015/exposure_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9462441bb26c1771e3b8895a79ad5342ae13f97d4f257d278dee23c6a5b3cd55",
+      "corrected_png_sha256": "db4f56f43d3cc17307672fabff7350db0e0e0957445964d4718c12daf14348d2",
+      "maple_xmp_sha256": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+      "adobe_xmp_sha256": "d4e0b48de719bdba686bb710d5a7eac625cd383003c3b66941206c6c8ccbaf2e"
+    },
+    {
+      "name": "test_0015/highlights_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "837bff4ee800683d82eb366146ea11af4b66b27db47246bb5656a2e945f966ab",
+      "corrected_png_sha256": "a2ac52be60ca08e99e85b1c2e99dc67059426b12c482f687abab0fb90e0b431d",
+      "maple_xmp_sha256": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+      "adobe_xmp_sha256": "2c5bed07f080c4717e054d72d9e4110cf27e7e41b8089a112f71a3837be1df6f"
+    },
+    {
+      "name": "test_0015/highlights_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "4d7e01b4dded93d74abac58c3a3b08f1d44f65038cd22b13fd3747c36d579666",
+      "corrected_png_sha256": "2d2d2922614d65c02e452aacbda655db77bbe9b0040f2e50df61ab0c49b841a2",
+      "maple_xmp_sha256": "634d95ad3e8b5143cc5e2d87868806b53daf0777e42fdbc6293d91757ecc2325",
+      "adobe_xmp_sha256": "9d544b52f0f0848b0021ff4596f2f396715fb2785bc421fab7a6453ab8b49a5b"
+    },
+    {
+      "name": "test_0015/nr_color_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c27b67ed78be3a1b878acfcbb814e9d151281ed218fea49b3f95522212d6b456",
+      "corrected_png_sha256": "edccdf9b43d2894afbe7aa123941beee36fb41aa80792b1e4d92cdea4542a96e",
+      "maple_xmp_sha256": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+      "adobe_xmp_sha256": "0c0c9b9439a2a5d1cc50d2528f5a6015ed07cfda597d7bd55b853f8bc5b50180"
+    },
+    {
+      "name": "test_0015/nr_color_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "cab07bd031dcad45056b38d030a5e62d76a0ea7dbc7a201637d251c598ee8f1e",
+      "corrected_png_sha256": "2e8f8484b5482dad20488b9681771c423a1daf26e4c25fa44b9325557e032525",
+      "maple_xmp_sha256": "17b5bc0e8b00b1c1529c8e7f6a0f35e9a47091e5f1771a07b3732e7a73fad650",
+      "adobe_xmp_sha256": "cbcc49a2c11cd44fdb69f7c2f3eac1a7f37e5b4f6e715ebf0fe2166c8206c2da"
+    },
+    {
+      "name": "test_0015/nr_luminance_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "a0d2e0f5242b7d912d8373e6bdbbe27d873f58001de2e084194c3ba7f7f29c60",
+      "corrected_png_sha256": "55ff1c56947e1d328a16d61e72b6bd60e01c99d5baef5c6f18174cf91ab63d6a",
+      "maple_xmp_sha256": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+      "adobe_xmp_sha256": "ae39669ffca3aedeeafd43451f6189189e44263bcc8dce2c45dd32c19f9bf2dd"
+    },
+    {
+      "name": "test_0015/saturation_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "68ff0a61be323b00a3ef1cb11b4b2a12113da8a324ab18d18e19db3b9cdbac29",
+      "corrected_png_sha256": "965f4260c7f186b2a097554159fbbab71732bbc6780ce11de673232c7460c9e2",
+      "maple_xmp_sha256": "d6d7cf4385626feb2a939efa4dc9d22e1e49492bdfce34644f98aba3d543fa5f",
+      "adobe_xmp_sha256": "ee994cdc84acb9b54335162a1c7da0499db81b4b2121c1d789fd80f015d4d794"
+    },
+    {
+      "name": "test_0015/saturation_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "f4f4cbf60456d2ea95b704cf22b525f0912875f9866df41e348a5f84020778ee",
+      "corrected_png_sha256": "230b6e839e73d26e9acfb2953c0052c39e91c9b4b48c53ebb4d81039a8208698",
+      "maple_xmp_sha256": "16464187ebb189337b2d8149486e4c32fb302414a2e149da02cc74eff264a57e",
+      "adobe_xmp_sha256": "b5aca515ca7fe4315610eef49e7313b54814f134d216fda00cb391f8ded4f379"
+    },
+    {
+      "name": "test_0015/shadows_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c4be4a9a9564d6510e32d13da37ae58c823b19f65161323276e767f50b62d990",
+      "corrected_png_sha256": "9dd5df174d11b5667bf8dde8bcf192fc0fd05c94fbf35e5abae5997a9be7ae5a",
+      "maple_xmp_sha256": "db9fc5a31e109e93262478b765b000bc2d588d13a4dab5ff9d166d6a279fdbe0",
+      "adobe_xmp_sha256": "a481aa485c5edce550854343d74929b1f2dc309ad52aa4fa43dc3d498aaa1bec"
+    },
+    {
+      "name": "test_0015/shadows_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "cd48156fbd9500f22d24184ec75f68f2b3120e25a7b6fd335162b356000d4ae0",
+      "corrected_png_sha256": "c91c48aadd519a857988256bff0ad62f3304e809afcc1fe223cde20b2e0c7a83",
+      "maple_xmp_sha256": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+      "adobe_xmp_sha256": "fe763ad730dacef780f4226135d43e84ba734f38ee9afac4820893608f919f2d"
+    },
+    {
+      "name": "test_0015/sharpen_amount_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "fda7a033f5297436af549563176d4c58b37858648aeb6815679ef3db19885383",
+      "corrected_png_sha256": "5013690191861f699a6f5849a54b296e0d097ddb06df21437ac9a0d6304aa1bd",
+      "maple_xmp_sha256": "a945d8e64b4791b4d9b58a2fc777b3c39c3b6ce340bc48c329554feeea8011a5",
+      "adobe_xmp_sha256": "84212c27c3fb9b09bc01000adac061e699649292adbf3df67e5f36eff41766dc"
+    },
+    {
+      "name": "test_0015/sharpen_amount_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "d3fb662c00c8e6ce417b6e48086d07021bec1bb4c6fdaef427866cbd0f2f938d",
+      "corrected_png_sha256": "70b82f4ec68e545ff25e8cca22b2b1fb780cb575b541f87e12c5b9608b07b4c4",
+      "maple_xmp_sha256": "c6042f1be7bc4d5f021a5926841455a1d993fba119c34e962fabc2675d63d923",
+      "adobe_xmp_sha256": "0bc2a2a225f677040ede5ccb53cf1ab7259bbfe93f545593c4bfc219c1fa64e6"
+    },
+    {
+      "name": "test_0015/sharpen_detail_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b75f84fa5d572bb42c15459e9d1b75e5f165f159c1de23396ca88d6941d77ce5",
+      "corrected_png_sha256": "a8d73b9d64aec06cf40a62df730376fb4c675d88bbf0fea68e128b9a76aad45d",
+      "maple_xmp_sha256": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+      "adobe_xmp_sha256": "2434b7d9767e15a992d0dc9a1b1cf9669fb8dfa4b8442dd6d1a25781b281b6af"
+    },
+    {
+      "name": "test_0015/sharpen_detail_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "6c2f87ad155ddc965e79fb733fa44689281e98be22d1721f8a1d3cf980957b73",
+      "corrected_png_sha256": "7c9da730c53ed611fb5ad8697e6e05bdea88eaae98d4bde3e2ca2f5fe400bbdc",
+      "maple_xmp_sha256": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+      "adobe_xmp_sha256": "8df3f461674350dc75adaa90a7696ff1d5617bb15b81a6a1995b2653396bc355"
+    },
+    {
+      "name": "test_0015/sharpen_masking_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "dbca54d57b33c154f0dcd9dae1903f1a7a3831017b4de944334810898b1b479c",
+      "corrected_png_sha256": "079d0339a20067d4526d249ec54353289e3cb603039444f078df10db9e031ad1",
+      "maple_xmp_sha256": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+      "adobe_xmp_sha256": "a1049435f90282f3952a714f2814908a74d4e925a11217f3cef1c23c65903c04"
+    },
+    {
+      "name": "test_0015/sharpen_radius_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "e65d63626d90a3b4a3609aa463f6c4e3a99012b6cd44a277ea1f0b61cc70c1f7",
+      "corrected_png_sha256": "c56bae2ee566e6afdff17c23198c7d806c23884a5425334345c4d3b2c8164663",
+      "maple_xmp_sha256": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+      "adobe_xmp_sha256": "22fac59618fd9a63723b41e5aad1d4f4e07cb8c530df738e253ed43ea643dcb3"
+    },
+    {
+      "name": "test_0015/sharpen_radius_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "7b35496ecfb2176488290ebfcb446ec5887f2c6b272932cd2896ac1837bdcfc3",
+      "corrected_png_sha256": "f01865062f5771e53fcd9c4d13edddf98104aad5dac661693d3c0913535064ee",
+      "maple_xmp_sha256": "ffcc6ae09dbc31f554386a79af942bca9812605bb1a302de84cd13c63e6375c0",
+      "adobe_xmp_sha256": "7d19f2d5c9a2bbe4d234fef7746c9bda86001991baf90241846734c89a3fac0f"
+    },
+    {
+      "name": "test_0015/temperature_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "6ba0da33897c1617e66de574a5dd40b8fa921657cdc5b8a99a7b2989f8c2e8b9",
+      "corrected_png_sha256": "98e1d630bc4405ab76e07a3e85ce95901ed359d34d30cbf45d3f1ff323e70ec2",
+      "maple_xmp_sha256": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+      "adobe_xmp_sha256": "7e3759393bdb289ea8de240b491ae185f8c3842233d353dbf9e80b8ea882737e"
+    },
+    {
+      "name": "test_0015/temperature_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "17d2be9cda5da8109f42bfa245325ee7d327539ac1733b7cb925ff79b435f653",
+      "corrected_png_sha256": "0d3e0c42f6ccb76e2c8536f2d5ce0843ce59155eb8e73c423ee5416a24d011d0",
+      "maple_xmp_sha256": "d99801a14c09932169924b2302415eb39426b705a9edb5c50d148e3dfa15992e",
+      "adobe_xmp_sha256": "f1c654499b5d09321f613fd04292b3ab33599fab7439618f23fb981b3c965a14"
+    },
+    {
+      "name": "test_0015/texture_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0c84c14cedc74a550cc0c0346dbf993d0230844eed084967b51a072a3e051c14",
+      "corrected_png_sha256": "84571a714926c130e7b81fcd2d5c73586b75fca80f9966a696f093ceddcc91e7",
+      "maple_xmp_sha256": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+      "adobe_xmp_sha256": "d7e2d273ed6c1a5e40a7154c405a66cd98ce7a456dd9cd7d1c27afb8b26b2f90"
+    },
+    {
+      "name": "test_0015/texture_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9056444693983b0fa5cc22a82ce580c19ad79b40c750d2e7245549cfb5d56bf3",
+      "corrected_png_sha256": "c47f81189359a2b3958a4ece9d706c5ba3325dd78bf2e7337ec63f1bbc765503",
+      "maple_xmp_sha256": "4c4c8ede82f537ab7b749929ca659615367e9747ddb25d06b0ab61405152ab9f",
+      "adobe_xmp_sha256": "ad0fcbdb41252cee75da85ebb226f8d84d2b6db1e570f64d8a9f30aec34bc4d1"
+    },
+    {
+      "name": "test_0015/tint_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "367be5b6b344eb41b458242f574f5c8aab17256ba085d0005ae9d7f64ce29a13",
+      "corrected_png_sha256": "73bbddf4d285d1259c47aafe9e04e01507d7448481cc7541add58fdc66378e8c",
+      "maple_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "e54dad0a965ae6df23b4cdb1f58ef8f2e731eb00214fe4f56ca3b5481bed2858"
+    },
+    {
+      "name": "test_0015/tint_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "931bc24b93304beb6ef098628a241f20cabab91aeeaf67134a44d6ee52aaa2f0",
+      "corrected_png_sha256": "c0331318f3921d4e289ca6ef5e530cf192ad78cd728ccf67d8dc85f09fd6fd99",
+      "maple_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "03b4ca3df878e2a36a88e203debbdf384065c0efec5546f26789887b665a0342"
+    },
+    {
+      "name": "test_0015/vibrance_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3bf4d3d7f700cf19168c40bdccd1a9d8799b3cb0a582c981bff706c9fff18f7c",
+      "corrected_png_sha256": "7aa4b6c311cb47248e4024b363f315eabf03e8b820151765d98b58470fc38143",
+      "maple_xmp_sha256": "2d8e0c447a012f7eaa323bc2200a3086d4b295dec292b82219771dc0087afba9",
+      "adobe_xmp_sha256": "d393e38c2c158010c188c1952d5686641277204176fabd9f421be3122389ab15"
+    },
+    {
+      "name": "test_0015/vibrance_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b78e12865c5032aa09ca4c266eff0aae4381d01e89c26314c33910fe788b4249",
+      "corrected_png_sha256": "2b98dd0b57157eef0ae170510941243966ae4587815954d6e2e19737fdc36bbb",
+      "maple_xmp_sha256": "37425186952af760870ea3fd259ed0f5016a31abaa806638d04b046a26166cb3",
+      "adobe_xmp_sha256": "6df2334aa90ef5f014982781a3aff27eaefe30f436d51334e952fbdeaeccc32f"
+    },
+    {
+      "name": "test_0015/wb_auto",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9af6c40896e6cbc8d8167178371a86e66e74981856dde32a01ebe288fd12b6cd",
+      "corrected_png_sha256": "8b55ae7b890c3e7153af8530be0d245651e8cd9b3d7894093d57c86d9204e48f",
+      "maple_xmp_sha256": "5ffc4db74020a2fdc0bd21da04ea40dae715a374f8cd40114d541f3d6c9cab3f",
+      "adobe_xmp_sha256": "c33bb05ed9eddb19648c138af589338d19355e27b8a42d6b6c7b573bceef2352"
+    },
+    {
+      "name": "test_0015/wb_cloudy",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3bdf2cfbef33e81485001f9a271f2f19834603a76bc8583d7a3bb0f4951342d8",
+      "corrected_png_sha256": "835e9a0d7290b3950c43e25e6a47f3208c41d3b387f4a1876ebe67b31960ac6b",
+      "maple_xmp_sha256": "ee3af5243d1bbcc53442b5dbb268ea010a77a6cfbe6a84d0fabd573691f06cb6",
+      "adobe_xmp_sha256": "d8217e9d6e575f14633ba95b2ec035934e48ca15c4aab9433e8b05eb7dd3ea62"
+    },
+    {
+      "name": "test_0015/wb_daylight",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b7a63d6c979844f36f376f1985eefa0f9b18c6071b9bd064684628a9ae96ed48",
+      "corrected_png_sha256": "08bc801873e06b6f4bac03da6fd8dc5b52ef27960a12ce0edfe9aa9bde3f8e3e",
+      "maple_xmp_sha256": "6f699378fa166d2b371111ff9260f19c6baa5f7569a70048b1fbb482e1ada225",
+      "adobe_xmp_sha256": "86c2d0753a63d07a1123d3463ef1126298ba0f5649320925328adb9e0ad76111"
+    },
+    {
+      "name": "test_0015/wb_flash",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "f1b274ac1ceb876c7e6156b29bbf184f58fad4e9bcda0380f99b70d127bbef43",
+      "corrected_png_sha256": "73aa1830bbc8e302c5cbce9f068ecc5a28f8a449e64d5992155d3de96313640c",
+      "maple_xmp_sha256": "dddba9e356dac04044dd09aa5d11f1bf0e6288092d1e9ec343faed707a7ed6d5",
+      "adobe_xmp_sha256": "0e389dcabe0c3ae01b4557e516b456b4d6cb886256f05022cf921d9241b8324a"
+    },
+    {
+      "name": "test_0015/wb_shade",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "136b681ec1a52f6f77c464619d11a08693cb7d579f650e057fc3fbca71b8337f",
+      "corrected_png_sha256": "281f0b44a651a37694107bf02042b51db4454af71277fa1f6d77a06631a1804f",
+      "maple_xmp_sha256": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+      "adobe_xmp_sha256": "426c740145df54343d8663a659dd922f4767a55155e60b28ccf21e7f969da81e"
+    },
+    {
+      "name": "test_0015/wb_tungsten",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "4305209d2bd3cc275a4740fcdac6a61f57f1b5acfc108a0e2aef31f08605d085",
+      "corrected_png_sha256": "19c86cfb6b1617063d5d11cf2f81a117ec5d802752940c70c07ef990aa456cb4",
+      "maple_xmp_sha256": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+      "adobe_xmp_sha256": "18d846067f0c35232295528a219461c6dfc86fe74d60bb3c696c99f7a5b301ab"
+    },
+    {
+      "name": "test_0015/whites_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "13e4a40b79121a2873766d018648002a981a6719b2c7adcefec9bee3e82417c8",
+      "corrected_png_sha256": "40247120f3cf69e7bb54729cb014aae0df6cf5330b8753a94a60e6d9b7120e28",
+      "maple_xmp_sha256": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+      "adobe_xmp_sha256": "0ad7249d6cd13fd3e24cd127720f7f209f79529bddc4713f44ffc0f94fd0e2f6"
+    },
+    {
+      "name": "test_0015/whites_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "09e555b34f1bc33dba7d2dbe969a0c7c74fcb60143d8b34be9551594e5a284e0",
+      "corrected_png_sha256": "d2d47b957f0f3ef0714c7d2327cfebe053d96d92719d8326f73979490aac9264",
+      "maple_xmp_sha256": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+      "adobe_xmp_sha256": "c7a2d69a3a7cec0cd94d8b1912e071572f43face7fac6fd0ddd3118fd55d23f3"
+    },
+    {
+      "name": "test_0017/baseline",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "61216fa7aa14a3e32adb909a42e824cc06d6a6f238cdd23ebb11c96202187f4a",
+      "corrected_png_sha256": "703802fcb748ab08492fbae8b408a9696fbdabad6d536b9412eeddabbda4ebf3",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0017/baseline",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "ededffbfdc025f7c1abcb98e25a0e5613c2f75783b42d53574b4e713191403bb",
+      "corrected_png_sha256": "984efbf3ccd50042d34a46012fb6c2af43787cae4151e0f06baca107934f39f0",
+      "maple_xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+      "adobe_xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3"
+    },
+    {
+      "name": "test_0017/blacks_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c21137bd3be1dbb1b0bfed33724bb6c1c2ea057407a6d3f0aef8db0c62c0df45",
+      "corrected_png_sha256": "645d2a0132c2354bd12138b24e41b27699dea5e885a23b01a9ed77d1d7370691",
+      "maple_xmp_sha256": "1f82cd681dd1609be85085bca162d87319cc0622676d2260242cca6c008c961f",
+      "adobe_xmp_sha256": "a9c82723b271d9b6575d7d27c6cf3b8069f8d6df2dd1c79c3cfffeb60f58581e"
+    },
+    {
+      "name": "test_0017/blacks_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0b403eb0f953a10cc1c18e3f07ed81182d830e2804014a8e6caba87d35ae3d06",
+      "corrected_png_sha256": "3e0f72ed74a4531d153acfc3ba240c1956bd3ad36f41ef9899a685c3529460bc",
+      "maple_xmp_sha256": "f1b014a1b53cc340a4b30f15c9114c7839ee6b1cb24673902c23f7ef5919ec38",
+      "adobe_xmp_sha256": "d1d79390eac252332614641a0ebcadf6e290632e2d9de63fbac43711b32cf8f0"
+    },
+    {
+      "name": "test_0017/clarity_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "161c1cac7c29e7fa4228408bd9518f89132d919cd6ad1a9a0ba035fab40c3eec",
+      "corrected_png_sha256": "b7d68431f338210af178a7bb17fd6801e1c8890382de39f1be0cbd121bfe0f30",
+      "maple_xmp_sha256": "bfa7c713ebad300e8a2edfbbe9ede5152db04ad1572e1c436ba0c69bc28f4f1a",
+      "adobe_xmp_sha256": "fa0e9b9e14056d2aea2e4a94d1d4c1bed92bffa4641dabf6e349d46e40b5e434"
+    },
+    {
+      "name": "test_0017/clarity_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "beaa697cae29f1fcfe339353e1da2d95b8a099b470975849c18c3d369f6dca44",
+      "corrected_png_sha256": "71e33749dfd02110f0b9e488e5b8bb262db2d4df7029ea7df94e3cfa0969e85e",
+      "maple_xmp_sha256": "9e2a695548d7f62dfc4bce482b66f65e05b860646e7d4371521a0728f7f2a757",
+      "adobe_xmp_sha256": "ca71666aede1d131f483a2432e69257a5564dd4fecee56b1166990c065e2e0be"
+    },
+    {
+      "name": "test_0017/contrast_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "88969f23b5cff46e655e5301038768b30a4c50d334184702b078046f6596d055",
+      "corrected_png_sha256": "b69d25912d77277757fc2275d642b13479c4988025145a3b40512f0e059047d0",
+      "maple_xmp_sha256": "9aab6ca6dbb151847c5f3a724d7f32f8fc8dd2a8bb05f7035ffc68c4ca2c5887",
+      "adobe_xmp_sha256": "196fa03ac31c82253f052a5ff44992ffc3398b3bae52750561b542c936c07f58"
+    },
+    {
+      "name": "test_0017/contrast_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "5bb7a69b0e2d2acf70e15f9facaa62e3f1c92f06ce5a68cec934d7ac62cc37a3",
+      "corrected_png_sha256": "dced56f91224e48c9ff9c2b253358bb26dd12867953a7bf52df5f7a781a4cad9",
+      "maple_xmp_sha256": "db6894a2e12a8b6f87c39eb0cf9a9e623d56ec438ce0ee129d021a4c424a0f03",
+      "adobe_xmp_sha256": "ea9092d5af988cbede578f712983e1b538f21ddd82b94a14f93a75967a67b5cf"
+    },
+    {
+      "name": "test_0017/dehaze_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "8b64df03c48d45f881b6da2156e74e1bf51cd3f3e1f6df7e3d7baa17c08bd7a8",
+      "corrected_png_sha256": "b2423593bd996d7f6e927358ef883830fc812e545689635c3a689414528831e0",
+      "maple_xmp_sha256": "e1eb911788f66211a084dd2f936b6b8445404ed8e63a8a166cf2b2f1549c113b",
+      "adobe_xmp_sha256": "3f578ffe1af515da4d792b106b586bf6a8973bf360970561dfae672b1ed35e75"
+    },
+    {
+      "name": "test_0017/dehaze_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "79041d63947e30b7d7d5618c9362c0b1c1abe31cb06a9df254fb9d9622f97c5e",
+      "corrected_png_sha256": "4108f076eda4bb9bd0cd800e4e5993b06d9deadb1fd41b9378b9a83d3c9e540b",
+      "maple_xmp_sha256": "b9275d5e96e7918f97509c80e44d494bad906119a5a0529af2f1f9e01ad67850",
+      "adobe_xmp_sha256": "5174755870cb89c19d95c301af67a98cb2398a6c5eea702a7d51fe0431ff5c82"
+    },
+    {
+      "name": "test_0017/exposure_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "386dae5ecb3cc06f15c0dcdcf5a6edeb0c2cb3cdcb7d51d5efa25661286e6d32",
+      "corrected_png_sha256": "ccac7e78ffc7ddbe9750d788e9849342cf17e67aea18486428740e4faeaf41c5",
+      "maple_xmp_sha256": "c7f37eed852b2c7ce5762e68e39407d257fcc307c5b7ed56a6dd1d7924acd7bc",
+      "adobe_xmp_sha256": "2cce7d8f8dcefac9b17567643dfd3344843a38d1fb20ad2982ef562d1b7a816c"
+    },
+    {
+      "name": "test_0017/exposure_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "512075da8a5782e38b72080810dc14ccf1e90eec42eb38d5f37d0a4a601ac6b3",
+      "corrected_png_sha256": "dd3d2113ed02d90a7ed3bc6802b0419f20d5e3b04c70b35339cfc40c2799c042",
+      "maple_xmp_sha256": "65fa852fcc489e5775bca5595f027fb9c858f049866d8c3529ad59fc37431c61",
+      "adobe_xmp_sha256": "d4e0b48de719bdba686bb710d5a7eac625cd383003c3b66941206c6c8ccbaf2e"
+    },
+    {
+      "name": "test_0017/highlights_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "3b308a8c42bf08c7e0951730ec5f1f8ce4222a0b759ab33a256f697ff6d3d2fc",
+      "corrected_png_sha256": "cc52f7f2953c5183397749bc80411b34cce92cec9fa28716c31774f9281407d6",
+      "maple_xmp_sha256": "2b08fdb317e7410211747bcd7d3fb38b72aa3d2a8f6f50c49efdc44e9f8bf7ab",
+      "adobe_xmp_sha256": "2c5bed07f080c4717e054d72d9e4110cf27e7e41b8089a112f71a3837be1df6f"
+    },
+    {
+      "name": "test_0017/highlights_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c62bb5b265cc7588ee6a2aff1e692314df953101e82125aae82df98565c9cd0c",
+      "corrected_png_sha256": "464425e7ac8dcd1de51b2d9ca74ea8fe32c7abf824cf64abc5684e475213c080",
+      "maple_xmp_sha256": "634d95ad3e8b5143cc5e2d87868806b53daf0777e42fdbc6293d91757ecc2325",
+      "adobe_xmp_sha256": "9d544b52f0f0848b0021ff4596f2f396715fb2785bc421fab7a6453ab8b49a5b"
+    },
+    {
+      "name": "test_0017/nr_color_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "6263057e5cb05fe98a62d1103181d6c645df21571940e8d5a4770d2eb15b9eb2",
+      "corrected_png_sha256": "ef16ed51bea9020590c2204822058557bc582eb61f8d930e7b5ed60335a7ef59",
+      "maple_xmp_sha256": "c40bbf2092e346759d2a54e715b7424948a8598a1c637f0f0077481b29663f30",
+      "adobe_xmp_sha256": "0c0c9b9439a2a5d1cc50d2528f5a6015ed07cfda597d7bd55b853f8bc5b50180"
+    },
+    {
+      "name": "test_0017/nr_color_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b0a3976c6b00bb55a8c5ad66b1b566caecbe8f369dfde835aab31b1a0594ce09",
+      "corrected_png_sha256": "079471849634eec5348e86dbcc5a82b0b4449ae6a91ee5e2bb6b69433e498207",
+      "maple_xmp_sha256": "17b5bc0e8b00b1c1529c8e7f6a0f35e9a47091e5f1771a07b3732e7a73fad650",
+      "adobe_xmp_sha256": "cbcc49a2c11cd44fdb69f7c2f3eac1a7f37e5b4f6e715ebf0fe2166c8206c2da"
+    },
+    {
+      "name": "test_0017/nr_luminance_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "bf24ecc98d77490164fb48792d27b2f5ed00e78d0bd11f7fc7caba437e5725a0",
+      "corrected_png_sha256": "df0aa400eab3396e6d180bf881edbb73dcf5dbb70b7174dfba954fe7ad59db7c",
+      "maple_xmp_sha256": "76058bd011775822f60dc156f876e12b18cd8a61ab374dfff0b07799f1e5141b",
+      "adobe_xmp_sha256": "ae39669ffca3aedeeafd43451f6189189e44263bcc8dce2c45dd32c19f9bf2dd"
+    },
+    {
+      "name": "test_0017/saturation_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "77317efa3df870498fdb4256c2344654badf93d0da7ca666f4679facd5d5ab8b",
+      "corrected_png_sha256": "b5905e23ad55cf59d313b07e4883c428dda117b7f2d0b95528e0bf59886f0f7b",
+      "maple_xmp_sha256": "d6d7cf4385626feb2a939efa4dc9d22e1e49492bdfce34644f98aba3d543fa5f",
+      "adobe_xmp_sha256": "ee994cdc84acb9b54335162a1c7da0499db81b4b2121c1d789fd80f015d4d794"
+    },
+    {
+      "name": "test_0017/saturation_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "70e2d8fbeb57a2be61f73f4a627f292c7270c6d6f8f3bc32108680267d8f4af4",
+      "corrected_png_sha256": "2484fc611eda0868da95f62649c54ed63539c680d4b28135ce4decee334bf469",
+      "maple_xmp_sha256": "16464187ebb189337b2d8149486e4c32fb302414a2e149da02cc74eff264a57e",
+      "adobe_xmp_sha256": "b5aca515ca7fe4315610eef49e7313b54814f134d216fda00cb391f8ded4f379"
+    },
+    {
+      "name": "test_0017/shadows_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "2f4fbb6bbd70dbaf6dbc155af09672e2939da062ca97bfd39efc89c12325f73a",
+      "corrected_png_sha256": "1d1661966ada1e21c8c3737153a262758741185c3e28a461dd11cb2b000a2465",
+      "maple_xmp_sha256": "db9fc5a31e109e93262478b765b000bc2d588d13a4dab5ff9d166d6a279fdbe0",
+      "adobe_xmp_sha256": "a481aa485c5edce550854343d74929b1f2dc309ad52aa4fa43dc3d498aaa1bec"
+    },
+    {
+      "name": "test_0017/shadows_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b11021d6b3a7663e790212e740c43a79759d7923c5062a8b70fbe5cf1bdadabf",
+      "corrected_png_sha256": "bea47597c5e4b2081f85ce5d978b457743762e184c9ecdcc5678e703ee4987c8",
+      "maple_xmp_sha256": "54c6ecedbdc6466ec0db6a7dd89b286b07d44afce3ef585e53a0dc8224289f4d",
+      "adobe_xmp_sha256": "fe763ad730dacef780f4226135d43e84ba734f38ee9afac4820893608f919f2d"
+    },
+    {
+      "name": "test_0017/sharpen_amount_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "d0d19371d50949f065e54842383f05b2c4a49ddd4c222c9dd09176e429368dfc",
+      "corrected_png_sha256": "4f51230d1e5b2350b04c430a096daf9b6b5b957c93d040c141cee6f8ccfd86a0",
+      "maple_xmp_sha256": "a945d8e64b4791b4d9b58a2fc777b3c39c3b6ce340bc48c329554feeea8011a5",
+      "adobe_xmp_sha256": "84212c27c3fb9b09bc01000adac061e699649292adbf3df67e5f36eff41766dc"
+    },
+    {
+      "name": "test_0017/sharpen_amount_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "81f108ff944a1dd7ccd94a96e757f6934041056add561d129677d497f9507b77",
+      "corrected_png_sha256": "fafc86c0d1d140ea0d8802cb7e105073b4be141198b73fbfe6b3558066d4d1b3",
+      "maple_xmp_sha256": "c6042f1be7bc4d5f021a5926841455a1d993fba119c34e962fabc2675d63d923",
+      "adobe_xmp_sha256": "0bc2a2a225f677040ede5ccb53cf1ab7259bbfe93f545593c4bfc219c1fa64e6"
+    },
+    {
+      "name": "test_0017/sharpen_detail_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "47c7d278e37ec14230e2fa3d767f210e22adea6ae976be0cd7cda78c455d714d",
+      "corrected_png_sha256": "ccf8bb0af774e9ee0c75764385fecf84b22825683f0f5d9e7db9675a538a83a3",
+      "maple_xmp_sha256": "20a0372f6f785e4a1a9cd0a2b27457141e03f70a63d5ebc7bf9ffeecc32963a2",
+      "adobe_xmp_sha256": "2434b7d9767e15a992d0dc9a1b1cf9669fb8dfa4b8442dd6d1a25781b281b6af"
+    },
+    {
+      "name": "test_0017/sharpen_detail_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "5ce84e80af6fee3251bfbe84c1d899299cfdfb7a5b81c96d41ebb09fccf4f86a",
+      "corrected_png_sha256": "4634e380b780cd01c828dacbaa718c49256c3999f8854c277ee05fef6f42860d",
+      "maple_xmp_sha256": "bcb08781519df6c6bfc00105c025aac5b2225f93de77999bbb989e0db1f9bf96",
+      "adobe_xmp_sha256": "8df3f461674350dc75adaa90a7696ff1d5617bb15b81a6a1995b2653396bc355"
+    },
+    {
+      "name": "test_0017/sharpen_masking_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "707647944818c737977bdf1f7c5d0eb10d005433a28c87dba26c434f2beed8e3",
+      "corrected_png_sha256": "d9279fb890ec55dc0cd07e5e76f698635ff4be9b5e0ae75fa93369bb665fa65d",
+      "maple_xmp_sha256": "ecdff2f1b5ebca2df31b1f5a5b1a30e0f8f725d710d7d9257e3c17294f6f3d31",
+      "adobe_xmp_sha256": "a1049435f90282f3952a714f2814908a74d4e925a11217f3cef1c23c65903c04"
+    },
+    {
+      "name": "test_0017/sharpen_radius_max",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "c7a43eb9b1b50fc7100df2b04931eb754df05ec686e3ca3fea9bff00fcb398cd",
+      "corrected_png_sha256": "c35d53ae13f6e61b6bf4a4691bac658cf62a1cc18132da46d365c75008982b68",
+      "maple_xmp_sha256": "66831a4d1dbf4e8a13f7e3cd3f12c6343f82d9efff76f23b1d09f99102d7220e",
+      "adobe_xmp_sha256": "22fac59618fd9a63723b41e5aad1d4f4e07cb8c530df738e253ed43ea643dcb3"
+    },
+    {
+      "name": "test_0017/sharpen_radius_min",
+      "resolution": "full",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9ec76d523c712b8f839379ab260ccf51f1b46a865c2ba29578e64923edebb85c",
+      "corrected_png_sha256": "593acd3e852bf9cc8bc6665d2022a5b48da454cb4f6a2d3d8879ff2189454b64",
+      "maple_xmp_sha256": "ffcc6ae09dbc31f554386a79af942bca9812605bb1a302de84cd13c63e6375c0",
+      "adobe_xmp_sha256": "7d19f2d5c9a2bbe4d234fef7746c9bda86001991baf90241846734c89a3fac0f"
+    },
+    {
+      "name": "test_0017/temperature_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "374c8209bb1d3a83819588265c88e390c7b19058f30dbaa94e1935183d54156a",
+      "corrected_png_sha256": "2252d6399b1d71f199f9586e8c109d123f24deb2e8bc73b37ed510f13834ffe9",
+      "maple_xmp_sha256": "c763ee45fe20cfde582ec3394f02775c1f9115cf07ce60f8e864169ad414cf9e",
+      "adobe_xmp_sha256": "7e3759393bdb289ea8de240b491ae185f8c3842233d353dbf9e80b8ea882737e"
+    },
+    {
+      "name": "test_0017/temperature_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "b1d954dd74e64ec9cb6688ced646ed932430ae9fb8d8ac4832d2eccdf91df1f2",
+      "corrected_png_sha256": "a61e43539b2f015de4589f110cdfb27b979e585dc7f47f5842923ccae5806daa",
+      "maple_xmp_sha256": "d99801a14c09932169924b2302415eb39426b705a9edb5c50d148e3dfa15992e",
+      "adobe_xmp_sha256": "f1c654499b5d09321f613fd04292b3ab33599fab7439618f23fb981b3c965a14"
+    },
+    {
+      "name": "test_0017/texture_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0c3a74b5f6da20c066791045019b71fa649adc24574b090f5d979fb0d9cc853c",
+      "corrected_png_sha256": "b4ef45b95c56873fc757bbfdcb0e6c4d85f8f1a908386ea520cb5c17aaa03a5b",
+      "maple_xmp_sha256": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+      "adobe_xmp_sha256": "d7e2d273ed6c1a5e40a7154c405a66cd98ce7a456dd9cd7d1c27afb8b26b2f90"
+    },
+    {
+      "name": "test_0017/texture_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "1828dd95f5a4b752a0a7142b8a32b9b0095bbc84036fd096ed1a1b5dd77b1308",
+      "corrected_png_sha256": "e91d90566d989c53f355b8cc40f7113d0f6276f3fbf0f39c757c133d1245a3da",
+      "maple_xmp_sha256": "4c4c8ede82f537ab7b749929ca659615367e9747ddb25d06b0ab61405152ab9f",
+      "adobe_xmp_sha256": "ad0fcbdb41252cee75da85ebb226f8d84d2b6db1e570f64d8a9f30aec34bc4d1"
+    },
+    {
+      "name": "test_0017/tint_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "fe526a89f0c988213d0619dc1bb0094c190baecf8b2fa3220445a058d85d8ac3",
+      "corrected_png_sha256": "43202829b114e862abb89625032ac4f82e85ee655d78ed9972c77dc409e37965",
+      "maple_xmp_sha256": "9153671514de3d9e5f8b99d1a1cbc5de53526b322e90c4b00c47b32b70ef2bf6",
+      "adobe_xmp_sha256": "e54dad0a965ae6df23b4cdb1f58ef8f2e731eb00214fe4f56ca3b5481bed2858"
+    },
+    {
+      "name": "test_0017/tint_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "691134bfcbc6fda1d4a0134687389c0928743edd68187eaf6cbc32cfd3994b8d",
+      "corrected_png_sha256": "affa09e37be64db79614b6198e79a4647177c34357fec1097162634e31eb7974",
+      "maple_xmp_sha256": "e307c836d4d66b1d1e81b2f75107fd2a71d4e9ebf6422d3a6648ca97a127c67f",
+      "adobe_xmp_sha256": "03b4ca3df878e2a36a88e203debbdf384065c0efec5546f26789887b665a0342"
+    },
+    {
+      "name": "test_0017/vibrance_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "f48a6accf4cb562e0e8c28ef68a99a7b88759d30f95f3fb3376ee808cfa2566e",
+      "corrected_png_sha256": "08996cb35ff63d7e1d7f3aa8278ccfde116190e75ada28039f234c1bbdb96c88",
+      "maple_xmp_sha256": "2d8e0c447a012f7eaa323bc2200a3086d4b295dec292b82219771dc0087afba9",
+      "adobe_xmp_sha256": "d393e38c2c158010c188c1952d5686641277204176fabd9f421be3122389ab15"
+    },
+    {
+      "name": "test_0017/vibrance_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "22d8f616ad281713053f2859fd4cb5aa8b4fff33d1164f766ad69608c8b69b25",
+      "corrected_png_sha256": "0c6bbf0664342c1643df61850cf639822d188518afd5f222ca31570b3fa3fe58",
+      "maple_xmp_sha256": "37425186952af760870ea3fd259ed0f5016a31abaa806638d04b046a26166cb3",
+      "adobe_xmp_sha256": "6df2334aa90ef5f014982781a3aff27eaefe30f436d51334e952fbdeaeccc32f"
+    },
+    {
+      "name": "test_0017/wb_auto",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "dd620d3ee6f7695d15f2eba8433492cf56ea35beacfb7cce237ab568bf4b8517",
+      "corrected_png_sha256": "a5e309645f7b26e305e883abe651df3aa2d0628e2d6c886ac99f3b337b0eeefd",
+      "maple_xmp_sha256": "5ffc4db74020a2fdc0bd21da04ea40dae715a374f8cd40114d541f3d6c9cab3f",
+      "adobe_xmp_sha256": "c33bb05ed9eddb19648c138af589338d19355e27b8a42d6b6c7b573bceef2352"
+    },
+    {
+      "name": "test_0017/wb_cloudy",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "dd69268387f8ee9d11951285dd6a6e370a6e4be46ec5c69376f05095ea794808",
+      "corrected_png_sha256": "739b7b1d973e62a1c4411c734fcf7b34bdeb5ef7599672867e7f48562b508692",
+      "maple_xmp_sha256": "ee3af5243d1bbcc53442b5dbb268ea010a77a6cfbe6a84d0fabd573691f06cb6",
+      "adobe_xmp_sha256": "d8217e9d6e575f14633ba95b2ec035934e48ca15c4aab9433e8b05eb7dd3ea62"
+    },
+    {
+      "name": "test_0017/wb_daylight",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "f8cfcbd5ebc386bf4e3894541f2ae99ce09054c64d5b287a244977fde17cf289",
+      "corrected_png_sha256": "9f6d1a1f5b2154b5ad075bfc3cb0febbce26363bc14c832d9c98f04e5f2f483d",
+      "maple_xmp_sha256": "6f699378fa166d2b371111ff9260f19c6baa5f7569a70048b1fbb482e1ada225",
+      "adobe_xmp_sha256": "86c2d0753a63d07a1123d3463ef1126298ba0f5649320925328adb9e0ad76111"
+    },
+    {
+      "name": "test_0017/wb_flash",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "eeaa9d4006d2ce21a432cd72cb9fc807aceef1096fe943c188d0b0c8effaef28",
+      "corrected_png_sha256": "3017a3e775fb951a66a38fcecb7dc159fc115e54a4dfec095e1a3a8b9c5aaf77",
+      "maple_xmp_sha256": "dddba9e356dac04044dd09aa5d11f1bf0e6288092d1e9ec343faed707a7ed6d5",
+      "adobe_xmp_sha256": "0e389dcabe0c3ae01b4557e516b456b4d6cb886256f05022cf921d9241b8324a"
+    },
+    {
+      "name": "test_0017/wb_shade",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "0d6b3128d61adbb9ad869c442da5e9f240439f0a95cbc8d26d061781ba1d4e8c",
+      "corrected_png_sha256": "93d463440be4605e7a012ef1a5bb2591da0d9579ae2d14b6baf3fb5756763b24",
+      "maple_xmp_sha256": "4e83a149b86cd884ddc5212f931bfbc453ef3c60d86432dc2ef64e90d283953b",
+      "adobe_xmp_sha256": "426c740145df54343d8663a659dd922f4767a55155e60b28ccf21e7f969da81e"
+    },
+    {
+      "name": "test_0017/wb_tungsten",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "9060eeb95ed31df978266318bce4a1278fb90d6904816df6a132984423359da4",
+      "corrected_png_sha256": "8cceecb2027afe99d16c614c64c6639fd2308b38c1209f863037b824c80cc1f8",
+      "maple_xmp_sha256": "40a4bc4f42ed9bd023ace403507f4c81effddeae1d0bbd3e88cbc35f1972e555",
+      "adobe_xmp_sha256": "18d846067f0c35232295528a219461c6dfc86fe74d60bb3c696c99f7a5b301ab"
+    },
+    {
+      "name": "test_0017/whites_max",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "65f19b93947a7a17bb32e36563b158c8b89d465c2c71a4d8bfcbb045b870c8dc",
+      "corrected_png_sha256": "a6a1ba62937bcdd26302040a5a1b3b543ede7d7af56e2ceabec493c6d57b2518",
+      "maple_xmp_sha256": "9f46d554ce6b687660212dedd3af494ea412ce8986fc21f6557d9d057bb90ba9",
+      "adobe_xmp_sha256": "0ad7249d6cd13fd3e24cd127720f7f209f79529bddc4713f44ffc0f94fd0e2f6"
+    },
+    {
+      "name": "test_0017/whites_min",
+      "resolution": "down",
+      "camera_profile": "Adobe Standard",
+      "process_version": "11.0",
+      "original_png_sha256": "10167e693593b5a0e6e40214d8b0f99bd3973fad211c3629802a2b77eac7a701",
+      "corrected_png_sha256": "c2d730d969eb6871e9363a85855e15bd8886454276ce2d2263c9bde93284c239",
+      "maple_xmp_sha256": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+      "adobe_xmp_sha256": "c7a2d69a3a7cec0cd94d8b1912e071572f43face7fac6fd0ddd3118fd55d23f3"
+    }
+  ]
+}

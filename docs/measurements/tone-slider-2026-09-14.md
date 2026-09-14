@@ -169,6 +169,12 @@ All original main budgets remain unchanged.
 Reference generation now stages explicit Adobe-only sidecars and verifies the
 saved PNG metadata. It preserves Maple's authored sidecars: Adobe's optional
 lens-profile switch does not have the same semantics as Maple's embedded DNG
-opcode switch. The full affected reference sets are being regenerated before
-final model qualification. Historical calibration tables above must not be
+opcode switch. All 258 affected cases (264 PNGs) were regenerated and verified. Their RAW,
+input-settings and before/after reference hashes are recorded in
+`acr-reference-correction-2026-09-14.json`. The corrected images live in the
+worktree-local ignored reference corpus; shared original references are preserved. Historical calibration tables above must not be
 quoted as corrected-corpus results.
+
+After rebasing onto main `5647ec688`, all nine selected Apple export/Whites host
+tests pass, including a pixel check that cached fast export retains the decoded
+Whites anchor. The reference-generator suite passes seven tests.
