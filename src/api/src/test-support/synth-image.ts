@@ -25,8 +25,14 @@ export function solidPng(width: number, height: number, rgb: Rgb): Promise<Buffe
     .toBuffer();
 }
 
-export function solidAvif(width: number, height: number, rgb: Rgb, quality = 60): Promise<Buffer> {
+export function solidAvif(
+  width: number,
+  height: number,
+  rgb: Rgb,
+  quality = 60,
+  effort = 1,
+): Promise<Buffer> {
   return maple(solidRgb(width, height, rgb))
-    .toFormat('avif', { quality, effort: 1 })
+    .toFormat('avif', { quality, effort })
     .toBuffer();
 }

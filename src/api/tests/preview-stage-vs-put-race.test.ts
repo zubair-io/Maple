@@ -34,7 +34,8 @@ import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ObjectId } from 'mongodb';
-import sharp from 'sharp';
+import { maple } from 'maple';
+import { solidJpeg } from '../src/test-support/synth-image.ts';
 
 import { previewPathRoutes } from '../src/routes/preview.ts';
 import previewStage from '../src/workers/stages/preview.ts';
@@ -111,16 +112,7 @@ describe('PUT /api/preview racing the `preview` stage — no partial AVIF (#1997
     // concurrent stage read sees either the whole old source or the whole new
     // one — the same guarantee the code under test relies on for the preview.
     async function writeSourceJpeg(seed: number): Promise<void> {
-      const buf = await sharp({
-        create: {
-          width: 1600,
-          height: 1000,
-          channels: 3,
-          background: { r: seed % 255, g: 100, b: 150 },
-        },
-      })
-        .jpeg()
-        .toBuffer();
+      const buf = await solidJpeg(1600, 1000, [seed % 255, 100, 150]);
       const srcTmp = `${sourcePath}.tmp.${randomBytes(8).toString('hex')}`;
       await writeFile(srcTmp, buf);
       await rename(srcTmp, sourcePath);
@@ -179,7 +171,7 @@ describe('PUT /api/preview racing the `preview` stage — no partial AVIF (#1997
     // producer's rename landed last) — not merely "some bytes exist".
     const finalBytes = await readFile(previewPath as string);
     expect(finalBytes.byteLength).toBeGreaterThan(0);
-    const finalMeta = await sharp(previewPath as string).metadata();
-    expect(finalMeta.format).toBe('heif'); // AVIF reports as heif+av1 — see validate-avif.ts
+    const finalMeta = await maple(previewPath as string).metadata();
+    expect(finalMeta.format).toBe('avif');
   });
 });
