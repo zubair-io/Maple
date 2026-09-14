@@ -352,3 +352,72 @@ jobs:
           publish_pkg "src/maple"
 
           echo "Publish workflow completed successfully."
+
+  # Real Node-22 acceptance proof for #3509 ("npm install @justmaple/maple
+  # under Node 22 runs the test suite"). This does NOT run this repo's
+  # `bun:test` suite (`test/*.test.ts`, `import ... from 'bun:test'`) —
+  # there is no Node-native runner for those files, and installing Bun here
+  # purely to get its `bun:test` runner while claiming this proves "runs
+  # under Node 22" would be exactly the dressed-up-fake CLAUDE.md's
+  # "no placeholder shortcuts" rule forbids. Instead this runs
+  # `scripts/node-smoke-test.mjs`, a small standalone script with zero
+  # `bun:test` (or any other Bun-only) import, executed with a bare
+  # `node script.mjs` — genuine proof the published entry point
+  # (`dist/index.js`) works under plain Node with no Bun runtime in the loop
+  # (the script itself asserts `typeof globalThis.Bun === 'undefined'`-style
+  # evidence by printing whether `Bun` is present).
+  #
+  # Bun IS installed in this job, but only to run the same packaging helper
+  # (`assemble-packages.ts`) and the same `bun build` step
+  # (`npm run build` -> `bun build ... && tsc`) that produces the real
+  # published `dist/` bundle — identical to how a real npm release is
+  # built. Using it there is not the pattern this job exists to avoid: the
+  # thing under test (the SMOKE SCRIPT ITSELF) runs exclusively via `node`.
+  #
+  # This PR's own publish run is always a dry-run (see `publish_pkg` above),
+  # so `@justmaple/maple-linux-x64-gnu` is never actually pushed to the
+  # registry here — a plain `npm install` in `src/maple` would only ever
+  # resolve the STALE, previously-released platform package as an
+  # `optionalDependency`, which predates this branch's napi addon. Instead
+  # this job re-assembles the same freshly-built `npm/linux-x64-gnu/`
+  # directory the `publish` job assembles (from this run's own compiled
+  # artifacts), so `resolvePlatformNapiAddon()` / `resolvePlatformPackageLib()`
+  # find THIS commit's real napi/bun:ffi binaries via their documented
+  # `npm/<platform>/` fallback candidate, not last release's.
+  node-22-acceptance:
+    name: Node 22 acceptance (npm install + real napi addon, no bun:test)
+    needs: [publish]
+    runs-on: ubuntu-latest
+    if: always() && needs.publish.result == 'success'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun (packaging/build helper only — never runs the smoke test)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download all compiled binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble this run's own linux-x64-gnu platform package (napi + bun:ffi binaries)
+        run: |
+          bun src/maple/scripts/assemble-packages.ts artifacts
+
+      - name: Install the package fresh (local directory, not the registry — this PR hasn't published yet)
+        working-directory: src/maple
+        run: |
+          npm install
+          npm run build
+
+      - name: Run the Node-native smoke test under real Node 22 (no Bun, no bun:test)
+        working-directory: src/maple
+        run: |
+          node scripts/node-smoke-test.mjs
