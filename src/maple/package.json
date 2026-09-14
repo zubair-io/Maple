@@ -30,7 +30,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target node && tsc -p tsconfig.json",
+    "build": "bun build ./src/index.ts ./src/native-worker-entry.ts --outdir ./dist --target node && tsc -p tsconfig.json",
     "test": "bun test",
     "bench": "bun ../api/scripts/bench-maple-vs-sharp.ts",
     "sync:versions": "bun ./scripts/sync-versions.ts",
