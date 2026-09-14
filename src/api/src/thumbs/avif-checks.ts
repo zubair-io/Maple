@@ -2,8 +2,8 @@
  * Post-encode validation of an AVIF this pipeline wrote (see the doc comment
  * in `validate-avif.ts`). Checks run cheapest-first: container/dimensions/
  * orientation from the header probe, then a full pixel decode last. Maple
- * decodes AVIF with a pure-Rust AV1 decoder (#3496); the retired sharp
- * version also checked `space`/ICC, which our encoder never writes, so those
+ * decodes AVIF with a pure-Rust AV1 decoder (#3496); the retired implementation
+ * also checked `space`/ICC, which our encoder never writes, so those
  * checks are gone with it.
  *
  * The FFI child's dispatch (`ffi/raw_ffi-dispatch.ts`) is this module's only
@@ -47,8 +47,8 @@ function errMessage(e: unknown): string {
  *     into pixels at encode time (raw-ffi's `bake_orientation`, Maple's
  *     `.rotate()`) and never carries an orientation tag forward — see
  *     `thumbs/apply-orientation.ts`'s module doc. Maple's AVIF probe now
- *     reads the real container transform (#3507) and, matching sharp/
- *     libvips exactly, reports `orientation: undefined` whenever the file
+ *     reads the real container transform (#3507) and, matching the previous
+ *     decoder exactly, reports `orientation: undefined` whenever the file
  *     carries no EXIF Orientation item — which is every AVIF this pipeline
  *     writes, since it bakes rotation into pixels and never writes that
  *     item. `1` remains accepted too (an explicit "no rotation" tag reads

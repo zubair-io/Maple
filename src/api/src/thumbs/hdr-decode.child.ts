@@ -15,7 +15,7 @@
  * Transport: Bun IPC, `serialization: 'advanced'` (carries the decoded
  * `Uint8Array` raster directly — there's no persistent child to instead
  * write a JPEG to disk itself, so the raw pixels cross the wire and the
- * caller finishes the sharp resize/encode step itself).
+ * caller finishes the resize/encode step itself).
  */
 
 import type { HdrDecodeRequest, HdrDecodeResponse } from './hdr-decode-protocol.ts';

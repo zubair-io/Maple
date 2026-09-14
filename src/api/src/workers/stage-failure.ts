@@ -124,7 +124,7 @@ export async function recordStageFailure(input: StageFailureInput): Promise<Stag
 /**
  * Dead-letter assets whose attempt budget was consumed by uncatchable deaths.
  *
- * The worker tier runs native code (onnx, libraw, sharp) that can `abort()`
+ * The worker tier runs native code (onnx, libraw, maple) that can `abort()`
  * the whole process mid-handler — a death `recordStageFailure` never observes,
  * because nothing catches it. A doc whose `attempts` reached `maxAttempts` but
  * was never marked done OR dead can only have got there that way: a normal

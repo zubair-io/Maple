@@ -45,7 +45,7 @@ const WEBP_EXTS = new Set(['.webp']);
  *     Photo exports) and BMP. (WebP is handled above; PNG is parsed by exifr
  *     directly and is deliberately NOT here.)
  *   - Stub-image and audio formats (#1835) — eip/braw/afphoto/ai have no
- *     rawler/sharp decode path, and mp3/wav/m4a/aac are a wholly new asset
+ *     rawler/maple decode path, and mp3/wav/m4a/aac are a wholly new asset
  *     category with no EXIF concept at all. exifr has no parser for any of
  *     these; attempting a parse would throw "Unknown file format".
  */

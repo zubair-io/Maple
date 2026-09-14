@@ -4,7 +4,7 @@
 // Apple Preview screen's thumbnail → hi-res swap.
 //
 // Serving is exercised via pre-staged `.maple/previews/` cache files (fresh
-// mtime) so the tests never invoke sharp/libraw. The Mongo-backed
+// mtime) so the tests never invoke maple/libraw. The Mongo-backed
 // content-addressed path follows the per-process isolated-DB +
 // skip-if-Mongo-unreachable pattern from `libraries.cache.test.ts`.
 

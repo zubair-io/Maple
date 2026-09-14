@@ -13,8 +13,7 @@
     "test": "bun test --timeout 20000",
     "test:production-mongo": "bun scripts/serve-production-e2e-mongo.ts",
     "lint": "oxlint src",
-    "lint:fix": "oxlint src --fix",
-    "bench": "bun scripts/bench-maple-vs-sharp.ts"
+    "lint:fix": "oxlint src --fix"
   },
   "dependencies": {
     "@elysiajs/swagger": "^1.3.1",
@@ -42,7 +41,6 @@
     "onnxruntime-node": "^1.26.0",
     "pino": "^10.3.1",
     "saxes": "6.0.0",
-    "sharp": "^0.34.5",
     "ulid": "3.0.2"
   },
   "devDependencies": {

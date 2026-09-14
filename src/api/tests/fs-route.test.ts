@@ -102,7 +102,7 @@ describe('GET /api/fs/raw', () => {
     else process.env.MAPLE_ROOTS = PRIOR_MAPLE_ROOTS;
   });
 
-  it('streams original bytes for a non-RAW (sharp) image', async () => {
+  it('streams original bytes for a non-RAW (bitmap) image', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
     const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     const abs = await fs.realpath(path.join(tmpRoot, 'photo.jpg'));

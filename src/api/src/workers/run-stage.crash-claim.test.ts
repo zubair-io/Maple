@@ -1,7 +1,7 @@
 /**
  * Crash-attributable claim tests (#897).
  *
- * The worker tier runs native code (onnx, libraw, sharp) that can `abort()` the
+ * The worker tier runs native code (onnx, libraw, maple) that can `abort()` the
  * whole process — an UNCATCHABLE death the stage's try/catch never observes.
  * Before #897 the claim was a read-only `find()` and `attempts` was incremented
  * only in the catch, so an asset that aborted the worker mid-handler was never

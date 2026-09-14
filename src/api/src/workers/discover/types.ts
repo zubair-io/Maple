@@ -55,7 +55,7 @@ export const SUPPORTED_EXTS = new Set([
   '.mrw',
   '.raw',
   '.fff',
-  // Bitmap formats decoded via sharp / heic-convert
+  // Bitmap formats decoded via maple / heic-convert
   '.jpg',
   '.jpeg',
   '.tif',
@@ -63,7 +63,7 @@ export const SUPPORTED_EXTS = new Set([
   '.heic',
   '.heif',
   // Photoshop PSD/PSB + Radiance HDR — flattened composite raster decoded
-  // via ag-psd / hdr, then sharp (see thumbs/psd-hdr-decode.ts)
+  // via ag-psd / hdr, then maple (see thumbs/psd-hdr-decode.ts)
   '.psd',
   '.psb',
   '.hdr',

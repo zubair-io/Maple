@@ -79,7 +79,7 @@ export interface RenderPreviewJpegRequest {
 }
 
 /** Render a non-RAW bitmap (JPEG/PNG/WebP/TIFF/AVIF/HEIC/PSD/HDR) to a resized
- *  AVIF or JPEG on disk — the #3499 replacement for the sharp-based
+ *  AVIF or JPEG on disk — the #3499 replacement for the previous
  *  imgdecode child, now dispatched onto this same FFI child pool instead of
  *  a second isolated process family. `ext` is the lowercase source
  *  extension without dot; `format` defaults to `'avif'` in the child. */

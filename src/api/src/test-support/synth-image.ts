@@ -1,6 +1,6 @@
 /**
  * Synthetic image fixtures for tests, built with Maple's raw-pixel input.
- * Replaces the `sharp({ create: … })` pattern (#3499/#3500): every test that
+ * Replaces the previous bitmap library's `create` fixture pattern (#3499/#3500): every test that
  * needs "a small valid JPEG/PNG/AVIF" gets one without touching disk fixtures.
  */
 import { maple } from 'maple';
