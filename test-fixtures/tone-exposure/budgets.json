@@ -1,0 +1,22 @@
+{
+  "test_0002": {
+    "exposure_p1": {
+      "band_mae": 1.36,
+      "response_ratio_max": 1.1
+    },
+    "exposure_m1": {
+      "band_mae": 1.4,
+      "response_ratio_max": 1.1
+    }
+  },
+  "test_0017": {
+    "exposure_p1": {
+      "band_mae": 4.87,
+      "response_ratio_max": 1.1
+    },
+    "exposure_m1": {
+      "band_mae": 4.69,
+      "response_ratio_max": 1.1
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "issue": 3631,
+  "generated": "2026-09-14",
+  "photoshop_version": "27.10.0",
+  "camera_raw_version": "18.6 (2698)",
+  "color_space": "sRGB IEC61966-2.1",
+  "bits_per_channel": 8,
+  "acr_export": {
+    "long_edge": 4000,
+    "resample": "Photoshop BICUBICSHARPER",
+    "profile_intent": "relative colorimetric",
+    "black_point_compensation": true,
+    "dither": true
+  },
+  "committed_resize": {
+    "long_edge": 1024,
+    "resample": "Pillow LANCZOS",
+    "pillow_version": "12.2.0"
+  },
+  "producer": {
+    "example": "tone_sprint",
+    "quality": "Full",
+    "long_edge": 1024,
+    "profile": "Auto"
+  },
+  "fixtures": {
+    "test_0002": {
+      "raw": "test_0002.dng",
+      "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "cases": {
+        "baseline": {
+          "png_sha256": "a2f6066f7027a3784f425609afc5c65aa8f6f69a00655f6dd82c24198f0043af",
+          "source_4000px_png_sha256": "86b8841009929b7c1156eb60a9a071ad595171bf334a993e3382554bab29fdb8",
+          "xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+          "width": 1024,
+          "height": 768
+        },
+        "exposure_p1": {
+          "png_sha256": "873da7084091203dbed7ab1bb597ef46d0c02db59d117f2f34c09bb4a4a3a19e",
+          "source_4000px_png_sha256": "c4fb3a24cfd5904d4ea534868bd1258a8183b237132ad90d2f47387e4cec276c",
+          "xmp_sha256": "f808b49e2f998aa8e88b1659c7b887da682c2cd1bf8b2bcfa65b4027a34d53e7",
+          "width": 1024,
+          "height": 768
+        },
+        "exposure_m1": {
+          "png_sha256": "576eaeca419d0a44378ba2e0dda74ae4a5315e454c59343f4c6ee2547c25873e",
+          "source_4000px_png_sha256": "458bdb92d3d0dfc07730ae9a371feca340c69bf7ade29e6ea031d1c47df4b12c",
+          "xmp_sha256": "02bd84ee74d37ec8ae4b09912077d18487c7448789584bfc528ee605573815d5",
+          "width": 1024,
+          "height": 768
+        }
+      }
+    },
+    "test_0017": {
+      "raw": "test_0017.dng",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "cases": {
+        "baseline": {
+          "png_sha256": "fb0b217187c10d37f40e7bee3f5cd8e73824d84217d040eb8750c2d51597e24b",
+          "source_4000px_png_sha256": "5bf72016fd42b57a8b445f5d3d4daa2b6731238b1b2e1780bc2fb0c9e75ebe54",
+          "xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+          "width": 1024,
+          "height": 683
+        },
+        "exposure_p1": {
+          "png_sha256": "bc4f2df6920abdd2eba8356b9a77be788aeb74b8c6959cef89b2ecea62df5662",
+          "source_4000px_png_sha256": "478ae9673f6f9b3cc45f880425d6e4eee986736a14286764f26684bcaff0f181",
+          "xmp_sha256": "f808b49e2f998aa8e88b1659c7b887da682c2cd1bf8b2bcfa65b4027a34d53e7",
+          "width": 1024,
+          "height": 683
+        },
+        "exposure_m1": {
+          "png_sha256": "f192af7a26c10544fb2a1086872052d05dfd508e7144e346688e489a5a8fd9b4",
+          "source_4000px_png_sha256": "17a1d9bcc517733559413c8301127150bb047ed4679482ed68c539c9d686051b",
+          "xmp_sha256": "02bd84ee74d37ec8ae4b09912077d18487c7448789584bfc528ee605573815d5",
+          "width": 1024,
+          "height": 683
+        }
+      }
+    }
+  },
+  "driver": {
+    "source": "src/scripts/acr-reference/acr_batch.jsx",
+    "source_sha256": "dde965c429c5fdfa202a366978be5124c27f86c586ffcd2b3615bd137e5550c7",
+    "adaptations": [
+      "isolated manifest/log paths and APFS RAW clones",
+      "final alert suppressed",
+      "application dialog/unit preferences restored"
+    ]
+  },
+  "process_version": "11.0",
+  "reference_baseline_validation_1024_mean_delta_e": {
+    "test_0002": 0.0,
+    "test_0017": 8.592065794864473e-07
+  }
+}

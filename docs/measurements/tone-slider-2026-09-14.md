@@ -66,9 +66,27 @@ plan is therefore not justified by the original comparison.
 Two slope-cap experiments failed the product objective: they changed baselines
 without consistently reducing exposure response. The output-midgrey cap worsened
 average baseline DeltaE from 6.796 to 6.958 in the 512px diagnostic, and fixture
-0011 from 4.071 to 5.939. No cap is in the candidate. Matched ACR ±1 EV references for 0002/0017 are
-needed before treating those outliers as a demonstrated defect; existing ACR
-sidecars are at ±5 EV. This is tracked in #3631.
+0011 from 4.071 to 5.939. No cap is in the candidate.
+
+A subsequent direct ACR test resolves the missing-reference question. Photoshop
+27.10.0 / Camera Raw 18.6 rendered baseline and ±1 EV on isolated copies of
+0002 and 0017. The regenerated baselines match the existing references to
+rounding precision. Native Maple Auto versus ACR:
+
+| Fixture | Maple mean ΔL* (+1 / -1) | ACR mean ΔL* (+1 / -1) | Band MAE (+1 / -1) |
+| --- | ---: | ---: | ---: |
+| 0002 | +8.73 / -13.55 | +9.12 / -13.47 | 1.08 / 1.06 |
+| 0017 | +13.53 / -13.08 | +17.22 / -15.65 | 3.92 / 3.81 |
+
+The localized bright-band positive excess is approximately 1.7 L*, while the
+whole-image response is close to or weaker than ACR. Retain Exposure's exact
+linear multiplier and reject the blanket slope cap. Fixture 0017's remaining
+mismatch concerns Auto profile tone distribution, not excessive global exposure.
+The six genuine reference images, settings and hashes are committed in
+`test-fixtures/tone-exposure/`; `src/scripts/test_tone_exposure.sh` now gates
+signed response and per-band error on fresh 1024px production renders. Its
+budgets use that sized renderer's own measured results, not the native figures
+above. Mathematical gate tests reject direction reversal and doubled response.
 
 A separate fit against real measured Maple curves found that adding AE gain
 improves leave-one-fixture-out band MAE only 3.0% (7.168 to 6.952), with both
