@@ -13,7 +13,7 @@ import type { Db } from 'mongodb';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import sharp from 'sharp';
+import { solidJpeg } from '../test-support/synth-image.ts';
 import { withTestDb } from '../db/test-db.test-helpers.ts';
 
 // Own per-pid database + explicit close — the repo-wide suite convention
@@ -90,12 +90,7 @@ describe('workers smoke test', () => {
 
       // Drop a JPEG.
       const file = path.join(dir, 'smoke.jpg');
-      const buf = await sharp({
-        create: { width: 64, height: 64, channels: 3, background: { r: 80, g: 120, b: 180 } },
-      })
-        .jpeg()
-        .toBuffer();
-      await writeFile(file, buf);
+      await writeFile(file, await solidJpeg(64, 64, [80, 120, 180]));
 
       // Chokidar uses polling with a 60s/300s interval — too slow for a 30s
       // smoke test. Drive discover's handleEvent directly to insert the doc
