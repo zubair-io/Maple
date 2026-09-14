@@ -81,6 +81,50 @@ function getPlatformBinaryFilename(platform = process.platform) {
     return "libraw_ffi.dylib";
   return "libraw_ffi.so";
 }
+function getPlatformNapiFilename(platform = process.platform, arch = process.arch, musl = isMusl()) {
+  if (platform === "darwin")
+    return `raw-napi.darwin-${arch === "arm64" ? "arm64" : "x64"}.node`;
+  if (platform === "win32")
+    return "raw-napi.win32-x64-msvc.node";
+  const libc = musl ? "musl" : "gnu";
+  return `raw-napi.linux-${arch === "arm64" ? "arm64" : "x64"}-${libc}.node`;
+}
+function napiCargoLibFilename(platform = process.platform) {
+  if (platform === "win32")
+    return "raw_napi.dll";
+  if (platform === "darwin")
+    return "libraw_napi.dylib";
+  return "libraw_napi.so";
+}
+function resolvePlatformNapiAddon() {
+  const pkgName = getPlatformPackageName();
+  if (!pkgName)
+    return null;
+  const napiName = getPlatformNapiFilename();
+  try {
+    const resolved = __require.resolve(`${pkgName}/${napiName}`);
+    if (fs.existsSync(resolved))
+      return path.resolve(resolved);
+  } catch {}
+  const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
+  const shortName = pkgName.replace("@justmaple/maple-", "");
+  const napiCargoTarget = path.join(currentDir, "..", "..", "raw-pipeline", "target");
+  const napiLibName = napiCargoLibFilename();
+  const candidates = [
+    path.join(currentDir, "..", "..", pkgName, napiName),
+    path.join(currentDir, "..", "node_modules", pkgName, napiName),
+    path.join(process.cwd(), "node_modules", pkgName, napiName),
+    path.join(currentDir, "..", "npm", shortName, napiName),
+    path.join(process.cwd(), "npm", shortName, napiName),
+    path.join(napiCargoTarget, "release", napiLibName),
+    path.join(napiCargoTarget, "aarch64-apple-darwin", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-apple-darwin", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-unknown-linux-gnu", "release", napiLibName),
+    path.join(napiCargoTarget, "aarch64-unknown-linux-gnu", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-pc-windows-msvc", "release", napiLibName)
+  ];
+  return candidates.find((c) => fs.existsSync(c)) ?? null;
+}
 function resolvePlatformPackageLib() {
   const pkgName = getPlatformPackageName();
   if (!pkgName)
@@ -742,6 +786,66 @@ import * as path4 from "node:path";
 import { fileURLToPath as fileURLToPath3, pathToFileURL } from "node:url";
 import * as path3 from "node:path";
 
+// src/native-napi.ts
+function wrap(fn) {
+  return fn;
+}
+function loadNapiModule(addonPath) {
+  const mod = { exports: {} };
+  process.dlopen(mod, addonPath);
+  return mod.exports;
+}
+var cached;
+var lastLoadError = null;
+function getNapiLoadError() {
+  return lastLoadError;
+}
+function tryLoadNapiBinding() {
+  if (cached !== undefined)
+    return cached;
+  if (process.env.MAPLE_NAPI === "0") {
+    lastLoadError = new Error("napi disabled via MAPLE_NAPI=0");
+    cached = null;
+    return null;
+  }
+  const addonPath = resolvePlatformNapiAddon();
+  if (!addonPath) {
+    lastLoadError = new Error(`no raw-napi addon found for ${process.platform}-${process.arch}`);
+    cached = null;
+    return null;
+  }
+  try {
+    const addon = loadNapiModule(addonPath);
+    const binding = {
+      renderFilenameTemplate: wrap((args) => addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined })),
+      validateFilename: wrap((name) => addon.validateFilename(name)),
+      rasterProbeMetadata: wrap((inputPath) => addon.rasterProbeMetadata(inputPath)),
+      rasterProbeMetadataBuf: wrap((inputBytes) => addon.rasterProbeMetadataBuf(inputBytes)),
+      rasterDecodeRgb8Buf: wrap((inputBytes, autoOrient) => addon.rasterDecodeRgb8Buf(inputBytes, autoOrient)),
+      rasterRenderBuf: wrap((inputBytes, width, height, flags, filter, format, quality, effort) => addon.rasterRenderBuf(inputBytes, width, height, flags, filter, format, quality, effort)),
+      rasterFromRawRenderBuf: wrap((pixels, srcWidth, srcHeight, channels, width, height, flags, filter, format, quality, effort) => addon.rasterFromRawRenderBuf(pixels, srcWidth, srcHeight, channels, width, height, flags, filter, format, quality, effort)),
+      rasterResizeToFile: wrap((inputPath, outPath, width, height, fit, format, quality) => addon.rasterResizeToFile(inputPath, outPath, width, height, fit, format, quality)),
+      rasterResizeToBuf: wrap((inputBytes, width, height, fit, format, quality) => addon.rasterResizeToBuf(inputBytes, width, height, fit, format, quality)),
+      rasterExtractTensor: wrap((inputBytes, targetSize, layout, normalize) => addon.rasterExtractTensor(inputBytes, targetSize, layout, normalize)),
+      rasterPipelineBuf: wrap((input, recipeJson, aux) => addon.rasterPipelineBuf(input, recipeJson, aux)),
+      rasterAnalyzeBuf: wrap((input, requestJson) => addon.rasterAnalyzeBuf(input, requestJson)),
+      exportDevelopedToFile: wrap((rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath) => addon.exportDevelopedToFile(rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath)),
+      exportRecipeToFile: wrap((rawPath, xmpXml, recipeJson, filmPath, outPath) => addon.exportRecipeToFile(rawPath, xmpXml, recipeJson, filmPath, outPath)),
+      renderThumbnailAvifToFile: wrap((rawPath, outPath, maxPx, quality) => addon.renderThumbnailAvifToFile(rawPath, outPath, maxPx, quality ?? 55)),
+      renderThumbnailPreviewJpegToFile: wrap((rawPath, outPath, maxPx, quality) => addon.renderThumbnailPreviewJpegToFile(rawPath, outPath, maxPx, quality ?? 85)),
+      renderDevelopJpegToFile: wrap((rawPath, xmpPath, outPath, maxPx, quality) => addon.renderDevelopJpegToFile(rawPath, xmpPath, outPath, maxPx, quality ?? 85)),
+      lastError: () => null
+    };
+    cached = binding;
+    lastLoadError = null;
+    return binding;
+  } catch (e) {
+    lastLoadError = e instanceof Error ? e : new Error(String(e));
+    cached = null;
+    return null;
+  }
+}
+
 // src/worker-protocol.ts
 var TRANSFER_MARK = "__mapleTransfer__";
 function transferKindOf(value) {
@@ -961,11 +1065,23 @@ function getPool() {
     pool = new NativeWorkerPool;
   return pool;
 }
+var isBunRuntime = () => typeof globalThis.Bun !== "undefined";
+function buildNoNativeBindingError(napiError) {
+  return new Error("Maple has no working native binding for this Node process: the raw-napi addon is " + `unavailable${napiError ? ` (${napiError.message})` : ""}, and the bun:ffi ` + "worker-pool fallback requires Bun (it cannot run on plain Node). Build/install a " + "raw-napi addon for this platform, or run under Bun instead.");
+}
 async function callNative(method, args) {
   if (executionMode === "sync") {
     const native = loadNativeBinding();
     const fn = native[method];
     return fn.apply(native, args);
+  }
+  const napi = tryLoadNapiBinding();
+  const napiFn = napi ? napi[method] : undefined;
+  if (typeof napiFn === "function") {
+    return await napiFn.apply(napi, args);
+  }
+  if (!isBunRuntime()) {
+    throw buildNoNativeBindingError(getNapiLoadError());
   }
   const result = await getPool().dispatch(method, args);
   return result;
@@ -2693,6 +2809,7 @@ export {
   getMapleConcurrency,
   getMapleExecutionMode,
   getPlatformBinaryFilename,
+  getPlatformNapiFilename,
   getPlatformPackageName,
   isMusl,
   isNativeAvailable,
@@ -2707,6 +2824,7 @@ export {
   renderThumbnail,
   resolveColour,
   resolveGravity,
+  resolvePlatformNapiAddon,
   resolvePlatformPackageLib,
   runCli,
   setMapleConcurrency,
