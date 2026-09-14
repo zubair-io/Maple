@@ -55,8 +55,8 @@ math is unchanged between the archived control binary and current base.
 
 | Measurement                        | Shipping main | Candidate |
 | ---------------------------------- | ------------: | --------: |
-| +100 mean fixture band error, L\*  |        16.593 |     7.501 |
-| -100 mean fixture band error, L\*  |         3.695 |     1.922 |
+| +100 mean fixture band error, L\*  |        16.584 |     7.496 |
+| -100 mean fixture band error, L\*  |         3.670 |     1.900 |
 | +100 mean fixture image DeltaE     |        16.033 |     9.789 |
 | -100 mean fixture image DeltaE     |         7.007 |     6.403 |
 | Baseline mean fixture image DeltaE |         6.417 |     6.397 |
@@ -79,8 +79,17 @@ blue highlights too dark: weakening Whites helps aggregate bias while exposing
 the bright-midtone p95 tail. It does not establish that no alternative model can
 satisfy both constraints.
 
-Full per-fixture native results are committed in
-`tone-slider-native-auto-2026-09-14.json`. Band masks come from ACR's baseline,
+The final response gate includes pure white (L*=100) in its last band. It passes
+all 72 candidate Auto/Neutral response cases and rejects all 36 shipping Auto
+cases; all 36 paired Auto responses improve. Neutral's positive/negative mean
+band errors are 5.760/1.197 L*. New limits, input hashes, exact measurements and
+reproduction instructions are in `test-fixtures/tone-whites/`. Seven gate tests
+cover wrong direction, stuck white pixels, incorrect response and missing or
+changed inputs. Existing absolute-colour limits remain unchanged.
+
+Full per-fixture native image results are committed in
+`tone-slider-native-auto-2026-09-14.json` (its historical band fields exclude exact
+L\*=100; the table above uses the final inclusive gate). Band masks come from ACR's baseline,
 but each renderer supplies its own edited-minus-baseline delta. No ACR pixel or
 statistic enters the production renderer. These remain calibration-set results,
 not held-out accuracy. The historical 4.19 L\* number is not a shipping claim.
