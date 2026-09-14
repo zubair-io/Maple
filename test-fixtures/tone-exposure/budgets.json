@@ -11,11 +11,11 @@
   },
   "test_0017": {
     "exposure_p1": {
-      "band_mae": 4.87,
+      "band_mae": 4.92,
       "response_ratio_max": 1.1
     },
     "exposure_m1": {
-      "band_mae": 4.69,
+      "band_mae": 4.79,
       "response_ratio_max": 1.1
     }
   }

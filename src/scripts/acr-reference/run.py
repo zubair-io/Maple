@@ -24,16 +24,17 @@ Special modes:
     --cases-filter <name> ...   Only write XMPs / manifest entries for these cases
     --cleanup-only              Remove <raw_basename>.xmp leftovers next to each RAW
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import shutil
 import sys
 from pathlib import Path
 
 from matrix import CASES
-from write_xmp import copy_canonical_xmps
+from write_xmp import copy_case_xmp
 
 # The Cowork sandbox mounts the host workspace under /sessions/.../mnt/_Maple/
 # (or whatever the selected folder's basename is). Photoshop runs on the host
@@ -98,11 +99,13 @@ def build_manifest_entry(
     """Build one ``cases[]`` entry for manifest.json."""
     outputs = []
     for tier in tiers:
-        outputs.append({
-            "resolution": tier,
-            "long_edge": 4000 if tier == "down" else 0,
-            "png": f"{out_root_host}/{raw_stem}/{tier}/{case_name}.png",
-        })
+        outputs.append(
+            {
+                "resolution": tier,
+                "long_edge": 4000 if tier == "down" else 0,
+                "png": f"{out_root_host}/{raw_stem}/{tier}/{case_name}.png",
+            }
+        )
     return {
         "raw": raw_host_path,
         "xmp": xmp_host_path,
@@ -127,32 +130,62 @@ def cleanup_sidecars(raws: list[Path]) -> list[Path]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--raws", nargs="+", type=Path, required=True,
-                    help="RAW files to generate references for")
-    ap.add_argument("--out", type=Path, required=True,
-                    help="References root directory (typically test-fixtures/references/)")
-    ap.add_argument("--cases-filter", nargs="*", default=None,
-                    help="If set, only emit these case names")
-    ap.add_argument("--mac-root", default=None,
-                    help="Mac-host root replacing the sandbox mount "
-                         "(default: this repo's root, derived from run.py's "
-                         "location; REQUIRED when running inside the sandbox)")
-    ap.add_argument("--cleanup-only", action="store_true",
-                    help="Only remove <raw>.xmp leftovers from --raws; don't regenerate anything")
-    ap.add_argument("--canonical-xmp-dir", type=Path, default=None,
-                    help="Source directory for canonical XMPs (default: <out>/test_0000/xmp/)")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--raws",
+        nargs="+",
+        type=Path,
+        required=True,
+        help="RAW files to generate references for",
+    )
+    ap.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help="References root directory (typically test-fixtures/references/)",
+    )
+    ap.add_argument(
+        "--cases-filter",
+        nargs="*",
+        default=None,
+        help="If set, only emit these case names",
+    )
+    ap.add_argument(
+        "--mac-root",
+        default=None,
+        help="Mac-host root replacing the sandbox mount "
+        "(default: this repo's root, derived from run.py's "
+        "location; REQUIRED when running inside the sandbox)",
+    )
+    ap.add_argument(
+        "--cleanup-only",
+        action="store_true",
+        help="Only remove <raw>.xmp leftovers from --raws; don't regenerate anything",
+    )
+    ap.add_argument(
+        "--canonical-xmp-dir",
+        type=Path,
+        default=None,
+        help="Source directory for canonical XMPs (default: <out>/test_0000/xmp/)",
+    )
 
     args = ap.parse_args(argv)
 
     mac_root: str | None = args.mac_root or default_mac_root()
     if mac_root is None:
-        print("ERROR: cannot derive --mac-root: run.py resolves under "
-              f"{DEFAULT_SANDBOX_PREFIX} (Cowork sandbox), where the host "
-              "checkout path is unknowable.", file=sys.stderr)
-        print("       Pass --mac-root /path/to/checkout (the host path of "
-              "this repo's root) explicitly.", file=sys.stderr)
+        print(
+            "ERROR: cannot derive --mac-root: run.py resolves under "
+            f"{DEFAULT_SANDBOX_PREFIX} (Cowork sandbox), where the host "
+            "checkout path is unknowable.",
+            file=sys.stderr,
+        )
+        print(
+            "       Pass --mac-root /path/to/checkout (the host path of "
+            "this repo's root) explicitly.",
+            file=sys.stderr,
+        )
         return 2
 
     out_root: Path = args.out.resolve()
@@ -175,7 +208,10 @@ def main(argv: list[str] | None = None) -> int:
     canonical_dir = (args.canonical_xmp_dir or canonical_xmp_dir(out_root)).resolve()
     if not canonical_dir.is_dir():
         print(f"ERROR: canonical XMP dir not found: {canonical_dir}", file=sys.stderr)
-        print("       Expected 43 canonical XMPs here (one per case in matrix.py).", file=sys.stderr)
+        print(
+            "       Expected 43 canonical XMPs here (one per case in matrix.py).",
+            file=sys.stderr,
+        )
         return 2
 
     # Which cases are in scope for this run?
@@ -201,25 +237,21 @@ def main(argv: list[str] | None = None) -> int:
         raw_ref_dir = out_root / raw_stem
         xmp_dir = raw_ref_dir / "xmp"
 
-        # Skip canonical when a filter excludes it (e.g. won't overwrite canonical when out=test_0000).
-        # But typically test_0000 is the source, not a target; protect against accidental self-copy.
-        if xmp_dir.resolve() == canonical_dir.resolve():
-            print(f"  [skip] {raw_stem}: xmp/ IS the canonical dir; not copying onto itself")
-        else:
-            # Limit the copy to filtered cases if --cases-filter is set.
-            # Easiest: always copy everything (idempotent), then the manifest controls render scope.
-            if args.cases_filter:
-                xmp_dir.mkdir(parents=True, exist_ok=True)
-                for c in cases_in_scope:
-                    src = canonical_dir / f"{c.name}.xmp"
-                    if not src.is_file():
-                        print(f"ERROR: missing canonical XMP: {src}", file=sys.stderr)
-                        return 2
-                    (xmp_dir / f"{c.name}.xmp").write_bytes(src.read_bytes())
-                total_xmps += len(cases_in_scope)
-            else:
-                written = copy_canonical_xmps(canonical_dir, xmp_dir)
-                total_xmps += len(written)
+        # Keep Maple's authored sidecars byte-identical. Adobe's optional lens
+        # profile switch is not Maple's embedded DNG opcode switch (#3633).
+        acr_xmp_dir = raw_ref_dir / "acr-xmp"
+        xmp_dir.mkdir(parents=True, exist_ok=True)
+        acr_xmp_dir.mkdir(parents=True, exist_ok=True)
+        for c in cases_in_scope:
+            src = canonical_dir / f"{c.name}.xmp"
+            if not src.is_file():
+                print(f"ERROR: missing canonical XMP: {src}", file=sys.stderr)
+                return 2
+            dst = xmp_dir / f"{c.name}.xmp"
+            if src.resolve() != dst.resolve():
+                shutil.copyfile(src, dst)
+            copy_case_xmp(src, acr_xmp_dir / f"{c.name}.xmp")
+        total_xmps += len(cases_in_scope)
 
         # Pre-create output dirs so Photoshop doesn't fail on saveAs.
         (raw_ref_dir / "down").mkdir(parents=True, exist_ok=True)
@@ -237,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
                 out_root_host=out_root_host,
                 tiers=c.tiers,
             )
+            entry["acr_xmp"] = detect_mac_path(acr_xmp_dir / f"{c.name}.xmp", mac_root)
             manifest_cases.append(entry)
             total_outputs += len(c.tiers)
 
@@ -248,7 +281,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  RAWs:             {len(raws)}")
     print(f"  Cases per RAW:    {len(cases_in_scope)}")
     print(f"  XMPs copied:      {total_xmps}")
-    print(f"  Output PNGs:      {total_outputs}  (manifest.json entries: {len(manifest_cases)})")
+    print(
+        f"  Output PNGs:      {total_outputs}  (manifest.json entries: {len(manifest_cases)})"
+    )
     print(f"  manifest.json →   {manifest_path}")
     print(f"  mac_root:         {mac_root}")
     return 0
