@@ -24,7 +24,9 @@ image anchor is retained through Apple, Windows, WASM, CPU/GPU and detail paths.
 No new probe or derivative cache is introduced. The existing CPU chain cache key
 includes the decoded anchor.
 
-Current 1024px production renders, all 18 fixtures (including the WB-stable anchor and jittered sampler):
+Historical 1024px production renders against the original reference corpus, all 18 fixtures
+(including the WB-stable anchor and jittered sampler; six reference states were
+subsequently found invalid, see the audit below):
 
 | Profile / rail | Main band MAE L\* | Candidate band MAE L\* |
 | -------------- | ----------------: | ---------------------: |
@@ -70,23 +72,24 @@ average baseline DeltaE from 6.796 to 6.958 in the 512px diagnostic, and fixture
 
 A subsequent direct ACR test resolves the missing-reference question. Photoshop
 27.10.0 / Camera Raw 18.6 rendered baseline and ±1 EV on isolated copies of
-0002 and 0017. The regenerated baselines match the existing references to
-rounding precision. Native Maple Auto versus ACR:
+0002 and 0017. Adobe-only sidecars explicitly pin all audited defaults; Maple's
+original input sidecars remain unchanged. Fresh 1024px production Auto renders:
 
 | Fixture | Maple mean ΔL\* (+1 / -1) | ACR mean ΔL\* (+1 / -1) | Band MAE (+1 / -1) |
 | ------- | ------------------------: | ----------------------: | -----------------: |
-| 0002    |            +8.73 / -13.55 |          +9.12 / -13.47 |        1.08 / 1.06 |
-| 0017    |           +13.53 / -13.08 |         +17.22 / -15.65 |        3.92 / 3.81 |
+| 0002    |          +8.647 / -13.874 |        +9.120 / -13.474 |      1.255 / 1.294 |
+| 0017    |         +13.041 / -10.999 |       +17.149 / -15.626 |      4.555 / 4.429 |
 
-The localized bright-band positive excess is approximately 1.7 L\*, while the
-whole-image response is close to or weaker than ACR. Retain Exposure's exact
+The whole-image response is close to or weaker than ACR. Retain Exposure's exact
 linear multiplier and reject the blanket slope cap. Fixture 0017's remaining
 mismatch concerns Auto profile tone distribution, not excessive global exposure.
-The six genuine reference images, settings and hashes are committed in
-`test-fixtures/tone-exposure/`; `src/scripts/test_tone_exposure.sh` now gates
-signed response and per-band error on fresh 1024px production renders. Its
-budgets use that sized renderer's own measured results, not the native figures
-above. Mathematical gate tests reject direction reversal and doubled response.
+The six genuine reference images, separate Maple/Adobe settings and hashes are
+committed in `test-fixtures/tone-exposure/`; `src/scripts/test_tone_exposure.sh`
+gates signed response and per-band error. Mathematical gate tests reject
+direction reversal and doubled response. All four fresh production comparisons
+pass. The new, unpublished gate's initial ceilings use these corrected settings;
+no existing main budget was increased. Earlier prototype numbers used an
+inherited lens-enabled ACR reference and are superseded.
 
 A separate fit against real measured Maple curves found that adding AE gain
 improves leave-one-fixture-out band MAE only 3.0% (7.168 to 6.952), with both
@@ -136,3 +139,36 @@ target check passed; all 41 synthetic grey/anchor qualification cases passed
 without skips; the maximum resolved Whites amount (+110) passed GPU parity at
 zero and both extreme Contrast settings. These do not override the failed
 perceptual gate.
+
+## Reference-state audit and correction
+
+The effective Camera Raw metadata embedded in 72 baseline/Whites PNGs was
+compared with both authored input controls and canonical defaults. Comparing
+only explicitly authored fields had missed inherited nondefault state:
+
+| Fixtures         | Unrequested effective Adobe state                                                        |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| 0005, 0008, 0012 | Automatic lateral chromatic-aberration correction enabled                                |
+| 0011, 0017       | Lens profile and automatic lateral CA enabled                                            |
+| 0015             | Baseline Whites +15, Blacks -5, Clarity +8; Whites cases retain Blacks -5 and Clarity +8 |
+
+Corrected baseline/Whites controls for all six fixtures pass the effective-state
+audit. On 0017, the former ~1% geometric scale discrepancy drops to less than
+0.001% after optional Adobe lens correction is disabled. Its native Auto
+baseline maximum DeltaE falls from about 95 to 34 without changing Maple pixels.
+The old extreme errors there were primarily geometric, not proof of an AgX norm
+defect. Other clean-reference tone-fit and highlight-colour questions remain.
+
+Twenty-four native comparisons against these corrected controls pass 19 cells.
+The five remaining failures are 0008 Whites minimum; 0011 baseline bias and
+Whites maximum; 0012 Whites maximum; and 0015 Whites minimum. This is a subset
+check, not a replacement for the complete gate. The 0011 baseline bias ceiling
+was originally measured against a different, lens-enabled target and now fails.
+All original main budgets remain unchanged.
+
+Reference generation now stages explicit Adobe-only sidecars and verifies the
+saved PNG metadata. It preserves Maple's authored sidecars: Adobe's optional
+lens-profile switch does not have the same semantics as Maple's embedded DNG
+opcode switch. The full affected reference sets are being regenerated before
+final model qualification. Historical calibration tables above must not be
+quoted as corrected-corpus results.
