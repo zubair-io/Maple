@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
-interface MuiSelectOption {
+export interface MuiSelectOption {
   readonly value: string;
   readonly label: string;
   readonly disabled?: boolean;

@@ -79,6 +79,7 @@ import {
   blankEnrichment,
   errorMessage,
   isWhisperModelTier,
+  bumpMinorVersion,
   type EnrichmentForm,
   type EnrichmentKind,
   type RuntimeForm,
@@ -480,6 +481,12 @@ export class WorkersComponent implements OnInit, OnDestroy {
       const cur1 = cur[stage.name] ?? blankRuntime(stage);
       return { ...cur, [stage.name]: { ...cur1, [field]: value } };
     });
+  }
+
+  bumpVersion(stage: StageStatus): void {
+    const current = this.runtimeValue(stage, 'version');
+    const next = bumpMinorVersion(current);
+    this.setRuntime(stage, 'version', next);
   }
 
   enrichmentValue<K extends keyof EnrichmentForm>(stage: StageStatus, field: K): EnrichmentForm[K] {

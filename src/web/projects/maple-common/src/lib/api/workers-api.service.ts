@@ -18,12 +18,20 @@ export interface WorkerConfig {
    * policy rejects the embedding server (#3315). Absent/null for an operator
    * pause; the server clears it on every resume. Read-only from the UI. */
   pause_reason?: string | null;
+  /** Operator-assigned semver version string, e.g. "v0.2.1". */
+  version?: string | null;
+  /** Operator custom prompt instructions (text only, schema is excluded). */
+  prompt_text?: string | null;
+  /** Assigned AI provider, e.g. "ollama", "openai", "anthropic", "gemini". */
+  ai_provider?: string | null;
+  /** Assigned AI model, e.g. "gemma4:12b", "gpt-4o-mini". */
+  ai_model?: string | null;
 }
 
 /** API status payload — one entry per stage from GET /api/workers/status. */
 export interface StageStatus {
   name: string;
-  status: 'running' | 'paused' | 'error' | 'starting' | 'restarting' | 'stopped';
+  status: 'running' | 'idle' | 'paused' | 'error' | 'starting' | 'restarting' | 'stopped';
   /** Dispatched but not yet completed docs. */
   inFlight: number;
   /** Configured concurrency (= config.concurrency). */

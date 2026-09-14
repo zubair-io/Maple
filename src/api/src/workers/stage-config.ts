@@ -70,6 +70,14 @@ export interface WorkerConfig {
    * `WorkerConfigRepo.patch`.
    */
   pause_reason?: string | null;
+  /** Operator-assigned semver version string, e.g. "v0.2.1". */
+  version?: string | null;
+  /** Operator custom prompt instructions (text only, schema is excluded). */
+  prompt_text?: string | null;
+  /** Assigned AI provider, e.g. "ollama", "openai", "anthropic", "gemini". */
+  ai_provider?: string | null;
+  /** Assigned AI model, e.g. "gemma4:12b", "gpt-4o-mini". */
+  ai_model?: string | null;
 }
 
 export type StageResult<TPatch = Record<string, unknown>> =
