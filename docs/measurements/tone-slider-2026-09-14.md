@@ -1,6 +1,6 @@
 # Tone-slider calibration, 2026-09-14
 
-Issues: #3601 (Whites), #3631 (Exposure investigation). Base: `3572cbeb99bb1242abd6b842c503d2f8618d94f4`.
+Issues: #3601 (Whites), #3631 (Exposure investigation), #3633 (reference/baseline correctness). Current base: `5647ec688f2abeaee9113fa2ba3ae9045c6283d3`. Earlier measurements explicitly identify their older base or reference state.
 
 ## Decision evidence
 
@@ -35,8 +35,8 @@ subsequently found invalid, see the audit below):
 | Neutral +100   |            16.379 |                  5.594 |
 | Neutral -100   |             3.010 |                  1.201 |
 
-These are calibration-set results, not held-out accuracy. All 36 baseline PNGs
-are byte-identical to main. A separate 512px CIEDE2000 diagnostic improves average
+These are calibration-set results, not held-out accuracy. At that historical stage, all 36 baseline PNGs
+were byte-identical to main. The later sparse Auto-fit correction below intentionally changes Auto baselines. A separate 512px CIEDE2000 diagnostic improves average
 error in each profile/rail combination, but has per-fixture regressions. It is
 not a substitute for the native-resolution canonical colour gate.
 
@@ -44,6 +44,98 @@ The divergent model checks rejected a stronger rising-only ramp and a rational
 interval remap: their fixed-strength production band errors were worse than the
 bounded bump in Neutral. The retained design prioritizes actual render fidelity,
 monotonicity and a scalar retained at decode over a stronger surrogate fit.
+
+## Final native Auto assessment
+
+The default-profile assessment renders all 18 fixtures at native production
+resolution, with baseline and Whites ±100 on shipping main and the candidate
+(stable scene anchor plus sparse Auto-fit support, commit `4f95115b5`). This is
+108 CIEDE2000 comparisons against the corrected reference corpus. Main's colour
+math is unchanged between the archived control binary and current base.
+
+| Measurement                        | Shipping main | Candidate |
+| ---------------------------------- | ------------: | --------: |
+| +100 mean fixture band error, L\*  |        16.593 |     7.501 |
+| -100 mean fixture band error, L\*  |         3.695 |     1.922 |
+| +100 mean fixture image DeltaE     |        16.033 |     9.789 |
+| -100 mean fixture image DeltaE     |         7.007 |     6.403 |
+| Baseline mean fixture image DeltaE |         6.417 |     6.397 |
+
+**Every one of the 36 slider-response comparisons improves.** Positive Whites
+also improves mean image DeltaE on all 18 fixtures. Negative Whites improves
+mean image DeltaE on 16/18; the exceptions must not be hidden by the average:
+
+| Fixture, -100 | Image DeltaE main → candidate | Response error L\* main → candidate |
+| ------------- | ----------------------------: | ----------------------------------: |
+| 0015          |                 7.846 → 8.539 |                       3.713 → 2.746 |
+| 0018          |                9.779 → 13.457 |                       4.537 → 1.438 |
+
+Both start darker than ACR, so the previously almost inactive negative slider
+partially cancelled a baseline mismatch. This explains the direction of the
+tradeoff; it does **not** make the final-image regressions disappear. The same
+conflict occurs in Neutral, whose profile is deliberately flatter than ACR.
+A sampled causal analysis of 0013 finds baseline warm midtones too bright and
+blue highlights too dark: weakening Whites helps aggregate bias while exposing
+the bright-midtone p95 tail. It does not establish that no alternative model can
+satisfy both constraints.
+
+Full per-fixture native results are committed in
+`tone-slider-native-auto-2026-09-14.json`. Band masks come from ACR's baseline,
+but each renderer supplies its own edited-minus-baseline delta. No ACR pixel or
+statistic enters the production renderer. These remain calibration-set results,
+not held-out accuracy. The historical 4.19 L\* number is not a shipping claim.
+
+### Sparse Auto-fit correction
+
+Seven glints crossing a hard near-neutral cutoff changed a sparsely supported
+upper tone bin from 28 to 21 samples. Correct highlight recovery changed only
+0.068% of Neutral pixels, yet the old fitted Auto curve changed 29.6% of image
+pixels. The accepted fit borrows sqrt(N) weighted observations from a soft
+neutral neighbourhood while retaining the original hard-neutral core; an
+all-neutral bin retains its exact original mean. This is a bounded heuristic,
+not a formal confidence interval. The existing embedded-JPEG sampling lattice
+is retained, and the Auto-fit cache model version changes from 1 to 2.
+
+All 20 native Auto baseline controls introduce no new budget breaches. On 0007,
+mean DeltaE becomes 1.630 and p95 3.474, fixing those two limits; its isolated
+maximum-colour error remains. The recovery perturbation now changes only 0.031%
+of pixels by more than 1/255, versus 20.63% previously. The 0007 proxy/native fit
+comparison changes mean DeltaE from 1.109 to 1.251, p95 2.111 to 2.108, and
+maximum remains 4.641. That small proxy mean regression is recorded rather than
+claimed as universal improvement. No alternate AgX norm or recovery change is
+adopted.
+
+### Warm rendering and verification
+
+On Apple M5 Max, the 100MP 0000 RAW rendered at a 1732×1155 viewport has warm
+median GPU times of 2.762 / 2.762 / 2.740 ms for Whites 0 / +100 / -100; p95 is
+2.997 / 3.911 / 3.451 ms. Across 180 rotated ticks there are zero new GPU pool
+allocations. The 0007 control's corresponding medians are 2.624 / 3.300 / 2.569
+ms, with maximum 9.211 ms. User background services remained active. These
+measure the existing GPU chain through device completion, excluding cold decode,
+readback, presentation and scanout; they are not whole-UI latency claims.
+Reproduce with `raw-gpu/examples/whites-live-timing.rs`.
+
+Current checks pass: 2,382 raw-core tests (92 ignored), ten GPU AgX checks,
+new NAPI binding compilation, nine selected Apple cached-export/anchor tests,
+seven reference-generator tests, and all four genuine ACR Exposure comparisons.
+Earlier full CPU/GPU/FFI/Windows/WASM/grey qualification is recorded below.
+These checks do not waive the existing absolute-colour gate failures.
+
+Recombining unchanged Neutral outputs, six corrected-reference comparisons and
+the fresh Auto baseline results leaves **19 of the original 76 gated cells
+failing**: five baselines and fourteen Neutral Whites cases. This is explicitly
+a recombination of measurements, not a fresh integrated harness run. Corrected
+references resolve 0011 Whites minimum, 0017 Whites maximum and 0017 Auto
+baseline, but expose 0011 Neutral baseline bias. The sparse Auto-fit correction
+fixes 0007 mean/p95 without fixing its maximum. The original limits are untouched.
+
+The evidence supports the new model as a materially better slider, but does not
+support declaring the branch mergeable under the current acceptance contract.
+Replacing an absolute endpoint gate with response criteria, or accepting any
+known breaches, requires an explicit exception to AGENTS.md's one-way budget
+ratchet. Corrected references and the default Auto profile do not implicitly
+authorize that exception.
 
 ## Exposure: corrected attribution
 
@@ -77,7 +169,7 @@ original input sidecars remain unchanged. Fresh 1024px production Auto renders:
 
 | Fixture | Maple mean ΔL\* (+1 / -1) | ACR mean ΔL\* (+1 / -1) | Band MAE (+1 / -1) |
 | ------- | ------------------------: | ----------------------: | -----------------: |
-| 0002    |          +8.647 / -13.874 |        +9.120 / -13.474 |      1.255 / 1.294 |
+| 0002    |          +8.647 / -13.870 |        +9.120 / -13.474 |      1.255 / 1.293 |
 | 0017    |         +13.041 / -10.999 |       +17.149 / -15.626 |      4.555 / 4.429 |
 
 The whole-image response is close to or weaker than ACR. Retain Exposure's exact
