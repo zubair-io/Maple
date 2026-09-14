@@ -114,6 +114,91 @@ export function getPlatformBinaryFilename(platform = process.platform): string {
 }
 
 /**
+ * Platform-specific napi addon filename, matching napi-rs's own per-platform
+ * naming convention (`<crate>.<platform>-<arch>[-<abi>].node`) for when a
+ * published `@justmaple/maple-<platform>` package carries a prebuilt addon.
+ * Task 9 wires the real build+rename step that produces this on disk for a
+ * published package; this just needs to agree with that naming once it
+ * exists — see `resolvePlatformNapiAddon`'s local-dev fallback below for how
+ * this package resolves an addon before that exists.
+ */
+export function getPlatformNapiFilename(
+  platform = process.platform,
+  arch = process.arch,
+  musl = isMusl(),
+): string {
+  if (platform === 'darwin') return `raw-napi.darwin-${arch === 'arm64' ? 'arm64' : 'x64'}.node`;
+  if (platform === 'win32') return 'raw-napi.win32-x64-msvc.node';
+  const libc = musl ? 'musl' : 'gnu';
+  return `raw-napi.linux-${arch === 'arm64' ? 'arm64' : 'x64'}-${libc}.node`;
+}
+
+/**
+ * The `raw-napi` crate's own cargo-produced dynamic library filename (NOT
+ * renamed to `.node`) — what `cargo build --release -p raw-napi` actually
+ * leaves in a `target` release directory, used only by this function's
+ * local-dev fallback candidates below.
+ */
+function napiCargoLibFilename(platform = process.platform): string {
+  if (platform === 'win32') return 'raw_napi.dll';
+  if (platform === 'darwin') return 'libraw_napi.dylib';
+  return 'libraw_napi.so';
+}
+
+/**
+ * Resolves the napi addon the same way `resolvePlatformPackageLib` resolves
+ * the bun:ffi dylib — installed platform package first, then monorepo-local
+ * dev paths. Returns null (never throws) when nothing matches, so the
+ * caller (`native-napi.ts`) can fall back to bun:ffi.
+ *
+ * The monorepo-dev candidates point straight at `raw-napi`'s own cargo
+ * target dir, at the plain `.dylib`/`.so` cargo produces — NOT renamed to
+ * `.node`. That is deliberate: `native-napi.ts` loads whatever path this
+ * returns via `process.dlopen` rather than `require`, which works
+ * regardless of the file's extension (verified empirically — a bare
+ * `require()` on a `.dylib`-suffixed path throws `Invalid or unexpected
+ * token` on both Node and Bun, since each module loader picks a handler by
+ * extension and neither registers one for `.dylib`/`.so`; `process.dlopen`
+ * is the same primitive their own built-in `.node` loader calls internally,
+ * and Node's own docs recommend it directly over `require()` for loading a
+ * native addon from an ES module — see `native-napi.ts`'s loader).
+ */
+export function resolvePlatformNapiAddon(): string | null {
+  const pkgName = getPlatformPackageName();
+  if (!pkgName) return null;
+  const napiName = getPlatformNapiFilename();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const resolved = require.resolve(`${pkgName}/${napiName}`);
+    if (fs.existsSync(resolved)) return path.resolve(resolved);
+  } catch {}
+
+  const currentDir =
+    (import.meta as { dir?: string }).dir || path.dirname(fileURLToPath(import.meta.url));
+  const shortName = pkgName.replace('@justmaple/maple-', '');
+  const napiCargoTarget = path.join(currentDir, '..', '..', 'raw-pipeline', 'target');
+  const napiLibName = napiCargoLibFilename();
+
+  const candidates = [
+    path.join(currentDir, '..', '..', pkgName, napiName),
+    path.join(currentDir, '..', 'node_modules', pkgName, napiName),
+    path.join(process.cwd(), 'node_modules', pkgName, napiName),
+    path.join(currentDir, '..', 'npm', shortName, napiName),
+    path.join(process.cwd(), 'npm', shortName, napiName),
+    // Local dev: raw-napi's own cargo target dir, matching native.ts's
+    // findNativeLib's own "source-built binary takes priority inside the
+    // monorepo checkout" convention.
+    path.join(napiCargoTarget, 'release', napiLibName),
+    path.join(napiCargoTarget, 'aarch64-apple-darwin', 'release', napiLibName),
+    path.join(napiCargoTarget, 'x86_64-apple-darwin', 'release', napiLibName),
+    path.join(napiCargoTarget, 'x86_64-unknown-linux-gnu', 'release', napiLibName),
+    path.join(napiCargoTarget, 'aarch64-unknown-linux-gnu', 'release', napiLibName),
+    path.join(napiCargoTarget, 'x86_64-pc-windows-msvc', 'release', napiLibName),
+  ];
+  return candidates.find((c) => fs.existsSync(c)) ?? null;
+}
+
+/**
  * Resolves the native shared library from an installed platform package in node_modules.
  */
 export function resolvePlatformPackageLib(): string | null {
