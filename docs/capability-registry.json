@@ -55,8 +55,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
@@ -154,8 +154,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
@@ -280,8 +280,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
@@ -383,8 +383,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "synthetic_grey",
@@ -465,8 +465,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "gpu_chain_parity_metal",
@@ -739,18 +739,18 @@
         "src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs"
       ],
       "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
-      "status": "stale_corpus",
+      "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
         "pipeline_version": 5,
         "schema_version": 5,
-        "corpus_hash": "blake3:462f871fe4a5b14a5e20908b583252ef5254e2c6a856aef1147c49282d8a54eb",
-        "expected_cases": 39,
-        "executed_cases": 39,
+        "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
+        "expected_cases": 41,
+        "executed_cases": 41,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ed9ebdbd0f34029af2ec56b259afe761b7f648bd",
-        "recorded_at": "2026-09-13T10:49:01Z",
+        "git_sha": "7b3377d0debddad9f11aad4cd5450abdc578fb62",
+        "recorded_at": "2026-09-14T06:01:17Z",
         "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
