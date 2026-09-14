@@ -44,3 +44,7 @@ export declare function shutdownMaplePool(): void;
 /** Test-only: drop the pool/config singletons so the next call rebuilds them
  *  (e.g. to pick up a just-changed `MAPLE_WORKER_CONCURRENCY`). */
 export declare function _resetMaplePoolForTests(): void;
+/** Test-only: the live `Worker` currently serving an in-flight request, if
+ *  any — see `NativeWorkerPool.getBusyWorkerForTests`. Returns `null` if the
+ *  pool hasn't been created yet or no worker is currently busy. */
+export declare function _getBusyMapleWorkerForTests(): Worker | null;

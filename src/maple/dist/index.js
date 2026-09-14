@@ -895,19 +895,23 @@ class NativeWorkerPool {
       return;
     if (response.ok) {
       const restored = restoreFromTransfer(response.result);
-      setTimeout(() => pending.resolve(restored), 0);
+      setImmediate(() => pending.resolve(restored));
     } else {
       const err = new Error(response.error || "Maple native call failed");
-      setTimeout(() => pending.reject(err), 0);
+      setImmediate(() => pending.reject(err));
     }
   }
   handleWorkerDeath(poolWorker, message) {
     this.workers = this.workers.filter((w) => w !== poolWorker);
-    if (poolWorker.busyWith !== null) {
-      const pending = this.pending.get(poolWorker.busyWith);
-      this.pending.delete(poolWorker.busyWith);
+    const failedRequestId = poolWorker.busyWith;
+    poolWorker.busyWith = null;
+    poolWorker.worker.terminate();
+    poolWorker.worker.unref?.();
+    if (failedRequestId !== null) {
+      const pending = this.pending.get(failedRequestId);
+      this.pending.delete(failedRequestId);
       if (pending)
-        setTimeout(() => pending.reject(new Error(message)), 0);
+        setImmediate(() => pending.reject(new Error(message)));
     }
     this.pumpQueue();
   }
@@ -928,6 +932,9 @@ class NativeWorkerPool {
       if (next)
         this.send(worker, next);
     }
+  }
+  getBusyWorkerForTests() {
+    return this.workers.find((w) => w.busyWith !== null)?.worker ?? null;
   }
   shutdown() {
     this.shuttingDown = true;
