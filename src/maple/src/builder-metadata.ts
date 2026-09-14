@@ -17,7 +17,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
 import { isRawPath, type BuilderState } from './builder-state';
-import { loadNativeBinding } from './native';
+import { callNative } from './worker-pool';
 import type { ChannelStats, ImageMetadata, ImageStats, RawPixelInput } from './types';
 
 /** Run one `{v:1,what:[...]}` analyze request against `bytes`. */
@@ -25,8 +25,7 @@ async function analyzeBytes(
   bytes: Uint8Array,
   what: ('metadata' | 'stats')[],
 ): Promise<Record<string, unknown>> {
-  const native = loadNativeBinding();
-  const res = native.rasterAnalyzeBuf(bytes, JSON.stringify({ v: 1, what }));
+  const res = await callNative('rasterAnalyzeBuf', [bytes, JSON.stringify({ v: 1, what })]);
   if (!res.ok || !res.json) {
     throw new Error(res.error || 'Failed to analyze image');
   }
@@ -78,8 +77,7 @@ function statsFromReply(reply: Record<string, unknown>): ImageStats {
 
 /** The header-only probe Tier 1 used for any file path, unchanged for a RAW file. */
 async function tier1PathMetadata(inputPath: string): Promise<ImageMetadata> {
-  const native = loadNativeBinding();
-  const res = native.rasterProbeMetadata(inputPath);
+  const res = await callNative('rasterProbeMetadata', [inputPath]);
   if (!res.ok || !res.metadata) {
     throw new Error(res.error || `Failed to probe metadata for ${inputPath}`);
   }
@@ -136,7 +134,7 @@ export async function resolveMetadata(state: BuilderState): Promise<ImageMetadat
   }
 
   if (state.inputBytes) {
-    const probe = loadNativeBinding().rasterProbeMetadataBuf(state.inputBytes);
+    const probe = await callNative('rasterProbeMetadataBuf', [state.inputBytes]);
     if (probe.ok && probe.metadata?.format === 'dng') {
       return tier1BufMetadata(probe.metadata);
     }
@@ -153,7 +151,7 @@ export async function resolveMetadata(state: BuilderState): Promise<ImageMetadat
   // `dng` and route to the header-only probe, the same check the
   // `inputBytes` branch above already makes. analyze()'s bitmap reader is
   // untested against RAW containers.
-  const probe = loadNativeBinding().rasterProbeMetadataBuf(bytes);
+  const probe = await callNative('rasterProbeMetadataBuf', [bytes]);
   if (probe.ok && probe.metadata?.format === 'dng') {
     return tier1BufMetadata(probe.metadata);
   }
@@ -161,9 +159,8 @@ export async function resolveMetadata(state: BuilderState): Promise<ImageMetadat
 }
 
 /** Normalise a raw pixel buffer to a lossless PNG so `analyze()` can decode it. */
-function renderRawInputToPng(r: RawPixelInput): Buffer {
-  const native = loadNativeBinding();
-  const png = native.rasterFromRawRenderBuf(
+async function renderRawInputToPng(r: RawPixelInput): Promise<Buffer> {
+  const png = await callNative('rasterFromRawRenderBuf', [
     r.data,
     r.width,
     r.height,
@@ -175,7 +172,7 @@ function renderRawInputToPng(r: RawPixelInput): Buffer {
     'png',
     0,
     0,
-  );
+  ]);
   if (!png.ok || !png.buffer) {
     throw new Error(png.error || 'Failed to normalise raw pixels for stats');
   }
@@ -200,7 +197,7 @@ export async function resolveStats(state: BuilderState): Promise<ImageStats> {
     return statsFromReply(await analyzeBytes(developed, ['stats']));
   }
   if (state.rawInput) {
-    return statsFromReply(await analyzeBytes(renderRawInputToPng(state.rawInput), ['stats']));
+    return statsFromReply(await analyzeBytes(await renderRawInputToPng(state.rawInput), ['stats']));
   }
   const bytes = state.inputBytes ?? (state.inputPath ? await fs.readFile(state.inputPath) : null);
   if (!bytes) {
@@ -212,7 +209,7 @@ export async function resolveStats(state: BuilderState): Promise<ImageStats> {
   // is untested against RAW containers (mirrors `resolveMetadata`'s same
   // content-sniff fallback).
   if (state.inputPath && !isRawDevelop(state)) {
-    const probe = loadNativeBinding().rasterProbeMetadataBuf(bytes);
+    const probe = await callNative('rasterProbeMetadataBuf', [bytes]);
     if (probe.ok && probe.metadata?.format === 'dng') {
       const developed = await rawDevelopToBuffer(state, (out) => rawDevelopToFile(state, out));
       return statsFromReply(await analyzeBytes(developed, ['stats']));
