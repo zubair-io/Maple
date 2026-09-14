@@ -21,6 +21,7 @@
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as path from 'node:path';
 import { loadNativeBinding, type NativeBinding } from './native';
+import { tryLoadNapiBinding } from './native-napi';
 import { restoreFromTransfer, type WorkerRequest, type WorkerResponse } from './worker-protocol';
 
 export type MapleExecutionMode = 'worker' | 'sync';
@@ -263,10 +264,28 @@ function getPool(): NativeWorkerPool {
 }
 
 /**
- * Call one `NativeBinding` method by name. In the default `'worker'`
- * execution mode this posts to the worker pool and never touches the
- * caller's event loop; in `'sync'` mode it calls straight through to
- * `loadNativeBinding()` on the caller's own thread (the escape hatch).
+ * Call one `NativeBinding` method by name.
+ *
+ * - `'sync'` execution mode calls straight through to `loadNativeBinding()`
+ *   (`bun:ffi`) on the caller's own thread — the pre-#3508 escape hatch for a
+ *   caller with its own off-thread strategy. A caller who explicitly asked
+ *   for this synchronous escape hatch is asking for that same-thread
+ *   `bun:ffi` behavior specifically, not for napi's off-thread-but-still-
+ *   fast path, so this mode never tries napi.
+ * - Otherwise, the `raw-napi` addon (#3509) is tried first when one is
+ *   resolvable for this platform (Node **and** Bun, when a matching addon is
+ *   installed) — its `Task`/`AsyncTask` bindings already run off the JS
+ *   thread on N-API's own libuv worker pool, so no dispatch through this
+ *   package's own `Worker` pool is needed on that path at all.
+ * - Falling that, the call posts to the `bun:ffi` worker pool as before.
+ *
+ * A method absent from the resolved napi binding (there is exactly one:
+ * `lastError`, which napi implements as a stub — see `native-napi.ts` — so
+ * this only matters for a genuinely unknown method name reaching here, e.g.
+ * a caller that bypassed the type system) falls through to the worker pool
+ * rather than throwing here, so the pool's own "unknown native method" error
+ * still surfaces the same way regardless of whether a napi addon happens to
+ * be installed.
  */
 export async function callNative<K extends keyof NativeBinding>(
   method: K,
@@ -276,6 +295,15 @@ export async function callNative<K extends keyof NativeBinding>(
     const native = loadNativeBinding();
     const fn = native[method] as unknown as (...a: unknown[]) => unknown;
     return fn.apply(native, args) as ReturnType<NativeBinding[K]>;
+  }
+  const napi = tryLoadNapiBinding();
+  const napiFn = napi
+    ? ((napi as unknown as Record<string, unknown>)[method as string] as
+        | ((...a: unknown[]) => unknown)
+        | undefined)
+    : undefined;
+  if (typeof napiFn === 'function') {
+    return (await napiFn.apply(napi, args)) as ReturnType<NativeBinding[K]>;
   }
   const result = await getPool().dispatch(method as string, args);
   return result as ReturnType<NativeBinding[K]>;
