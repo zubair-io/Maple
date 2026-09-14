@@ -57,7 +57,7 @@ describe('StageRegistry.statuses() pre-registration', () => {
     stageRegistry.register('exif', fakeEntry({ targetVersion: 4 }));
     const s = stageRegistry.statuses();
     expect(s.exif).toEqual({
-      status: 'running',
+      status: 'idle',
       inFlight: 0,
       throughput: 0,
       targetVersion: 4,
@@ -93,11 +93,18 @@ describe('StageRegistry.statuses() pre-registration', () => {
   it("after unregister(), the pre-registered stub re-appears with 'stopped'", () => {
     stageRegistry.preregister('thumb', 2);
     stageRegistry.register('thumb', fakeEntry({ targetVersion: 2 }));
-    expect(stageRegistry.statuses().thumb!.status).toBe('running');
+    expect(stageRegistry.statuses().thumb!.status).toBe('idle');
     stageRegistry.unregister('thumb');
     // Stage stopped — should still surface as 'stopped' so the UI shows
     // the row instead of dropping it (matches old supervisor contract).
     expect(stageRegistry.statuses().thumb!.status).toBe('stopped');
+  });
+
+  it("reports 'running' when inFlight > 0 and 'idle' when inFlight === 0", () => {
+    stageRegistry.register('thumb', fakeEntry({ targetVersion: 2, getInFlight: () => 3 }));
+    expect(stageRegistry.statuses().thumb!.status).toBe('running');
+    stageRegistry.register('thumb', fakeEntry({ targetVersion: 2, getInFlight: () => 0 }));
+    expect(stageRegistry.statuses().thumb!.status).toBe('idle');
   });
 
   it('preregister is idempotent — re-calling updates targetVersion in place', () => {

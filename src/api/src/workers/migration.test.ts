@@ -45,12 +45,12 @@ afterAll(async () => {
 describe('startMigration — registration & control', () => {
   beforeEach(() => stageRegistry._resetForTests());
 
-  it('registers under the migration name and reports running by default', () => {
+  it('registers under the migration name and reports idle by default', () => {
     const handle = startMigration({ intervalMs: 60_000 });
     try {
       expect(stageRegistry.has(MIGRATION_WORKER_NAME)).toBe(true);
       const s = stageRegistry.statuses()[MIGRATION_WORKER_NAME];
-      expect(s?.status).toBe('running');
+      expect(s?.status).toBe('idle');
       expect(s?.dependsOn).toEqual([]); // not a claim stage
     } finally {
       handle.stop();
@@ -63,7 +63,7 @@ describe('startMigration — registration & control', () => {
     await stageRegistry.pause(MIGRATION_WORKER_NAME);
     expect(stageRegistry.statuses()[MIGRATION_WORKER_NAME]?.status).toBe('paused');
     await stageRegistry.resume(MIGRATION_WORKER_NAME);
-    expect(stageRegistry.statuses()[MIGRATION_WORKER_NAME]?.status).toBe('running');
+    expect(stageRegistry.statuses()[MIGRATION_WORKER_NAME]?.status).toBe('idle');
     handle.stop();
     expect(stageRegistry.has(MIGRATION_WORKER_NAME)).toBe(false);
   });
