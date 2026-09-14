@@ -117,6 +117,8 @@ extension RenderActor {
     let profileLUT: CIFilter?
     let lutSourceURL: URL?
     if canReuseCachedDecode {
+      // Reusing cached decode must avoid triggering remote downloads (#3627).
+      // In live editor sessions, rawRenderSource already retains the staged file URL.
       lutSourceURL = await rawRenderSource.stagedURLIfAvailable(for: asset)
     } else {
       lutSourceURL = try? await rawRenderSource.url(for: asset)

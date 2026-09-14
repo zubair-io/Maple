@@ -96,7 +96,7 @@ extension EditSession {
     // CIImage graph below — see `EditSession+FilmExport.swift` for why.
     // Returns `nil` (falls through) for every other case: no look,
     // non-RAW, sourceless, or an FFI render failure.
-    if !isFast, let filmExport = try await renderExportWithFilmLook(quality: qualityOverride) {
+    if !isFast, let filmExport = try await renderExportWithFilmLook() {
       return filmExport
     }
     // Resolve the look BEFORE the render (#3190 review follow-up): a

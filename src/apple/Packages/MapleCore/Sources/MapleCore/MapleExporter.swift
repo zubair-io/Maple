@@ -40,13 +40,13 @@ public struct ExportOptions: Sendable {
   public var sizeOption: ExportSizeOption
 
   public static let defaults = ExportOptions(
-    format: .jpegSRGB, quality: 0.92, maxSidePixels: nil, sizeOption: .fast)
+    format: .jpegSRGB, quality: 0.92, maxSidePixels: nil, sizeOption: .full)
 
   public init(
     format: ExportFileFormat,
     quality: Double = 0.92,
     maxSidePixels: Int? = nil,
-    sizeOption: ExportSizeOption = .fast
+    sizeOption: ExportSizeOption = .full
   ) {
     self.format = format
     self.quality = quality

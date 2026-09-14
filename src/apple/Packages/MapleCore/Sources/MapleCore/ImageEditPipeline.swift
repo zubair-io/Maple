@@ -1088,7 +1088,14 @@ public actor ImageEditPipeline {
   ///
   /// Also reuses `ffiInputBufferCache` (#1959/#2083) exactly like
   /// `applySceneLinearChainViaFFI` — same key, same weak identity anchor,
-  /// same #2042 bounded-target gate via `decodedSource`.
+  /// same #2042 bounded-target gate via `readbackCacheAnchor`.
+  ///
+  /// - Parameters:
+  ///   - scaled: The decoded scene-linear CIImage being developed (consumed directly by the FFI via `CIContext.render`).
+  ///     Rust's fused FFI chain processes these in-memory bytes and does NOT re-decode from disk.
+  ///   - readbackCacheAnchor: Optional identity anchor for `ffiInputBufferCache`. Passing `nil` on unbounded (nil
+  ///     `targetSize`) full-res exports skips caching to prevent pinning multi-gigabyte buffers in memory (#2042),
+  ///     while `scaled` is still evaluated directly for the FFI.
   ///
   /// Deliberately does NOT consult/populate `sceneLinearChainCache` (#661):
   /// that cache stores the CHAIN-ONLY (pre-encode) CIImage, which this
@@ -1113,7 +1120,7 @@ public actor ImageEditPipeline {
     skipAgX: Bool,
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
-    decodedSource: CIImage?,
+    readbackCacheAnchor: CIImage? = nil,
     targetPrimaries: CanvasColorSpace = .srgb
   ) -> CIImage? {
     let extent = scaled.extent
@@ -1137,7 +1144,7 @@ public actor ImageEditPipeline {
 
     // Same input-readback cache check as `applySceneLinearChainViaFFI` —
     // see that function's #1959 comment for the correctness argument.
-    let inputCacheKey: FFIInputBufferCache.Key? = decodedSource.map { d in
+    let inputCacheKey: FFIInputBufferCache.Key? = readbackCacheAnchor.map { d in
       FFIInputBufferCache.Key(decodedID: ObjectIdentifier(d), width: w, height: h)
     }
 
@@ -1146,8 +1153,8 @@ public actor ImageEditPipeline {
     // lifetime to this call, before the (single) output buffer here.
     return autoreleasepool {
       let inputBytes: Data
-      if let inputCacheKey, let decodedSource,
-        let cachedBytes = ffiInputBufferCache.get(inputCacheKey, decoded: decodedSource)
+      if let inputCacheKey, let readbackCacheAnchor,
+        let cachedBytes = ffiInputBufferCache.get(inputCacheKey, decoded: readbackCacheAnchor)
       {
         inputBytes = cachedBytes
       } else {
@@ -1168,8 +1175,8 @@ public actor ImageEditPipeline {
           logger.error("applyChainAndEncodeViaFusedFFI: CIContext.render failed; falling through")
           return nil
         }
-        if let inputCacheKey, let decodedSource {
-          ffiInputBufferCache.put(inputCacheKey, freshBytes, decoded: decodedSource)
+        if let inputCacheKey, let readbackCacheAnchor {
+          ffiInputBufferCache.put(inputCacheKey, freshBytes, decoded: readbackCacheAnchor)
         }
         inputBytes = freshBytes
       }
@@ -1444,7 +1451,7 @@ public actor ImageEditPipeline {
             scaled, model: model,
             decodedTemperature: 6500.0, decodedTint: 0.0,
             skipAgX: true,
-            decodedSource: targetSize != nil ? decoded : nil,
+            readbackCacheAnchor: targetSize != nil ? decoded : nil,
             // No Auto Profile cube on the non-RAW path, so this
             // is always safe to honor the canvas setting directly
             // (#3190) UNLESS the caller is about to composite an
@@ -1643,7 +1650,7 @@ public actor ImageEditPipeline {
             skipAgX: false,
             noiseProfile: noiseProfile,
             iso: iso,
-            decodedSource: targetSize != nil ? decoded : nil,
+            readbackCacheAnchor: targetSize != nil ? decoded : nil,
             // #3190: an Auto Profile cube is fit/baked in sRGB —
             // applying it to a P3-encoded buffer would be a
             // color-space mismatch (the cube's LUT domain no
