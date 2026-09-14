@@ -71,6 +71,16 @@ napi-derive = "3"
 # crate's later bindings call is AVIF-only, so there is no build variant of
 # raw-napi that does not need it.
 raw-core = { path = "../raw-core", features = ["avif"] }
+# `image` (#3509 Task 6): `develop_preview.rs`'s `render_develop_jpeg_to_file`
+# wraps the develop chain's raw RGB888 buffer in `image::RgbImage` /
+# `image::DynamicImage` before handing it to `raw_core::preview::resize_long_edge`
+# — the same external `image` crate `raw-ffi/src/render_develop.rs` depends on
+# directly for the identical reason (`raw_core::image` is raw-core's OWN
+# module, `Image`/`RawImage`/`ExifOrientation`, and is NOT this crate — the
+# two share a name but nothing else). Workspace-pinned so the version matches
+# what `raw-core` itself already links; no new feature set beyond the
+# workspace default.
+image.workspace = true
 
 [build-dependencies]
 # NOTE: the `2` line, not `3` — napi-build versions independently of `napi`
