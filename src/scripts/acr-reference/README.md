@@ -30,11 +30,6 @@ python3 src/scripts/acr-reference/run.py \
 # 2. Drive Photoshop headlessly.
 ./src/scripts/acr-reference/render.sh
 
-# 3. Clean up <raw>.xmp sidecars left next to each RAW.
-python3 src/scripts/acr-reference/run.py \
-  --raws test-fixtures/raws/test_*.* \
-  --out  test-fixtures/references/ \
-  --cleanup-only
 ```
 
 Expected Photoshop runtime: ~4–5 minutes per RAW → **~75–90 minutes total** for
@@ -42,18 +37,32 @@ all 18 RAWs. Expected disk: **~38 GB** of PNGs (`down/` ≈ 2.7 GB + `full/` ≈
 
 ## Design notes
 
-### XMPs are copied, not generated
+### Authored inputs and explicit Adobe render settings
 
-`run.py` uses `test_0000/xmp/*.xmp` as the canonical case set. Each new
-RAW's `xmp/` directory receives byte-identical copies. Rationale: the
-canonical XMPs already drove the 176 committed PNGs for test_0000/0001/0003;
-re-emitting them from slider values risks a whitespace/attribute-order
-drift that would silently invalidate those references.
+`run.py` keeps each `xmp/` copy byte-identical to the canonical case under
+`test_0000/xmp/`. The manifest's `xmp` remains Maple's input. A separate
+`acr-xmp/` sidecar, referenced by `acr_xmp`, pins omitted Adobe controls to
+neutral values while preserving explicit case overrides and unknown XML.
+This includes tone, point curves, white balance, lens/CA, geometry and detail
+settings. Missing white balance is As Shot; derived temperature/tint is not
+an override. Explicit custom curves retain their points and name.
 
-`matrix.py` still encodes the slider semantics as prose for documentation,
-and `write_xmp.py` is the reusable copy primitive. If a case ever needs
-to be retuned, edit the canonical XMP under `test_0000/xmp/<case>.xmp`
-and re-run `run.py` to propagate.
+This separation matters: Adobe's `LensProfileEnable=0` disables its optional
+lens profile, while Maple currently interprets that sidecar field as disabling
+embedded DNG opcodes too. Do not propagate Adobe-only defaults into Maple inputs.
+
+For #3633, effective PNG metadata revealed inherited lens/CA settings in five
+fixtures and Whites/Blacks/Clarity in test_0015, despite their omission from the
+paired XMP. `render.sh` now verifies every saved PNG against the explicit Adobe
+sidecar and fails on missing metadata or mismatched effective settings. Old
+manifests must be regenerated before rendering. Reference replacements still
+require geometry and perceptual checks; existing budgets cannot increase.
+
+Run the focused XML, manifest and PNG metadata tests with:
+
+```bash
+python3 -m unittest discover -s src/scripts/acr-reference -p 'test_*.py'
+```
 
 ### Sandbox → Mac path translation
 
@@ -72,8 +81,11 @@ layout differs.
   application silences everything else.
 - `doc.close(SaveOptions.DONOTSAVECHANGES)` guarantees the RAW is never
   modified.
-- Sidecar cleanup happens in both `acr_batch.jsx` (last-processed RAW)
-  and `run.py --cleanup-only` (all RAWs). Running both is idempotent.
+- Each case restores any prior raw-adjacent sidecar byte-for-byte, including
+  after a render failure. If none existed, the temporary sidecar is removed.
+  Only the document opened for that case is closed; unrelated documents and
+  application preferences are preserved. `--cleanup-only` is a legacy recovery
+  tool, not a step in a new render.
 
 ## Rename map — original filenames → test_NNNN
 

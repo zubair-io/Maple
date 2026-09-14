@@ -33,7 +33,7 @@ def verify_corpus():
     for fixture in FIXTURES:
         for case in ("baseline", *CASES):
             record = provenance["fixtures"][fixture]["cases"][case]
-            for extension in ("png", "xmp"):
+            for extension in ("png", "xmp", "acr.xmp"):
                 path = CORPUS / fixture / f"{case}.{extension}"
                 if sha256(path) != record[f"{extension}_sha256"]:
                     raise ValueError(f"reference integrity mismatch: {path}")

@@ -29,25 +29,28 @@
       "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
       "cases": {
         "baseline": {
-          "png_sha256": "a2f6066f7027a3784f425609afc5c65aa8f6f69a00655f6dd82c24198f0043af",
-          "source_4000px_png_sha256": "86b8841009929b7c1156eb60a9a071ad595171bf334a993e3382554bab29fdb8",
+          "png_sha256": "e6d39bc7478f7282dc95832e0d2227174d70b4113fdc6ac6d527fe95b9962760",
+          "source_4000px_png_sha256": "ead741081cb062f57bb0cd79c97658b10cd470936330e8a8cdcdee7e6ee71b71",
           "xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
           "width": 1024,
-          "height": 768
+          "height": 768,
+          "acr.xmp_sha256": "a7d60c2989636261d36396e563645e4e65f67314faa46c6ccda9eda594c83f02"
         },
         "exposure_p1": {
-          "png_sha256": "873da7084091203dbed7ab1bb597ef46d0c02db59d117f2f34c09bb4a4a3a19e",
-          "source_4000px_png_sha256": "c4fb3a24cfd5904d4ea534868bd1258a8183b237132ad90d2f47387e4cec276c",
+          "png_sha256": "c8d9f4456a7daae3b5dcc06153a831ebf1f171675b027f0ba5fbe8e4b22a226b",
+          "source_4000px_png_sha256": "ff7400162188b0331cb535677f1f48b732f79b987df82a5f6906ff4c6fa8965e",
           "xmp_sha256": "f808b49e2f998aa8e88b1659c7b887da682c2cd1bf8b2bcfa65b4027a34d53e7",
           "width": 1024,
-          "height": 768
+          "height": 768,
+          "acr.xmp_sha256": "58befdb6c99c23c22287f7785f460ef7f423e97b23a0321ce3640ee33faead69"
         },
         "exposure_m1": {
-          "png_sha256": "576eaeca419d0a44378ba2e0dda74ae4a5315e454c59343f4c6ee2547c25873e",
-          "source_4000px_png_sha256": "458bdb92d3d0dfc07730ae9a371feca340c69bf7ade29e6ea031d1c47df4b12c",
+          "png_sha256": "71409d14c1bffed2970af82d9d344573cbee433db16bb7e747e7d8fb09b874e2",
+          "source_4000px_png_sha256": "43a0e9080bbf98623c9a9f9271853c67e37adaec571eed342b12dbcb5ee5b0c6",
           "xmp_sha256": "02bd84ee74d37ec8ae4b09912077d18487c7448789584bfc528ee605573815d5",
           "width": 1024,
-          "height": 768
+          "height": 768,
+          "acr.xmp_sha256": "c89c79c0965ffa282141f8e869a08c847831cc3bb231589bffee37c6cf8e554a"
         }
       }
     },
@@ -56,25 +59,28 @@
       "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
       "cases": {
         "baseline": {
-          "png_sha256": "fb0b217187c10d37f40e7bee3f5cd8e73824d84217d040eb8750c2d51597e24b",
-          "source_4000px_png_sha256": "5bf72016fd42b57a8b445f5d3d4daa2b6731238b1b2e1780bc2fb0c9e75ebe54",
+          "png_sha256": "2e013dbf62c35bc896c9661fd2430b2c3b6c4e7d0d8e13992cae0f007705476b",
+          "source_4000px_png_sha256": "e36304086541de76cca4c716479a3ca2bb1cfd73b65927a7b93f3ac5a0d344a6",
           "xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
           "width": 1024,
-          "height": 683
+          "height": 683,
+          "acr.xmp_sha256": "a7d60c2989636261d36396e563645e4e65f67314faa46c6ccda9eda594c83f02"
         },
         "exposure_p1": {
-          "png_sha256": "bc4f2df6920abdd2eba8356b9a77be788aeb74b8c6959cef89b2ecea62df5662",
-          "source_4000px_png_sha256": "478ae9673f6f9b3cc45f880425d6e4eee986736a14286764f26684bcaff0f181",
+          "png_sha256": "dfb078a2bce68cccfd1401c2ab3c10d18703f652594663cd17f38c587de3d3b3",
+          "source_4000px_png_sha256": "969b2c8ce4b730fbbe3689928e1b34bf73a4bfabfddb46db4cc90840a9b18bb8",
           "xmp_sha256": "f808b49e2f998aa8e88b1659c7b887da682c2cd1bf8b2bcfa65b4027a34d53e7",
           "width": 1024,
-          "height": 683
+          "height": 683,
+          "acr.xmp_sha256": "58befdb6c99c23c22287f7785f460ef7f423e97b23a0321ce3640ee33faead69"
         },
         "exposure_m1": {
-          "png_sha256": "f192af7a26c10544fb2a1086872052d05dfd508e7144e346688e489a5a8fd9b4",
-          "source_4000px_png_sha256": "17a1d9bcc517733559413c8301127150bb047ed4679482ed68c539c9d686051b",
+          "png_sha256": "52907ad63f423f9463841e220d0eceea35c4816a254c3ba69e88e3abd4e1dd23",
+          "source_4000px_png_sha256": "9c7b86d433d07bad5ba00402a876010cb84d526d926b6517420a17f40023ad9b",
           "xmp_sha256": "02bd84ee74d37ec8ae4b09912077d18487c7448789584bfc528ee605573815d5",
           "width": 1024,
-          "height": 683
+          "height": 683,
+          "acr.xmp_sha256": "c89c79c0965ffa282141f8e869a08c847831cc3bb231589bffee37c6cf8e554a"
         }
       }
     }
@@ -92,5 +98,8 @@
   "reference_baseline_validation_1024_mean_delta_e": {
     "test_0002": 0.0,
     "test_0017": 8.592065794864473e-07
-  }
+  },
+  "reference_settings": "Adobe-only .acr.xmp files pin neutral defaults and disable optional lens profile/CA (#3633); .xmp files retain original Maple inputs.",
+  "supersedes": "Unpublished prototype test_0017 refs inherited optional Adobe lens correction; corrected geometry verified before initial budgets.",
+  "settings_audit": "All six source and committed PNGs match explicit Adobe sidecars; original effective XMP is retained in resized PNG metadata."
 }
