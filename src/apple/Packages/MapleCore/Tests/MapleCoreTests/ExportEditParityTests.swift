@@ -111,7 +111,12 @@ final class ExportEditParityTests: XCTestCase {
         return Data()
       }
     )
-    let actor = RenderActor(pipeline: ImageEditPipeline())
+    let rawSource = RawRenderSource(asset: asset)
+    // In an EditSession, the remote RAW is staged once during initial decode:
+    _ = try await rawSource.url(for: asset)
+    XCTAssertEqual(counter.value, 1, "Initial session decode stages the remote RAW once")
+
+    let actor = RenderActor(pipeline: ImageEditPipeline(), rawRenderSource: rawSource)
     var model = AdjustmentModel.default
     model.exposure = 0.5
     await actor._testSeedDecodedCache(
@@ -133,8 +138,33 @@ final class ExportEditParityTests: XCTestCase {
     )
 
     XCTAssertEqual(
-      counter.value, 0, "Fast export must reuse cached decode without invoking bytesProvider")
+      counter.value, 1,
+      "Fast export must reuse cached decode and staged file without invoking bytesProvider again")
     XCTAssertEqual(exported.extent.size, targetSize)
+  }
+
+  func testExportThrowsWhenAutoProfileCannotBeLoaded() async throws {
+    struct TestFetchError: Error, Equatable {}
+    let asset = AssetRef(
+      displayName: "offline.cr2",
+      hintExtension: "cr2",
+      bytesProvider: { throw TestFetchError() }
+    )
+    let actor = RenderActor(pipeline: ImageEditPipeline())
+    var model = AdjustmentModel.default
+    model.profile = .auto
+    do {
+      _ = try await actor.renderForExport(
+        asset: asset,
+        model: model,
+        asShot: nil,
+        targetSize: CGSize(width: 256, height: 256),
+        qualityOverride: .preview
+      )
+      XCTFail("Export must throw when Auto Profile cannot stage/fetch")
+    } catch {
+      // Expected to throw rather than silently outputting wrong-color render (#3627)
+    }
   }
 
   func testFastExportReusesDecodedImageForNonRawWithoutReDecoding() async throws {
