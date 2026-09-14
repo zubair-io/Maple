@@ -544,6 +544,66 @@ function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
   };
 }
 
+// src/native-napi.ts
+function wrap(fn) {
+  return fn;
+}
+function loadNapiModule(addonPath) {
+  const mod = { exports: {} };
+  process.dlopen(mod, addonPath);
+  return mod.exports;
+}
+var cached;
+var lastLoadError = null;
+function getNapiLoadError() {
+  return lastLoadError;
+}
+function tryLoadNapiBinding() {
+  if (cached !== undefined)
+    return cached;
+  if (process.env.MAPLE_NAPI === "0") {
+    lastLoadError = new Error("napi disabled via MAPLE_NAPI=0");
+    cached = null;
+    return null;
+  }
+  const addonPath = resolvePlatformNapiAddon();
+  if (!addonPath) {
+    lastLoadError = new Error(`no raw-napi addon found for ${process.platform}-${process.arch}`);
+    cached = null;
+    return null;
+  }
+  try {
+    const addon = loadNapiModule(addonPath);
+    const binding = {
+      renderFilenameTemplate: wrap((args) => addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined })),
+      validateFilename: wrap((name) => addon.validateFilename(name)),
+      rasterProbeMetadata: wrap((inputPath) => addon.rasterProbeMetadata(inputPath)),
+      rasterProbeMetadataBuf: wrap((inputBytes) => addon.rasterProbeMetadataBuf(inputBytes)),
+      rasterDecodeRgb8Buf: wrap((inputBytes, autoOrient) => addon.rasterDecodeRgb8Buf(inputBytes, autoOrient)),
+      rasterRenderBuf: wrap((inputBytes, width, height, flags, filter, format, quality, effort) => addon.rasterRenderBuf(inputBytes, width, height, flags, filter, format, quality, effort)),
+      rasterFromRawRenderBuf: wrap((pixels, srcWidth, srcHeight, channels, width, height, flags, filter, format, quality, effort) => addon.rasterFromRawRenderBuf(pixels, srcWidth, srcHeight, channels, width, height, flags, filter, format, quality, effort)),
+      rasterResizeToFile: wrap((inputPath, outPath, width, height, fit, format, quality) => addon.rasterResizeToFile(inputPath, outPath, width, height, fit, format, quality)),
+      rasterResizeToBuf: wrap((inputBytes, width, height, fit, format, quality) => addon.rasterResizeToBuf(inputBytes, width, height, fit, format, quality)),
+      rasterExtractTensor: wrap((inputBytes, targetSize, layout, normalize) => addon.rasterExtractTensor(inputBytes, targetSize, layout, normalize)),
+      rasterPipelineBuf: wrap((input, recipeJson, aux) => addon.rasterPipelineBuf(input, recipeJson, aux)),
+      rasterAnalyzeBuf: wrap((input, requestJson) => addon.rasterAnalyzeBuf(input, requestJson)),
+      exportDevelopedToFile: wrap((rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath) => addon.exportDevelopedToFile(rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath)),
+      exportRecipeToFile: wrap((rawPath, xmpXml, recipeJson, filmPath, outPath) => addon.exportRecipeToFile(rawPath, xmpXml, recipeJson, filmPath, outPath)),
+      renderThumbnailAvifToFile: wrap((rawPath, outPath, maxPx, quality) => addon.renderThumbnailAvifToFile(rawPath, outPath, maxPx, quality ?? 55)),
+      renderThumbnailPreviewJpegToFile: wrap((rawPath, outPath, maxPx, quality) => addon.renderThumbnailPreviewJpegToFile(rawPath, outPath, maxPx, quality ?? 85)),
+      renderDevelopJpegToFile: wrap((rawPath, xmpPath, outPath, maxPx, quality) => addon.renderDevelopJpegToFile(rawPath, xmpPath, outPath, maxPx, quality ?? 85)),
+      lastError: () => null
+    };
+    cached = binding;
+    lastLoadError = null;
+    return binding;
+  } catch (e) {
+    lastLoadError = e instanceof Error ? e : new Error(String(e));
+    cached = null;
+    return null;
+  }
+}
+
 // src/native.ts
 var RENDER_OUT_CAP = 1024;
 var _cachedBinding = undefined;
@@ -766,9 +826,15 @@ function loadNativeBinding() {
   return binding;
 }
 function renderFilenameTemplate(args) {
+  const napi = tryLoadNapiBinding();
+  if (napi)
+    return napi.renderFilenameTemplate(args);
   return loadNativeBinding().renderFilenameTemplate(args);
 }
 function validateFilename(name) {
+  const napi = tryLoadNapiBinding();
+  if (napi)
+    return napi.validateFilename(name);
   return loadNativeBinding().validateFilename(name);
 }
 function isNativeAvailable() {
@@ -785,66 +851,6 @@ import * as path4 from "node:path";
 // src/worker-pool.ts
 import { fileURLToPath as fileURLToPath3, pathToFileURL } from "node:url";
 import * as path3 from "node:path";
-
-// src/native-napi.ts
-function wrap(fn) {
-  return fn;
-}
-function loadNapiModule(addonPath) {
-  const mod = { exports: {} };
-  process.dlopen(mod, addonPath);
-  return mod.exports;
-}
-var cached;
-var lastLoadError = null;
-function getNapiLoadError() {
-  return lastLoadError;
-}
-function tryLoadNapiBinding() {
-  if (cached !== undefined)
-    return cached;
-  if (process.env.MAPLE_NAPI === "0") {
-    lastLoadError = new Error("napi disabled via MAPLE_NAPI=0");
-    cached = null;
-    return null;
-  }
-  const addonPath = resolvePlatformNapiAddon();
-  if (!addonPath) {
-    lastLoadError = new Error(`no raw-napi addon found for ${process.platform}-${process.arch}`);
-    cached = null;
-    return null;
-  }
-  try {
-    const addon = loadNapiModule(addonPath);
-    const binding = {
-      renderFilenameTemplate: wrap((args) => addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined })),
-      validateFilename: wrap((name) => addon.validateFilename(name)),
-      rasterProbeMetadata: wrap((inputPath) => addon.rasterProbeMetadata(inputPath)),
-      rasterProbeMetadataBuf: wrap((inputBytes) => addon.rasterProbeMetadataBuf(inputBytes)),
-      rasterDecodeRgb8Buf: wrap((inputBytes, autoOrient) => addon.rasterDecodeRgb8Buf(inputBytes, autoOrient)),
-      rasterRenderBuf: wrap((inputBytes, width, height, flags, filter, format, quality, effort) => addon.rasterRenderBuf(inputBytes, width, height, flags, filter, format, quality, effort)),
-      rasterFromRawRenderBuf: wrap((pixels, srcWidth, srcHeight, channels, width, height, flags, filter, format, quality, effort) => addon.rasterFromRawRenderBuf(pixels, srcWidth, srcHeight, channels, width, height, flags, filter, format, quality, effort)),
-      rasterResizeToFile: wrap((inputPath, outPath, width, height, fit, format, quality) => addon.rasterResizeToFile(inputPath, outPath, width, height, fit, format, quality)),
-      rasterResizeToBuf: wrap((inputBytes, width, height, fit, format, quality) => addon.rasterResizeToBuf(inputBytes, width, height, fit, format, quality)),
-      rasterExtractTensor: wrap((inputBytes, targetSize, layout, normalize) => addon.rasterExtractTensor(inputBytes, targetSize, layout, normalize)),
-      rasterPipelineBuf: wrap((input, recipeJson, aux) => addon.rasterPipelineBuf(input, recipeJson, aux)),
-      rasterAnalyzeBuf: wrap((input, requestJson) => addon.rasterAnalyzeBuf(input, requestJson)),
-      exportDevelopedToFile: wrap((rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath) => addon.exportDevelopedToFile(rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath)),
-      exportRecipeToFile: wrap((rawPath, xmpXml, recipeJson, filmPath, outPath) => addon.exportRecipeToFile(rawPath, xmpXml, recipeJson, filmPath, outPath)),
-      renderThumbnailAvifToFile: wrap((rawPath, outPath, maxPx, quality) => addon.renderThumbnailAvifToFile(rawPath, outPath, maxPx, quality ?? 55)),
-      renderThumbnailPreviewJpegToFile: wrap((rawPath, outPath, maxPx, quality) => addon.renderThumbnailPreviewJpegToFile(rawPath, outPath, maxPx, quality ?? 85)),
-      renderDevelopJpegToFile: wrap((rawPath, xmpPath, outPath, maxPx, quality) => addon.renderDevelopJpegToFile(rawPath, xmpPath, outPath, maxPx, quality ?? 85)),
-      lastError: () => null
-    };
-    cached = binding;
-    lastLoadError = null;
-    return binding;
-  } catch (e) {
-    lastLoadError = e instanceof Error ? e : new Error(String(e));
-    cached = null;
-    return null;
-  }
-}
 
 // src/worker-protocol.ts
 var TRANSFER_MARK = "__mapleTransfer__";
