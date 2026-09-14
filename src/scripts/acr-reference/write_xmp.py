@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from matrix import CASES
 
@@ -18,6 +19,7 @@ CRS = "http://ns.adobe.com/camera-raw-settings/1.0/"
 # These are reference controls, not operator configuration. Omitted values
 # otherwise inherit camera defaults or embedded edits (#3633 / test_0015).
 REFERENCE_DEFAULTS = {
+    "ProcessVersion": "11.0",
     "Exposure2012": "0",
     "Contrast2012": "0",
     "Highlights2012": "0",
@@ -117,12 +119,15 @@ REFERENCE_DEFAULTS = {
 }
 
 
+REFERENCE_KEYS = {*REFERENCE_DEFAULTS, "CameraProfile"}
+
+
 def reference_settings(data: bytes | str) -> dict[str, str | tuple[str, ...]]:
     """Read authored reference controls in RDF attribute or element form."""
     root = ET.fromstring(data)
     values = {}
     for element in root.iter():
-        for key in REFERENCE_DEFAULTS:
+        for key in REFERENCE_KEYS:
             qualified = "{" + CRS + "}" + key
             value = element.attrib.get(qualified)
             if element.tag == qualified:
@@ -142,20 +147,27 @@ def reference_settings(data: bytes | str) -> dict[str, str | tuple[str, ...]]:
     return values
 
 
-def explicit_reference_defaults(data: bytes) -> bytes:
+def explicit_reference_defaults(
+    data: bytes, camera_profile: str | None = None
+) -> bytes:
     """Pin omitted defaults; preserve every authored control byte (#3633).
 
     Inject into the canonical RDF description without reserializing XML, so
     unrelated content, whitespace, unknown properties, and encoding stay intact.
     """
     authored = reference_settings(data)
-    missing = [key for key in REFERENCE_DEFAULTS if key not in authored]
+    profile = authored.get("CameraProfile") or camera_profile
+    if not isinstance(profile, str) or not profile:
+        raise ValueError(
+            "CameraProfile must be authored or selected from recorded reference settings"
+        )
+    defaults = dict(REFERENCE_DEFAULTS, CameraProfile=profile)
+    missing = [key for key in defaults if key not in authored]
     if not missing:
         return data
     description = re.search(rb"<rdf:Description\b[^>]*>", data, re.DOTALL)
     if description is None or not re.search(rb'xmlns:crs\s*=\s*[\'"]', data):
         raise ValueError("canonical XMP must declare crs and rdf:Description")
-    defaults = dict(REFERENCE_DEFAULTS)
     # An explicitly authored nonidentity point curve remains a custom curve,
     # even if its human-readable name was omitted from the canonical sidecar.
     if any(
@@ -164,7 +176,11 @@ def explicit_reference_defaults(data: bytes) -> bytes:
     ):
         defaults["ToneCurveName2012"] = "Custom"
     attributes = b"".join(
-        b" crs:" + key.encode() + b'="' + defaults[key].encode() + b'"'
+        b" crs:"
+        + key.encode()
+        + b'="'
+        + escape(defaults[key], {'"': "&quot;"}).encode()
+        + b'"'
         for key in missing
         if isinstance(defaults[key], str)
     )
@@ -190,10 +206,12 @@ def explicit_reference_defaults(data: bytes) -> bytes:
     )
 
 
-def copy_case_xmp(source: Path, destination: Path) -> None:
+def copy_case_xmp(
+    source: Path, destination: Path, camera_profile: str | None = None
+) -> None:
     # Read first: source == destination is safe and makes canonical self-runs
     # explicit too. No normalization or changes to authored controls.
-    data = explicit_reference_defaults(source.read_bytes())
+    data = explicit_reference_defaults(source.read_bytes(), camera_profile)
     destination.write_bytes(data)
 
 
@@ -260,7 +278,7 @@ if __name__ == "__main__":
 
     try:
         written = copy_canonical_xmps(args.canonical, args.target)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 

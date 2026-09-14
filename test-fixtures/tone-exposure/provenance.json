@@ -34,7 +34,9 @@
           "xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
           "width": 1024,
           "height": 768,
-          "acr.xmp_sha256": "a7d60c2989636261d36396e563645e4e65f67314faa46c6ccda9eda594c83f02"
+          "acr.xmp_sha256": "2ff3470103236725fef946b3b3e762e445fa01671a381a81f1e7d70f4487dcd8",
+          "camera_profile": "Camera Standard",
+          "process_version": "11.0"
         },
         "exposure_p1": {
           "png_sha256": "c8d9f4456a7daae3b5dcc06153a831ebf1f171675b027f0ba5fbe8e4b22a226b",
@@ -42,7 +44,9 @@
           "xmp_sha256": "f808b49e2f998aa8e88b1659c7b887da682c2cd1bf8b2bcfa65b4027a34d53e7",
           "width": 1024,
           "height": 768,
-          "acr.xmp_sha256": "58befdb6c99c23c22287f7785f460ef7f423e97b23a0321ce3640ee33faead69"
+          "acr.xmp_sha256": "61f40a71108c5f3271f2ee1624cc244c80e41b4faead28e28d26365c7fa4cc9f",
+          "camera_profile": "Camera Standard",
+          "process_version": "11.0"
         },
         "exposure_m1": {
           "png_sha256": "71409d14c1bffed2970af82d9d344573cbee433db16bb7e747e7d8fb09b874e2",
@@ -50,7 +54,9 @@
           "xmp_sha256": "02bd84ee74d37ec8ae4b09912077d18487c7448789584bfc528ee605573815d5",
           "width": 1024,
           "height": 768,
-          "acr.xmp_sha256": "c89c79c0965ffa282141f8e869a08c847831cc3bb231589bffee37c6cf8e554a"
+          "acr.xmp_sha256": "3c24dffae1063bece6e6dcc2c9c9130ab12e23ac911f431295c2a096f1841f96",
+          "camera_profile": "Camera Standard",
+          "process_version": "11.0"
         }
       }
     },
@@ -64,7 +70,9 @@
           "xmp_sha256": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
           "width": 1024,
           "height": 683,
-          "acr.xmp_sha256": "a7d60c2989636261d36396e563645e4e65f67314faa46c6ccda9eda594c83f02"
+          "acr.xmp_sha256": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3",
+          "camera_profile": "Adobe Standard",
+          "process_version": "11.0"
         },
         "exposure_p1": {
           "png_sha256": "dfb078a2bce68cccfd1401c2ab3c10d18703f652594663cd17f38c587de3d3b3",
@@ -72,7 +80,9 @@
           "xmp_sha256": "f808b49e2f998aa8e88b1659c7b887da682c2cd1bf8b2bcfa65b4027a34d53e7",
           "width": 1024,
           "height": 683,
-          "acr.xmp_sha256": "58befdb6c99c23c22287f7785f460ef7f423e97b23a0321ce3640ee33faead69"
+          "acr.xmp_sha256": "5a73ed45e76218ade34b36707203e89e56193c62f6a9b57b5530aa5d26d8b9d5",
+          "camera_profile": "Adobe Standard",
+          "process_version": "11.0"
         },
         "exposure_m1": {
           "png_sha256": "52907ad63f423f9463841e220d0eceea35c4816a254c3ba69e88e3abd4e1dd23",
@@ -80,7 +90,9 @@
           "xmp_sha256": "02bd84ee74d37ec8ae4b09912077d18487c7448789584bfc528ee605573815d5",
           "width": 1024,
           "height": 683,
-          "acr.xmp_sha256": "c89c79c0965ffa282141f8e869a08c847831cc3bb231589bffee37c6cf8e554a"
+          "acr.xmp_sha256": "b46fed4ad37c182e51626c00167f57ad664ad2362196b81e14894c1898ba0b66",
+          "camera_profile": "Adobe Standard",
+          "process_version": "11.0"
         }
       }
     }
@@ -101,5 +113,6 @@
   },
   "reference_settings": "Adobe-only .acr.xmp files pin neutral defaults and disable optional lens profile/CA (#3633); .xmp files retain original Maple inputs.",
   "supersedes": "Unpublished prototype test_0017 refs inherited optional Adobe lens correction; corrected geometry verified before initial budgets.",
-  "settings_audit": "All six source and committed PNGs match explicit Adobe sidecars; original effective XMP is retained in resized PNG metadata."
+  "settings_audit": "All six source and committed PNGs match explicit Adobe sidecars; original effective XMP is retained in resized PNG metadata.",
+  "profile_selection": "Camera Standard for test_0002; Adobe Standard for test_0017, recorded from and verified against effective PNG metadata. Explicit profile selection was recorded after rendering identical effective settings."
 }
