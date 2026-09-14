@@ -21,7 +21,7 @@
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as path from 'node:path';
 import { loadNativeBinding, type NativeBinding } from './native';
-import { tryLoadNapiBinding } from './native-napi';
+import { getNapiLoadError, tryLoadNapiBinding } from './native-napi';
 import { restoreFromTransfer, type WorkerRequest, type WorkerResponse } from './worker-protocol';
 
 export type MapleExecutionMode = 'worker' | 'sync';
@@ -286,7 +286,55 @@ function getPool(): NativeWorkerPool {
  * rather than throwing here, so the pool's own "unknown native method" error
  * still surfaces the same way regardless of whether a napi addon happens to
  * be installed.
+ *
+ * One more thing the fallback path must guard against: the worker pool
+ * itself is Bun-only. `spawnWorker()` below calls `new Worker(...)` against
+ * the bare global `Worker` — Bun's/a browser's constructor, not
+ * `node:worker_threads`'s — which simply does not exist on plain Node, so
+ * reaching it there throws a bare, uninformative `ReferenceError: Worker is
+ * not defined`. Before this task, that was survivable only because Node was
+ * never a working runtime for this package's `'worker'` mode at all; this
+ * task is what makes Node a supported runtime in the first place (via
+ * napi), which makes "napi genuinely unavailable on Node" a real,
+ * user-reachable failure path rather than a moot one. So: when no napi
+ * function answers this call AND there is no `Bun` global to fall back to,
+ * this throws a specific error naming what actually went wrong (the real
+ * napi load failure, preserved by `native-napi.ts` rather than swallowed)
+ * instead of letting execution fall through into that crash.
  */
+/** Whether a Bun-only global (the worker pool's `new Worker(...)`, and
+ *  `loadNativeBinding()`'s `bun:ffi`) is actually usable in this process.
+ *  `globalThis.Bun` is a non-configurable, non-writable property under real
+ *  Bun (confirmed empirically — neither `delete` nor `Object.defineProperty`
+ *  can override it for a test), so this indirection is what lets
+ *  `worker-pool.test.ts` exercise the "no Bun" branch below via a real
+ *  monkey-patch rather than needing to fake the global itself. */
+let isBunRuntime = (): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
+
+/** Test-only: override the "is this Bun" check `callNative` uses to decide
+ *  whether the bun:ffi/worker-pool fallback is even reachable, so a test can
+ *  exercise the plain-Node "no working backend" error path without needing
+ *  to mutate the real (non-configurable) `globalThis.Bun`. Pass `undefined`
+ *  to restore the real check. */
+export function _setIsBunRuntimeForTests(fn: (() => boolean) | undefined): void {
+  isBunRuntime =
+    fn ?? ((): boolean => typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined');
+}
+
+/** Builds the error `callNative` throws when no napi function answered this
+ *  call AND the bun:ffi/worker-pool fallback isn't reachable either (plain
+ *  Node, no Bun global) — pulled out as its own function so its exact
+ *  wording can be unit-tested without needing to fake `globalThis.Bun` (see
+ *  `isBunRuntime` above) or actually reach `callNative`'s async dispatch. */
+export function buildNoNativeBindingError(napiError: Error | null): Error {
+  return new Error(
+    'Maple has no working native binding for this Node process: the raw-napi addon is ' +
+      `unavailable${napiError ? ` (${napiError.message})` : ''}, and the bun:ffi ` +
+      'worker-pool fallback requires Bun (it cannot run on plain Node). Build/install a ' +
+      'raw-napi addon for this platform, or run under Bun instead.',
+  );
+}
+
 export async function callNative<K extends keyof NativeBinding>(
   method: K,
   args: Parameters<NativeBinding[K]>,
@@ -304,6 +352,9 @@ export async function callNative<K extends keyof NativeBinding>(
     : undefined;
   if (typeof napiFn === 'function') {
     return (await napiFn.apply(napi, args)) as ReturnType<NativeBinding[K]>;
+  }
+  if (!isBunRuntime()) {
+    throw buildNoNativeBindingError(getNapiLoadError());
   }
   const result = await getPool().dispatch(method as string, args);
   return result as ReturnType<NativeBinding[K]>;

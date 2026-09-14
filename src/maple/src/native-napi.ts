@@ -9,7 +9,8 @@
  *
  * Two real shape mismatches surfaced empirically while wiring this up — both
  * fixed here rather than left as "the napi path behaves slightly
- * differently":
+ * differently" — plus one deliberate, documented decision about what IS and
+ * isn't part of the cross-backend contract (point 3 below):
  *
  * 1. `renderFilenameTemplate`'s `capturedAt` argument is `string | null` on
  *    the `NativeBinding` interface (`types.ts`'s `FilenameTemplateArgs`), and
@@ -31,12 +32,32 @@
  *    number for every one of these (a missing/`undefined` argument throws
  *    `Failed to convert napi value Undefined into rust type 'u8'` — confirmed
  *    empirically), and separately treats `0` as its OWN "use my default"
- *    sentinel — but the addon's built-in default for
- *    `renderDevelopJpegToFile` is 82, not 85, so passing `0` through
- *    unchanged would silently produce a different JPEG quality than the
- *    `bun:ffi` backend does for the exact same omitted argument. Applying
- *    `native.ts`'s own defaults here, before calling the addon, keeps the
- *    two backends byte-identical for an omitted `quality`.
+ *    sentinel. Correction to an earlier version of this comment: there is
+ *    NO Rust-level divergence here — `raw-ffi`'s own C ABI (`render_develop.rs`)
+ *    defaults `renderDevelopJpegToFile`'s quality-0 case to 82 as well, same
+ *    as `raw-napi`; nobody should ever change either Rust crate's 82 to
+ *    "match" 85. The actual mismatch lives entirely at the TypeScript layer:
+ *    `native.ts`'s bun:ffi wrapper applies its OWN JS-level default of 85
+ *    for this one operation before the value ever reaches the C ABI, so the
+ *    C ABI's built-in 82 default is never actually exercised via bun:ffi in
+ *    practice. Applying `native.ts`'s own defaults here, before calling the
+ *    napi addon, keeps the two backends byte-identical for an omitted
+ *    `quality` — matching what bun:ffi callers actually observe, not what
+ *    either native crate's own internal fallback happens to be.
+ *
+ * 3. A deliberate decision, not a bug: exact error-message TEXT is NOT
+ *    part of the cross-backend contract `callNative` promises callers. A
+ *    differential run across both backends found ~9 of 38 cases where the
+ *    human-readable `error` string differs in wording (`bun:ffi`'s messages
+ *    are built from a C ABI's `maple_last_error()` string and sometimes
+ *    prefix a symbol/context name; napi's come straight from Rust's own
+ *    `Result`/`Error` machinery) while `ok`/`code` — the fields real callers
+ *    actually branch on (see `types.ts`'s `FilenameResult`/`validateFilename`
+ *    return types, the only `NativeBinding` shapes with a numeric `code`) —
+ *    were identical in every case. Only `ok`/`code` are the contract;
+ *    `error` is a best-effort diagnostic string that may read differently
+ *    depending on which backend answered, and that is expected, not a
+ *    defect to chase.
  */
 import { resolvePlatformNapiAddon } from './platform';
 import type { NativeBinding } from './native';
@@ -80,10 +101,46 @@ function loadNapiModule(addonPath: string): NapiExports {
 
 let cached: NativeBinding | null | undefined;
 
+/**
+ * The real reason the most recent `tryLoadNapiBinding()` call returned
+ * `null`, when it did — `undefined` while a binding is still cached/hasn't
+ * been resolved yet. `callNative` reads this to build an informative error
+ * for a Node caller with no working backend at all (see `worker-pool.ts`)
+ * instead of silently falling through to the Bun-only worker pool and
+ * crashing on a bare `Worker is not defined`. Kept as the ACTUAL caught
+ * error (not swallowed in a bare `catch {}`) precisely so that message can
+ * name what went wrong — a missing addon, an ABI mismatch, a corrupted
+ * file, or an explicit opt-out (see `MAPLE_NAPI` below) each read
+ * differently to whoever has to debug this.
+ */
+let lastLoadError: Error | null = null;
+
+export function getNapiLoadError(): Error | null {
+  return lastLoadError;
+}
+
+/**
+ * Resolves and loads the napi addon, caching the outcome — `null` (never
+ * throws) when no addon is resolvable, ABI-compatible, or loadable, or when
+ * explicitly disabled via `MAPLE_NAPI=0`. That env var is the napi-side
+ * counterpart to `native.ts`'s `MAPLE_NATIVE_LIB`: an escape hatch to force
+ * every `callNative` dispatch onto the `bun:ffi`/worker-pool backend even
+ * when a napi addon IS present and working — needed both for a real
+ * napi-specific production incident (skip straight to the known-good
+ * fallback without an addon-uninstall step) and for tests that need to
+ * exercise the worker pool's own machinery on a machine where a napi addon
+ * happens to be built (see `worker-pool.test.ts`).
+ */
 export function tryLoadNapiBinding(): NativeBinding | null {
   if (cached !== undefined) return cached;
+  if (process.env.MAPLE_NAPI === '0') {
+    lastLoadError = new Error('napi disabled via MAPLE_NAPI=0');
+    cached = null;
+    return null;
+  }
   const addonPath = resolvePlatformNapiAddon();
   if (!addonPath) {
+    lastLoadError = new Error(`no raw-napi addon found for ${process.platform}-${process.arch}`);
     cached = null;
     return null;
   }
@@ -184,9 +241,11 @@ export function tryLoadNapiBinding(): NativeBinding | null {
       // -- thumbnail extraction + develop preview ----------------------------
       // See the module doc's point 2: these three apply the SAME JS-level
       // default `native.ts` applies when `quality` is omitted, rather than
-      // relying on the addon's own "0 means use my built-in default" —
-      // `renderDevelopJpegToFile`'s addon-side default (82) differs from
-      // `native.ts`'s (85).
+      // relying on the addon's own "0 means use my built-in default" — for
+      // `renderDevelopJpegToFile` specifically, `native.ts`'s own JS-level
+      // default (85) differs from what BOTH raw-ffi and raw-napi fall back
+      // to internally for a literal `quality: 0` (82, matching each other) —
+      // there is no Rust-level mismatch to fix, only this TS-layer one.
       renderThumbnailAvifToFile: wrap<'renderThumbnailAvifToFile'>(
         (rawPath, outPath, maxPx, quality) =>
           addon.renderThumbnailAvifToFile(rawPath, outPath, maxPx, quality ?? 55),
@@ -208,15 +267,25 @@ export function tryLoadNapiBinding(): NativeBinding | null {
       lastError: (() => null) as NativeBinding['lastError'],
     } satisfies NativeBinding;
     cached = binding;
+    lastLoadError = null;
     return binding;
-  } catch {
+  } catch (e) {
+    // Preserve the REAL failure (a `process.dlopen` error — a missing file,
+    // an ABI/architecture mismatch, a corrupted addon, ...) rather than
+    // swallowing it in a bare `catch {}`. Discarding this here was the root
+    // cause of a real bug: with no addon and no preserved reason why,
+    // `callNative` had nothing informative to surface on plain Node and
+    // fell straight through to the Bun-only worker pool, crashing on a bare
+    // `Worker is not defined` instead of naming what actually went wrong.
+    lastLoadError = e instanceof Error ? e : new Error(String(e));
     cached = null;
     return null;
   }
 }
 
-/** Test-only: drop the cached binding so the next call re-resolves and
- *  re-loads the addon from scratch. */
+/** Test-only: drop the cached binding (and its remembered load error) so the
+ *  next call re-resolves and re-loads the addon from scratch. */
 export function _resetNapiBindingForTests(): void {
   cached = undefined;
+  lastLoadError = null;
 }
