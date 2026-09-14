@@ -2393,6 +2393,232 @@ Maple Image Inspection: ${inputPath}`);
   console.error(`Unknown command: "${command}". Run "npx maple help" for usage.`);
   return 1;
 }
+// src/worker-pool.ts
+import { fileURLToPath as fileURLToPath3, pathToFileURL } from "node:url";
+import * as path9 from "node:path";
+
+// src/worker-protocol.ts
+var TRANSFER_MARK = "__mapleTransfer__";
+function transferKindOf(value) {
+  if (Buffer.isBuffer(value))
+    return "Buffer";
+  if (value instanceof Float32Array)
+    return "Float32Array";
+  return "Uint8Array";
+}
+function isTypedArray(value) {
+  return value instanceof Uint8Array || value instanceof Float32Array;
+}
+function isTransferPlaceholder(value) {
+  return typeof value === "object" && value !== null && TRANSFER_MARK in value;
+}
+function prepareForTransfer(value, transferList = []) {
+  if (isTypedArray(value)) {
+    const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    transferList.push(buffer);
+    const placeholder = {
+      [TRANSFER_MARK]: transferKindOf(value),
+      buffer,
+      byteOffset: 0,
+      byteLength: value.byteLength
+    };
+    return { value: placeholder, transferList };
+  }
+  if (Array.isArray(value)) {
+    return {
+      value: value.map((entry) => prepareForTransfer(entry, transferList).value),
+      transferList
+    };
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = prepareForTransfer(entry, transferList).value;
+    }
+    return { value: out, transferList };
+  }
+  return { value, transferList };
+}
+function restoreFromTransfer(value) {
+  if (isTransferPlaceholder(value)) {
+    if (value[TRANSFER_MARK] === "Buffer") {
+      return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+    }
+    if (value[TRANSFER_MARK] === "Float32Array") {
+      return new Float32Array(value.buffer, value.byteOffset, value.byteLength / 4);
+    }
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (Array.isArray(value)) {
+    return value.map(restoreFromTransfer);
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = restoreFromTransfer(entry);
+    }
+    return out;
+  }
+  return value;
+}
+
+// src/worker-pool.ts
+var MIN_CONCURRENCY = 1;
+var MAX_CONCURRENCY = 16;
+var DEFAULT_CONCURRENCY = 4;
+var executionMode = "worker";
+var configuredConcurrency = null;
+function setMapleExecutionMode(mode) {
+  executionMode = mode;
+}
+function getMapleExecutionMode() {
+  return executionMode;
+}
+function clampConcurrency(n) {
+  return Math.min(MAX_CONCURRENCY, Math.max(MIN_CONCURRENCY, Math.trunc(n) || MIN_CONCURRENCY));
+}
+function setMapleConcurrency(n) {
+  configuredConcurrency = clampConcurrency(n);
+}
+function getMapleConcurrency() {
+  if (configuredConcurrency !== null)
+    return configuredConcurrency;
+  const fromEnv = Number(process.env.MAPLE_WORKER_CONCURRENCY);
+  if (Number.isFinite(fromEnv) && fromEnv > 0)
+    return clampConcurrency(fromEnv);
+  return DEFAULT_CONCURRENCY;
+}
+
+class NativeWorkerPool {
+  workers = [];
+  pending = new Map;
+  queue = [];
+  nextId = 1;
+  shuttingDown = false;
+  dispatch(method, args) {
+    if (this.shuttingDown) {
+      return Promise.reject(new Error("Maple worker pool is shut down"));
+    }
+    const id = this.nextId++;
+    const request = { id, method, args };
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      const worker = this.acquireIdleWorker();
+      if (worker) {
+        this.send(worker, request);
+      } else {
+        this.queue.push(request);
+      }
+    });
+  }
+  acquireIdleWorker() {
+    const idle = this.workers.find((w) => w.busyWith === null);
+    if (idle)
+      return idle;
+    if (this.workers.length < getMapleConcurrency()) {
+      return this.spawnWorker();
+    }
+    return null;
+  }
+  spawnWorker() {
+    const entry = workerEntryUrl();
+    const raw = new Worker(entry);
+    const poolWorker = { worker: raw, busyWith: null };
+    raw.addEventListener("message", (event) => {
+      this.handleResponse(poolWorker, event.data);
+    });
+    raw.addEventListener("error", (event) => {
+      this.handleWorkerDeath(poolWorker, event.message || "Maple worker error");
+    });
+    raw.addEventListener("close", () => {
+      this.handleWorkerDeath(poolWorker, "Maple worker exited");
+    });
+    this.workers.push(poolWorker);
+    return poolWorker;
+  }
+  send(poolWorker, request) {
+    poolWorker.busyWith = request.id;
+    poolWorker.worker.ref?.();
+    poolWorker.worker.postMessage(request);
+  }
+  handleResponse(poolWorker, response) {
+    const pending = this.pending.get(response.id);
+    this.pending.delete(response.id);
+    poolWorker.busyWith = null;
+    this.drainQueueOrIdle(poolWorker);
+    if (!pending)
+      return;
+    if (response.ok) {
+      pending.resolve(restoreFromTransfer(response.result));
+    } else {
+      pending.reject(new Error(response.error || "Maple native call failed"));
+    }
+  }
+  handleWorkerDeath(poolWorker, message) {
+    this.workers = this.workers.filter((w) => w !== poolWorker);
+    if (poolWorker.busyWith !== null) {
+      const pending = this.pending.get(poolWorker.busyWith);
+      this.pending.delete(poolWorker.busyWith);
+      pending?.reject(new Error(message));
+    }
+    this.pumpQueue();
+  }
+  drainQueueOrIdle(poolWorker) {
+    const next = this.queue.shift();
+    if (next) {
+      this.send(poolWorker, next);
+    } else {
+      poolWorker.worker.unref?.();
+    }
+  }
+  pumpQueue() {
+    while (this.queue.length > 0) {
+      const worker = this.acquireIdleWorker();
+      if (!worker)
+        return;
+      const next = this.queue.shift();
+      if (next)
+        this.send(worker, next);
+    }
+  }
+  shutdown() {
+    this.shuttingDown = true;
+    for (const [, pending] of this.pending) {
+      pending.reject(new Error("Maple worker pool shut down"));
+    }
+    this.pending.clear();
+    for (const poolWorker of this.workers) {
+      poolWorker.worker.terminate();
+    }
+    this.workers = [];
+    this.queue.length = 0;
+  }
+}
+function workerEntryUrl() {
+  const here = fileURLToPath3(import.meta.url);
+  const ext = path9.extname(here);
+  const entryPath = path9.join(path9.dirname(here), `native-worker-entry${ext}`);
+  return pathToFileURL(entryPath).href;
+}
+var pool = null;
+function getPool() {
+  if (!pool)
+    pool = new NativeWorkerPool;
+  return pool;
+}
+async function callNative(method, args) {
+  if (executionMode === "sync") {
+    const native = loadNativeBinding();
+    const fn = native[method];
+    return fn.apply(native, args);
+  }
+  const result = await getPool().dispatch(method, args);
+  return result;
+}
+function shutdownMaplePool() {
+  pool?.shutdown();
+  pool = null;
+}
 export {
   AuxBlob,
   MAPLE_VERSION,
@@ -2401,6 +2627,7 @@ export {
   applyFormat,
   applyQuality,
   assertRawDevelopOutput,
+  callNative,
   checkIntegerRange,
   checkOptionRanges,
   createBuilderState,
@@ -2408,6 +2635,8 @@ export {
   exportRecipe,
   findNativeLib,
   formatForPath,
+  getMapleConcurrency,
+  getMapleExecutionMode,
   getPlatformBinaryFilename,
   getPlatformPackageName,
   isMusl,
@@ -2425,6 +2654,9 @@ export {
   resolveGravity,
   resolvePlatformPackageLib,
   runCli,
+  setMapleConcurrency,
+  setMapleExecutionMode,
+  shutdownMaplePool,
   stateToOutput,
   stateToRecipe,
   validateFilename
