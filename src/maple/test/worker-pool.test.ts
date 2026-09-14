@@ -6,6 +6,7 @@ import {
   setMapleConcurrency,
   setMapleExecutionMode,
   shutdownMaplePool,
+  _getBusyMapleWorkerForTests,
   _resetMaplePoolForTests,
 } from '../src/worker-pool';
 
@@ -89,6 +90,25 @@ describe('worker pool execution mode', () => {
       /unknown native method/,
     );
     const after = await callNative('validateFilename', ['still-works.jpg']);
+    expect(after).toEqual({ ok: true });
+  });
+
+  it('rejects the in-flight call and recovers when a worker is genuinely killed mid-call (real handleWorkerDeath, not a caught in-worker error)', async () => {
+    // The previous test only reaches the pool's OWN "reject a caught error"
+    // path (the worker replies normally with `{ ok: false }`). This test
+    // triggers `handleWorkerDeath` for real: dispatch a call, then reach
+    // into the pool and `.terminate()` the actual live worker thread that
+    // is serving it before it can reply — exactly the shape of a genuine
+    // worker crash — and confirm both that the in-flight promise rejects
+    // (rather than hanging forever) and that the pool recovers afterwards.
+    const inFlight = callNative('validateFilename', ['mid-flight-kill.jpg']);
+    const worker = _getBusyMapleWorkerForTests();
+    expect(worker).not.toBeNull();
+    worker!.terminate();
+
+    await expect(inFlight).rejects.toThrow();
+
+    const after = await callNative('validateFilename', ['after-real-death.jpg']);
     expect(after).toEqual({ ok: true });
   });
 
