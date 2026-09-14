@@ -88,6 +88,32 @@ jobs:
           path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.so
           if-no-files-found: error
 
+      # napi addon (#3509). NOT subject to the readelf audit above: napi-rs's
+      # `dyn-symbols` feature (see raw-napi/Cargo.toml) binds every `napi_*`
+      # symbol out of the already-running host process via `libloading` at
+      # load time rather than a `dlopen`-resolved shared-lib dependency, so
+      # the zero-dependency invariant that step enforces for the bun:ffi
+      # dylib doesn't apply the same way to this artifact.
+      #
+      # Filename convention `raw-napi.<platform-dir>.node` (platform-dir being
+      # `matrix.pkg_name` with the `maple-` prefix stripped, e.g.
+      # `linux-x64-gnu`) matches `getPlatformNapiFilename()` in
+      # `src/maple/src/platform.ts` exactly — keep the two in sync.
+      - name: Build raw-napi (${{ matrix.pkg_name }})
+        env:
+          RUSTFLAGS: ${{ matrix.libc_type == 'musl' && '-C target-feature=-crt-static' || '' }}
+        run: |
+          cargo zigbuild --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-napi --target ${{ matrix.zig_target }}
+          cp "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_napi.so" \
+             "src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ replace(matrix.pkg_name, 'maple-', '') }}.node"
+
+      - name: Upload Linux napi artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.pkg_name }}-napi
+          path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ replace(matrix.pkg_name, 'maple-', '') }}.node
+          if-no-files-found: error
+
   build-macos:
     name: build-macos (${{ matrix.pkg_name }})
     runs-on: macos-latest
@@ -124,6 +150,23 @@ jobs:
           path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.dylib
           if-no-files-found: error
 
+      # napi addon (#3509) — see the build-linux job's equivalent step for why
+      # this is not subject to a linkage audit. Filename convention
+      # `raw-napi.<platform-dir>.node` matches `getPlatformNapiFilename()` in
+      # `src/maple/src/platform.ts` exactly.
+      - name: Build raw-napi (${{ matrix.pkg_name }})
+        run: |
+          cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-napi --target ${{ matrix.target }}
+          cp "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_napi.dylib" \
+             "src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ replace(matrix.pkg_name, 'maple-', '') }}.node"
+
+      - name: Upload macOS napi artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.pkg_name }}-napi
+          path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ replace(matrix.pkg_name, 'maple-', '') }}.node
+          if-no-files-found: error
+
   build-windows:
     name: build-windows (maple-win32-x64-msvc)
     runs-on: windows-latest
@@ -150,6 +193,25 @@ jobs:
         with:
           name: maple-win32-x64-msvc
           path: src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw_ffi.dll
+          if-no-files-found: error
+
+      # napi addon (#3509) — see the build-linux job's equivalent step for why
+      # this is not subject to a linkage audit. A napi addon on Windows is a
+      # plain PE `.dll` renamed with a `.node` extension, same as the
+      # `.so`/`.dylib` rename on Linux/macOS. Filename
+      # `raw-napi.win32-x64-msvc.node` matches `getPlatformNapiFilename()` in
+      # `src/maple/src/platform.ts` exactly.
+      - name: Build raw-napi (maple-win32-x64-msvc)
+        run: |
+          cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-napi --target x86_64-pc-windows-msvc
+          cp src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw_napi.dll `
+             src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw-napi.win32-x64-msvc.node
+
+      - name: Upload Windows napi artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: maple-win32-x64-msvc-napi
+          path: src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw-napi.win32-x64-msvc.node
           if-no-files-found: error
 
   publish:

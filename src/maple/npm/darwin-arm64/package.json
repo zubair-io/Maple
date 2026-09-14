@@ -4,7 +4,8 @@
   "description": "Native binary for @justmaple/maple on macOS ARM64 (Apple Silicon)",
   "main": "libraw_ffi.dylib",
   "files": [
-    "libraw_ffi.dylib"
+    "libraw_ffi.dylib",
+    "raw-napi.darwin-arm64.node"
   ],
   "os": [
     "darwin"
