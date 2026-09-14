@@ -85,26 +85,30 @@ describe('worker pool execution mode', () => {
     // which the worker entry throws on (a controlled, catchable throw —
     // not a real segfault), confirming the pool surfaces it as a rejection
     // rather than hanging, and that the pool is still usable afterwards.
-    await expect(
-      callNative('thisMethodDoesNotExist' as never, [] as never),
-    ).rejects.toThrow(/unknown native method/);
+    await expect(callNative('thisMethodDoesNotExist' as never, [] as never)).rejects.toThrow(
+      /unknown native method/,
+    );
     const after = await callNative('validateFilename', ['still-works.jpg']);
     expect(after).toEqual({ ok: true });
   });
 
   it('a second, rejecting call checked with expect().rejects settles even when it reuses an idle worker from a prior successful call (#3508 regression)', async () => {
     // Reproduces a real Bun engine quirk (seen on 1.4.3-canary.1): when a
-    // SECOND worker round trip in one test rejects and is awaited via
-    // `expect(...).rejects`, and it is NOT the first worker call the test
-    // makes, `bun:test`'s `.rejects` matcher wedged the pool's `Worker`
+    // promise settled from a Worker `'message'` listener is awaited through
+    // ANY `expect(...)` async matcher — `.resolves` on success included, not
+    // just `.rejects` here — and it is NOT the first worker round trip the
+    // test makes, `bun:test`'s async matcher wedged the pool's `Worker`
     // message port — the worker still replied, but the main thread's
-    // `message` listener never fired for that reply, hanging the test until
-    // its own timeout. `handleResponse`'s macrotask-deferred settle (see its
-    // doc comment in `worker-pool.ts`) is the fix; this test is the gate.
+    // `message` listener never fired for that reply. That's a genuine
+    // process wedge (needs `kill -9`, not a clean timeout-then-exit) absent
+    // the fix below. This test exercises the `.rejects` case specifically;
+    // `handleResponse`'s macrotask-deferred settle (see its doc comment in
+    // `worker-pool.ts`) is the fix that covers both, and this test is the
+    // gate for this shape.
     const first = await callNative('validateFilename', ['first-call.jpg']);
     expect(first).toEqual({ ok: true });
-    await expect(
-      callNative('thisMethodDoesNotExist' as never, [] as never),
-    ).rejects.toThrow(/unknown native method/);
+    await expect(callNative('thisMethodDoesNotExist' as never, [] as never)).rejects.toThrow(
+      /unknown native method/,
+    );
   });
 });
