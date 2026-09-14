@@ -29,7 +29,8 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import sharp from 'sharp';
+import { maple } from 'maple';
+import { solidJpeg } from '../test-support/synth-image.ts';
 import { closeDb } from '../db/client.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 import { relocateAsset } from './relocate-asset.ts';
@@ -93,17 +94,12 @@ afterAll(async () => {
   await closeDb();
 });
 
-/** A tiny real JPEG — routes `generateThumb` through the sharp/imgdecode
+/** A tiny real JPEG — routes `generateThumb` through the imgdecode
  * bitmap branch, which needs no libraw_ffi build, so this suite runs
  * anywhere `bun test` runs (unlike the RAW-fixture-gated tests elsewhere). */
 async function writeJpeg(absPath: string): Promise<void> {
   await fs.mkdir(path.dirname(absPath), { recursive: true });
-  const buf = await sharp({
-    create: { width: 400, height: 300, channels: 3, background: { r: 20, g: 120, b: 200 } },
-  })
-    .jpeg()
-    .toBuffer();
-  await fs.writeFile(absPath, buf);
+  await fs.writeFile(absPath, await solidJpeg(400, 300, [20, 120, 200]));
 }
 
 /** Every per-image stage this asset carries, pre-relocate, all dirty
@@ -273,7 +269,7 @@ describe('cache invalidation on move (#2659)', () => {
     // The regenerated thumb decodes as a real image (not a truncated/corrupt
     // write) — `finalizeAvifRender`'s validation gate already enforces this
     // at write time, this re-confirms it end to end.
-    const meta = await sharp(newThumbPath as string).metadata();
+    const meta = await maple(newThumbPath as string).metadata();
     expect(meta.width).toBeGreaterThan(0);
     expect(meta.height).toBeGreaterThan(0);
   });

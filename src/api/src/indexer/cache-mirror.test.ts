@@ -17,7 +17,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import realFs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import sharp from 'sharp';
+import { solidJpeg } from '../test-support/synth-image.ts';
 import { setMirrorRoots, clearMirrorRoots } from '../fs/mirror-registry.ts';
 import { flushPendingMirrorOps } from '../fs/mirrored.ts';
 import { resolveThumbPath, cachePathFor } from '../fs/xmp.ts';
@@ -38,11 +38,7 @@ beforeEach(async () => {
   setMirrorRoots({ [primary]: [mirror] });
 
   source = path.join(primary, 'photo.jpg');
-  const bytes = await sharp({
-    create: { width: 64, height: 48, channels: 3, background: { r: 200, g: 120, b: 40 } },
-  })
-    .jpeg()
-    .toBuffer();
+  const bytes = await solidJpeg(64, 48, [200, 120, 40]);
   await realFs.writeFile(source, bytes);
 });
 
