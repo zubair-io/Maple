@@ -1,0 +1,507 @@
+{
+  "label": "Recombination of existing native measurements; NOT a fresh integrated gate run",
+  "cells": 76,
+  "failed": 19,
+  "retained_original_failures": [
+    ["test_0000", "baseline"],
+    ["test_0000", "baseline_auto"],
+    ["test_0000", "whites_min"],
+    ["test_0002", "whites_min"],
+    ["test_0003", "whites_max"],
+    ["test_0003", "whites_min"],
+    ["test_0006", "whites_min"],
+    ["test_0007", "baseline"],
+    ["test_0007", "baseline_auto"],
+    ["test_0007", "whites_min"],
+    ["test_0008", "whites_min"],
+    ["test_0009", "whites_max"],
+    ["test_0011", "whites_max"],
+    ["test_0012", "whites_max"],
+    ["test_0013", "whites_min"],
+    ["test_0014", "whites_max"],
+    ["test_0015", "whites_min"],
+    ["test_0018", "whites_min"]
+  ],
+  "resolved_original_failures": [
+    ["test_0011", "whites_min"],
+    ["test_0017", "baseline_auto"],
+    ["test_0017", "whites_max"]
+  ],
+  "new_failures": [["test_0011", "baseline"]],
+  "rows": [
+    {
+      "fixture": "test_0000",
+      "case": "baseline",
+      "metrics": {
+        "mean_deltaE": 6.05,
+        "p95_deltaE": 10.56,
+        "max_deltaE": 42.07,
+        "bias_r": 0.0136,
+        "bias_g": 0.0156,
+        "bias_b": 0.0179
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "max": {
+          "actual": 42.07,
+          "limit": 39.1
+        }
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "baseline_auto",
+      "metrics": {
+        "mean_deltaE": 3.1152269113820545,
+        "p95_deltaE": 6.538851439889955,
+        "max_deltaE": 41.72002730733106,
+        "bias_r": 0.004384580533951521,
+        "bias_g": 0.010889319702982903,
+        "bias_b": 0.011592395603656769,
+        "n_pixels": 10668000
+      },
+      "source": "native Auto corrected baseline",
+      "breaches": {
+        "max": {
+          "actual": 41.72002730733106,
+          "limit": 36.5
+        }
+      }
+    },
+    {
+      "fixture": "test_0000",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 5.24,
+        "p95_deltaE": 9.63,
+        "max_deltaE": 53.98,
+        "bias_r": 0.0267,
+        "bias_g": 0.0273,
+        "bias_b": 0.0286
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "max": {
+          "actual": 53.98,
+          "limit": 38.1
+        }
+      }
+    },
+    {
+      "fixture": "test_0002",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 11.3,
+        "p95_deltaE": 12.18,
+        "max_deltaE": 37.69,
+        "bias_r": -0.1577,
+        "bias_g": -0.1346,
+        "bias_b": -0.108
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "mean": {
+          "actual": 11.3,
+          "limit": 9.4
+        },
+        "p95": {
+          "actual": 12.18,
+          "limit": 11.3
+        },
+        "bias_r": {
+          "actual": -0.1577,
+          "limit": 0.1458
+        }
+      }
+    },
+    {
+      "fixture": "test_0003",
+      "case": "whites_max",
+      "metrics": {
+        "mean_deltaE": 10.89,
+        "p95_deltaE": 20.47,
+        "max_deltaE": 31.99,
+        "bias_r": 0.0991,
+        "bias_g": 0.0851,
+        "bias_b": 0.0854
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "p95": {
+          "actual": 20.47,
+          "limit": 19.1
+        },
+        "max": {
+          "actual": 31.99,
+          "limit": 30.7
+        }
+      }
+    },
+    {
+      "fixture": "test_0003",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 6.2,
+        "p95_deltaE": 9.88,
+        "max_deltaE": 20.21,
+        "bias_r": 0.0347,
+        "bias_g": 0.0243,
+        "bias_b": 0.0194
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "max": {
+          "actual": 20.21,
+          "limit": 19.5
+        }
+      }
+    },
+    {
+      "fixture": "test_0006",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 7.44,
+        "p95_deltaE": 11.81,
+        "max_deltaE": 47.33,
+        "bias_r": 0.0,
+        "bias_g": 0.0156,
+        "bias_b": -0.0255
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "max": {
+          "actual": 47.33,
+          "limit": 44.7
+        }
+      }
+    },
+    {
+      "fixture": "test_0007",
+      "case": "baseline",
+      "metrics": {
+        "mean_deltaE": 4.85,
+        "p95_deltaE": 8.13,
+        "max_deltaE": 46.16,
+        "bias_r": 0.0114,
+        "bias_g": 0.0164,
+        "bias_b": 0.0251
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "max": {
+          "actual": 46.16,
+          "limit": 44.1
+        }
+      }
+    },
+    {
+      "fixture": "test_0007",
+      "case": "baseline_auto",
+      "metrics": {
+        "mean_deltaE": 1.6302278279771467,
+        "p95_deltaE": 3.4745602072091892,
+        "max_deltaE": 40.88864998534647,
+        "bias_r": -0.010929640382528305,
+        "bias_g": -0.009220167063176632,
+        "bias_b": -0.005166490562260151,
+        "n_pixels": 10668000
+      },
+      "source": "native Auto corrected baseline",
+      "breaches": {
+        "max": {
+          "actual": 40.88864998534647,
+          "limit": 39.0
+        }
+      }
+    },
+    {
+      "fixture": "test_0007",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 4.41,
+        "p95_deltaE": 7.77,
+        "max_deltaE": 49.36,
+        "bias_r": -0.0014,
+        "bias_g": 0.0104,
+        "bias_b": 0.0248
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "max": {
+          "actual": 49.36,
+          "limit": 41.4
+        }
+      }
+    },
+    {
+      "fixture": "test_0008",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 10.265953924429455,
+        "p95_deltaE": 18.88623188108181,
+        "max_deltaE": 73.3683271708185,
+        "bias_r": -0.06257136911153793,
+        "bias_g": -0.07994139194488525,
+        "bias_b": -0.0625813752412796,
+        "n_pixels": 10668000
+      },
+      "source": "corrected-reference controls",
+      "breaches": {
+        "mean": {
+          "actual": 10.265953924429455,
+          "limit": 9.2
+        },
+        "p95": {
+          "actual": 18.88623188108181,
+          "limit": 18.7
+        },
+        "bias_r": {
+          "actual": -0.06257136911153793,
+          "limit": 0.0606
+        },
+        "bias_g": {
+          "actual": -0.07994139194488525,
+          "limit": 0.0606
+        },
+        "bias_b": {
+          "actual": -0.0625813752412796,
+          "limit": 0.0606
+        }
+      }
+    },
+    {
+      "fixture": "test_0009",
+      "case": "whites_max",
+      "metrics": {
+        "mean_deltaE": 9.27,
+        "p95_deltaE": 19.97,
+        "max_deltaE": 43.8,
+        "bias_r": 0.1042,
+        "bias_g": 0.0575,
+        "bias_b": 0.0478
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "max": {
+          "actual": 43.8,
+          "limit": 42.4
+        }
+      }
+    },
+    {
+      "fixture": "test_0011",
+      "case": "baseline",
+      "metrics": {
+        "mean_deltaE": 5.647118500995371,
+        "p95_deltaE": 19.511416628680994,
+        "max_deltaE": 38.154349568051764,
+        "bias_r": 0.037820275872945786,
+        "bias_g": 0.03151138126850128,
+        "bias_b": 0.031177107244729996,
+        "n_pixels": 10668000
+      },
+      "source": "corrected-reference controls",
+      "breaches": {
+        "bias_r": {
+          "actual": 0.037820275872945786,
+          "limit": 0.0113
+        },
+        "bias_g": {
+          "actual": 0.03151138126850128,
+          "limit": 0.0113
+        },
+        "bias_b": {
+          "actual": 0.031177107244729996,
+          "limit": 0.0113
+        }
+      }
+    },
+    {
+      "fixture": "test_0011",
+      "case": "whites_max",
+      "metrics": {
+        "mean_deltaE": 11.11225139857773,
+        "p95_deltaE": 28.942059527712654,
+        "max_deltaE": 52.6300854595671,
+        "bias_r": 0.022074438631534576,
+        "bias_g": 0.022734608501195908,
+        "bias_b": 0.061692070215940475,
+        "n_pixels": 10668000
+      },
+      "source": "corrected-reference controls",
+      "breaches": {
+        "mean": {
+          "actual": 11.11225139857773,
+          "limit": 10.4
+        },
+        "p95": {
+          "actual": 28.942059527712654,
+          "limit": 18.8
+        }
+      }
+    },
+    {
+      "fixture": "test_0012",
+      "case": "whites_max",
+      "metrics": {
+        "mean_deltaE": 12.939194338736524,
+        "p95_deltaE": 31.529078383736202,
+        "max_deltaE": 100.00000073400935,
+        "bias_r": 0.08794818073511124,
+        "bias_g": 0.017652219161391258,
+        "bias_b": 0.02773497998714447,
+        "n_pixels": 12000000
+      },
+      "source": "corrected-reference controls",
+      "breaches": {
+        "p95": {
+          "actual": 31.529078383736202,
+          "limit": 29.6
+        }
+      }
+    },
+    {
+      "fixture": "test_0013",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 5.74,
+        "p95_deltaE": 8.39,
+        "max_deltaE": 22.53,
+        "bias_r": -0.0178,
+        "bias_g": -0.0356,
+        "bias_b": -0.0456
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "mean": {
+          "actual": 5.74,
+          "limit": 5.0
+        },
+        "p95": {
+          "actual": 8.39,
+          "limit": 8.3
+        },
+        "bias_r": {
+          "actual": -0.0178,
+          "limit": 0.0153
+        },
+        "bias_g": {
+          "actual": -0.0356,
+          "limit": 0.0153
+        },
+        "bias_b": {
+          "actual": -0.0456,
+          "limit": 0.0153
+        }
+      }
+    },
+    {
+      "fixture": "test_0014",
+      "case": "whites_max",
+      "metrics": {
+        "mean_deltaE": 18.16,
+        "p95_deltaE": 28.82,
+        "max_deltaE": 52.73,
+        "bias_r": 0.1333,
+        "bias_g": 0.127,
+        "bias_b": 0.2419
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "mean": {
+          "actual": 18.16,
+          "limit": 14.3
+        },
+        "p95": {
+          "actual": 28.82,
+          "limit": 22.2
+        },
+        "max": {
+          "actual": 52.73,
+          "limit": 46.6
+        },
+        "bias_r": {
+          "actual": 0.1333,
+          "limit": 0.101
+        },
+        "bias_g": {
+          "actual": 0.127,
+          "limit": 0.101
+        },
+        "bias_b": {
+          "actual": 0.2419,
+          "limit": 0.101
+        }
+      }
+    },
+    {
+      "fixture": "test_0015",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 10.721344498915546,
+        "p95_deltaE": 18.138821870813917,
+        "max_deltaE": 39.10871089197362,
+        "bias_r": -0.08893747627735138,
+        "bias_g": -0.11306581646203995,
+        "bias_b": -0.10492300987243652,
+        "n_pixels": 12032000
+      },
+      "source": "corrected-reference controls",
+      "breaches": {
+        "mean": {
+          "actual": 10.721344498915546,
+          "limit": 9.2
+        },
+        "p95": {
+          "actual": 18.138821870813917,
+          "limit": 17.4
+        },
+        "bias_g": {
+          "actual": -0.11306581646203995,
+          "limit": 0.0936
+        },
+        "bias_b": {
+          "actual": -0.10492300987243652,
+          "limit": 0.0936
+        }
+      }
+    },
+    {
+      "fixture": "test_0018",
+      "case": "whites_min",
+      "metrics": {
+        "mean_deltaE": 13.46,
+        "p95_deltaE": 17.67,
+        "max_deltaE": 36.08,
+        "bias_r": -0.1426,
+        "bias_g": -0.1369,
+        "bias_b": -0.1148
+      },
+      "source": "stable native log (printed precision)",
+      "breaches": {
+        "mean": {
+          "actual": 13.46,
+          "limit": 10.3
+        },
+        "p95": {
+          "actual": 17.67,
+          "limit": 14.5
+        },
+        "bias_r": {
+          "actual": -0.1426,
+          "limit": 0.1142
+        },
+        "bias_g": {
+          "actual": -0.1369,
+          "limit": 0.1142
+        },
+        "bias_b": {
+          "actual": -0.1148,
+          "limit": 0.1142
+        }
+      }
+    }
+  ],
+  "budget_policy": "No existing budget changed; these failures remain blocking under the current contract.",
+  "base": "5647ec688f2abeaee9113fa2ba3ae9045c6283d3"
+}
