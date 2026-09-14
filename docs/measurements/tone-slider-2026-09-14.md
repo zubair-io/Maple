@@ -114,4 +114,7 @@ candidate is not shippable under the current gates.
 Validation completed: 2,378 raw-core unit tests passed (92 ignored); production
 anchor integration tests 2/2; CPU/GPU direct/full/live/FFI parity passed; Apple
 build and 40 host tests passed; Windows native ABI/anchor tests 9/9; WASM GPU
-target check passed. These do not override the failed perceptual gate.
+target check passed; all 41 synthetic grey/anchor qualification cases passed
+without skips; the maximum resolved Whites amount (+110) passed GPU parity at
+zero and both extreme Contrast settings. These do not override the failed
+perceptual gate.

@@ -148,6 +148,9 @@ fn wgsl_agx_matches_raw_core_stage_within_1e_4_nonzero_whites() {
 
     for (contrast, whites) in [
         (0.0f32, 100.0f32),
+        (0.0, 110.0), // maximum resolved positive amount (#3601)
+        (100.0, 110.0),
+        (-100.0, 110.0),
         (0.0, -100.0),
         (60.0, 40.0),
         (-40.0, -70.0),

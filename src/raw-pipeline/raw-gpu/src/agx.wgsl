@@ -41,7 +41,7 @@
 struct Params {
     count: u32,      // number of RGBA pixels
     contrast: f32,   // -100..+100; 0 = reference Sobotka sigmoid
-    whites: f32,     // -100..+100; white-point remap (raw-core view::agx_whites)
+    whites: f32,     // resolved amount: -100..+110 (raw-core view::whites_anchor)
     _pad1: u32,
 };
 
