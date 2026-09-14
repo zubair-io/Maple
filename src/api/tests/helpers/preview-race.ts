@@ -6,7 +6,7 @@
 
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import sharp from 'sharp';
+import { solidAvif } from '../../src/test-support/synth-image.ts';
 import { validateAvifOutput } from '../../src/thumbs/validate-avif.ts';
 import { PREVIEW_LONG_EDGE_PX } from '../../src/indexer/previewer.ts';
 
@@ -15,11 +15,7 @@ import { PREVIEW_LONG_EDGE_PX } from '../../src/indexer/previewer.ts';
  * milliseconds, widening the real race window between writers and readers
  * instead of everything completing inside one microtask tick. */
 export async function distinctAvif(r: number, g: number, b: number): Promise<Buffer> {
-  return sharp({
-    create: { width: 400, height: 300, channels: 3, background: { r, g, b } },
-  })
-    .avif({ quality: 60, effort: 2 })
-    .toBuffer();
+  return solidAvif(400, 300, [r, g, b], 60, 2);
 }
 
 export type ReadObservation = { ok: boolean; reason?: string };
@@ -30,7 +26,7 @@ export type ReadObservation = { ok: boolean; reason?: string };
  * `/api/fs/preview`'s `readFile(previewPath)` does) and decode-verifies THOSE
  * bytes via the real #2014 `validateAvifOutput` path, until `shouldStop()`
  * returns true. Bytes are staged to a private scratch file first so the
- * validator's own `sharp(filePath)` open judges the read snapshot, not a
+ * validator's own `maple(filePath)` open judges the read snapshot, not a
  * second independent look at the (possibly already-rewritten-again) live
  * path — see the module doc on the test files for why that distinction
  * matters.

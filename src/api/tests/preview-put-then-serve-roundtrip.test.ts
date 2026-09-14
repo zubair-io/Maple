@@ -37,7 +37,8 @@ import { mkdtemp, rm, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ObjectId } from 'mongodb';
-import sharp from 'sharp';
+import { maple } from 'maple';
+import { solidAvif } from '../src/test-support/synth-image.ts';
 
 import { previewPathRoutes } from '../src/routes/preview.ts';
 import { fsPreviewsRoutes } from '../src/routes/fs-previews.ts';
@@ -48,11 +49,7 @@ import { setLibraryRootsForTests, invalidateLibraryRoots } from '../src/indexer/
 /** A genuine, decodable AVIF a real editor client would produce — passes the
  * #2014 `validateAvifOutput` gate (no ICC profile, no orientation tag). */
 async function clientShapedAvif(): Promise<Buffer> {
-  return sharp({
-    create: { width: 640, height: 480, channels: 3, background: { r: 30, g: 90, b: 150 } },
-  })
-    .avif({ quality: 65, effort: 2 })
-    .toBuffer();
+  return solidAvif(640, 480, [30, 90, 150], 65, 2);
 }
 
 const put = (path: string, body: BodyInit) =>
@@ -107,9 +104,8 @@ describe('PUT /api/preview → GET /api/fs/preview round-trips byte-identically 
 
     // Decode-verify what was actually served (not just what was uploaded) —
     // proves the round-trip produced a genuine, complete AVIF end to end.
-    const meta = await sharp(served).metadata();
-    expect(meta.format).toBe('heif');
-    expect(meta.compression).toBe('av1');
+    const meta = await maple(served).metadata();
+    expect(meta.format).toBe('avif');
     expect(meta.width).toBe(640);
     expect(meta.height).toBe(480);
 

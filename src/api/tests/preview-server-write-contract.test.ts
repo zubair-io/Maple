@@ -18,7 +18,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
-import sharp from 'sharp';
+import { maple } from 'maple';
+import { solidRgb } from '../src/test-support/synth-image.ts';
 
 import previewStage from '../src/workers/stages/preview.ts';
 import { cachePathForAsset } from '../src/fs/xmp.ts';
@@ -51,13 +52,21 @@ describe('preview stage output passes the full #2014 validator (#1997)', () => {
 
   async function renderAndValidate(
     filename: string,
-    createOpts: sharp.Create,
-    withMetadata?: Parameters<sharp.Sharp['withMetadata']>[0],
+    createOpts: {
+      width: number;
+      height: number;
+      channels: 3;
+      background: { r: number; g: number; b: number };
+    },
+    withMetadata?: { orientation?: number; density?: number },
   ) {
     const file = path.join(dir, filename);
-    let pipeline = sharp({ create: createOpts }).jpeg();
-    if (withMetadata) pipeline = pipeline.withMetadata(withMetadata);
-    await writeFile(file, await pipeline.toBuffer());
+    const { width, height, background } = createOpts;
+    let builder = maple(solidRgb(width, height, [background.r, background.g, background.b])).toFormat(
+      'jpeg',
+    );
+    if (withMetadata) builder = builder.withMetadata(withMetadata);
+    await writeFile(file, await builder.toBuffer());
 
     const doc = makeDoc(filename, libraryId);
     const result = await previewStage.handler(doc as never, {} as never);
