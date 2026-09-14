@@ -10,6 +10,8 @@ import {
   getPlatformBinaryFilename,
   isMusl,
   resolvePlatformPackageLib,
+  renderFilenameTemplate,
+  validateFilename,
 } from '../src/index.ts';
 
 const repoRoot = path.resolve(__dirname, '../../..');
@@ -56,6 +58,40 @@ describe('Maple Native Binding', () => {
     expect(native.validateFilename('path/separator.jpg').ok).toBe(false);
     expect(native.validateFilename('.hidden.jpg').ok).toBe(false);
     expect(native.validateFilename('CON.jpg').ok).toBe(false);
+  });
+
+  // Regression coverage for #3509: the top-level `renderFilenameTemplate`/
+  // `validateFilename` exports (the public, README-documented functions a
+  // real consumer imports directly) once bypassed the napi-preferring
+  // dispatch entirely and called `loadNativeBinding()` (bun:ffi-only)
+  // straight through, throwing under plain Node even when a napi addon was
+  // resolvable. That bug went undetected because every existing test above
+  // exercised the operation via `loadNativeBinding()` directly rather than
+  // through these two top-level exports — these two tests close that
+  // coverage gap so a future edit to `native.ts` can't reintroduce it
+  // silently.
+  it('renderFilenameTemplate (top-level export) renders correctly, not just via loadNativeBinding()', () => {
+    const res = renderFilenameTemplate({
+      template: '{original}_{n}.{ext}',
+      originalStem: 'IMG_1234',
+      ext: 'jpg',
+      capturedAt: '2026:09:09 12:00:00',
+      sequenceStart: 1,
+      sequenceIndex: 0,
+      sequencePadWidth: 3,
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.name).toBe('IMG_1234_001.jpg');
+    }
+  });
+
+  it('validateFilename (top-level export) validates correctly, not just via loadNativeBinding()', () => {
+    expect(validateFilename('valid-photo_01.jpg').ok).toBe(true);
+    // Path separators, leading dots, trailing spaces, and Windows reserved names are rejected
+    expect(validateFilename('path/separator.jpg').ok).toBe(false);
+    expect(validateFilename('.hidden.jpg').ok).toBe(false);
+    expect(validateFilename('CON.jpg').ok).toBe(false);
   });
 
   it('gracefully reports error when exporting non-existent photo', async () => {
