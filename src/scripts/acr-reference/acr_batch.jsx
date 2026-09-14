@@ -3,7 +3,7 @@
 // Reads test-fixtures/references/manifest.json and produces one PNG per
 // (raw, xmp, tier) triple. Matches REFERENCES.md § "How acr_batch.jsx works":
 //
-//   1. Copy the case XMP to <raw_basename>.xmp next to the RAW.
+//   1. Stage Adobe XMP next to RAW; restore prior sidecar after every case.
 //   2. app.open(RAW) — ACR reads the sidecar and applies overrides.
 //   3. Convert to sRGB, 8 bit.
 //   4. full tier: saveAs PNG at native. down tier: BICUBICSHARPER to
@@ -97,67 +97,90 @@ function log(msg) {
 // ─────────────────────────────────────────────────────────────────
 function renderCase(kase) {
     var rawPath = kase.raw;
-    var xmpPath = kase.xmp;
+    if (!kase.acr_xmp) throw new Error("Missing explicit ACR sidecar; rerun run.py (#3633)");
+    var xmpPath = kase.acr_xmp;
     var outputs = kase.outputs;
 
     // 1. Copy XMP next to RAW so ACR picks it up on open.
     var sidecarPath = dirname(rawPath) + "/" + basenameNoExt(rawPath) + ".xmp";
-    copyFile(xmpPath, sidecarPath);
+    var priorSidecar = new File(sidecarPath);
+    var backup = new File(Folder.temp.fsName + "/maple-acr-sidecar-" +
+        new Date().getTime() + "-" + Math.floor(Math.random() * 1000000000) + ".xmp");
+    var hadSidecar = priorSidecar.exists;
+    if (hadSidecar) copyFile(sidecarPath, backup.fsName);
+    var doc = null;
+    try {
+        copyFile(xmpPath, sidecarPath);
 
-    // 2. Open — ACR applies crs: overrides from the sidecar.
-    var t0 = new Date().getTime();
-    var doc = app.open(new File(rawPath));
+        // 2. Open — ACR applies crs: overrides from the sidecar.
+        var t0 = new Date().getTime();
+        doc = app.open(new File(rawPath));
 
-    // 3. Normalize to sRGB 8-bit.
-    doc.convertProfile(
-        "sRGB IEC61966-2.1",
-        Intent.RELATIVECOLORIMETRIC,
-        true,  // blackPointCompensation
-        true   // dither
-    );
-    doc.bitsPerChannel = BitsPerChannelType.EIGHT;
+        // 3. Normalize to sRGB 8-bit.
+        doc.convertProfile(
+            "sRGB IEC61966-2.1",
+            Intent.RELATIVECOLORIMETRIC,
+            true,  // blackPointCompensation
+            true   // dither
+        );
+        doc.bitsPerChannel = BitsPerChannelType.EIGHT;
 
-    // 4. Save each tier.
-    //    Save 'full' BEFORE any resize so it captures the native-resolution
-    //    output. 'down' then resizes the *same* document in place.
-    var saveOrder = [];
-    for (var i = 0; i < outputs.length; i++) {
-        if (outputs[i].resolution === "full") saveOrder.push(outputs[i]);
-    }
-    for (var j = 0; j < outputs.length; j++) {
-        if (outputs[j].resolution === "down") saveOrder.push(outputs[j]);
-    }
-
-    for (var k = 0; k < saveOrder.length; k++) {
-        var out = saveOrder[k];
-        ensureDir(dirname(out.png));
-
-        if (out.resolution === "down") {
-            // Long-edge clamp to 4000 px via BICUBICSHARPER.
-            var w = doc.width.as("px");
-            var h = doc.height.as("px");
-            var longEdge = (w >= h) ? w : h;
-            if (longEdge > out.long_edge) {
-                var scale = out.long_edge / longEdge;
-                var newW = Math.round(w * scale);
-                var newH = Math.round(h * scale);
-                doc.resizeImage(
-                    UnitValue(newW, "px"),
-                    UnitValue(newH, "px"),
-                    doc.resolution,
-                    ResampleMethod.BICUBICSHARPER
-                );
-            }
+        // 4. Save each tier.
+        //    Save 'full' BEFORE any resize so it captures the native-resolution
+        //    output. 'down' then resizes the *same* document in place.
+        var saveOrder = [];
+        for (var i = 0; i < outputs.length; i++) {
+            if (outputs[i].resolution === "full") saveOrder.push(outputs[i]);
+        }
+        for (var j = 0; j < outputs.length; j++) {
+            if (outputs[j].resolution === "down") saveOrder.push(outputs[j]);
         }
 
-        var pngOpts = new PNGSaveOptions();
-        pngOpts.compression = 6;
-        pngOpts.interlaced = false;
-        doc.saveAs(new File(out.png), pngOpts, true, Extension.LOWERCASE);
-    }
+        for (var k = 0; k < saveOrder.length; k++) {
+            var out = saveOrder[k];
+            ensureDir(dirname(out.png));
 
-    // 5. Close without saving (never touch the RAW).
-    doc.close(SaveOptions.DONOTSAVECHANGES);
+            if (out.resolution === "down") {
+                // Long-edge clamp to 4000 px via BICUBICSHARPER.
+                var w = doc.width.as("px");
+                var h = doc.height.as("px");
+                var longEdge = (w >= h) ? w : h;
+                if (longEdge > out.long_edge) {
+                    var scale = out.long_edge / longEdge;
+                    var newW = Math.round(w * scale);
+                    var newH = Math.round(h * scale);
+                    doc.resizeImage(
+                        UnitValue(newW, "px"),
+                        UnitValue(newH, "px"),
+                        doc.resolution,
+                        ResampleMethod.BICUBICSHARPER
+                    );
+                }
+            }
+
+            var pngOpts = new PNGSaveOptions();
+            pngOpts.compression = 6;
+            pngOpts.interlaced = false;
+            doc.saveAs(new File(out.png), pngOpts, true, Extension.LOWERCASE);
+        }
+
+    } finally {
+        // Close only the document created by this case, even when save fails.
+        // Restore the prior sidecar byte-for-byte; do not serialize authored XML.
+        try {
+            if (doc !== null) doc.close(SaveOptions.DONOTSAVECHANGES);
+        } finally {
+            if (hadSidecar) {
+                copyFile(backup.fsName, sidecarPath);
+                backup.remove();
+            } else {
+                var temporarySidecar = new File(sidecarPath);
+                if (temporarySidecar.exists && !temporarySidecar.remove()) {
+                    throw new Error("Could not remove temporary ACR sidecar: " + sidecarPath);
+                }
+            }
+        }
+    }
 
     var dt = new Date().getTime() - t0;
     log("OK   " + kase.name + "  (" + outputs.length + " PNG" + (outputs.length > 1 ? "s" : "") + ", " + dt + " ms)");
@@ -192,33 +215,31 @@ function main() {
 
     var okCount = 0;
     var failCount = 0;
-    var lastSidecar = null;
 
     for (var i = 0; i < manifest.cases.length; i++) {
         var kase = manifest.cases[i];
         try {
             renderCase(kase);
             okCount++;
-            lastSidecar = dirname(kase.raw) + "/" + basenameNoExt(kase.raw) + ".xmp";
         } catch (e) {
             failCount++;
             log("FAIL " + (kase.name || "<unnamed>") + ": " + (e.message || e));
         }
     }
 
-    // Best-effort: remove the last sidecar we left next to a RAW.
-    // run.py --cleanup-only handles the general case across all RAWs.
-    if (lastSidecar) {
-        try {
-            var sc = new File(lastSidecar);
-            if (sc.exists) sc.remove();
-        } catch (e) { /* harmless */ }
-    }
-
     log("done — ok: " + okCount + ", fail: " + failCount);
 
-    alert("ACR batch complete\nOK:   " + okCount + "\nFail: " + failCount +
-          "\n\nSee acr_batch.log for per-case timing.");
+    if (failCount) throw new Error("ACR batch failed: " + failCount + " cases; see log");
+
 }
 
-main();
+var previousRulerUnits = app.preferences.rulerUnits;
+var previousTypeUnits = app.preferences.typeUnits;
+var previousDialogs = app.displayDialogs;
+try {
+    main();
+} finally {
+    app.preferences.rulerUnits = previousRulerUnits;
+    app.preferences.typeUnits = previousTypeUnits;
+    app.displayDialogs = previousDialogs;
+}

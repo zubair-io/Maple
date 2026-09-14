@@ -36,16 +36,12 @@ echo ""
 # `do javascript of file` is blocking — osascript returns when the .jsx returns.
 # AppleEvent default timeout is 120 s; a full 18-RAW × 43-case batch runs
 # 75–90 minutes, so wrap in `with timeout` (24 h, ample headroom).
-# The .jsx runs silently (DialogModes.NO) except for the final alert().
+# The .jsx runs silently (DialogModes.NO) and throws if any case fails.
 osascript -e "tell application \"$PHOTOSHOP_APP\" to activate" \
           -e "with timeout of 86400 seconds" \
           -e "tell application \"$PHOTOSHOP_APP\" to do javascript of file \"$JSX\"" \
           -e "end timeout"
 
 echo ""
+python3 "$MAPLE_ROOT/src/scripts/acr-reference/verify_settings.py" "$MANIFEST"
 echo "render.sh: done. Check acr_batch.log for per-case timing + errors."
-echo "render.sh: to clean up <raw>.xmp leftovers next to each RAW, run:"
-echo "   python3 $MAPLE_ROOT/src/scripts/acr-reference/run.py \\"
-echo "       --raws $MAPLE_ROOT/test-fixtures/raws/test_*.* \\"
-echo "       --out  $MAPLE_ROOT/test-fixtures/references/ \\"
-echo "       --cleanup-only"

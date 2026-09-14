@@ -36,8 +36,10 @@ Initial measured band MAE / ceiling:
 | Fixture | +1 EV | -1 EV |
 |---|---:|---:|
 | test_0002 | 1.255 / 1.36 | 1.294 / 1.40 |
-| test_0017 | 4.502 / 4.87 | 4.339 / 4.69 |
+| test_0017 | 4.555 / 4.92 | 4.429 / 4.79 |
 
+These initial ceilings use corrected, explicitly configured ACR references
+(#3633), replacing the unpublished prototype with inherited lens correction.
 Ceilings have about 8% headroom; ratchet them down with improvements, never raise
 them to accommodate a regression. Both signs must move mean L* in the expected
 direction. The magnitude of mean response must not exceed 1.10 times ACR's
@@ -55,21 +57,25 @@ fidelity. This gate records a tested outcome for #3631 without changing Exposure
 
 Photoshop 2026 **27.10.0**, Camera Raw **18.6 (2698)**, rendered 2026-09-14. The
 repository's `src/scripts/acr-reference/acr_batch.jsx` ran against APFS clones of
-the two RAWs, with isolated paths. Each baseline XMP was copied from that
-fixture's existing baseline; the +/-1 variants change only `Exposure2012`.
-ProcessVersion 11.0, As Shot WB, sharpening and other settings are preserved in
-those XMPs. Test_0002 currently has Sharpness 40 / Radius 1.0; an old driver README
-warning about a corrupted baseline does not apply to these settings.
+the two RAWs, with isolated paths. The `.xmp` files retain Maple's authored
+inputs; separate `.acr.xmp` files record the exact Adobe render settings.
+Omitted Adobe settings are explicitly neutral, including optional lens profile
+and lateral CA off. White balance defaults to As Shot. Each +/-1 Adobe sidecar
+changes only Exposure2012 relative to its Adobe baseline. Every saved PNG's
+embedded XMP was checked against all declared controls. Maple inputs stay
+separate because its LensProfileEnable switch also affects embedded DNG opcodes.
 
 ACR exported sRGB 8-bit PNGs at 4000px using BICUBICSHARPER, relative-colorimetric
 profile conversion, black-point compensation, and dithering. These were resized
 to 1024px with Pillow LANCZOS. `provenance.json` records application versions,
 settings hashes, original RAW hashes, both PNG hashes, and dimensions. Clones
-remained byte-identical to originals after rendering. New baseline renders matched
-the existing ACR references at 1024px: mean DeltaE 0 for 0002 and 0.000000859 for 0017.
+remained byte-identical to originals after rendering. Test_0017's old optional
+lens correction expanded reference geometry by about 1%; explicit profile-off
+removed that mismatch (42-patch registration residual 0.0049px at 1000px).
+Test_0002 pixels stayed unchanged with explicit settings.
 
-To regenerate, point a copied ACR driver at isolated RAW clones and the XMPs here,
-render baseline/+1/-1 at 4000px with the recorded settings, then resize and verify
-baseline comparability before replacing any committed image or provenance hash.
+To regenerate, point a copied ACR driver at isolated RAW clones and the
+`.acr.xmp` files here, render baseline/+1/-1 at 4000px with the recorded settings,
+then resize and verify geometry and effective settings before replacing images.
 No competitor implementation source was used. Adobe's unit definition is in its
 [Camera Raw tone documentation](https://helpx.adobe.com/camera-raw/desktop/using/make-color-tonal-adjustments-camera.html).
