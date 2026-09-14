@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import sharp from 'sharp';
+import { maple } from 'maple';
 import { ffmpegBinary, extractVideoPosterJpeg } from './video-poster.ts';
 
 /**
@@ -88,7 +88,7 @@ describe('extractVideoPosterJpeg — real decode (needs host ffmpeg)', () => {
 
     // Decode-verified, not just "a file exists": the whole point of this
     // artefact is that the downstream imgdecode pool can read it.
-    const meta = await sharp(out).metadata();
+    const meta = await maple(out).metadata();
     expect(meta.format).toBe('jpeg');
     expect(meta.width).toBe(640);
     expect(meta.height).toBe(360);
@@ -105,7 +105,7 @@ describe('extractVideoPosterJpeg — real decode (needs host ffmpeg)', () => {
     if (!shortClip) return;
     const out = path.join(dir, 'short-poster.jpg');
     expect(await extractVideoPosterJpeg(shortClip, out)).toBe(true);
-    expect((await sharp(out).metadata()).format).toBe('jpeg');
+    expect((await maple(out).metadata()).format).toBe('jpeg');
   });
 
   it('overwrites a stale output already at the target path', async () => {
@@ -115,7 +115,7 @@ describe('extractVideoPosterJpeg — real decode (needs host ffmpeg)', () => {
     const out = path.join(dir, 'stale.jpg');
     await writeFile(out, Buffer.from('stale bytes from a previous run'));
     expect(await extractVideoPosterJpeg(sampleVideo, out)).toBe(true);
-    expect((await sharp(out).metadata()).format).toBe('jpeg');
+    expect((await maple(out).metadata()).format).toBe('jpeg');
   });
 });
 
