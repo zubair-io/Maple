@@ -53,6 +53,18 @@ describe('worker pool execution mode', () => {
     expect(result).toEqual({ ok: true });
   });
 
+  it('calls a `this`-dependent native method correctly in sync mode (regression: sync dispatch used to call the method detached, losing `this`)', async () => {
+    setMapleExecutionMode('sync');
+    // rasterProbeMetadata's own implementation calls `this.rasterProbeMetadataBuf(...)`
+    // internally — if callNative's sync path invokes it as a bare detached
+    // function, that inner call throws on `undefined`, not on the missing file.
+    const result = await callNative('rasterProbeMetadata', ['/nonexistent/does-not-exist.jpg']);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(result.error).not.toMatch(/Cannot read propert(y|ies) of undefined/);
+    expect(result.error).not.toMatch(/rasterProbeMetadataBuf/);
+  });
+
   it('clamps concurrency to a sane minimum of 1', () => {
     setMapleConcurrency(0);
     expect(getMapleConcurrency()).toBe(1);
