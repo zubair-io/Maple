@@ -37,10 +37,10 @@ struct StagedExportFile: Identifiable {
 @MainActor
 @Observable
 final class ExportPanelVM {
-  /// Bakes `session` into a full-resolution CIImage graph. `@MainActor`
+  /// Bakes `session` into a CIImage graph (full-resolution or fast-fit). `@MainActor`
   /// because `EditSession` is; the work here is cheap — the graph is lazy,
   /// and `RenderActor` already owns the decode and the develop.
-  typealias Renderer = @MainActor (EditSession) async throws -> CIImage
+  typealias Renderer = @MainActor (EditSession, ExportSizeOption) async throws -> CIImage
   /// Evaluates that graph and encodes it — the expensive half. Synchronous
   /// and unisolated on purpose: `encodeOffPool` below is what moves it off
   /// the main actor, so *where* it runs is decided by this file (and
@@ -55,6 +55,7 @@ final class ExportPanelVM {
 
   var format: ExportFileFormat = .jpegSRGB
   var quality: Double = 0.92
+  var sizeOption: ExportSizeOption = .full
   private(set) var isExporting = false
   private(set) var exportError: String?
   /// Non-nil once `stageForSharing` has written the file; the panel binds
@@ -71,7 +72,7 @@ final class ExportPanelVM {
   private var exportTask: Task<Void, Never>?
 
   init(
-    render: @escaping Renderer = { try await $0.renderForExport() },
+    render: @escaping Renderer = { try await $0.renderForExport(sizeOption: $1) },
     encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
     write: @escaping Writer = { try $0.write(to: $1, options: .atomic) }
   ) {
@@ -80,8 +81,21 @@ final class ExportPanelVM {
     self.writeFile = write
   }
 
+  /// Convenience initializer for tests or callers that do not inspect `ExportSizeOption`.
+  convenience init(
+    render: @escaping @MainActor (EditSession) async throws -> CIImage,
+    encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
+    write: @escaping Writer = { try $0.write(to: $1, options: .atomic) }
+  ) {
+    self.init(
+      render: { session, _ in try await render(session) },
+      encode: encode,
+      write: write
+    )
+  }
+
   var options: ExportOptions {
-    ExportOptions(format: format, quality: quality)
+    ExportOptions(format: format, quality: quality, sizeOption: sizeOption)
   }
 
   /// Lossy formats expose the quality slider; TIFF and PNG are lossless.
@@ -176,7 +190,7 @@ final class ExportPanelVM {
 
   private func runStaging(session: EditSession, directory: URL, gen: Int) async {
     do {
-      let image = try await render(session)
+      let image = try await render(session, sizeOption)
       try guardLive(gen)
       let data = try await encodeOffPool(image)
       try guardLive(gen)

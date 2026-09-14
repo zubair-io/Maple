@@ -278,7 +278,7 @@ final class ExportPanelVMTests: XCTestCase {
     let value = await unrelated.value
     XCTAssertEqual(value, 42, "unrelated async work must still be schedulable")
 
-    gates.forEach { $0.release() }
+    for gate in gates { gate.release() }
     for task in tasks { await task.value }
     XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).count, count)
     XCTAssertTrue(vms.allSatisfy { !$0.isExporting })
@@ -329,5 +329,30 @@ final class ExportPanelVMTests: XCTestCase {
 
     vm.format = .png
     XCTAssertFalse(vm.showsQualityControl)
+  }
+
+  // MARK: - Resolution Options
+
+  func testSizeOptionDefaultsToFullAndPassesToRenderer() async throws {
+    let image = stubImage
+    var renderedSizeOption: ExportSizeOption?
+    let vm = ExportPanelVM(
+      render: { _, sizeOpt in
+        renderedSizeOption = sizeOpt
+        return image
+      },
+      encode: { _, _ in Data([0x01]) }
+    )
+
+    XCTAssertEqual(vm.sizeOption, .full)
+    XCTAssertEqual(vm.options.sizeOption, .full)
+
+    vm.sizeOption = .fast
+    XCTAssertEqual(vm.options.sizeOption, .fast)
+
+    let session = EditSession.preview()
+    await vm.stageForSharing(session: session, in: directory)
+
+    XCTAssertEqual(renderedSizeOption, .fast)
   }
 }

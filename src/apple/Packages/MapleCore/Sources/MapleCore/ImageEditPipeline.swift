@@ -1424,9 +1424,8 @@ public actor ImageEditPipeline {
     // chain and the encode any more (#1043 retired the intervening
     // Metal sharpen / nr_color kernels), so the only remaining gate is
     // that the #661 `sceneLinearChainCache` would MISS anyway (a HIT
-    // there is strictly cheaper: it skips the FFI entirely). Bounded to
-    // `targetSize != nil` to match the #2042 input-cache gate below.
-    if !Self.fusedChainEncodeDisabled, targetSize != nil {
+    // there is strictly cheaper: it skips the FFI entirely).
+    if !Self.fusedChainEncodeDisabled {
       let extent = scaled.extent
       let w = Int(extent.width.rounded())
       let h = Int(extent.height.rounded())
@@ -1445,7 +1444,7 @@ public actor ImageEditPipeline {
             scaled, model: model,
             decodedTemperature: 6500.0, decodedTint: 0.0,
             skipAgX: true,
-            decodedSource: decoded,
+            decodedSource: targetSize != nil ? decoded : nil,
             // No Auto Profile cube on the non-RAW path, so this
             // is always safe to honor the canvas setting directly
             // (#3190) UNLESS the caller is about to composite an
@@ -1618,12 +1617,11 @@ public actor ImageEditPipeline {
     // Metal sharpen / nr_color kernels), so the only remaining gate is
     // that the #661 `sceneLinearChainCache` would MISS anyway (a HIT
     // there is strictly cheaper: it skips the FFI entirely). Bounded to
-    // `targetSize != nil` to match the #2042 input-cache gate below. On
-    // success, the Auto Profile cube (if any) is the ONLY remaining step
+    // On success, the Auto Profile cube (if any) is the ONLY remaining step
     // — it applies AFTER the encode either way, fused or not, so
     // applying it here to `fusedEncoded` matches
     // `applyAutoCubeIfEncoded`'s success branch exactly.
-    if !Self.fusedChainEncodeDisabled, targetSize != nil {
+    if !Self.fusedChainEncodeDisabled {
       let extent = scaled.extent
       let w = Int(extent.width.rounded())
       let h = Int(extent.height.rounded())
@@ -1645,7 +1643,7 @@ public actor ImageEditPipeline {
             skipAgX: false,
             noiseProfile: noiseProfile,
             iso: iso,
-            decodedSource: decoded,
+            decodedSource: targetSize != nil ? decoded : nil,
             // #3190: an Auto Profile cube is fit/baked in sRGB —
             // applying it to a P3-encoded buffer would be a
             // color-space mismatch (the cube's LUT domain no

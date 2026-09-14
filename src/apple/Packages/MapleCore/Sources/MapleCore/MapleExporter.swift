@@ -8,244 +8,285 @@
 // macOS: NSSavePanel. iOS / iPadOS: the app's `ExportPanelVM` stages the
 // encoded bytes as a file and hands it to the system share sheet.
 
-import Foundation
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Foundation
 import ImageIO
 
 #if os(macOS)
-import AppKit
+  import AppKit
 #endif
+
+// MARK: - ExportSizeOption
+
+public enum ExportSizeOption: String, Sendable, CaseIterable {
+  case fast = "fast"
+  case full = "full"
+
+  public var displayName: String {
+    switch self {
+    case .fast: return "Fast (Fit)"
+    case .full: return "Full Size"
+    }
+  }
+}
 
 // MARK: - ExportOptions
 
 public struct ExportOptions: Sendable {
-    public var format: ExportFileFormat
-    public var quality: Double              // JPEG quality 0..1, default 0.92
-    public var maxSidePixels: Int?          // nil = full resolution
+  public var format: ExportFileFormat
+  public var quality: Double  // JPEG quality 0..1, default 0.92
+  public var maxSidePixels: Int?  // nil = full resolution
+  public var sizeOption: ExportSizeOption
 
-    public static let defaults = ExportOptions(format: .jpegSRGB, quality: 0.92, maxSidePixels: nil)
+  public static let defaults = ExportOptions(
+    format: .jpegSRGB, quality: 0.92, maxSidePixels: nil, sizeOption: .full)
 
-    public init(format: ExportFileFormat, quality: Double = 0.92, maxSidePixels: Int? = nil) {
-        self.format = format
-        self.quality = quality
-        self.maxSidePixels = maxSidePixels
-    }
+  public init(
+    format: ExportFileFormat,
+    quality: Double = 0.92,
+    maxSidePixels: Int? = nil,
+    sizeOption: ExportSizeOption = .full
+  ) {
+    self.format = format
+    self.quality = quality
+    self.maxSidePixels = maxSidePixels
+    self.sizeOption = sizeOption
+  }
 }
 
 public enum ExportFileFormat: String, Sendable, CaseIterable {
-    case jpegSRGB  = "jpeg_srgb"
-    case jpegP3    = "jpeg_p3"
-    case heicP3    = "heic_p3"
-    case tiff16    = "tiff_16"
-    case png       = "png"
+  case jpegSRGB = "jpeg_srgb"
+  case jpegP3 = "jpeg_p3"
+  case heicP3 = "heic_p3"
+  case tiff16 = "tiff_16"
+  case png = "png"
 
-    public var fileExtension: String {
-        switch self {
-        case .jpegSRGB, .jpegP3: return "jpg"
-        case .heicP3:            return "heic"
-        case .tiff16:            return "tiff"
-        case .png:               return "png"
-        }
+  public var fileExtension: String {
+    switch self {
+    case .jpegSRGB, .jpegP3: return "jpg"
+    case .heicP3: return "heic"
+    case .tiff16: return "tiff"
+    case .png: return "png"
     }
+  }
 
-    public var uti: CFString {
-        switch self {
-        case .jpegSRGB, .jpegP3: return "public.jpeg" as CFString
-        case .heicP3:            return "public.heic" as CFString
-        case .tiff16:            return "public.tiff" as CFString
-        case .png:               return "public.png"  as CFString
-        }
+  public var uti: CFString {
+    switch self {
+    case .jpegSRGB, .jpegP3: return "public.jpeg" as CFString
+    case .heicP3: return "public.heic" as CFString
+    case .tiff16: return "public.tiff" as CFString
+    case .png: return "public.png" as CFString
     }
+  }
 
-    public var displayName: String {
-        switch self {
-        case .jpegSRGB:  return "JPEG sRGB"
-        case .jpegP3:    return "JPEG P3"
-        case .heicP3:    return "HEIC P3"
-        case .tiff16:    return "TIFF 16-bit"
-        case .png:       return "PNG"
-        }
+  public var displayName: String {
+    switch self {
+    case .jpegSRGB: return "JPEG sRGB"
+    case .jpegP3: return "JPEG P3"
+    case .heicP3: return "HEIC P3"
+    case .tiff16: return "TIFF 16-bit"
+    case .png: return "PNG"
     }
+  }
 
-    var targetColorSpace: CGColorSpace {
-        switch self {
-        case .jpegSRGB:  return CGColorSpace(name: CGColorSpace.sRGB)!
-        case .jpegP3, .heicP3: return CGColorSpace(name: CGColorSpace.displayP3)!
-        // PNG is an 8-bit delivery format: it MUST be gamma-encoded sRGB.
-        // Writing 8-bit *linear* sRGB (the old `.tiff16, .png` grouping) tagged
-        // the file "sRGB IEC61966-2.1 Linear" — viewers that ignore the PNG ICC
-        // (most do) read the linear bytes as gamma and render it far too dark,
-        // and 8-bit linear bands hard in the shadows (#1511). TIFF stays
-        // linear because it is 16-bit (a valid high-bit-depth working format).
-        case .png:    return CGColorSpace(name: CGColorSpace.sRGB)!
-        case .tiff16: return CGColorSpace(name: CGColorSpace.linearSRGB)!
-        }
+  var targetColorSpace: CGColorSpace {
+    switch self {
+    case .jpegSRGB: return CGColorSpace(name: CGColorSpace.sRGB)!
+    case .jpegP3, .heicP3: return CGColorSpace(name: CGColorSpace.displayP3)!
+    // PNG is an 8-bit delivery format: it MUST be gamma-encoded sRGB.
+    // Writing 8-bit *linear* sRGB (the old `.tiff16, .png` grouping) tagged
+    // the file "sRGB IEC61966-2.1 Linear" — viewers that ignore the PNG ICC
+    // (most do) read the linear bytes as gamma and render it far too dark,
+    // and 8-bit linear bands hard in the shadows (#1511). TIFF stays
+    // linear because it is 16-bit (a valid high-bit-depth working format).
+    case .png: return CGColorSpace(name: CGColorSpace.sRGB)!
+    case .tiff16: return CGColorSpace(name: CGColorSpace.linearSRGB)!
     }
+  }
 }
 
 // MARK: - MapleExporter
 
 public struct MapleExporter: Sendable {
-    private static let context = CIContext(options: [
-        .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
-        .outputColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-    ])
+  private static let context = CIContext(options: [
+    .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
+    .outputColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+    .cacheIntermediates: false,
+  ])
 
-    // MARK: - Export to Data
+  // MARK: - Export to Data
 
-    /// Render the session's pipeline output and encode to the requested format.
-    ///
-    /// `renderForExport()` returns a *lazy* CIImage graph rooted at the
-    /// full-resolution scene-linear decode. The peak-memory cost of a large
-    /// export is in evaluating that graph, not in this encode step: Core
-    /// Image's renderer tiles graph evaluation internally to respect the GPU
-    /// working-set limit, and the fp16-intermediate / `cacheIntermediates:
-    /// false` / pipeline-tile work that bounds it further is tracked in
-    /// docs/zoom.md. The encode itself needs
-    /// the whole output buffer in memory — ImageIO has no public API to stream
-    /// a single image to a destination strip by strip — so there is nothing
-    /// useful to tile here. One encode path therefore serves every size and
-    /// keeps each format's color space and bit depth correct.
-    public static func exportData(session: EditSession, options: ExportOptions) async throws -> Data {
-        // Full-quality bake. Bypasses the editor's preview-quality decoded
-        // cache so the exported pixels go through the parity-gated path.
-        let ci = try await session.renderForExport()
-        return try await encodeOffMainActor(ci, options: options)
-    }
+  /// Render the session's pipeline output and encode to the requested format.
+  ///
+  /// `renderForExport()` returns a *lazy* CIImage graph rooted at the
+  /// full-resolution scene-linear decode. The peak-memory cost of a large
+  /// export is in evaluating that graph, not in this encode step: Core
+  /// Image's renderer tiles graph evaluation internally to respect the GPU
+  /// working-set limit, and the fp16-intermediate / `cacheIntermediates:
+  /// false` / pipeline-tile work that bounds it further is tracked in
+  /// docs/zoom.md. The encode itself needs
+  /// the whole output buffer in memory — ImageIO has no public API to stream
+  /// a single image to a destination strip by strip — so there is nothing
+  /// useful to tile here. One encode path therefore serves every size and
+  /// keeps each format's color space and bit depth correct.
+  public static func exportData(session: EditSession, options: ExportOptions) async throws -> Data {
+    // Full-quality or fast-fit bake based on options.sizeOption.
+    let ci = try await session.renderForExport(sizeOption: options.sizeOption)
+    return try await encodeOffMainActor(ci, options: options)
+  }
 
-    /// Scale + encode a rendered graph off the caller's actor — and off the
-    /// cooperative pool (#3450).
-    ///
-    /// `renderForExport()` hands back a *lazy* CIImage graph — none of the
-    /// decode or develop cost has been paid yet when it returns. The whole
-    /// bill comes due inside `encodeImage`, where `CIContext` finally
-    /// evaluates the graph at full sensor resolution. `EditSession` is
-    /// `@MainActor`, so every caller of this reaches it from the main actor;
-    /// running the evaluation inline froze the iPhone editor for the length
-    /// of a 100MP bake (tens of seconds — long enough that XCUITest's
-    /// accessibility snapshot gave up with "main thread busy for 30.0s").
-    ///
-    /// The hop is `BlockingWork.run` — a Dispatch global queue, NOT
-    /// `Task.detached`. A detached task still runs on Swift's cooperative
-    /// pool, which is sized to the core count, so parking one there for the
-    /// length of a bake starves every other async task in the app; repeated
-    /// start/cancel cycles exhaust it outright (PR #3455 review). Dispatch
-    /// is the pool that is allowed to block.
-    ///
-    /// Cancelling only helps *before* `CIContext` enters the encode — a
-    /// single `jpegRepresentation` call has no interruption point — so a
-    /// late cancel still costs the bake; what it buys is that the caller
-    /// stops waiting, and `ExportPanelVM` throws the bytes away.
-    public static func encodeOffMainActor(
-        _ image: CIImage, options: ExportOptions
-    ) async throws -> Data {
-        try await BlockingWork.run { try MapleExporter.encode(image, options: options) }
-    }
+  /// Scale + encode a rendered graph off the caller's actor — and off the
+  /// cooperative pool (#3450).
+  ///
+  /// `renderForExport()` hands back a *lazy* CIImage graph — none of the
+  /// decode or develop cost has been paid yet when it returns. The whole
+  /// bill comes due inside `encodeImage`, where `CIContext` finally
+  /// evaluates the graph at full sensor resolution. `EditSession` is
+  /// `@MainActor`, so every caller of this reaches it from the main actor;
+  /// running the evaluation inline froze the iPhone editor for the length
+  /// of a 100MP bake (tens of seconds — long enough that XCUITest's
+  /// accessibility snapshot gave up with "main thread busy for 30.0s").
+  ///
+  /// The hop is `BlockingWork.run` — a Dispatch global queue, NOT
+  /// `Task.detached`. A detached task still runs on Swift's cooperative
+  /// pool, which is sized to the core count, so parking one there for the
+  /// length of a bake starves every other async task in the app; repeated
+  /// start/cancel cycles exhaust it outright (PR #3455 review). Dispatch
+  /// is the pool that is allowed to block.
+  ///
+  /// Cancelling only helps *before* `CIContext` enters the encode — a
+  /// single `jpegRepresentation` call has no interruption point — so a
+  /// late cancel still costs the bake; what it buys is that the caller
+  /// stops waiting, and `ExportPanelVM` throws the bytes away.
+  public static func encodeOffMainActor(
+    _ image: CIImage, options: ExportOptions
+  ) async throws -> Data {
+    try await BlockingWork.run { try MapleExporter.encode(image, options: options) }
+  }
 
-    /// Scale-then-encode, synchronously, on whatever thread calls it. Public
-    /// so the app's `ExportPanelVM` can own the hop off the main actor
-    /// itself (its unit tests substitute this seam and assert where it ran);
-    /// `encodeOffMainActor` above is the same work with the hop built in.
-    public static func encode(_ image: CIImage, options: ExportOptions) throws -> Data {
-        try encodeImage(scaledImage(image, maxSide: options.maxSidePixels), options: options)
-    }
+  /// Scale-then-encode, synchronously, on whatever thread calls it. Public
+  /// so the app's `ExportPanelVM` can own the hop off the main actor
+  /// itself (its unit tests substitute this seam and assert where it ran);
+  /// `encodeOffMainActor` above is the same work with the hop built in.
+  public static func encode(_ image: CIImage, options: ExportOptions) throws -> Data {
+    try encodeImage(scaledImage(image, maxSide: options.maxSidePixels), options: options)
+  }
 
-    // MARK: - macOS: NSSavePanel
+  // MARK: - macOS: NSSavePanel
 
-    #if os(macOS)
+  #if os(macOS)
     @MainActor
-    public static func exportWithSavePanel(session: EditSession, options: ExportOptions) async throws {
-        let panel = NSSavePanel()
-        panel.title = "Export"
-        panel.nameFieldStringValue = "\(session.asset.displayName).\(options.format.fileExtension)"
-        panel.allowedFileTypes = [options.format.fileExtension]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+    public static func exportWithSavePanel(session: EditSession, options: ExportOptions)
+      async throws
+    {
+      let panel = NSSavePanel()
+      panel.title = "Export"
+      panel.nameFieldStringValue = "\(session.asset.displayName).\(options.format.fileExtension)"
+      panel.allowedFileTypes = [options.format.fileExtension]
+      guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        let data = try await exportData(session: session, options: options)
-        try data.write(to: url, options: .atomic)
+      let data = try await exportData(session: session, options: options)
+      try data.write(to: url, options: .atomic)
     }
-    #endif
+  #endif
 
-    // MARK: - Encode
+  // MARK: - Encode
 
-    /// The single encode path for every export size. Renders `image` into the
-    /// requested format's native color space and bit depth. Package-internal
-    /// (not `public`) so `MapleExporterTests` can exercise it directly without
-    /// standing up a full `EditSession`.
-    static func encodeImage(_ image: CIImage, options: ExportOptions) throws -> Data {
-        let cs = options.format.targetColorSpace
-        switch options.format {
-        case .jpegSRGB, .jpegP3:
-            guard let data = context.jpegRepresentation(of: image, colorSpace: cs, options: [
-                kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption:
-                    options.quality
-            ]) else { throw ExportError.encodeFailed(options.format) }
-            return data
+  /// The single encode path for every export size. Renders `image` into the
+  /// requested format's native color space and bit depth. Package-internal
+  /// (not `public`) so `MapleExporterTests` can exercise it directly without
+  /// standing up a full `EditSession`.
+  static func encodeImage(_ image: CIImage, options: ExportOptions) throws -> Data {
+    try autoreleasepool {
+      let cs = options.format.targetColorSpace
+      switch options.format {
+      case .jpegSRGB, .jpegP3:
+        guard
+          let data = context.jpegRepresentation(
+            of: image, colorSpace: cs,
+            options: [
+              kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption:
+                options.quality
+            ])
+        else { throw ExportError.encodeFailed(options.format) }
+        return data
 
-        case .heicP3:
-            // RGBA16 = 16-bit half-float per channel (HEIC supports 10-bit
-            // and bumps file size only ~5%; gives the P3 gamut headroom
-            // it deserves without 8-bit posterization on smooth gradients).
-            guard let data = context.heifRepresentation(of: image, format: .RGBA16, colorSpace: cs, options: [
-                kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption:
-                    options.quality
-            ]) else { throw ExportError.encodeFailed(options.format) }
-            return data
+      case .heicP3:
+        // RGBA16 = 16-bit half-float per channel (HEIC supports 10-bit
+        // and bumps file size only ~5%; gives the P3 gamut headroom
+        // it deserves without 8-bit posterization on smooth gradients).
+        guard
+          let data = context.heifRepresentation(
+            of: image, format: .RGBA16, colorSpace: cs,
+            options: [
+              kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption:
+                options.quality
+            ])
+        else { throw ExportError.encodeFailed(options.format) }
+        return data
 
-        case .tiff16:
-            // 16-bit per channel — this case was previously named
-            // `tiff16` but used `createCGImage` without `format:` (which
-            // defaults to 8-bit BGRA). Explicit `.RGBA16` honors the name.
-            guard let cgImg = context.createCGImage(
-                image, from: image.extent, format: .RGBA16, colorSpace: cs
-            ) else {
-                throw ExportError.encodeFailed(options.format)
-            }
-            let mutableData = NSMutableData()
-            guard let dest = CGImageDestinationCreateWithData(
-                mutableData, "public.tiff" as CFString, 1, nil
-            ) else { throw ExportError.encodeFailed(options.format) }
-            CGImageDestinationAddImage(dest, cgImg, [
-                kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: 1]
-            ] as CFDictionary)
-            guard CGImageDestinationFinalize(dest) else {
-                throw ExportError.encodeFailed(options.format)
-            }
-            return mutableData as Data
-
-        case .png:
-            guard let data = context.pngRepresentation(of: image, format: .RGBA8, colorSpace: cs)
-            else { throw ExportError.encodeFailed(options.format) }
-            return data
+      case .tiff16:
+        // 16-bit per channel — this case was previously named
+        // `tiff16` but used `createCGImage` without `format:` (which
+        // defaults to 8-bit BGRA). Explicit `.RGBA16` honors the name.
+        guard
+          let cgImg = context.createCGImage(
+            image, from: image.extent, format: .RGBA16, colorSpace: cs
+          )
+        else {
+          throw ExportError.encodeFailed(options.format)
         }
-    }
+        let mutableData = NSMutableData()
+        guard
+          let dest = CGImageDestinationCreateWithData(
+            mutableData, "public.tiff" as CFString, 1, nil
+          )
+        else { throw ExportError.encodeFailed(options.format) }
+        CGImageDestinationAddImage(
+          dest, cgImg,
+          [
+            kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: 1]
+          ] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else {
+          throw ExportError.encodeFailed(options.format)
+        }
+        return mutableData as Data
 
-    // MARK: - Scale
-
-    /// Downscale so the long edge fits `maxSide` (nil = full resolution).
-    /// Package-internal so `MapleExporterTests` can verify the resize that the
-    /// export path applies before encoding.
-    static func scaledImage(_ image: CIImage, maxSide: Int?) -> CIImage {
-        guard let maxSide else { return image }
-        let w = image.extent.width, h = image.extent.height
-        let longest = max(w, h)
-        guard longest > CGFloat(maxSide) else { return image }
-        let scale = CGFloat(maxSide) / longest
-        return image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+      case .png:
+        guard let data = context.pngRepresentation(of: image, format: .RGBA8, colorSpace: cs)
+        else { throw ExportError.encodeFailed(options.format) }
+        return data
+      }
     }
+  }
+
+  // MARK: - Scale
+
+  /// Downscale so the long edge fits `maxSide` (nil = full resolution).
+  /// Package-internal so `MapleExporterTests` can verify the resize that the
+  /// export path applies before encoding.
+  static func scaledImage(_ image: CIImage, maxSide: Int?) -> CIImage {
+    guard let maxSide else { return image }
+    let w = image.extent.width
+    let h = image.extent.height
+    let longest = max(w, h)
+    guard longest > CGFloat(maxSide) else { return image }
+    let scale = CGFloat(maxSide) / longest
+    return image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+  }
 }
 
 // MARK: - ExportError
 
 public enum ExportError: Error, LocalizedError {
-    case renderFailed
-    case encodeFailed(ExportFileFormat)
+  case renderFailed
+  case encodeFailed(ExportFileFormat)
 
-    public var errorDescription: String? {
-        switch self {
-        case .renderFailed: return "Failed to render image for export"
-        case .encodeFailed(let fmt): return "Failed to encode image as \(fmt.displayName)"
-        }
+  public var errorDescription: String? {
+    switch self {
+    case .renderFailed: return "Failed to render image for export"
+    case .encodeFailed(let fmt): return "Failed to encode image as \(fmt.displayName)"
     }
+  }
 }

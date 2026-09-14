@@ -18,6 +18,8 @@ extension RenderActor {
     asset: AssetRef,
     model: AdjustmentModel,
     asShot: ImageEditPipeline.AsShotWB?,
+    targetSize: CGSize? = nil,
+    qualityOverride: PipelineRenderer.Quality? = nil,
     // #3190 review follow-up: `EditSession.renderForExport()` composites
     // an sRGB-baked `FilmLookCube` on this function's NON-RAW result
     // when the asset has a resolvable look — the caller passes `.srgb`
@@ -35,16 +37,18 @@ extension RenderActor {
     if !asset.isRaw {
       guard
         let decoded = await pipeline.decodeSceneLinearNonRaw(
-          asset: asset, targetSize: nil
+          asset: asset, targetSize: targetSize
         )
       else {
         throw RenderError.pipelineFailed
       }
       return await Task.detached(priority: .userInitiated) {
-        pipeline.processSceneLinearNonRaw(
-          decoded: decoded, model: m, targetSize: nil,
-          targetPrimariesOverride: targetPrimariesOverride
-        )
+        autoreleasepool {
+          pipeline.processSceneLinearNonRaw(
+            decoded: decoded, model: m, targetSize: targetSize,
+            targetPrimariesOverride: targetPrimariesOverride
+          )
+        }
       }.value
     }
 
@@ -56,14 +60,23 @@ extension RenderActor {
     let xml = XMPSerializer.serialize(model: m, culling: CullingState())
     try xml.write(to: sidecar, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: sidecar) }
-    let quality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
-    guard
-      let exportDecodeResult = await pipeline.decodeSceneLinear(
+    let quality: PipelineRenderer.Quality =
+      qualityOverride ?? (targetSize != nil ? .preview : (AmazeFlag.isEnabled ? .amaze : .full))
+    let decodeResult: ImageEditPipeline.SceneLinearDecodeResult?
+    if let targetSize {
+      decodeResult = await pipeline.decodeSceneLinearSized(
+        asset: asset, targetSize: targetSize, xmpPath: sidecar, quality: quality,
+        profileOverride: asset.isRaw ? m.profile : nil,
+        autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+      )
+    } else {
+      decodeResult = await pipeline.decodeSceneLinear(
         asset: asset, quality: quality, xmpPath: sidecar,
         profileOverride: asset.isRaw ? m.profile : nil,
         autoExposureOverride: asset.isRaw ? m.autoExposure : nil
       )
-    else {
+    }
+    guard let exportDecodeResult = decodeResult else {
       throw RenderError.pipelineFailed
     }
     let profileLUT: CIFilter?
@@ -86,17 +99,19 @@ extension RenderActor {
         return .init(temperature: Double(frame.sceneCCT), tint: Double(frame.asShotTint))
       } ?? asShot
     return await Task.detached(priority: .userInitiated) {
-      pipeline.processSceneLinear(
-        decoded: exportDecodeResult.image,
-        model: m,
-        targetSize: nil,
-        asShot: exportAnchor,
-        decodedAtModel: m,
-        profileLUT: profileLUT,
-        noiseProfile: exportNoiseProfile,
-        iso: exportISO,
-        wbFrame: exportWbFrame
-      )
+      autoreleasepool {
+        pipeline.processSceneLinear(
+          decoded: exportDecodeResult.image,
+          model: m,
+          targetSize: targetSize,
+          asShot: exportAnchor,
+          decodedAtModel: m,
+          profileLUT: profileLUT,
+          noiseProfile: exportNoiseProfile,
+          iso: exportISO,
+          wbFrame: exportWbFrame
+        )
+      }
     }.value
   }
 

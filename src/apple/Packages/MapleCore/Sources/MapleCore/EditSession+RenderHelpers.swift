@@ -73,14 +73,27 @@ extension EditSession {
   }
 
   /// Bake the current model against a fresh full-quality decode for export.
-  public func renderForExport() async throws -> CIImage {
+  public func renderForExport(sizeOption: ExportSizeOption = .full) async throws -> CIImage {
     let exportModel = model
+    let isFast = sizeOption == .fast
+    let qualityOverride: PipelineRenderer.Quality? = isFast ? .preview : nil
+    let targetSize: CGSize? =
+      isFast
+      ? (fastTargetSize
+        ?? (nativeImageSize != .zero
+          ? CanvasMath(
+            viewportPx: CGSize(width: 1920, height: 1080), nativeImageSize: nativeImageSize,
+            pixelScale: 0
+          ).fastTargetSize : nil)
+          ?? CGSize(width: 2048, height: 2048))
+      : nil
+
     // Film look (epic #2683, Task 10): a RAW asset with a resolved look
     // routes through `maple_render_file_with_film` instead of the plain
     // CIImage graph below — see `EditSession+FilmExport.swift` for why.
     // Returns `nil` (falls through) for every other case: no look,
     // non-RAW, sourceless, or an FFI render failure.
-    if let filmExport = try await renderExportWithFilmLook() {
+    if let filmExport = try await renderExportWithFilmLook(quality: qualityOverride) {
       return filmExport
     }
     // Resolve the look BEFORE the render (#3190 review follow-up): a
@@ -97,6 +110,8 @@ extension EditSession {
     // decode's own frame export rides processSceneLinear(wbFrame:).
     let image = try await renderActor.renderForExport(
       asset: asset, model: exportModel, asShot: wbDeltaAnchor,
+      targetSize: targetSize,
+      qualityOverride: qualityOverride,
       targetPrimariesOverride: filmActive ? .srgb : nil
     )
     // Non-RAW film-look export (#2713): the CIImage-graph path above has

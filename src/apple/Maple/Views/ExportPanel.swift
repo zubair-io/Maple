@@ -31,6 +31,16 @@ struct ExportPanel: View {
           .pickerStyle(.segmented)
         }
 
+        Section("Resolution") {
+          Picker("Resolution", selection: $vm.sizeOption) {
+            ForEach(ExportSizeOption.allCases, id: \.self) { opt in
+              Text(opt.displayName).tag(opt)
+            }
+          }
+          .pickerStyle(.segmented)
+          .accessibilityIdentifier("export-size-picker")
+        }
+
         if vm.showsQualityControl {
           Section("Quality") {
             HStack {
@@ -45,13 +55,18 @@ struct ExportPanel: View {
         Section("Output") {
           Text("File: \(vm.outputFileName(for: session.asset))")
             .foregroundStyle(.secondary)
+          Text(vm.sizeOption == .fast ? "Size: Fit to screen" : "Size: Full resolution")
+            .foregroundStyle(.secondary)
         }
 
         if vm.isExporting {
           Section {
             HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
               MuiSpinner(size: .sm, label: "Exporting")
-              MuiText("Rendering at full quality…", color: .muted)
+              MuiText(
+                vm.sizeOption == .fast ? "Rendering fit size…" : "Rendering at full quality…",
+                color: .muted
+              )
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("export-progress")
