@@ -35,11 +35,15 @@ export async function inputBytes(state: BuilderState): Promise<Uint8Array> {
   throw new Error('No input provided to MapleImageBuilder');
 }
 
-export function runPipeline(
+export async function runPipeline(
   state: BuilderState,
   bytes: Uint8Array,
   output: Record<string, unknown>,
-): PipelineOutput {
+): Promise<PipelineOutput> {
+  // Resolves any pending aux segment (e.g. `withIccProfile(path)`, #3615)
+  // before the recipe is assembled — a no-op when every segment was already
+  // in-hand bytes, which is the common case.
+  await state.aux.resolve();
   const native = loadNativeBinding();
   const recipe = stateToRecipe(state, output);
   const res = native.rasterPipelineBuf(bytes, JSON.stringify(recipe), state.aux.bytes());

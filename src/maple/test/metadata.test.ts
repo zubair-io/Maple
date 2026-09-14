@@ -433,10 +433,13 @@ describe('Metadata and stats', () => {
       expect((await maple(out).metadata()).icc?.equals(srgbIcc)).toBe(true);
     });
 
-    it('item 2: withIccProfile(path) errors by name when the file is unreadable', () => {
-      expect(() => maple(ramp(8, 8)).withIccProfile('/no/such/profile.icc')).toThrow(
-        /cannot read ICC profile file/,
-      );
+    it('item 2: withIccProfile(path) errors by name when the file is unreadable', async () => {
+      // The read is deferred to execution (#3615: no synchronous I/O in a
+      // fluent setter), so an unreadable path fails `toBuffer()`, not the
+      // `withIccProfile()` call itself.
+      await expect(
+        maple(ramp(8, 8)).withIccProfile('/no/such/profile.icc').png().toBuffer(),
+      ).rejects.toThrow(/cannot read ICC profile file/);
     });
 
     it("item 2: withIccProfile('cmyk') is rejected by name — Maple has no CMYK ICC support", () => {
