@@ -1181,21 +1181,40 @@ async function renderPreview(options) {
 // src/recipe.ts
 class AuxBlob {
   parts = [];
-  total = 0;
   add(bytes) {
-    const ref = { off: this.total, len: bytes.byteLength };
-    this.parts.push(bytes);
-    this.total += bytes.byteLength;
+    const ref = { off: 0, len: 0 };
+    this.parts.push({ bytes, loader: null, ref });
     return ref;
   }
+  addPending(loader) {
+    const ref = { off: 0, len: 0 };
+    this.parts.push({ bytes: null, loader, ref });
+    return ref;
+  }
+  async resolve() {
+    for (const part of this.parts) {
+      if (part.bytes === null && part.loader) {
+        part.bytes = await part.loader();
+      }
+    }
+    let offset = 0;
+    for (const part of this.parts) {
+      const len = part.bytes?.byteLength ?? 0;
+      part.ref.off = offset;
+      part.ref.len = len;
+      offset += len;
+    }
+  }
   bytes() {
-    const out = new Uint8Array(this.total);
-    const end = this.parts.reduce((offset, part) => {
-      out.set(part, offset);
-      return offset + part.byteLength;
-    }, 0);
-    if (end !== this.total) {
-      throw new Error(`AuxBlob wrote ${end} bytes, expected ${this.total}`);
+    const total = this.parts.reduce((sum, part) => sum + (part.bytes?.byteLength ?? 0), 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of this.parts) {
+      if (part.bytes === null) {
+        throw new Error("AuxBlob.bytes() called before resolve() finished a pending load");
+      }
+      out.set(part.bytes, offset);
+      offset += part.bytes.byteLength;
     }
     return out;
   }
@@ -1653,6 +1672,7 @@ async function inputBytes(state) {
   throw new Error("No input provided to MapleImageBuilder");
 }
 async function runPipeline(state, bytes, output) {
+  await state.aux.resolve();
   const recipe = stateToRecipe(state, output);
   const res = await callNative("rasterPipelineBuf", [
     bytes,
@@ -1945,7 +1965,6 @@ function pushTrim(state, options) {
 }
 
 // src/builder-metadata.ts
-import * as fsSync from "node:fs";
 import * as fs7 from "node:fs/promises";
 import * as path8 from "node:path";
 
@@ -2207,13 +2226,13 @@ function applyWithIccProfile(state, icc) {
     track(state, "withIccProfile");
     return;
   }
-  let bytes;
-  try {
-    bytes = fsSync.readFileSync(icc);
-  } catch (error) {
-    throw new Error(`withIccProfile: cannot read ICC profile file '${icc}': ` + (error instanceof Error ? error.message : String(error)));
-  }
-  state.metadata.icc = state.aux.add(bytes);
+  state.metadata.icc = state.aux.addPending(async () => {
+    try {
+      return await fs7.readFile(icc);
+    } catch (error) {
+      throw new Error(`withIccProfile: cannot read ICC profile file '${icc}': ` + (error instanceof Error ? error.message : String(error)));
+    }
+  });
   state.metadata.iccName = undefined;
   track(state, "withIccProfile");
 }

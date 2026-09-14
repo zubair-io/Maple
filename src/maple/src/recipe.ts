@@ -54,30 +54,76 @@ export interface Recipe {
   metadata: RecipeMetadata;
 }
 
+/** One segment: either bytes already in hand, or a loader that produces them. */
+interface AuxPart {
+  bytes: Uint8Array | null;
+  loader: (() => Promise<Uint8Array>) | null;
+  ref: AuxRef;
+}
+
 /**
  * Flat side-car buffer for everything binary a recipe references — composite
  * overlay pixels, a supplied ICC profile, an EXIF or XMP block. Segments are
  * appended in call order and addressed by `{ off, len }`.
+ *
+ * A segment may be registered as a pending loader (`addPending`) rather than
+ * bytes in hand, for a fluent setter that only has a *source* for the bytes
+ * (a file path) at call time — this keeps that setter itself synchronous,
+ * matching every other `with*` method, while the actual read waits for
+ * `resolve()`. `off`/`len` on a pending segment's `AuxRef` are meaningless
+ * until `resolve()` runs, because they depend on the byte lengths of every
+ * OTHER segment too (some possibly still pending) — the object is mutated in
+ * place once real lengths are known, which is why every caller that stashes
+ * a ref (`state.metadata.icc`, an op's `aux` field, …) sees the final offset
+ * without having to re-fetch anything.
  */
 export class AuxBlob {
-  private readonly parts: Uint8Array[] = [];
-  private total = 0;
+  private readonly parts: AuxPart[] = [];
 
   add(bytes: Uint8Array): AuxRef {
-    const ref = { off: this.total, len: bytes.byteLength };
-    this.parts.push(bytes);
-    this.total += bytes.byteLength;
+    const ref: AuxRef = { off: 0, len: 0 };
+    this.parts.push({ bytes, loader: null, ref });
     return ref;
   }
 
+  /** Reserve a segment whose bytes are read lazily, once, inside `resolve()`. */
+  addPending(loader: () => Promise<Uint8Array>): AuxRef {
+    const ref: AuxRef = { off: 0, len: 0 };
+    this.parts.push({ bytes: null, loader, ref });
+    return ref;
+  }
+
+  /**
+   * Run every pending loader and fix up every segment's `off`/`len` in call
+   * order. Must complete before `bytes()` is called; safe to call with no
+   * pending segments at all (the common case), and idempotent — a loader
+   * that already ran is not re-run.
+   */
+  async resolve(): Promise<void> {
+    for (const part of this.parts) {
+      if (part.bytes === null && part.loader) {
+        part.bytes = await part.loader();
+      }
+    }
+    let offset = 0;
+    for (const part of this.parts) {
+      const len = part.bytes?.byteLength ?? 0;
+      part.ref.off = offset;
+      part.ref.len = len;
+      offset += len;
+    }
+  }
+
   bytes(): Uint8Array {
-    const out = new Uint8Array(this.total);
-    const end = this.parts.reduce((offset, part) => {
-      out.set(part, offset);
-      return offset + part.byteLength;
-    }, 0);
-    if (end !== this.total) {
-      throw new Error(`AuxBlob wrote ${end} bytes, expected ${this.total}`);
+    const total = this.parts.reduce((sum, part) => sum + (part.bytes?.byteLength ?? 0), 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of this.parts) {
+      if (part.bytes === null) {
+        throw new Error('AuxBlob.bytes() called before resolve() finished a pending load');
+      }
+      out.set(part.bytes, offset);
+      offset += part.bytes.byteLength;
     }
     return out;
   }

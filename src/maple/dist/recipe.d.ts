@@ -57,10 +57,29 @@ export interface Recipe {
  * Flat side-car buffer for everything binary a recipe references — composite
  * overlay pixels, a supplied ICC profile, an EXIF or XMP block. Segments are
  * appended in call order and addressed by `{ off, len }`.
+ *
+ * A segment may be registered as a pending loader (`addPending`) rather than
+ * bytes in hand, for a fluent setter that only has a *source* for the bytes
+ * (a file path) at call time — this keeps that setter itself synchronous,
+ * matching every other `with*` method, while the actual read waits for
+ * `resolve()`. `off`/`len` on a pending segment's `AuxRef` are meaningless
+ * until `resolve()` runs, because they depend on the byte lengths of every
+ * OTHER segment too (some possibly still pending) — the object is mutated in
+ * place once real lengths are known, which is why every caller that stashes
+ * a ref (`state.metadata.icc`, an op's `aux` field, …) sees the final offset
+ * without having to re-fetch anything.
  */
 export declare class AuxBlob {
     private readonly parts;
-    private total;
     add(bytes: Uint8Array): AuxRef;
+    /** Reserve a segment whose bytes are read lazily, once, inside `resolve()`. */
+    addPending(loader: () => Promise<Uint8Array>): AuxRef;
+    /**
+     * Run every pending loader and fix up every segment's `off`/`len` in call
+     * order. Must complete before `bytes()` is called; safe to call with no
+     * pending segments at all (the common case), and idempotent — a loader
+     * that already ran is not re-run.
+     */
+    resolve(): Promise<void>;
     bytes(): Uint8Array;
 }

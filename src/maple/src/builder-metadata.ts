@@ -12,7 +12,6 @@
  * the recipe `metadata` block the `with*`/`keep*` methods populate.
  */
 
-import * as fsSync from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
@@ -308,9 +307,14 @@ const NAMED_ICC_PROFILES = new Set(['srgb', 'p3']);
 
 /**
  * Embed an ICC profile — `'srgb'` or `'p3'` (Maple's own built-in profiles,
- * no bytes to supply), a filesystem path (read now — Maple's `aux` blob
- * needs real bytes at call time, unlike sharp's own deferred-to-libvips
- * read), or raw profile bytes (a Maple extension beyond sharp's
+ * no bytes to supply), a filesystem path (read lazily — queued as a pending
+ * `aux` segment resolved during the async execution phase, `toBuffer`/
+ * `toFile`, rather than synchronously here — see `AuxBlob.addPending`, #3615.
+ * The file itself is only opened, and any "no such file" error only
+ * surfaces, once execution actually runs; earlier sharp-parity behaviour
+ * threw synchronously from this call, which meant a bad path blocked the
+ * event loop with a synchronous read on every call, not just the first
+ * failing one), or raw profile bytes (a Maple extension beyond sharp's
  * `string`-only signature).
  *
  * A NAMED profile converts and tags, as sharp does. Supplied BYTES tag
@@ -341,16 +345,16 @@ export function applyWithIccProfile(state: BuilderState, icc: string | Uint8Arra
     track(state, 'withIccProfile');
     return;
   }
-  let bytes: Buffer;
-  try {
-    bytes = fsSync.readFileSync(icc);
-  } catch (error) {
-    throw new Error(
-      `withIccProfile: cannot read ICC profile file '${icc}': ` +
-        (error instanceof Error ? error.message : String(error)),
-    );
-  }
-  state.metadata.icc = state.aux.add(bytes);
+  state.metadata.icc = state.aux.addPending(async () => {
+    try {
+      return await fs.readFile(icc);
+    } catch (error) {
+      throw new Error(
+        `withIccProfile: cannot read ICC profile file '${icc}': ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
+  });
   state.metadata.iccName = undefined;
   track(state, 'withIccProfile');
 }

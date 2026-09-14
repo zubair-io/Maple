@@ -55,9 +55,14 @@ export declare function applyWithMetadata(state: BuilderState, options?: {
 export declare function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): void;
 /**
  * Embed an ICC profile — `'srgb'` or `'p3'` (Maple's own built-in profiles,
- * no bytes to supply), a filesystem path (read now — Maple's `aux` blob
- * needs real bytes at call time, unlike sharp's own deferred-to-libvips
- * read), or raw profile bytes (a Maple extension beyond sharp's
+ * no bytes to supply), a filesystem path (read lazily — queued as a pending
+ * `aux` segment resolved during the async execution phase, `toBuffer`/
+ * `toFile`, rather than synchronously here — see `AuxBlob.addPending`, #3615.
+ * The file itself is only opened, and any "no such file" error only
+ * surfaces, once execution actually runs; earlier sharp-parity behaviour
+ * threw synchronously from this call, which meant a bad path blocked the
+ * event loop with a synchronous read on every call, not just the first
+ * failing one), or raw profile bytes (a Maple extension beyond sharp's
  * `string`-only signature).
  *
  * A NAMED profile converts and tags, as sharp does. Supplied BYTES tag
