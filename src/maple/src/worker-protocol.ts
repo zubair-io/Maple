@@ -8,12 +8,19 @@
  *
  * `args` are left as plain structured-clone data (Bun's postMessage copies
  * any Uint8Array/Buffer in them) — the caller's own buffer stays valid after
- * the call returns. The **result** going the other way is different: nobody
- * but the worker holds a reference to a buffer it just allocated, so
- * `prepareForTransfer` below extracts every typed array in it onto
- * `postMessage`'s transfer list for a zero-copy handoff, and
- * `restoreFromTransfer` reconstructs the exact typed-array subclass
- * (`Buffer`, `Float32Array`, or plain `Uint8Array`) on the other side.
+ * the call returns. The **result** going the other way is handled
+ * differently, but it is NOT a fully zero-copy path end to end: nobody but
+ * the worker holds a reference to a buffer it just allocated, so
+ * `prepareForTransfer` below `.slice()`s each typed array's backing
+ * `ArrayBuffer` — that slice allocates a new buffer and copies the bytes,
+ * once — and hands that already-copied buffer to `postMessage`'s transfer
+ * list. Only THAT step, the `postMessage` transfer itself, is zero-copy:
+ * ownership of the sliced buffer moves to the main thread without a second
+ * copy. `restoreFromTransfer` then reconstructs the exact typed-array
+ * subclass (`Buffer`, `Float32Array`, or plain `Uint8Array`) on the other
+ * side around that same buffer, with no further copying. Avoiding the
+ * `.slice()` copy itself (a genuine zero-copy path) is legitimate follow-up
+ * work, not something done here.
  */
 
 export interface WorkerRequest {
