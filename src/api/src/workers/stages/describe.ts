@@ -52,7 +52,7 @@ import {
   VISION_DOC_JSON_SCHEMA,
 } from '../../enrichment/describe-providers/parse-vision-json.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
-import sharp from 'sharp';
+import { maple } from 'maple';
 
 /**
  * Prompt version stamped on both `description_meta.prompt_version` and
@@ -194,7 +194,10 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // cross-platform display-preview tier). Decode + re-encode to JPEG here,
   // in memory, immediately before the provider call — no second persisted
   // artifact; the buffer is discarded once `provider.describe` returns.
-  const jpegBytes = await sharp(avifBytes).jpeg({ quality: 90, mozjpeg: true }).toBuffer();
+  // mozjpeg has no Maple equivalent — see frame-extract.ts's comment on the
+  // same trade-off. This buffer is discarded immediately after the provider
+  // call returns (never persisted), so the size difference doesn't matter.
+  const jpegBytes = await maple(avifBytes).toFormat('jpeg', { quality: 90 }).toBuffer();
 
   // One call, but possibly several servers: the pool waits for a free slot
   // on the least-loaded healthy endpoint and re-runs this on the next

@@ -18,7 +18,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ObjectId } from 'mongodb';
-import sharp from 'sharp';
+import { solidAvif } from '../../test-support/synth-image.ts';
 import type { VisionDoc } from '../../db/schema.ts';
 import type { ImageDoc } from '../run-stage.ts';
 import type {
@@ -113,7 +113,7 @@ export function mockProvider(result: DescribeResult | Error): DescribeProvider {
  * fileinfo determines the (path-keyed) preview cache path so we have to
  * construct them together. The preview must be a genuinely decodable AVIF —
  * `describeHandler` decodes + re-encodes it to JPEG before calling the
- * provider (#1978), so a placeholder byte sequence would make `sharp()`
+ * provider (#1978), so a placeholder byte sequence would make `maple()`
  * throw instead of exercising the real path. */
 export async function stageDocIn(
   absPath: string,
@@ -129,16 +129,7 @@ export async function stageDocIn(
   );
   if (!previewPath) throw new Error('test setup: cachePathForAsset returned null');
   mkdirSync(dirname(previewPath), { recursive: true });
-  const avifBytes = await sharp({
-    create: {
-      width: 32,
-      height: 24,
-      channels: 3,
-      background: { r: 120, g: 80, b: 40 },
-    },
-  })
-    .avif()
-    .toBuffer();
+  const avifBytes = await solidAvif(32, 24, [120, 80, 40]);
   writeFileSync(previewPath, avifBytes);
   return doc;
 }
