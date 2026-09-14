@@ -501,6 +501,10 @@ export function workerRoutes(): Elysia {
             pollIntervalMs: t.Optional(t.Unknown()),
             batchSize: t.Optional(t.Unknown()),
             sweepDirIntervalMs: t.Optional(t.Integer({ minimum: 0, maximum: 60_000 })),
+            version: t.Optional(t.Union([t.String(), t.Null()])),
+            prompt_text: t.Optional(t.Union([t.String(), t.Null()])),
+            ai_provider: t.Optional(t.Union([t.String(), t.Null()])),
+            ai_model: t.Optional(t.Union([t.String(), t.Null()])),
           }),
         },
       )

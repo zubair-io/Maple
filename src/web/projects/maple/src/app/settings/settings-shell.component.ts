@@ -12,6 +12,7 @@ import { SettingsIconComponent, type SettingsIconName } from './settings-icon.co
 export type SettingsSection =
   | 'account'
   | 'workers'
+  | 'ai'
   | 'sources'
   | 'imports'
   | 'people'
@@ -40,6 +41,14 @@ const ITEMS: readonly NavItem[] = [
     link: '/settings/workers',
     ownerOnly: true,
     sub: 'Pipeline + enrichment',
+  },
+  {
+    id: 'ai',
+    label: 'AI',
+    icon: 'sparkle',
+    link: '/settings/ai',
+    ownerOnly: true,
+    sub: 'Providers & models',
   },
   {
     id: 'sources',

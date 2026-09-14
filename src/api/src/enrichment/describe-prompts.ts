@@ -80,7 +80,7 @@ export const DEFAULT_DESCRIBE_SYSTEM_PROMPT =
  * §Prompt. Wired into the describe handler by ticket #149 alongside
  * the model swap; that commit also bumps `DESCRIBE_PROMPT_VERSION`.
  */
-export const DEFAULT_DESCRIBE_VISION_PROMPT = `You are indexing a personal photo library for search. Analyze this image and return ONLY a valid JSON object.
+export const DESCRIBE_VISION_SCHEMA_PREFIX = `You are indexing a personal photo library for search. Analyze this image and return ONLY a valid JSON object.
 
 Schema:
 
@@ -102,9 +102,9 @@ Schema:
   "text_visible":    "readable text transcribed verbatim — preserve case and line order; null when nothing is legible; do not translate or paraphrase",
   "notable_objects": ["distinctive specific objects, max 8"],
   "shot_type":       "action | static | candid | posed | architectural | nature | event"
-}
+}`;
 
-Caption rules — this field powers text search, so pack it with retrievable specifics:
+export const DEFAULT_DESCRIBE_TEXT_PROMPT = `Caption rules — this field powers text search, so pack it with retrievable specifics:
 - Lead with subjects and action, then setting. Never open with "This image shows" or similar.
 - Include when present: number of people and approximate ages (child/teen/adult/elderly), clothing colors, hair, animal breeds, vehicle makes/types, landmarks, assistive devices, sports gear, unusual objects.
 - Describe only what is visible. Do not infer relationships (say "three people," not "a family").
@@ -128,6 +128,16 @@ Example output for an ordinary photo:
 
 Example output for a screenshot:
 {"is_screenshot": true, "people_count": 0, "caption": "Screenshot of a maps navigation app showing a driving route to Portland with a 42-minute ETA.", "tags": ["screenshot", "maps", "navigation", "route", "portland", "eta", "app", "driving"], "subjects": [], "scene_type": null, "setting": null, "activity": null, "time_of_day": null, "lighting": null, "weather": null, "mood": null, "colors": ["white", "blue"], "framing": null, "text_visible": "42 min\\n28 miles\\nFastest route to Portland", "notable_objects": ["map"], "shot_type": null}`;
+
+export function composeDescribePrompt(customText?: string | null): string {
+  const text = customText?.trim();
+  if (!text) {
+    return `${DESCRIBE_VISION_SCHEMA_PREFIX}\n\n${DEFAULT_DESCRIBE_TEXT_PROMPT}`;
+  }
+  return `${DESCRIBE_VISION_SCHEMA_PREFIX}\n\n${text}`;
+}
+
+export const DEFAULT_DESCRIBE_VISION_PROMPT = composeDescribePrompt();
 
 /**
  * `prompt_version` to stamp on `vision_meta` rows produced with

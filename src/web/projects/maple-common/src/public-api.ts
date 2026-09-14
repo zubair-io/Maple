@@ -46,6 +46,7 @@ export * from './lib/api/search.service';
 export * from './lib/api/workers-api.service';
 export * from './lib/api/worker-events.service';
 export * from './lib/api/imports-api.service';
+export * from './lib/api/ai-api.service';
 // #1231 — Panorama stitching
 export * from './lib/api/pano.service';
 export * from './lib/pano/pano-dialog.component';
@@ -347,6 +348,7 @@ export * from './lib/ui/list/mui-list.component';
 // Maple UI design system (#3000), wave 2 — Form/Media/Feedback atoms.
 export * from './lib/ui/input/mui-input.component';
 export * from './lib/ui/checkbox/mui-checkbox.component';
+export * from './lib/ui/select/mui-select.component';
 export * from './lib/ui/segmented-toggle/mui-segmented-toggle.component';
 export * from './lib/ui/image/mui-image.component';
 export * from './lib/ui/remote-image/mui-remote-image.component';

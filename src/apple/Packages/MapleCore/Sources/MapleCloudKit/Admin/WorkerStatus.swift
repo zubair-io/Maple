@@ -15,6 +15,7 @@ import Foundation
 /// whole payload — one new state on the server must not blank the table.
 public enum StageRunState: String, Decodable, Sendable, Equatable {
   case running
+  case idle
   case paused
   case stopped
   case error
@@ -111,7 +112,12 @@ public struct WorkersStatusFrame: Decodable, Sendable, Equatable {
   public let counted: Bool
   public let ts: Double
 
-  public init(type: String = "workers-status", status: WorkersStatusPayload, counted: Bool, ts: Double = 0) {
+  public init(
+    type: String = "workers-status",
+    status: WorkersStatusPayload,
+    counted: Bool,
+    ts: Double = 0
+  ) {
     self.type = type
     self.status = status
     self.counted = counted
