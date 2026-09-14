@@ -4,7 +4,7 @@ Issues: #3601 (Whites), #3631 (Exposure investigation). Base: `3572cbeb99bb1242a
 
 ## Decision evidence
 
-The image-dependent Whites direction is promising, but the handoff's 4.19 L* is
+The image-dependent Whites direction is promising, but the handoff's 4.19 L\* is
 not a production-render result. The historical calibration derives **per-pixel
 input tone positions** from ACR's baseline, even when its **per-image percentile**
 is measured from RAW. These are distinct inputs. Both the 2.93 oracle and the
@@ -26,12 +26,12 @@ includes the decoded anchor.
 
 Current 1024px production renders, all 18 fixtures (including the WB-stable anchor and jittered sampler):
 
-| Profile / rail | Main band MAE L* | Candidate band MAE L* |
-| --- | ---: | ---: |
-| Auto +100 | 16.945 | 7.648 |
-| Auto -100 | 3.603 | 1.919 |
-| Neutral +100 | 16.379 | 5.594 |
-| Neutral -100 | 3.010 | 1.201 |
+| Profile / rail | Main band MAE L\* | Candidate band MAE L\* |
+| -------------- | ----------------: | ---------------------: |
+| Auto +100      |            16.945 |                  7.648 |
+| Auto -100      |             3.603 |                  1.919 |
+| Neutral +100   |            16.379 |                  5.594 |
+| Neutral -100   |             3.010 |                  1.201 |
 
 These are calibration-set results, not held-out accuracy. All 36 baseline PNGs
 are byte-identical to main. A separate 512px CIEDE2000 diagnostic improves average
@@ -50,13 +50,13 @@ it enabled by default. Comparing those profiles changes the AgX operating point
 as well as the fitted tail. It does not isolate the tail's slope.
 
 A controlled experiment adds Neutral with AE Off, measured on the **same spatial
-pixels selected once by Auto baseline L* 60–80**. Means across all 18 fixtures:
+pixels selected once by Auto baseline L\* 60–80**. Means across all 18 fixtures:
 
-| Render | +1 EV delta L* | -1 EV delta L* |
-| --- | ---: | ---: |
-| Auto | 10.820 | -15.554 |
-| Neutral, AE On | 8.420 | -11.122 |
-| Neutral, AE Off | 12.285 | -17.024 |
+| Render          | +1 EV delta L\* | -1 EV delta L\* |
+| --------------- | --------------: | --------------: |
+| Auto            |          10.820 |         -15.554 |
+| Neutral, AE On  |           8.420 |         -11.122 |
+| Neutral, AE Off |          12.285 |         -17.024 |
 
 Fixtures 0001 and 0018 have no active Auto fit and need exclusion when attributing
 the fitted tail itself. Positive amplification remains notable on 0002 and 0017;
@@ -73,12 +73,12 @@ A subsequent direct ACR test resolves the missing-reference question. Photoshop
 0002 and 0017. The regenerated baselines match the existing references to
 rounding precision. Native Maple Auto versus ACR:
 
-| Fixture | Maple mean ΔL* (+1 / -1) | ACR mean ΔL* (+1 / -1) | Band MAE (+1 / -1) |
-| --- | ---: | ---: | ---: |
-| 0002 | +8.73 / -13.55 | +9.12 / -13.47 | 1.08 / 1.06 |
-| 0017 | +13.53 / -13.08 | +17.22 / -15.65 | 3.92 / 3.81 |
+| Fixture | Maple mean ΔL\* (+1 / -1) | ACR mean ΔL\* (+1 / -1) | Band MAE (+1 / -1) |
+| ------- | ------------------------: | ----------------------: | -----------------: |
+| 0002    |            +8.73 / -13.55 |          +9.12 / -13.47 |        1.08 / 1.06 |
+| 0017    |           +13.53 / -13.08 |         +17.22 / -15.65 |        3.92 / 3.81 |
 
-The localized bright-band positive excess is approximately 1.7 L*, while the
+The localized bright-band positive excess is approximately 1.7 L\*, while the
 whole-image response is close to or weaker than ACR. Retain Exposure's exact
 linear multiplier and reject the blanket slope cap. Fixture 0017's remaining
 mismatch concerns Auto profile tone distribution, not excessive global exposure.
@@ -113,7 +113,7 @@ uses Full quality and the production sized renderer, supplies the RAW path for
 embedded-preview extraction, and does not inject bundled lens corrections. ACR
 PNGs are comparison targets only; they never enter Maple's rendering inputs.
 
-The reporter uses ACR baseline to select common spatial masks in 5-point L* bands,
+The reporter uses ACR baseline to select common spatial masks in 5-point L\* bands,
 requires at least 200 pixels per band, compares each renderer's edit-minus-own-
 baseline, averages absolute band errors within a fixture, then averages fixtures.
 It fails on missing fixture outputs. Empty bands are reported as null.
