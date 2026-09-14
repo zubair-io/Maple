@@ -76,7 +76,7 @@ pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String
 
     s.push_str("## Lens support\n\n");
     s.push_str(
-        "A separate axis: lens correction never follows from the camera tier. Maple maintains no lens profile database, so the only source is the correction the camera writes into the file.\n\n",
+        "A separate axis: lens correction never follows from the camera tier. The statuses below report embedded `OpcodeList3` correction data only, not external profile availability. Maple also bundles a Lensfun database and supports explicitly selected lens profiles. Corrections resolve in this order: embedded DNG corrections, an explicit profile selection, then an automatic match from the bundled Lensfun database. These sources are not compounded. See the [bundle coverage](../src/raw-pipeline/raw-core/src/lens_profile/lensfun/COVERAGE.md) for the database snapshot and coverage.\n\n",
     );
     for lens in LensSupport::ALL {
         s.push_str(&format!("### `{}` — {}\n\n", lens.id(), lens.label()));

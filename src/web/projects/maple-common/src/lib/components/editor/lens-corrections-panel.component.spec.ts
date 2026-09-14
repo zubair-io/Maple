@@ -161,7 +161,7 @@ describe('LensCorrectionsPanelComponent', () => {
     const support = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="lens-support"]',
     );
-    expect(support?.textContent).toContain('No correction data');
+    expect(support?.textContent).toContain('No embedded correction data');
     expect(support?.textContent).toContain('controls have nothing to apply');
     const controls = (fixture.nativeElement as HTMLElement).querySelector(
       '[data-testid="lens-corrections-panel"]',

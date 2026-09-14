@@ -59,7 +59,7 @@ public enum LensSupport: String, CaseIterable, Sendable {
   public var label: String {
     switch self {
     case .embeddedCorrection: return "Embedded correction"
-    case .noCorrectionData: return "No correction data"
+    case .noCorrectionData: return "No embedded correction data"
     }
   }
 
@@ -71,7 +71,7 @@ public enum LensSupport: String, CaseIterable, Sendable {
         "This camera writes the lens's own distortion, vignette and chromatic-aberration correction into the file, and Maple applies it."
     case .noCorrectionData:
       return
-        "This camera does not write lens correction into the file, and Maple does not maintain its own lens profiles, so the lens-correction controls have nothing to apply."
+        "No embedded lens corrections are recorded for this file. Maple may still apply an explicitly selected profile or an automatic match from its bundled Lensfun database; this status does not describe external profile availability."
     }
   }
 }
