@@ -21,15 +21,24 @@
  *   2. `renderFilenameTemplate` — synchronous, exercises structured
  *      argument marshalling (the `capturedAt: string | null` napi-object
  *      quirk documented in `native-napi.ts`).
- *   3. `maple(...).format(...).toBuffer()` — the actual RAW-development
+ *   3. `maple(...).resize(...).png().toBuffer()` — the real `callNative` →
+ *      napi dispatch path, through the actual public `maple()` builder API,
+ *      against the git-tracked calibration PNG
+ *      (`src/apple/MapleUITests/Goldens/.calibration/a.png`). This check is
+ *      UNCONDITIONAL — no fixture gating — so it is the one that actually
+ *      runs on every real CI invocation and proves the napi dispatch path
+ *      works under Node, rather than silently no-op'ing on a runner with no
+ *      gitignored RAW fixtures.
+ *   4. `maple(...).format(...).toBuffer()` — the actual RAW-development
  *      pipeline end to end: decode a real 100MP DNG, develop it, encode a
  *      real JPEG, and hand back real bytes. This is the literal thing
  *      ticket #3509 exists to prove works under Node with zero Bun
- *      involved. Runs only when the (gitignored) reference RAW fixture is
- *      resolvable — same "skip when fixtures aren't present" convention
- *      the Rust color-pipeline harnesses use (`src/scripts/test_color_pipeline.sh`
- *      et al.), since `test-fixtures/raws/` is not checked into git and a
- *      CI runner has no reason to have it locally.
+ *      involved, as an extra proof on top of check 3 above. Runs only when
+ *      the (gitignored) reference RAW fixture is resolvable — same "skip
+ *      when fixtures aren't present" convention the Rust color-pipeline
+ *      harnesses use (`src/scripts/test_color_pipeline.sh` et al.), since
+ *      `test-fixtures/raws/` is not checked into git and a CI runner has no
+ *      reason to have it locally.
  *
  * Every check below asserts a REAL, EXACT expected value (a specific
  * filename, a specific `{ ok, ... }` shape, a plausible non-zero byte
@@ -51,6 +60,19 @@ const packageRoot = path.resolve(here, '..');
 const distEntry = path.join(packageRoot, 'dist', 'index.js');
 const repoRoot = path.resolve(packageRoot, '..', '..');
 const fixtureDng = path.join(repoRoot, 'test-fixtures', 'raws', 'dji-mavic3pro-100mp.dng');
+// Git-tracked (unlike test-fixtures/raws/), so this is always present —
+// the calibration fixture the Swift CIEDE2000 harness also relies on
+// (src/apple/MapleUITests/Helpers/CIEDE2000Tests). Used below for the one
+// napi-dispatch check that must run unconditionally on every CI invocation.
+const calibrationPng = path.join(
+  repoRoot,
+  'src',
+  'apple',
+  'MapleUITests',
+  'Goldens',
+  '.calibration',
+  'a.png',
+);
 
 /** Tiny assertion helper — throws a descriptive `Error` on mismatch rather
  *  than relying on a test framework (none is available/appropriate here). */
@@ -128,7 +150,45 @@ async function main() {
   );
   console.log('PASS renderFilenameTemplate(capturedAt: null) ->', JSON.stringify(nullDateResult));
 
-  // 5. The real RAW-development pipeline end to end, when the (gitignored)
+  // 5. maple(...).resize(...).png().toBuffer() against the git-tracked
+  //    calibration PNG — UNCONDITIONAL, no fixture gating. validateFilename
+  //    and renderFilenameTemplate above are synchronous and never touch
+  //    `callNative`; this is the one check that actually exercises the real
+  //    `callNative` -> napi -> `rasterPipelineBuf` dispatch path, through
+  //    the public `maple()` builder API, on every real CI invocation —
+  //    regardless of whether the gitignored RAW fixtures used by check 6
+  //    below are present.
+  if (!existsSync(calibrationPng)) {
+    throw new Error(
+      `calibration fixture not found at ${calibrationPng} — this file is git-tracked ` +
+        'and must always be present; something is wrong with the checkout, not the fixture set.',
+    );
+  }
+  const calibrationBuf = await maple(calibrationPng).resize(32, 32).png().toBuffer();
+  assert(
+    Buffer.isBuffer(calibrationBuf),
+    'maple(...).resize(32, 32).png().toBuffer() must resolve to a Buffer',
+  );
+  // Exact, reproducible byte count for this fixture at this size/format —
+  // not just "> 0" — so a napi argument-marshalling bug that produces a
+  // wrong-but-truthy buffer (see native-napi.ts's own module doc) is caught.
+  assertEqual(calibrationBuf.length, 193, 'maple(...).resize(32, 32).png().toBuffer() byte length');
+  // A real PNG starts with the 8-byte PNG signature; check the leading
+  // magic bytes (0x89 0x50 0x4E 0x47 = "\x89PNG").
+  assert(
+    calibrationBuf[0] === 0x89 &&
+      calibrationBuf[1] === 0x50 &&
+      calibrationBuf[2] === 0x4e &&
+      calibrationBuf[3] === 0x47,
+    'maple(...).resize(32, 32).png().toBuffer() must produce a real PNG (magic bytes), got ' +
+      `${calibrationBuf[0]?.toString(16)} ${calibrationBuf[1]?.toString(16)} ` +
+      `${calibrationBuf[2]?.toString(16)} ${calibrationBuf[3]?.toString(16)}`,
+  );
+  console.log(
+    `PASS maple(...).resize(32, 32).png().toBuffer() -> ${calibrationBuf.length} bytes, real PNG (napi dispatch path)`,
+  );
+
+  // 6. The real RAW-development pipeline end to end, when the (gitignored)
   //    reference fixture is resolvable.
   if (!existsSync(fixtureDng)) {
     console.log(
