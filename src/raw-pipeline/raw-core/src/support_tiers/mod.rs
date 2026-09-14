@@ -18,8 +18,9 @@
 //! | [`Unsupported`](CameraTier::Unsupported) | The format cannot be decoded |
 //!
 //! Lens support is a **separate axis** ([`LensSupport`]) and never inherits
-//! from the camera tier: a `Qualified` body shooting a lens whose file
-//! carries no `OpcodeList3` still has no correction data.
+//! from the camera tier. This registry reports embedded `OpcodeList3`
+//! data only; external profile availability is resolved separately by
+//! [`crate::lens_profile`], including the bundled Lensfun database.
 //!
 //! ## Nothing here is asserted
 //!
@@ -165,17 +166,17 @@ impl CameraTier {
     }
 }
 
-/// Whether a body's files carry lens-correction data. An axis of its own:
-/// a fully qualified body still has nothing to correct when the file
-/// carries no `OpcodeList3`, and a decode-only body can still carry a
-/// complete vendor warp.
+/// Whether a body's files carry embedded lens-correction data. An axis of
+/// its own: camera qualification does not imply embedded `OpcodeList3`
+/// data. External profiles, including bundled Lensfun matches, are resolved
+/// separately and are not represented by this field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LensSupport {
     /// The file carries an `OpcodeList3` Maple parses — distortion,
     /// vignette and chromatic-aberration correction come from the vendor.
     EmbeddedCorrection,
-    /// The file carries no lens-correction opcodes. Maple maintains no
-    /// third-party lens profile database, so there is nothing to apply.
+    /// The file carries no lens-correction opcodes. An explicit profile
+    /// or automatic bundled Lensfun match may still supply corrections.
     NoCorrectionData,
 }
 
@@ -195,7 +196,7 @@ impl LensSupport {
     pub const fn label(self) -> &'static str {
         match self {
             LensSupport::EmbeddedCorrection => "Embedded correction",
-            LensSupport::NoCorrectionData => "No correction data",
+            LensSupport::NoCorrectionData => "No embedded correction data",
         }
     }
 
@@ -207,9 +208,9 @@ impl LensSupport {
                  correction into the file, and Maple applies it."
             }
             LensSupport::NoCorrectionData => {
-                "This camera does not write lens correction into the file, and Maple does not \
-                 maintain its own lens profiles, so the lens-correction controls have nothing \
-                 to apply."
+                "No embedded lens corrections are recorded for this file. Maple may still \
+                 apply an explicitly selected profile or an automatic match from its bundled \
+                 Lensfun database; this status does not describe external profile availability."
             }
         }
     }
