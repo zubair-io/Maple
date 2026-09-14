@@ -45,6 +45,13 @@ const DEVELOP_TEST_TIMEOUT_MS = 30_000;
  *   positive half of the proof, and it is what catches a loop that was
  *   nibbled to death by many medium stalls rather than one long one —
  *   something `blockedFraction` alone cannot see.
+ *
+ * `blockedFraction` only means what it claims to mean for a LONG-RUNNING
+ * `work` — it is a ratio against the operation's own duration, so a 3ms
+ * blip against a 20ms call reads as 15%, the same as a genuine near-total
+ * block would on a call ten times as long. Don't reuse this helper for a
+ * short-call assertion without re-deriving a threshold for that duration;
+ * the 5%/50% thresholds below are calibrated against a multi-second develop.
  */
 async function measureResponsivenessDuring<T>(work: Promise<T>): Promise<{
   result: T;
