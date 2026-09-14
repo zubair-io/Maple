@@ -15,97 +15,100 @@
 // one-time cost) and NOT for interactive refine ticks, where redoing a full
 // RAW decode every ~150ms settle would blow the performance budget.
 
-import Foundation
 import CoreImage
+import Foundation
 
 @MainActor
 extension EditSession {
-    /// When `model.filmLook` resolves to a lattice AND `asset` is a
-    /// filesystem-backed RAW, render the export via
-    /// `maple_render_file_with_film` and return the resulting CIImage;
-    /// `nil` when film-look export doesn't apply (no look, non-RAW,
-    /// sourceless asset) or the FFI render itself failed — either case
-    /// falls through to the normal CIImage-graph export at the call site.
-    ///
-    /// Non-RAW asset exports (JPEG, HEIF, etc.) always fall through to the
-    /// CIImage-graph path — this method never blends a look outside the RAW
-    /// FFI entry. `EditSession+RenderHelpers.swift`'s `renderForExport()`
-    /// closes the non-RAW gap (#2713) at that call site instead, by
-    /// compositing `FilmLookCube` on the CIImage-graph result the same way
-    /// the interactive canvas's CPU fallback does — approximate (measured
-    /// by `FilmLookCubeDivergenceTests`), not bit-exact like this method's
-    /// RAW path.
-    func renderExportWithFilmLook() async throws -> CIImage? {
-        guard asset.isRaw, !model.filmLook.isEmpty,
-              let url = asset.primaryURL,
-              let lut = filmLutStore.lattice(for: model.filmLook)
-        else { return nil }
+  /// When `model.filmLook` resolves to a lattice AND `asset` is a
+  /// filesystem-backed RAW, render the export via
+  /// `maple_render_file_with_film` and return the resulting CIImage;
+  /// `nil` when film-look export doesn't apply (no look, non-RAW,
+  /// sourceless asset) or the FFI render itself failed — either case
+  /// falls through to the normal CIImage-graph export at the call site.
+  ///
+  /// Non-RAW asset exports (JPEG, HEIF, etc.) always fall through to the
+  /// CIImage-graph path — this method never blends a look outside the RAW
+  /// FFI entry. `EditSession+RenderHelpers.swift`'s `renderForExport()`
+  /// closes the non-RAW gap (#2713) at that call site instead, by
+  /// compositing `FilmLookCube` on the CIImage-graph result the same way
+  /// the interactive canvas's CPU fallback does — approximate (measured
+  /// by `FilmLookCubeDivergenceTests`), not bit-exact like this method's
+  /// RAW path.
+  func renderExportWithFilmLook(quality: PipelineRenderer.Quality? = nil) async throws -> CIImage? {
+    guard asset.isRaw, !model.filmLook.isEmpty,
+      let url = asset.primaryURL,
+      let lut = filmLutStore.lattice(for: model.filmLook)
+    else { return nil }
 
-        // The FFI reads adjustments off DISK — flush the debounced sidecar
-        // write first so the export reflects THIS session's live model, not
-        // a stale on-disk snapshot (the CIImage-graph path avoids this
-        // entirely by taking `model` directly).
-        await flushPendingSidecarWrite()
+    // The FFI reads adjustments off DISK — flush the debounced sidecar
+    // write first so the export reflects THIS session's live model, not
+    // a stale on-disk snapshot (the CIImage-graph path avoids this
+    // entirely by taking `model` directly).
+    await flushPendingSidecarWrite()
 
-        // `startAccessingSecurityScopedResource` is a process-wide flag keyed
-        // on the URL, not actor/thread state, so it's safe to start it here
-        // on the main actor and stop it after the `RenderActor` call below
-        // returns — the pairing only needs to bracket the render, not share
-        // its isolation domain. The `defer` still runs after the `await`:
-        // Swift resumes this function (and its deferred cleanup) back on the
-        // main actor once the awaited call completes, whether it returns or
-        // throws.
-        let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-        let accessing = scope.startAccessingSecurityScopedResource()
-        defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+    // `startAccessingSecurityScopedResource` is a process-wide flag keyed
+    // on the URL, not actor/thread state, so it's safe to start it here
+    // on the main actor and stop it after the `RenderActor` call below
+    // returns — the pairing only needs to bracket the render, not share
+    // its isolation domain. The `defer` still runs after the `await`:
+    // Swift resumes this function (and its deferred cleanup) back on the
+    // main actor once the awaited call completes, whether it returns or
+    // throws.
+    let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+    let accessing = scope.startAccessingSecurityScopedResource()
+    defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
-        let quality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
-        // The heavy decode→develop→render FFI call is offloaded to
-        // `RenderActor` (bugfix round 2, #2683) — it was previously invoked
-        // synchronously right here on `@MainActor`, freezing the UI for the
-        // duration of a full-resolution RAW render. `lut` and the returned
-        // `MapleImageData` are both `Sendable` (a tuple of `[Float]`/`Int`/
-        // `UInt32`, and an explicitly `Sendable` struct respectively), so
-        // this crosses the actor boundary without any `@unchecked` escape
-        // hatch.
-        let data: MapleImageData
-        do {
-            data = try await renderActor.renderExportWithFilmLook(
-                rawPath: url,
-                xmpPath: asset.sidecarURL,
-                quality: quality,
-                filmLut: lut
-            )
-        } catch {
-            editSessionLogger.error(
-                "film-look export render failed: \(error.localizedDescription, privacy: .public) — falling back to the plain export chain")
-            return nil
-        }
-        return Self.ciImage(fromPackedSRGB: data)
+    let resolvedQuality: PipelineRenderer.Quality =
+      quality ?? (AmazeFlag.isEnabled ? .amaze : .full)
+    // The heavy decode→develop→render FFI call is offloaded to
+    // `RenderActor` (bugfix round 2, #2683) — it was previously invoked
+    // synchronously right here on `@MainActor`, freezing the UI for the
+    // duration of a full-resolution RAW render. `lut` and the returned
+    // `MapleImageData` are both `Sendable` (a tuple of `[Float]`/`Int`/
+    // `UInt32`, and an explicitly `Sendable` struct respectively), so
+    // this crosses the actor boundary without any `@unchecked` escape
+    // hatch.
+    let data: MapleImageData
+    do {
+      data = try await renderActor.renderExportWithFilmLook(
+        rawPath: url,
+        xmpPath: asset.sidecarURL,
+        quality: resolvedQuality,
+        filmLut: lut
+      )
+    } catch {
+      editSessionLogger.error(
+        "film-look export render failed: \(error.localizedDescription, privacy: .public) — falling back to the plain export chain"
+      )
+      return nil
     }
+    return Self.ciImage(fromPackedSRGB: data)
+  }
 
-    /// Build a CIImage from a packed sRGB u8 RGB buffer (`MapleImageData`'s
-    /// layout — `maple_render_file`/`maple_render_file_with_film`'s output).
-    /// Mirrors `ImageEditPipeline`'s private decode-path conversion; kept
-    /// here rather than shared since this is the only non-decode caller.
-    private static func ciImage(fromPackedSRGB data: MapleImageData) -> CIImage? {
-        guard data.pixels.count == data.width * data.height * 3 else { return nil }
-        let w = data.width, h = data.height
-        let copy = data.pixels
-        guard let dp = CGDataProvider(data: copy as CFData),
-              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let cgImage = CGImage(
-                  width: w, height: h,
-                  bitsPerComponent: 8, bitsPerPixel: 24,
-                  bytesPerRow: w * 3,
-                  space: colorSpace,
-                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
-                  provider: dp,
-                  decode: nil,
-                  shouldInterpolate: true,
-                  intent: .defaultIntent
-              )
-        else { return nil }
-        return CIImage(cgImage: cgImage)
-    }
+  /// Build a CIImage from a packed sRGB u8 RGB buffer (`MapleImageData`'s
+  /// layout — `maple_render_file`/`maple_render_file_with_film`'s output).
+  /// Mirrors `ImageEditPipeline`'s private decode-path conversion; kept
+  /// here rather than shared since this is the only non-decode caller.
+  private static func ciImage(fromPackedSRGB data: MapleImageData) -> CIImage? {
+    guard data.pixels.count == data.width * data.height * 3 else { return nil }
+    let w = data.width
+    let h = data.height
+    let copy = data.pixels
+    guard let dp = CGDataProvider(data: copy as CFData),
+      let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+      let cgImage = CGImage(
+        width: w, height: h,
+        bitsPerComponent: 8, bitsPerPixel: 24,
+        bytesPerRow: w * 3,
+        space: colorSpace,
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+        provider: dp,
+        decode: nil,
+        shouldInterpolate: true,
+        intent: .defaultIntent
+      )
+    else { return nil }
+    return CIImage(cgImage: cgImage)
+  }
 }

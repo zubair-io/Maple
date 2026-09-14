@@ -18,6 +18,8 @@ extension RenderActor {
     asset: AssetRef,
     model: AdjustmentModel,
     asShot: ImageEditPipeline.AsShotWB?,
+    targetSize: CGSize? = nil,
+    qualityOverride: PipelineRenderer.Quality? = nil,
     // #3190 review follow-up: `EditSession.renderForExport()` composites
     // an sRGB-baked `FilmLookCube` on this function's NON-RAW result
     // when the asset has a resolvable look — the caller passes `.srgb`
@@ -33,42 +35,93 @@ extension RenderActor {
     let m = model
 
     if !asset.isRaw {
-      guard
-        let decoded = await pipeline.decodeSceneLinearNonRaw(
-          asset: asset, targetSize: nil
-        )
-      else {
-        throw RenderError.pipelineFailed
+      let decoded: CIImage
+      if targetSize != nil,
+        decodedForAssetID == asset.id,
+        let cached = decodedImage
+      {
+        decoded = cached
+      } else {
+        guard
+          let freshlyDecoded = await pipeline.decodeSceneLinearNonRaw(
+            asset: asset, targetSize: targetSize
+          )
+        else {
+          throw RenderError.pipelineFailed
+        }
+        decoded = freshlyDecoded
       }
       return await Task.detached(priority: .userInitiated) {
-        pipeline.processSceneLinearNonRaw(
-          decoded: decoded, model: m, targetSize: nil,
-          targetPrimariesOverride: targetPrimariesOverride
-        )
+        autoreleasepool {
+          pipeline.processSceneLinearNonRaw(
+            decoded: decoded, model: m, targetSize: targetSize,
+            targetPrimariesOverride: targetPrimariesOverride
+          )
+        }
       }.value
     }
 
-    // Export uses one immutable snapshot of the live edits, including
-    // decode-baked fields. A remote or not-yet-saved sidecar must not
-    // silently select defaults (#3357).
-    let sidecar = FileManager.default.temporaryDirectory
-      .appendingPathComponent("maple-export-\(UUID().uuidString).xmp")
-    let xml = XMPSerializer.serialize(model: m, culling: CullingState())
-    try xml.write(to: sidecar, atomically: true, encoding: .utf8)
-    defer { try? FileManager.default.removeItem(at: sidecar) }
-    let quality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
-    guard
-      let exportDecodeResult = await pipeline.decodeSceneLinear(
-        asset: asset, quality: quality, xmpPath: sidecar,
-        profileOverride: asset.isRaw ? m.profile : nil,
-        autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+    let quality: PipelineRenderer.Quality =
+      qualityOverride ?? (targetSize != nil ? .preview : (AmazeFlag.isEnabled ? .amaze : .full))
+
+    let liveBaked = RawCoreBridge.stripAppleGPUStages(m)
+    let canReuseCachedDecode =
+      targetSize != nil
+      && decodedForAssetID == asset.id
+      && decodedImage != nil
+      && decodedProfile == m.profile
+      && decodedAutoExposure == m.autoExposure
+      && (decodedBakedModel == liveBaked
+        || (decodedBakedModel == nil
+          && liveBaked == RawCoreBridge.stripAppleGPUStages(AdjustmentModel())))
+
+    let decodeResult: ImageEditPipeline.SceneLinearDecodeResult?
+    if canReuseCachedDecode, let cached = decodedImage {
+      decodeResult = ImageEditPipeline.SceneLinearDecodeResult(
+        image: cached,
+        noiseProfile: decodedNoiseProfile,
+        iso: decodedISO,
+        wbFrame: decodedWbFrame,
+        aeGain: decodedAeGain,
+        hasLensCorrections: decodedHasLensCorrections,
+        lensCorrectionCaInert: decodedLensCorrectionCaInert,
+        lensCorrectionDistortionInert: decodedLensCorrectionDistortionInert,
+        cameraSupport: decodedCameraSupport
       )
-    else {
+    } else {
+      // Export uses one immutable snapshot of the live edits, including
+      // decode-baked fields. A remote or not-yet-saved sidecar must not
+      // silently select defaults (#3357).
+      let sidecar = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maple-export-\(UUID().uuidString).xmp")
+      let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+      try xml.write(to: sidecar, atomically: true, encoding: .utf8)
+      defer { try? FileManager.default.removeItem(at: sidecar) }
+      if let targetSize {
+        decodeResult = await pipeline.decodeSceneLinearSized(
+          asset: asset, targetSize: targetSize, xmpPath: sidecar, quality: quality,
+          profileOverride: asset.isRaw ? m.profile : nil,
+          autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+        )
+      } else {
+        decodeResult = await pipeline.decodeSceneLinear(
+          asset: asset, quality: quality, xmpPath: sidecar,
+          profileOverride: asset.isRaw ? m.profile : nil,
+          autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+        )
+      }
+    }
+    guard let exportDecodeResult = decodeResult else {
       throw RenderError.pipelineFailed
     }
     let profileLUT: CIFilter?
     if m.profile == .auto {
-      let url = try await rawRenderSource.url(for: asset)
+      let url: URL
+      if canReuseCachedDecode, let staged = await rawRenderSource.stagedURLIfAvailable(for: asset) {
+        url = staged
+      } else {
+        url = try await rawRenderSource.url(for: asset)
+      }
       let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
@@ -86,17 +139,19 @@ extension RenderActor {
         return .init(temperature: Double(frame.sceneCCT), tint: Double(frame.asShotTint))
       } ?? asShot
     return await Task.detached(priority: .userInitiated) {
-      pipeline.processSceneLinear(
-        decoded: exportDecodeResult.image,
-        model: m,
-        targetSize: nil,
-        asShot: exportAnchor,
-        decodedAtModel: m,
-        profileLUT: profileLUT,
-        noiseProfile: exportNoiseProfile,
-        iso: exportISO,
-        wbFrame: exportWbFrame
-      )
+      autoreleasepool {
+        pipeline.processSceneLinear(
+          decoded: exportDecodeResult.image,
+          model: m,
+          targetSize: targetSize,
+          asShot: exportAnchor,
+          decodedAtModel: m,
+          profileLUT: profileLUT,
+          noiseProfile: exportNoiseProfile,
+          iso: exportISO,
+          wbFrame: exportWbFrame
+        )
+      }
     }.value
   }
 

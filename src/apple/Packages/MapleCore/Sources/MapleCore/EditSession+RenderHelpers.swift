@@ -73,14 +73,30 @@ extension EditSession {
   }
 
   /// Bake the current model against a fresh full-quality decode for export.
-  public func renderForExport() async throws -> CIImage {
+  public func renderForExport(sizeOption: ExportSizeOption = .full) async throws -> CIImage {
     let exportModel = model
+    let isFast = sizeOption == .fast
+    let qualityOverride: PipelineRenderer.Quality? = isFast ? .preview : nil
+    let targetSize: CGSize? = {
+      guard isFast else { return nil }
+      let rawTarget =
+        fastTargetSize
+        ?? (nativeImageSize != .zero
+          ? CanvasMath(
+            viewportPx: CGSize(width: 1920, height: 1080), nativeImageSize: nativeImageSize,
+            pixelScale: 0
+          ).fastTargetSize : nil)
+      let maxEdge = max(rawTarget?.width ?? 0, rawTarget?.height ?? 0)
+      let resolvedEdge = maxEdge > 0 ? maxEdge : 2040
+      return CGSize(width: resolvedEdge, height: resolvedEdge)
+    }()
+
     // Film look (epic #2683, Task 10): a RAW asset with a resolved look
     // routes through `maple_render_file_with_film` instead of the plain
     // CIImage graph below — see `EditSession+FilmExport.swift` for why.
     // Returns `nil` (falls through) for every other case: no look,
     // non-RAW, sourceless, or an FFI render failure.
-    if let filmExport = try await renderExportWithFilmLook() {
+    if !isFast, let filmExport = try await renderExportWithFilmLook() {
       return filmExport
     }
     // Resolve the look BEFORE the render (#3190 review follow-up): a
@@ -97,24 +113,16 @@ extension EditSession {
     // decode's own frame export rides processSceneLinear(wbFrame:).
     let image = try await renderActor.renderForExport(
       asset: asset, model: exportModel, asShot: wbDeltaAnchor,
+      targetSize: targetSize,
+      qualityOverride: qualityOverride,
       targetPrimariesOverride: filmActive ? .srgb : nil
     )
-    // Non-RAW film-look export (#2713): the CIImage-graph path above has
-    // no FFI film-look stage (`maple_render_file_with_film` is RAW-only
-    // — see `EditSession+FilmExport.swift`'s file header), so a JPEG/
-    // HEIF export with a look previously came out unlooked even though
-    // the live canvas shows it. `renderActor.renderForExport`'s output
-    // is already display-encoded (sRGB when film is active, per the pin
-    // above) — the same domain the interactive canvas's CPU fallback
-    // composites `FilmLookCube` onto (`EditSession+Render.swift`) — so
-    // apply it here the same way. Gated on `!asset.isRaw`: the RAW path
-    // above is either bit-exact (a resolved look) or intentionally
-    // look-less (no look), and this must not change either of those
-    // outcomes. `FilmLookCube.apply` is itself a no-op when
-    // `model.filmLook` has no resolvable lattice, so this is safe to
-    // call unconditionally for every non-RAW export.
+    // Non-RAW (and fast RAW) film-look export (#2713): the CIImage-graph
+    // path above has no FFI film-look stage (`maple_render_file_with_film`
+    // is full-RAW only), so apply `FilmLookCube` directly on the
+    // display-encoded CIImage result.
     let developed =
-      asset.isRaw
+      (!isFast && asset.isRaw)
       ? image
       : FilmLookCube.apply(
         to: image, lattice: filmLattice, strengthPct: exportModel.filmStrength)

@@ -37,10 +37,10 @@ struct StagedExportFile: Identifiable {
 @MainActor
 @Observable
 final class ExportPanelVM {
-  /// Bakes `session` into a full-resolution CIImage graph. `@MainActor`
+  /// Bakes `session` into a CIImage graph (full-resolution or fast-fit). `@MainActor`
   /// because `EditSession` is; the work here is cheap — the graph is lazy,
   /// and `RenderActor` already owns the decode and the develop.
-  typealias Renderer = @MainActor (EditSession) async throws -> CIImage
+  typealias Renderer = @MainActor (EditSession, ExportSizeOption) async throws -> CIImage
   /// Evaluates that graph and encodes it — the expensive half. Synchronous
   /// and unisolated on purpose: `encodeOffPool` below is what moves it off
   /// the main actor, so *where* it runs is decided by this file (and
@@ -55,6 +55,7 @@ final class ExportPanelVM {
 
   var format: ExportFileFormat = .jpegSRGB
   var quality: Double = 0.92
+  var sizeOption: ExportSizeOption = .fast
   private(set) var isExporting = false
   private(set) var exportError: String?
   /// Non-nil once `stageForSharing` has written the file; the panel binds
@@ -71,7 +72,7 @@ final class ExportPanelVM {
   private var exportTask: Task<Void, Never>?
 
   init(
-    render: @escaping Renderer = { try await $0.renderForExport() },
+    render: @escaping Renderer = { try await $0.renderForExport(sizeOption: $1) },
     encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
     write: @escaping Writer = { try $0.write(to: $1, options: .atomic) }
   ) {
@@ -80,8 +81,21 @@ final class ExportPanelVM {
     self.writeFile = write
   }
 
+  /// Convenience initializer for tests or callers that do not inspect `ExportSizeOption`.
+  convenience init(
+    render: @escaping @MainActor (EditSession) async throws -> CIImage,
+    encode: @escaping Encoder = { try MapleExporter.encode($0, options: $1) },
+    write: @escaping Writer = { try $0.write(to: $1, options: .atomic) }
+  ) {
+    self.init(
+      render: { session, _ in try await render(session) },
+      encode: encode,
+      write: write
+    )
+  }
+
   var options: ExportOptions {
-    ExportOptions(format: format, quality: quality)
+    ExportOptions(format: format, quality: quality, sizeOption: sizeOption)
   }
 
   /// Lossy formats expose the quality slider; TIFF and PNG are lossless.
@@ -94,6 +108,69 @@ final class ExportPanelVM {
 
   func outputFileName(for asset: AssetRef) -> String {
     "\(asset.displayName).\(format.fileExtension)"
+  }
+
+  // MARK: - Resolution & Dimensions
+
+  /// Returns the estimated target long edge in pixels for `.fast` export.
+  func fastExportLongEdge(for session: EditSession) -> Int {
+    let rawTarget =
+      session.fastTargetSize
+      ?? (session.nativeImageSize != .zero
+        ? CanvasMath(
+          viewportPx: CGSize(width: 1920, height: 1080), nativeImageSize: session.nativeImageSize,
+          pixelScale: 0
+        ).fastTargetSize : nil)
+    let maxEdge = max(rawTarget?.width ?? 0, rawTarget?.height ?? 0)
+    return maxEdge > 0 ? Int(maxEdge.rounded()) : 2040
+  }
+
+  /// Resolution label for a size option, e.g. "2040px" or "Full Size".
+  func sizeOptionTitle(_ option: ExportSizeOption, session: EditSession? = nil) -> String {
+    switch option {
+    case .fast:
+      if let session {
+        let edge = fastExportLongEdge(for: session)
+        return "\(edge)px"
+      }
+      return option.displayName
+    case .full:
+      return option.displayName
+    }
+  }
+
+  /// Estimated output pixel dimensions for the current asset and size option.
+  func outputDimensions(for session: EditSession) -> CGSize? {
+    let native = session.nativeImageSize
+    guard native.width > 0, native.height > 0 else { return nil }
+    switch sizeOption {
+    case .full:
+      return native
+    case .fast:
+      let edge = CGFloat(fastExportLongEdge(for: session))
+      let maxNative = max(native.width, native.height)
+      guard maxNative > 0 else { return nil }
+      let scale = min(edge / maxNative, 1.0)
+      return CGSize(
+        width: (native.width * scale).rounded(),
+        height: (native.height * scale).rounded()
+      )
+    }
+  }
+
+  /// Formatted description for the Output section, e.g. "Size: 2040 × 1360 px".
+  func outputDimensionsDescription(for session: EditSession) -> String {
+    if let dims = outputDimensions(for: session) {
+      let w = Int(dims.width)
+      let h = Int(dims.height)
+      switch sizeOption {
+      case .fast:
+        return "Size: \(w) × \(h) px"
+      case .full:
+        return "Size: \(w) × \(h) px (Full)"
+      }
+    }
+    return sizeOption == .fast ? "Size: 2040px" : "Size: Full resolution"
   }
 
   // MARK: - Attempts
@@ -176,7 +253,7 @@ final class ExportPanelVM {
 
   private func runStaging(session: EditSession, directory: URL, gen: Int) async {
     do {
-      let image = try await render(session)
+      let image = try await render(session, sizeOption)
       try guardLive(gen)
       let data = try await encodeOffPool(image)
       try guardLive(gen)

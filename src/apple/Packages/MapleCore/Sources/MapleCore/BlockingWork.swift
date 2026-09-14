@@ -19,51 +19,56 @@
 import Foundation
 
 public enum BlockingWork {
-    /// Runs `work` on a Dispatch global queue and suspends the calling task
-    /// until it returns. The calling task holds no thread while it waits, so
-    /// N concurrent calls cost N Dispatch threads and zero cooperative ones.
-    ///
-    /// Cancellation is observed only BEFORE `work` starts — its callers wrap
-    /// an image encode and a file write, neither of which has an
-    /// interruption point once entered. A cancel arriving mid-encode
-    /// therefore still pays for the bake; what it buys is that the caller
-    /// stops waiting on it and discards the result.
-    public static func run<T: Sendable>(
-        _ work: @escaping @Sendable () throws -> T
-    ) async throws -> T {
-        let cancelled = CancellationFlag()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<T, Error>) in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    guard !cancelled.isSet else {
-                        continuation.resume(throwing: CancellationError())
-                        return
-                    }
-                    continuation.resume(with: Result { try work() })
-                }
-            }
-        } onCancel: {
-            cancelled.set()
+  /// Runs `work` on a Dispatch global queue and suspends the calling task
+  /// until it returns. The calling task holds no thread while it waits, so
+  /// N concurrent calls cost N Dispatch threads and zero cooperative ones.
+  ///
+  /// Cancellation is observed only BEFORE `work` starts — its callers wrap
+  /// an image encode and a file write, neither of which has an
+  /// interruption point once entered. A cancel arriving mid-encode
+  /// therefore still pays for the bake; what it buys is that the caller
+  /// stops waiting on it and discards the result.
+  public static func run<T: Sendable>(
+    _ work: @escaping @Sendable () throws -> T
+  ) async throws -> T {
+    let cancelled = CancellationFlag()
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<T, Error>) in
+        DispatchQueue.global(qos: .userInitiated).async {
+          guard !cancelled.isSet else {
+            continuation.resume(throwing: CancellationError())
+            return
+          }
+          continuation.resume(
+            with: Result {
+              try autoreleasepool {
+                try work()
+              }
+            })
         }
+      }
+    } onCancel: {
+      cancelled.set()
     }
+  }
 }
 
 /// One-way flag, set from the cancellation handler (which runs on an
 /// arbitrary thread) and read from the Dispatch queue.
 private final class CancellationFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
+  private let lock = NSLock()
+  private var value = false
 
-    var isSet: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return value
-    }
+  var isSet: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
 
-    func set() {
-        lock.lock()
-        value = true
-        lock.unlock()
-    }
+  func set() {
+    lock.lock()
+    value = true
+    lock.unlock()
+  }
 }
