@@ -13,10 +13,12 @@
 //! enable the `async` feature; see the manifest.)
 //!
 //! Module map (filled in by later tasks in the same plan):
-//!   - `filename`   — `renderFilenameTemplate` / `validateFilename`
-//!   - `raster`     — probe / decode / resize / render / tensor
-//!   - `pipeline`   — the bitmap recipe executor + analyze
-//!   - `develop`    — RAW-develop export + thumbnail extraction
+//!   - `filename`      — `renderFilenameTemplate` / `validateFilename`
+//!   - `raster_probe`  — header probe / native-size RGB8 decode
+//!   - `raster_render` — the v2 render entry points (fit/filter/format/effort)
+//!   - `raster_resize` — the Tier-1 resize-to-file/-buf + tensor extraction
+//!   - `pipeline`      — the bitmap recipe executor + analyze (Task 5)
+//!   - `develop`       — RAW-develop export + thumbnail extraction
 
 #[macro_use]
 extern crate napi_derive;
@@ -28,6 +30,10 @@ mod filename_tests;
 mod raster_probe;
 #[cfg(test)]
 mod raster_probe_tests;
+mod raster_render;
+#[cfg(test)]
+mod raster_render_tests;
+mod raster_resize;
 
 pub use filename::{
     render_filename_template, validate_filename, FilenameResult, FilenameTemplateArgs,
@@ -36,6 +42,11 @@ pub use filename::{
 pub use raster_probe::{
     raster_decode_rgb8_buf, raster_probe_metadata, raster_probe_metadata_buf, RasterDecodeResult,
     RasterMetadata, RasterProbeResult,
+};
+pub use raster_render::{raster_from_raw_render_buf, raster_render_buf, RasterBufResult};
+pub use raster_resize::{
+    raster_extract_tensor, raster_resize_to_buf, raster_resize_to_file, RasterFileResult,
+    RasterTensorResult,
 };
 
 /// Smoke-test export: proves the crate builds into a loadable addon and that a
