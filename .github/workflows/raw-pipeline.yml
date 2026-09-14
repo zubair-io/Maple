@@ -148,6 +148,24 @@ jobs:
       - name: cargo build --bin maple-cli --features pano (compile gate)
         working-directory: src/raw-pipeline
         run: cargo build --bin maple-cli --features pano
+      # napi-rs binding compile gate (#3509, epic #3495). Every other cargo
+      # invocation in this repo's CI is scoped with `-p <crate>` — there is no
+      # `--workspace` build anywhere — so without this step raw-napi would be a
+      # workspace member that CI never compiles, and would rot on the first
+      # raw-core API change. Same failure class this job was created for.
+      #
+      # Linux needs no Node toolchain to build it: napi-sys 3 resolves every
+      # `napi_*` symbol out of the host process with libloading at load time,
+      # so nothing links against libnode. (Only the windows-gnu target needs a
+      # real libnode.dll, and this runner is linux-gnu.)
+      - name: cargo build -p raw-napi (compile gate)
+        working-directory: src/raw-pipeline
+        run: cargo build -p raw-napi
+      # Scoped fmt gate, same rationale as the raw-ffi one above: raw-napi is
+      # rustfmt-canonical from its first commit, so keep it that way.
+      - name: cargo fmt --check -p raw-napi
+        working-directory: src/raw-pipeline
+        run: cargo fmt --check -p raw-napi
 
   # GPU path gate (#1937, made a real parity gate in #1973). CLAUDE.md treats
   # CPU↔GPU parity as a merge gate; until #1973 it was not one. #1937 landed the
