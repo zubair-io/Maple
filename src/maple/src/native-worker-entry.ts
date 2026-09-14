@@ -28,7 +28,18 @@ function native(): NativeBinding {
   return cachedNative;
 }
 
-self.onmessage = (event: MessageEvent<WorkerRequest>) => {
+/**
+ * `self` is how a worker thread's own global scope is conventionally named,
+ * but `bun-types` doesn't model that ambient binding (it types the SPAWNING
+ * side's `new Worker(...)` surface, not the executed-inside-a-worker script's
+ * own globals) — so this assigns through `globalThis` instead. `self` and
+ * `globalThis` are the same object inside a worker thread; only the type
+ * declaration differs, and `globalThis` is always available regardless of
+ * the configured `lib`.
+ */
+(globalThis as { onmessage?: (event: MessageEvent<WorkerRequest>) => void }).onmessage = (
+  event,
+) => {
   const { id, method, args } = event.data;
   try {
     const fn = native()[method as keyof NativeBinding] as unknown as AnyNativeMethod | undefined;
@@ -38,10 +49,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     const result = fn.apply(native(), args);
     const { value, transferList } = prepareForTransfer(result);
     const response: WorkerResponse = { id, ok: true, result: value };
-    (postMessage as (msg: unknown, transfer?: Transferable[]) => void)(
-      response,
-      transferList as unknown as Transferable[],
-    );
+    postMessage(response, transferList);
   } catch (error) {
     const response: WorkerResponse = {
       id,
