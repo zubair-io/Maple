@@ -133,15 +133,29 @@ class NativeWorkerPool {
    * rather than a same-tick call or even `queueMicrotask`) — a real Bun
    * engine quirk (reproduced on `1.4.3-canary.1`) otherwise drops the NEXT
    * worker `message` event entirely when that event's listener settles a
-   * promise that `expect(...).rejects` is awaiting AND it is not the first
-   * worker round trip in the test: `bun:test`'s `.rejects` matcher appears
-   * to peek the promise synchronously in a way that, chained directly off a
-   * prior worker-driven resolution, wedges the pool's `Worker` message port
-   * — the dispatch still reaches the worker (confirmed by log tracing) and
-   * the worker still replies, but the main thread's `message` listener never
-   * fires for that reply, hanging until the test's own timeout. Deferring
-   * the settle with a macrotask breaks the direct continuation chain and
-   * reliably avoids it — see the worker-pool tests for the regression case.
+   * promise that is awaited through ANY `expect(...)` async matcher —
+   * `.resolves` on a genuinely successful call included, not just
+   * `.rejects` on a failing one — AND it is not the first worker round trip
+   * in the test: `bun:test`'s async matchers appear to peek the promise
+   * synchronously in a way that, chained directly off a prior worker-driven
+   * resolution, wedges the pool's `Worker` message port — the dispatch
+   * still reaches the worker (confirmed by log tracing) and the worker
+   * still replies, but the main thread's `message` listener never fires for
+   * that reply. This is a genuine process wedge (requires `kill -9`, not a
+   * clean test-timeout-then-exit) until something external intervenes.
+   * Deferring the settle with a macrotask breaks the direct continuation
+   * chain and reliably avoids it — see the worker-pool tests for the
+   * regression case.
+   *
+   * Cost: this adds roughly 1ms of LATENCY per settled native call (Bun
+   * clamps a `setTimeout(fn, 0)` similarly to Node's historical ~1ms floor),
+   * not a main-thread STALL — the event loop is free to do other work during
+   * that wait, and multiple in-flight calls overlap this delay rather than
+   * serializing it, so it does not violate this epic's "no main-thread
+   * stall > 1ms" budget. It is a real, measurable cost worth knowing given
+   * that `src/api/scripts/bench-maple-vs-sharp.ts` reports timings to two
+   * decimal places; worth revisiting if a future Bun upgrade fixes the
+   * underlying engine bug.
    */
   private handleResponse(poolWorker: PoolWorker, response: WorkerResponse): void {
     const pending = this.pending.get(response.id);
