@@ -13,7 +13,7 @@
  * level singleton — there is only one API server.
  */
 
-export type StageStatus = 'running' | 'paused' | 'stopped' | 'error';
+export type StageStatus = 'running' | 'idle' | 'paused' | 'stopped' | 'error';
 
 /** A stage's upstream dependency, resolved to its concrete minimum version.
  * Mirrors the shape `buildClaimQuery` consumes in run-stage.ts. */
@@ -128,9 +128,11 @@ class StageRegistry {
       };
     }
     for (const [name, entry] of this.entries) {
+      const inFlight = entry.getInFlight();
+      const status: StageStatus = entry.getPaused() ? 'paused' : inFlight > 0 ? 'running' : 'idle';
       out[name] = {
-        status: entry.getPaused() ? 'paused' : 'running',
-        inFlight: entry.getInFlight(),
+        status,
+        inFlight,
         throughput: entry.getThroughput(),
         targetVersion: entry.targetVersion,
         dependsOn: entry.dependsOn,

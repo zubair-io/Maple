@@ -60,6 +60,7 @@ import { apnsConfigRoutes } from './apns-config.ts';
 import { workerRoutes } from '../workers/routes.ts';
 import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
 import { libraryRoutes } from './library/index.ts';
+import { aiRoutes } from './ai.ts';
 
 export const authedApi = new Elysia({ name: 'authedApi' })
   .use(requireAuth)
@@ -126,4 +127,5 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   .use(mirrorRoutes)
   .use(derivativeAuditRoutes)
   .use(workerRoutes())
-  .use(generatedSearchConfigRoutes);
+  .use(generatedSearchConfigRoutes)
+  .use(aiRoutes);

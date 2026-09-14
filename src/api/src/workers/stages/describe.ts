@@ -40,12 +40,19 @@ import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import { describeServersForRuntime } from '../describe-capacity.ts';
 import {
+  getDescribeProvider,
+  type DescribeProviderName,
+} from '../../enrichment/describe-providers/index.ts';
+import {
   loadEnrichmentConfig,
-  DEFAULT_DESCRIBE_VISION_PROMPT,
   DESCRIBE_VISION_PROMPT_VERSION,
   DESCRIBE_VISION_OLLAMA_TAG,
+  DEFAULT_DESCRIBE_MODELS,
 } from '../../enrichment/enrichment-config.repo.ts';
+import { composeDescribePrompt } from '../../enrichment/describe-prompts.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
+import { getDb } from '../../db/client.ts';
+import { WorkerConfigRepo, type WorkerConfigDoc } from '../worker-config.repo.ts';
 import {
   parseVisionJson,
   strippedRawFor,
@@ -68,31 +75,53 @@ interface DescribeDeps {
   pool: DescribeServerPool;
   systemPrompt: string;
   model: string;
+  provider?: DescribeProviderName;
 }
 
 let _deps: DescribeDeps | null = null;
 
-/** Fixed model — sourced from the single shared constant so the stage,
- * the bootstrap health-check, and the UI copy can't drift. The
- * structured-JSON parser only accepts the shape this prompt + grammar
- * schema produce, so allowing operator overrides would silently
- * dead-letter every row. Operators can still point at a remote Ollama via
- * the URL config, but provider/model/prompt are locked. */
+/** Sourced from shared constant as default when not configured. */
 const FIXED_DESCRIBE_MODEL = DESCRIBE_VISION_OLLAMA_TAG;
 
 async function getDeps(): Promise<DescribeDeps> {
   if (_deps) return _deps;
   const dbConfig = await loadEnrichmentConfig();
   const cfg = resolveEnrichmentConfig(dbConfig);
-  // Provider is locked to Ollama; only the server list is configurable so
-  // the operator can run the model on one or more remote boxes. Stale
-  // `describe_provider` / `describe_model` / `describe_system_prompt`
-  // values in the DB row are ignored — kept on the type only so older
-  // config docs don't error on parse.
+
+  let workerConfig: WorkerConfigDoc | null = null;
+  try {
+    const db = await getDb();
+    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+    workerConfig = await repo.load('describe');
+  } catch {
+    // Database may be offline during standalone unit tests
+  }
+
+  const provider = (workerConfig?.ai_provider ??
+    cfg.describe_provider ??
+    'ollama') as DescribeProviderName;
+  const model =
+    workerConfig?.ai_model ??
+    cfg.describe_model ??
+    DEFAULT_DESCRIBE_MODELS[provider] ??
+    FIXED_DESCRIBE_MODEL;
+  const systemPrompt = composeDescribePrompt(workerConfig?.prompt_text);
+
+  let pool: DescribeServerPool;
+  if (provider === 'ollama') {
+    pool = new DescribeServerPool(await describeServersForRuntime(cfg));
+  } else {
+    pool = new DescribeServerPool(
+      [{ url: provider, concurrency: workerConfig?.concurrency ?? 2 }],
+      () => getDescribeProvider(provider),
+    );
+  }
+
   _deps = {
-    pool: new DescribeServerPool(await describeServersForRuntime(cfg)),
-    systemPrompt: DEFAULT_DESCRIBE_VISION_PROMPT,
-    model: FIXED_DESCRIBE_MODEL,
+    pool,
+    systemPrompt,
+    model,
+    provider,
   };
   return _deps;
 }
@@ -139,7 +168,8 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // any of its three consumers below.
   const isVideo = !!primary && isVideoFilename(primary.filename);
 
-  const { pool, systemPrompt, model } = await getDeps();
+  const { pool, systemPrompt, model, provider: depProvider } = await getDeps();
+  const providerName = depProvider ?? 'ollama';
 
   // 1280-px preview — VLMs need more pixels than the 512-px thumb to read
   // signs and small subjects. The preview stage produces this artefact;
@@ -212,7 +242,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
       // values, drop required fields, or produce malformed JSON. The
       // parse-vision-json synonym maps stay as defense in depth for older
       // Ollama versions and edge cases.
-      format: VISION_DOC_JSON_SCHEMA,
+      format: providerName === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
     }),
     server: pickedServer,
   }));
@@ -232,7 +262,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     // Free-text caption mirror — legacy clients still read `description`.
     description: vision.caption,
     description_meta: {
-      provider: 'ollama',
+      provider: providerName,
       // Which box answered. Without it a slow or subtly-broken server in a
       // multi-server pool is invisible in triage.
       server_url: server.url,
@@ -249,7 +279,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     // reappear on the next sidecar re-index.
     vision: { ...vision, is_screenshot: isScreenshot },
     vision_meta: {
-      provider: 'ollama',
+      provider: providerName,
       server_url: server.url,
       model,
       prompt_version: DESCRIBE_PROMPT_VERSION,

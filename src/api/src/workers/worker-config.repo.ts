@@ -34,6 +34,10 @@ export class WorkerConfigRepo {
       // operator pause carries none, so the key is omitted rather than
       // surfaced as a permanent `null` on every row.
       ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
+      ...(typeof doc.version === 'string' ? { version: doc.version } : {}),
+      ...(typeof doc.prompt_text === 'string' ? { prompt_text: doc.prompt_text } : {}),
+      ...(typeof doc.ai_provider === 'string' ? { ai_provider: doc.ai_provider } : {}),
+      ...(typeof doc.ai_model === 'string' ? { ai_model: doc.ai_model } : {}),
     };
   }
 

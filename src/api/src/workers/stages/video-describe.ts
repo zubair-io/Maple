@@ -44,7 +44,12 @@
  */
 
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
-import { RemoteError, type DescribeResult } from '../../enrichment/describe-providers/index.ts';
+import {
+  RemoteError,
+  type DescribeResult,
+  getDescribeProvider,
+  type DescribeProviderName,
+} from '../../enrichment/describe-providers/index.ts';
 import {
   parseVideoJson,
   strippedRawFor,
@@ -52,13 +57,16 @@ import {
 } from '../../enrichment/describe-providers/parse-video-json.ts';
 import {
   VIDEO_DESCRIBE_PROMPT_VERSION,
-  VIDEO_DESCRIBE_SYSTEM_PROMPT,
+  composeVideoDescribePrompt,
 } from '../../enrichment/describe-providers/video-prompt.ts';
 import {
   DESCRIBE_VISION_OLLAMA_TAG,
+  DEFAULT_DESCRIBE_MODELS,
   loadEnrichmentConfig,
 } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
+import { getDb } from '../../db/client.ts';
+import { WorkerConfigRepo, type WorkerConfigDoc } from '../worker-config.repo.ts';
 import type { VideoDescriptionMeta } from '../../db/schema.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
@@ -76,6 +84,7 @@ interface VideoDescribeDeps {
   sampleFrames: typeof sampleVideoFrames;
   describe: (frames: readonly Buffer[]) => Promise<DescribeCallResult>;
   model: string;
+  provider?: DescribeProviderName;
 }
 
 let _deps: VideoDescribeDeps | null = null;
@@ -83,23 +92,49 @@ let _deps: VideoDescribeDeps | null = null;
 async function getDeps(): Promise<VideoDescribeDeps> {
   if (_deps) return _deps;
   const cfg = resolveEnrichmentConfig(await loadEnrichmentConfig());
-  // `cfg.describe_servers` always resolves to at least one entry (falls
-  // back to a derived single server) — see `enrichment-config.resolve.ts`.
-  // Same pool shape as `describe.ts`; a config change there (an operator
-  // editing the server list) is picked up here too via `resetVideoDescribeDeps`.
-  const pool = new DescribeServerPool(cfg.describe_servers);
+
+  let workerConfig: WorkerConfigDoc | null = null;
+  try {
+    const db = await getDb();
+    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+    workerConfig = await repo.load('video-describe');
+  } catch {
+    // Database may be offline during tests
+  }
+
+  const provider = (workerConfig?.ai_provider ??
+    cfg.describe_provider ??
+    'ollama') as DescribeProviderName;
+  const model =
+    workerConfig?.ai_model ??
+    cfg.describe_model ??
+    DEFAULT_DESCRIBE_MODELS[provider] ??
+    DESCRIBE_VISION_OLLAMA_TAG;
+  const systemPrompt = composeVideoDescribePrompt(workerConfig?.prompt_text);
+
+  let pool: DescribeServerPool;
+  if (provider === 'ollama') {
+    pool = new DescribeServerPool(cfg.describe_servers);
+  } else {
+    pool = new DescribeServerPool(
+      [{ url: provider, concurrency: workerConfig?.concurrency ?? 1 }],
+      () => getDescribeProvider(provider),
+    );
+  }
+
   _deps = {
     sampleFrames: sampleVideoFrames,
     describe: (frames) =>
-      pool.run(async (provider, server) => ({
-        result: await provider.describe(frames, {
-          systemPrompt: VIDEO_DESCRIBE_SYSTEM_PROMPT,
-          model: DESCRIBE_VISION_OLLAMA_TAG,
-          format: VIDEO_DESCRIPTION_JSON_SCHEMA,
+      pool.run(async (p, server) => ({
+        result: await p.describe(frames, {
+          systemPrompt,
+          model,
+          format: provider === 'ollama' ? VIDEO_DESCRIPTION_JSON_SCHEMA : undefined,
         }),
         server,
       })),
-    model: DESCRIBE_VISION_OLLAMA_TAG,
+    model,
+    provider,
   };
   return _deps;
 }
@@ -199,7 +234,7 @@ export async function videoDescribeHandler(
 
   const now = new Date().toISOString();
   const meta: VideoDescriptionMeta = {
-    provider: 'ollama',
+    provider: deps.provider ?? 'ollama',
     server_url: call.server.url,
     model: deps.model,
     prompt_version: VIDEO_DESCRIBE_PROMPT_VERSION,

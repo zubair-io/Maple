@@ -14,6 +14,10 @@
         <span class="chip-val">{{ summary().running }}</span>
         <span class="chip-label">Running</span>
       </span>
+      <span class="chip set-chip" data-testid="idle-chip">
+        <span class="chip-val">{{ summary().idle }}</span>
+        <span class="chip-label">Idle</span>
+      </span>
       <span class="chip set-chip">
         <span class="chip-val">{{ summary().paused }}</span>
         <span class="chip-label">Paused</span>
@@ -88,6 +92,7 @@
             [label]="s.name"
             [open]="isExpanded(s)"
             (openChange)="toggleExpanded(s)"
+            [class.is-expanded]="isExpanded(s)"
             [showDivider]="false"
             data-testid="worker-row"
           >
@@ -439,20 +444,24 @@
                         (serversChange)="setEnrichment(s, 'describe_servers', $event)"
                       />
                       <div class="field set-field">
-                        <div class="field-label">Model</div>
-                        <div class="text-input set-text-input mono readonly">
-                          <mui-input
-                            [value]="fixedDescribeModel"
-                            [readOnly]="true"
-                            ariaLabel="Model"
-                          />
+                        <div class="field-label">Assigned AI Model</div>
+                        <div class="flex items-center gap-2 pt-1">
+                          <span
+                            class="px-2 py-1 rounded text-[11px] font-mono bg-[var(--s-surface2)] border border-[var(--s-border)] text-[var(--s-text)]"
+                          >
+                            {{ s.config?.ai_provider || 'ollama' }}:
+                            {{ s.config?.ai_model || fixedDescribeModel }}
+                          </span>
+                          <a
+                            routerLink="/settings/ai"
+                            class="text-[12px] text-[var(--s-accent,#3b82f6)] hover:underline inline-flex items-center gap-1"
+                          >
+                            Change in AI Settings →
+                          </a>
                         </div>
                         <div class="field-hint">
-                          Locked to <span class="mono set-mono">{{ fixedDescribeModel }}</span
-                          >. The structured-JSON parser only accepts this model's output shape —
-                          pull the matching tag with
-                          <span class="mono set-mono">ollama pull {{ fixedDescribeModel }}</span
-                          >.
+                          Providers, keys, and model discovery are configured on the dedicated AI
+                          Settings page.
                         </div>
                       </div>
                     </div>
@@ -908,6 +917,75 @@
                   </div>
                   <div class="field-hint">1 – 20</div>
                 </div>
+
+                <div class="field set-field">
+                  <div class="field-label">Worker Version</div>
+                  <div class="flex items-center gap-2">
+                    <div class="text-input set-text-input mono w-32">
+                      <mui-input
+                        [value]="runtimeValue(s, 'version')"
+                        (valueChange)="setRuntime(s, 'version', $event)"
+                        ariaLabel="Worker version"
+                        placeholder="v0.1.0"
+                      />
+                    </div>
+                    <mui-button
+                      variant="ghost"
+                      size="sm"
+                      (pressed)="bumpVersion(s)"
+                      title="Bump minor SemVer version (e.g. v0.2.1 -> v0.3.0)"
+                    >
+                      <maple-settings-icon name="plus" [size]="12" />
+                      Version Up
+                    </mui-button>
+                  </div>
+                  <div class="field-hint">
+                    Manual SemVer version. Updating prompt or model does not auto-bump the version.
+                  </div>
+                </div>
+
+                @if (s.name === 'video-describe') {
+                  <div class="field set-field">
+                    <div class="field-label">Assigned AI Model</div>
+                    <div class="flex items-center gap-2 pt-1">
+                      <span
+                        class="px-2 py-1 rounded text-[11px] font-mono bg-[var(--s-surface2)] border border-[var(--s-border)] text-[var(--s-text)]"
+                      >
+                        {{ s.config?.ai_provider || 'ollama' }}:
+                        {{ s.config?.ai_model || 'default' }}
+                      </span>
+                      <a
+                        routerLink="/settings/ai"
+                        class="text-[12px] text-[var(--s-accent,#3b82f6)] hover:underline inline-flex items-center gap-1"
+                      >
+                        Change in AI Settings →
+                      </a>
+                    </div>
+                    <div class="field-hint">
+                      Providers, keys, and model discovery are configured on the dedicated AI
+                      Settings page.
+                    </div>
+                  </div>
+                }
+
+                @if (s.name === 'describe' || s.name === 'video-describe') {
+                  <div class="field set-field col-span-2 max-[767px]:col-span-1">
+                    <div class="field-label">Custom Prompt Instructions</div>
+                    <div class="text-input set-text-input">
+                      <textarea
+                        class="w-full h-24 p-2 text-[12px] font-mono rounded bg-[var(--s-surface1)] border border-[var(--s-border)] text-[var(--s-text)] resize-y focus:outline-none focus:border-[var(--s-accent,#3b82f6)]"
+                        [value]="runtimeValue(s, 'prompt_text')"
+                        (input)="setRuntime(s, 'prompt_text', $any($event.target).value)"
+                        placeholder="Enter custom prompt guidance or caption instructions..."
+                        aria-label="Custom prompt instructions"
+                      ></textarea>
+                    </div>
+                    <div class="field-hint">
+                      Only the guidance text is editable. The structured JSON output format and
+                      schema are locked and cannot be altered.
+                    </div>
+                  </div>
+                }
               </div>
             </div>
 

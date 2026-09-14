@@ -18,6 +18,7 @@ import {
   STAGE_META,
   blankEnrichment,
   blankRuntime,
+  bumpMinorVersion,
   formatBytes,
   formatDate,
   groupStagesByPipeline,
@@ -162,15 +163,23 @@ describe('runtimeFormToPatch', () => {
 
 describe('blankRuntime', () => {
   it('seeds from the stage config when present', () => {
-    const form = blankRuntime(stage({ config: workerConfig({ concurrency: 12 }) }));
+    const form = blankRuntime(
+      stage({
+        config: workerConfig({ concurrency: 12, version: 'v1.2.3', prompt_text: 'hello prompt' }),
+      }),
+    );
     expect(form.concurrency).toBe('12');
     expect(form.maxAttempts).toBe('5');
+    expect(form.version).toBe('v1.2.3');
+    expect(form.prompt_text).toBe('hello prompt');
   });
 
   it('falls back to DEFAULT_RUNTIME when config is null', () => {
     const form = blankRuntime(stage({ config: null }));
     expect(form.concurrency).toBe(String(DEFAULT_RUNTIME.concurrency));
     expect(form.maxAttempts).toBe(String(DEFAULT_RUNTIME.maxAttempts));
+    expect(form.version).toBe('v0.1.0');
+    expect(form.prompt_text).toBe('');
   });
 });
 
@@ -287,18 +296,29 @@ describe('groupStagesByPipeline', () => {
 });
 
 describe('summarizeStages', () => {
-  it('counts running/paused and sums dead/pending', () => {
+  it('counts running/idle/paused and sums dead/pending', () => {
     const sum = summarizeStages([
       stage({ status: 'running', pending: 100, dead: 0 }),
+      stage({ status: 'idle', pending: 20, dead: 0 }),
       stage({ status: 'running', pending: 50, dead: 2 }),
       stage({ status: 'paused', pending: 0, dead: 1 }),
       stage({ status: 'error', pending: 10, dead: 0 }),
     ]);
-    expect(sum).toEqual({ running: 2, paused: 1, dead: 3, pending: 160 });
+    expect(sum).toEqual({ running: 2, idle: 1, paused: 1, dead: 3, pending: 180 });
   });
 
   it('returns zeros when no stages are reported', () => {
-    expect(summarizeStages([])).toEqual({ running: 0, paused: 0, dead: 0, pending: 0 });
+    expect(summarizeStages([])).toEqual({ running: 0, idle: 0, paused: 0, dead: 0, pending: 0 });
+  });
+});
+
+describe('bumpMinorVersion', () => {
+  it('bumps minor version of semver strings', () => {
+    expect(bumpMinorVersion('v0.2.1')).toBe('v0.3.0');
+    expect(bumpMinorVersion('0.2.1')).toBe('v0.3.0');
+    expect(bumpMinorVersion('v1.0.5')).toBe('v1.1.0');
+    expect(bumpMinorVersion(null)).toBe('v0.2.0');
+    expect(bumpMinorVersion('')).toBe('v0.2.0');
   });
 });
 
@@ -321,6 +341,7 @@ describe('pendingTitle', () => {
 describe('statusLabel', () => {
   it('labels each status value', () => {
     expect(statusLabel(stage({ status: 'running' }))).toBe('Running');
+    expect(statusLabel(stage({ status: 'idle' }))).toBe('Idle');
     expect(statusLabel(stage({ status: 'paused' }))).toBe('Paused');
     expect(statusLabel(stage({ status: 'error' }))).toBe('Error');
     expect(statusLabel(stage({ status: 'starting' }))).toBe('Starting');
@@ -330,8 +351,9 @@ describe('statusLabel', () => {
 });
 
 describe('statusDotColor', () => {
-  it('greens running, greys paused/transitional, reds error', () => {
+  it('greens running, slates idle, greys paused/transitional, reds error', () => {
     expect(statusDotColor(stage({ status: 'running' }))).toBe('#4ade80');
+    expect(statusDotColor(stage({ status: 'idle' }))).toBe('#94a3b8');
     expect(statusDotColor(stage({ status: 'paused' }))).toBe('#a8a29e');
     expect(statusDotColor(stage({ status: 'starting' }))).toBe('#a8a29e');
     expect(statusDotColor(stage({ status: 'error' }))).toBe('#f87171');

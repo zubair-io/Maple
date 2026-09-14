@@ -100,6 +100,12 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/workers/workers.component').then((m) => m.WorkersComponent),
   },
+  {
+    path: 'settings/ai',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/ai/ai-settings.component').then((m) => m.AiSettingsComponent),
+  },
   // /settings/backup briefly shipped as its own page (#1073); Backup is now a
   // group on the Workers page, so redirect the old URL instead of 404ing —
   // same pattern as the settings/enrichment redirect above.

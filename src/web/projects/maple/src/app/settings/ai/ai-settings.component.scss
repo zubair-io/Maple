@@ -1,0 +1,21 @@
+// AiSettingsComponent SCSS
+
+:host {
+  display: block;
+}
+
+.ai-body {
+  max-width: 760px;
+}
+
+.provider-card {
+  outline: none;
+
+  &:hover {
+    border-color: var(--s-border-hover, #475569);
+  }
+
+  &.is-active {
+    box-shadow: 0 0 0 1px var(--s-accent, #3b82f6);
+  }
+}

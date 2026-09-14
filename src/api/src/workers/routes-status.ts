@@ -49,6 +49,10 @@ export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
     paused: doc.paused,
     last_seen_target_version: doc.last_seen_target_version,
     ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
+    ...(typeof doc.version === 'string' ? { version: doc.version } : {}),
+    ...(typeof doc.prompt_text === 'string' ? { prompt_text: doc.prompt_text } : {}),
+    ...(typeof doc.ai_provider === 'string' ? { ai_provider: doc.ai_provider } : {}),
+    ...(typeof doc.ai_model === 'string' ? { ai_model: doc.ai_model } : {}),
   };
 }
 

@@ -181,6 +181,8 @@ export function stageMeta(name: string): StageMeta {
 export interface RuntimeForm {
   concurrency: string;
   maxAttempts: string;
+  version?: string;
+  prompt_text?: string;
 }
 
 /** One editable describe-server row. Numbers are strings because they are
@@ -258,6 +260,8 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
   return {
     concurrency: String(cfg?.concurrency ?? DEFAULT_RUNTIME.concurrency),
     maxAttempts: String(cfg?.maxAttempts ?? DEFAULT_RUNTIME.maxAttempts),
+    version: cfg?.version ?? 'v0.1.0',
+    prompt_text: cfg?.prompt_text ?? '',
   };
 }
 
@@ -408,6 +412,8 @@ export function runtimeFormToPatch(form: RuntimeForm): Partial<WorkerConfig> {
   return {
     concurrency: parseClampedInt(form.concurrency, 1, CONCURRENCY_MAX, DEFAULT_RUNTIME.concurrency),
     maxAttempts: parseClampedInt(form.maxAttempts, 1, 20, DEFAULT_RUNTIME.maxAttempts),
+    ...(form.version !== undefined ? { version: form.version.trim() || null } : {}),
+    ...(form.prompt_text !== undefined ? { prompt_text: form.prompt_text.trim() || null } : {}),
   };
 }
 
@@ -431,16 +437,30 @@ export function groupStagesByPipeline(
  * Workers settings page reads from this. */
 export function summarizeStages(stages: readonly StageStatus[]): {
   running: number;
+  idle: number;
   paused: number;
   dead: number;
   pending: number;
 } {
   return {
     running: stages.filter((s) => s.status === 'running').length,
+    idle: stages.filter((s) => s.status === 'idle').length,
     paused: stages.filter((s) => s.status === 'paused').length,
     dead: stages.reduce((acc, s) => acc + s.dead, 0),
     pending: stages.reduce((acc, s) => acc + s.pending, 0),
   };
+}
+
+/** Bump minor version of semver string (e.g. "v0.2.1" -> "v0.3.0"). */
+export function bumpMinorVersion(version: string | null | undefined): string {
+  const clean = (version ?? 'v0.1.0').trim();
+  const hasV = clean.startsWith('v') || clean.startsWith('V');
+  const numStr = hasV ? clean.slice(1) : clean;
+  const parts = numStr.split('.').map((p) => Number.parseInt(p, 10));
+  const major = Number.isFinite(parts[0]) ? parts[0]! : 0;
+  const minor = Number.isFinite(parts[1]) ? parts[1]! : 1;
+  const nextMinor = minor + 1;
+  return `${hasV ? 'v' : 'v'}${major}.${nextMinor}.0`;
 }
 
 // ── Display helpers ───────────────────────────────────────────────────────
@@ -449,6 +469,8 @@ export function statusLabel(s: StageStatus): string {
   switch (s.status) {
     case 'running':
       return 'Running';
+    case 'idle':
+      return 'Idle';
     case 'paused':
       return 'Paused';
     case 'error':
@@ -466,6 +488,8 @@ export function statusDotColor(s: StageStatus): string {
   switch (s.status) {
     case 'running':
       return '#4ade80';
+    case 'idle':
+      return '#94a3b8';
     case 'paused':
     case 'starting':
     case 'restarting':

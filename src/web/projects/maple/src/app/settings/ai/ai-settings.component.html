@@ -1,0 +1,320 @@
+<maple-settings-shell section="ai">
+  <div class="page set-record-page">
+    <header class="page-header set-record-page-header">
+      <div class="titles">
+        <h1>AI Settings</h1>
+        <p>
+          Configure AI vision providers and models for image and video description workers. Pick a
+          provider, discover models via their API, and assign them to your background enrichment
+          workers.
+        </p>
+      </div>
+      <div class="actions">
+        <mui-button variant="ghost" size="sm" [loading]="loading()" (pressed)="loadConfig()">
+          <maple-settings-icon name="retry" [size]="12" />
+          Refresh
+        </mui-button>
+      </div>
+    </header>
+
+    @if (loading()) {
+      <div class="banner-loading set-banner-loading">Loading AI configuration…</div>
+    } @else if (loadError()) {
+      <div class="banner-error set-banner-error-record">{{ loadError() }}</div>
+    } @else {
+      <div class="ai-body space-y-6">
+        <!-- Provider Selection Tabs -->
+        <section class="provider-tabs-section">
+          <div class="text-[13px] font-semibold text-[var(--s-text)] mb-2.5">AI Provider</div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            @for (p of providers; track p.id) {
+              <button
+                type="button"
+                class="provider-card p-3 rounded-lg border text-left transition-all relative cursor-pointer"
+                [class.is-active]="activeProvider() === p.id"
+                [class.border-[var(--s-border)]]="activeProvider() !== p.id"
+                [class.border-[var(--s-accent,#3b82f6)]]="activeProvider() === p.id"
+                [class.bg-[var(--s-surface2)]]="activeProvider() === p.id"
+                [class.bg-[var(--s-surface1)]]="activeProvider() !== p.id"
+                (click)="selectProvider(p.id)"
+              >
+                <div class="flex items-center justify-between gap-1 mb-1">
+                  <span class="font-medium text-[13.5px] text-[var(--s-text)]">{{ p.name }}</span>
+                  @if (isProviderConfigured(p.id)) {
+                    <span
+                      class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-medium"
+                    >
+                      Ready
+                    </span>
+                  }
+                </div>
+                <div class="text-[11px] text-[var(--s-text-muted)] line-clamp-1">{{ p.badge }}</div>
+              </button>
+            }
+          </div>
+        </section>
+
+        <!-- Provider Credentials & Endpoint -->
+        <section
+          class="p-4 rounded-lg bg-[var(--s-surface1)] border border-[var(--s-border)] space-y-4"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="text-[14px] font-medium text-[var(--s-text)]">
+                {{ activeMeta().name }} Configuration
+              </div>
+              <div class="text-[11.5px] text-[var(--s-text-muted)] mt-0.5">
+                {{ activeMeta().description }}
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <mui-button
+                variant="ghost"
+                size="sm"
+                [loading]="testLoading()"
+                (pressed)="testConnection()"
+              >
+                <maple-settings-icon name="test" [size]="12" />
+                Test Connection
+              </mui-button>
+            </div>
+          </div>
+
+          <!-- Connection Test Feedback -->
+          @if (testResult(); as test) {
+            <div
+              class="p-2.5 rounded text-[12px] flex items-center gap-2"
+              [class.bg-emerald-500/10]="test.ok"
+              [class.text-emerald-600]="test.ok"
+              [class.dark:text-emerald-400]="test.ok"
+              [class.bg-rose-500/10]="!test.ok"
+              [class.text-rose-600]="!test.ok"
+              [class.dark:text-rose-400]="!test.ok"
+            >
+              <maple-settings-icon [name]="test.ok ? 'check' : 'x'" [size]="13" />
+              <span>{{ test.message }}</span>
+            </div>
+          }
+
+          <!-- Ollama Endpoint -->
+          @if (activeProvider() === 'ollama') {
+            <div class="field-row set-record-field-row">
+              <div class="field-label-group set-record-field-label-group">
+                <label class="field-label set-record-field-label" for="ollama-url"
+                  >Ollama Endpoint URL</label
+                >
+                <span class="field-hint set-record-field-hint">
+                  Address of the Ollama daemon (e.g. <code>http://localhost:11434</code>).
+                </span>
+              </div>
+              <div class="field-control set-record-field-control">
+                <mui-input
+                  inputId="ollama-url"
+                  [(value)]="fOllamaUrl"
+                  placeholder="http://localhost:11434"
+                  ariaLabel="Ollama Endpoint URL"
+                />
+              </div>
+            </div>
+          }
+
+          <!-- OpenAI API Key -->
+          @if (activeProvider() === 'openai') {
+            <div class="field-row set-record-field-row">
+              <div class="field-label-group set-record-field-label-group">
+                <label class="field-label set-record-field-label" for="openai-key"
+                  >OpenAI API Key</label
+                >
+                <span class="field-hint set-record-field-hint">
+                  @if (hasOpenAiKey()) {
+                    <span class="text-emerald-600 dark:text-emerald-400"
+                      >✓ Configured on server.</span
+                    >
+                    Enter a new key below to update it.
+                  } @else {
+                    API key with access to GPT-4o / GPT-4o-mini vision endpoints.
+                  }
+                </span>
+              </div>
+              <div class="field-control set-record-field-control">
+                <mui-input
+                  inputId="openai-key"
+                  type="password"
+                  [(value)]="fOpenAiKey"
+                  placeholder="sk-..."
+                  ariaLabel="OpenAI API Key"
+                />
+              </div>
+            </div>
+          }
+
+          <!-- Anthropic API Key -->
+          @if (activeProvider() === 'anthropic') {
+            <div class="field-row set-record-field-row">
+              <div class="field-label-group set-record-field-label-group">
+                <label class="field-label set-record-field-label" for="anthropic-key"
+                  >Anthropic API Key</label
+                >
+                <span class="field-hint set-record-field-hint">
+                  @if (hasAnthropicKey()) {
+                    <span class="text-emerald-600 dark:text-emerald-400"
+                      >✓ Configured on server.</span
+                    >
+                    Enter a new key below to update it.
+                  } @else {
+                    API key with access to Claude 3.5 / 3.7 vision models.
+                  }
+                </span>
+              </div>
+              <div class="field-control set-record-field-control">
+                <mui-input
+                  inputId="anthropic-key"
+                  type="password"
+                  [(value)]="fAnthropicKey"
+                  placeholder="sk-ant-..."
+                  ariaLabel="Anthropic API Key"
+                />
+              </div>
+            </div>
+          }
+
+          <!-- Gemini API Key -->
+          @if (activeProvider() === 'gemini') {
+            <div class="field-row set-record-field-row">
+              <div class="field-label-group set-record-field-label-group">
+                <label class="field-label set-record-field-label" for="gemini-key"
+                  >Google Gemini API Key</label
+                >
+                <span class="field-hint set-record-field-hint">
+                  @if (hasGeminiKey()) {
+                    <span class="text-emerald-600 dark:text-emerald-400"
+                      >✓ Configured on server.</span
+                    >
+                    Enter a new key below to update it.
+                  } @else {
+                    Google AI Studio API key for Gemini 1.5/2.0 vision models.
+                  }
+                </span>
+              </div>
+              <div class="field-control set-record-field-control">
+                <mui-input
+                  inputId="gemini-key"
+                  type="password"
+                  [(value)]="fGeminiKey"
+                  placeholder="AIzaSy..."
+                  ariaLabel="Google Gemini API Key"
+                />
+              </div>
+            </div>
+          }
+
+          <!-- Model Dropdown & Discovery -->
+          <div class="field-row set-record-field-row pt-3 border-t border-[var(--s-border)]">
+            <div class="field-label-group set-record-field-label-group">
+              <label class="field-label set-record-field-label">Model Selection</label>
+              <span class="field-hint set-record-field-hint">
+                Discovered via the provider's API. Select a vision-capable model to assign to
+                workers.
+              </span>
+              @if (modelsError()) {
+                <span class="text-[11.5px] text-amber-500 mt-1 block">{{ modelsError() }}</span>
+              }
+            </div>
+            <div class="field-control set-record-field-control">
+              <div class="flex items-center gap-2">
+                <div class="flex-1 min-w-[200px]">
+                  <mui-select
+                    [value]="selectedModel()"
+                    [options]="currentModelOptions()"
+                    ariaLabel="Select model"
+                    (valueChange)="onModelChange($event)"
+                  />
+                </div>
+                <mui-button
+                  variant="ghost"
+                  size="sm"
+                  [loading]="modelsLoading()"
+                  (pressed)="fetchModels(activeProvider())"
+                  title="Query provider API for available models"
+                >
+                  <maple-settings-icon name="retry" [size]="12" />
+                  Fetch Models
+                </mui-button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Worker Assignments Section -->
+        <section
+          class="p-4 rounded-lg bg-[var(--s-surface1)] border border-[var(--s-border)] space-y-4"
+        >
+          <div>
+            <div class="text-[14px] font-medium text-[var(--s-text)]">Worker Assignments</div>
+            <div class="text-[11.5px] text-[var(--s-text-muted)] mt-0.5">
+              Select which background workers will use <strong>{{ activeMeta().name }}</strong> with
+              model <strong>{{ selectedModel() }}</strong
+              >.
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            @for (w of availableWorkers(); track w.id) {
+              <div
+                class="flex items-center justify-between p-3 rounded-md bg-[var(--s-surface2)] border border-[var(--s-border)]"
+              >
+                <div class="min-w-0 pr-4">
+                  <div class="text-[13px] font-medium text-[var(--s-text)]">{{ w.name }}</div>
+                  <div class="flex items-center gap-2 mt-1">
+                    <span class="text-[11px] text-[var(--s-text-muted)]">Currently assigned:</span>
+                    <span
+                      class="px-2 py-0.5 rounded font-mono text-[11px] bg-[var(--s-surface1)] border border-[var(--s-border)] text-[var(--s-text)]"
+                    >
+                      {{ workerAssignments()[w.id]?.provider || 'ollama' }}:
+                      {{ workerAssignments()[w.id]?.model || 'default' }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-2 shrink-0">
+                  <mui-button
+                    variant="ghost"
+                    size="sm"
+                    [disabled]="isAssigned(w.id)"
+                    (pressed)="assignActiveToWorker(w.id)"
+                  >
+                    @if (isAssigned(w.id)) {
+                      <maple-settings-icon name="check" [size]="12" />
+                      Assigned
+                    } @else {
+                      Assign {{ activeMeta().name }}
+                    }
+                  </mui-button>
+                </div>
+              </div>
+            }
+          </div>
+        </section>
+
+        <!-- Save Button / Feedback -->
+        <div class="form-actions set-record-form-actions flex items-center justify-end gap-3 pt-4">
+          @if (saveState().kind === 'error') {
+            <span class="save-error text-[12px] text-rose-500">{{
+              $any(saveState()).message
+            }}</span>
+          }
+          @if (saveState().kind === 'saved') {
+            <span class="save-ok text-[12px] text-emerald-500">Settings saved successfully.</span>
+          }
+          <mui-button
+            variant="primary"
+            [loading]="saveState().kind === 'saving'"
+            (pressed)="save()"
+          >
+            Save AI Settings
+          </mui-button>
+        </div>
+      </div>
+    }
+  </div>
+</maple-settings-shell>
