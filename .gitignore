@@ -135,6 +135,7 @@ dist/
 src/maple/npm/*/*.so
 src/maple/npm/*/*.dylib
 src/maple/npm/*/*.dll
+src/maple/npm/*/*.node
 .next/
 npm-debug.log
 yarn-error.log

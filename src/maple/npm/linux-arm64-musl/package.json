@@ -4,7 +4,8 @@
   "description": "Native binary for @justmaple/maple on Linux ARM64 (musl)",
   "main": "libraw_ffi.so",
   "files": [
-    "libraw_ffi.so"
+    "libraw_ffi.so",
+    "raw-napi.linux-arm64-musl.node"
   ],
   "os": [
     "linux"
