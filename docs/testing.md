@@ -162,26 +162,26 @@ It checks: the two matrices are true inverses; white round-trips exactly (P3 and
 
 ## Per-domain pipeline gates
 
-| Script                                                                          | Gate?                                  | Inputs                         | In CI                     |
-| ------------------------------------------------------------------------------- | -------------------------------------- | ------------------------------ | ------------------------- |
-| [`test_synthetic_grey.sh`](../src/scripts/test_synthetic_grey.sh)               | Yes, never skips                       | In-memory DNG                  | `rust-tests`              |
-| [`test_synthetic_color_chart.sh`](../src/scripts/test_synthetic_color_chart.sh) | Yes, never skips                       | Synthetic 24-patch chart       | `rust-tests`              |
-| [`test_grey_adjustments.sh`](../src/scripts/test_grey_adjustments.sh)           | Yes, never skips                       | In-memory DNG                  | `rust-tests`              |
-| [`test_tone_bands.sh`](../src/scripts/test_tone_bands.sh)                       | Yes; skips at preflight                | RAWs + ACR refs                | **not in CI**             |
-| [`test_tone_exposure.sh`](../src/scripts/test_tone_exposure.sh) | Yes; self-tests always run, real renders skip only when both RAWs are absent | Committed ACR ±1 EV refs + two RAWs | `rust-tests` |
-| [`test_grey_dcp.sh`](../src/scripts/test_grey_dcp.sh)                           | Yes, never skips                       | In-memory DNG                  | `rust-tests`              |
-| [`test_banding.sh`](../src/scripts/test_banding.sh)                             | Yes; tail section skips without a RAW  | Synthetic ramps                | `rust-tests`              |
-| [`test_color_pipeline.sh`](../src/scripts/test_color_pipeline.sh)               | Yes; skips at preflight                | RAWs + ACR refs                | `color-pipeline`          |
-| [`test_pano_pipeline.sh`](../src/scripts/test_pano_pipeline.sh)                 | Partly (see below)                     | `raws/pano_*/` sets            | `pano-pipeline`           |
-| [`test_film_looks.sh`](../src/scripts/test_film_looks.sh)                       | Yes; skips without the RAW or LUT pack | `test_0017.dng` + `.mlut` pack | **not in CI**             |
-| [`test_face_clustering.sh`](../src/scripts/test_face_clustering.sh)             | Yes                                    | Committed JSONL corpus         | `face-clustering-quality` |
-| [`test_search_relevance.sh`](../src/scripts/test_search_relevance.sh)           | Yes; skips without sidecars            | Committed query corpus         | **not in CI**             |
-| [`test_auto_profile_match.sh`](../src/scripts/test_auto_profile_match.sh)       | Yes; skips without RAWs                | RAWs + embedded JPEGs          | **not in CI**             |
-| [`check_wgsl.sh`](../src/scripts/check_wgsl.sh)                                 | Yes                                    | WGSL sources                   | `raw-gpu`                 |
-| [`test_halo_detection.sh`](../src/scripts/test_halo_detection.sh)               | Diagnostic only                        | Synthetic disk                 | **not in CI**             |
-| [`test_hue_stability.sh`](../src/scripts/test_hue_stability.sh)                 | Diagnostic only                        | Synthetic primaries            | **not in CI**             |
-| [`test_stage_diagnostic.sh`](../src/scripts/test_stage_diagnostic.sh)           | Diagnostic only                        | Committed grey DNG             | **not in CI**             |
-| [`test_backup_smoke.ts`](../src/scripts/test_backup_smoke.ts)                   | Manual smoke test                      | A running API + Mongo          | **not in CI**             |
+| Script                                                                          | Gate?                                                                        | Inputs                              | In CI                     |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------- | ------------------------- |
+| [`test_synthetic_grey.sh`](../src/scripts/test_synthetic_grey.sh)               | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
+| [`test_synthetic_color_chart.sh`](../src/scripts/test_synthetic_color_chart.sh) | Yes, never skips                                                             | Synthetic 24-patch chart            | `rust-tests`              |
+| [`test_grey_adjustments.sh`](../src/scripts/test_grey_adjustments.sh)           | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
+| [`test_tone_bands.sh`](../src/scripts/test_tone_bands.sh)                       | Yes; skips at preflight                                                      | RAWs + ACR refs                     | **not in CI**             |
+| [`test_tone_exposure.sh`](../src/scripts/test_tone_exposure.sh)                 | Yes; self-tests always run, real renders skip only when both RAWs are absent | Committed ACR ±1 EV refs + two RAWs | `rust-tests`              |
+| [`test_grey_dcp.sh`](../src/scripts/test_grey_dcp.sh)                           | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
+| [`test_banding.sh`](../src/scripts/test_banding.sh)                             | Yes; tail section skips without a RAW                                        | Synthetic ramps                     | `rust-tests`              |
+| [`test_color_pipeline.sh`](../src/scripts/test_color_pipeline.sh)               | Yes; skips at preflight                                                      | RAWs + ACR refs                     | `color-pipeline`          |
+| [`test_pano_pipeline.sh`](../src/scripts/test_pano_pipeline.sh)                 | Partly (see below)                                                           | `raws/pano_*/` sets                 | `pano-pipeline`           |
+| [`test_film_looks.sh`](../src/scripts/test_film_looks.sh)                       | Yes; skips without the RAW or LUT pack                                       | `test_0017.dng` + `.mlut` pack      | **not in CI**             |
+| [`test_face_clustering.sh`](../src/scripts/test_face_clustering.sh)             | Yes                                                                          | Committed JSONL corpus              | `face-clustering-quality` |
+| [`test_search_relevance.sh`](../src/scripts/test_search_relevance.sh)           | Yes; skips without sidecars                                                  | Committed query corpus              | **not in CI**             |
+| [`test_auto_profile_match.sh`](../src/scripts/test_auto_profile_match.sh)       | Yes; skips without RAWs                                                      | RAWs + embedded JPEGs               | **not in CI**             |
+| [`check_wgsl.sh`](../src/scripts/check_wgsl.sh)                                 | Yes                                                                          | WGSL sources                        | `raw-gpu`                 |
+| [`test_halo_detection.sh`](../src/scripts/test_halo_detection.sh)               | Diagnostic only                                                              | Synthetic disk                      | **not in CI**             |
+| [`test_hue_stability.sh`](../src/scripts/test_hue_stability.sh)                 | Diagnostic only                                                              | Synthetic primaries                 | **not in CI**             |
+| [`test_stage_diagnostic.sh`](../src/scripts/test_stage_diagnostic.sh)           | Diagnostic only                                                              | Committed grey DNG                  | **not in CI**             |
+| [`test_backup_smoke.ts`](../src/scripts/test_backup_smoke.ts)                   | Manual smoke test                                                            | A running API + Mongo               | **not in CI**             |
 
 Notes on the ones with unusual shapes:
 
