@@ -101,7 +101,20 @@ describe('worker pool execution mode', () => {
     // is serving it before it can reply — exactly the shape of a genuine
     // worker crash — and confirm both that the in-flight promise rejects
     // (rather than hanging forever) and that the pool recovers afterwards.
-    const inFlight = callNative('validateFilename', ['mid-flight-kill.jpg']);
+    //
+    // Uses the same bogus method name the other pool-recovery tests above
+    // use, rather than `validateFilename`: since #3509, `callNative` tries
+    // the napi addon first when one is resolvable for this platform, and
+    // `validateFilename` — unlike this bogus name — has a real napi
+    // implementation, so it would never reach the worker pool at all on a
+    // machine with the addon built, leaving no live worker here to kill.
+    // The bogus method name is guaranteed to fall through to the pool on
+    // every machine regardless of napi availability, which is what this
+    // test needs: a real live `Worker` to reach in and terminate. Which
+    // method name drives the pool is incidental to what's under test here
+    // (`handleWorkerDeath`), so this substitution changes nothing about the
+    // pool behavior being verified.
+    const inFlight = callNative('thisMethodDoesNotExist' as never, [] as never);
     const worker = _getBusyMapleWorkerForTests();
     expect(worker).not.toBeNull();
     worker!.terminate();
