@@ -27,7 +27,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import sharp from 'sharp';
+import { solidJpeg } from '../test-support/synth-image.ts';
 
 import {
   OnnxFaceDetector,
@@ -135,12 +135,7 @@ function fakeModels(): FaceModels {
 }
 
 async function tinyJpeg(size = 32): Promise<Uint8Array> {
-  const buf = await sharp({
-    create: { width: size, height: size, channels: 3, background: { r: 180, g: 120, b: 90 } },
-  })
-    .jpeg()
-    .toBuffer();
-  return new Uint8Array(buf);
+  return new Uint8Array(await solidJpeg(size, size, [180, 120, 90]));
 }
 
 afterEach(() => {
