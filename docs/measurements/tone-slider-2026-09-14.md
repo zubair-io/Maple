@@ -128,7 +128,9 @@ failing**: five baselines and fourteen Neutral Whites cases. This is explicitly
 a recombination of measurements, not a fresh integrated harness run. Corrected
 references resolve 0011 Whites minimum, 0017 Whites maximum and 0017 Auto
 baseline, but expose 0011 Neutral baseline bias. The sparse Auto-fit correction
-fixes 0007 mean/p95 without fixing its maximum. The original limits are untouched.
+fixes 0007 mean/p95 without fixing its maximum. The original limits are untouched. Exact retained cells, measured values and limits
+are in `tone-slider-retained-failures-2026-09-14.json`; older unchanged rows retain
+the original harness’s printed precision.
 
 The evidence supports the new model as a materially better slider, but does not
 support declaring the branch mergeable under the current acceptance contract.
