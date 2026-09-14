@@ -163,6 +163,17 @@ jobs:
       - name: cargo build -p raw-napi (compile gate)
         working-directory: src/raw-pipeline
         run: cargo build -p raw-napi
+      # Lib test gate, same rationale as the raw-ffi one above: raw-napi's 40
+      # unit tests pin every flag bit, enum mapping, and quality-default
+      # sentinel ported from raw-ffi. Fixture-free on the host target (most
+      # return early via `.canonicalize().ok()` when the gitignored RAW
+      # fixtures are absent; the one fixture they genuinely need,
+      # src/apple/MapleUITests/Goldens/.calibration/a.png, is tracked in git
+      # and always present), so this shares the compile cache with the
+      # build step above and runs unconditionally.
+      - name: cargo test -p raw-napi --lib
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-napi --lib
       # Scoped fmt gate, same rationale as the raw-ffi one above: raw-napi is
       # rustfmt-canonical from its first commit, so keep it that way.
       - name: cargo fmt --check -p raw-napi
