@@ -82,6 +82,22 @@ export class ThumbDecodeError extends Error {
   }
 }
 
+/** True when `err` is a `loadNativeBinding()` native-library-load failure
+ * (missing/unbuildable dylib, or running outside Bun) rather than a genuine
+ * image-decode failure. These two exact message shapes come from
+ * `src/maple/src/native.ts`'s `loadNativeBinding()` — the only two throw
+ * sites in that function. The distinction matters: a real decode failure is
+ * a legitimate per-asset `ThumbDecodeError` (skip THIS one), while a missing
+ * dylib is an environment misconfiguration that must fail loudly and retry
+ * — not silently mark every asset as permanently undecodable. */
+export function isNativeLoadFailure(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.message.startsWith('Maple native library (') ||
+    err.message === 'Maple native bindings currently require Bun (bun:ffi).'
+  );
+}
+
 /** Single detection from SCRFD. All coords normalised to [0,1]. */
 export interface DetectedFace {
   bbox: { x: number; y: number; w: number; h: number };
@@ -144,6 +160,7 @@ export class OnnxFaceDetector implements FaceDetector {
       });
       floats = result.data;
     } catch (err) {
+      if (isNativeLoadFailure(err)) throw err;
       throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
     }
     const tensor = new Tensor('float32', floats, [1, 3, DETECTOR_INPUT_SIZE, DETECTOR_INPUT_SIZE]);
@@ -248,6 +265,7 @@ async function alignFaceCrop(
       // Re-throw our own hard error untouched (see comment above).
       throw err;
     }
+    if (isNativeLoadFailure(err)) throw err;
     throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
   }
   if (raw.length !== W * H * channels) {
