@@ -47,6 +47,13 @@ This includes tone, point curves, white balance, lens/CA, geometry and detail
 settings. Missing white balance is As Shot; derived temperature/tint is not
 an override. Explicit custom curves retain their points and name.
 
+CameraProfile is preserved when authored. Otherwise the generator reuses the
+fixture's recorded `acr-xmp/baseline.xmp`, or bootstraps from effective XMP in an
+existing baseline PNG. This preserves camera-specific choices such as Camera
+Standard and Adobe Standard v2. New fixtures without recorded settings must
+author a profile; there is no blanket profile fallback. ProcessVersion defaults
+to 11.0. Both effective controls are checked in saved PNGs.
+
 This separation matters: Adobe's `LensProfileEnable=0` disables its optional
 lens profile, while Maple currently interprets that sidecar field as disabling
 embedded DNG opcodes too. Do not propagate Adobe-only defaults into Maple inputs.

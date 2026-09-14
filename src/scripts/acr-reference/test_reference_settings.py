@@ -8,9 +8,11 @@ import unittest
 from pathlib import Path
 
 from PIL import Image, PngImagePlugin
+from run import recorded_camera_profile
 from verify_settings import verify_manifest, verify_png
 from write_xmp import (
     REFERENCE_DEFAULTS,
+    REFERENCE_KEYS,
     explicit_reference_defaults,
     reference_settings,
 )
@@ -29,13 +31,27 @@ class ReferenceSettingsTests(unittest.TestCase):
         )
         result = explicit_reference_defaults(authored)
         settings = reference_settings(result)
-        self.assertEqual(set(settings), set(REFERENCE_DEFAULTS))
+        self.assertEqual(set(settings), REFERENCE_KEYS)
         self.assertEqual(settings["Whites2012"], "+100")
         self.assertEqual(settings["LensProfileEnable"], "1")
         self.assertEqual(settings["AutoLateralCA"], "0")
         self.assertEqual(settings["WhiteBalance"], "As Shot")
         self.assertIn(b'crs:Unknown="preserve me"', result)
         self.assertEqual(explicit_reference_defaults(result), result)
+
+    def test_profile_requires_recorded_selection_and_preserves_override(self):
+        missing = MINIMAL.replace(b'crs:CameraProfile="Adobe Standard" ', b"")
+        with self.assertRaises(ValueError):
+            explicit_reference_defaults(missing)
+        result = reference_settings(
+            explicit_reference_defaults(missing, "Adobe Standard v2")
+        )
+        self.assertEqual(result["CameraProfile"], "Adobe Standard v2")
+        self.assertEqual(result["ProcessVersion"], "11.0")
+        authored = reference_settings(
+            explicit_reference_defaults(MINIMAL, "Adobe Standard v2")
+        )
+        self.assertEqual(authored["CameraProfile"], "Adobe Standard")
 
     def test_nested_explicit_curve_and_controls_survive(self):
         authored = MINIMAL.replace(
@@ -96,6 +112,23 @@ class ReferenceSettingsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify_png(path, expected | {"Sharpness": "40"})
 
+    def test_profile_reused_from_effective_baseline_then_recorded_sidecar(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "down").mkdir()
+            info = PngImagePlugin.PngInfo()
+            info.add_text(
+                "XML:com.adobe.xmp",
+                MINIMAL.replace(b"Adobe Standard", b"Camera Standard").decode(),
+            )
+            Image.new("RGB", (2, 2)).save(root / "down" / "baseline.png", pnginfo=info)
+            self.assertEqual(recorded_camera_profile(root), "Camera Standard")
+            (root / "acr-xmp").mkdir()
+            (root / "acr-xmp" / "baseline.xmp").write_bytes(
+                MINIMAL.replace(b"Adobe Standard", b"Adobe Standard v2")
+            )
+            self.assertEqual(recorded_camera_profile(root), "Adobe Standard v2")
+
     def test_filtered_self_run_keeps_maple_sidecar_and_stages_adobe_defaults(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -126,7 +159,7 @@ class ReferenceSettingsTests(unittest.TestCase):
             self.assertNotEqual(entry["xmp"], entry["acr_xmp"])
             self.assertEqual(
                 reference_settings(Path(entry["acr_xmp"]).read_bytes()),
-                REFERENCE_DEFAULTS,
+                REFERENCE_DEFAULTS | {"CameraProfile": "Adobe Standard"},
             )
             with self.assertRaises(FileNotFoundError):
                 verify_manifest(manifest_path)

@@ -59,6 +59,8 @@ Photoshop 2026 **27.10.0**, Camera Raw **18.6 (2698)**, rendered 2026-09-14. The
 repository's `src/scripts/acr-reference/acr_batch.jsx` ran against APFS clones of
 the two RAWs, with isolated paths. The `.xmp` files retain Maple's authored
 inputs; separate `.acr.xmp` files record the exact Adobe render settings.
+Camera Standard (test_0002) and Adobe Standard (test_0017), ProcessVersion 11.0,
+are recorded and verified against the effective PNG metadata.
 Omitted Adobe settings are explicitly neutral, including optional lens profile
 and lateral CA off. White balance defaults to As Shot. Each +/-1 Adobe sidecar
 changes only Exposure2012 relative to its Adobe baseline. Every saved PNG's

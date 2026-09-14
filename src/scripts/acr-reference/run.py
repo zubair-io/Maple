@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 
 from matrix import CASES
-from write_xmp import copy_case_xmp
+from write_xmp import copy_case_xmp, reference_settings
 
 # The Cowork sandbox mounts the host workspace under /sessions/.../mnt/_Maple/
 # (or whatever the selected folder's basename is). Photoshop runs on the host
@@ -127,6 +127,29 @@ def cleanup_sidecars(raws: list[Path]) -> list[Path]:
             sidecar.unlink()
             removed.append(sidecar)
     return removed
+
+
+def recorded_camera_profile(raw_ref_dir: Path) -> str | None:
+    """Reuse the recorded Adobe profile, including camera-specific variants."""
+    recorded = raw_ref_dir / "acr-xmp" / "baseline.xmp"
+    if recorded.is_file():
+        profile = reference_settings(recorded.read_bytes()).get("CameraProfile")
+        if isinstance(profile, str) and profile:
+            return profile
+    # Bootstrap existing reference corpora from their effective baseline XMP.
+    # A new fixture must author CameraProfile in its canonical XMP instead.
+    from PIL import Image
+
+    for tier in ("down", "full"):
+        baseline = raw_ref_dir / tier / "baseline.png"
+        if baseline.is_file():
+            with Image.open(baseline) as image:
+                metadata = image.info.get("XML:com.adobe.xmp")
+            if metadata:
+                profile = reference_settings(metadata).get("CameraProfile")
+                if isinstance(profile, str) and profile:
+                    return profile
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -239,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # Keep Maple's authored sidecars byte-identical. Adobe's optional lens
         # profile switch is not Maple's embedded DNG opcode switch (#3633).
+        camera_profile = recorded_camera_profile(raw_ref_dir)
         acr_xmp_dir = raw_ref_dir / "acr-xmp"
         xmp_dir.mkdir(parents=True, exist_ok=True)
         acr_xmp_dir.mkdir(parents=True, exist_ok=True)
@@ -250,7 +274,11 @@ def main(argv: list[str] | None = None) -> int:
             dst = xmp_dir / f"{c.name}.xmp"
             if src.resolve() != dst.resolve():
                 shutil.copyfile(src, dst)
-            copy_case_xmp(src, acr_xmp_dir / f"{c.name}.xmp")
+            try:
+                copy_case_xmp(src, acr_xmp_dir / f"{c.name}.xmp", camera_profile)
+            except ValueError as error:
+                print(f"ERROR: {raw_stem}/{c.name}: {error}", file=sys.stderr)
+                return 2
         total_xmps += len(cases_in_scope)
 
         # Pre-create output dirs so Photoshop doesn't fail on saveAs.
