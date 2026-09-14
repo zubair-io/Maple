@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from PIL import Image
-from write_xmp import REFERENCE_DEFAULTS, reference_settings
+from write_xmp import REFERENCE_KEYS, reference_settings
 
 
 def equivalent(key, actual, expected) -> bool:
@@ -23,7 +23,7 @@ def equivalent(key, actual, expected) -> bool:
             )
         except InvalidOperation:
             return False
-    if key in ("WhiteBalance", "ToneCurveName2012"):
+    if key in ("WhiteBalance", "ToneCurveName2012", "CameraProfile"):
         return actual.casefold() == expected.casefold()
     boolean = {"true": "1", "false": "0", "on": "1", "off": "0"}
     try:
@@ -35,7 +35,7 @@ def equivalent(key, actual, expected) -> bool:
 
 
 def verify_png(path: Path, expected: dict) -> None:
-    if set(expected) != set(REFERENCE_DEFAULTS):
+    if set(expected) != REFERENCE_KEYS:
         raise ValueError(
             "reference XMP must explicitly author all neutral tone/lens controls"
         )
@@ -53,7 +53,7 @@ def verify_png(path: Path, expected: dict) -> None:
         "ColorNoiseReductionDetail": "ColorNoiseReduction",
         "ColorNoiseReductionSmoothness": "ColorNoiseReduction",
     }
-    for key in REFERENCE_DEFAULTS:
+    for key in sorted(REFERENCE_KEYS):
         parent = dormant_parent.get(key)
         if key not in actual and parent and equivalent(parent, actual.get(parent), "0"):
             continue
