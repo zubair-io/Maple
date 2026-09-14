@@ -235,9 +235,7 @@ fn too_few_pairs_returns_err_not_silent_identity() {
 }
 
 #[test]
-fn neutral_samples_from_pairs_excludes_saturated_colors() {
-    // A pure-red pair (high chroma) must NOT contribute a neutral sample;
-    // a grey pair must.
+fn neutral_samples_keep_neutral_preference_and_soft_chromatic_support() {
     let grey = DisplayPair {
         maple: [0.5, 0.5, 0.5],
         jpeg: [0.52, 0.52, 0.52],
@@ -247,11 +245,10 @@ fn neutral_samples_from_pairs_excludes_saturated_colors() {
         jpeg: [0.82, 0.05, 0.05],
     };
     let samples = neutral_samples_from_pairs(&[grey, red]);
-    assert_eq!(
-        samples.len(),
-        1,
-        "only the grey pair should qualify as a neutral sample"
-    );
+    assert_eq!(samples.len(), 2);
+    assert!(samples[0].is_neutral && !samples[1].is_neutral);
+    assert!(samples[0].neutral_weight > 0.99);
+    assert!(samples[1].neutral_weight > 0.0 && samples[1].neutral_weight < 0.01);
 }
 
 /// Regression test for the M0.5 tonescale-domain bug (#1740): reproduces

@@ -90,14 +90,13 @@ fn decode_pair(
     (maple_lin_rec2020, jpeg_lin_srgb)
 }
 
-/// Derive the tonescale's neutral/luma sample set from scattered display
-/// pairs: keep only pairs whose Maple-side Oklab chroma is below the
-/// [`NEUTRAL_CHROMA_FRAC`]-derived ceiling, and pair their Rec.2020 luma
-/// with the JPEG-side sRGB luma (both display-linear).
+/// Derive tonescale observations from scattered display pairs. Preserve the
+/// original near-neutral classification, and measure a Gaussian chroma weight
+/// for the wider population. The fitter borrows that wider support only when
+/// neutral observations are sparse (#3633), rather than letting a few glints
+/// determine brightness across the image. Luma is display-linear on both sides.
 ///
-/// An empty (or near-empty) result means the fixture has no usable
-/// achromatic region — `fit_tonescale` then fails and the caller should
-/// report that per-fixture skip explicitly, not silently substitute identity.
+/// With fewer than two usable observations the tonescale fit fails explicitly.
 pub fn neutral_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<NeutralSample> {
     let m_srgb_to_rec2020 = M_REC2020_TO_SRGB
         .inverse()
@@ -110,7 +109,8 @@ pub fn neutral_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<NeutralSample> {
             let (maple_rec2020, jpeg_srgb) = decode_pair(p, &m_srgb_to_rec2020);
             let lab = rec2020_to_oklab(maple_rec2020);
             let chroma = (lab[1] * lab[1] + lab[2] * lab[2]).sqrt();
-            if chroma > chroma_max {
+            let neutral_weight = (-(chroma / chroma_max).powi(2)).exp();
+            if !neutral_weight.is_finite() || neutral_weight <= 0.0 {
                 return None;
             }
             let scene_lum = rec2020_luma(maple_rec2020);
@@ -126,6 +126,8 @@ pub fn neutral_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<NeutralSample> {
             Some(NeutralSample {
                 scene_lum,
                 display_lum,
+                neutral_weight,
+                is_neutral: chroma <= chroma_max,
             })
         })
         .collect()
@@ -177,16 +179,16 @@ pub fn sweep_samples_from_pairs(pairs: &[DisplayPair]) -> Vec<SweepSample> {
 /// embedded JPEG) and the chart's clip/clamp bookkeeping (the pair sampler
 /// already only emits pairs for pixels present in both buffers).
 ///
-/// Returns `Err` when too few neutral-ish pairs survive to fit a tonescale
+/// Returns `Err` when too few usable pairs survive to fit a tonescale
 /// (`fit_tonescale_with_range` needs ≥ 2 samples) — the caller should report
 /// this as a per-fixture skip, not fall back to identity silently.
 ///
 /// The tonescale's knot range is derived from the FULL pair population's
 /// scene-luminance distribution (`KnotRange::from_scene_luminances`), not
-/// just the neutral-chroma subset used to fit the tonescale's values, and not
+/// just the neutral-chroma subset that dominates its values, and not
 /// the chart solver's fixed 0.001-4.0 span. Deriving from the neutral subset
-/// alone looks appealing (it is exactly what feeds `fit_tonescale`'s knot
-/// VALUES) but a real photo's near-neutral pixels can occupy a much narrower
+/// alone looks appealing (it dominates densely supported knot values), but
+/// a real photo's near-neutral pixels can occupy a much narrower
 /// luminance band than its dominant chromatic content — e.g. a scene whose
 /// only low-chroma pixels sit in deep shadow while its saturated content
 /// spans well into the midtones — which would anchor the whole lattice to
@@ -201,7 +203,7 @@ pub fn solve_acr_model_from_display_pairs(pairs: &[DisplayPair]) -> Result<AcrMo
     let knot_range = KnotRange::from_scene_luminances(&all_pairs_scene_luminances(pairs));
     let mut ts = fit_tonescale_with_range(&neutral, knot_range).ok_or_else(|| {
         format!(
-            "tonescale fit failed: {} neutral-chroma pairs out of {} total (need >= 2)",
+            "tonescale fit failed: {} usable tone samples out of {} total (need >= 2)",
             neutral.len(),
             pairs.len()
         )

@@ -330,10 +330,7 @@ pub fn solve_acr_model_multi(
                     let scene_lum = spec.target_rec2020[0] * ev_scale;
                     let display_lum =
                         0.2126 * display_lin[0] + 0.7152 * display_lin[1] + 0.0722 * display_lin[2];
-                    let sample = NeutralSample {
-                        scene_lum,
-                        display_lum,
-                    };
+                    let sample = NeutralSample::new(scene_lum, display_lum);
                     all_neutral.push(sample);
                     render_neutrals.push(sample);
                 }
