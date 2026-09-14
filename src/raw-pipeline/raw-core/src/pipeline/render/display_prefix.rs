@@ -28,7 +28,7 @@ pub(super) fn apply(
     // and Neutral differ only in the Auto Profile tail layered on below;
     // the chart-fitted AcrMatch branch that used to sit here was retired in
     // #2312 (superseded by Auto's per-image embedded-JPEG fit).
-    stage("agx", || agx::apply(scene, model.contrast));
+    stage("agx", || agx::apply(scene, model.contrast, model.whites));
     dump_after("16_agx", scene);
     // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) — run
     // immediately after AgX, before color_grade, in the display-linear

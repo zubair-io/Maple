@@ -1,6 +1,6 @@
 //! AgX parity tests (epic #925 P2 / #990) — split out of `agx.rs` for the
 //! 600-LOC budget. The headless GPU AgX kernel is gated DIRECTLY against the
-//! real `raw_core::view::agx::apply` (the ticket's parity oracle), via the
+//! real `raw_core::view::agx::apply_with_resolved_whites` (the ticket's parity oracle), via the
 //! test-only `raw-core` dev-dep, at `< 1e-4` per channel — including the #435
 //! ratio sigmoid + outset + Oklab hue-restoration path.
 
@@ -50,18 +50,18 @@ fn agx_buffer() -> Vec<f32> {
     buf
 }
 
-/// Run `raw_core::view::agx::apply` on a flat interleaved RGBA f32 buffer,
+/// Run `raw_core::view::agx::apply_with_resolved_whites` on a flat interleaved RGBA f32 buffer,
 /// returning a new buffer (alpha carried through). Input is
 /// `SceneLinearRec2020` (the space `apply` asserts). THE reference — the Rust
 /// stage itself, not a hand-copied oracle.
-fn raw_core_agx(buf: &[f32], contrast: f32) -> Vec<f32> {
+fn raw_core_agx(buf: &[f32], contrast: f32, whites: f32) -> Vec<f32> {
     use raw_core::image::{ColorSpace, Image};
     let count = buf.len() / 4;
     let mut img = Image::new(count as u32, 1, ColorSpace::SceneLinearRec2020);
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
-    raw_core::view::agx::apply(&mut img, contrast);
+    raw_core::view::agx::apply_with_resolved_whites(&mut img, contrast, whites);
     let mut out = Vec::with_capacity(buf.len());
     for (i, p) in img.pixels.iter().enumerate() {
         out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);
@@ -77,7 +77,7 @@ fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// THE PARITY GATE (the ticket's contract): the WGSL AgX kernel matches
-/// `raw_core::view::agx::apply` — the actual Rust stage, via the test-only
+/// `raw_core::view::agx::apply_with_resolved_whites` — the actual Rust stage, via the test-only
 /// raw-core dev-dep — within 1e-4, at contrast 0. Exercises the neutral axis,
 /// the in-gamut gamut-compress fast-path, the out-of-gamut Oklab bisection, and
 /// the deep-shadow ratio branch (including RATIO_FLOOR).
@@ -87,17 +87,20 @@ fn wgsl_agx_matches_raw_core_stage_within_1e_4_contrast_0() {
     let input = agx_buffer();
     let count = (input.len() / 4) as u32;
 
-    let reference = raw_core_agx(&input, 0.0);
+    let reference = raw_core_agx(&input, 0.0, 0.0);
 
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&AgxPass { contrast: 0.0 }]);
+    let gpu = runner.run_blocking(&[&AgxPass {
+        contrast: 0.0,
+        whites: 0.0,
+    }]);
 
     let max_diff = max_abs_diff(&reference, &gpu);
-    eprintln!("PARITY vs raw-core agx::apply (contrast 0): max abs diff = {max_diff:e}");
+    eprintln!("PARITY vs raw-core agx::apply_with_resolved_whites (contrast 0): max abs diff = {max_diff:e}");
     assert!(
         max_diff < 1e-4,
-        "GPU vs raw-core agx::apply (contrast 0) max abs diff {max_diff} exceeds 1e-4"
+        "GPU vs raw-core agx::apply_with_resolved_whites (contrast 0) max abs diff {max_diff} exceeds 1e-4"
     );
 }
 
@@ -112,37 +115,83 @@ fn wgsl_agx_matches_raw_core_stage_within_1e_4_nonzero_contrast() {
     let count = (input.len() / 4) as u32;
 
     for contrast in [60.0_f32, -40.0_f32] {
-        let reference = raw_core_agx(&input, contrast);
+        let reference = raw_core_agx(&input, contrast, 0.0);
 
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&AgxPass { contrast }]);
+        let gpu = runner.run_blocking(&[&AgxPass {
+            contrast,
+            whites: 0.0,
+        }]);
 
         let max_diff = max_abs_diff(&reference, &gpu);
         eprintln!(
-            "PARITY vs raw-core agx::apply (contrast {contrast}): max abs diff = {max_diff:e}"
+            "PARITY vs raw-core agx::apply_with_resolved_whites (contrast {contrast}): max abs diff = {max_diff:e}"
         );
         assert!(
             max_diff < 1e-4,
-            "GPU vs raw-core agx::apply (contrast {contrast}) max abs diff {max_diff} exceeds 1e-4"
+            "GPU vs raw-core agx::apply_with_resolved_whites (contrast {contrast}) max abs diff {max_diff} exceeds 1e-4"
+        );
+    }
+}
+
+/// The parity gate at a NONZERO whites — without this, the contrast-only tests
+/// are a false green on the white-point remap (`view::agx_whites::remap_norm`,
+/// applied to the normalized-log value BEFORE the contrast slope). Both signs
+/// of whites are checked, plus combinations with nonzero contrast so the two
+/// modulations compose correctly (remap first, then slope).
+#[test]
+fn wgsl_agx_matches_raw_core_stage_within_1e_4_nonzero_whites() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let input = agx_buffer();
+    let count = (input.len() / 4) as u32;
+
+    for (contrast, whites) in [
+        (0.0f32, 100.0f32),
+        (0.0, -100.0),
+        (60.0, 40.0),
+        (-40.0, -70.0),
+    ] {
+        let reference = raw_core_agx(&input, contrast, whites);
+
+        let img = GpuImage::upload(&ctx, &input, count, 1);
+        let runner = ChainRunner::new(&ctx, &img);
+        let gpu = runner.run_blocking(&[&AgxPass { contrast, whites }]);
+
+        let max_diff = max_abs_diff(&reference, &gpu);
+        eprintln!(
+            "PARITY vs raw-core agx::apply_with_resolved_whites (contrast {contrast} whites {whites}): max abs diff = {max_diff:e}"
+        );
+        assert!(
+            max_diff < 1e-4,
+            "GPU vs raw-core agx::apply_with_resolved_whites (contrast {contrast} whites {whites}) max abs diff {max_diff} exceeds 1e-4"
         );
     }
 }
 
 /// Pin the local CPU oracle to raw-core's stage too, so the convenience oracle
 /// this crate exports can't silently drift. (The GPU gate above doesn't depend
-/// on the local oracle.) Checked at contrast 0 and a nonzero contrast.
+/// on the local oracle.) Checked at contrast 0 and a nonzero contrast, each
+/// crossed with a nonzero whites.
 #[test]
 fn local_oracle_matches_raw_core_stage_within_1e_4() {
     let input = agx_buffer();
-    for contrast in [0.0_f32, 60.0_f32, -40.0_f32] {
-        let reference = raw_core_agx(&input, contrast);
+    for (contrast, whites) in [
+        (0.0_f32, 0.0_f32),
+        (60.0, 0.0),
+        (-40.0, 0.0),
+        (0.0, 100.0),
+        (0.0, -100.0),
+        (60.0, 40.0),
+        (-40.0, -70.0),
+    ] {
+        let reference = raw_core_agx(&input, contrast, whites);
         let mut local = input.clone();
-        apply_agx(&mut local, contrast);
+        apply_agx(&mut local, contrast, whites);
         let max_diff = max_abs_diff(&reference, &local);
         assert!(
             max_diff < 1e-4,
-            "local oracle vs raw-core agx::apply (contrast {contrast}) diff {max_diff} exceeds 1e-4"
+            "local oracle vs raw-core agx::apply_with_resolved_whites (contrast {contrast} whites {whites}) diff {max_diff} exceeds 1e-4"
         );
     }
 }
@@ -156,7 +205,10 @@ fn gpu_alpha_passthrough() {
     let count = (input.len() / 4) as u32;
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&AgxPass { contrast: 0.0 }]);
+    let gpu = runner.run_blocking(&[&AgxPass {
+        contrast: 0.0,
+        whites: 0.0,
+    }]);
     for (i, chunk) in input.chunks_exact(4).enumerate() {
         assert_eq!(
             gpu[i * 4 + 3],
@@ -183,7 +235,10 @@ fn gpu_neutral_axis_preserved() {
     let count = (input.len() / 4) as u32;
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&AgxPass { contrast: 0.0 }]);
+    let gpu = runner.run_blocking(&[&AgxPass {
+        contrast: 0.0,
+        whites: 0.0,
+    }]);
     for (i, &v) in neutrals.iter().enumerate() {
         let p = &gpu[i * 4..i * 4 + 3];
         assert!(
@@ -213,7 +268,10 @@ fn gpu_saturated_red_lands_in_box_and_keeps_red_dominance() {
     let input = vec![3.6_f32, 0.18, 0.18, 1.0]; // saturated red specular (20x mid-gray)
     let img = GpuImage::upload(&ctx, &input, 1, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let gpu = runner.run_blocking(&[&AgxPass { contrast: 0.0 }]);
+    let gpu = runner.run_blocking(&[&AgxPass {
+        contrast: 0.0,
+        whites: 0.0,
+    }]);
     for (c, &v) in gpu[..3].iter().enumerate() {
         assert!(
             (0.0..=1.0).contains(&v),
@@ -240,8 +298,14 @@ fn gpu_positive_contrast_steepens_around_mid_gray() {
     ];
     let img = GpuImage::upload(&ctx, &input, 2, 1);
     let runner = ChainRunner::new(&ctx, &img);
-    let base = runner.run_blocking(&[&AgxPass { contrast: 0.0 }]);
-    let steep = runner.run_blocking(&[&AgxPass { contrast: 100.0 }]);
+    let base = runner.run_blocking(&[&AgxPass {
+        contrast: 0.0,
+        whites: 0.0,
+    }]);
+    let steep = runner.run_blocking(&[&AgxPass {
+        contrast: 100.0,
+        whites: 0.0,
+    }]);
     assert!(
         steep[0] > base[0],
         "bright should go higher at +100: {} vs {}",

@@ -52,6 +52,8 @@ pub struct Image {
     pub height: u32,
     pub pixels: Vec<[f32; 3]>,
     pub space: ColorSpace,
+    /// Full-frame pre-AE scene white, carried through edits and detail crops.
+    pub whites_anchor_ev: Option<f32>,
 }
 
 impl Image {
@@ -62,6 +64,7 @@ impl Image {
             height,
             pixels: vec![[0.0; 3]; len],
             space,
+            whites_anchor_ev: None,
         }
     }
 

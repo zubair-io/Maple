@@ -381,3 +381,6 @@ pub(crate) fn test_buffer(n: usize) -> Vec<f32> {
     }
     v
 }
+
+#[path = "../../raw-core/src/view/whites_anchor.rs"]
+pub mod whites_anchor;

@@ -29,7 +29,8 @@ extension RenderActor {
     isFull: Bool = true,
     profile: Profile? = nil,
     autoExposure: AutoExposureMode? = nil,
-    aeGain: Float = 1.0
+    aeGain: Float = 1.0,
+    whitesAnchorEv: Float = .nan
   ) {
     self.decodedImage = decoded
     self.decodedRawResolution = rawResolution
@@ -50,6 +51,7 @@ extension RenderActor {
     // #1167/#2070 — defaults to 1.0 (the no-op gain), same as a
     // production seed; pass explicitly to test the AE-gain plumbing.
     self.decodedAeGain = aeGain
+    self.decodedWhitesAnchorEv = whitesAnchorEv
     // Mirror the production write path (#2049): every cache write —
     // seeded or real — bumps the identity generation.
     self.decodeGeneration &+= 1

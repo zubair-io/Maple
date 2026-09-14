@@ -95,29 +95,6 @@ fn round_trip_shadows(scene: f32, s: f32) {
     }
 }
 
-fn round_trip_whites(scene: f32, w: f32) {
-    use crate::image::{ColorSpace, Image};
-    use crate::stages::scene_tone_controls;
-    use crate::xmp::AdjustmentModel;
-    let predicted = predict_whites(scene, w);
-    let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
-    img.pixels[0] = [scene, scene, scene];
-    let mut model = AdjustmentModel::default();
-    model.whites = w;
-    scene_tone_controls::apply(&mut img, &model);
-    for c in 0..3 {
-        assert!(
-            (img.pixels[0][c] - predicted).abs() < 1e-6,
-            "predict_whites({},{}) = {}, got {} (chan {})",
-            scene,
-            w,
-            predicted,
-            img.pixels[0][c],
-            c
-        );
-    }
-}
-
 fn round_trip_blacks(scene: f32, b: f32) {
     use crate::image::{ColorSpace, Image};
     use crate::stages::scene_tone_controls;
@@ -353,31 +330,6 @@ fn sh_rework_monotone_in_y_at_rails() {
             prev = out;
         }
     }
-}
-
-// Post-#267: whites is smoothstep-weighted with pivot at Y=0.5.
-// The lift / pull-down behaviour tests now sample a brighter input
-// (0.9) where the smoothstep weight is non-zero; the pivot test
-// covers a luma below the smoothstep e0.
-#[test]
-fn whites_plus50_lifts_bright() {
-    round_trip_whites(0.90, 50.0);
-}
-#[test]
-fn whites_minus50_pulls_bright() {
-    round_trip_whites(0.90, -50.0);
-}
-#[test]
-fn whites_below_pivot_no_op() {
-    round_trip_whites(0.10, 50.0);
-}
-#[test]
-fn whites_at_pivot_no_op() {
-    round_trip_whites(0.50, 50.0);
-}
-#[test]
-fn whites_zero_is_identity() {
-    round_trip_whites(0.50, 0.0);
 }
 
 #[test]

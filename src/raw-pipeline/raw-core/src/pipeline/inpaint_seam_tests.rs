@@ -46,6 +46,7 @@ fn synthetic_scene() -> Vec<[f32; 3]> {
 /// → rec2020→sRGB → gamma. Returns display-encoded f32 in [0,1].
 fn forward_display(pre: &[[f32; 3]], t: f32, tint: f32, ev: f32, m: WbMethod) -> Vec<[f32; 3]> {
     let mut img = Image {
+        whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
         pixels: pre.to_vec(),
@@ -58,7 +59,7 @@ fn forward_display(pre: &[[f32; 3]], t: f32, tint: f32, ev: f32, m: WbMethod) ->
         p[1] *= g;
         p[2] *= g;
     }
-    agx::apply(&mut img, 0.0);
+    agx::apply(&mut img, 0.0, 0.0);
     encode::rec2020_to_srgb(&mut img);
     encode::srgb_gamma_encode(&mut img);
     img.pixels
@@ -95,7 +96,7 @@ fn baked_patch_composited_at_seam_regrades_like_sensor() {
     for y in 0..H {
         for x in rx0..W {
             let mut tmp = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
-            tmp.pixels[0] = agx_inverse::display_u8_to_scene_linear(u8s[y * W + x], slope0);
+            tmp.pixels[0] = agx_inverse::display_u8_to_scene_linear(u8s[y * W + x], slope0, 0.0);
             grade_inverse::inverse_exposure(&mut tmp, ev0);
             grade_inverse::inverse_white_balance(&mut tmp, t0, tint0, m);
             pixels.push(tmp.pixels[0]);
@@ -112,6 +113,7 @@ fn baked_patch_composited_at_seam_regrades_like_sensor() {
 
     // 3) Composite into a copy of the pre-grade scene via the real stage.
     let mut composited = Image {
+        whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
         pixels: scene.clone(),

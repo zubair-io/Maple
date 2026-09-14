@@ -185,7 +185,7 @@ mod imp {
         let mut scene =
             develop_scene_linear_from_raw_with_quality(&raw, &fit_model, RenderQuality::Full)
                 .map_err(|e| format!("develop error: {e}"))?;
-        raw_core::view::agx::apply(&mut scene, fit_model.contrast);
+        raw_core::view::agx::apply(&mut scene, fit_model.contrast, fit_model.whites);
         color_grade::apply_model(&mut scene, &fit_model);
         grain::apply(
             &mut scene,

@@ -281,6 +281,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     let (profile, profile_source) = stage("sized_dcp_profile_for", || {
         dcp::profile_for_with_source(raw)
     })?;
+    let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
     // Camera-space user white balance (#1726) — mirrors the full-res
     // develop chain exactly; see `super::develop` and `stages::wb_camera`
     // for the full design writeup and the `RawlerFallback` tier-gate
@@ -375,6 +376,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         }
     }
     dump_after("04b_capture_sharpening", &scene);
+    scene.whites_anchor_ev = Some(whites_anchor_ev);
     let ae_gain = stage("sized_auto_exposure", || {
         auto_exposure::apply(&mut scene, model)
     });

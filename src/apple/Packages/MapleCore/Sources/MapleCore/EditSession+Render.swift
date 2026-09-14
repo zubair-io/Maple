@@ -257,7 +257,7 @@ extension EditSession {
         if await presentViaGpuLive(
           decoded: gpuCached, targetSize: gpuTarget, gen: gen,
           decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
-          noiseProfile: cachedNoiseProfile, iso: cachedISO
+          noiseProfile: cachedNoiseProfile, iso: cachedISO, whitesAnchorEv: snapshot.whitesAnchorEv
         ) {
           return
         }
@@ -307,7 +307,7 @@ extension EditSession {
               assetID: assetID,
               noiseProfile: cachedNoiseProfile,
               iso: cachedISO,
-              wbFrame: cachedWbFrame,
+              wbFrame: cachedWbFrame, whitesAnchorEv: snapshot.whitesAnchorEv,
               targetPrimariesOverride: filmActive ? .srgb : nil
             )
           }
@@ -390,7 +390,8 @@ extension EditSession {
         if await presentViaGpuLive(
           decoded: gpuDecoded, targetSize: gpuTarget, gen: gen,
           decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
-          noiseProfile: freshNoiseProfile, iso: freshISO
+          noiseProfile: freshNoiseProfile, iso: freshISO,
+          whitesAnchorEv: freshSnapshot.whitesAnchorEv
         ) {
           return
         }
@@ -433,7 +434,7 @@ extension EditSession {
               assetID: assetID,
               noiseProfile: freshNoiseProfile,
               iso: freshISO,
-              wbFrame: freshWbFrame,
+              wbFrame: freshWbFrame, whitesAnchorEv: freshSnapshot.whitesAnchorEv,
               targetPrimariesOverride: filmActive ? .srgb : nil
             )
           }

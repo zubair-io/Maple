@@ -235,7 +235,6 @@ pub fn build_live_split<'a>(
             brightness: inputs.tone[1],
             highlights: inputs.tone[2],
             shadows: inputs.tone[3],
-            whites: inputs.tone[4],
             blacks: inputs.tone[5],
         }));
     }
@@ -342,6 +341,7 @@ pub fn build_live_split<'a>(
     if is_raw_shape {
         suffix.push(Box::new(AgxPass {
             contrast: inputs.contrast,
+            whites: crate::whites_anchor::resolve(inputs.tone[4], inputs.whites_anchor_ev),
         }));
     }
     // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) —

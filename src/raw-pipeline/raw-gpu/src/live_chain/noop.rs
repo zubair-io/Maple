@@ -26,20 +26,22 @@ pub(super) const WB_SKIP_BAND: f32 = 0.5;
 /// Whether the scene-tone-controls stage is a no-op for these sliders — the EXACT
 /// predicate from `raw_core::stages::scene_tone_controls::apply` identity
 /// short-circuit: exposure within `1e-6` AND brightness/highlights/shadows/
-/// whites/blacks each within `1e-3`.
+/// blacks each within `1e-3`. `tone[4]` (whites) does NOT participate —
+/// #2441 moved that slider to the AgX view transform, so this stage is
+/// unconditionally indifferent to it.
 /// `tone = [exposure, brightness, highlights, shadows, whites, blacks]`.
 pub(super) fn scene_tone_is_noop(tone: &[f32; 6]) -> bool {
     tone[0].abs() < EXPOSURE_EPS
         && tone[1].abs() < SLIDER_EPS
         && tone[2].abs() < SLIDER_EPS
         && tone[3].abs() < SLIDER_EPS
-        && tone[4].abs() < SLIDER_EPS
         && tone[5].abs() < SLIDER_EPS
 }
 
 /// Dispatch shape of the internally-gated scene-tone DAG. Values within a fixed
 /// shape deliberately do not participate. Bit layout: pre
-/// (exposure/brightness), two-bit masked-step count, post (whites/blacks).
+/// (exposure/brightness), two-bit masked-step count, post (blacks — whites
+/// no longer drives this stage's dispatch shape, #2441).
 /// Highlights-only and Shadows-only share the same pipeline and bindings. A
 /// point-only stage returns zero; the outer active bit distinguishes neutral.
 pub(super) fn scene_tone_dispatch_shape(tone: &[f32; 6]) -> u8 {
@@ -55,7 +57,7 @@ pub(super) fn scene_tone_dispatch_shape(tone: &[f32; 6]) -> u8 {
     }
     let masked_count = u8::from(highlights) + u8::from(shadows);
     shape |= masked_count << 1;
-    if tone[4].abs() >= SLIDER_EPS || tone[5].abs() >= SLIDER_EPS {
+    if tone[5].abs() >= SLIDER_EPS {
         shape |= 1 << 3;
     }
     shape

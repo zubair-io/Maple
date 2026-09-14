@@ -63,10 +63,12 @@ mod scene_linear;
 pub use scene_linear::{
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
     render_scene_linear_from_raw_with_quality_f32_cancellable,
+    render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors,
     render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain,
     render_scene_linear_sized_from_raw_with_quality,
     render_scene_linear_sized_from_raw_with_quality_f32,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable,
+    render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
 };
 
@@ -330,6 +332,7 @@ fn render_display_scene_with_context(
         None => develop_scene_linear_from_raw_with_quality_with_gain(raw, active_model, quality)?,
     };
 
+    let whites_anchor_ev = scene.whites_anchor_ev;
     let full = (scene.width, scene.height);
     display_prefix::apply(&mut scene, model, film_lut, target, ((0, 0), full));
     // Auto Profile (#537/#913) — the per-image color tail toward the embedded
@@ -387,6 +390,7 @@ fn render_display_scene_with_context(
             model: model.clone(),
             active_model: active_model.clone(),
             ae_gain,
+            whites_anchor_ev,
             profile_curve: artifacts.0,
             profile_lut: artifacts.1,
             auto_guard: model.profile == Profile::Auto && raw_source.is_some(),

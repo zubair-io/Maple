@@ -68,7 +68,7 @@ pub fn develop_for_display(img: &PlanarImage) -> Vec<u16> {
     }
 
     // View tail, in raw-core's RAW-render order.
-    raw_core::view::agx::apply(&mut scene, 0.0);
+    raw_core::view::agx::apply(&mut scene, 0.0, 0.0);
     raw_core::view::encode::rec2020_to_srgb(&mut scene);
     raw_core::view::encode::srgb_gamma_encode(&mut scene);
 
@@ -234,8 +234,18 @@ mod tests {
         let (ipco_start, ipco_len) = find_box(iprp_body, b"ipco")?;
         let ipco_body = iprp_body.get(ipco_start..ipco_start + ipco_len)?;
         let (ispe_start, _) = find_box(ipco_body, b"ispe")?;
-        let w = u32::from_be_bytes(ipco_body.get(ispe_start + 4..ispe_start + 8)?.try_into().ok()?);
-        let h = u32::from_be_bytes(ipco_body.get(ispe_start + 8..ispe_start + 12)?.try_into().ok()?);
+        let w = u32::from_be_bytes(
+            ipco_body
+                .get(ispe_start + 4..ispe_start + 8)?
+                .try_into()
+                .ok()?,
+        );
+        let h = u32::from_be_bytes(
+            ipco_body
+                .get(ispe_start + 8..ispe_start + 12)?
+                .try_into()
+                .ok()?,
+        );
         Some((w, h))
     }
 
@@ -297,7 +307,11 @@ mod tests {
         // read dims from the `ispe` box rather than a full decode. 400 < 1280,
         // so it stays native (no upscale).
         let preview_bytes = std::fs::read(&preview).unwrap();
-        assert_eq!(&preview_bytes[4..8], b"ftyp", "preview missing AVIF ftyp box");
+        assert_eq!(
+            &preview_bytes[4..8],
+            b"ftyp",
+            "preview missing AVIF ftyp box"
+        );
         let (pw, ph) = avif_dimensions(&preview_bytes).expect("preview ispe box present");
         assert_eq!((pw, ph), (400, 200), "preview must not upscale");
 

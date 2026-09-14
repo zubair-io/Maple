@@ -417,11 +417,8 @@ fn hue_sweep_has_no_band_boundary_discontinuity() {
         .map(|i| {
             let h = (i as f32) * (360.0 / STEPS as f32);
             let rad = h.to_radians();
-            let rgb = crate::color::oklab::oklab_to_rec2020([
-                0.5,
-                C_IN * rad.cos(),
-                C_IN * rad.sin(),
-            ]);
+            let rgb =
+                crate::color::oklab::oklab_to_rec2020([0.5, C_IN * rad.cos(), C_IN * rad.sin()]);
             apply_pixel(rgb, &params)
         })
         .collect();
@@ -437,8 +434,16 @@ fn hue_sweep_has_no_band_boundary_discontinuity() {
             "channel {channel}: sweep is constant — the stage did nothing"
         );
         let (worst_index, worst_second_diff) = (0..STEPS)
-            .map(|i| (i, (f(i + STEPS + 1) - 2.0 * f(i + STEPS) + f(i + STEPS - 1)).abs()))
-            .fold((0usize, 0.0_f32), |acc, x| if x.1 > acc.1 { x } else { acc });
+            .map(|i| {
+                (
+                    i,
+                    (f(i + STEPS + 1) - 2.0 * f(i + STEPS) + f(i + STEPS - 1)).abs(),
+                )
+            })
+            .fold(
+                (0usize, 0.0_f32),
+                |acc, x| if x.1 > acc.1 { x } else { acc },
+            );
         // A raised-cosine partition sampled at 0.25° has curvature far
         // below its own slope; a hard band edge would put the second
         // difference at or above the first-difference scale. 0.25× leaves

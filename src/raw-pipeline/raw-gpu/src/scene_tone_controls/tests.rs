@@ -15,8 +15,8 @@ fn tone_buffer() -> Vec<f32> {
     vec![
         // r,    g,    b,    a
         0.01, 0.01, 0.01, 1.0, // deep shadow → shadows lift + blacks toe
-        0.18, 0.18, 0.18, 0.7, // midtone (whites/blacks weight ~0)
-        0.50, 0.50, 0.50, 1.0, // upper-mid (whites smoothstep ramps in)
+        0.18, 0.18, 0.18, 0.7, // midtone (blacks weight ~0)
+        0.50, 0.50, 0.50, 1.0, // upper-mid
         0.95, 0.95, 0.95, 1.0, // near diffuse white
         3.00, 2.00, 1.20, 1.0, // HDR headroom → highlights above-knee branch
         0.04, 0.30, 0.50, 0.5, // colored shadow (luma-coupled scale, hue test)
@@ -76,7 +76,6 @@ fn raw_core_tone(buf: &[f32], width: u32, height: u32, options: SceneToneOptions
         brightness,
         highlights,
         shadows,
-        whites,
         blacks,
     } = options;
     use raw_core::image::{ColorSpace, Image};
@@ -84,13 +83,13 @@ fn raw_core_tone(buf: &[f32], width: u32, height: u32, options: SceneToneOptions
     for (i, chunk) in buf.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
-    // Only the six tone fields are set; everything else stays at default.
+    // Only the five tone fields are set; everything else (including whites,
+    // which moved to the AgX view transform, #2441) stays at default.
     let model = AdjustmentModel {
         exposure,
         brightness,
         highlights,
         shadows,
-        whites,
         blacks,
         ..Default::default()
     };
@@ -105,31 +104,29 @@ fn raw_core_tone(buf: &[f32], width: u32, height: u32, options: SceneToneOptions
 /// The slider combinations under test — each deliberately drives a different
 /// mix of branches (and at least one field non-zero so the stage doesn't
 /// whole-image short-circuit).
-/// `(exposure, brightness, highlights, shadows, whites, blacks)`.
-const CASES: &[(f32, f32, f32, f32, f32, f32)] = &[
-    (1.0, 0.0, 0.0, 0.0, 0.0, 0.0),           // exposure only
-    (0.0, 70.0, 0.0, 0.0, 0.0, 0.0),          // brightness lift only (#1102)
-    (0.0, -85.0, 0.0, 0.0, 0.0, 0.0),         // brightness darken only (#1102)
-    (0.0, 0.0, 60.0, 0.0, 0.0, 0.0),          // highlights gain (+60)
-    (0.0, 0.0, -50.0, 0.0, 0.0, 0.0), // highlights recovery at −50 (the old #1081 pole sits at +50 in Adobe sign)
-    (0.0, 0.0, -100.0, 0.0, 0.0, 0.0), // highlights recovery at full negative
-    (0.0, 0.0, 0.0, 80.0, 0.0, 0.0),  // shadows lift only (#1103 mask)
-    (0.0, 0.0, 0.0, -60.0, 0.0, 0.0), // shadows crush only (#1103 mask)
-    (0.0, 0.0, 0.0, 0.0, 75.0, 0.0),  // whites gain only
-    (0.0, 0.0, 0.0, 0.0, 0.0, 50.0),  // blacks lift (positive → additive)
-    (0.0, 0.0, 0.0, 0.0, 0.0, -70.0), // blacks crush (negative → multiplicative)
-    (0.5, 35.0, 40.0, 30.0, 20.0, -25.0), // everything together
-    (-1.0, -45.0, -50.0, -40.0, -60.0, 90.0), // negative exposure + mixed signs
+/// `(exposure, brightness, highlights, shadows, blacks)`.
+const CASES: &[(f32, f32, f32, f32, f32)] = &[
+    (1.0, 0.0, 0.0, 0.0, 0.0),         // exposure only
+    (0.0, 70.0, 0.0, 0.0, 0.0),        // brightness lift only (#1102)
+    (0.0, -85.0, 0.0, 0.0, 0.0),       // brightness darken only (#1102)
+    (0.0, 0.0, 60.0, 0.0, 0.0),        // highlights gain (+60)
+    (0.0, 0.0, -50.0, 0.0, 0.0), // highlights recovery at −50 (the old #1081 pole sits at +50 in Adobe sign)
+    (0.0, 0.0, -100.0, 0.0, 0.0), // highlights recovery at full negative
+    (0.0, 0.0, 0.0, 80.0, 0.0),  // shadows lift only (#1103 mask)
+    (0.0, 0.0, 0.0, -60.0, 0.0), // shadows crush only (#1103 mask)
+    (0.0, 0.0, 0.0, 0.0, 50.0),  // blacks lift (positive → additive)
+    (0.0, 0.0, 0.0, 0.0, -70.0), // blacks crush (negative → multiplicative)
+    (0.5, 35.0, 40.0, 30.0, -25.0), // everything together
+    (-1.0, -45.0, -50.0, -40.0, 90.0), // negative exposure + mixed signs
 ];
 
 fn assert_parity(input: &[f32], width: u32, height: u32, ctx: &GpuContext) {
-    for &(e, br, h, s, w, b) in CASES {
+    for &(e, br, h, s, b) in CASES {
         let options = SceneToneOptions {
             exposure: e,
             brightness: br,
             highlights: h,
             shadows: s,
-            whites: w,
             blacks: b,
         };
         let reference = raw_core_tone(input, width, height, options);
@@ -141,7 +138,6 @@ fn assert_parity(input: &[f32], width: u32, height: u32, ctx: &GpuContext) {
             brightness: br,
             highlights: h,
             shadows: s,
-            whites: w,
             blacks: b,
         }]);
 
@@ -152,11 +148,11 @@ fn assert_parity(input: &[f32], width: u32, height: u32, ctx: &GpuContext) {
             .fold(0.0_f32, f32::max);
         eprintln!(
             "PARITY vs raw-core scene_tone_controls {width}x{height} \
-             (e={e} br={br} h={h} s={s} w={w} b={b}): max abs diff = {max_diff:e}"
+             (e={e} br={br} h={h} s={s} b={b}): max abs diff = {max_diff:e}"
         );
         assert!(
             max_diff < 1e-4,
-            "{width}x{height} (e={e} br={br} h={h} s={s} w={w} b={b}): GPU vs raw-core stage \
+            "{width}x{height} (e={e} br={br} h={h} s={s} b={b}): GPU vs raw-core stage \
              max abs diff {max_diff} exceeds 1e-4"
         );
     }
@@ -196,13 +192,12 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
         },
         tone_image_2d(),
     ] {
-        for &(e, br, hl, s, wh, b) in CASES {
+        for &(e, br, hl, s, b) in CASES {
             let options = SceneToneOptions {
                 exposure: e,
                 brightness: br,
                 highlights: hl,
                 shadows: s,
-                whites: wh,
                 blacks: b,
             };
             let reference = raw_core_tone(&input, w, h, options);
@@ -216,7 +211,6 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
                     brightness: br,
                     highlights: hl,
                     shadows: s,
-                    whites: wh,
                     blacks: b,
                 },
             );
@@ -227,7 +221,7 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
                 .fold(0.0_f32, f32::max);
             assert!(
                 max_diff < 1e-4,
-                "{w}x{h} (e={e} br={br} h={hl} s={s} w={wh} b={b}): local oracle vs raw-core \
+                "{w}x{h} (e={e} br={br} h={hl} s={s} b={b}): local oracle vs raw-core \
                  stage diff {max_diff} exceeds 1e-4"
             );
         }
@@ -250,7 +244,6 @@ fn subthreshold_sliders_are_passthrough_on_gpu() {
         brightness: 1e-4,
         highlights: 1e-4,
         shadows: -1e-4,
-        whites: 1e-4,
         blacks: -1e-4,
     }]);
     let max_diff = input
@@ -279,7 +272,6 @@ fn oracle_shadows_lift_deep_not_bright() {
             brightness: 0.0,
             highlights: 0.0,
             shadows: 80.0,
-            whites: 0.0,
             blacks: 0.0,
         },
     );
@@ -311,7 +303,6 @@ fn oracle_brightness_lifts_midtone_pins_ends() {
             brightness: 100.0,
             highlights: 0.0,
             shadows: 0.0,
-            whites: 0.0,
             blacks: 0.0,
         },
     );

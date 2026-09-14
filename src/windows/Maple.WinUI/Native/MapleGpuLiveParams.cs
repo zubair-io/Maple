@@ -206,6 +206,7 @@ namespace Maple.WinUI.Native
         public float defringe_green_amount;
         public float defringe_green_hue_lo;
         public float defringe_green_hue_hi;
+        public float whites_anchor_ev;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
@@ -217,6 +218,7 @@ namespace Maple.WinUI.Native
         {
             var p = new MapleGpuLiveParams
             {
+                whites_anchor_ev = image.WhitesAnchorEv,
                 temperature = (float)m.Temperature,
                 tint = (float)m.Tint,
                 wb_method = m.WbMethod == WbMethod.DiagonalRec2020 ? 1u : 0u,

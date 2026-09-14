@@ -159,6 +159,8 @@ pub struct FullChainInputs<'a> {
     /// Scene-tone-controls sliders (exposure / brightness / highlights /
     /// shadows / whites / blacks), each `[-100, 100]` (exposure in EV).
     pub tone: [f32; 6],
+    /// Full-frame pre-AE scene white, supplied by decode; never measured on GPU.
+    pub whites_anchor_ev: f32,
     /// User tone-curve inputs (parametric + per-channel point curves + mode).
     pub tone_curves: ToneCurveInputs,
     pub vibrance: f32,
@@ -411,7 +413,6 @@ pub fn build_split<'a>(
         brightness: inputs.tone[1],
         highlights: inputs.tone[2],
         shadows: inputs.tone[3],
-        whites: inputs.tone[4],
         blacks: inputs.tone[5],
     }));
     prefix.push(Box::new(ToneCurvesPass {
@@ -492,6 +493,7 @@ pub fn build_split<'a>(
     // switch this to a baked LUT was retired in #2312.
     suffix.push(Box::new(AgxPass {
         contrast: inputs.contrast,
+        whites: crate::whites_anchor::resolve(inputs.tone[4], inputs.whites_anchor_ev),
     }));
     // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`) —
     // post-AgX, before color_grade (raw-core's `pipeline::render` 16a0

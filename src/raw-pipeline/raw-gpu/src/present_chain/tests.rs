@@ -202,7 +202,7 @@ pub(super) fn gpu_present_u8_with_airlight(
 ) -> Vec<u8> {
     let session = LiveSession::new(ctx, input, w, h).expect("session");
     let final_idx = session
-        .encode_chain_f32_fixed_airlight(ctx, &case.gpu_inputs(), airlight)
+        .encode_chain_f32_fixed_airlight(ctx, &case.gpu_inputs_for(&input), airlight)
         .expect("uncancelled chain-to-f32 returns Some");
     present_chain_to_offscreen(ctx, &session, final_idx, geometry).expect("offscreen present ok")
 }
@@ -369,7 +369,7 @@ fn pre_cancelled_chain_to_f32_returns_none() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16u32, 16u32);
     let input = scene_linear_rgba(w as usize, h as usize);
-    let inputs = aggressive_case().gpu_inputs();
+    let inputs = aggressive_case().gpu_inputs_for(&input);
 
     let session = LiveSession::new(&ctx, &input, w, h).expect("session");
     let cancel = CancelToken::new();

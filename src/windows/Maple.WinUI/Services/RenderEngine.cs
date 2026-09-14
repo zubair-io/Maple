@@ -22,6 +22,7 @@ namespace Maple.WinUI.Services
         public required float[] NoiseProfile { get; init; }  // empty when absent
         public required uint Iso { get; init; }
         public required float AeGain { get; init; }
+        public required float WhitesAnchorEv { get; init; }
         public required float DecodedTemperature { get; init; }
         public required float DecodedTint { get; init; }
         /// <summary>Raw copy of the wb_frame_* export block, in struct order,
@@ -121,6 +122,7 @@ namespace Maple.WinUI.Services
                         NoiseProfile = noise,
                         Iso = buffer.iso,
                         AeGain = buffer.ae_gain,
+                        WhitesAnchorEv = buffer.whites_anchor_ev,
                         DecodedTemperature = framePresent ? buffer.wb_frame_scene_cct : 6500f,
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
@@ -211,7 +213,7 @@ namespace Maple.WinUI.Services
                 chainScratch = new float[floatCount];
 
             var p = MapleAdjustmentParams.From(
-                model, image.DecodedTemperature, image.DecodedTint, image.Iso);
+                model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv);
             ApplyWbFrame(ref p, image.WbFrame);
 
             // Point tone curves (#2576) ride a sibling struct — the scalar
@@ -445,6 +447,7 @@ namespace Maple.WinUI.Services
                 NoiseProfile = src.NoiseProfile,
                 Iso = src.Iso,
                 AeGain = src.AeGain,
+                WhitesAnchorEv = src.WhitesAnchorEv,
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
                 WbFrame = src.WbFrame,

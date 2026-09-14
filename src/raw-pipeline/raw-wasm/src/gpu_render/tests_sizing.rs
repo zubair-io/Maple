@@ -78,7 +78,7 @@ fn develop_prefix_rgba_caps_long_edge() {
     let raw_img = raw_core::decode::decode_bytes(&bytes, ext).expect("decode synthetic DNG");
     let model = AdjustmentModel::default();
 
-    let (rgba, w, h, _prefix) =
+    let (rgba, w, h, _prefix, _whites_anchor_ev) =
         super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, 16).expect("sized develop");
     assert_eq!(
         (w, h),
@@ -115,7 +115,7 @@ fn develop_prefix_rgba_uncapped_matches_unsized_develop() {
     let raw_img = raw_core::decode::decode_bytes(&bytes, ext).expect("decode synthetic DNG");
     let model = AdjustmentModel::default();
 
-    let (rgba, w, h, prefix) = super::develop_prefix_rgba(
+    let (rgba, w, h, prefix, whites_anchor_ev) = super::develop_prefix_rgba(
         &raw_img,
         &bytes,
         ext,
@@ -133,6 +133,7 @@ fn develop_prefix_rgba_uncapped_matches_unsized_develop() {
         (scene.width, scene.height),
         "cap ≥ source must not change dims"
     );
+    assert_eq!(Some(whites_anchor_ev), scene.whites_anchor_ev);
     let mut reference: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
     for p in &scene.pixels {
         reference.extend_from_slice(&[p[0], p[1], p[2], 1.0]);

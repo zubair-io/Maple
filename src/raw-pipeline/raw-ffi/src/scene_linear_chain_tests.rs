@@ -13,6 +13,7 @@ use std::ffi::CStr;
 
 pub(super) fn default_params() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
+        whites_anchor_ev: f32::NAN,
         temperature: 5500.0,
         tint: 0.0,
         exposure: 0.0,

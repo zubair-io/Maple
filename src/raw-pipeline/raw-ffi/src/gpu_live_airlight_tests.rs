@@ -106,7 +106,7 @@ fn gpu_live_dehaze_matches_cpu_on_hazy_fixture() {
     let model = dehaze_model();
 
     let arr = owned_arrays(&model, &curve, &lut);
-    let params = make_params(&model, wb_method, lut_size, &arr);
+    let params = make_params(&input, &model, wb_method, lut_size, &arr);
 
     // Open → render → close, exactly as the host drives it.
     let mut handle = MapleGpuLiveSession {

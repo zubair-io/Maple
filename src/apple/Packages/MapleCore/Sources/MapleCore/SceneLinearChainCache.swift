@@ -65,8 +65,8 @@
 //   bench's "cache disabled" baseline so we can measure the slider-tick
 //   delta without ripping the cache out at compile time.
 
-import Foundation
 import CoreImage
+import Foundation
 
 // MARK: - SceneLinearChainCache
 
@@ -75,302 +75,304 @@ import CoreImage
 /// the design rationale and correctness invariants.
 final class SceneLinearChainCache: @unchecked Sendable {
 
-    // MARK: - Key
+  // MARK: - Key
 
-    /// Compound key — asset id × hash of the FFI-affecting inputs × the
-    /// extent the input CIImage was scaled to (fast vs refine pass).
-    struct Key: Hashable {
-        let assetID: UUID
-        /// `Hasher`-derived digest of every scene-linear `AdjustmentModel`
-        /// field the FFI chain applies, plus `decodedTemperature` /
-        /// `decodedTint` / `skipAgX` / the WB slider frame. See `make(...)`
-        /// for the exhaustive field list.
-        let modelDigest: Int
-        let width: Int
-        let height: Int
-    }
+  /// Compound key — asset id × hash of the FFI-affecting inputs × the
+  /// extent the input CIImage was scaled to (fast vs refine pass).
+  struct Key: Hashable {
+    let assetID: UUID
+    /// `Hasher`-derived digest of every scene-linear `AdjustmentModel`
+    /// field the FFI chain applies, plus `decodedTemperature` /
+    /// `decodedTint` / `skipAgX` / the WB slider frame. See `make(...)`
+    /// for the exhaustive field list.
+    let modelDigest: Int
+    let width: Int
+    let height: Int
+  }
 
-    // MARK: - State
+  // MARK: - State
 
-    private let lock = NSLock()
-    /// Single LRU slot — most recent (key, value). New write evicts.
-    private var slot: (key: Key, value: CIImage)?
+  private let lock = NSLock()
+  /// Single LRU slot — most recent (key, value). New write evicts.
+  private var slot: (key: Key, value: CIImage)?
 
-    /// Honours `MAPLE_DISABLE_FFI_CACHE=1`. Cached at init so the env
-    /// lookup doesn't run on every tick. The env value is the DEFAULT;
-    /// `testOverrideEnabled` (when set) wins over it — see `effectiveDisabledLocked`.
-    private let envDisabled: Bool
+  /// Honours `MAPLE_DISABLE_FFI_CACHE=1`. Cached at init so the env
+  /// lookup doesn't run on every tick. The env value is the DEFAULT;
+  /// `testOverrideEnabled` (when set) wins over it — see `effectiveDisabledLocked`.
+  private let envDisabled: Bool
 
-    /// Test-only runtime override of the env kill-switch. `nil` = follow
-    /// the env default (`envDisabled`); non-nil forces the cache
-    /// on (`true`) or off (`false`). Exists so `SharpenSliderTickPerfTests`
-    /// can A/B this #661 fix ON vs OFF within ONE process (the env var is
-    /// read once at init and can't be flipped mid-run) and assert the win
-    /// as a machine-independent ratio (#2113). Guarded by `lock`. Set via
-    /// `_testSetEnabled(_:)`.
-    private var testOverrideEnabled: Bool?
+  /// Test-only runtime override of the env kill-switch. `nil` = follow
+  /// the env default (`envDisabled`); non-nil forces the cache
+  /// on (`true`) or off (`false`). Exists so `SharpenSliderTickPerfTests`
+  /// can A/B this #661 fix ON vs OFF within ONE process (the env var is
+  /// read once at init and can't be flipped mid-run) and assert the win
+  /// as a machine-independent ratio (#2113). Guarded by `lock`. Set via
+  /// `_testSetEnabled(_:)`.
+  private var testOverrideEnabled: Bool?
 
-    init() {
-        self.envDisabled = ProcessInfo.processInfo.environment["MAPLE_DISABLE_FFI_CACHE"] == "1"
-    }
+  init() {
+    self.envDisabled = ProcessInfo.processInfo.environment["MAPLE_DISABLE_FFI_CACHE"] == "1"
+  }
 
-    /// Effective disabled state — the test override wins when set, else the
-    /// env-derived default. MUST be called with `lock` held.
-    private var effectiveDisabledLocked: Bool {
-        if let overrideEnabled = testOverrideEnabled { return !overrideEnabled }
-        return envDisabled
-    }
+  /// Effective disabled state — the test override wins when set, else the
+  /// env-derived default. MUST be called with `lock` held.
+  private var effectiveDisabledLocked: Bool {
+    if let overrideEnabled = testOverrideEnabled { return !overrideEnabled }
+    return envDisabled
+  }
 
-    // MARK: - Lookup / store
+  // MARK: - Lookup / store
 
-    /// Return the cached CIImage for `key`, or `nil` on miss / disabled.
-    func get(_ key: Key) -> CIImage? {
-        lock.lock()
-        defer { lock.unlock() }
-        if effectiveDisabledLocked { return nil }
-        guard let slot, slot.key == key else { return nil }
-        return slot.value
-    }
+  /// Return the cached CIImage for `key`, or `nil` on miss / disabled.
+  func get(_ key: Key) -> CIImage? {
+    lock.lock()
+    defer { lock.unlock() }
+    if effectiveDisabledLocked { return nil }
+    guard let slot, slot.key == key else { return nil }
+    return slot.value
+  }
 
-    /// Replace the single slot with `(key, value)`. Subsequent reads on
-    /// the same key hit until the next put evicts it.
-    func put(_ key: Key, _ value: CIImage) {
-        lock.lock()
-        defer { lock.unlock() }
-        if effectiveDisabledLocked { return }
-        slot = (key, value)
-    }
+  /// Replace the single slot with `(key, value)`. Subsequent reads on
+  /// the same key hit until the next put evicts it.
+  func put(_ key: Key, _ value: CIImage) {
+    lock.lock()
+    defer { lock.unlock() }
+    if effectiveDisabledLocked { return }
+    slot = (key, value)
+  }
 
-    /// Drop the cache slot (used by tests; production callers do not
-    /// need this — `put` already evicts on the next render).
-    func invalidate() {
-        lock.lock()
-        defer { lock.unlock() }
-        slot = nil
-    }
+  /// Drop the cache slot (used by tests; production callers do not
+  /// need this — `put` already evicts on the next render).
+  func invalidate() {
+    lock.lock()
+    defer { lock.unlock() }
+    slot = nil
+  }
 
-    // MARK: - Test hooks
+  // MARK: - Test hooks
 
-    /// Test-only: override the `MAPLE_DISABLE_FFI_CACHE` env kill-switch at
-    /// runtime. `true` forces the cache ON, `false` forces it OFF, `nil`
-    /// restores the env-derived default. Flipping the toggle also drops the
-    /// current slot so an in-run A/B measurement never reads a value cached
-    /// under the other arm. `internal` (test target only via `@testable
-    /// import`) — not part of the production surface; used by the sharpen
-    /// perf bench for a machine-independent on/off regression ratio (#2113).
-    func _testSetEnabled(_ enabled: Bool?) {
-        lock.lock()
-        defer { lock.unlock() }
-        testOverrideEnabled = enabled
-        slot = nil
-    }
+  /// Test-only: override the `MAPLE_DISABLE_FFI_CACHE` env kill-switch at
+  /// runtime. `true` forces the cache ON, `false` forces it OFF, `nil`
+  /// restores the env-derived default. Flipping the toggle also drops the
+  /// current slot so an in-run A/B measurement never reads a value cached
+  /// under the other arm. `internal` (test target only via `@testable
+  /// import`) — not part of the production surface; used by the sharpen
+  /// perf bench for a machine-independent on/off regression ratio (#2113).
+  func _testSetEnabled(_ enabled: Bool?) {
+    lock.lock()
+    defer { lock.unlock() }
+    testOverrideEnabled = enabled
+    slot = nil
+  }
 
-    // MARK: - Hash construction
+  // MARK: - Hash construction
 
-    /// Build the model digest. The digest covers EVERY scene-linear develop
-    /// field the FFI chain (`apply_scene_linear_chain`) applies, plus the
-    /// three FFI parameters and the WB slider frame. The exact membership,
-    /// in chain order (this list is the contract #1927/#1928 build on):
-    ///
-    ///   1. white_balance:  `temperature`, `tint`
-    ///   2. scene_tone:     `exposure`, `brightness`, `contrast`,
-    ///                      `highlights`, `shadows`, `whites`, `blacks`
-    ///   3. tone_curves:    `parametricHighlights`, `parametricLights`,
-    ///                      `parametricDarks`, `parametricShadows`
-    ///   4. presence:       `vibrance`, `saturation`
-    ///   5. hsl (24 bands): `hueAdjustment{Red…Magenta}`,
-    ///                      `saturationAdjustment{Red…Magenta}`,
-    ///                      `luminanceAdjustment{Red…Magenta}`
-    ///   6. black & white  (#276), SAME `hsl` stage as 5: `blackWhite`,
-    ///                      `grayMixer{Red…Magenta}`
-    ///   7. local contrast: `clarity`, `texture`, `dehaze`
-    ///   8. vignette:       `vignetteAmount`, `vignetteFeather`
-    ///   9. noise:          `nrLuminance`
-    ///  10. split_tone:     `splitToneShadowHue`, `splitToneShadowSaturation`,
-    ///                      `splitToneHighlightHue`,
-    ///                      `splitToneHighlightSaturation`, `splitToneBalance`
-    ///  10b. color_grade:  `colorGradeShadowLuminance`, `colorGradeMidtoneHue`,
-    ///                      `colorGradeMidtoneSaturation`,
-    ///                      `colorGradeMidtoneLuminance`,
-    ///                      `colorGradeHighlightLuminance`, `colorGradeGlobalHue`,
-    ///                      `colorGradeGlobalSaturation`, `colorGradeGlobalLuminance`
-    ///                      (#275 — the rest of the Color Grading panel beyond
-    ///                      the five `split_tone` fields above)
-    ///  11. grain:          `grainAmount`, `grainSize`, `grainRoughness`
-    ///  12. FFI params:     `decodedTemperature`, `decodedTint`, `skipAgX`
-    ///  13. AgX flags:      `highlightRecovery`, `look`, `profile`
-    ///  14. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`
-    ///
-    /// Every scalar above is a `Double` folded in via `bitPattern`; the
-    /// enums (`highlightRecovery` / `look` / `profile`) and the `Bool`
-    /// (`skipAgX`) fold in via their `Hashable` conformance. The order is
-    /// fixed — `Hasher` is order-sensitive, so a reorder is a key change.
-    ///
-    /// Deliberately EXCLUDED — the post-FFI Metal sliders: `sharpenAmount`
-    /// / `sharpenRadius` / `sharpenDetail` / `sharpenMasking`, `nrColor`,
-    /// and `captureSharpeningAmount` / `captureSharpeningSigma`. Dragging one
-    /// of those hits the cache and re-runs only the Metal kernels — that's
-    /// the whole point. Fields the Swift `AdjustmentModel` does not mirror
-    /// (`local_adjustments`, the per-channel point `tone_curve*` arrays) are
-    /// absent here because they can never reach the Apple FFI decode; when
-    /// they land on Swift they must be added to this digest.
-    ///
-    /// `Float.bitPattern` is used so -0.0 / +0.0 hash to the same digest
-    /// (they're equal under `==` and we want cache equality to follow
-    /// numeric equality). NaN is treated as out-of-range and not handled
-    /// specially — `AdjustmentModel` slider ranges (`[-100, 100]` etc)
-    /// never produce NaN.
-    static func make(
-        assetID: UUID,
-        model: AdjustmentModel,
-        decodedTemperature: Double,
-        decodedTint: Double,
-        skipAgX: Bool,
-        width: Int,
-        height: Int,
-        wbFrame: WbSliderFrame? = nil
-    ) -> Key {
-        var h = Hasher()
+  /// Build the model digest. The digest covers EVERY scene-linear develop
+  /// field the FFI chain (`apply_scene_linear_chain`) applies, plus the
+  /// three FFI parameters and the WB slider frame. The exact membership,
+  /// in chain order (this list is the contract #1927/#1928 build on):
+  ///
+  ///   1. white_balance:  `temperature`, `tint`
+  ///   2. scene_tone:     `exposure`, `brightness`, `contrast`,
+  ///                      `highlights`, `shadows`, `whites`, `blacks`
+  ///   3. tone_curves:    `parametricHighlights`, `parametricLights`,
+  ///                      `parametricDarks`, `parametricShadows`
+  ///   4. presence:       `vibrance`, `saturation`
+  ///   5. hsl (24 bands): `hueAdjustment{Red…Magenta}`,
+  ///                      `saturationAdjustment{Red…Magenta}`,
+  ///                      `luminanceAdjustment{Red…Magenta}`
+  ///   6. black & white  (#276), SAME `hsl` stage as 5: `blackWhite`,
+  ///                      `grayMixer{Red…Magenta}`
+  ///   7. local contrast: `clarity`, `texture`, `dehaze`
+  ///   8. vignette:       `vignetteAmount`, `vignetteFeather`
+  ///   9. noise:          `nrLuminance`
+  ///  10. split_tone:     `splitToneShadowHue`, `splitToneShadowSaturation`,
+  ///                      `splitToneHighlightHue`,
+  ///                      `splitToneHighlightSaturation`, `splitToneBalance`
+  ///  10b. color_grade:  `colorGradeShadowLuminance`, `colorGradeMidtoneHue`,
+  ///                      `colorGradeMidtoneSaturation`,
+  ///                      `colorGradeMidtoneLuminance`,
+  ///                      `colorGradeHighlightLuminance`, `colorGradeGlobalHue`,
+  ///                      `colorGradeGlobalSaturation`, `colorGradeGlobalLuminance`
+  ///                      (#275 — the rest of the Color Grading panel beyond
+  ///                      the five `split_tone` fields above)
+  ///  11. grain:          `grainAmount`, `grainSize`, `grainRoughness`
+  ///  12. FFI params:     `decodedTemperature`, `decodedTint`, `skipAgX`
+  ///  13. AgX flags:      `highlightRecovery`, `look`, `profile`
+  ///  14. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`
+  ///
+  /// Every scalar above is a `Double` folded in via `bitPattern`; the
+  /// enums (`highlightRecovery` / `look` / `profile`) and the `Bool`
+  /// (`skipAgX`) fold in via their `Hashable` conformance. The order is
+  /// fixed — `Hasher` is order-sensitive, so a reorder is a key change.
+  ///
+  /// Deliberately EXCLUDED — the post-FFI Metal sliders: `sharpenAmount`
+  /// / `sharpenRadius` / `sharpenDetail` / `sharpenMasking`, `nrColor`,
+  /// and `captureSharpeningAmount` / `captureSharpeningSigma`. Dragging one
+  /// of those hits the cache and re-runs only the Metal kernels — that's
+  /// the whole point. Fields the Swift `AdjustmentModel` does not mirror
+  /// (`local_adjustments`, the per-channel point `tone_curve*` arrays) are
+  /// absent here because they can never reach the Apple FFI decode; when
+  /// they land on Swift they must be added to this digest.
+  ///
+  /// `Float.bitPattern` is used so -0.0 / +0.0 hash to the same digest
+  /// (they're equal under `==` and we want cache equality to follow
+  /// numeric equality). NaN is treated as out-of-range and not handled
+  /// specially — `AdjustmentModel` slider ranges (`[-100, 100]` etc)
+  /// never produce NaN.
+  static func make(
+    assetID: UUID,
+    model: AdjustmentModel,
+    decodedTemperature: Double,
+    decodedTint: Double,
+    skipAgX: Bool,
+    width: Int,
+    height: Int,
+    wbFrame: WbSliderFrame? = nil,
+    whitesAnchorEv: Float = .nan
+  ) -> Key {
+    var h = Hasher()
+    h.combine(whitesAnchorEv.bitPattern)
 
-        // Every scene-linear develop field the FFI chain
-        // (`apply_scene_linear_chain`) applies, in chain order. The chain
-        // and the decode share this stage list; a field that reaches the
-        // chain reaches the FFI output, so it MUST be here. The only develop
-        // knobs deliberately EXCLUDED are the post-FFI Metal ones — sharpen*
-        // / nrColor / captureSharpening* — which is the whole point of the
-        // cache. See `make(...)`'s doc for the exhaustive membership list.
+    // Every scene-linear develop field the FFI chain
+    // (`apply_scene_linear_chain`) applies, in chain order. The chain
+    // and the decode share this stage list; a field that reaches the
+    // chain reaches the FFI output, so it MUST be here. The only develop
+    // knobs deliberately EXCLUDED are the post-FFI Metal ones — sharpen*
+    // / nrColor / captureSharpening* — which is the whole point of the
+    // cache. See `make(...)`'s doc for the exhaustive membership list.
 
-        // white_balance (delta) — temperature/tint plus the decoded
-        // baseline + wbFrame threaded through the FFI params below.
-        h.combine(model.temperature.bitPattern)
-        h.combine(model.tint.bitPattern)
-        // scene_tone_controls — exposure, brightness (#1102), contrast, and
-        // the four tone regions.
-        h.combine(model.exposure.bitPattern)
-        h.combine(model.brightness.bitPattern)
-        h.combine(model.contrast.bitPattern)
-        h.combine(model.highlights.bitPattern)
-        h.combine(model.shadows.bitPattern)
-        h.combine(model.whites.bitPattern)
-        h.combine(model.blacks.bitPattern)
-        // tone_curves — parametric four-region curve (#273).
-        h.combine(model.parametricHighlights.bitPattern)
-        h.combine(model.parametricLights.bitPattern)
-        h.combine(model.parametricDarks.bitPattern)
-        h.combine(model.parametricShadows.bitPattern)
-        // vibrance / saturation.
-        h.combine(model.vibrance.bitPattern)
-        h.combine(model.saturation.bitPattern)
-        // hsl — the 8-band hue/sat/lum grid (#1112), chain order = after
-        // saturation, before clarity.
-        h.combine(model.hueAdjustmentRed.bitPattern)
-        h.combine(model.hueAdjustmentOrange.bitPattern)
-        h.combine(model.hueAdjustmentYellow.bitPattern)
-        h.combine(model.hueAdjustmentGreen.bitPattern)
-        h.combine(model.hueAdjustmentAqua.bitPattern)
-        h.combine(model.hueAdjustmentBlue.bitPattern)
-        h.combine(model.hueAdjustmentPurple.bitPattern)
-        h.combine(model.hueAdjustmentMagenta.bitPattern)
-        h.combine(model.saturationAdjustmentRed.bitPattern)
-        h.combine(model.saturationAdjustmentOrange.bitPattern)
-        h.combine(model.saturationAdjustmentYellow.bitPattern)
-        h.combine(model.saturationAdjustmentGreen.bitPattern)
-        h.combine(model.saturationAdjustmentAqua.bitPattern)
-        h.combine(model.saturationAdjustmentBlue.bitPattern)
-        h.combine(model.saturationAdjustmentPurple.bitPattern)
-        h.combine(model.saturationAdjustmentMagenta.bitPattern)
-        h.combine(model.luminanceAdjustmentRed.bitPattern)
-        h.combine(model.luminanceAdjustmentOrange.bitPattern)
-        h.combine(model.luminanceAdjustmentYellow.bitPattern)
-        h.combine(model.luminanceAdjustmentGreen.bitPattern)
-        h.combine(model.luminanceAdjustmentAqua.bitPattern)
-        h.combine(model.luminanceAdjustmentBlue.bitPattern)
-        h.combine(model.luminanceAdjustmentPurple.bitPattern)
-        h.combine(model.luminanceAdjustmentMagenta.bitPattern)
-        // black & white mix (#276) — SAME `hsl` stage as the 24 bands
-        // above (`hsl::apply_model` reads all four groups together), so a
-        // toggle or mixer-weight change must invalidate the cache exactly
-        // like an HSL band change.
-        h.combine(model.blackWhite)
-        h.combine(model.grayMixerRed.bitPattern)
-        h.combine(model.grayMixerOrange.bitPattern)
-        h.combine(model.grayMixerYellow.bitPattern)
-        h.combine(model.grayMixerGreen.bitPattern)
-        h.combine(model.grayMixerAqua.bitPattern)
-        h.combine(model.grayMixerBlue.bitPattern)
-        h.combine(model.grayMixerPurple.bitPattern)
-        h.combine(model.grayMixerMagenta.bitPattern)
-        // clarity / texture / dehaze.
-        h.combine(model.clarity.bitPattern)
-        h.combine(model.texture.bitPattern)
-        h.combine(model.dehaze.bitPattern)
-        // local_adjustments (#280/#3274) — the mask layer stack, chain order
-        // = after dehaze, before vignette. Excluded until #3338: the stack
-        // never reached the FFI at all, so its absence here was invisible.
-        // The moment layers started rendering, omitting them made every mask
-        // edit a cache HIT on the previous frame — the slider moved and not
-        // one pixel changed. `LocalAdjustment`'s `==`/`hash` deliberately
-        // skip `id`, so re-decoding a sidecar does not churn the key.
-        h.combine(model.localAdjustments)
-        // vignette (#1109) — scene-linear radial gain, chain order = after
-        // dehaze/local-adjustments, before nr_luminance.
-        h.combine(model.vignetteAmount.bitPattern)
-        h.combine(model.vignetteFeather.bitPattern)
-        // nr_luminance (nr_color stays Metal-side, excluded above).
-        h.combine(model.nrLuminance.bitPattern)
-        // Post-AgX display-domain stages — split_tone (#1111) then grain
-        // (#1110). Applied only when `skipAgX` is false; hashing them
-        // unconditionally is over-inclusive (safe) and keeps the key correct
-        // on the RAW path where they DO shape the output.
-        h.combine(model.splitToneShadowHue.bitPattern)
-        h.combine(model.splitToneShadowSaturation.bitPattern)
-        h.combine(model.splitToneHighlightHue.bitPattern)
-        h.combine(model.splitToneHighlightSaturation.bitPattern)
-        h.combine(model.splitToneBalance.bitPattern)
-        // color_grade (#275) — the rest of the Color Grading panel beyond
-        // the five split_tone fields above. Same over-inclusive-is-safe
-        // rule: hashed unconditionally regardless of `skipAgX`.
-        h.combine(model.colorGradeShadowLuminance.bitPattern)
-        h.combine(model.colorGradeMidtoneHue.bitPattern)
-        h.combine(model.colorGradeMidtoneSaturation.bitPattern)
-        h.combine(model.colorGradeMidtoneLuminance.bitPattern)
-        h.combine(model.colorGradeHighlightLuminance.bitPattern)
-        h.combine(model.colorGradeGlobalHue.bitPattern)
-        h.combine(model.colorGradeGlobalSaturation.bitPattern)
-        h.combine(model.colorGradeGlobalLuminance.bitPattern)
-        h.combine(model.grainAmount.bitPattern)
-        h.combine(model.grainSize.bitPattern)
-        h.combine(model.grainRoughness.bitPattern)
+    // white_balance (delta) — temperature/tint plus the decoded
+    // baseline + wbFrame threaded through the FFI params below.
+    h.combine(model.temperature.bitPattern)
+    h.combine(model.tint.bitPattern)
+    // scene_tone_controls — exposure, brightness (#1102), contrast, and
+    // the four tone regions.
+    h.combine(model.exposure.bitPattern)
+    h.combine(model.brightness.bitPattern)
+    h.combine(model.contrast.bitPattern)
+    h.combine(model.highlights.bitPattern)
+    h.combine(model.shadows.bitPattern)
+    h.combine(model.whites.bitPattern)
+    h.combine(model.blacks.bitPattern)
+    // tone_curves — parametric four-region curve (#273).
+    h.combine(model.parametricHighlights.bitPattern)
+    h.combine(model.parametricLights.bitPattern)
+    h.combine(model.parametricDarks.bitPattern)
+    h.combine(model.parametricShadows.bitPattern)
+    // vibrance / saturation.
+    h.combine(model.vibrance.bitPattern)
+    h.combine(model.saturation.bitPattern)
+    // hsl — the 8-band hue/sat/lum grid (#1112), chain order = after
+    // saturation, before clarity.
+    h.combine(model.hueAdjustmentRed.bitPattern)
+    h.combine(model.hueAdjustmentOrange.bitPattern)
+    h.combine(model.hueAdjustmentYellow.bitPattern)
+    h.combine(model.hueAdjustmentGreen.bitPattern)
+    h.combine(model.hueAdjustmentAqua.bitPattern)
+    h.combine(model.hueAdjustmentBlue.bitPattern)
+    h.combine(model.hueAdjustmentPurple.bitPattern)
+    h.combine(model.hueAdjustmentMagenta.bitPattern)
+    h.combine(model.saturationAdjustmentRed.bitPattern)
+    h.combine(model.saturationAdjustmentOrange.bitPattern)
+    h.combine(model.saturationAdjustmentYellow.bitPattern)
+    h.combine(model.saturationAdjustmentGreen.bitPattern)
+    h.combine(model.saturationAdjustmentAqua.bitPattern)
+    h.combine(model.saturationAdjustmentBlue.bitPattern)
+    h.combine(model.saturationAdjustmentPurple.bitPattern)
+    h.combine(model.saturationAdjustmentMagenta.bitPattern)
+    h.combine(model.luminanceAdjustmentRed.bitPattern)
+    h.combine(model.luminanceAdjustmentOrange.bitPattern)
+    h.combine(model.luminanceAdjustmentYellow.bitPattern)
+    h.combine(model.luminanceAdjustmentGreen.bitPattern)
+    h.combine(model.luminanceAdjustmentAqua.bitPattern)
+    h.combine(model.luminanceAdjustmentBlue.bitPattern)
+    h.combine(model.luminanceAdjustmentPurple.bitPattern)
+    h.combine(model.luminanceAdjustmentMagenta.bitPattern)
+    // black & white mix (#276) — SAME `hsl` stage as the 24 bands
+    // above (`hsl::apply_model` reads all four groups together), so a
+    // toggle or mixer-weight change must invalidate the cache exactly
+    // like an HSL band change.
+    h.combine(model.blackWhite)
+    h.combine(model.grayMixerRed.bitPattern)
+    h.combine(model.grayMixerOrange.bitPattern)
+    h.combine(model.grayMixerYellow.bitPattern)
+    h.combine(model.grayMixerGreen.bitPattern)
+    h.combine(model.grayMixerAqua.bitPattern)
+    h.combine(model.grayMixerBlue.bitPattern)
+    h.combine(model.grayMixerPurple.bitPattern)
+    h.combine(model.grayMixerMagenta.bitPattern)
+    // clarity / texture / dehaze.
+    h.combine(model.clarity.bitPattern)
+    h.combine(model.texture.bitPattern)
+    h.combine(model.dehaze.bitPattern)
+    // local_adjustments (#280/#3274) — the mask layer stack, chain order
+    // = after dehaze, before vignette. Excluded until #3338: the stack
+    // never reached the FFI at all, so its absence here was invisible.
+    // The moment layers started rendering, omitting them made every mask
+    // edit a cache HIT on the previous frame — the slider moved and not
+    // one pixel changed. `LocalAdjustment`'s `==`/`hash` deliberately
+    // skip `id`, so re-decoding a sidecar does not churn the key.
+    h.combine(model.localAdjustments)
+    // vignette (#1109) — scene-linear radial gain, chain order = after
+    // dehaze/local-adjustments, before nr_luminance.
+    h.combine(model.vignetteAmount.bitPattern)
+    h.combine(model.vignetteFeather.bitPattern)
+    // nr_luminance (nr_color stays Metal-side, excluded above).
+    h.combine(model.nrLuminance.bitPattern)
+    // Post-AgX display-domain stages — split_tone (#1111) then grain
+    // (#1110). Applied only when `skipAgX` is false; hashing them
+    // unconditionally is over-inclusive (safe) and keeps the key correct
+    // on the RAW path where they DO shape the output.
+    h.combine(model.splitToneShadowHue.bitPattern)
+    h.combine(model.splitToneShadowSaturation.bitPattern)
+    h.combine(model.splitToneHighlightHue.bitPattern)
+    h.combine(model.splitToneHighlightSaturation.bitPattern)
+    h.combine(model.splitToneBalance.bitPattern)
+    // color_grade (#275) — the rest of the Color Grading panel beyond
+    // the five split_tone fields above. Same over-inclusive-is-safe
+    // rule: hashed unconditionally regardless of `skipAgX`.
+    h.combine(model.colorGradeShadowLuminance.bitPattern)
+    h.combine(model.colorGradeMidtoneHue.bitPattern)
+    h.combine(model.colorGradeMidtoneSaturation.bitPattern)
+    h.combine(model.colorGradeMidtoneLuminance.bitPattern)
+    h.combine(model.colorGradeHighlightLuminance.bitPattern)
+    h.combine(model.colorGradeGlobalHue.bitPattern)
+    h.combine(model.colorGradeGlobalSaturation.bitPattern)
+    h.combine(model.colorGradeGlobalLuminance.bitPattern)
+    h.combine(model.grainAmount.bitPattern)
+    h.combine(model.grainSize.bitPattern)
+    h.combine(model.grainRoughness.bitPattern)
 
-        // FFI parameters threaded through `applySceneLinearChainViaFFI`.
-        h.combine(decodedTemperature.bitPattern)
-        h.combine(decodedTint.bitPattern)
-        h.combine(skipAgX)
+    // FFI parameters threaded through `applySceneLinearChainViaFFI`.
+    h.combine(decodedTemperature.bitPattern)
+    h.combine(decodedTint.bitPattern)
+    h.combine(skipAgX)
 
-        // The Rust chain's behaviour also depends on `highlightRecovery`
-        // and the AgX `look` / `profile` flags — `look_mode` is a
-        // hard-coded `1` today in `PipelineRenderer.makeParams` so it's
-        // not a free input, but the FFI surface will widen as #509 lands.
-        // Mixing them into the digest now means a future surface widening
-        // doesn't silently produce stale cached pixels.
-        h.combine(model.highlightRecovery)
-        h.combine(model.look)
-        h.combine(model.profile)
+    // The Rust chain's behaviour also depends on `highlightRecovery`
+    // and the AgX `look` / `profile` flags — `look_mode` is a
+    // hard-coded `1` today in `PipelineRenderer.makeParams` so it's
+    // not a free input, but the FFI surface will widen as #509 lands.
+    // Mixing them into the digest now means a future surface widening
+    // doesn't silently produce stale cached pixels.
+    h.combine(model.highlightRecovery)
+    h.combine(model.look)
+    h.combine(model.profile)
 
-        // WB slider frame (#1781): the frame changes the chain's WB math,
-        // and it ARRIVES asynchronously (the decode export lands after the
-        // CIRAWFilter-era placeholder renders) — without it in the digest a
-        // pre-frame render could serve for a post-frame tick at identical
-        // slider values. The discriminating floats are enough: a frame is
-        // per-asset constant once present.
-        h.combine(wbFrame?.sceneCCT.bitPattern ?? 0)
-        h.combine(wbFrame?.asShotTint.bitPattern ?? 0)
+    // WB slider frame (#1781): the frame changes the chain's WB math,
+    // and it ARRIVES asynchronously (the decode export lands after the
+    // CIRAWFilter-era placeholder renders) — without it in the digest a
+    // pre-frame render could serve for a post-frame tick at identical
+    // slider values. The discriminating floats are enough: a frame is
+    // per-asset constant once present.
+    h.combine(wbFrame?.sceneCCT.bitPattern ?? 0)
+    h.combine(wbFrame?.asShotTint.bitPattern ?? 0)
 
-        return Key(
-            assetID: assetID,
-            modelDigest: h.finalize(),
-            width: width,
-            height: height
-        )
-    }
+    return Key(
+      assetID: assetID,
+      modelDigest: h.finalize(),
+      width: width,
+      height: height
+    )
+  }
 }

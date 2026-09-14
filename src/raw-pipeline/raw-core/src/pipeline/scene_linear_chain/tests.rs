@@ -472,6 +472,7 @@ fn with_patches_equals_manual_composite_then_chain_f32() {
     .unwrap();
     // Manual: composite into a copy of the input, then the plain chain.
     let mut img = Image {
+        whites_anchor_ev: None,
         width: w,
         height: h,
         pixels: input.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect(),

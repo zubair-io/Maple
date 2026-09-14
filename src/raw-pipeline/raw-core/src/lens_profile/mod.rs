@@ -10,9 +10,9 @@ mod xml;
 pub use resolve::{LensQuery, Resolution, SampleWeight, Source};
 mod apply;
 pub use apply::apply;
-pub(crate) mod metadata;
-pub mod lensfun;
 mod auto;
+pub mod lensfun;
+pub(crate) mod metadata;
 pub use auto::{
     applies, auto_match, compatible_lenses, evidence_for, resolve_auto, resolve_for_model,
     set_auto_match_enabled,

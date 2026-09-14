@@ -81,7 +81,7 @@ fn dehaze_interior_airlight_average_matches_cpu_at_128px() {
 
     let input = scene_linear_rgba(w as usize, h as usize);
     let case = dehaze_only_case();
-    let inputs = case.gpu_inputs();
+    let inputs = case.gpu_inputs_for(&input);
     assert!(
         crate::dehaze_is_active(&inputs),
         "test setup: the dehaze-only case must take the airlight-split path"
@@ -172,7 +172,7 @@ fn on_gpu_dehaze_matches_cpu_reference_on_hazy_fixture() {
     let (w, h) = (128u32, 128u32);
     let input = hazy_image(w as usize, h as usize);
     let case = dehaze_only_case();
-    let inputs = case.gpu_inputs();
+    let inputs = case.gpu_inputs_for(&input);
     assert!(
         crate::dehaze_is_active(&inputs),
         "test setup: dehaze must be engaged"
