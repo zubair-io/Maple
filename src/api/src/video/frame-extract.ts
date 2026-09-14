@@ -26,6 +26,23 @@ import {
 
 const log = childLogger('video:frame-extract');
 
+/** True when `err` is a `loadNativeBinding()` native-library-load failure
+ * (missing/unbuildable dylib, or running outside Bun) rather than a genuine
+ * image-decode failure. These two exact message shapes come from
+ * `src/maple/src/native.ts`'s `loadNativeBinding()` — the only two throw
+ * sites in that function. The distinction matters: a real decode failure of
+ * one timestamp is fine to skip and move on to the next, while a missing
+ * dylib fails EVERY timestamp identically and is an environment
+ * misconfiguration that must abort loudly and retry — not silently produce
+ * an empty-frames result that gets diagnosed as "no decodable frame". */
+export function isNativeLoadFailure(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.message.startsWith('Maple native library (') ||
+    err.message === 'Maple native bindings currently require Bun (bun:ffi).'
+  );
+}
+
 /** Seek + decode one frame at `timestampSec` to a caller-owned temp path.
  * Near-lossless intermediate (`maple` does the final resize/quality pass) —
  * mirrors `video-poster.ts`'s `runFfmpeg`, minus its from-frame-0 retry:
@@ -97,15 +114,19 @@ export interface ExtractedFrame {
  * Extract and encode the frames at `timestampsSec` (already ordered
  * chronologically) as model-ready JPEGs.
  *
- * A single timestamp's extraction failure drops that frame from the
- * result rather than failing the whole call — the sampler over-selects
- * from real probed positions, so losing one of several is not fatal. Each
- * returned entry carries its own `timestampSec` (rather than relying on
- * positional alignment with the input) precisely because the result can be
- * shorter than the input; the caller maps the model's `frame_index` back to
- * a real timestamp from these entries, never from `timestampsSec`
- * directly. An empty result (ffmpeg unavailable, or every seek failed) is
- * the caller's cue for a terminal sampling failure.
+ * A single timestamp's genuine decode/re-encode failure drops that frame
+ * from the result rather than failing the whole call — the sampler
+ * over-selects from real probed positions, so losing one of several is not
+ * fatal. Each returned entry carries its own `timestampSec` (rather than
+ * relying on positional alignment with the input) precisely because the
+ * result can be shorter than the input; the caller maps the model's
+ * `frame_index` back to a real timestamp from these entries, never from
+ * `timestampsSec` directly. An empty result (ffmpeg unavailable, or every
+ * seek failed) is the caller's cue for a terminal sampling failure — the
+ * one exception is a native-library-load failure (see
+ * `isNativeLoadFailure`), which throws instead of dropping frames, since
+ * every remaining timestamp would fail identically and that is an
+ * environment misconfiguration, not a terminal sampling verdict.
  */
 export async function extractFramesJpeg(
   videoPath: string,
@@ -143,6 +164,7 @@ export async function extractFramesJpeg(
         .toBuffer();
       frames.push({ timestampSec, jpeg });
     } catch (e) {
+      if (isNativeLoadFailure(e)) throw e;
       log.warn(
         { videoPath, timestampSec, err: e instanceof Error ? e.message : e },
         'frame re-encode failed',
