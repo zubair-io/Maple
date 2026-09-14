@@ -129,7 +129,7 @@ class NativeWorkerPool {
 
   /**
    * Settle the pending promise for one worker reply. The actual
-   * `resolve`/`reject` is deferred one macrotask out (`setTimeout(fn, 0)`
+   * `resolve`/`reject` is deferred one macrotask out (`setImmediate(fn)`
    * rather than a same-tick call or even `queueMicrotask`) — a real Bun
    * engine quirk (reproduced on `1.4.3-canary.1`) otherwise drops the NEXT
    * worker `message` event entirely when that event's listener settles a
@@ -147,15 +147,24 @@ class NativeWorkerPool {
    * chain and reliably avoids it — see the worker-pool tests for the
    * regression case.
    *
-   * Cost: this adds roughly 1ms of LATENCY per settled native call (Bun
-   * clamps a `setTimeout(fn, 0)` similarly to Node's historical ~1ms floor),
-   * not a main-thread STALL — the event loop is free to do other work during
-   * that wait, and multiple in-flight calls overlap this delay rather than
-   * serializing it, so it does not violate this epic's "no main-thread
-   * stall > 1ms" budget. It is a real, measurable cost worth knowing given
-   * that `src/api/scripts/bench-maple-vs-sharp.ts` reports timings to two
-   * decimal places; worth revisiting if a future Bun upgrade fixes the
-   * underlying engine bug.
+   * `setImmediate(fn)` was chosen over `setTimeout(fn, 0)` (the original
+   * fix) because Bun/Node clamp `setTimeout(fn, 0)` to a historical ~1ms
+   * minimum-delay floor, while `setImmediate` queues onto the next check
+   * phase of the event loop with no such floor — same "one macrotask out"
+   * effect on the continuation chain, far less latency. Measured locally on
+   * this machine, isolating just the scheduling primitive (200 samples each,
+   * no worker involved): `setTimeout(fn, 0)` cost ~1.13ms mean per settle,
+   * `setImmediate(fn)` cost ~0.002ms mean — over 500x less. A separate
+   * measurement of a full real worker round trip end to end (dispatch,
+   * cross-thread reply, settle) via `callNative('validateFilename', ...)`
+   * with the `setImmediate` fix in place came out to ~0.15ms mean, dominated
+   * by actual thread IPC rather than the settle itself. Still not a
+   * main-thread STALL either way — the event loop is free to do other work
+   * during the wait, and multiple in-flight calls overlap this delay rather
+   * than serializing it — so this was never at risk of violating this
+   * epic's "no main-thread stall > 1ms" budget, but it is a real, measurable
+   * per-call latency win given that `src/api/scripts/bench-maple-vs-sharp.ts`
+   * reports timings to two decimal places.
    */
   private handleResponse(poolWorker: PoolWorker, response: WorkerResponse): void {
     const pending = this.pending.get(response.id);
@@ -165,22 +174,33 @@ class NativeWorkerPool {
     if (!pending) return; // response for a request this pool no longer tracks
     if (response.ok) {
       const restored = restoreFromTransfer(response.result);
-      setTimeout(() => pending.resolve(restored), 0);
+      setImmediate(() => pending.resolve(restored));
     } else {
       const err = new Error(response.error || 'Maple native call failed');
-      setTimeout(() => pending.reject(err), 0);
+      setImmediate(() => pending.reject(err));
     }
   }
 
   /** A dead worker (crash or unexpected exit) rejects only the ONE request
    *  it was serving — every other in-flight/queued request is unaffected,
-   *  and the pool spawns a fresh worker lazily next time one is needed. */
+   *  and the pool spawns a fresh worker lazily next time one is needed.
+   *  Defensive cleanup on the dead worker itself: `terminate()` is a no-op
+   *  if the worker is already gone but guards against a partial-death state
+   *  where the OS thread lingers, and `unref()` is belt-and-braces in case
+   *  it is somehow still ref'd — either one lingering could keep the whole
+   *  process alive forever (see `test/process-exit.test.ts`) if Bun's
+   *  observed "error then close, worker already dead" behavior ever doesn't
+   *  hold in some edge case. */
   private handleWorkerDeath(poolWorker: PoolWorker, message: string): void {
     this.workers = this.workers.filter((w) => w !== poolWorker);
-    if (poolWorker.busyWith !== null) {
-      const pending = this.pending.get(poolWorker.busyWith);
-      this.pending.delete(poolWorker.busyWith);
-      if (pending) setTimeout(() => pending.reject(new Error(message)), 0);
+    const failedRequestId = poolWorker.busyWith;
+    poolWorker.busyWith = null;
+    poolWorker.worker.terminate();
+    poolWorker.worker.unref?.();
+    if (failedRequestId !== null) {
+      const pending = this.pending.get(failedRequestId);
+      this.pending.delete(failedRequestId);
+      if (pending) setImmediate(() => pending.reject(new Error(message)));
     }
     this.pumpQueue();
   }
@@ -201,6 +221,14 @@ class NativeWorkerPool {
       const next = this.queue.shift();
       if (next) this.send(worker, next);
     }
+  }
+
+  /** Test-only: the live `Worker` currently serving an in-flight request, if
+   *  any. Lets a test reach in and `.terminate()` a real worker mid-call to
+   *  exercise `handleWorkerDeath` for real, rather than only the caught
+   *  in-worker-error path. */
+  getBusyWorkerForTests(): Worker | null {
+    return this.workers.find((w) => w.busyWith !== null)?.worker ?? null;
   }
 
   shutdown(): void {
@@ -268,4 +296,11 @@ export function _resetMaplePoolForTests(): void {
   pool?.shutdown();
   pool = null;
   configuredConcurrency = null;
+}
+
+/** Test-only: the live `Worker` currently serving an in-flight request, if
+ *  any — see `NativeWorkerPool.getBusyWorkerForTests`. Returns `null` if the
+ *  pool hasn't been created yet or no worker is currently busy. */
+export function _getBusyMapleWorkerForTests(): Worker | null {
+  return pool?.getBusyWorkerForTests() ?? null;
 }
