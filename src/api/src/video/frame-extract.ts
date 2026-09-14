@@ -6,7 +6,7 @@
  * `frame-select.ts` has settled on the timestamps worth sending, this
  * module seeks to each one, decodes ONE near-lossless frame with ffmpeg
  * (same seek-then-fallback shape as `extractVideoPosterJpeg`), and
- * re-encodes it through `sharp` to the model's bounds — mirroring how
+ * re-encodes it through `maple` to the model's bounds — mirroring how
  * `workers/stages/describe.ts` turns the AVIF preview into JPEG bytes
  * immediately before the provider call, no second persisted artefact.
  */
@@ -15,7 +15,7 @@ import * as fs from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import sharp from 'sharp';
+import { maple } from 'maple';
 import { child as childLogger } from '../log.ts';
 import { ffmpegBinary } from '../thumbs/video-poster.ts';
 import {
@@ -27,7 +27,7 @@ import {
 const log = childLogger('video:frame-extract');
 
 /** Seek + decode one frame at `timestampSec` to a caller-owned temp path.
- * Near-lossless intermediate (`sharp` does the final resize/quality pass) —
+ * Near-lossless intermediate (`maple` does the final resize/quality pass) —
  * mirrors `video-poster.ts`'s `runFfmpeg`, minus its from-frame-0 retry:
  * every timestamp here already came from a real probed position, so a
  * failed seek is a genuine extraction failure, not an expected sub-second
@@ -124,12 +124,22 @@ export async function extractFramesJpeg(
     try {
       if (!(await extractRawFrame(bin, videoPath, timestampSec, tmpPath))) continue;
       const raw = await fs.readFile(tmpPath);
-      const jpeg = await sharp(raw)
-        .resize(MODEL_FRAME_MAX_DIMENSION, MODEL_FRAME_MAX_DIMENSION, {
+      // `withoutEnlargement: true` is Maple's own default (unlike sharp,
+      // which defaults it to false) — kept explicit here to preserve the
+      // original sharp call's intent at a glance. mozjpeg has no Maple
+      // equivalent (Maple's JPEG encoder is a pure-Rust encoder, not
+      // libjpeg-turbo/mozjpeg — see the @justmaple/maple README's "JPEG is
+      // not mozjpeg" section); files come out slightly larger at the same
+      // quality, which is an acceptable trade for a per-frame VLM input,
+      // not a persisted asset.
+      const jpeg = await maple(raw)
+        .resize({
+          width: MODEL_FRAME_MAX_DIMENSION,
+          height: MODEL_FRAME_MAX_DIMENSION,
           fit: 'inside',
           withoutEnlargement: true,
         })
-        .jpeg({ quality: MODEL_FRAME_JPEG_QUALITY, mozjpeg: true })
+        .toFormat('jpeg', { quality: MODEL_FRAME_JPEG_QUALITY })
         .toBuffer();
       frames.push({ timestampSec, jpeg });
     } catch (e) {
