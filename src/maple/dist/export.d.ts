@@ -1,5 +1,7 @@
 /**
- * Image export functions powered by Maple core.
+ * Image export functions powered by Maple core. Every native call routes
+ * through `callNative` (#3508) so it runs on the in-package worker pool by
+ * default instead of blocking the caller's event loop.
  */
 import type { ExportImageOptions, ExportRecipeOptions, ExportResult, ThumbnailOptions } from './types';
 /**

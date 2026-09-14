@@ -736,9 +736,241 @@ function isNativeAvailable() {
 }
 // src/export.ts
 import * as fs3 from "node:fs/promises";
+import * as path4 from "node:path";
+
+// src/worker-pool.ts
+import { fileURLToPath as fileURLToPath3, pathToFileURL } from "node:url";
 import * as path3 from "node:path";
+
+// src/worker-protocol.ts
+var TRANSFER_MARK = "__mapleTransfer__";
+function transferKindOf(value) {
+  if (Buffer.isBuffer(value))
+    return "Buffer";
+  if (value instanceof Float32Array)
+    return "Float32Array";
+  return "Uint8Array";
+}
+function isTypedArray(value) {
+  return value instanceof Uint8Array || value instanceof Float32Array;
+}
+function isTransferPlaceholder(value) {
+  return typeof value === "object" && value !== null && TRANSFER_MARK in value;
+}
+function prepareForTransfer(value, transferList = []) {
+  if (isTypedArray(value)) {
+    const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    transferList.push(buffer);
+    const placeholder = {
+      [TRANSFER_MARK]: transferKindOf(value),
+      buffer,
+      byteOffset: 0,
+      byteLength: value.byteLength
+    };
+    return { value: placeholder, transferList };
+  }
+  if (Array.isArray(value)) {
+    return {
+      value: value.map((entry) => prepareForTransfer(entry, transferList).value),
+      transferList
+    };
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = prepareForTransfer(entry, transferList).value;
+    }
+    return { value: out, transferList };
+  }
+  return { value, transferList };
+}
+function restoreFromTransfer(value) {
+  if (isTransferPlaceholder(value)) {
+    if (value[TRANSFER_MARK] === "Buffer") {
+      return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+    }
+    if (value[TRANSFER_MARK] === "Float32Array") {
+      return new Float32Array(value.buffer, value.byteOffset, value.byteLength / 4);
+    }
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (Array.isArray(value)) {
+    return value.map(restoreFromTransfer);
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = restoreFromTransfer(entry);
+    }
+    return out;
+  }
+  return value;
+}
+
+// src/worker-pool.ts
+var MIN_CONCURRENCY = 1;
+var MAX_CONCURRENCY = 16;
+var DEFAULT_CONCURRENCY = 4;
+var executionMode = "worker";
+var configuredConcurrency = null;
+function setMapleExecutionMode(mode) {
+  executionMode = mode;
+}
+function getMapleExecutionMode() {
+  return executionMode;
+}
+function clampConcurrency(n) {
+  return Math.min(MAX_CONCURRENCY, Math.max(MIN_CONCURRENCY, Math.trunc(n) || MIN_CONCURRENCY));
+}
+function setMapleConcurrency(n) {
+  configuredConcurrency = clampConcurrency(n);
+}
+function getMapleConcurrency() {
+  if (configuredConcurrency !== null)
+    return configuredConcurrency;
+  const fromEnv = Number(process.env.MAPLE_WORKER_CONCURRENCY);
+  if (Number.isFinite(fromEnv) && fromEnv > 0)
+    return clampConcurrency(fromEnv);
+  return DEFAULT_CONCURRENCY;
+}
+
+class NativeWorkerPool {
+  workers = [];
+  pending = new Map;
+  queue = [];
+  nextId = 1;
+  shuttingDown = false;
+  dispatch(method, args) {
+    if (this.shuttingDown) {
+      return Promise.reject(new Error("Maple worker pool is shut down"));
+    }
+    const id = this.nextId++;
+    const request = { id, method, args };
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      const worker = this.acquireIdleWorker();
+      if (worker) {
+        this.send(worker, request);
+      } else {
+        this.queue.push(request);
+      }
+    });
+  }
+  acquireIdleWorker() {
+    const idle = this.workers.find((w) => w.busyWith === null);
+    if (idle)
+      return idle;
+    if (this.workers.length < getMapleConcurrency()) {
+      return this.spawnWorker();
+    }
+    return null;
+  }
+  spawnWorker() {
+    const entry = workerEntryUrl();
+    const raw = new Worker(entry);
+    const poolWorker = { worker: raw, busyWith: null };
+    raw.addEventListener("message", (event) => {
+      this.handleResponse(poolWorker, event.data);
+    });
+    raw.addEventListener("error", (event) => {
+      this.handleWorkerDeath(poolWorker, event.message || "Maple worker error");
+    });
+    raw.addEventListener("close", () => {
+      this.handleWorkerDeath(poolWorker, "Maple worker exited");
+    });
+    this.workers.push(poolWorker);
+    return poolWorker;
+  }
+  send(poolWorker, request) {
+    poolWorker.busyWith = request.id;
+    poolWorker.worker.ref?.();
+    poolWorker.worker.postMessage(request);
+  }
+  handleResponse(poolWorker, response) {
+    const pending = this.pending.get(response.id);
+    this.pending.delete(response.id);
+    poolWorker.busyWith = null;
+    this.drainQueueOrIdle(poolWorker);
+    if (!pending)
+      return;
+    if (response.ok) {
+      const restored = restoreFromTransfer(response.result);
+      setTimeout(() => pending.resolve(restored), 0);
+    } else {
+      const err = new Error(response.error || "Maple native call failed");
+      setTimeout(() => pending.reject(err), 0);
+    }
+  }
+  handleWorkerDeath(poolWorker, message) {
+    this.workers = this.workers.filter((w) => w !== poolWorker);
+    if (poolWorker.busyWith !== null) {
+      const pending = this.pending.get(poolWorker.busyWith);
+      this.pending.delete(poolWorker.busyWith);
+      if (pending)
+        setTimeout(() => pending.reject(new Error(message)), 0);
+    }
+    this.pumpQueue();
+  }
+  drainQueueOrIdle(poolWorker) {
+    const next = this.queue.shift();
+    if (next) {
+      this.send(poolWorker, next);
+    } else {
+      poolWorker.worker.unref?.();
+    }
+  }
+  pumpQueue() {
+    while (this.queue.length > 0) {
+      const worker = this.acquireIdleWorker();
+      if (!worker)
+        return;
+      const next = this.queue.shift();
+      if (next)
+        this.send(worker, next);
+    }
+  }
+  shutdown() {
+    this.shuttingDown = true;
+    for (const [, pending] of this.pending) {
+      pending.reject(new Error("Maple worker pool shut down"));
+    }
+    this.pending.clear();
+    for (const poolWorker of this.workers) {
+      poolWorker.worker.terminate();
+    }
+    this.workers = [];
+    this.queue.length = 0;
+  }
+}
+function workerEntryUrl() {
+  const here = fileURLToPath3(import.meta.url);
+  const ext = path3.extname(here);
+  const entryPath = path3.join(path3.dirname(here), `native-worker-entry${ext}`);
+  return pathToFileURL(entryPath).href;
+}
+var pool = null;
+function getPool() {
+  if (!pool)
+    pool = new NativeWorkerPool;
+  return pool;
+}
+async function callNative(method, args) {
+  if (executionMode === "sync") {
+    const native = loadNativeBinding();
+    const fn = native[method];
+    return fn.apply(native, args);
+  }
+  const result = await getPool().dispatch(method, args);
+  return result;
+}
+function shutdownMaplePool() {
+  pool?.shutdown();
+  pool = null;
+}
+
+// src/export.ts
 function inferFormatFromExt(filePath) {
-  const ext = path3.extname(filePath).toLowerCase();
+  const ext = path4.extname(filePath).toLowerCase();
   if (ext === ".tif" || ext === ".tiff")
     return "tiff";
   if (ext === ".png")
@@ -746,21 +978,27 @@ function inferFormatFromExt(filePath) {
   return "jpeg";
 }
 async function exportImage(options) {
-  const native = loadNativeBinding();
   const format = options.format ?? inferFormatFromExt(options.outPath);
   const quality = options.quality ?? 92;
   const colorSpace = options.colorSpace ?? "srgb";
   const maxLongEdge = options.maxLongEdge ?? 0;
-  const parentDir = path3.dirname(options.outPath);
+  const parentDir = path4.dirname(options.outPath);
   await fs3.mkdir(parentDir, { recursive: true });
-  const res = native.exportDevelopedToFile(path3.resolve(options.rawPath), options.xmpPath ? path3.resolve(options.xmpPath) : null, format, quality, colorSpace, maxLongEdge, path3.resolve(options.outPath));
+  const res = await callNative("exportDevelopedToFile", [
+    path4.resolve(options.rawPath),
+    options.xmpPath ? path4.resolve(options.xmpPath) : null,
+    format,
+    quality,
+    colorSpace,
+    maxLongEdge,
+    path4.resolve(options.outPath)
+  ]);
   if (!res.ok) {
     return { ok: false, outPath: options.outPath, error: res.error };
   }
   return { ok: true, outPath: options.outPath };
 }
 async function exportRecipe(options) {
-  const native = loadNativeBinding();
   const recipeJson = typeof options.recipe === "string" ? options.recipe : JSON.stringify(options.recipe);
   let xmpXml = options.xmpXml ?? "";
   if (!xmpXml) {
@@ -771,27 +1009,41 @@ async function exportRecipe(options) {
       xmpXml = "";
     }
   }
-  const parentDir = path3.dirname(options.outPath);
+  const parentDir = path4.dirname(options.outPath);
   await fs3.mkdir(parentDir, { recursive: true });
-  const res = native.exportRecipeToFile(path3.resolve(options.rawPath), xmpXml, recipeJson, options.filmPath ? path3.resolve(options.filmPath) : null, path3.resolve(options.outPath));
+  const res = await callNative("exportRecipeToFile", [
+    path4.resolve(options.rawPath),
+    xmpXml,
+    recipeJson,
+    options.filmPath ? path4.resolve(options.filmPath) : null,
+    path4.resolve(options.outPath)
+  ]);
   if (!res.ok) {
     return { ok: false, outPath: options.outPath, error: res.error };
   }
   return { ok: true, outPath: options.outPath };
 }
 async function renderThumbnail(options) {
-  const native = loadNativeBinding();
-  await fs3.mkdir(path3.dirname(options.outPath), { recursive: true });
-  const res = native.renderThumbnailAvifToFile(path3.resolve(options.rawPath), path3.resolve(options.outPath), options.maxPx ?? 512, options.quality ?? 55);
+  await fs3.mkdir(path4.dirname(options.outPath), { recursive: true });
+  const res = await callNative("renderThumbnailAvifToFile", [
+    path4.resolve(options.rawPath),
+    path4.resolve(options.outPath),
+    options.maxPx ?? 512,
+    options.quality ?? 55
+  ]);
   if (!res.ok) {
     throw new Error(res.error);
   }
   return true;
 }
 async function renderPreview(options) {
-  const native = loadNativeBinding();
-  await fs3.mkdir(path3.dirname(options.outPath), { recursive: true });
-  const res = native.renderThumbnailPreviewJpegToFile(path3.resolve(options.rawPath), path3.resolve(options.outPath), options.maxPx ?? 1280, options.quality ?? 85);
+  await fs3.mkdir(path4.dirname(options.outPath), { recursive: true });
+  const res = await callNative("renderThumbnailPreviewJpegToFile", [
+    path4.resolve(options.rawPath),
+    path4.resolve(options.outPath),
+    options.maxPx ?? 1280,
+    options.quality ?? 85
+  ]);
   if (!res.ok) {
     throw new Error(res.error);
   }
@@ -820,7 +1072,7 @@ class AuxBlob {
   }
 }
 // src/builder-state.ts
-import * as path4 from "node:path";
+import * as path5 from "node:path";
 
 // src/builder-validate.ts
 var UNSUPPORTED = {
@@ -924,7 +1176,7 @@ var RAW_EXTENSIONS = new Set([
   ".fff"
 ]);
 function isRawPath(filePath) {
-  const ext = path4.extname(filePath).toLowerCase();
+  const ext = path5.extname(filePath).toLowerCase();
   return RAW_EXTENSIONS.has(ext);
 }
 var POSITION_TO_GRAVITY = {
@@ -1048,7 +1300,7 @@ var FORMAT_BY_EXT = {
   tiff: "tiff"
 };
 function formatForPath(outputPath) {
-  return FORMAT_BY_EXT[path4.extname(outputPath).slice(1).toLowerCase()] ?? "jpeg";
+  return FORMAT_BY_EXT[path5.extname(outputPath).slice(1).toLowerCase()] ?? "jpeg";
 }
 function lastResizeWidth(state) {
   for (let i = state.ops.length - 1;i >= 0; i--) {
@@ -1271,10 +1523,13 @@ async function inputBytes(state) {
   }
   throw new Error("No input provided to MapleImageBuilder");
 }
-function runPipeline(state, bytes, output) {
-  const native = loadNativeBinding();
+async function runPipeline(state, bytes, output) {
   const recipe = stateToRecipe(state, output);
-  const res = native.rasterPipelineBuf(bytes, JSON.stringify(recipe), state.aux.bytes());
+  const res = await callNative("rasterPipelineBuf", [
+    bytes,
+    JSON.stringify(recipe),
+    state.aux.bytes()
+  ]);
   if (!res.ok || !res.buffer || res.width === undefined || res.height === undefined || res.channels === undefined) {
     throw new Error(res.error || "Raster pipeline failed");
   }
@@ -1285,8 +1540,8 @@ function runPipeline(state, bytes, output) {
     channels: res.channels
   };
 }
-function decodeRgb8(native, bytes, autoOrient) {
-  const res = native.rasterDecodeRgb8Buf(bytes, autoOrient);
+async function decodeRgb8(bytes, autoOrient) {
+  const res = await callNative("rasterDecodeRgb8Buf", [bytes, autoOrient]);
   if (!res.ok || !res.buffer || res.width === undefined || res.height === undefined) {
     throw new Error(res.error || "Failed to decode to RGB8");
   }
@@ -1298,23 +1553,33 @@ function decodeRgb8(native, bytes, autoOrient) {
   };
 }
 async function resolveToRaw(state) {
-  const native = loadNativeBinding();
   if (state.rawInput) {
     const r = state.rawInput;
-    const png = native.rasterFromRawRenderBuf(r.data, r.width, r.height, r.channels, 0, 0, 0, 0, "png", 0, 0);
+    const png = await callNative("rasterFromRawRenderBuf", [
+      r.data,
+      r.width,
+      r.height,
+      r.channels,
+      0,
+      0,
+      0,
+      0,
+      "png",
+      0,
+      0
+    ]);
     if (!png.ok || !png.buffer) {
       throw new Error(png.error || "Failed to normalise raw pixels");
     }
-    return decodeRgb8(native, png.buffer, state.autoOrient);
+    return decodeRgb8(png.buffer, state.autoOrient);
   }
   const bytes = state.inputBytes ?? (state.inputPath ? await fs4.readFile(state.inputPath) : null);
   if (!bytes || bytes.length === 0) {
     throw new Error("Input image is empty");
   }
-  return decodeRgb8(native, bytes, state.autoOrient);
+  return decodeRgb8(bytes, state.autoOrient);
 }
 async function resolveTensor(state, options) {
-  const native = loadNativeBinding();
   let bytes = state.inputBytes;
   if (!bytes && state.inputPath) {
     bytes = await fs4.readFile(state.inputPath);
@@ -1325,7 +1590,7 @@ async function resolveTensor(state, options) {
   const targetSize = options?.targetSize ?? (lastResizeWidth(state) || 640);
   const layoutNum = options?.layout === "hwc" ? 1 : 0;
   const normNum = options?.normalize === "insightface" ? 1 : options?.normalize === "zeroToOne" ? 2 : 0;
-  const res = native.rasterExtractTensor(bytes, targetSize, layoutNum, normNum);
+  const res = await callNative("rasterExtractTensor", [bytes, targetSize, layoutNum, normNum]);
   if (!res.ok || !res.tensor) {
     throw new Error(res.error || "Failed to extract tensor");
   }
@@ -1340,7 +1605,7 @@ async function resolveTensor(state, options) {
 // src/builder-maintain.ts
 import * as crypto from "node:crypto";
 import * as fs5 from "node:fs/promises";
-import * as path5 from "node:path";
+import * as path6 from "node:path";
 async function validateIntegrity(metadata, decode) {
   try {
     const meta = await metadata();
@@ -1362,7 +1627,7 @@ async function normalizeOrientationInPlace(state, metadata, develop) {
   if ((meta.orientation ?? 1) <= 1) {
     return true;
   }
-  const ext = path5.extname(inputPath) || ".jpg";
+  const ext = path6.extname(inputPath) || ".jpg";
   const tempOut = `${inputPath}.orient_tmp.${Date.now()}.${crypto.randomUUID()}${ext}`;
   const res = await develop(state.format || meta.format || "jpeg", tempOut);
   if (!res.ok) {
@@ -1380,10 +1645,10 @@ async function normalizeOrientationInPlace(state, metadata, develop) {
   return true;
 }
 async function bitmapToFile(state, outputPath) {
-  await fs5.mkdir(path5.dirname(outputPath), { recursive: true });
+  await fs5.mkdir(path6.dirname(outputPath), { recursive: true });
   try {
     const bytes = await inputBytes(state);
-    const out = runPipeline(state, bytes, stateToOutput(state, formatForPath(outputPath)));
+    const out = await runPipeline(state, bytes, stateToOutput(state, formatForPath(outputPath)));
     await fs5.writeFile(outputPath, out.buffer);
     return { ok: true, outPath: outputPath };
   } catch (error) {
@@ -1553,18 +1818,18 @@ function pushTrim(state, options) {
 // src/builder-metadata.ts
 import * as fsSync from "node:fs";
 import * as fs7 from "node:fs/promises";
-import * as path7 from "node:path";
+import * as path8 from "node:path";
 
 // src/builder-raw-develop.ts
 import * as fs6 from "node:fs/promises";
 import * as os from "node:os";
-import * as path6 from "node:path";
+import * as path7 from "node:path";
 function isRawDevelop(state) {
   return state.inputPath !== null && (state.exportRecipe !== null || state.xmpPath !== null || state.xmpXml !== null || isRawPath(state.inputPath));
 }
 async function rawDevelopToBuffer(state, toFile) {
   const ext = state.format ? `.${state.format === "jpeg" ? "jpg" : state.format}` : ".jpg";
-  const tmpFile = path6.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  const tmpFile = path7.join(os.tmpdir(), `maple_buf_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
   try {
     const fileRes = await toFile(tmpFile);
     if (!fileRes.ok) {
@@ -1622,8 +1887,7 @@ async function rawDevelopToFile(state, outputPath) {
 
 // src/builder-metadata.ts
 async function analyzeBytes(bytes, what) {
-  const native = loadNativeBinding();
-  const res = native.rasterAnalyzeBuf(bytes, JSON.stringify({ v: 1, what }));
+  const res = await callNative("rasterAnalyzeBuf", [bytes, JSON.stringify({ v: 1, what })]);
   if (!res.ok || !res.json) {
     throw new Error(res.error || "Failed to analyze image");
   }
@@ -1657,15 +1921,14 @@ function statsFromReply(reply) {
   return s;
 }
 async function tier1PathMetadata(inputPath) {
-  const native = loadNativeBinding();
-  const res = native.rasterProbeMetadata(inputPath);
+  const res = await callNative("rasterProbeMetadata", [inputPath]);
   if (!res.ok || !res.metadata) {
     throw new Error(res.error || `Failed to probe metadata for ${inputPath}`);
   }
   return {
     width: res.metadata.width,
     height: res.metadata.height,
-    format: res.metadata.format || path7.extname(inputPath).replace(".", "").toLowerCase(),
+    format: res.metadata.format || path8.extname(inputPath).replace(".", "").toLowerCase(),
     channels: res.metadata.channels,
     orientation: res.metadata.orientation,
     isRaw: isRawPath(inputPath) || res.metadata.format === "dng"
@@ -1695,7 +1958,7 @@ async function resolveMetadata(state) {
     return tier1PathMetadata(state.inputPath);
   }
   if (state.inputBytes) {
-    const probe = loadNativeBinding().rasterProbeMetadataBuf(state.inputBytes);
+    const probe = await callNative("rasterProbeMetadataBuf", [state.inputBytes]);
     if (probe.ok && probe.metadata?.format === "dng") {
       return tier1BufMetadata(probe.metadata);
     }
@@ -1705,15 +1968,26 @@ async function resolveMetadata(state) {
     throw new Error("No input provided to MapleImageBuilder");
   }
   const bytes = await fs7.readFile(state.inputPath);
-  const probe = loadNativeBinding().rasterProbeMetadataBuf(bytes);
+  const probe = await callNative("rasterProbeMetadataBuf", [bytes]);
   if (probe.ok && probe.metadata?.format === "dng") {
     return tier1BufMetadata(probe.metadata);
   }
   return metadataFromReply(await analyzeBytes(bytes, ["metadata"]));
 }
-function renderRawInputToPng(r) {
-  const native = loadNativeBinding();
-  const png = native.rasterFromRawRenderBuf(r.data, r.width, r.height, r.channels, 0, 0, 0, 0, "png", 0, 0);
+async function renderRawInputToPng(r) {
+  const png = await callNative("rasterFromRawRenderBuf", [
+    r.data,
+    r.width,
+    r.height,
+    r.channels,
+    0,
+    0,
+    0,
+    0,
+    "png",
+    0,
+    0
+  ]);
   if (!png.ok || !png.buffer) {
     throw new Error(png.error || "Failed to normalise raw pixels for stats");
   }
@@ -1725,14 +1999,14 @@ async function resolveStats(state) {
     return statsFromReply(await analyzeBytes(developed, ["stats"]));
   }
   if (state.rawInput) {
-    return statsFromReply(await analyzeBytes(renderRawInputToPng(state.rawInput), ["stats"]));
+    return statsFromReply(await analyzeBytes(await renderRawInputToPng(state.rawInput), ["stats"]));
   }
   const bytes = state.inputBytes ?? (state.inputPath ? await fs7.readFile(state.inputPath) : null);
   if (!bytes) {
     throw new Error("No input provided to MapleImageBuilder");
   }
   if (state.inputPath && !isRawDevelop(state)) {
-    const probe = loadNativeBinding().rasterProbeMetadataBuf(bytes);
+    const probe = await callNative("rasterProbeMetadataBuf", [bytes]);
     if (probe.ok && probe.metadata?.format === "dng") {
       const developed = await rawDevelopToBuffer(state, (out) => rawDevelopToFile(state, out));
       return statsFromReply(await analyzeBytes(developed, ["stats"]));
@@ -2018,7 +2292,7 @@ class MapleImageBuilder {
   }
   async toRawAlpha() {
     const bytes = await inputBytes(this.s);
-    const out = runPipeline(this.s, bytes, { format: "raw" });
+    const out = await runPipeline(this.s, bytes, { format: "raw" });
     return {
       data: new Uint8Array(out.buffer.buffer, out.buffer.byteOffset, out.buffer.byteLength),
       width: out.width,
@@ -2066,7 +2340,7 @@ class MapleImageBuilder {
       return await rawDevelopToBuffer(this.s, (outputPath) => this.toFile(outputPath));
     }
     const bytes = await inputBytes(this.s);
-    return runPipeline(this.s, bytes, stateToOutput(this.s, "jpeg")).buffer;
+    return (await runPipeline(this.s, bytes, stateToOutput(this.s, "jpeg"))).buffer;
   }
   async toFile(outputPath) {
     return isRawDevelop(this.s) ? await rawDevelopToFile(this.s, outputPath) : await bitmapToFile(this.s, outputPath);
@@ -2080,7 +2354,7 @@ function maple(input) {
 }
 // src/cli.ts
 import * as fs8 from "node:fs/promises";
-import * as path8 from "node:path";
+import * as path9 from "node:path";
 function printHelp() {
   console.log(`
 maple - Professional RAW photo development and export engine by Just Maple
@@ -2256,9 +2530,9 @@ async function runCli(argv) {
     let succeeded = 0;
     let failed = 0;
     for (const file of photoFiles) {
-      const stem = path8.basename(file, path8.extname(file));
+      const stem = path9.basename(file, path9.extname(file));
       const ext = recipe.format === "tiff" ? "tif" : recipe.format === "png" ? "png" : "jpg";
-      const dest = path8.join(outDir, `${stem}.${ext}`);
+      const dest = path9.join(outDir, `${stem}.${ext}`);
       process.stdout.write(`  Rendering ${stem}... `);
       const res = await exportRecipe({
         rawPath: file,
@@ -2392,232 +2666,6 @@ Maple Image Inspection: ${inputPath}`);
   }
   console.error(`Unknown command: "${command}". Run "npx maple help" for usage.`);
   return 1;
-}
-// src/worker-pool.ts
-import { fileURLToPath as fileURLToPath3, pathToFileURL } from "node:url";
-import * as path9 from "node:path";
-
-// src/worker-protocol.ts
-var TRANSFER_MARK = "__mapleTransfer__";
-function transferKindOf(value) {
-  if (Buffer.isBuffer(value))
-    return "Buffer";
-  if (value instanceof Float32Array)
-    return "Float32Array";
-  return "Uint8Array";
-}
-function isTypedArray(value) {
-  return value instanceof Uint8Array || value instanceof Float32Array;
-}
-function isTransferPlaceholder(value) {
-  return typeof value === "object" && value !== null && TRANSFER_MARK in value;
-}
-function prepareForTransfer(value, transferList = []) {
-  if (isTypedArray(value)) {
-    const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
-    transferList.push(buffer);
-    const placeholder = {
-      [TRANSFER_MARK]: transferKindOf(value),
-      buffer,
-      byteOffset: 0,
-      byteLength: value.byteLength
-    };
-    return { value: placeholder, transferList };
-  }
-  if (Array.isArray(value)) {
-    return {
-      value: value.map((entry) => prepareForTransfer(entry, transferList).value),
-      transferList
-    };
-  }
-  if (value && typeof value === "object") {
-    const out = {};
-    for (const [key, entry] of Object.entries(value)) {
-      out[key] = prepareForTransfer(entry, transferList).value;
-    }
-    return { value: out, transferList };
-  }
-  return { value, transferList };
-}
-function restoreFromTransfer(value) {
-  if (isTransferPlaceholder(value)) {
-    if (value[TRANSFER_MARK] === "Buffer") {
-      return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-    }
-    if (value[TRANSFER_MARK] === "Float32Array") {
-      return new Float32Array(value.buffer, value.byteOffset, value.byteLength / 4);
-    }
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  }
-  if (Array.isArray(value)) {
-    return value.map(restoreFromTransfer);
-  }
-  if (value && typeof value === "object") {
-    const out = {};
-    for (const [key, entry] of Object.entries(value)) {
-      out[key] = restoreFromTransfer(entry);
-    }
-    return out;
-  }
-  return value;
-}
-
-// src/worker-pool.ts
-var MIN_CONCURRENCY = 1;
-var MAX_CONCURRENCY = 16;
-var DEFAULT_CONCURRENCY = 4;
-var executionMode = "worker";
-var configuredConcurrency = null;
-function setMapleExecutionMode(mode) {
-  executionMode = mode;
-}
-function getMapleExecutionMode() {
-  return executionMode;
-}
-function clampConcurrency(n) {
-  return Math.min(MAX_CONCURRENCY, Math.max(MIN_CONCURRENCY, Math.trunc(n) || MIN_CONCURRENCY));
-}
-function setMapleConcurrency(n) {
-  configuredConcurrency = clampConcurrency(n);
-}
-function getMapleConcurrency() {
-  if (configuredConcurrency !== null)
-    return configuredConcurrency;
-  const fromEnv = Number(process.env.MAPLE_WORKER_CONCURRENCY);
-  if (Number.isFinite(fromEnv) && fromEnv > 0)
-    return clampConcurrency(fromEnv);
-  return DEFAULT_CONCURRENCY;
-}
-
-class NativeWorkerPool {
-  workers = [];
-  pending = new Map;
-  queue = [];
-  nextId = 1;
-  shuttingDown = false;
-  dispatch(method, args) {
-    if (this.shuttingDown) {
-      return Promise.reject(new Error("Maple worker pool is shut down"));
-    }
-    const id = this.nextId++;
-    const request = { id, method, args };
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      const worker = this.acquireIdleWorker();
-      if (worker) {
-        this.send(worker, request);
-      } else {
-        this.queue.push(request);
-      }
-    });
-  }
-  acquireIdleWorker() {
-    const idle = this.workers.find((w) => w.busyWith === null);
-    if (idle)
-      return idle;
-    if (this.workers.length < getMapleConcurrency()) {
-      return this.spawnWorker();
-    }
-    return null;
-  }
-  spawnWorker() {
-    const entry = workerEntryUrl();
-    const raw = new Worker(entry);
-    const poolWorker = { worker: raw, busyWith: null };
-    raw.addEventListener("message", (event) => {
-      this.handleResponse(poolWorker, event.data);
-    });
-    raw.addEventListener("error", (event) => {
-      this.handleWorkerDeath(poolWorker, event.message || "Maple worker error");
-    });
-    raw.addEventListener("close", () => {
-      this.handleWorkerDeath(poolWorker, "Maple worker exited");
-    });
-    this.workers.push(poolWorker);
-    return poolWorker;
-  }
-  send(poolWorker, request) {
-    poolWorker.busyWith = request.id;
-    poolWorker.worker.ref?.();
-    poolWorker.worker.postMessage(request);
-  }
-  handleResponse(poolWorker, response) {
-    const pending = this.pending.get(response.id);
-    this.pending.delete(response.id);
-    poolWorker.busyWith = null;
-    this.drainQueueOrIdle(poolWorker);
-    if (!pending)
-      return;
-    if (response.ok) {
-      pending.resolve(restoreFromTransfer(response.result));
-    } else {
-      pending.reject(new Error(response.error || "Maple native call failed"));
-    }
-  }
-  handleWorkerDeath(poolWorker, message) {
-    this.workers = this.workers.filter((w) => w !== poolWorker);
-    if (poolWorker.busyWith !== null) {
-      const pending = this.pending.get(poolWorker.busyWith);
-      this.pending.delete(poolWorker.busyWith);
-      pending?.reject(new Error(message));
-    }
-    this.pumpQueue();
-  }
-  drainQueueOrIdle(poolWorker) {
-    const next = this.queue.shift();
-    if (next) {
-      this.send(poolWorker, next);
-    } else {
-      poolWorker.worker.unref?.();
-    }
-  }
-  pumpQueue() {
-    while (this.queue.length > 0) {
-      const worker = this.acquireIdleWorker();
-      if (!worker)
-        return;
-      const next = this.queue.shift();
-      if (next)
-        this.send(worker, next);
-    }
-  }
-  shutdown() {
-    this.shuttingDown = true;
-    for (const [, pending] of this.pending) {
-      pending.reject(new Error("Maple worker pool shut down"));
-    }
-    this.pending.clear();
-    for (const poolWorker of this.workers) {
-      poolWorker.worker.terminate();
-    }
-    this.workers = [];
-    this.queue.length = 0;
-  }
-}
-function workerEntryUrl() {
-  const here = fileURLToPath3(import.meta.url);
-  const ext = path9.extname(here);
-  const entryPath = path9.join(path9.dirname(here), `native-worker-entry${ext}`);
-  return pathToFileURL(entryPath).href;
-}
-var pool = null;
-function getPool() {
-  if (!pool)
-    pool = new NativeWorkerPool;
-  return pool;
-}
-async function callNative(method, args) {
-  if (executionMode === "sync") {
-    const native = loadNativeBinding();
-    const fn = native[method];
-    return fn.apply(native, args);
-  }
-  const result = await getPool().dispatch(method, args);
-  return result;
-}
-function shutdownMaplePool() {
-  pool?.shutdown();
-  pool = null;
 }
 export {
   AuxBlob,
