@@ -4,7 +4,7 @@ The official image processing, development, and export package for Maple — pow
 
 Provides both a TypeScript/JavaScript programmatic API and a `maple` CLI for headless export, recipe processing, thumbnail extraction, and batch-renaming.
 
-Requires [Bun](https://bun.sh): the native core is loaded through `bun:ffi`, so the library and the CLI both run under Bun, not Node.
+Works under both Node (CI-verified on Node 22) and [Bun](https://bun.sh). Native bindings load via a prebuilt `raw-napi` N-API addon when one is resolvable for the current platform (the default and preferred path — works on both Node and Bun), falling back to `bun:ffi` when no matching addon is installed (Bun only). See [Native Core & Linux Support](#native-core--linux-support) and [Execution model](#execution-model) below.
 
 ## Installation
 
@@ -619,7 +619,12 @@ sharp's stage order if you want sharp's numbers.
 
 ## Native Core & Linux Support
 
-`@justmaple/maple` connects to `libraw_ffi` via `bun:ffi`.
+`@justmaple/maple` connects to the native `raw-core` image-processing library through one of two bindings, tried in this order:
+
+1. **`raw-napi`** — a prebuilt N-API addon (a `.node` file, shipped inside the same `@justmaple/maple-<platform>` optional-dependency package described below). Preferred when a matching addon is resolvable for the current platform. Works on **both Node and Bun** — this is what makes the package usable under Node at all.
+2. **`bun:ffi`** — the original binding, connecting directly to `libraw_ffi`. Used only when no matching `raw-napi` addon is installed. **Requires Bun**; see [Execution model](#execution-model) for what this means on plain Node with no napi addon available.
+
+The platform/libc support and SIMD dispatch below apply to both bindings — the `@justmaple/maple-<platform>` optional-dependency package installs the matching `raw-napi` addon and `libraw_ffi` shared library together. The discovery ladder below is specifically how the `bun:ffi` fallback locates `libraw_ffi`; `raw-napi` addon resolution follows its own, analogous search (installed platform package, then a monorepo-local build) and needs no manual configuration.
 
 ### Linux Environments (Docker, Server, Cloud)
 
@@ -646,36 +651,59 @@ cargo build --release -p raw-ffi --target x86_64-unknown-linux-gnu
 
 `toBuffer()`/`toFile()`/`metadata()`/`stats()`/`toRaw()`/`toRawAlpha()`/`toRawRgb()`
 and the four `export*`/`render*` functions never block the caller's event
-loop: by default, the actual native call runs on a small pool of Bun
-`Worker` threads inside the package (`worker-pool.ts`), not on whichever
-thread called them.
+loop. By default (`'worker'` mode), every one of those calls goes through
+`callNative`, which picks the fastest binding actually available:
+
+- **A `raw-napi` addon is resolvable (the common case on both Node and
+  Bun):** the call dispatches straight to the addon. The addon's own
+  `Task`/`AsyncTask` pair already runs off the JS thread, on N-API's own
+  libuv worker pool — no `Worker` threads inside this package are spawned
+  or needed on this path at all.
+- **No matching `raw-napi` addon, running under Bun:** the call falls back
+  to `bun:ffi`, posted to a small pool of Bun `Worker` threads inside the
+  package (`worker-pool.ts`), not run on whichever thread called it.
+- **No matching `raw-napi` addon, running under plain Node:** there is no
+  working binding — the `bun:ffi`/`Worker`-pool fallback requires Bun — and
+  the call throws a descriptive error naming both the napi load failure and
+  the missing Bun fallback, rather than crashing on a bare `Worker is not
+defined`.
 
 ```typescript
 import { setMapleConcurrency, setMapleExecutionMode } from '@justmaple/maple';
 
 // Tune how many worker threads the pool spawns (lazily, up to this ceiling).
-// Default 4, clamped to [1, 16]; also settable via MAPLE_WORKER_CONCURRENCY.
+// Only affects the bun:ffi fallback path above; a resolvable napi addon
+// never spawns this pool. Default 4, clamped to [1, 16]; also settable via
+// MAPLE_WORKER_CONCURRENCY.
 setMapleConcurrency(8);
 
-// Escape hatch: force every native call back onto the caller's own thread,
-// exactly as this package behaved before worker-pool support existed.
-// Useful for a one-shot script with nothing else to keep responsive, or a
-// host that manages its own off-thread strategy.
+// Escape hatch: force every native call back onto the caller's own thread
+// via bun:ffi directly, exactly as this package behaved before worker-pool
+// (and napi) support existed. Useful for a one-shot script with nothing
+// else to keep responsive, or a host that manages its own off-thread
+// strategy. This mode always uses bun:ffi and never tries napi, so — unlike
+// the default 'worker' mode — it requires Bun.
 setMapleExecutionMode('sync');
 ```
 
 A process that only ever calls into Maple and does nothing else exits on
-its own once its calls finish — idle worker threads don't hold the event
-loop open. Call `shutdownMaplePool()` to force an immediate, synchronous
-teardown (terminates every spawned worker right away) if you want that
-guarantee sooner than the pool's own idle-`unref()` would give it to you.
+its own once its calls finish, on either binding — a resolvable napi addon
+holds no handle open at all, and the `bun:ffi` fallback's idle worker
+threads don't hold the event loop open either. On the `bun:ffi` fallback
+path, `shutdownMaplePool()` forces an immediate, synchronous teardown
+(terminates every spawned worker right away) if you want that guarantee
+sooner than the pool's own idle-`unref()` would give it to you; it is a
+no-op when a napi addon is doing the work, since there is no pool to tear
+down.
 
-**This is not the same guarantee as the API server's own crash isolation.**
-A worker thread shares this process's address space with the caller — it
-keeps the event loop responsive and isolates a catchable JS-level error to
-just the one in-flight call, but a genuine native-level crash (a segfault
-deep in `libraw_ffi` on a malformed file) would still take the whole
-process down, worker pool or not. Maple's own Self Hosted API server
+**Neither binding gives the same guarantee as the API server's own crash
+isolation.** A `bun:ffi` worker thread shares this process's address space
+with the caller — it keeps the event loop responsive and isolates a
+catchable JS-level error to just the one in-flight call, but a genuine
+native-level crash (a segfault deep in the native library on a malformed
+file) would still take the whole process down, worker pool or not; the same
+is true of a crash inside the `raw-napi` addon, which also runs in-process.
+Maple's own Self Hosted API server
 (`src/api/src/ffi/`) gets _that_ guarantee from a completely separate,
 unrelated mechanism: a pool of isolated child _processes_, where a crash
 only ever kills one child. If you need process-level crash isolation as a
