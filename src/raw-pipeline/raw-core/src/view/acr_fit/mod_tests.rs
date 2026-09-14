@@ -12,10 +12,7 @@ fn linear_run(x_lo: f32, x_hi: f32, slope: f32, n: usize) -> Vec<NeutralSample> 
         .map(|i| {
             let t = i as f32 / (n - 1) as f32;
             let x = x_lo + t * (x_hi - x_lo);
-            NeutralSample {
-                scene_lum: x,
-                display_lum: slope * x,
-            }
+            NeutralSample::new(x, slope * x)
         })
         .collect()
 }

@@ -126,11 +126,27 @@ impl KnotRange {
     }
 }
 
-/// A single neutral-ramp observation: (scene_lum, display_lum).
+/// A tonescale observation and its heuristic neutral preference.
 #[derive(Clone, Copy)]
 pub struct NeutralSample {
     pub scene_lum: f32,
     pub display_lum: f32,
+    /// Gaussian chroma weight in (0, 1]; chart neutrals have unit weight.
+    pub neutral_weight: f32,
+    /// Whether this observation meets the original near-neutral criterion.
+    pub is_neutral: bool,
+}
+
+impl NeutralSample {
+    /// A known neutral chart/ramp observation. Photo pairs weight chroma.
+    pub const fn new(scene_lum: f32, display_lum: f32) -> Self {
+        Self {
+            scene_lum,
+            display_lum,
+            neutral_weight: 1.0,
+            is_neutral: true,
+        }
+    }
 }
 
 /// Fit a monotone piecewise-linear (PCHIP-stable) tonescale from neutral
@@ -152,7 +168,12 @@ pub fn fit_tonescale(samples: &[NeutralSample]) -> Option<Tonescale> {
 /// [`KnotRange::from_scene_luminances`] so the lattice covers the luminance
 /// span the model is actually evaluated against (#1740 M0.5).
 pub fn fit_tonescale_with_range(samples: &[NeutralSample], range: KnotRange) -> Option<Tonescale> {
-    if samples.len() < 2 {
+    if samples.len() < 2
+        || !range.lo.is_finite()
+        || !range.hi.is_finite()
+        || range.lo <= 0.0
+        || range.hi <= range.lo
+    {
         return None;
     }
 
@@ -162,23 +183,55 @@ pub fn fit_tonescale_with_range(samples: &[NeutralSample], range: KnotRange) -> 
     let bin_width = (knot_log2[TONESCALE_KNOTS - 1] - knot_log2[0]) / (TONESCALE_KNOTS - 1) as f32;
     let mut sums = [0.0f64; TONESCALE_KNOTS];
     let mut counts = [0u32; TONESCALE_KNOTS];
+    let mut weight_sums = [0.0f64; TONESCALE_KNOTS];
+    let mut neutral_sums = [0.0f64; TONESCALE_KNOTS];
+    let mut neutral_counts = [0u32; TONESCALE_KNOTS];
 
     for &s in samples {
-        if s.scene_lum <= 0.0 || s.display_lum < 0.0 {
+        if !s.scene_lum.is_finite()
+            || s.scene_lum <= 0.0
+            || !s.display_lum.is_finite()
+            || s.display_lum < 0.0
+            || !s.neutral_weight.is_finite()
+            || s.neutral_weight <= 0.0
+            || s.neutral_weight > 1.0
+        {
             continue;
         }
         let log2_l = s.scene_lum.log2();
         let fi = ((log2_l - knot_log2[0]) / bin_width).round() as isize;
         let idx = fi.clamp(0, (TONESCALE_KNOTS - 1) as isize) as usize;
-        sums[idx] += s.display_lum as f64;
+        sums[idx] += s.display_lum as f64 * s.neutral_weight as f64;
+        weight_sums[idx] += s.neutral_weight as f64;
+        if s.is_neutral {
+            neutral_sums[idx] += s.display_lum as f64;
+            neutral_counts[idx] += 1;
+        }
         counts[idx] += 1;
     }
 
-    // Knot values from bin means.
+    if counts.iter().map(|&n| u64::from(n)).sum::<u64>() < 2 {
+        return None;
+    }
+
+    // #3633: a handful of recovered glints must not own a global tone knot.
+    // Borrow sqrt(available observations) from the soft neutral estimate.
+    // Dense neutral evidence dominates this sublinear prior; sparse bins get
+    // support from the wider population. All-neutral chart bins remain exact.
+    // This is a stability heuristic, not a count of independent evidence:
+    // tiny chroma weights influence the soft mean little, but count as support.
+    // Auto pairs use the fixed embedded-JPEG pixel lattice (pairs.rs), so source
+    // render resolution changes footprints, not the available sample count.
     let mut vals: [f32; TONESCALE_KNOTS] = [f32::NAN; TONESCALE_KNOTS];
     for i in 0..TONESCALE_KNOTS {
         if counts[i] > 0 {
-            vals[i] = (sums[i] / counts[i] as f64) as f32;
+            vals[i] = if neutral_counts[i] == counts[i] {
+                (neutral_sums[i] / neutral_counts[i] as f64) as f32
+            } else {
+                let prior = (counts[i] as f64).sqrt();
+                let soft_mean = sums[i] / weight_sums[i];
+                ((neutral_sums[i] + prior * soft_mean) / (neutral_counts[i] as f64 + prior)) as f32
+            };
         }
     }
 
@@ -196,6 +249,135 @@ pub fn fit_tonescale_with_range(samples: &[NeutralSample], range: KnotRange) -> 
         knots_log2: knot_log2.to_vec(),
         values: vals.to_vec(),
     })
+}
+
+#[cfg(test)]
+mod support_tests {
+    use super::*;
+
+    const RANGE: KnotRange = KnotRange { lo: 0.01, hi: 0.5 };
+
+    fn highlight_samples(glints_are_neutral: bool) -> Vec<NeutralSample> {
+        let mut samples = vec![NeutralSample::new(0.01, 0.01); 300];
+        samples.extend(vec![NeutralSample::new(0.5, 0.55); 21]);
+        samples.extend(vec![
+            NeutralSample {
+                scene_lum: 0.5,
+                display_lum: 0.6,
+                neutral_weight: 0.2,
+                is_neutral: false,
+            };
+            10_000
+        ]);
+        samples.extend(vec![
+            NeutralSample {
+                scene_lum: 0.5,
+                display_lum: 0.75,
+                neutral_weight: if glints_are_neutral { 0.7 } else { 0.2 },
+                is_neutral: glints_are_neutral,
+            };
+            7
+        ]);
+        samples
+    }
+
+    #[test]
+    fn sparse_highlight_glints_do_not_move_the_global_curve() {
+        let before = highlight_samples(true);
+        let after = highlight_samples(false);
+        let fit = |s: &[NeutralSample]| fit_tonescale_with_range(s, RANGE).unwrap();
+        let a = fit(&before);
+        let b = fit(&after);
+        // This reproduces #3633's seven-glint classification change. The
+        // former neutral-only mean moves the highlight knot by 0.05.
+        let neutral_only = |s: &[NeutralSample]| {
+            s.iter()
+                .filter(|p| p.is_neutral)
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        let old_a = fit(&neutral_only(&before));
+        let old_b = fit(&neutral_only(&after));
+        assert!((old_a.values[8] - old_b.values[8]).abs() > 0.04);
+        assert_eq!(a.values[0], b.values[0], "shadow observations changed");
+        for (x, y) in a.values.iter().zip(&b.values) {
+            assert!(
+                (x - y).abs() < 0.012,
+                "sparse glints shifted knot {x} → {y}"
+            );
+        }
+    }
+
+    #[test]
+    fn all_neutral_bins_preserve_the_chart_fit_exactly() {
+        let samples: Vec<_> = (0..64)
+            .map(|i| {
+                let x = 0.01 * 50.0f32.powf(i as f32 / 63.0);
+                NeutralSample::new(x, x.sqrt())
+            })
+            .collect();
+        let weighted: Vec<_> = samples
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| NeutralSample {
+                neutral_weight: 0.1 + (i % 9) as f32 * 0.1,
+                ..s
+            })
+            .collect();
+        let a = fit_tonescale_with_range(&samples, RANGE).unwrap();
+        let b = fit_tonescale_with_range(&weighted, RANGE).unwrap();
+        assert_eq!(a.knots_log2, b.knots_log2);
+        assert_eq!(a.values, b.values);
+    }
+
+    #[test]
+    fn weighted_fit_rejects_invalid_or_insufficient_observations() {
+        for weight in [0.0, -1.0, 1.1, f32::NAN, f32::INFINITY] {
+            let invalid = NeutralSample {
+                neutral_weight: weight,
+                ..NeutralSample::new(0.2, 0.3)
+            };
+            assert!(fit_tonescale_with_range(&[invalid; 2], RANGE).is_none());
+        }
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(
+                fit_tonescale_with_range(&[NeutralSample::new(value, 0.3); 2], RANGE).is_none()
+            );
+            assert!(
+                fit_tonescale_with_range(&[NeutralSample::new(0.2, value); 2], RANGE).is_none()
+            );
+        }
+        let one_valid = [NeutralSample::new(0.2, 0.3), NeutralSample::new(0.0, 0.3)];
+        assert!(fit_tonescale_with_range(&one_valid, RANGE).is_none());
+        for range in [
+            KnotRange { lo: 0.0, hi: 1.0 },
+            KnotRange { lo: 1.0, hi: 1.0 },
+            KnotRange {
+                lo: 0.1,
+                hi: f32::NAN,
+            },
+        ] {
+            assert!(fit_tonescale_with_range(&[NeutralSample::new(0.2, 0.3); 2], range).is_none());
+        }
+    }
+
+    #[test]
+    fn soft_only_observations_produce_a_finite_monotone_fit() {
+        let samples: Vec<_> = (0..32)
+            .map(|i| NeutralSample {
+                scene_lum: 0.01 + i as f32 * 0.01,
+                display_lum: 0.1 + i as f32 * 0.02,
+                neutral_weight: f32::MIN_POSITIVE,
+                is_neutral: false,
+            })
+            .collect();
+        let fit = fit_tonescale_with_range(&samples, RANGE).unwrap();
+        assert!(fit
+            .values
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.0 && *v <= 1.0));
+        assert!(fit.values.windows(2).all(|w| w[1] >= w[0]));
+    }
 }
 
 /// Fill `NaN` entries by linear interpolation between the nearest valid neighbours.
@@ -323,10 +505,7 @@ mod tests {
                 let t = i as f32 / 31.0;
                 let log2_l = 0.001f32.log2() + t * (4.0f32.log2() - 0.001f32.log2());
                 let l = log2_l.exp2();
-                NeutralSample {
-                    scene_lum: l,
-                    display_lum: l,
-                }
+                NeutralSample::new(l, l)
             })
             .collect();
         let ts = fit_tonescale(&samples).expect("must fit");
@@ -357,10 +536,7 @@ mod tests {
                 let l = log2_l.exp2();
                 // Display is a simple tone curve.
                 let display = if l < 1.0 { l.powf(0.5) * 0.8 } else { 0.8 };
-                NeutralSample {
-                    scene_lum: l,
-                    display_lum: display,
-                }
+                NeutralSample::new(l, display)
             })
             .collect();
         let ts = fit_tonescale(&samples).expect("must fit");
