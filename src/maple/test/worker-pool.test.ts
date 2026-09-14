@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
+  buildNoNativeBindingError,
   callNative,
   getMapleConcurrency,
   getMapleExecutionMode,
@@ -8,13 +9,36 @@ import {
   shutdownMaplePool,
   _getBusyMapleWorkerForTests,
   _resetMaplePoolForTests,
+  _setIsBunRuntimeForTests,
 } from '../src/worker-pool';
+import { _resetNapiBindingForTests } from '../src/native-napi';
+
+/**
+ * Forces `callNative` onto the `bun:ffi`/worker-pool path for the rest of
+ * this test, even on a machine with a napi addon built and resolvable — via
+ * `MAPLE_NAPI=0` (`native-napi.ts`'s escape hatch, added alongside this
+ * fix). Needed by every test below whose actual point is to exercise the
+ * POOL's own machinery (concurrency, idle-worker reuse, `handleWorkerDeath`
+ * recovery) using `validateFilename` as the vehicle: since #3509,
+ * `validateFilename` has a real napi implementation, so on a machine with
+ * the addon built it would otherwise never reach the pool at all, and these
+ * tests would keep passing while silently testing nothing about the pool —
+ * exactly the kind of vacuous-pass bug a "does this still hold under CI's
+ * napi-enabled dev loop" review caught.
+ */
+function forceBunFfiPoolForTest(): void {
+  process.env.MAPLE_NAPI = '0';
+  _resetNapiBindingForTests();
+}
 
 afterEach(() => {
   shutdownMaplePool();
   _resetMaplePoolForTests();
   setMapleExecutionMode('worker');
   setMapleConcurrency(4);
+  delete process.env.MAPLE_NAPI;
+  _resetNapiBindingForTests();
+  _setIsBunRuntimeForTests(undefined);
 });
 
 describe('worker pool execution mode', () => {
@@ -23,6 +47,7 @@ describe('worker pool execution mode', () => {
   });
 
   it('dispatches a pure-computation native method through a real worker thread and gets the right answer', async () => {
+    forceBunFfiPoolForTest();
     const result = await callNative('validateFilename', ['ok-name.jpg']);
     expect(result).toEqual({ ok: true });
   });
@@ -33,6 +58,7 @@ describe('worker pool execution mode', () => {
   });
 
   it('runs multiple calls concurrently without serializing them onto one worker', async () => {
+    forceBunFfiPoolForTest();
     const concurrency = 4;
     setMapleConcurrency(concurrency);
     const started = Date.now();
@@ -86,6 +112,13 @@ describe('worker pool execution mode', () => {
     // which the worker entry throws on (a controlled, catchable throw —
     // not a real segfault), confirming the pool surfaces it as a rejection
     // rather than hanging, and that the pool is still usable afterwards.
+    //
+    // Forces the bun:ffi/pool path for the whole test: the FOLLOWUP
+    // `validateFilename` call is the actual "still usable afterwards"
+    // assertion, and since #3509 that method has a real napi
+    // implementation — without forcing, it would silently answer from napi
+    // instead of the pool, proving nothing about pool recovery specifically.
+    forceBunFfiPoolForTest();
     await expect(callNative('thisMethodDoesNotExist' as never, [] as never)).rejects.toThrow(
       /unknown native method/,
     );
@@ -114,6 +147,13 @@ describe('worker pool execution mode', () => {
     // method name drives the pool is incidental to what's under test here
     // (`handleWorkerDeath`), so this substitution changes nothing about the
     // pool behavior being verified.
+    //
+    // Also forces the bun:ffi/pool path for the whole test, same reason as
+    // the previous test: the trailing `validateFilename` "recovered"
+    // assertion must actually go through the pool to prove the pool
+    // recovered, not just that napi (an entirely separate, unaffected
+    // backend) still answers.
+    forceBunFfiPoolForTest();
     const inFlight = callNative('thisMethodDoesNotExist' as never, [] as never);
     const worker = _getBusyMapleWorkerForTests();
     expect(worker).not.toBeNull();
@@ -138,10 +178,52 @@ describe('worker pool execution mode', () => {
     // `handleResponse`'s macrotask-deferred settle (see its doc comment in
     // `worker-pool.ts`) is the fix that covers both, and this test is the
     // gate for this shape.
+    //
+    // Forces the bun:ffi/pool path for the whole test: the quirk this test
+    // guards against needs the FIRST call to genuinely settle a promise from
+    // a real `Worker` `'message'` listener — since #3509, `validateFilename`
+    // has a real napi implementation, so without forcing, `first` would be
+    // answered by napi instead (no worker involved at all), and this
+    // regression gate would keep passing while proving nothing about the
+    // actual wedge it exists to catch.
+    forceBunFfiPoolForTest();
     const first = await callNative('validateFilename', ['first-call.jpg']);
     expect(first).toEqual({ ok: true });
     await expect(callNative('thisMethodDoesNotExist' as never, [] as never)).rejects.toThrow(
       /unknown native method/,
     );
+  });
+
+  it('on plain Node with no working napi function, throws an informative error instead of crashing into the Bun-only worker pool', async () => {
+    // Regression test for the Critical bug from code review: forcing napi
+    // off (MAPLE_NAPI=0) and simulating "no Bun" via `_setIsBunRuntimeForTests`
+    // (real Bun's own `globalThis.Bun` is non-configurable and
+    // non-writable — confirmed empirically that neither `delete` nor
+    // `Object.defineProperty` can override it under `bun test` — hence the
+    // injectable check `worker-pool.ts` exposes specifically for this)
+    // reproduces exactly the real-world failure this fix targets: a plain
+    // Node process with no working native binding at all. Before the fix,
+    // `callNative` fell through into `getPool().dispatch(...)`, which calls
+    // `new Worker(...)` against the bare `Worker` global that simply does
+    // not exist outside Bun/a browser, crashing with a bare `ReferenceError:
+    // Worker is not defined`. After the fix, it throws a specific error
+    // instead, naming both that no backend is available and WHY napi in
+    // particular failed (the preserved `MAPLE_NAPI=0` reason, via
+    // `getNapiLoadError()`).
+    forceBunFfiPoolForTest();
+    _setIsBunRuntimeForTests(() => false);
+    await expect(callNative('validateFilename', ['node-no-backend.jpg'])).rejects.toThrow(
+      /no working native binding.*MAPLE_NAPI=0.*requires Bun/s,
+    );
+  });
+
+  it('buildNoNativeBindingError names the real napi failure reason when one is known', () => {
+    const withReason = buildNoNativeBindingError(new Error('napi disabled via MAPLE_NAPI=0'));
+    expect(withReason.message).toMatch(/napi disabled via MAPLE_NAPI=0/);
+    expect(withReason.message).toMatch(/requires Bun/);
+
+    const withoutReason = buildNoNativeBindingError(null);
+    expect(withoutReason.message).toMatch(/no working native binding/);
+    expect(withoutReason.message).not.toMatch(/\(\)/); // no empty parens when there's no reason
   });
 });

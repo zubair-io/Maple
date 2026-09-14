@@ -114,11 +114,14 @@ export function getPlatformBinaryFilename(platform = process.platform): string {
 }
 
 /**
- * Platform-specific napi addon filename, matching napi-rs's own per-platform
- * naming convention (`<crate>.<platform>-<arch>[-<abi>].node`) for when a
- * published `@justmaple/maple-<platform>` package carries a prebuilt addon.
- * Task 9 wires the real build+rename step that produces this on disk for a
- * published package; this just needs to agree with that naming once it
+ * Platform-specific napi addon filename, GUESSING at napi-rs's own
+ * per-platform naming convention (`<crate>.<platform>-<arch>[-<abi>].node`)
+ * for when a published `@justmaple/maple-<platform>` package carries a
+ * prebuilt addon. PROVISIONAL: this has not been verified against a real
+ * `@napi-rs/cli` `napi build` invocation or any real CI-produced artifact —
+ * Task 9 owns the real per-platform build+rename step and MUST verify (or
+ * correct) this string against that actual output before anything depends
+ * on it in production; this just needs to agree with that naming once it
  * exists — see `resolvePlatformNapiAddon`'s local-dev fallback below for how
  * this package resolves an addon before that exists.
  */
