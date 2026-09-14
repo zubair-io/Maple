@@ -213,8 +213,9 @@ export async function callNative<K extends keyof NativeBinding>(
   args: Parameters<NativeBinding[K]>,
 ): Promise<ReturnType<NativeBinding[K]>> {
   if (executionMode === 'sync') {
-    const fn = loadNativeBinding()[method] as unknown as (...a: unknown[]) => unknown;
-    return fn(...args) as ReturnType<NativeBinding[K]>;
+    const native = loadNativeBinding();
+    const fn = native[method] as unknown as (...a: unknown[]) => unknown;
+    return fn.apply(native, args) as ReturnType<NativeBinding[K]>;
   }
   const result = await getPool().dispatch(method as string, args);
   return result as ReturnType<NativeBinding[K]>;
