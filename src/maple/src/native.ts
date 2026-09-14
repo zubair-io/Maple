@@ -13,6 +13,7 @@ import type { RasterPipelineBinding } from './native-raster-pipeline';
 import { createRasterV2Binding } from './native-raster-v2';
 import type { RasterV2Binding } from './native-raster-v2';
 import { resolvePlatformPackageLib } from './platform';
+import { tryLoadNapiBinding } from './native-napi';
 import type { FilenameResult, FilenameTemplateArgs } from './types';
 
 const RENDER_OUT_CAP = 1024;
@@ -510,17 +511,36 @@ export function loadNativeBinding(): NativeBinding {
 
 /**
  * Render one filename from a batch-rename template.
+ *
+ * Prefers the napi addon (#3509) when one is resolvable — both
+ * `renderFilenameTemplate` and `validateFilename` are synchronous, no-I/O
+ * napi exports (see `native-napi.ts`'s module doc), so this stays a plain
+ * synchronous call on every platform: no signature change, no Promise, on
+ * Node or Bun alike. Only falls back to `loadNativeBinding()` (bun:ffi,
+ * Bun-only) when no napi addon is available, matching `callNative`'s own
+ * dispatch order in `worker-pool.ts`. Without this, these two public,
+ * documented (`README.md`) top-level exports would throw on plain Node even
+ * when a napi addon IS resolvable, since `loadNativeBinding()` requires Bun
+ * unconditionally — confirmed empirically while proving Node support for
+ * #3509's own acceptance test.
  */
 export function renderFilenameTemplate(args: FilenameTemplateArgs): FilenameResult {
+  const napi = tryLoadNapiBinding();
+  if (napi) return napi.renderFilenameTemplate(args);
   return loadNativeBinding().renderFilenameTemplate(args);
 }
 
 /**
  * Validate a filename against standard file system naming rules.
+ *
+ * See `renderFilenameTemplate` above for why this prefers the napi addon
+ * first, synchronously, before falling back to bun:ffi.
  */
 export function validateFilename(
   name: string,
 ): { ok: true } | { ok: false; code: number; error: string } {
+  const napi = tryLoadNapiBinding();
+  if (napi) return napi.validateFilename(name);
   return loadNativeBinding().validateFilename(name);
 }
 
