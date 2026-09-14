@@ -224,7 +224,7 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
       // bitmap formats (jpg/heic/png/…) stream their ORIGINAL bytes for the
       // client to decode directly (ImageIO on Apple, the browser on web).
       // Both are just a file byte stream from here — only genuinely
-      // unsupported extensions (docs, etc.) 415. Without the sharp branch,
+      // unsupported extensions (docs, etc.) 415. Without the bitmap branch,
       // non-RAW cloud images can be listed + thumbnailed but never opened
       // full-resolution in the editor (#782).
       if (!RAW_EXTENSIONS.has(ext) && !SHARP_EXTENSIONS.has(ext)) {

@@ -137,7 +137,7 @@ export const DEFAULT_DESCRIBE_OLLAMA_URL = 'http://localhost:11434';
  * Before changing this tag again, probe the candidate against the host the
  * stage will ACTUALLY call, on that hardware, with the payload it ACTUALLY
  * sends. The #2726 verification did neither — it ran against a developer
- * Mac (Metal, not the deploy's CUDA box) using sharp's default jpeg
+ * Mac (Metal, not the deploy's CUDA box) using the previous bitmap library's default jpeg
  * quality (~25% smaller than production) — and passed a model that then
  * failed in production.
  */

@@ -3,7 +3,7 @@
  * new M2 formats (#1834, part of the file-type-coverage epic #1831).
  *
  * Both formats decode to a plain RGBA8 raster in memory; the caller (in
- * `render.ts`) feeds that raster into `sharp` via its `raw` input mode,
+ * `render.ts`) feeds that raster into `maple` via its raw-pixel input,
  * reusing the exact same resize/JPEG-encode path as every other bitmap
  * format. No layer-aware editing, no color management beyond a literal
  * channel copy for PSD and a simple tone-map for HDR — this is a
@@ -52,7 +52,7 @@ import { readPsd, initializeCanvas } from 'ag-psd';
 import HDR from 'hdr';
 import { Readable } from 'node:stream';
 
-/** A plain, un-encoded RGBA8 raster — sharp's `raw` input shape. */
+/** A plain, un-encoded RGBA8 raster — Maple's raw-pixel input shape. */
 export interface DecodedRaster {
   width: number;
   height: number;
@@ -91,7 +91,7 @@ function initializeCanvasFreeMode(): void {
  * Decode a PSD or PSB buffer to its flattened composite raster (the
  * merged/preview image Photoshop shows by default — not a layer-aware
  * render). Throws on decode failure; callers treat that as a normal decode
- * failure, same as a corrupt JPEG reaching sharp.
+ * failure, same as a corrupt JPEG reaching the decoder.
  */
 export function decodePsdComposite(buf: Uint8Array): DecodedRaster {
   initializeCanvasFreeMode();

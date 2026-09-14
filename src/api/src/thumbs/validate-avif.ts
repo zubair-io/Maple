@@ -14,7 +14,7 @@
  *
  * `validateAvifOutput` closes that gap with a real decode — dispatched to the
  * same isolated FFI child via `validateAvifViaPool` (#2257). It used to run
- * `sharp(filePath)` directly in THIS (the API parent) process, which added a
+ * the previous bitmap library's decode directly in THIS (the API parent) process, which added a
  * full pixel decode to every concurrent request while the thumb/preview
  * stages were running (~300ms measured on an SMB-backed library) and, worse,
  * ran a decode of a freshly-written, possibly-malformed file — exactly the
@@ -46,7 +46,7 @@ import type { AvifValidationResult } from './avif-checks.ts';
 // predicate (`avif-checks.ts#checkAvifOutput`) and this dispatcher return —
 // a second, separately-declared copy here would be an ambiguous duplicate
 // export of the same name across two modules for no reason. Type-only, so
-// this does NOT create the sharp-in-the-parent import this file's module doc
+// this does NOT create the decoder-in-the-parent import this file's module doc
 // warns against, and no cycle: `avif-checks.ts` has no import of anything
 // that leads back here.
 export type { AvifValidationResult };

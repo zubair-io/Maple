@@ -162,7 +162,7 @@ export const fsPreviewsRoutes = new Elysia({ prefix: '/api/fs' }).get(
     const previewPath = await resolvePreviewCachePath(real);
 
     // `generatePreview` owns mkdir, the mtime staleness check (fresh cache →
-    // fast return), and the RAW-FFI / sharp / PSD render dispatch. It logs
+    // fast return), and the RAW-FFI / maple / PSD render dispatch. It logs
     // failures instead of throwing; a missing output file below is the
     // failure signal.
     //

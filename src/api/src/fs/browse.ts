@@ -308,7 +308,7 @@ export async function listDir(reqPath: string, showAll: boolean): Promise<OpResu
 // shows folders + image files at each level.
 // ---------------------------------------------------------------------------
 
-// The per-format extension allowlists (RAW / sharp / PSD+HDR / stub / audio)
+// The per-format extension allowlists (RAW / bitmap / PSD+HDR / stub / audio)
 // live in `indexer/media-types.ts`, a leaf module with no imports beyond
 // `node:path`, so `indexer/thumbnailer.ts` and `indexer/previewer.ts` can
 // read them without importing this file — which would close the
@@ -323,8 +323,8 @@ export {
 } from '../indexer/media-types.ts';
 
 /** All image extensions surfaced by the directory listing. Union of RAWs
- * (decoded via FFI), bitmap formats (decoded via sharp/heic-convert), and
- * PSD/PSB/HDR (decoded via ag-psd/hdr then sharp). Kept in sync with the
+ * (decoded via FFI), bitmap formats (decoded via maple/heic-convert), and
+ * PSD/PSB/HDR (decoded via ag-psd/hdr then maple). Kept in sync with the
  * thumb endpoint's extension gate. */
 const IMAGE_EXTENSIONS = new Set<string>([
   ...RAW_EXTENSIONS,

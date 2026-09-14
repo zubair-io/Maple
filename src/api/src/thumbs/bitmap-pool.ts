@@ -1,6 +1,6 @@
 /**
  * Bitmap thumbnail/validation dispatch onto the FFI child pool. Replaces the
- * sharp-backed `imgdecode-pool.ts` (#3499): the same child that owns the
+ * retired `imgdecode-pool.ts` (#3499): the same child that owns the
  * Maple bindings for RAW now renders JPEG/PNG/WebP/TIFF/AVIF/HEIC/PSD/HDR too,
  * so there is one isolated native process family, not two. Signatures are
  * unchanged from the retired module so call sites only change an import.

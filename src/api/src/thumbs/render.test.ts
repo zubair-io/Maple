@@ -27,7 +27,8 @@ function buildSyntheticPsd(width: number, height: number, rgba: [number, number,
 }
 
 /** A synthetic uncompressed TIFF, built via Maple's own raw-pixel → TIFF
- * encode path rather than a disk fixture or `sharp({ create: … })`. */
+ * encode path rather than a disk fixture or the previous bitmap library's
+ * synthetic-image helper. */
 function solidTiff(width: number, height: number, rgb: [number, number, number]): Promise<Buffer> {
   return maple(solidRgb(width, height, rgb))
     .toFormat('tiff')

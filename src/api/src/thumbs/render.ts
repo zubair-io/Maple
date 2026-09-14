@@ -62,7 +62,7 @@ export const THUMB_AVIF_QUALITY = 55;
  * lives in exactly one place. */
 export const THUMB_LONG_EDGE_PX = 512;
 
-/** Maple's AVIF `effort`, on sharp's own 0–9 scale (higher = slower/smaller)
+/** Maple's AVIF `effort`, on the previous encoder's own 0–9 scale (higher = slower/smaller)
  * — see `avifEffortWire` in `maple` for how that maps onto the underlying
  * encoder's speed knob. 4 favors encode throughput for the indexer backlog —
  * effort has no effect on decode cost. */
@@ -78,12 +78,12 @@ export const THUMB_AVIF_EFFORT = 4;
 export type ThumbOutputFormat = 'avif' | 'jpeg';
 
 /** Encode a Maple builder to `format`. Maple's JPEG encoder is not the
- * retired sharp path's mozjpeg — it's Maple's own encoder, and it always
- * embeds an sRGB ICC profile (sharp did not). NOTE: Maple's encoder also
+ * previous encoder's mozjpeg — it's Maple's own encoder, and it always
+ * embeds an sRGB ICC profile (the previous encoder did not). NOTE: Maple's encoder also
  * drops alpha with no compositing step, so a source with real transparency
  * (a transparent PNG, or the PSD/HDR branch below) renders as opaque BLACK
  * wherever it was transparent — not a neutral/white matte. This is a ruled
- * interim (#3505); sharp used to composite onto white/whatever matte was
+ * interim (#3505); the previous encoder used to composite onto white/whatever matte was
  * configured. */
 function encodeToBuffer(
   builder: ReturnType<typeof maple>,
@@ -206,14 +206,14 @@ async function renderPsdOrHdrThumbToFile(
   await writeAtomic(thumbPath, buf);
 }
 
-// Unlike the retired sharp path (`failOn: 'none', unlimited: true`), Maple
+// Unlike the previous library's decode path (`failOn: 'none', unlimited: true`), Maple
 // has no single "decode leniency" switch — behaviour differs by format.
 // JPEG (zune-jpeg, non-strict parsing) and AVIF (rav1d) decode
 // truncated/malformed input leniently and carry no allocation cap. TIFF/PNG/
 // WebP still go through the `image` crate with its default `Limits` (a
 // 512 MiB single-allocation cap) and no truncation leniency — a truncated or
 // pathologically large file in one of those formats still errors out here
-// exactly as it did under sharp's stricter defaults. See #3516 (filed to
+// exactly as it did under the previous library's stricter defaults. See #3516 (filed to
 // bring the `image`-crate path's leniency/limits in line with JPEG/AVIF).
 // Applies to this function's generic bitmap branch below, which decodes
 // JPEG/PNG/WEBP/TIFF/AVIF directly via Maple — NOT to `renderHeicThumbToFile`
