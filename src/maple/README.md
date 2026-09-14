@@ -642,6 +642,47 @@ cargo build --release -p raw-ffi --target x86_64-unknown-linux-gnu
 ./src/api/scripts/build-raw-ffi.sh linux
 ```
 
+## Execution model
+
+`toBuffer()`/`toFile()`/`metadata()`/`stats()`/`toRaw()`/`toRawAlpha()`/`toRawRgb()`
+and the four `export*`/`render*` functions never block the caller's event
+loop: by default, the actual native call runs on a small pool of Bun
+`Worker` threads inside the package (`worker-pool.ts`), not on whichever
+thread called them.
+
+```typescript
+import { setMapleConcurrency, setMapleExecutionMode } from '@justmaple/maple';
+
+// Tune how many worker threads the pool spawns (lazily, up to this ceiling).
+// Default 4, clamped to [1, 16]; also settable via MAPLE_WORKER_CONCURRENCY.
+setMapleConcurrency(8);
+
+// Escape hatch: force every native call back onto the caller's own thread,
+// exactly as this package behaved before worker-pool support existed.
+// Useful for a one-shot script with nothing else to keep responsive, or a
+// host that manages its own off-thread strategy.
+setMapleExecutionMode('sync');
+```
+
+A process that only ever calls into Maple and does nothing else exits on
+its own once its calls finish — idle worker threads don't hold the event
+loop open. Call `shutdownMaplePool()` to force an immediate, synchronous
+teardown (terminates every spawned worker right away) if you want that
+guarantee sooner than the pool's own idle-`unref()` would give it to you.
+
+**This is not the same guarantee as the API server's own crash isolation.**
+A worker thread shares this process's address space with the caller — it
+keeps the event loop responsive and isolates a catchable JS-level error to
+just the one in-flight call, but a genuine native-level crash (a segfault
+deep in `libraw_ffi` on a malformed file) would still take the whole
+process down, worker pool or not. Maple's own Self Hosted API server
+(`src/api/src/ffi/`) gets _that_ guarantee from a completely separate,
+unrelated mechanism: a pool of isolated child _processes_, where a crash
+only ever kills one child. If you need process-level crash isolation as a
+library consumer, put your own child-process boundary around
+`@justmaple/maple` calls the same way that server does — it isn't
+something a Worker-thread pool inside this package can provide.
+
 ## Performance Goals
 
 Maple is engineered to meet strict latency and throughput budgets:
