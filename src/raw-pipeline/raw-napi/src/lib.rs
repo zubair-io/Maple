@@ -17,7 +17,7 @@
 //!   - `raster_probe`  — header probe / native-size RGB8 decode
 //!   - `raster_render` — the v2 render entry points (fit/filter/format/effort)
 //!   - `raster_resize` — the Tier-1 resize-to-file/-buf + tensor extraction
-//!   - `pipeline`      — the bitmap recipe executor + analyze (Task 5)
+//!   - `pipeline`      — the bitmap recipe executor + analyze
 //!   - `develop`       — RAW-develop export + thumbnail extraction
 
 #[macro_use]
@@ -27,6 +27,9 @@ mod error;
 mod filename;
 #[cfg(test)]
 mod filename_tests;
+mod pipeline;
+#[cfg(test)]
+mod pipeline_tests;
 mod raster_probe;
 #[cfg(test)]
 mod raster_probe_tests;
@@ -38,6 +41,9 @@ mod raster_resize;
 pub use filename::{
     render_filename_template, validate_filename, FilenameResult, FilenameTemplateArgs,
     ValidateFilenameResult,
+};
+pub use pipeline::{
+    raster_analyze_buf, raster_pipeline_buf, RasterAnalyzeResult, RasterPipelineResult,
 };
 pub use raster_probe::{
     raster_decode_rgb8_buf, raster_probe_metadata, raster_probe_metadata_buf, RasterDecodeResult,
