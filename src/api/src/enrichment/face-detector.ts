@@ -35,16 +35,17 @@
  * normalised coordinates; the detector guarantees this for SCRFD
  * outputs.
  *
- * Image decode goes through `sharp` (already a dep — used by the indexer's
- * thumb pipeline). For detection we let sharp resize-to-640 directly; for
- * the recognizer we extract the raw RGB plane and warp in TS so the
- * sampling stays under our control (sharp's `affine` doesn't expose the
- * bilinear coefficients we'd need to match InsightFace's reference output).
+ * Image decode goes through `maple` (the in-house Rust image core, already
+ * a dep). For detection we let Maple's native tensor extraction
+ * resize-to-640 directly; for the recognizer we extract the raw RGB plane
+ * and warp in TS so the sampling stays under our control (no bilinear-warp
+ * primitive in Maple exposes the exact coefficients we'd need to match
+ * InsightFace's reference output).
  *
  * Spec: `docs/indexer-enrichment.md` §6.
  */
 
-import sharp from 'sharp';
+import { maple } from 'maple';
 import { child as childLogger } from '../log.ts';
 import {
   ARCFACE_DST,
@@ -70,10 +71,10 @@ const log = childLogger('enrichment:face-detector');
  * start and demote the rest to debug. */
 let warnedSyntheticLandmarks = false;
 
-/** Thrown when `sharp`/libvips cannot decode the thumbnail JPEG (e.g.
- * "VipsJpeg: Invalid SOS parameters"). Surfaces a non-retryable signal
- * to the worker handler, which converts it into a `{ skip }` so we
- * don't burn 5 retries on a permanently-corrupt thumbnail. */
+/** Thrown when `maple` cannot decode the thumbnail JPEG (e.g. a corrupt
+ * or truncated file). Surfaces a non-retryable signal to the worker
+ * handler, which converts it into a `{ skip }` so we don't burn 5
+ * retries on a permanently-corrupt thumbnail. */
 export class ThumbDecodeError extends Error {
   constructor(message: string) {
     super(message);
@@ -127,7 +128,25 @@ export class OnnxFaceDetector implements FaceDetector {
 
   async detectFaces(jpegBytes: Uint8Array): Promise<DetectedFace[]> {
     const { detector, Tensor } = await this.models();
-    const { tensor } = await jpegToInputTensor(jpegBytes, DETECTOR_INPUT_SIZE, Tensor);
+    // Maple's native tensor path decodes, resizes to DETECTOR_INPUT_SIZE
+    // (stretch-fill, matching the old sharp `fit: 'fill'` call), forces
+    // 3-channel RGB (grey expanded, alpha dropped — same as the old
+    // `toColourspace('srgb').removeAlpha()` pair), packs NCHW and applies
+    // InsightFace's `(px - 127.5) / 128.0` normalisation, all on the native
+    // side — see the @justmaple/maple README's "ML Tensor Preparation" perf
+    // row, which is this exact SCRFD 640x640 case.
+    let floats: Float32Array;
+    try {
+      const result = await maple(jpegBytes).toRawRgb({
+        targetSize: DETECTOR_INPUT_SIZE,
+        layout: 'nchw',
+        normalize: 'insightface',
+      });
+      floats = result.data;
+    } catch (err) {
+      throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
+    }
+    const tensor = new Tensor('float32', floats, [1, 3, DETECTOR_INPUT_SIZE, DETECTOR_INPUT_SIZE]);
     const inputName = inferInputName(detector, 'input.1');
     const outputs = await detector.run({ [inputName]: tensor });
     return decodeScrfdOutputs(outputs, DETECTOR_INPUT_SIZE);
@@ -181,66 +200,6 @@ export function setDefaultFaceDetectorForTests(d: FaceDetector | null): void {
 // Helpers — image preprocess + ONNX postprocess.
 // ---------------------------------------------------------------------------
 
-/** Decode JPEG → resize to `size`×`size` → produce NCHW float32 tensor.
- *
- * Normalisation is `(pixel - 127.5) / 128.0` in RGB order — what both
- * InsightFace's SCRFD-10G detector and the ArcFace R100 recognizer
- * expect.
- *
- * Throws `ThumbDecodeError` if `sharp`/libvips can't read the input —
- * the worker handler converts that into `{ skip }` so corrupt thumbnails
- * dead-letter immediately instead of after 5 retries. */
-async function jpegToInputTensor(
-  jpegBytes: Uint8Array,
-  size: number,
-  Tensor: OnnxTensorConstructor,
-): Promise<{
-  tensor: OnnxTensorLike;
-  srcWidth: number;
-  srcHeight: number;
-}> {
-  let srcWidth: number;
-  let srcHeight: number;
-  let raw: Buffer;
-  try {
-    const img = sharp(jpegBytes);
-    const meta = await img.metadata();
-    srcWidth = meta.width ?? size;
-    srcHeight = meta.height ?? size;
-    // `toColourspace('srgb')` forces a 3-channel RGB output even when the
-    // input is single-channel grayscale (a small but real fraction of
-    // user libraries — scans, B&W JPEGs from older cameras). Without it,
-    // `.raw()` would yield a 1-channel buffer and the (r,g,b) indexing
-    // below would read into adjacent pixels' luma values. `removeAlpha()`
-    // then drops the alpha channel if present (4 → 3) without affecting
-    // the already-3-channel path.
-    raw = await img
-      .resize(size, size, { fit: 'fill' })
-      .toColourspace('srgb')
-      .removeAlpha()
-      .raw()
-      .toBuffer();
-  } catch (err) {
-    throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
-  }
-  // Sharp returns interleaved RGB (HWC, uint8). We reshape into NCHW float32.
-  const data = new Float32Array(3 * size * size);
-  const plane = size * size;
-  for (let i = 0; i < plane; i++) {
-    const r = raw[i * 3]!;
-    const g = raw[i * 3 + 1]!;
-    const b = raw[i * 3 + 2]!;
-    data[i] = (r - 127.5) / 128.0;
-    data[plane + i] = (g - 127.5) / 128.0;
-    data[2 * plane + i] = (b - 127.5) / 128.0;
-  }
-  return {
-    tensor: new Tensor('float32', data, [1, 3, size, size]),
-    srcWidth,
-    srcHeight,
-  };
-}
-
 /** Warp the face out of the JPEG via a 5-point landmark similarity
  * transform onto the canonical `arcface_dst` template at 112×112, then
  * package it as an NCHW float32 recognizer input.
@@ -266,27 +225,24 @@ async function alignFaceCrop(
   let W: number;
   let H: number;
   let raw: Buffer;
-  let channels: number;
+  const channels = 3;
   try {
-    const img = sharp(jpegBytes);
-    const meta = await img.metadata();
-    W = meta.width ?? 0;
-    H = meta.height ?? 0;
+    // `.toRaw()` decodes to native-size interleaved RGB8 — alpha dropped,
+    // grey expanded to 3 identical channels — exactly matching the old
+    // sharp `.toColourspace('srgb').removeAlpha().raw()` chain, without a
+    // separate `.metadata()` call: width/height come back from the same
+    // decode.
+    const decoded = await maple(jpegBytes).toRaw();
+    W = decoded.width;
+    H = decoded.height;
     if (W === 0 || H === 0) {
-      // Dimension sanity check sits OUTSIDE the catch on purpose:
-      // sharp accepting bytes but returning zero dims would indicate a
-      // bug in our preprocessing pipeline, not a corrupt JPEG, so we
-      // surface it as a hard error rather than swallowing it as
-      // `thumb-undecodable`.
+      // Dimension sanity check sits OUTSIDE the catch on purpose: Maple
+      // accepting bytes but returning zero dims would indicate a bug in
+      // our preprocessing pipeline, not a corrupt JPEG, so we surface it
+      // as a hard error rather than swallowing it as `thumb-undecodable`.
       throw new Error('face-detector: unable to read image dimensions');
     }
-    // Same reason as in `jpegToInputTensor`: `toColourspace('srgb')`
-    // forces a 3-channel RGB output even when the input is single-channel
-    // grayscale (B&W scans, older cameras). Without it, the bilinear
-    // sampler below would read garbage out of a 1-channel buffer because
-    // it assumes a 3-byte stride per pixel.
-    raw = await img.toColourspace('srgb').removeAlpha().raw().toBuffer();
-    channels = 3;
+    raw = Buffer.from(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength);
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('face-detector:')) {
       // Re-throw our own hard error untouched (see comment above).
@@ -295,9 +251,10 @@ async function alignFaceCrop(
     throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
   }
   if (raw.length !== W * H * channels) {
-    // Defensive — sharp should always return W*H*3 bytes after removeAlpha,
-    // but if anything ever changes upstream we want a hard error, not
-    // out-of-bounds reads in the warp loop.
+    // Defensive — Maple's `.toRaw()` should always return W*H*3 bytes
+    // (alpha dropped, grey expanded), but if anything ever changes
+    // upstream we want a hard error, not out-of-bounds reads in the warp
+    // loop.
     throw new Error(
       `face-detector: raw buffer size mismatch (${raw.length} bytes for ${W}x${H}x${channels})`,
     );
