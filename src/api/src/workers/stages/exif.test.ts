@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import exifStage, { isLikelyScreenshot } from './exif.ts';
 import { EXIF_PICK_TAGS } from '../../indexer/exif.ts';
+import { solidJpeg, solidPng } from '../../test-support/synth-image.ts';
 
 function makeDoc(absPath: string, libraryId: ObjectId, libraryRoot: string) {
   const relDir = path.relative(libraryRoot, path.dirname(absPath));
@@ -50,13 +51,7 @@ describe('exif handler', () => {
     // A raw JPEG with no metadata — exifr returns null; handler must still
     // return a patch (with exif: null) so the runtime can mark the stage done.
     const file = path.join(dir, 'no-exif.jpg');
-    const { default: sharp } = await import('sharp');
-    const buf = await sharp({
-      create: { width: 4, height: 4, channels: 3, background: { r: 0, g: 0, b: 0 } },
-    })
-      .jpeg()
-      .toBuffer();
-    await writeFile(file, buf);
+    await writeFile(file, await solidJpeg(4, 4, [0, 0, 0]));
 
     const doc = makeDoc(file, libraryId, dir);
     const result = await exifStage.handler(doc as never, {} as never);
@@ -152,13 +147,7 @@ describe('exif handler', () => {
 
   it('flags is_screenshot for a no-EXIF iOS-style filename', async () => {
     const file = path.join(dir, 'Screenshot 2026-05-19 at 10.04.32.png');
-    const { default: sharp } = await import('sharp');
-    const buf = await sharp({
-      create: { width: 8, height: 16, channels: 3, background: { r: 0, g: 0, b: 0 } },
-    })
-      .png()
-      .toBuffer();
-    await writeFile(file, buf);
+    await writeFile(file, await solidPng(8, 16, [0, 0, 0]));
     const doc = makeDoc(file, libraryId, dir);
     const result = await exifStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
@@ -167,13 +156,7 @@ describe('exif handler', () => {
 
   it('does NOT flag is_screenshot for a regular JPEG without EXIF', async () => {
     const file = path.join(dir, 'vacation.jpg');
-    const { default: sharp } = await import('sharp');
-    const buf = await sharp({
-      create: { width: 4, height: 4, channels: 3, background: { r: 0, g: 0, b: 0 } },
-    })
-      .jpeg()
-      .toBuffer();
-    await writeFile(file, buf);
+    await writeFile(file, await solidJpeg(4, 4, [0, 0, 0]));
     const doc = makeDoc(file, libraryId, dir);
     const result = await exifStage.handler(doc as never, {} as never);
     const { patch } = result as { patch: Record<string, unknown> };
