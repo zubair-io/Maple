@@ -39,15 +39,15 @@ Maple cannot decode this file format, so it cannot be edited or exported.
 
 ## Lens support
 
-A separate axis: lens correction never follows from the camera tier. Maple maintains no lens profile database, so the only source is the correction the camera writes into the file.
+A separate axis: lens correction never follows from the camera tier. The statuses below report embedded `OpcodeList3` correction data only, not external profile availability. Maple also bundles a Lensfun database and supports explicitly selected lens profiles. Corrections resolve in this order: embedded DNG corrections, an explicit profile selection, then an automatic match from the bundled Lensfun database. These sources are not compounded. See the [bundle coverage](../src/raw-pipeline/raw-core/src/lens_profile/lensfun/COVERAGE.md) for the database snapshot and coverage.
 
 ### `embedded_correction` — Embedded correction
 
 This camera writes the lens's own distortion, vignette and chromatic-aberration correction into the file, and Maple applies it.
 
-### `no_correction_data` — No correction data
+### `no_correction_data` — No embedded correction data
 
-This camera does not write lens correction into the file, and Maple does not maintain its own lens profiles, so the lens-correction controls have nothing to apply.
+No embedded lens corrections are recorded for this file. Maple may still apply an explicitly selected profile or an automatic match from its bundled Lensfun database; this status does not describe external profile availability.
 
 ## Profile fallback order
 

@@ -36,14 +36,14 @@ export type LensSupport = 'embedded_correction' | 'no_correction_data';
 
 export const LENS_SUPPORT_LABEL: Readonly<Record<LensSupport, string>> = {
   embedded_correction: 'Embedded correction',
-  no_correction_data: 'No correction data',
+  no_correction_data: 'No embedded correction data',
 };
 
 export const LENS_SUPPORT_EXPLANATION: Readonly<Record<LensSupport, string>> = {
   embedded_correction:
     "This camera writes the lens's own distortion, vignette and chromatic-aberration correction into the file, and Maple applies it.",
   no_correction_data:
-    'This camera does not write lens correction into the file, and Maple does not maintain its own lens profiles, so the lens-correction controls have nothing to apply.',
+    'No embedded lens corrections are recorded for this file. Maple may still apply an explicitly selected profile or an automatic match from its bundled Lensfun database; this status does not describe external profile availability.',
 };
 
 /** Which branch of the profile resolver produced a render. */

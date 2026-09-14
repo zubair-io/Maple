@@ -69,14 +69,14 @@ namespace Maple.WinUI.Generated
         public static string Label(LensSupport value) => value switch
         {
             LensSupport.EmbeddedCorrection => "Embedded correction",
-            LensSupport.NoCorrectionData => "No correction data",
+            LensSupport.NoCorrectionData => "No embedded correction data",
             _ => throw new ArgumentOutOfRangeException(nameof(value)),
         };
 
         public static string Explanation(LensSupport value) => value switch
         {
             LensSupport.EmbeddedCorrection => "This camera writes the lens's own distortion, vignette and chromatic-aberration correction into the file, and Maple applies it.",
-            LensSupport.NoCorrectionData => "This camera does not write lens correction into the file, and Maple does not maintain its own lens profiles, so the lens-correction controls have nothing to apply.",
+            LensSupport.NoCorrectionData => "No embedded lens corrections are recorded for this file. Maple may still apply an explicitly selected profile or an automatic match from its bundled Lensfun database; this status does not describe external profile availability.",
             _ => throw new ArgumentOutOfRangeException(nameof(value)),
         };
 
