@@ -91,4 +91,20 @@ describe('worker pool execution mode', () => {
     const after = await callNative('validateFilename', ['still-works.jpg']);
     expect(after).toEqual({ ok: true });
   });
+
+  it('a second, rejecting call checked with expect().rejects settles even when it reuses an idle worker from a prior successful call (#3508 regression)', async () => {
+    // Reproduces a real Bun engine quirk (seen on 1.4.3-canary.1): when a
+    // SECOND worker round trip in one test rejects and is awaited via
+    // `expect(...).rejects`, and it is NOT the first worker call the test
+    // makes, `bun:test`'s `.rejects` matcher wedged the pool's `Worker`
+    // message port — the worker still replied, but the main thread's
+    // `message` listener never fired for that reply, hanging the test until
+    // its own timeout. `handleResponse`'s macrotask-deferred settle (see its
+    // doc comment in `worker-pool.ts`) is the fix; this test is the gate.
+    const first = await callNative('validateFilename', ['first-call.jpg']);
+    expect(first).toEqual({ ok: true });
+    await expect(
+      callNative('thisMethodDoesNotExist' as never, [] as never),
+    ).rejects.toThrow(/unknown native method/);
+  });
 });
