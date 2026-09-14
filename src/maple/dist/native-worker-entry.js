@@ -466,6 +466,50 @@ function getPlatformBinaryFilename(platform = process.platform) {
     return "libraw_ffi.dylib";
   return "libraw_ffi.so";
 }
+function getPlatformNapiFilename(platform = process.platform, arch = process.arch, musl = isMusl()) {
+  if (platform === "darwin")
+    return `raw-napi.darwin-${arch === "arm64" ? "arm64" : "x64"}.node`;
+  if (platform === "win32")
+    return "raw-napi.win32-x64-msvc.node";
+  const libc = musl ? "musl" : "gnu";
+  return `raw-napi.linux-${arch === "arm64" ? "arm64" : "x64"}-${libc}.node`;
+}
+function napiCargoLibFilename(platform = process.platform) {
+  if (platform === "win32")
+    return "raw_napi.dll";
+  if (platform === "darwin")
+    return "libraw_napi.dylib";
+  return "libraw_napi.so";
+}
+function resolvePlatformNapiAddon() {
+  const pkgName = getPlatformPackageName();
+  if (!pkgName)
+    return null;
+  const napiName = getPlatformNapiFilename();
+  try {
+    const resolved = __require.resolve(`${pkgName}/${napiName}`);
+    if (fs.existsSync(resolved))
+      return path.resolve(resolved);
+  } catch {}
+  const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
+  const shortName = pkgName.replace("@justmaple/maple-", "");
+  const napiCargoTarget = path.join(currentDir, "..", "..", "raw-pipeline", "target");
+  const napiLibName = napiCargoLibFilename();
+  const candidates = [
+    path.join(currentDir, "..", "..", pkgName, napiName),
+    path.join(currentDir, "..", "node_modules", pkgName, napiName),
+    path.join(process.cwd(), "node_modules", pkgName, napiName),
+    path.join(currentDir, "..", "npm", shortName, napiName),
+    path.join(process.cwd(), "npm", shortName, napiName),
+    path.join(napiCargoTarget, "release", napiLibName),
+    path.join(napiCargoTarget, "aarch64-apple-darwin", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-apple-darwin", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-unknown-linux-gnu", "release", napiLibName),
+    path.join(napiCargoTarget, "aarch64-unknown-linux-gnu", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-pc-windows-msvc", "release", napiLibName)
+  ];
+  return candidates.find((c) => fs.existsSync(c)) ?? null;
+}
 function resolvePlatformPackageLib() {
   const pkgName = getPlatformPackageName();
   if (!pkgName)

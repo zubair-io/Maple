@@ -29,12 +29,18 @@ export declare function getMapleExecutionMode(): MapleExecutionMode;
  *  `ffi-pool-slots.ts`. */
 export declare function setMapleConcurrency(n: number): void;
 export declare function getMapleConcurrency(): number;
-/**
- * Call one `NativeBinding` method by name. In the default `'worker'`
- * execution mode this posts to the worker pool and never touches the
- * caller's event loop; in `'sync'` mode it calls straight through to
- * `loadNativeBinding()` on the caller's own thread (the escape hatch).
- */
+/** Test-only: override the "is this Bun" check `callNative` uses to decide
+ *  whether the bun:ffi/worker-pool fallback is even reachable, so a test can
+ *  exercise the plain-Node "no working backend" error path without needing
+ *  to mutate the real (non-configurable) `globalThis.Bun`. Pass `undefined`
+ *  to restore the real check. */
+export declare function _setIsBunRuntimeForTests(fn: (() => boolean) | undefined): void;
+/** Builds the error `callNative` throws when no napi function answered this
+ *  call AND the bun:ffi/worker-pool fallback isn't reachable either (plain
+ *  Node, no Bun global) — pulled out as its own function so its exact
+ *  wording can be unit-tested without needing to fake `globalThis.Bun` (see
+ *  `isBunRuntime` above) or actually reach `callNative`'s async dispatch. */
+export declare function buildNoNativeBindingError(napiError: Error | null): Error;
 export declare function callNative<K extends keyof NativeBinding>(method: K, args: Parameters<NativeBinding[K]>): Promise<ReturnType<NativeBinding[K]>>;
 /** Terminate every spawned worker and stop accepting new calls. Callers that
  *  want a script to exit the instant Maple work is done (rather than relying
