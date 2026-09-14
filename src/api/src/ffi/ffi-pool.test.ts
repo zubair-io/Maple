@@ -275,8 +275,8 @@ describe('FfiWorkerPool — protocol mismatch', () => {
 });
 
 describe('FfiWorkerPool — bitmap ops', () => {
-  // #3499: the bitmap thumbnail + AVIF-validation ops the retired sharp-backed
-  // imgdecode pool used to own now ride this pool. `respondWith` stands in for
+  // #3499: the bitmap thumbnail + AVIF-validation ops the retired imgdecode
+  // pool used to own now ride this pool. `respondWith` stands in for
   // the child's reply so each op's own response shape (`{ ok, error }` for the
   // render, `{ ok, reason }` for the validation) is pinned at the wire level.
   it('dispatches renderBitmap and validateAvif and resolves their result shapes', async () => {

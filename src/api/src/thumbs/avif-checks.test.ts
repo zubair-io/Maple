@@ -10,7 +10,7 @@
  * covered in `validate-avif.test.ts`.
  *
  * Fixtures come from `test-support/synth-image.ts` (Maple-encoded), not disk
- * files or `sharp({ create: … })` (#3499/#3500).
+ * files or the previous bitmap library's synthetic-image helper (#3499/#3500).
  */
 import { describe, expect, it } from 'bun:test';
 import { mkdtemp, writeFile, rm, readFile, stat } from 'node:fs/promises';

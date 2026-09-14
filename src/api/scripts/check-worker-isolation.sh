@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Check that worker-main code path has no inline-abortable native imports.
-# Part of #884 worker isolation — ensures sharp/onnxruntime/heic-convert are
+# Part of #884 worker isolation — ensures onnxruntime/heic-convert are
 # only loaded in isolated child processes, never in worker-main's address space.
 
 set -euo pipefail
@@ -47,30 +47,11 @@ check_import() {
   fi
 }
 
-# Check for sharp imports (excluding child processes and specific isolation files)
-echo -n "Checking for 'sharp' imports in worker-main path... "
-SHARP_MATCHES=$(grep -r "from 'sharp'" \
-  "$API_SRC/workers" \
-  "$API_SRC/indexer" \
-  "$API_SRC/enrichment" \
-  --include="*.ts" \
-  --exclude="*.test.ts" \
-  --exclude="*.child.ts" \
-  --exclude="apply-orientation.ts" \
-  --exclude="render.ts" \
-  --exclude="face-detector.ts" \
-  2>/dev/null | grep -v "face-pool.ts" || true)
-
-if [ -z "$SHARP_MATCHES" ]; then
-  echo -e "${GREEN}✓ OK${NC}"
-  echo "  Note: face-detector.ts imports sharp but only runs in face-pool.child.ts"
-  echo "        (or fallback when child spawn fails, which is documented)"
-else
-  echo -e "${RED}✗ FAIL${NC}"
-  echo "  Found inline sharp imports:"
-  echo "$SHARP_MATCHES" | sed 's/^/    /'
-  EXIT_CODE=1
-fi
+# Check for sharp imports — retired from src/api entirely (#3500); no
+# exception carve-out needed any more (face-detector.ts no longer imports
+# it at all).
+check_import "from 'sharp'" "sharp" \
+  "$API_SRC/workers $API_SRC/indexer $API_SRC/enrichment"
 
 # Check for onnxruntime imports
 check_import "from 'onnxruntime" "onnxruntime-node" \
@@ -133,7 +114,7 @@ echo "=== Summary ==="
 if [ $EXIT_CODE -eq 0 ]; then
   echo -e "${GREEN}✓ All checks passed${NC}"
   echo "Worker-main has no inline-abortable native imports."
-  echo "All heavy native code (sharp, onnxruntime, heic-convert) is isolated in child processes."
+  echo "All heavy native code (onnxruntime, heic-convert) is isolated in child processes."
 else
   echo -e "${RED}✗ Some checks failed${NC}"
   echo "Worker-main may have inline-abortable native imports that could crash the entire tier."

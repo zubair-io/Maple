@@ -129,7 +129,7 @@ export class OnnxFaceDetector implements FaceDetector {
   async detectFaces(jpegBytes: Uint8Array): Promise<DetectedFace[]> {
     const { detector, Tensor } = await this.models();
     // Maple's native tensor path decodes, resizes to DETECTOR_INPUT_SIZE
-    // (stretch-fill, matching the old sharp `fit: 'fill'` call), forces
+    // (stretch-fill, matching the old `fit: 'fill'` call), forces
     // 3-channel RGB (grey expanded, alpha dropped — same as the old
     // `toColourspace('srgb').removeAlpha()` pair), packs NCHW and applies
     // InsightFace's `(px - 127.5) / 128.0` normalisation, all on the native
@@ -229,7 +229,7 @@ async function alignFaceCrop(
   try {
     // `.toRaw()` decodes to native-size interleaved RGB8 — alpha dropped,
     // grey expanded to 3 identical channels — exactly matching the old
-    // sharp `.toColourspace('srgb').removeAlpha().raw()` chain, without a
+    // `.toColourspace('srgb').removeAlpha().raw()` chain, without a
     // separate `.metadata()` call: width/height come back from the same
     // decode.
     const decoded = await maple(jpegBytes).toRaw();

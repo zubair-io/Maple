@@ -7,14 +7,14 @@
 // configured cap's worth of decode+encode jobs concurrently.
 //
 // `generatePreview` is faked with a slow, concurrency-tracking implementation
-// so this never touches sharp/libraw — via `spyOn` on the previewer module
+// so this never touches maple/libraw — via `spyOn` on the previewer module
 // namespace, NOT `mock.module`. #2032: the previous `mock.module`-based fake
 // leaked out of this file on CI's (linux) test-file collection order — the
 // `afterAll` restore did not repoint `workers/stages/preview.ts`'s
 // already-captured `generatePreview` binding in Bun's shared module registry,
 // so the preview STAGE tests later in the run invoked THIS file's fake, which
 // wrote literal `generated-<n>` text bytes as their "preview" and made
-// `sharp().metadata()` fail with "unsupported image format" (deterministically
+// the decoder's `.metadata()` call fail with "unsupported image format" (deterministically
 // red on CI, green on macOS where collection order differs). `spyOn` patches
 // the one export in place and `mockRestore()` reverts it for every importer —
 // the same leak-proof pattern `worker-status.repo.test.ts` documents for
@@ -52,7 +52,7 @@ let completedCount = 0;
 const previewerModule = await import('../../indexer/previewer.ts');
 
 /** Simulated decode+AVIF-encode: tracks concurrency, writes a dummy file so
- * the route's subsequent read succeeds, never touches sharp/libraw. */
+ * the route's subsequent read succeeds, never touches maple/libraw. */
 async function fakeGeneratePreview(_absPath: string, previewPath: string): Promise<void> {
   activeGenerations++;
   peakConcurrent = Math.max(peakConcurrent, activeGenerations);

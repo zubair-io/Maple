@@ -5,7 +5,7 @@
  * routes all decode through isolated child processes (ffi-pool for RAW,
  * imgdecode-pool for bitmap formats). Orientation is baked at decode time:
  * FFI path bakes it during preview extraction; imgdecode child calls
- * sharp's .rotate() inline.
+ * maple's .rotate() inline.
  *
  * Cache-path resolution: the ONE path-keyed location every reader computes —
  * `<lib>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif`,

@@ -124,9 +124,9 @@ export async function extractFramesJpeg(
     try {
       if (!(await extractRawFrame(bin, videoPath, timestampSec, tmpPath))) continue;
       const raw = await fs.readFile(tmpPath);
-      // `withoutEnlargement: true` is Maple's own default (unlike sharp,
-      // which defaults it to false) — kept explicit here to preserve the
-      // original sharp call's intent at a glance. mozjpeg has no Maple
+      // `withoutEnlargement: true` is Maple's own default (unlike the
+      // previous bitmap library, which defaults it to false) — kept explicit
+      // here to preserve the original call's intent at a glance. mozjpeg has no Maple
       // equivalent (Maple's JPEG encoder is a pure-Rust encoder, not
       // libjpeg-turbo/mozjpeg — see the @justmaple/maple README's "JPEG is
       // not mozjpeg" section); files come out slightly larger at the same

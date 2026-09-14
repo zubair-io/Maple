@@ -46,7 +46,7 @@ describe('EXIF capture time', () => {
    * structure a camera writes (IFD0 → an ExifIFD pointer, tag 0x8769 →
    * the Exif sub-IFD → the tag itself), not a flattened convenience
    * shortcut. Maple's `withExif()` takes this raw form directly (it
-   * diverges from sharp's `{ IFD0: {...} }` object shape — see the
+   * diverges from the previous library's `{ IFD0: {...} }` object shape — see the
    * @justmaple/maple README's `withExif()` row, tracked upstream as #3588).
    *
    * Layout (byte offsets):

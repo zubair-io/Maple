@@ -58,7 +58,7 @@ type RouteSet = Context['set'];
  * `resolveThumbPath`, no `maple_id` needed) instead of making the grid
  * wait for the indexer, which may be idle/behind (`file_count` can sit at
  * 0). For RAW this extracts the embedded preview JPEG (cheap); non-RAW goes
- * through sharp. Once the indexer assigns a `maple_id`, `serveIndexedThumb`
+ * through maple. Once the indexer assigns a `maple_id`, `serveIndexedThumb`
  * takes over at the same URL. */
 async function serveUnindexedThumb(
   absPath: string,

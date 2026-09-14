@@ -19,7 +19,7 @@ import { isUndecodableFilename } from '../../indexer/media-types.ts';
 /** The thumbnail stage hasn't run yet, or the cached file was deleted. */
 export const THUMB_MISSING_REASON = 'thumb-missing';
 
-/** Cached thumbnail exists on disk but `sharp`/libvips can't decode it
+/** Cached thumbnail exists on disk but Maple can't decode it
  * (e.g. "VipsJpeg: Invalid SOS parameters"). Non-retryable — regenerating
  * the thumb would produce the same bytes. Skip-passes so the stage version
  * advances and we stop hammering bad inputs. */

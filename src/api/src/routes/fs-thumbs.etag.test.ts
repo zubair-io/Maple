@@ -18,7 +18,7 @@
 //     client's HTTP cache for a year.
 //
 // The route is exercised via its own pre-staged thumb cache file so the
-// test does not require sharp/heic/libraw to be available.
+// test does not require maple/heic/libraw to be available.
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
@@ -42,8 +42,8 @@ describe('GET /api/fs/thumb — ETag + Cache-Control', () => {
     // resolved once by the time real request traffic arrives.
     await browseRoots();
 
-    // Use a .jpg so a MISS would take the sharp branch — but every test
-    // here pre-stages the cache thumb directly, so sharp is never invoked.
+    // Use a .jpg so a MISS would take the maple branch — but every test
+    // here pre-stages the cache thumb directly, so maple is never invoked.
     rawPath = join(tmp, 'a.jpg');
     await writeFile(rawPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     thumbPath = resolveThumbPath(rawPath);
