@@ -37,6 +37,7 @@ pub fn composite_into_f32(
             .map(|c| [c[0], c[1], c[2]])
             .collect(),
         space: ColorSpace::SceneLinearRec2020,
+        whites_anchor_ev: None,
     };
     crate::stages::inpaint_composite::apply(&mut img, patches);
     let mut out = Vec::with_capacity(expected_len);
@@ -91,6 +92,7 @@ pub fn composite_into_fp16(
             })
             .collect(),
         space: ColorSpace::SceneLinearRec2020,
+        whites_anchor_ev: None,
     };
     crate::stages::inpaint_composite::apply(&mut img, patches);
     let alpha_one = f32_to_f16_bits(1.0);

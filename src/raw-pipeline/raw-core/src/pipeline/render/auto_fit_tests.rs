@@ -60,6 +60,7 @@ fn fit_develop_model_pins_defaults_ignoring_caller_edits() {
     // (a) caller edits do NOT survive (the #1085 bug had them surviving) …
     assert_eq!(fit.exposure, 0.0, "caller exposure must not reach the fit");
     assert_eq!(fit.contrast, 0.0, "caller contrast must not reach the fit");
+    assert_eq!(fit.whites, 0.0, "caller whites must not reach the fit");
     assert_eq!(fit.temperature, 6500.0, "caller WB must not reach the fit");
     // (b) … the #972 zeroing is REMOVED — defaults, not zeroes, so the fit
     //     input matches the harness-gated default-model CPU develop …
@@ -236,7 +237,10 @@ fn standalone_fit_proxies_every_sensor_to_the_proxy_edge_3510() {
     };
     // A 6000-px body's 6000-px embedded JPEG → 1536 proxy (pre-#3510 this
     // sensor developed at native resolution and fit 24 M pairs).
-    assert_eq!(auto_fit_max_long_edge(&preview(6000, 4000)), AUTO_FIT_PROXY_LE);
+    assert_eq!(
+        auto_fit_max_long_edge(&preview(6000, 4000)),
+        AUTO_FIT_PROXY_LE
+    );
     // A body whose embedded JPEG is smaller than the proxy fits at its size.
     assert_eq!(auto_fit_max_long_edge(&preview(960, 640)), 960);
     assert_eq!(auto_fit_max_long_edge(&preview(1536, 1024)), 1536);

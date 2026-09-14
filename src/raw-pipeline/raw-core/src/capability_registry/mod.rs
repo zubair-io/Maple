@@ -431,7 +431,12 @@ impl EvidenceSource {
     /// and re-recording.
     pub const fn expected_cases(self) -> u32 {
         match self {
-            EvidenceSource::GreyAdjustments => 40,
+            // 39 since #3601: the whites view-transform remap pushed
+            // grey_adjustments.rs over the 600-LOC file budget, so its
+            // white-balance (temperature/tint) tests split into
+            // grey_adjustments_wb.rs — 19 (grey_adjustments) + 14
+            // (grey_adjustments_display) + 6 (grey_adjustments_wb).
+            EvidenceSource::GreyAdjustments => 41,
             EvidenceSource::SyntheticGrey => 6,
             EvidenceSource::GreyDcp => 5,
             EvidenceSource::ColorChart => 7,
@@ -454,6 +459,8 @@ impl EvidenceSource {
             EvidenceSource::GreyAdjustments => &[
                 "src/raw-pipeline/raw-core/tests/grey_adjustments.rs",
                 "src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs",
+                "src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs",
+                "src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs",
             ],
             EvidenceSource::SyntheticGrey => &["src/raw-pipeline/raw-core/tests/grey_invariants.rs"],
             EvidenceSource::GreyDcp => &["src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs"],

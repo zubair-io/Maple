@@ -53,7 +53,7 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
 
     let arr = owned_arrays(&model, &curve, &lut);
     // Override target_primaries to 1 (Display P3).
-    let mut params = make_params(&model, WbMethod::Cat16, lut_size, &arr);
+    let mut params = make_params(&input, &model, WbMethod::Cat16, lut_size, &arr);
     params.target_primaries = 1;
 
     let mut handle = MapleGpuLiveSession {
@@ -76,6 +76,7 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
         let wb_matrix =
             raw_core::stages::white_balance::wb_cat16_matrix(model.temperature, model.tint).0;
         let inputs = FullChainInputs {
+            whites_anchor_ev: super::gpu_live_test_support::input_whites_anchor(input.as_ref()),
             wb_matrix,
             wb_temperature: model.temperature,
             wb_tint: model.tint,

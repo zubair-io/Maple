@@ -11,531 +11,531 @@
 import Foundation
 
 public enum CapabilitySurface: String, CaseIterable, Sendable {
-    case apple = "apple"
-    case web = "web"
-    case windows = "windows"
+  case apple = "apple"
+  case web = "web"
+  case windows = "windows"
 }
 
 public enum CapabilityStorageAdapter: String, CaseIterable, Sendable {
-    case filesystem = "filesystem"
-    case smb = "smb"
-    case photokit = "photokit"
-    case cloud = "cloud"
-    case apiFilesystem = "api_filesystem"
-    case fileSystemAccess = "file_system_access"
-    case indexedDb = "indexed_db"
+  case filesystem = "filesystem"
+  case smb = "smb"
+  case photokit = "photokit"
+  case cloud = "cloud"
+  case apiFilesystem = "api_filesystem"
+  case fileSystemAccess = "file_system_access"
+  case indexedDb = "indexed_db"
 }
 
 public enum CapabilityAssetClass: String, CaseIterable, Sendable {
-    case raw = "raw"
-    case nonRaw = "non_raw"
+  case raw = "raw"
+  case nonRaw = "non_raw"
 }
 
 public enum CapabilityPreviewPath: String, CaseIterable, Sendable {
-    case cpuReference = "cpu_reference"
-    case gpuLive = "gpu_live"
-    case wasmCpu = "wasm_cpu"
-    case wasmGpu = "wasm_gpu"
+  case cpuReference = "cpu_reference"
+  case gpuLive = "gpu_live"
+  case wasmCpu = "wasm_cpu"
+  case wasmGpu = "wasm_gpu"
 }
 
 public enum CapabilityExportPath: String, CaseIterable, Sendable {
-    case mapleCli = "maple_cli"
-    case appleFfi = "apple_ffi"
-    case wasm = "wasm"
-    case apiFfi = "api_ffi"
-    case windowsDll = "windows_dll"
+  case mapleCli = "maple_cli"
+  case appleFfi = "apple_ffi"
+  case wasm = "wasm"
+  case apiFfi = "api_ffi"
+  case windowsDll = "windows_dll"
 }
 
 public enum CapabilityEvidenceSource: String, CaseIterable, Sendable {
-    case greyAdjustments = "grey_adjustments"
-    case syntheticGrey = "synthetic_grey"
-    case greyDcp = "grey_dcp"
-    case colorChart = "color_chart"
-    case colorHarness = "color_harness"
-    case sidecarContractApple = "sidecar_contract_apple"
-    case sidecarContractApi = "sidecar_contract_api"
-    case gpuChainParityLavapipe = "gpu_chain_parity_lavapipe"
-    case gpuChainParityMetal = "gpu_chain_parity_metal"
-    case appleCanvasGolden = "apple_canvas_golden"
+  case greyAdjustments = "grey_adjustments"
+  case syntheticGrey = "synthetic_grey"
+  case greyDcp = "grey_dcp"
+  case colorChart = "color_chart"
+  case colorHarness = "color_harness"
+  case sidecarContractApple = "sidecar_contract_apple"
+  case sidecarContractApi = "sidecar_contract_api"
+  case gpuChainParityLavapipe = "gpu_chain_parity_lavapipe"
+  case gpuChainParityMetal = "gpu_chain_parity_metal"
+  case appleCanvasGolden = "apple_canvas_golden"
 }
 
 public enum CapabilityReleaseState: String, CaseIterable, Sendable {
-    case core = "core"
-    case integrated = "integrated"
-    case released = "released"
+  case core = "core"
+  case integrated = "integrated"
+  case released = "released"
 }
 
 /// One editor capability and its computed release state.
 public struct CapabilityRecord: Sendable {
-    public let id: String
-    public let title: String
-    public let owner: String
-    public let surfaces: [CapabilitySurface]
-    public let storageAdapters: [CapabilityStorageAdapter]
-    public let assetClasses: [CapabilityAssetClass]
-    public let previewPaths: [CapabilityPreviewPath]
-    public let exportPaths: [CapabilityExportPath]
-    public let fields: [String]
-    public let integration: [CapabilityEvidenceSource]
-    public let qualification: [CapabilityEvidenceSource]
-    public let releaseState: CapabilityReleaseState
+  public let id: String
+  public let title: String
+  public let owner: String
+  public let surfaces: [CapabilitySurface]
+  public let storageAdapters: [CapabilityStorageAdapter]
+  public let assetClasses: [CapabilityAssetClass]
+  public let previewPaths: [CapabilityPreviewPath]
+  public let exportPaths: [CapabilityExportPath]
+  public let fields: [String]
+  public let integration: [CapabilityEvidenceSource]
+  public let qualification: [CapabilityEvidenceSource]
+  public let releaseState: CapabilityReleaseState
 }
 
 /// The registry plus the build the states were computed for.
 public enum CapabilityRegistry {
-    public static let pipelineOutputVersion: UInt32 = 4
-    public static let schemaVersion: UInt32 = 5
+  public static let pipelineOutputVersion: UInt32 = 5
+  public static let schemaVersion: UInt32 = 5
 
-    public static let all: [CapabilityRecord] = [
-        CapabilityRecord(
-            id: "white_balance",
-            title: "White balance",
-            owner: "zubair-io",
-            surfaces: [.apple, .web, .windows],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [
-                "temperature",
-                "tint",
-                "temperature_seen",
-                "tint_seen",
-                "wb_method",
-                "wb_scale_version",
-                "wb_source",
-                "wb_sample_x",
-                "wb_sample_y",
-                "wb_algorithm_version",
-            ],
-            integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
-            qualification: [
-                .greyAdjustments,
-                .syntheticGrey,
-                .greyDcp,
-                .colorChart,
-                .colorHarness,
-                .gpuChainParityMetal,
-                .appleCanvasGolden,
-            ],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "tone",
-            title: "Tone (exposure, contrast, parametric and point curves)",
-            owner: "zubair-io",
-            surfaces: [.apple, .web, .windows],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [
-                "exposure",
-                "brightness",
-                "contrast",
-                "highlights",
-                "shadows",
-                "whites",
-                "blacks",
-                "parametric_highlights",
-                "parametric_lights",
-                "parametric_darks",
-                "parametric_shadows",
-                "parametric_shadow_split",
-                "parametric_midtone_split",
-                "parametric_highlight_split",
-                "auto_exposure",
-                "tone_curve_mode",
-                "tone_curve_luma",
-                "tone_curve_red",
-                "tone_curve_green",
-                "tone_curve_blue",
-                "display_tone_curve_luma",
-                "display_tone_curve_red",
-                "display_tone_curve_green",
-                "display_tone_curve_blue",
-            ],
-            integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
-            qualification: [
-                .greyAdjustments,
-                .syntheticGrey,
-                .greyDcp,
-                .colorChart,
-                .colorHarness,
-                .gpuChainParityMetal,
-                .appleCanvasGolden,
-            ],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "color",
-            title: "Color (HSL, B&W mixer, color grading, profile and look)",
-            owner: "zubair-io",
-            surfaces: [.apple, .web, .windows],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [
-                "vibrance",
-                "saturation",
-                "hue_adjustment_red",
-                "hue_adjustment_orange",
-                "hue_adjustment_yellow",
-                "hue_adjustment_green",
-                "hue_adjustment_aqua",
-                "hue_adjustment_blue",
-                "hue_adjustment_purple",
-                "hue_adjustment_magenta",
-                "saturation_adjustment_red",
-                "saturation_adjustment_orange",
-                "saturation_adjustment_yellow",
-                "saturation_adjustment_green",
-                "saturation_adjustment_aqua",
-                "saturation_adjustment_blue",
-                "saturation_adjustment_purple",
-                "saturation_adjustment_magenta",
-                "luminance_adjustment_red",
-                "luminance_adjustment_orange",
-                "luminance_adjustment_yellow",
-                "luminance_adjustment_green",
-                "luminance_adjustment_aqua",
-                "luminance_adjustment_blue",
-                "luminance_adjustment_purple",
-                "luminance_adjustment_magenta",
-                "black_white",
-                "gray_mixer_red",
-                "gray_mixer_orange",
-                "gray_mixer_yellow",
-                "gray_mixer_green",
-                "gray_mixer_aqua",
-                "gray_mixer_blue",
-                "gray_mixer_purple",
-                "gray_mixer_magenta",
-                "split_tone_shadow_hue",
-                "split_tone_shadow_saturation",
-                "split_tone_highlight_hue",
-                "split_tone_highlight_saturation",
-                "split_tone_balance",
-                "color_grade_shadow_luminance",
-                "color_grade_midtone_hue",
-                "color_grade_midtone_saturation",
-                "color_grade_midtone_luminance",
-                "color_grade_highlight_luminance",
-                "color_grade_global_hue",
-                "color_grade_global_saturation",
-                "color_grade_global_luminance",
-                "highlight_recovery",
-                "look",
-                "profile",
-            ],
-            integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
-            qualification: [
-                .greyAdjustments,
-                .syntheticGrey,
-                .greyDcp,
-                .colorChart,
-                .colorHarness,
-                .gpuChainParityMetal,
-                .appleCanvasGolden,
-            ],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "detail",
-            title: "Detail (sharpening, noise reduction, presence, dehaze, lens)",
-            owner: "zubair-io",
-            surfaces: [.apple, .web, .windows],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [
-                "clarity",
-                "texture",
-                "dehaze",
-                "sharpen_amount",
-                "sharpen_radius",
-                "sharpen_detail",
-                "sharpen_masking",
-                "capture_sharpening_amount",
-                "capture_sharpening_sigma",
-                "nr_luminance",
-                "nr_color",
-                "chroma_prefilter",
-                "hot_pixel_suppression",
-                "deep_denoise",
-                "lens_profile_enable",
-                "lens_correction_distortion",
-                "lens_correction_ca",
-                "lens_correction_vignetting",
-                "demosaic",
-                "auto_lateral_ca",
-                "defringe_purple_amount",
-                "defringe_purple_hue_lo",
-                "defringe_purple_hue_hi",
-                "defringe_green_amount",
-                "defringe_green_hue_lo",
-                "defringe_green_hue_hi",
-                "capture_sharpening_radius",
-                "lens_profile",
-            ],
-            integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
-            qualification: [
-                .greyAdjustments,
-                .syntheticGrey,
-                .greyDcp,
-                .colorChart,
-                .colorHarness,
-                .gpuChainParityMetal,
-                .appleCanvasGolden,
-            ],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "effects",
-            title: "Effects (vignette, grain, film looks)",
-            owner: "zubair-io",
-            surfaces: [.apple, .web],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi],
-            fields: [
-                "vignette_amount",
-                "vignette_feather",
-                "grain_amount",
-                "grain_size",
-                "grain_roughness",
-                "film_look",
-                "film_strength",
-            ],
-            integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
-            qualification: [.greyAdjustments, .gpuChainParityMetal, .appleCanvasGolden],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "geometry",
-            title: "Crop and straighten",
-            owner: "zubair-io",
-            surfaces: [.apple, .web, .windows],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [
-                "crop",
-                "perspective_vertical",
-                "perspective_horizontal",
-                "perspective_rotate",
-                "perspective_scale",
-                "perspective_aspect",
-                "perspective_x",
-                "perspective_y",
-            ],
-            integration: [.sidecarContractApple, .sidecarContractApi],
-            qualification: [.appleCanvasGolden],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "auto_adjustments",
-            title: "AUTO (exposure + calibrated tone sliders)",
-            owner: "zubair-io",
-            surfaces: [.web, .windows],
-            storageAdapters: [.apiFilesystem, .fileSystemAccess, .indexedDb],
-            assetClasses: [.raw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [],
-            integration: [.sidecarContractApi],
-            qualification: [],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "copy_paste_sync",
-            title: "Copy / paste / sync settings",
-            owner: "zubair-io",
-            surfaces: [.apple, .web],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [],
-            integration: [],
-            qualification: [],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "presets",
-            title: "Presets",
-            owner: "zubair-io",
-            surfaces: [.apple, .web],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [],
-            integration: [],
-            qualification: [],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "local_adjustments",
-            title: "Masks / local adjustments",
-            owner: "zubair-io",
-            surfaces: [],
-            storageAdapters: [],
-            assetClasses: [.raw],
-            previewPaths: [.cpuReference],
-            exportPaths: [.mapleCli],
-            fields: ["local_adjustments", "mask_rasters"],
-            integration: [],
-            qualification: [],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "retouch_repair",
-            title: "Clone / heal brush",
-            owner: "zubair-io",
-            surfaces: [.apple, .web],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw],
-            previewPaths: [.cpuReference, .gpuLive],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: ["retouch_spots"],
-            integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
-            qualification: [],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "inpaint_repair",
-            title: "Repair (local AI inpainting)",
-            owner: "zubair-io",
-            surfaces: [.apple],
-            storageAdapters: [.filesystem],
-            assetClasses: [.raw],
-            previewPaths: [.cpuReference, .gpuLive],
-            exportPaths: [.appleFfi],
-            fields: ["inpaint_removals"],
-            integration: [],
-            qualification: [],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "sidecar_persistence",
-            title: "Non-destructive sidecar persistence",
-            owner: "zubair-io",
-            surfaces: [.apple, .web, .windows],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [],
-            integration: [.sidecarContractApple, .sidecarContractApi],
-            qualification: [.sidecarContractApple, .sidecarContractApi],
-            releaseState: .core
-        ),
-        CapabilityRecord(
-            id: "export",
-            title: "Export (JPEG / PNG / TIFF / HEIC)",
-            owner: "zubair-io",
-            surfaces: [.apple, .web, .windows],
-            storageAdapters: [
-                .filesystem,
-                .smb,
-                .photokit,
-                .cloud,
-                .apiFilesystem,
-                .fileSystemAccess,
-                .indexedDb,
-            ],
-            assetClasses: [.raw, .nonRaw],
-            previewPaths: [],
-            exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
-            fields: [],
-            integration: [],
-            qualification: [],
-            releaseState: .core
-        ),
-    ]
+  public static let all: [CapabilityRecord] = [
+    CapabilityRecord(
+      id: "white_balance",
+      title: "White balance",
+      owner: "zubair-io",
+      surfaces: [.apple, .web, .windows],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [
+        "temperature",
+        "tint",
+        "temperature_seen",
+        "tint_seen",
+        "wb_method",
+        "wb_scale_version",
+        "wb_source",
+        "wb_sample_x",
+        "wb_sample_y",
+        "wb_algorithm_version",
+      ],
+      integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
+      qualification: [
+        .greyAdjustments,
+        .syntheticGrey,
+        .greyDcp,
+        .colorChart,
+        .colorHarness,
+        .gpuChainParityMetal,
+        .appleCanvasGolden,
+      ],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "tone",
+      title: "Tone (exposure, contrast, parametric and point curves)",
+      owner: "zubair-io",
+      surfaces: [.apple, .web, .windows],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [
+        "exposure",
+        "brightness",
+        "contrast",
+        "highlights",
+        "shadows",
+        "whites",
+        "blacks",
+        "parametric_highlights",
+        "parametric_lights",
+        "parametric_darks",
+        "parametric_shadows",
+        "parametric_shadow_split",
+        "parametric_midtone_split",
+        "parametric_highlight_split",
+        "auto_exposure",
+        "tone_curve_mode",
+        "tone_curve_luma",
+        "tone_curve_red",
+        "tone_curve_green",
+        "tone_curve_blue",
+        "display_tone_curve_luma",
+        "display_tone_curve_red",
+        "display_tone_curve_green",
+        "display_tone_curve_blue",
+      ],
+      integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
+      qualification: [
+        .greyAdjustments,
+        .syntheticGrey,
+        .greyDcp,
+        .colorChart,
+        .colorHarness,
+        .gpuChainParityMetal,
+        .appleCanvasGolden,
+      ],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "color",
+      title: "Color (HSL, B&W mixer, color grading, profile and look)",
+      owner: "zubair-io",
+      surfaces: [.apple, .web, .windows],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [
+        "vibrance",
+        "saturation",
+        "hue_adjustment_red",
+        "hue_adjustment_orange",
+        "hue_adjustment_yellow",
+        "hue_adjustment_green",
+        "hue_adjustment_aqua",
+        "hue_adjustment_blue",
+        "hue_adjustment_purple",
+        "hue_adjustment_magenta",
+        "saturation_adjustment_red",
+        "saturation_adjustment_orange",
+        "saturation_adjustment_yellow",
+        "saturation_adjustment_green",
+        "saturation_adjustment_aqua",
+        "saturation_adjustment_blue",
+        "saturation_adjustment_purple",
+        "saturation_adjustment_magenta",
+        "luminance_adjustment_red",
+        "luminance_adjustment_orange",
+        "luminance_adjustment_yellow",
+        "luminance_adjustment_green",
+        "luminance_adjustment_aqua",
+        "luminance_adjustment_blue",
+        "luminance_adjustment_purple",
+        "luminance_adjustment_magenta",
+        "black_white",
+        "gray_mixer_red",
+        "gray_mixer_orange",
+        "gray_mixer_yellow",
+        "gray_mixer_green",
+        "gray_mixer_aqua",
+        "gray_mixer_blue",
+        "gray_mixer_purple",
+        "gray_mixer_magenta",
+        "split_tone_shadow_hue",
+        "split_tone_shadow_saturation",
+        "split_tone_highlight_hue",
+        "split_tone_highlight_saturation",
+        "split_tone_balance",
+        "color_grade_shadow_luminance",
+        "color_grade_midtone_hue",
+        "color_grade_midtone_saturation",
+        "color_grade_midtone_luminance",
+        "color_grade_highlight_luminance",
+        "color_grade_global_hue",
+        "color_grade_global_saturation",
+        "color_grade_global_luminance",
+        "highlight_recovery",
+        "look",
+        "profile",
+      ],
+      integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
+      qualification: [
+        .greyAdjustments,
+        .syntheticGrey,
+        .greyDcp,
+        .colorChart,
+        .colorHarness,
+        .gpuChainParityMetal,
+        .appleCanvasGolden,
+      ],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "detail",
+      title: "Detail (sharpening, noise reduction, presence, dehaze, lens)",
+      owner: "zubair-io",
+      surfaces: [.apple, .web, .windows],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [
+        "clarity",
+        "texture",
+        "dehaze",
+        "sharpen_amount",
+        "sharpen_radius",
+        "sharpen_detail",
+        "sharpen_masking",
+        "capture_sharpening_amount",
+        "capture_sharpening_sigma",
+        "nr_luminance",
+        "nr_color",
+        "chroma_prefilter",
+        "hot_pixel_suppression",
+        "deep_denoise",
+        "lens_profile_enable",
+        "lens_correction_distortion",
+        "lens_correction_ca",
+        "lens_correction_vignetting",
+        "demosaic",
+        "auto_lateral_ca",
+        "defringe_purple_amount",
+        "defringe_purple_hue_lo",
+        "defringe_purple_hue_hi",
+        "defringe_green_amount",
+        "defringe_green_hue_lo",
+        "defringe_green_hue_hi",
+        "capture_sharpening_radius",
+        "lens_profile",
+      ],
+      integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
+      qualification: [
+        .greyAdjustments,
+        .syntheticGrey,
+        .greyDcp,
+        .colorChart,
+        .colorHarness,
+        .gpuChainParityMetal,
+        .appleCanvasGolden,
+      ],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "effects",
+      title: "Effects (vignette, grain, film looks)",
+      owner: "zubair-io",
+      surfaces: [.apple, .web],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi],
+      fields: [
+        "vignette_amount",
+        "vignette_feather",
+        "grain_amount",
+        "grain_size",
+        "grain_roughness",
+        "film_look",
+        "film_strength",
+      ],
+      integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
+      qualification: [.greyAdjustments, .gpuChainParityMetal, .appleCanvasGolden],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "geometry",
+      title: "Crop and straighten",
+      owner: "zubair-io",
+      surfaces: [.apple, .web, .windows],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [
+        "crop",
+        "perspective_vertical",
+        "perspective_horizontal",
+        "perspective_rotate",
+        "perspective_scale",
+        "perspective_aspect",
+        "perspective_x",
+        "perspective_y",
+      ],
+      integration: [.sidecarContractApple, .sidecarContractApi],
+      qualification: [.appleCanvasGolden],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "auto_adjustments",
+      title: "AUTO (exposure + calibrated tone sliders)",
+      owner: "zubair-io",
+      surfaces: [.web, .windows],
+      storageAdapters: [.apiFilesystem, .fileSystemAccess, .indexedDb],
+      assetClasses: [.raw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [],
+      integration: [.sidecarContractApi],
+      qualification: [],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "copy_paste_sync",
+      title: "Copy / paste / sync settings",
+      owner: "zubair-io",
+      surfaces: [.apple, .web],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [],
+      integration: [],
+      qualification: [],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "presets",
+      title: "Presets",
+      owner: "zubair-io",
+      surfaces: [.apple, .web],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [],
+      integration: [],
+      qualification: [],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "local_adjustments",
+      title: "Masks / local adjustments",
+      owner: "zubair-io",
+      surfaces: [],
+      storageAdapters: [],
+      assetClasses: [.raw],
+      previewPaths: [.cpuReference],
+      exportPaths: [.mapleCli],
+      fields: ["local_adjustments", "mask_rasters"],
+      integration: [],
+      qualification: [],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "retouch_repair",
+      title: "Clone / heal brush",
+      owner: "zubair-io",
+      surfaces: [.apple, .web],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw],
+      previewPaths: [.cpuReference, .gpuLive],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: ["retouch_spots"],
+      integration: [.sidecarContractApple, .sidecarContractApi, .gpuChainParityLavapipe],
+      qualification: [],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "inpaint_repair",
+      title: "Repair (local AI inpainting)",
+      owner: "zubair-io",
+      surfaces: [.apple],
+      storageAdapters: [.filesystem],
+      assetClasses: [.raw],
+      previewPaths: [.cpuReference, .gpuLive],
+      exportPaths: [.appleFfi],
+      fields: ["inpaint_removals"],
+      integration: [],
+      qualification: [],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "sidecar_persistence",
+      title: "Non-destructive sidecar persistence",
+      owner: "zubair-io",
+      surfaces: [.apple, .web, .windows],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [.cpuReference, .gpuLive, .wasmCpu, .wasmGpu],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [],
+      integration: [.sidecarContractApple, .sidecarContractApi],
+      qualification: [.sidecarContractApple, .sidecarContractApi],
+      releaseState: .core
+    ),
+    CapabilityRecord(
+      id: "export",
+      title: "Export (JPEG / PNG / TIFF / HEIC)",
+      owner: "zubair-io",
+      surfaces: [.apple, .web, .windows],
+      storageAdapters: [
+        .filesystem,
+        .smb,
+        .photokit,
+        .cloud,
+        .apiFilesystem,
+        .fileSystemAccess,
+        .indexedDb,
+      ],
+      assetClasses: [.raw, .nonRaw],
+      previewPaths: [],
+      exportPaths: [.mapleCli, .appleFfi, .wasm, .apiFfi, .windowsDll],
+      fields: [],
+      integration: [],
+      qualification: [],
+      releaseState: .core
+    ),
+  ]
 }

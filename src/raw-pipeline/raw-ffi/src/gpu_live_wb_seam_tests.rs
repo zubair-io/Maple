@@ -173,7 +173,7 @@ fn gpu_live_vs_develop_refine_seam_test_0002() {
             for (i, chunk) in refine_f32.chunks_exact(4).enumerate() {
                 img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
             }
-            raw_core::view::agx::apply(&mut img, 0.0);
+            raw_core::view::agx::apply(&mut img, 0.0, 0.0);
             raw_core::view::encode::rec2020_to_srgb(&mut img);
             raw_core::view::encode::srgb_gamma_encode(&mut img);
             let mut rgba = Vec::with_capacity(refine_f32.len());
@@ -186,7 +186,7 @@ fn gpu_live_vs_develop_refine_seam_test_0002() {
         // Live: the GPU chain over the as-shot bake, anchored at the
         // frame's as-shot pair (`wbDeltaAnchor`).
         let arr = owned_arrays(&model_target, &curve, &lut);
-        let mut p = make_params(&model_target, WbMethod::Cat16, 2, &arr);
+        let mut p = make_params(&bake_f32, &model_target, WbMethod::Cat16, 2, &arr);
         p.decoded_temperature = anchor.0;
         p.decoded_tint = anchor.1;
         null_auto(&mut p);
@@ -398,7 +398,7 @@ fn assert_exact_c_does_not_regress_vs_fixed_c(raw_name: &str, target: (f32, f32)
         for (i, chunk) in refine_f32.chunks_exact(4).enumerate() {
             img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
         }
-        raw_core::view::agx::apply(&mut img, 0.0);
+        raw_core::view::agx::apply(&mut img, 0.0, 0.0);
         raw_core::view::encode::rec2020_to_srgb(&mut img);
         raw_core::view::encode::srgb_gamma_encode(&mut img);
         let mut rgba = Vec::with_capacity(refine_f32.len());
@@ -424,7 +424,7 @@ fn assert_exact_c_does_not_regress_vs_fixed_c(raw_name: &str, target: (f32, f32)
         for (i, c) in buf.chunks_exact(4).enumerate() {
             img2.pixels[i] = [c[0], c[1], c[2]];
         }
-        raw_core::view::agx::apply(&mut img2, 0.0);
+        raw_core::view::agx::apply(&mut img2, 0.0, 0.0);
         raw_core::view::encode::rec2020_to_srgb(&mut img2);
         raw_core::view::encode::srgb_gamma_encode(&mut img2);
         let mut rgba = Vec::with_capacity(buf.len());

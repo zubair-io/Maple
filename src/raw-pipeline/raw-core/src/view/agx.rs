@@ -125,7 +125,10 @@ fn log_encode(channel: f32) -> f32 {
 /// so hue survives the curve. The post-outset clamp is replaced with
 /// Oklab hue-preserving gamut compression to keep saturated-primary
 /// pixels in `[0, 1]^3` without producing magenta.
-fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
+///
+/// `whites` is the white-point remap from `view::agx_whites`, applied to the
+/// normalised log value before the contrast slope.
+fn agx_pixel(scene: [f32; 3], slope: f32, whites: f32) -> [f32; 3] {
     // 1) Inset matrix: Rec.2020 → AgX-Base-Rec.2020 (per-channel desat).
     //    No pre-clamp: the ratio-preserving sigmoid below handles
     //    deep shadow uniformly without a luma gate (the old
@@ -137,7 +140,7 @@ fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
     //    the per-channel form that produced magenta on saturated
     //    primaries.
     let sigmoid_curve = |x: f32| -> f32 {
-        let norm = log_encode(x);
+        let norm = crate::view::agx_whites::remap_norm(log_encode(x), whites);
         let modulated = MID_NORM + (norm - MID_NORM) * slope;
         sample_lut(modulated)
     };
@@ -166,21 +169,42 @@ fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
 /// Used by `stages::auto_adjustments_tone` (#1376) to map the calibration's
 /// display-referred histogram anchors into the scene-linear domain the tone
 /// sliders operate in, and back.
-pub fn neutral_curve(y_scene: f32, slope: f32) -> f32 {
-    let norm = log_encode(y_scene);
+///
+/// `whites` is the white-point remap from `view::agx_whites`, applied to the
+/// normalised log value before the contrast slope.
+pub fn neutral_curve(y_scene: f32, slope: f32, whites: f32) -> f32 {
+    let norm = crate::view::agx_whites::remap_norm(log_encode(y_scene), whites);
     let modulated = MID_NORM + (norm - MID_NORM) * slope;
     sample_lut(modulated)
 }
 
 /// Apply AgX across the image. Input must be `SceneLinearRec2020`; output
-/// space is `DisplayLinearRec2020`. `contrast` in [-100, +100]; 0 is the
-/// reference Sobotka sigmoid.
-pub fn apply(img: &mut Image, contrast: f32) {
+/// space is `DisplayLinearRec2020`. `contrast` and `whites` in [-100, +100];
+/// 0/0 is the reference Sobotka sigmoid.
+///
+/// `whites` is the white-point remap from `view::agx_whites`, applied to the
+/// normalised log value before the contrast slope.
+pub fn apply(img: &mut Image, contrast: f32, whites: f32) {
+    img.assert_space(ColorSpace::SceneLinearRec2020);
+    let whites = if whites > 0.0 {
+        let anchor = img
+            .whites_anchor_ev
+            .unwrap_or_else(|| super::whites_anchor::measure(img.pixels.len(), |i| img.pixels[i]));
+        super::whites_anchor::resolve(whites, anchor)
+    } else {
+        whites
+    };
+    apply_with_resolved_whites(img, contrast, whites);
+}
+
+/// View-stage entry with an already resolved image-specific Whites amount.
+/// GPU parity and auto-tone use the same scalar as the image renderer.
+pub fn apply_with_resolved_whites(img: &mut Image, contrast: f32, whites: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     // Slope = 1 + (contrast/100) * 0.5. At +100 → 1.5×, at −100 → 0.5×.
     let slope = 1.0 + (contrast / 100.0) * 0.5;
     img.pixels.par_iter_mut().for_each(|p| {
-        *p = agx_pixel(*p, slope);
+        *p = agx_pixel(*p, slope, whites);
     });
     img.space = ColorSpace::DisplayLinearRec2020;
 }
@@ -292,7 +316,7 @@ mod tests {
         // 0.18 must land at display-linear 0.18 within 1e-3.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         let p = img.pixels[0];
         for &c in &p {
             assert!(
@@ -311,7 +335,7 @@ mod tests {
         // by construction; both should agree under the full pipeline.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         let p = img.pixels[0];
         assert!(
             (p[0] - AGX_MID_DISPLAY).abs() < 1e-3,
@@ -325,7 +349,7 @@ mod tests {
     fn huge_scene_values_map_below_or_equal_one() {
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [100.0, 50.0, 20.0];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         for &c in &img.pixels[0] {
             assert!(c <= 1.0 + 1e-5 && c >= 0.0, "{} should be in [0, 1]", c);
         }
@@ -335,7 +359,7 @@ mod tests {
     fn negative_inputs_clamp_to_toe() {
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [-0.3, 0.0, 0.1];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         for &c in &img.pixels[0] {
             assert!(c.is_finite() && c >= 0.0 && c <= 1.0, "{} out of bounds", c);
         }
@@ -345,7 +369,7 @@ mod tests {
     fn output_space_becomes_display_linear() {
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [0.18, 0.18, 0.18];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         assert_eq!(img.space, ColorSpace::DisplayLinearRec2020);
     }
 
@@ -357,13 +381,13 @@ mod tests {
         let mut img = Image::new(2, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [scene_bright; 3];
         img.pixels[1] = [scene_dark; 3];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         let (base_bright, base_dark) = (img.pixels[0][0], img.pixels[1][0]);
 
         let mut img2 = Image::new(2, 1, ColorSpace::SceneLinearRec2020);
         img2.pixels[0] = [scene_bright; 3];
         img2.pixels[1] = [scene_dark; 3];
-        apply(&mut img2, 100.0);
+        apply(&mut img2, 100.0, 0.0);
         assert!(
             img2.pixels[0][0] > base_bright,
             "bright should go higher at +100: {} vs {}",
@@ -388,7 +412,7 @@ mod tests {
         // and inside [0, 1]^3.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [20.0 * AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         let p = img.pixels[0];
         assert!(p[0] > p[1], "R < G: {} vs {}", p[0], p[1]);
         // After ratio-preserving sigmoid the spread can approach but cannot
@@ -418,7 +442,7 @@ mod tests {
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         for scene in &[0.001f32, 0.01, 0.05, 0.18, 0.5, 1.0, 5.0] {
             img.pixels[0] = [*scene, *scene, *scene];
-            apply(&mut img, 0.0);
+            apply(&mut img, 0.0, 0.0);
             let p = img.pixels[0];
             // R, G, B should all match within fp tolerance.
             assert!(
@@ -449,7 +473,7 @@ mod tests {
         let g = 0.001f32;
         let b = floor * 0.5; // intentionally below the per-channel toe floor
         img.pixels[0] = [r, g, b];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         let p = img.pixels[0];
         // R should remain larger than G in display space — chroma preserved
         // through the INSET → ratio sigmoid → OUTSET round-trip.
@@ -468,7 +492,7 @@ mod tests {
         // the floor uniformly. No magenta in deep-deep shadow.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [0.0, 0.0, 0.0];
-        apply(&mut img, 0.0);
+        apply(&mut img, 0.0, 0.0);
         let p = img.pixels[0];
         // Pure black input must produce a neutral output (all three
         // channels equal). Mid-gray of zero through the pipeline can be

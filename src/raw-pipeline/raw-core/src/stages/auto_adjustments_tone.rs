@@ -64,23 +64,27 @@
 //! the two medians are so close, the resulting corrections stay small and
 //! land on both sides of zero.
 //!
-//! Each slider owns the anchor its transfer function actually controls, and is
-//! solved by INVERTING the shipping transfer (`scene_tone_controls`,
-//! `view::agx`) — not by a hand-fitted curve:
+//! Each slider owns the anchor its transfer function actually controls. Three
+//! of the five (`highlights`, `shadows`, `blacks`) are solved by INVERTING the
+//! shipping scene-linear transfer (`scene_tone_controls`) — not by a
+//! hand-fitted curve. `contrast` and `whites` instead control the view
+//! transform itself (the AgX sigmoid slope, and the AgX white-point remap,
+//! `view::agx_whites`), so they are solved by evaluating [`agx::neutral_curve`]
+//! directly in the display domain rather than inverting a per-pixel multiply:
 //!
 //! ```text
 //! contrast    ← the p25…p75 midtone spread   (AgX sigmoid slope)
 //! highlights  ← p95                          (smoothstep(0.25, 1.0) band)
 //! shadows     ← p10                          ((1 − smoothstep(0, 0.25))² band)
-//! whites      ← p99.5                        (smoothstep(0.5, 1.0) band)
+//! whites      ← p99.5                        (AgX white-point remap)
 //! blacks      ← p0.5                         (toe over the 0.20 span)
 //! ```
 //!
 //! The anchors are display-referred, the sliders are scene-referred, so each
 //! anchor is carried across the view transform with [`agx::neutral_curve`] and
 //! [`inverse_agx_pixel`] — the same monotone sigmoid the renderer uses — so the
-//! target is exactly "the tone the viewer will see". Both groups are evaluated
-//! at the REFERENCE slope of 1.0, the slope the population was measured at.
+//! target is exactly "the tone the viewer will see". All five are evaluated at
+//! the REFERENCE slope of 1.0, the slope the population was measured at.
 //! Re-referencing the endpoint targets through the solved `contrast` instead
 //! sets the two groups fighting: lowering the slope lowers p95's rendered code,
 //! which the highlights solve then has to undo, and both end up large to produce
@@ -113,11 +117,11 @@
 //!    number means a large tonal move in the midtones and a barely visible one
 //!    at the shoulder.
 //! 3. **An authority clamp.** A slider only acts over a luma band, so at a given
-//!    percentile it may not be able to deliver even the capped move — `whites`
-//!    below luma 0.5 is exactly the identity. The target is clamped into the
-//!    interval the slider can actually reach, held [`AUTHORITY_MARGIN`] off each
-//!    end, so the bisection returns an interior value instead of its bracket
-//!    endpoint.
+//!    percentile it may not be able to deliver even the capped move —
+//!    `highlights` below luma 0.25 is exactly the identity. The target is
+//!    clamped into the interval the slider can actually reach, held
+//!    [`AUTHORITY_MARGIN`] off each end, so the bisection returns an interior
+//!    value instead of its bracket endpoint.
 //! 4. **A soft limit.** `v ↦ L · tanh(v / L)` with `L =` [`SOFT_LIMIT`]. Unlike
 //!    a clamp this is asymptotic: no input — not a degenerate all-black chart,
 //!    not an adversarial synthetic — makes a tone slider REACH ±L, let alone
@@ -292,13 +296,16 @@ pub(crate) fn compute_auto_tone_sliders(probe: &Image, exposure_ev: f32) -> Auto
         // Empty / all-non-finite buffer — nothing to recommend.
         return AutoToneSliders::default();
     };
-    solve(anchors)
+    let anchor_ev = probe.whites_anchor_ev.unwrap_or_else(|| {
+        crate::view::whites_anchor::measure(probe.pixels.len(), |i| probe.pixels[i])
+    });
+    solve(anchors, anchor_ev)
 }
 
 /// The pure half of [`compute_auto_tone_sliders`], split out so the unit tests
 /// can drive the solver from hand-built percentile vectors without developing a
 /// RAW.
-fn solve(anchors: Anchors) -> AutoToneSliders {
+fn solve(anchors: Anchors, anchor_ev: f32) -> AutoToneSliders {
     // Contrast shapes the midtones; the four endpoint sliders place the ends.
     // Both are solved against the REFERENCE slope of 1.0 — the slope the anchor
     // population was measured at. Re-referencing the endpoint targets through
@@ -307,17 +314,20 @@ fn solve(anchors: Anchors) -> AutoToneSliders {
     // undo, and both sliders end up large to produce a small net change.
     let contrast = settle(solve_contrast(anchors));
 
-    // The four endpoint sliders run in `scene_tone_controls::apply` order —
-    // highlights, shadows, whites, blacks — each solved against the state the
-    // previous ones leave behind.
+    // Highlights and shadows run in `scene_tone_controls::apply` order, each
+    // solved against the state the previous one leaves behind, and blacks reads
+    // that same chain. Whites no longer participates in this scene-linear
+    // handoff: it is a view-transform parameter (the AgX white-point remap,
+    // `agx::neutral_curve`'s third argument), solved directly against the raw
+    // `anchors.p995` the way `solve_contrast` solves slope — so it neither reads
+    // a mapped anchor nor feeds one forward to blacks.
     let highlights = settle(solve_toward(anchors.p95, ANCHOR_P95, highlights_at));
     let anchors = anchors.map(|y| highlights_at(y, highlights));
 
     let shadows = settle(solve_toward(anchors.p10, ANCHOR_P10, shadows_at));
     let anchors = anchors.map(|y| shadows_at(y, shadows));
 
-    let whites = settle(solve_toward(anchors.p995, ANCHOR_P995, whites_at));
-    let anchors = anchors.map(|y| whites_at(y, whites));
+    let whites = settle(solve_whites(anchors, ANCHOR_P995, anchor_ev));
 
     let blacks = settle(solve_toward(anchors.p005, ANCHOR_P005, blacks_at));
 
@@ -339,18 +349,20 @@ fn solve(anchors: Anchors) -> AutoToneSliders {
 /// back into scene-linear for the solve.
 ///
 /// AUTHORITY CLAMP. Each slider only acts over a luma band — `shadows` over
-/// `(0, 0.25)` with a squared falloff, `whites` above 0.5, and so on — so at a
-/// given `y` a slider's whole ±100 range may not span even the capped move, and
-/// at some luma values it has no authority at all (`whites` below 0.5 is
-/// exactly the identity). Clamping the target into the reachable interval keeps
-/// the bisection off its endpoints, so the answer stays proportional to the
-/// deviation the scene really has instead of collapsing onto one saturated
-/// number.
+/// `(0, 0.25)` with a squared falloff, `highlights` above 0.25, and so on — so
+/// at a given `y` a slider's whole ±100 range may not span even the capped
+/// move, and at some luma values it has no authority at all (`highlights`
+/// below 0.25 is exactly the identity). Clamping the target into the reachable
+/// interval keeps the bisection off its endpoints, so the answer stays
+/// proportional to the deviation the scene really has instead of collapsing
+/// onto one saturated number. [`solve_whites`] and [`solve_contrast`] apply the
+/// same clamp shape directly, since they solve a view-transform parameter
+/// rather than calling through this function.
 fn solve_toward(y: f32, anchor_code: f32, transfer: impl Fn(f32, f32) -> f32) -> f32 {
     const SLOPE: f32 = 1.0;
-    let current_code = display_code(y, SLOPE);
+    let current_code = display_code(y, SLOPE, 0.0);
     let move_code = (DAMP * (anchor_code - current_code)).clamp(-MAX_ANCHOR_MOVE, MAX_ANCHOR_MOVE);
-    let wanted = scene_target(current_code + move_code, SLOPE);
+    let wanted = scene_target(current_code + move_code, SLOPE, 0.0);
 
     // Authority clamp — see the doc comment. The reachable interval is shrunk
     // by AUTHORITY_MARGIN so the clamped target lands strictly INSIDE it: a
@@ -388,17 +400,17 @@ fn settle(raw: f32) -> f32 {
 /// The view tail is `AgX → rec2020_to_srgb → srgb_gamma`; the middle step is a
 /// matrix that maps the D65 neutral axis onto itself, so for the achromatic
 /// anchors this reduces to undoing the gamma and then the sigmoid at the same
-/// `slope` the render will use.
-fn scene_target(code: f32, slope: f32) -> f32 {
+/// `slope`/`whites` the render will use.
+fn scene_target(code: f32, slope: f32, whites: f32) -> f32 {
     let display_linear = srgb_gamma_inv(code);
-    let scene = inverse_agx_pixel([display_linear; 3], slope);
+    let scene = inverse_agx_pixel([display_linear; 3], slope, whites);
     LUMA_REC2020[0] * scene[0] + LUMA_REC2020[1] * scene[1] + LUMA_REC2020[2] * scene[2]
 }
 
-/// The sRGB-encoded display value scene-linear luma `y` renders to at `slope`.
-/// Forward companion of [`scene_target`].
-fn display_code(y: f32, slope: f32) -> f32 {
-    srgb_gamma(agx::neutral_curve(y, slope))
+/// The sRGB-encoded display value scene-linear luma `y` renders to at
+/// `slope`/`whites`. Forward companion of [`scene_target`].
+fn display_code(y: f32, slope: f32, whites: f32) -> f32 {
+    srgb_gamma(agx::neutral_curve(y, slope, whites))
 }
 
 // ---------------------------------------------------------------------------
@@ -417,9 +429,10 @@ fn bisect(lo: f32, hi: f32, target: f32, f: impl Fn(f32) -> f32) -> f32 {
         return 0.0;
     }
     // Flat transfer — the slider has no authority at this operating point
-    // (`whites` below luma 0.5 is exactly the identity, for instance). Return
-    // "no opinion" rather than an arbitrary endpoint: the endpoint branches
-    // below would otherwise hand back ±100 for a slider that does nothing.
+    // (`highlights` below luma 0.25 is exactly the identity, for instance).
+    // Return "no opinion" rather than an arbitrary endpoint: the endpoint
+    // branches below would otherwise hand back ±100 for a slider that does
+    // nothing.
     if (f_hi - f_lo).abs() < 1e-9 {
         return 0.0;
     }
@@ -472,7 +485,7 @@ fn bisect(lo: f32, hi: f32, target: f32, f: impl Fn(f32) -> f32) -> f32 {
 fn solve_contrast(a: Anchors) -> f32 {
     let spread_of = |c: f32| {
         let slope = 1.0 + (c / 100.0) * 0.5;
-        display_code(a.p75, slope) - display_code(a.p25, slope)
+        display_code(a.p75, slope, 0.0) - display_code(a.p25, slope, 0.0)
     };
     let current = spread_of(0.0);
     let move_code = (DAMP * (ANCHOR_MID_SPREAD - current)).clamp(-MAX_ANCHOR_MOVE, MAX_ANCHOR_MOVE);
@@ -495,16 +508,31 @@ fn shadows_at(y: f32, slider: f32) -> f32 {
     y * stc::shadows_mult(y, slider / 100.0)
 }
 
-/// The whites gain amount, including the negative-side monotonicity floor the
-/// stage applies (`WHITES_MIN_GAIN`, #1918). Solving against the UNFLOORED
-/// amount would let the solver ask for a crush the renderer will not perform.
-fn whites_amount(slider: f32) -> f32 {
-    (slider / 200.0).max(-stc::WHITES_MIN_GAIN)
-}
-
-/// Whites (`p99.5`).
-fn whites_at(y: f32, slider: f32) -> f32 {
-    y * stc::whites_mult(y, whites_amount(slider))
+/// Whites (`p99.5`) — a view-transform parameter, so it is solved in the
+/// display domain like `solve_contrast`, against the post-highlights /
+/// post-shadows luma and the reference slope 1.0. It no longer changes the
+/// scene-linear anchors the blacks solve reads.
+///
+/// #2441 moved the global `whites` slider's transfer into the AgX view
+/// transform (`view::agx_whites`) and deleted `scene_tone_controls::
+/// {whites_mult, WHITES_MIN_GAIN}`, so there was no longer a scene-linear
+/// transfer for this anchor to invert; this is the solve that replaces it,
+/// evaluating [`agx::neutral_curve`]'s `whites` argument directly at
+/// `a.p995` rather than transporting the anchor through a per-pixel
+/// multiply.
+fn solve_whites(a: Anchors, anchor_code: f32, anchor_ev: f32) -> f32 {
+    const SLOPE: f32 = 1.0;
+    let code_of = |w: f32| {
+        let resolved = crate::view::whites_anchor::resolve(w, anchor_ev);
+        srgb_gamma(agx::neutral_curve(a.p995, SLOPE, resolved))
+    };
+    let current = code_of(0.0);
+    let move_code = (DAMP * (anchor_code - current)).clamp(-MAX_ANCHOR_MOVE, MAX_ANCHOR_MOVE);
+    let (lo, hi) = (code_of(-100.0), code_of(100.0));
+    let (min, max) = (lo.min(hi), lo.max(hi));
+    let inset = AUTHORITY_MARGIN * (max - min);
+    let target = (current + move_code).clamp(min + inset, max - inset);
+    bisect(-100.0, 100.0, target, code_of)
 }
 
 /// Blacks (`p0.5`). Sign-branched — multiplicative crush below zero, additive

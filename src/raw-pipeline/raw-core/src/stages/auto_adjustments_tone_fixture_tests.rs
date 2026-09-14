@@ -40,7 +40,7 @@ fn anchor_row(raw: &crate::image::RawImage, model: &AdjustmentModel, slope: f32)
     let img =
         develop_scene_linear_from_raw_with_quality(raw, model, RenderQuality::Preview).unwrap();
     let h = LogLumaHistogram::build(&img);
-    let code = |q: f32| display_code(h.percentile(q).unwrap(), slope);
+    let code = |q: f32| display_code(h.percentile(q).unwrap(), slope, 0.0);
     [
         code(0.005),
         code(0.10),

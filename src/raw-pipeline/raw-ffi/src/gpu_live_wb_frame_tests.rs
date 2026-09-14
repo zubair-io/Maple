@@ -140,7 +140,7 @@ fn zero_frame_params_reproduce_legacy_wb_matrix() {
     let arr = owned_arrays(&model, &curve, &lut);
 
     // (a) Decoded-anchor delta contract.
-    let mut p = make_params(&model, WbMethod::Cat16, 2, &arr);
+    let mut p = make_params(&[], &model, WbMethod::Cat16, 2, &arr);
     p.decoded_temperature = 4522.0;
     p.decoded_tint = -43.7;
     let inputs = unsafe { params::inputs_from_params(&p) };
@@ -160,7 +160,7 @@ fn zero_frame_params_reproduce_legacy_wb_matrix() {
     assert_eq!(inputs.wb_tint, 18.0, "gate tint passes through unchanged");
 
     // (b) 0/0-sentinel absolute contract.
-    let p_abs = make_params(&model, WbMethod::Cat16, 2, &arr);
+    let p_abs = make_params(&[], &model, WbMethod::Cat16, 2, &arr);
     let inputs_abs = unsafe { params::inputs_from_params(&p_abs) };
     let legacy_abs = raw_core::stages::white_balance::wb_cat16_matrix(4800.0, 18.0);
     assert_eq!(
@@ -187,7 +187,7 @@ fn frame_params_derive_frame_delta_matrix_and_gate() {
         ..AdjustmentModel::default()
     };
     let arr = owned_arrays(&model, &curve, &lut);
-    let mut p = make_params(&model, WbMethod::Cat16, 2, &arr);
+    let mut p = make_params(&[], &model, WbMethod::Cat16, 2, &arr);
     p.decoded_temperature = 6500.0;
     p.decoded_tint = 0.0;
     set_frame(&mut p, &frame);
@@ -206,7 +206,7 @@ fn frame_params_derive_frame_delta_matrix_and_gate() {
     // 6500/0: the untouched editor open anchors at the frame's as-shot
     // pair (#1976), so the far-off-D65 case is the one that matters.
     for pair in [(6500.0f32, 0.0f32), (4522.4, -43.79)] {
-        let mut p_id = make_params(&model, WbMethod::Cat16, 2, &arr);
+        let mut p_id = make_params(&[], &model, WbMethod::Cat16, 2, &arr);
         p_id.temperature = pair.0;
         p_id.tint = pair.1;
         p_id.decoded_temperature = pair.0;
@@ -237,7 +237,7 @@ fn cpu_reference_frame_wb(
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
     frame.apply_delta_rec2020(&mut img, target, decoded);
-    raw_core::view::agx::apply(&mut img, 0.0);
+    raw_core::view::agx::apply(&mut img, 0.0, 0.0);
     raw_core::view::encode::rec2020_to_srgb(&mut img);
     raw_core::view::encode::srgb_gamma_encode(&mut img);
     let mut rgb: Vec<f32> = Vec::with_capacity(img.pixels.len() * 3);
@@ -320,7 +320,7 @@ fn gpu_live_frame_wb_matches_cpu_chain_at_non_default_wb() {
                 ..AdjustmentModel::default()
             };
             let arr = owned_arrays(&model, &curve, &lut);
-            let mut p = make_params(&model, WbMethod::Cat16, 2, &arr);
+            let mut p = make_params(&input, &model, WbMethod::Cat16, 2, &arr);
             p.decoded_temperature = anchor.0;
             p.decoded_tint = anchor.1;
             set_frame(&mut p, &frame);

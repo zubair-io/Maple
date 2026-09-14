@@ -1,7 +1,7 @@
 {
   "generator": "tools/codegen.sh (codegen --schema capability-registry --target json)",
   "build": {
-    "pipeline_output_version": 4,
+    "pipeline_output_version": 5,
     "schema_version": 5
   },
   "capabilities": [
@@ -39,7 +39,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -55,8 +55,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "synthetic_grey",
@@ -81,7 +81,7 @@
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "apple_canvas_golden",
@@ -138,7 +138,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -154,8 +154,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "synthetic_grey",
@@ -180,7 +180,7 @@
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "apple_canvas_golden",
@@ -264,7 +264,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -280,8 +280,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "synthetic_grey",
@@ -306,7 +306,7 @@
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "apple_canvas_golden",
@@ -367,7 +367,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -383,8 +383,8 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "synthetic_grey",
@@ -409,7 +409,7 @@
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "apple_canvas_golden",
@@ -449,7 +449,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -465,13 +465,13 @@
       "qualification": [
         {
           "source": "grey_adjustments",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "gpu_chain_parity_metal",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "apple_canvas_golden",
@@ -512,7 +512,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -629,7 +629,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -681,7 +681,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -693,7 +693,7 @@
         {
           "source": "sidecar_contract_apple",
           "status": "stale_pipeline",
-          "detail": "recorded on pipeline v2, current is v4"
+          "detail": "recorded on pipeline v2, current is v5"
         },
         {
           "source": "sidecar_contract_api",
@@ -731,24 +731,26 @@
       "description": "closed-form slider predictors + display gates on the synthetic grey DNG",
       "covers": [],
       "accepted_backends": ["cpu-reference"],
-      "expected_cases": 40,
+      "expected_cases": 41,
       "corpus": [
         "src/raw-pipeline/raw-core/tests/grey_adjustments.rs",
-        "src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs"
+        "src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs",
+        "src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs",
+        "src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs"
       ],
-      "corpus_hash": "blake3:16e4c691d050652827c9996ac204773b3bb855312ea4d0ee99c2090be4e48fd4",
-      "status": "satisfied",
+      "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
+      "status": "stale_corpus",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 4,
+        "pipeline_version": 5,
         "schema_version": 5,
-        "corpus_hash": "blake3:16e4c691d050652827c9996ac204773b3bb855312ea4d0ee99c2090be4e48fd4",
-        "expected_cases": 40,
-        "executed_cases": 40,
+        "corpus_hash": "blake3:462f871fe4a5b14a5e20908b583252ef5254e2c6a856aef1147c49282d8a54eb",
+        "expected_cases": 39,
+        "executed_cases": 39,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "76f273f47e7e93940b656703c0c7c1ab0df6d988",
-        "recorded_at": "2026-09-12T13:43:37Z",
+        "git_sha": "ed9ebdbd0f34029af2ec56b259afe761b7f648bd",
+        "recorded_at": "2026-09-13T10:49:01Z",
         "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
@@ -763,15 +765,15 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 4,
+        "pipeline_version": 5,
         "schema_version": 5,
         "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
         "expected_cases": 6,
         "executed_cases": 6,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
-        "recorded_at": "2026-09-12T11:17:30Z",
+        "git_sha": "ed9ebdbd0f34029af2ec56b259afe761b7f648bd",
+        "recorded_at": "2026-09-13T10:44:54Z",
         "command": "bash src/scripts/test_synthetic_grey.sh"
       }
     },
@@ -786,15 +788,15 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 4,
+        "pipeline_version": 5,
         "schema_version": 5,
         "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
         "expected_cases": 5,
         "executed_cases": 5,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
-        "recorded_at": "2026-09-12T11:18:15Z",
+        "git_sha": "ed9ebdbd0f34029af2ec56b259afe761b7f648bd",
+        "recorded_at": "2026-09-13T10:50:30Z",
         "command": "bash src/scripts/test_grey_dcp.sh"
       }
     },
@@ -809,15 +811,15 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 4,
+        "pipeline_version": 5,
         "schema_version": 5,
         "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
         "expected_cases": 7,
         "executed_cases": 7,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
-        "recorded_at": "2026-09-12T11:17:47Z",
+        "git_sha": "ed9ebdbd0f34029af2ec56b259afe761b7f648bd",
+        "recorded_at": "2026-09-13T10:45:05Z",
         "command": "bash src/scripts/test_synthetic_color_chart.sh"
       }
     },
@@ -872,15 +874,15 @@
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "pipeline_version": 4,
+        "pipeline_version": 5,
         "schema_version": 5,
         "corpus_hash": "blake3:a9ed184663114494494af5c644866d163d987ceae7dda1c7a7fd9e78b5f480b6",
         "expected_cases": 3,
         "executed_cases": 3,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "a6572b6f9f0581ac0c650eda340a539a92a41270",
-        "recorded_at": "2026-09-12T11:18:59Z",
+        "git_sha": "ed9ebdbd0f34029af2ec56b259afe761b7f648bd",
+        "recorded_at": "2026-09-13T10:49:55Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
@@ -910,7 +912,7 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:07956659329df8650787c4f5c1b7b38f49698c310033bf53c548c3c6681a5c1f",
+      "corpus_hash": "blake3:e6d0b4e9f0765e2f82900a4627fa2bf8b0e388689885fb5dd8aa2dad8f9aa63f",
       "status": "stale_pipeline",
       "record": {
         "backend": "metal",

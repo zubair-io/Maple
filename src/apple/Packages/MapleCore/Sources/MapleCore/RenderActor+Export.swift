@@ -83,6 +83,7 @@ extension RenderActor {
         iso: decodedISO,
         wbFrame: decodedWbFrame,
         aeGain: decodedAeGain,
+        whitesAnchorEv: decodedWhitesAnchorEv,
         hasLensCorrections: decodedHasLensCorrections,
         lensCorrectionCaInert: decodedLensCorrectionCaInert,
         lensCorrectionDistortionInert: decodedLensCorrectionDistortionInert,
@@ -149,7 +150,7 @@ extension RenderActor {
           profileLUT: profileLUT,
           noiseProfile: exportNoiseProfile,
           iso: exportISO,
-          wbFrame: exportWbFrame
+          wbFrame: exportWbFrame, whitesAnchorEv: exportDecodeResult.whitesAnchorEv
         )
       }
     }.value

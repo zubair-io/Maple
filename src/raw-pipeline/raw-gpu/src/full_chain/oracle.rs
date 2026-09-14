@@ -128,6 +128,16 @@ pub struct Case {
 }
 
 impl Case {
+    /// Bind the same full-frame pre-edit statistic used by the CPU oracle.
+    pub fn gpu_inputs_for(&self, input: &[f32]) -> FullChainInputs<'static> {
+        FullChainInputs {
+            whites_anchor_ev: frame_whites_anchor(input),
+            ..self.gpu_inputs()
+        }
+    }
+
+    /// Structural-test inputs; numeric tests must use `gpu_inputs_for` to
+    /// capture the actual frame statistic.
     /// Assemble the GPU-side [`FullChainInputs`] from this case's model + per-
     /// image data — the GPU stage params come straight from the CPU model.
     pub fn gpu_inputs(&self) -> FullChainInputs<'static> {
@@ -135,6 +145,7 @@ impl Case {
             wb_matrix: wb_matrix(self.model.temperature, self.model.tint, self.wb_method),
             wb_temperature: self.model.temperature,
             wb_tint: self.model.tint,
+            whites_anchor_ev: 0.0,
             tone: [
                 self.model.exposure,
                 self.model.brightness,
@@ -298,12 +309,19 @@ impl Case {
     }
 }
 
+pub fn frame_whites_anchor(input: &[f32]) -> f32 {
+    raw_core::view::whites_anchor::measure(input.len() / 4, |i| {
+        [input[i * 4], input[i * 4 + 1], input[i * 4 + 2]]
+    })
+}
+
 /// The scene-linear stages in develop order UP TO (but not including) dehaze —
 /// the exact buffer `raw_core::stages::dehaze::apply` measures its atmospheric
 /// light from. Each `apply` short-circuits at its own no-op threshold, which is
 /// what the gated `build_live_chain`'s pass-inclusion `if`s replicate.
 fn pre_dehaze_image(input: &[f32], w: u32, h: u32, case: &Case) -> Image {
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    img.whites_anchor_ev = Some(frame_whites_anchor(input));
     for (i, chunk) in input.chunks_exact(4).enumerate() {
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
@@ -407,7 +425,7 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     //     matching the GPU suffix AND raw-core's render tail exactly). ALWAYS
     //     runs on both sides — even a neutral image must go through the view
     //     transform to become a display image. ---
-    raw_core::view::agx::apply(&mut img, case.model.contrast);
+    raw_core::view::agx::apply(&mut img, case.model.contrast, case.model.whites);
     // Display-referred point curves (#2232) — post-AgX, before color_grade,
     // matching the GPU suffix's `DisplayToneCurvePass` position exactly.
     raw_core::stages::display_tone_curve::apply(&mut img, &case.model);

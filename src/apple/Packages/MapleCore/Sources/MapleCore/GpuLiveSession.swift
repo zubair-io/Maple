@@ -86,6 +86,7 @@ public actor GpuLiveSession {
   /// this alongside `noiseProfile` to compute the local sigma; both are
   /// meaningless without the other, so they travel together.
   private let iso: UInt32
+  private let whitesAnchorEv: Float
 
   /// The per-image Auto Profile artifacts (fit once via `fitAutoProfile`); `nil`
   /// until fit, or when the image has no Auto tail (plain AgX / Neutral).
@@ -146,12 +147,14 @@ public actor GpuLiveSession {
   /// per-tick: a re-open (dims change, baked-field re-decode, crop change)
   /// naturally gets a fresh pair alongside the fresh pixels.
   public init(
-    pixels: [Float], width: Int, height: Int, noiseProfile: [Float]? = nil, iso: UInt32 = 0
+    pixels: [Float], width: Int, height: Int, noiseProfile: [Float]? = nil, iso: UInt32 = 0,
+    whitesAnchorEv: Float = .nan
   ) throws {
     self.width = width
     self.height = height
     self.noiseProfile = noiseProfile ?? []
     self.iso = iso
+    self.whitesAnchorEv = whitesAnchorEv
     let expected = width * height * 4
     guard pixels.count == expected, width > 0, height > 0 else {
       throw GpuLiveError(
@@ -300,7 +303,8 @@ public actor GpuLiveSession {
     }
     let params = PipelineRenderer.makeGpuLiveParams(
       from: model, asShotCCT: asShotCCT, asShotTint: asShotTint,
-      inputShape: inputShape, wbFrame: wbFrame, targetColorSpace: targetColorSpace,
+      inputShape: inputShape, wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv,
+      targetColorSpace: targetColorSpace,
       scopeEnabled: scopeEnabled, scopeLayer: scopeLayer
     )
     let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
@@ -363,7 +367,7 @@ public actor GpuLiveSession {
       asShotCCT: asShotCCT,
       asShotTint: asShotTint,
       inputShape: inputShape,
-      wbFrame: wbFrame
+      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv
     )
     var out = [UInt8](repeating: 0, count: width * height * 3)
     let rc = withGpuLiveParams(params, curves: model) { pp in

@@ -60,7 +60,7 @@ fn scope_stats_arrive_one_tick_late_and_match_the_cpu_histogram_of_the_presented
     let (w, h) = (32u32, 24u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let session = LiveSession::new(&ctx, &input, w, h).expect("session");
-    let mut inputs = scope_test_case().gpu_inputs();
+    let mut inputs = scope_test_case().gpu_inputs_for(&input);
     inputs.scope = ScopeRequest {
         layer: -1,
         enabled: true,
@@ -147,7 +147,7 @@ fn render_to_buffer_also_produces_scope_stats() {
     let (w, h) = (16u32, 12u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let session = LiveSession::new(&ctx, &input, w, h).expect("session");
-    let mut inputs = scope_test_case().gpu_inputs();
+    let mut inputs = scope_test_case().gpu_inputs_for(&input);
     inputs.scope = ScopeRequest {
         layer: -1,
         enabled: true,
@@ -169,7 +169,7 @@ fn scope_disabled_never_produces_stats() {
     let (w, h) = (16u32, 12u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let session = LiveSession::new(&ctx, &input, w, h).expect("session");
-    let inputs = scope_test_case().gpu_inputs(); // scope left at ScopeRequest::default() — disabled
+    let inputs = scope_test_case().gpu_inputs_for(&input); // scope left at ScopeRequest::default() — disabled
     let cancel = CancelToken::new();
     for _ in 0..3 {
         session.render_chain_to_f32(&ctx, &inputs, &cancel).unwrap();
@@ -195,7 +195,7 @@ fn present_path_delivers_a_sample_every_tick_without_a_blocking_readback() {
     let (w, h) = (256u32, 192u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let session = LiveSession::new(&ctx, &input, w, h).expect("session");
-    let mut inputs = scope_test_case().gpu_inputs();
+    let mut inputs = scope_test_case().gpu_inputs_for(&input);
     inputs.scope = ScopeRequest {
         layer: -1,
         enabled: true,

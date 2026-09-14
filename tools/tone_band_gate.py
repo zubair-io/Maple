@@ -16,7 +16,14 @@ Usage:
 Candidates are maple-cli batch outputs: DIR/<fixture>_<case>.png.
 References: ROOT/<fixture>/down/<case>.png (ACR renders).
 """
-import argparse, json, math, os, sys
+
+import argparse
+import json
+import math
+import os
+import sys
+from pathlib import Path
+
 import numpy as np
 from PIL import Image
 
@@ -46,7 +53,7 @@ def measure(baseline_png, case_png):
 
 def cases_from_manifest(manifest, flt):
     out = []
-    for c in json.load(open(manifest))["cases"]:
+    for c in json.loads(Path(manifest).read_text())["cases"]:
         fixture, case = c["name"].split("/", 1)
         if case == "baseline" or not fixture.startswith("test_"):
             continue
@@ -57,15 +64,18 @@ def cases_from_manifest(manifest, flt):
 
 
 def gate(args):
-    budgets = json.load(open(args.budgets))
+    budgets = json.loads(Path(args.budgets).read_text())
     acr_out, breaches, rows = {}, [], []
-    for fixture, case in cases_from_manifest(args.manifest, args.filter):
+    cases = cases_from_manifest(args.manifest, args.filter)
+    if not cases:
+        breaches.append("no tone cases selected")
+    for fixture, case in cases:
         ref_base = os.path.join(args.references, fixture, "down", "baseline.png")
         ref_case = os.path.join(args.references, fixture, "down", f"{case}.png")
         cand_base = os.path.join(args.candidates, f"{fixture}_baseline.png")
         cand_case = os.path.join(args.candidates, f"{fixture}_{case}.png")
         if not all(map(os.path.exists, (ref_base, ref_case, cand_base, cand_case))):
-            rows.append(f"skip  {fixture}/{case} (missing render or reference)")
+            breaches.append(f"{fixture}/{case}: missing render or reference")
             continue
         acr = measure(ref_base, ref_case)
         maple = measure(cand_base, cand_case)
@@ -81,10 +91,12 @@ def gate(args):
                 if math.isnan(errs[b]):
                     breaches.append(f"{fixture}/{case}: {b} band undefined (no pixels)")
                 elif abs(errs[b]) > budget[b]:
-                    breaches.append(f"{fixture}/{case}: {b} error {errs[b]:+.1f} > {budget[b]:.1f}")
+                    breaches.append(
+                        f"{fixture}/{case}: {b} error {errs[b]:+.1f} > {budget[b]:.1f}"
+                    )
     print("\n".join(rows))
     if args.write_acr:
-        json.dump(acr_out, open(args.write_acr, "w"), indent=1, sort_keys=True)
+        Path(args.write_acr).write_text(json.dumps(acr_out, indent=1, sort_keys=True))
     if breaches:
         print("\nBREACH:\n  " + "\n  ".join(breaches))
         return 1
@@ -95,7 +107,9 @@ def gate(args):
 def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
-    m = sub.add_parser("measure"); m.add_argument("baseline"); m.add_argument("case")
+    m = sub.add_parser("measure")
+    m.add_argument("baseline")
+    m.add_argument("case")
     g = sub.add_parser("gate")
     for name in ("--candidates", "--references", "--manifest", "--budgets"):
         g.add_argument(name, required=True)

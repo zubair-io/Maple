@@ -16,6 +16,7 @@ pub struct DetailContext {
     pub(super) model: AdjustmentModel,
     pub(super) active_model: AdjustmentModel,
     pub(super) ae_gain: f32,
+    pub(super) whites_anchor_ev: Option<f32>,
     pub(super) profile_curve: Option<auto_profile::curve::ProfileCurve>,
     pub(super) profile_lut: Option<auto_profile::lut::ColorLut>,
     pub(super) auto_guard: bool,
@@ -137,6 +138,7 @@ pub fn render_detail_tile(
         height: sh,
         pixels: rgb.chunks_exact(3).map(|p| [p[0], p[1], p[2]]).collect(),
         space: ColorSpace::SceneLinearRec2020,
+        whites_anchor_ev: context.whites_anchor_ev,
     };
     let (sx, sy, _, _) = raw.orientation.display_rect_to_sensor(
         absolute.src_x,

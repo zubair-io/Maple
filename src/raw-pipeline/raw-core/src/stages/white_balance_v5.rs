@@ -5,7 +5,7 @@
 //! `wb_frame_delta.rs`. Pure code move: no logic change from what landed
 //! in `white_balance.rs` as part of the #1894 groundwork.
 
-use super::{cct_to_xy, apply_tint_perpendicular, TINT_SCALE_V3_TO_V4};
+use super::{apply_tint_perpendicular, cct_to_xy, TINT_SCALE_V3_TO_V4};
 
 /// Slider `(temperature, tint)` → source chromaticity xy — the ACR value
 /// mapping (#1894): Robertson isotherms via [`crate::color::dng_temperature`],

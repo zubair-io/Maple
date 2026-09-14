@@ -51,6 +51,7 @@ namespace Maple.WinUI.Native
         public uint lens_correction_distortion_inert;
         // Owned UTF-8 JSON, released with the scene-linear buffer (#3313).
         public byte* camera_support_json;
+        public float whites_anchor_ev;
     }
 
     /// <summary>

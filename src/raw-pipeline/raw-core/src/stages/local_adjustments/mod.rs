@@ -369,6 +369,9 @@ fn apply_pixel(p: &mut [f32; 3], a: &PartialAdjustments, w: f32) {
         p[2] *= gain;
     }
 
+    // Local whites keeps the scene-linear gain: a mask needs a per-pixel
+    // operator, and the global slider's white-point remap is a view-transform
+    // parameter (view::agx_whites). Intentional divergence.
     if let Some(wh) = a.whites {
         let y = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
         let gain = 1.0 + (w * wh / 200.0) * smoothstep(0.5, 1.0, y);

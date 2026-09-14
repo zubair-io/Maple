@@ -63,6 +63,7 @@ fn forward_display(
     method: WbMethod,
 ) -> Vec<[f32; 3]> {
     let mut img = Image {
+        whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
         pixels: pre.to_vec(),
@@ -75,7 +76,7 @@ fn forward_display(
         p[1] *= g;
         p[2] *= g;
     }
-    agx::apply(&mut img, 0.0);
+    agx::apply(&mut img, 0.0, 0.0);
     encode::rec2020_to_srgb(&mut img);
     encode::srgb_gamma_encode(&mut img);
     img.pixels
@@ -106,11 +107,12 @@ fn synthetic_raw_roundtrip_regrades_within_budget() {
     // --- Invert: u8 → pre-grade scene-linear (full inverse chain). ---
     let slope0 = 1.0; // contrast 0
     let mut recov = Image {
+        whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
         pixels: u8s
             .iter()
-            .map(|c| agx_inverse::display_u8_to_scene_linear(*c, slope0))
+            .map(|c| agx_inverse::display_u8_to_scene_linear(*c, slope0, 0.0))
             .collect(),
         space: ColorSpace::SceneLinearRec2020,
     };

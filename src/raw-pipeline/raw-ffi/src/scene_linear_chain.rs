@@ -287,6 +287,8 @@ pub struct MapleAdjustmentParams {
     pub defringe_green_amount: f32,
     pub defringe_green_hue_lo: f32,
     pub defringe_green_hue_hi: f32,
+    /// Full-frame pre-AE scene-white anchor in EV above 0.18 (#3601).
+    pub whites_anchor_ev: f32,
 }
 
 /// Decode the local-adjustment layer stack (#1698) out of the C params, and

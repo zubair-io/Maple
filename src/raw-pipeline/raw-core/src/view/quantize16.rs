@@ -60,6 +60,7 @@ mod tests {
 
     fn encoded_image(pixels: Vec<[f32; 3]>, width: u32, height: u32) -> Image {
         Image {
+            whites_anchor_ev: None,
             width,
             height,
             pixels,

@@ -14,353 +14,353 @@
 import Foundation
 
 extension AdjustmentModel {
-    /// Canonical field identifiers, snake_case as recorded in
-    /// `raw_core::types::ADJUSTMENT_SCHEMA`. Use these when you need
-    /// a stable string key independent of Swift's camelCase property names.
-    public enum FieldName: String, CaseIterable, Sendable, Hashable {
-        case temperature = "temperature"
-        case tint = "tint"
-        case wbMethod = "wb_method"
-        case wbSource = "wb_source"
-        case wbSampleX = "wb_sample_x"
-        case wbSampleY = "wb_sample_y"
-        case wbAlgorithmVersion = "wb_algorithm_version"
-        case exposure = "exposure"
-        case brightness = "brightness"
-        case contrast = "contrast"
-        case highlights = "highlights"
-        case shadows = "shadows"
-        case whites = "whites"
-        case blacks = "blacks"
-        case parametricHighlights = "parametric_highlights"
-        case parametricLights = "parametric_lights"
-        case parametricDarks = "parametric_darks"
-        case parametricShadows = "parametric_shadows"
-        case parametricShadowSplit = "parametric_shadow_split"
-        case parametricMidtoneSplit = "parametric_midtone_split"
-        case parametricHighlightSplit = "parametric_highlight_split"
-        case vibrance = "vibrance"
-        case saturation = "saturation"
-        case clarity = "clarity"
-        case texture = "texture"
-        case sharpenAmount = "sharpen_amount"
-        case sharpenRadius = "sharpen_radius"
-        case sharpenDetail = "sharpen_detail"
-        case sharpenMasking = "sharpen_masking"
-        case captureSharpeningAmount = "capture_sharpening_amount"
-        case captureSharpeningSigma = "capture_sharpening_sigma"
-        case captureSharpeningRadius = "capture_sharpening_radius"
-        case nrLuminance = "nr_luminance"
-        case nrColor = "nr_color"
-        case dehaze = "dehaze"
-        case vignetteAmount = "vignette_amount"
-        case vignetteFeather = "vignette_feather"
-        case grainAmount = "grain_amount"
-        case grainSize = "grain_size"
-        case grainRoughness = "grain_roughness"
-        case filmLook = "film_look"
-        case filmStrength = "film_strength"
-        case splitToneShadowHue = "split_tone_shadow_hue"
-        case splitToneShadowSaturation = "split_tone_shadow_saturation"
-        case splitToneHighlightHue = "split_tone_highlight_hue"
-        case splitToneHighlightSaturation = "split_tone_highlight_saturation"
-        case splitToneBalance = "split_tone_balance"
-        case colorGradeShadowLuminance = "color_grade_shadow_luminance"
-        case colorGradeMidtoneHue = "color_grade_midtone_hue"
-        case colorGradeMidtoneSaturation = "color_grade_midtone_saturation"
-        case colorGradeMidtoneLuminance = "color_grade_midtone_luminance"
-        case colorGradeHighlightLuminance = "color_grade_highlight_luminance"
-        case colorGradeGlobalHue = "color_grade_global_hue"
-        case colorGradeGlobalSaturation = "color_grade_global_saturation"
-        case colorGradeGlobalLuminance = "color_grade_global_luminance"
-        case hueAdjustmentRed = "hue_adjustment_red"
-        case hueAdjustmentOrange = "hue_adjustment_orange"
-        case hueAdjustmentYellow = "hue_adjustment_yellow"
-        case hueAdjustmentGreen = "hue_adjustment_green"
-        case hueAdjustmentAqua = "hue_adjustment_aqua"
-        case hueAdjustmentBlue = "hue_adjustment_blue"
-        case hueAdjustmentPurple = "hue_adjustment_purple"
-        case hueAdjustmentMagenta = "hue_adjustment_magenta"
-        case saturationAdjustmentRed = "saturation_adjustment_red"
-        case saturationAdjustmentOrange = "saturation_adjustment_orange"
-        case saturationAdjustmentYellow = "saturation_adjustment_yellow"
-        case saturationAdjustmentGreen = "saturation_adjustment_green"
-        case saturationAdjustmentAqua = "saturation_adjustment_aqua"
-        case saturationAdjustmentBlue = "saturation_adjustment_blue"
-        case saturationAdjustmentPurple = "saturation_adjustment_purple"
-        case saturationAdjustmentMagenta = "saturation_adjustment_magenta"
-        case luminanceAdjustmentRed = "luminance_adjustment_red"
-        case luminanceAdjustmentOrange = "luminance_adjustment_orange"
-        case luminanceAdjustmentYellow = "luminance_adjustment_yellow"
-        case luminanceAdjustmentGreen = "luminance_adjustment_green"
-        case luminanceAdjustmentAqua = "luminance_adjustment_aqua"
-        case luminanceAdjustmentBlue = "luminance_adjustment_blue"
-        case luminanceAdjustmentPurple = "luminance_adjustment_purple"
-        case luminanceAdjustmentMagenta = "luminance_adjustment_magenta"
-        case blackWhite = "black_white"
-        case grayMixerRed = "gray_mixer_red"
-        case grayMixerOrange = "gray_mixer_orange"
-        case grayMixerYellow = "gray_mixer_yellow"
-        case grayMixerGreen = "gray_mixer_green"
-        case grayMixerAqua = "gray_mixer_aqua"
-        case grayMixerBlue = "gray_mixer_blue"
-        case grayMixerPurple = "gray_mixer_purple"
-        case grayMixerMagenta = "gray_mixer_magenta"
-        case highlightRecovery = "highlight_recovery"
-        case autoExposure = "auto_exposure"
-        case look = "look"
-        case profile = "profile"
-        case toneCurveMode = "tone_curve_mode"
-        case toneCurveLuma = "tone_curve_luma"
-        case toneCurveRed = "tone_curve_red"
-        case toneCurveGreen = "tone_curve_green"
-        case toneCurveBlue = "tone_curve_blue"
-        case displayToneCurveLuma = "display_tone_curve_luma"
-        case displayToneCurveRed = "display_tone_curve_red"
-        case displayToneCurveGreen = "display_tone_curve_green"
-        case displayToneCurveBlue = "display_tone_curve_blue"
-        case chromaPrefilter = "chroma_prefilter"
-        case hotPixelSuppression = "hot_pixel_suppression"
-        case deepDenoise = "deep_denoise"
-        case lensProfileEnable = "lens_profile_enable"
-        case lensCorrectionDistortion = "lens_correction_distortion"
-        case lensCorrectionCa = "lens_correction_ca"
-        case lensCorrectionVignetting = "lens_correction_vignetting"
-        case perspectiveVertical = "perspective_vertical"
-        case perspectiveHorizontal = "perspective_horizontal"
-        case perspectiveRotate = "perspective_rotate"
-        case perspectiveScale = "perspective_scale"
-        case perspectiveAspect = "perspective_aspect"
-        case perspectiveX = "perspective_x"
-        case perspectiveY = "perspective_y"
-        case demosaic = "demosaic"
-        case autoLateralCa = "auto_lateral_ca"
-        case defringePurpleAmount = "defringe_purple_amount"
-        case defringePurpleHueLo = "defringe_purple_hue_lo"
-        case defringePurpleHueHi = "defringe_purple_hue_hi"
-        case defringeGreenAmount = "defringe_green_amount"
-        case defringeGreenHueLo = "defringe_green_hue_lo"
-        case defringeGreenHueHi = "defringe_green_hue_hi"
-        case lensProfile = "lens_profile"
-    }
+  /// Canonical field identifiers, snake_case as recorded in
+  /// `raw_core::types::ADJUSTMENT_SCHEMA`. Use these when you need
+  /// a stable string key independent of Swift's camelCase property names.
+  public enum FieldName: String, CaseIterable, Sendable, Hashable {
+    case temperature = "temperature"
+    case tint = "tint"
+    case wbMethod = "wb_method"
+    case wbSource = "wb_source"
+    case wbSampleX = "wb_sample_x"
+    case wbSampleY = "wb_sample_y"
+    case wbAlgorithmVersion = "wb_algorithm_version"
+    case exposure = "exposure"
+    case brightness = "brightness"
+    case contrast = "contrast"
+    case highlights = "highlights"
+    case shadows = "shadows"
+    case whites = "whites"
+    case blacks = "blacks"
+    case parametricHighlights = "parametric_highlights"
+    case parametricLights = "parametric_lights"
+    case parametricDarks = "parametric_darks"
+    case parametricShadows = "parametric_shadows"
+    case parametricShadowSplit = "parametric_shadow_split"
+    case parametricMidtoneSplit = "parametric_midtone_split"
+    case parametricHighlightSplit = "parametric_highlight_split"
+    case vibrance = "vibrance"
+    case saturation = "saturation"
+    case clarity = "clarity"
+    case texture = "texture"
+    case sharpenAmount = "sharpen_amount"
+    case sharpenRadius = "sharpen_radius"
+    case sharpenDetail = "sharpen_detail"
+    case sharpenMasking = "sharpen_masking"
+    case captureSharpeningAmount = "capture_sharpening_amount"
+    case captureSharpeningSigma = "capture_sharpening_sigma"
+    case captureSharpeningRadius = "capture_sharpening_radius"
+    case nrLuminance = "nr_luminance"
+    case nrColor = "nr_color"
+    case dehaze = "dehaze"
+    case vignetteAmount = "vignette_amount"
+    case vignetteFeather = "vignette_feather"
+    case grainAmount = "grain_amount"
+    case grainSize = "grain_size"
+    case grainRoughness = "grain_roughness"
+    case filmLook = "film_look"
+    case filmStrength = "film_strength"
+    case splitToneShadowHue = "split_tone_shadow_hue"
+    case splitToneShadowSaturation = "split_tone_shadow_saturation"
+    case splitToneHighlightHue = "split_tone_highlight_hue"
+    case splitToneHighlightSaturation = "split_tone_highlight_saturation"
+    case splitToneBalance = "split_tone_balance"
+    case colorGradeShadowLuminance = "color_grade_shadow_luminance"
+    case colorGradeMidtoneHue = "color_grade_midtone_hue"
+    case colorGradeMidtoneSaturation = "color_grade_midtone_saturation"
+    case colorGradeMidtoneLuminance = "color_grade_midtone_luminance"
+    case colorGradeHighlightLuminance = "color_grade_highlight_luminance"
+    case colorGradeGlobalHue = "color_grade_global_hue"
+    case colorGradeGlobalSaturation = "color_grade_global_saturation"
+    case colorGradeGlobalLuminance = "color_grade_global_luminance"
+    case hueAdjustmentRed = "hue_adjustment_red"
+    case hueAdjustmentOrange = "hue_adjustment_orange"
+    case hueAdjustmentYellow = "hue_adjustment_yellow"
+    case hueAdjustmentGreen = "hue_adjustment_green"
+    case hueAdjustmentAqua = "hue_adjustment_aqua"
+    case hueAdjustmentBlue = "hue_adjustment_blue"
+    case hueAdjustmentPurple = "hue_adjustment_purple"
+    case hueAdjustmentMagenta = "hue_adjustment_magenta"
+    case saturationAdjustmentRed = "saturation_adjustment_red"
+    case saturationAdjustmentOrange = "saturation_adjustment_orange"
+    case saturationAdjustmentYellow = "saturation_adjustment_yellow"
+    case saturationAdjustmentGreen = "saturation_adjustment_green"
+    case saturationAdjustmentAqua = "saturation_adjustment_aqua"
+    case saturationAdjustmentBlue = "saturation_adjustment_blue"
+    case saturationAdjustmentPurple = "saturation_adjustment_purple"
+    case saturationAdjustmentMagenta = "saturation_adjustment_magenta"
+    case luminanceAdjustmentRed = "luminance_adjustment_red"
+    case luminanceAdjustmentOrange = "luminance_adjustment_orange"
+    case luminanceAdjustmentYellow = "luminance_adjustment_yellow"
+    case luminanceAdjustmentGreen = "luminance_adjustment_green"
+    case luminanceAdjustmentAqua = "luminance_adjustment_aqua"
+    case luminanceAdjustmentBlue = "luminance_adjustment_blue"
+    case luminanceAdjustmentPurple = "luminance_adjustment_purple"
+    case luminanceAdjustmentMagenta = "luminance_adjustment_magenta"
+    case blackWhite = "black_white"
+    case grayMixerRed = "gray_mixer_red"
+    case grayMixerOrange = "gray_mixer_orange"
+    case grayMixerYellow = "gray_mixer_yellow"
+    case grayMixerGreen = "gray_mixer_green"
+    case grayMixerAqua = "gray_mixer_aqua"
+    case grayMixerBlue = "gray_mixer_blue"
+    case grayMixerPurple = "gray_mixer_purple"
+    case grayMixerMagenta = "gray_mixer_magenta"
+    case highlightRecovery = "highlight_recovery"
+    case autoExposure = "auto_exposure"
+    case look = "look"
+    case profile = "profile"
+    case toneCurveMode = "tone_curve_mode"
+    case toneCurveLuma = "tone_curve_luma"
+    case toneCurveRed = "tone_curve_red"
+    case toneCurveGreen = "tone_curve_green"
+    case toneCurveBlue = "tone_curve_blue"
+    case displayToneCurveLuma = "display_tone_curve_luma"
+    case displayToneCurveRed = "display_tone_curve_red"
+    case displayToneCurveGreen = "display_tone_curve_green"
+    case displayToneCurveBlue = "display_tone_curve_blue"
+    case chromaPrefilter = "chroma_prefilter"
+    case hotPixelSuppression = "hot_pixel_suppression"
+    case deepDenoise = "deep_denoise"
+    case lensProfileEnable = "lens_profile_enable"
+    case lensCorrectionDistortion = "lens_correction_distortion"
+    case lensCorrectionCa = "lens_correction_ca"
+    case lensCorrectionVignetting = "lens_correction_vignetting"
+    case perspectiveVertical = "perspective_vertical"
+    case perspectiveHorizontal = "perspective_horizontal"
+    case perspectiveRotate = "perspective_rotate"
+    case perspectiveScale = "perspective_scale"
+    case perspectiveAspect = "perspective_aspect"
+    case perspectiveX = "perspective_x"
+    case perspectiveY = "perspective_y"
+    case demosaic = "demosaic"
+    case autoLateralCa = "auto_lateral_ca"
+    case defringePurpleAmount = "defringe_purple_amount"
+    case defringePurpleHueLo = "defringe_purple_hue_lo"
+    case defringePurpleHueHi = "defringe_purple_hue_hi"
+    case defringeGreenAmount = "defringe_green_amount"
+    case defringeGreenHueLo = "defringe_green_hue_lo"
+    case defringeGreenHueHi = "defringe_green_hue_hi"
+    case lensProfile = "lens_profile"
+  }
 
-    // MARK: - Range constants (canonical, generated)
+  // MARK: - Range constants (canonical, generated)
 
-    /// White balance correlated color temperature in Kelvin.
-    public static let temperatureRange: ClosedRange<Double> = 2000.0...12000.0
-    /// White balance green/magenta tint. Range matches ACR's crs:Tint span (#1870).
-    public static let tintRange: ClosedRange<Double> = -150.0...150.0
-    /// Normalised image-relative x of the neutral the white balance was sampled at (#2434); meaningful only when `wbSource` is 'Sampled'. XMP key `papp:WbSampleX`.
-    public static let wbSampleXRange: ClosedRange<Double> = 0.0...1.0
-    /// Normalised image-relative y of the neutral the white balance was sampled at (#2434); meaningful only when `wbSource` is 'Sampled'. XMP key `papp:WbSampleY`.
-    public static let wbSampleYRange: ClosedRange<Double> = 0.0...1.0
-    /// Version of the estimator that produced an 'Auto' or 'Sampled' white balance (#2434; `raw_core::stages::white_balance_sample::WB_ALGORITHM_VERSION`), 0 when the pair was not derived. A re-derivation of the math bumps it so an old sidecar's stored reading is never reinterpreted. XMP key `papp:WbAlgorithmVersion`.
-    public static let wbAlgorithmVersionRange: ClosedRange<Double> = 0.0...1000000.0
-    /// Linear exposure in EV stops applied in scene-linear.
-    public static let exposureRange: ClosedRange<Double> = -4.0...4.0
-    /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design spec § 4.1). XMP key `papp:Brightness` (NOT `crs:Brightness`, an ACR PV2010 key with different semantics).
-    public static let brightnessRange: ClosedRange<Double> = -100.0...100.0
-    /// Contrast — routed to AgX slope per spec § 3.6a.
-    public static let contrastRange: ClosedRange<Double> = -100.0...100.0
-    /// Highlights tone-region control.
-    public static let highlightsRange: ClosedRange<Double> = -100.0...100.0
-    /// Shadows tone-region control.
-    public static let shadowsRange: ClosedRange<Double> = -100.0...100.0
-    /// Whites tone-region control.
-    public static let whitesRange: ClosedRange<Double> = -100.0...100.0
-    /// Blacks tone-region control.
-    public static let blacksRange: ClosedRange<Double> = -100.0...100.0
-    /// Parametric tone curve — highlights region (PV2012, upper quarter).
-    public static let parametricHighlightsRange: ClosedRange<Double> = -100.0...100.0
-    /// Parametric tone curve — lights region (PV2012, upper midtones).
-    public static let parametricLightsRange: ClosedRange<Double> = -100.0...100.0
-    /// Parametric tone curve — darks region (PV2012, lower midtones).
-    public static let parametricDarksRange: ClosedRange<Double> = -100.0...100.0
-    /// Parametric tone curve — shadows region (PV2012, lower quarter).
-    public static let parametricShadowsRange: ClosedRange<Double> = -100.0...100.0
-    /// Parametric tone curve — shadow/darks split point (ACR crs:ParametricShadowSplit, #2320).
-    public static let parametricShadowSplitRange: ClosedRange<Double> = 0.0...100.0
-    /// Parametric tone curve — darks/lights split point (ACR crs:ParametricMidtoneSplit, #2320).
-    public static let parametricMidtoneSplitRange: ClosedRange<Double> = 0.0...100.0
-    /// Parametric tone curve — lights/highlights split point (ACR crs:ParametricHighlightSplit, #2320).
-    public static let parametricHighlightSplitRange: ClosedRange<Double> = 0.0...100.0
-    /// Vibrance (saturation with skin-tone protection) per spec § 3.7.
-    public static let vibranceRange: ClosedRange<Double> = -100.0...100.0
-    /// Global saturation.
-    public static let saturationRange: ClosedRange<Double> = -100.0...100.0
-    /// Midtone local contrast (unsharp radius 40 per spec § 3.8).
-    public static let clarityRange: ClosedRange<Double> = -100.0...100.0
-    /// Fine texture (unsharp radius 3 per spec § 3.8).
-    public static let textureRange: ClosedRange<Double> = -100.0...100.0
-    /// Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = reference-renderer import (40).
-    public static let sharpenAmountRange: ClosedRange<Double> = 0.0...150.0
-    /// Sharpening PSF Gaussian sigma. Default = reference-renderer import (1.0).
-    public static let sharpenRadiusRange: ClosedRange<Double> = 0.5...3.0
-    /// Sharpening edge-attenuation strength.
-    public static let sharpenDetailRange: ClosedRange<Double> = 0.0...100.0
-    /// Sharpening edge-mask threshold.
-    public static let sharpenMaskingRange: ClosedRange<Double> = 0.0...100.0
-    /// Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped).
-    public static let captureSharpeningAmountRange: ClosedRange<Double> = 0.0...100.0
-    /// Capture sharpening Gaussian PSF sigma in pixels (ticket #456: renamed from `captureSharpeningRadius` after PR #452 swapped the PSF for a true Gaussian).
-    public static let captureSharpeningSigmaRange: ClosedRange<Double> = 0.5...2.0
-    /// Deprecated: use `captureSharpeningSigma`. Kept as a back-compat alias for source-level callers and the XMP `papp:CaptureSharpeningRadius` read-path; no code reads this field after parse.
-    public static let captureSharpeningRadiusRange: ClosedRange<Double> = 0.5...2.0
-    /// Luminance noise reduction strength per spec § 3.11.
-    public static let nrLuminanceRange: ClosedRange<Double> = 0.0...100.0
-    /// Color noise reduction strength (default = the reference renderer's default).
-    public static let nrColorRange: ClosedRange<Double> = 0.0...100.0
-    /// Dehaze strength.
-    public static let dehazeRange: ClosedRange<Double> = -100.0...100.0
-    /// Vignette amount — scene-linear radial EV gain (#1109, tone/zoom design spec § 10.1); negative darkens corners, positive lightens them.
-    public static let vignetteAmountRange: ClosedRange<Double> = -100.0...100.0
-    /// Vignette transition softness from center to edge (#1109) — maps onto mask width 0.05–0.9 around the fixed 0.7 midpoint.
-    public static let vignetteFeatherRange: ClosedRange<Double> = 0.0...100.0
-    /// Grain intensity — display-linear deterministic film grain (#1110, tone/zoom design spec § 10.2); 0 disables the stage.
-    public static let grainAmountRange: ClosedRange<Double> = 0.0...100.0
-    /// Grain particle size (#1110) — maps onto the noise pitch 1–6 px at a 2000-px long edge (resolution-stable).
-    public static let grainSizeRange: ClosedRange<Double> = 0.0...100.0
-    /// Grain roughness (#1110) — mixes a second noise octave at 2x frequency.
-    public static let grainRoughnessRange: ClosedRange<Double> = 0.0...100.0
-    /// Film look blend strength in percent; 100 = full look, lerped in display-linear against the pre-look value. XMP: papp:FilmStrength.
-    public static let filmStrengthRange: ClosedRange<Double> = 0.0...100.0
-    /// Split-tone shadow hue in degrees (#1111, tone/zoom design spec § 10.3) — display-linear Oklab tint.
-    public static let splitToneShadowHueRange: ClosedRange<Double> = 0.0...360.0
-    /// Split-tone shadow saturation (#1111); 0 disables the shadow tint.
-    public static let splitToneShadowSaturationRange: ClosedRange<Double> = 0.0...100.0
-    /// Split-tone highlight hue in degrees (#1111).
-    public static let splitToneHighlightHueRange: ClosedRange<Double> = 0.0...360.0
-    /// Split-tone highlight saturation (#1111); 0 disables the highlight tint.
-    public static let splitToneHighlightSaturationRange: ClosedRange<Double> = 0.0...100.0
-    /// Colour-grading balance — warps the tonal axis via a Yd^exp2(-bal/100) remap, shifting the shadow/midtone/highlight crossovers (#275, formerly #1111). Primary drag-bar field for the Color Grading tool. XMP: crs:SplitToningBalance.
-    public static let splitToneBalanceRange: ClosedRange<Double> = -100.0...100.0
-    /// Colour-grading shadow luminance offset (#275). XMP: crs:ColorGradeShadowLum.
-    public static let colorGradeShadowLuminanceRange: ClosedRange<Double> = -100.0...100.0
-    /// Colour-grading midtone hue in degrees (#275). XMP: crs:ColorGradeMidtoneHue.
-    public static let colorGradeMidtoneHueRange: ClosedRange<Double> = 0.0...360.0
-    /// Colour-grading midtone saturation (#275); 0 disables the midtone tint. XMP: crs:ColorGradeMidtoneSat.
-    public static let colorGradeMidtoneSaturationRange: ClosedRange<Double> = 0.0...100.0
-    /// Colour-grading midtone luminance offset (#275). XMP: crs:ColorGradeMidtoneLum.
-    public static let colorGradeMidtoneLuminanceRange: ClosedRange<Double> = -100.0...100.0
-    /// Colour-grading highlight luminance offset (#275). XMP: crs:ColorGradeHighlightLum.
-    public static let colorGradeHighlightLuminanceRange: ClosedRange<Double> = -100.0...100.0
-    /// Colour-grading global hue in degrees (#275) — the unweighted wheel that tints every tone. XMP: crs:ColorGradeGlobalHue.
-    public static let colorGradeGlobalHueRange: ClosedRange<Double> = 0.0...360.0
-    /// Colour-grading global saturation (#275); 0 disables the global tint. XMP: crs:ColorGradeGlobalSat.
-    public static let colorGradeGlobalSaturationRange: ClosedRange<Double> = 0.0...100.0
-    /// Colour-grading global luminance offset (#275). XMP: crs:ColorGradeGlobalLum.
-    public static let colorGradeGlobalLuminanceRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Red hue adjustment (#1112, tone/zoom design spec § 10.4). Oklab hue rotation on the Red band; ±100 ↔ ±30° (pending ACR calibration). XMP: crs:HueAdjustmentRed.
-    public static let hueAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Orange hue adjustment (#1112). XMP: crs:HueAdjustmentOrange.
-    public static let hueAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Yellow hue adjustment (#1112). XMP: crs:HueAdjustmentYellow.
-    public static let hueAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Green hue adjustment (#1112). XMP: crs:HueAdjustmentGreen.
-    public static let hueAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Aqua hue adjustment (#1112). XMP: crs:HueAdjustmentAqua.
-    public static let hueAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Blue hue adjustment (#1112). XMP: crs:HueAdjustmentBlue.
-    public static let hueAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Purple hue adjustment (#1112). XMP: crs:HueAdjustmentPurple.
-    public static let hueAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Magenta hue adjustment (#1112). XMP: crs:HueAdjustmentMagenta.
-    public static let hueAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Red saturation adjustment (#1112). Scales Oklab chroma on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:SaturationAdjustmentRed.
-    public static let saturationAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Orange saturation adjustment (#1112). XMP: crs:SaturationAdjustmentOrange.
-    public static let saturationAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Yellow saturation adjustment (#1112). XMP: crs:SaturationAdjustmentYellow.
-    public static let saturationAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Green saturation adjustment (#1112). XMP: crs:SaturationAdjustmentGreen.
-    public static let saturationAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Aqua saturation adjustment (#1112). XMP: crs:SaturationAdjustmentAqua.
-    public static let saturationAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Blue saturation adjustment (#1112). XMP: crs:SaturationAdjustmentBlue.
-    public static let saturationAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Purple saturation adjustment (#1112). XMP: crs:SaturationAdjustmentPurple.
-    public static let saturationAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Magenta saturation adjustment (#1112). XMP: crs:SaturationAdjustmentMagenta.
-    public static let saturationAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Red luminance adjustment (#1112). Scales Oklab L on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:LuminanceAdjustmentRed.
-    public static let luminanceAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Orange luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentOrange.
-    public static let luminanceAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Yellow luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentYellow.
-    public static let luminanceAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Green luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentGreen.
-    public static let luminanceAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Aqua luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentAqua.
-    public static let luminanceAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Blue luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentBlue.
-    public static let luminanceAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Purple luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentPurple.
-    public static let luminanceAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
-    /// HSL Magenta luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentMagenta.
-    public static let luminanceAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
-    /// B&W Red luminance weight (#276). Scales Oklab L on the Red band while black_white is On; ±100 ↔ scale ×2 / ×0. XMP: crs:GrayMixerRed.
-    public static let grayMixerRedRange: ClosedRange<Double> = -100.0...100.0
-    /// B&W Orange luminance weight (#276). XMP: crs:GrayMixerOrange.
-    public static let grayMixerOrangeRange: ClosedRange<Double> = -100.0...100.0
-    /// B&W Yellow luminance weight (#276). XMP: crs:GrayMixerYellow.
-    public static let grayMixerYellowRange: ClosedRange<Double> = -100.0...100.0
-    /// B&W Green luminance weight (#276). XMP: crs:GrayMixerGreen.
-    public static let grayMixerGreenRange: ClosedRange<Double> = -100.0...100.0
-    /// B&W Aqua luminance weight (#276). XMP: crs:GrayMixerAqua.
-    public static let grayMixerAquaRange: ClosedRange<Double> = -100.0...100.0
-    /// B&W Blue luminance weight (#276). XMP: crs:GrayMixerBlue.
-    public static let grayMixerBlueRange: ClosedRange<Double> = -100.0...100.0
-    /// B&W Purple luminance weight (#276). XMP: crs:GrayMixerPurple.
-    public static let grayMixerPurpleRange: ClosedRange<Double> = -100.0...100.0
-    /// B&W Magenta luminance weight (#276). XMP: crs:GrayMixerMagenta.
-    public static let grayMixerMagentaRange: ClosedRange<Double> = -100.0...100.0
-    /// Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.
-    public static let chromaPrefilterRange: ClosedRange<Double> = 0.0...100.0
-    /// BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.
-    public static let deepDenoiseRange: ClosedRange<Double> = 0.0...100.0
-    /// Geometric-distortion correction strength (#376) — the DNG `WarpRectilinear` component common to all three planes. 100 (default) applies the vendor's authored warp in full; 0 leaves the frame undistorted-as-shot. XMP key `crs:LensProfileDistortionScale`. Part of the decoded-image cache key.
-    public static let lensCorrectionDistortionRange: ClosedRange<Double> = 0.0...100.0
-    /// Lateral chromatic-aberration correction strength (#376) — each plane's DNG `WarpRectilinear` deviation from the green reference plane. Has no effect on a DNG carrying a single coefficient set (no CA encoded). XMP key `crs:LensProfileChromaticAberrationScale`. Part of the decoded-image cache key.
-    public static let lensCorrectionCaRange: ClosedRange<Double> = 0.0...100.0
-    /// Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key.
-    public static let lensCorrectionVignettingRange: ClosedRange<Double> = 0.0...100.0
-    /// Vertical keystone correction (#3410, `crs:PerspectiveVertical`). Projective coefficient about the image centre: positive converges the bottom edge (the correction for a camera tilted up at a building). 0 (default) contributes an identity row to the homography.
-    public static let perspectiveVerticalRange: ClosedRange<Double> = -100.0...100.0
-    /// Horizontal keystone correction (#3410, `crs:PerspectiveHorizontal`). Projective coefficient about the image centre: positive converges the right edge. 0 (default) is identity.
-    public static let perspectiveHorizontalRange: ClosedRange<Double> = -100.0...100.0
-    /// Geometry rotation in degrees, positive = clockwise (#3410, `crs:PerspectiveRotate`). Adobe's ±10° fine level, independent of `crop.angle`'s ±45° straighten: this one rotates INSIDE the frame the crop then samples, so the two compose rather than replace one another. 0 (default) is identity.
-    public static let perspectiveRotateRange: ClosedRange<Double> = -10.0...10.0
-    /// Uniform scale about the image centre, in percent (#3410, `crs:PerspectiveScale`). Below 100 shrinks the frame's content inward (exposing the transparent surround a keystone leaves behind); above 100 magnifies it to push that surround off-frame. 100 (default) is identity.
-    public static let perspectiveScaleRange: ClosedRange<Double> = 50.0...150.0
-    /// Aspect stretch (#3410, `crs:PerspectiveAspect`). Positive stretches horizontally and compresses vertically by the reciprocal factor, so frame area is preserved; negative does the opposite. 0 (default) is identity.
-    public static let perspectiveAspectRange: ClosedRange<Double> = -100.0...100.0
-    /// Horizontal offset of the transformed frame (#3410, `crs:PerspectiveX`). ±100 shifts by one half-extent — half the frame width. 0 (default) is identity.
-    public static let perspectiveXRange: ClosedRange<Double> = -100.0...100.0
-    /// Vertical offset of the transformed frame (#3410, `crs:PerspectiveY`). ±100 shifts by one half-extent — half the frame height. 0 (default) is identity.
-    public static let perspectiveYRange: ClosedRange<Double> = -100.0...100.0
-    /// Purple-fringe suppression strength (#3411), ACR's Defringe amount. Desaturates in-band chroma next to high-contrast edges in scene-linear Oklab; 0 (default) skips the stage bit-identically. XMP key `crs:DefringePurpleAmount`.
-    public static let defringePurpleAmountRange: ClosedRange<Double> = 0.0...20.0
-    /// Low edge of the purple hue band on ACR's [0, 100] defringe-hue axis (#3411). Inert while `defringePurpleAmount` is 0. XMP key `crs:DefringePurpleHueLo`.
-    public static let defringePurpleHueLoRange: ClosedRange<Double> = 0.0...100.0
-    /// High edge of the purple hue band (#3411). XMP key `crs:DefringePurpleHueHi`.
-    public static let defringePurpleHueHiRange: ClosedRange<Double> = 0.0...100.0
-    /// Green-fringe suppression strength (#3411), ACR's Defringe amount for the green family. 0 (default) skips the stage bit-identically. XMP key `crs:DefringeGreenAmount`.
-    public static let defringeGreenAmountRange: ClosedRange<Double> = 0.0...20.0
-    /// Low edge of the green hue band on ACR's [0, 100] defringe-hue axis (#3411). Inert while `defringeGreenAmount` is 0. XMP key `crs:DefringeGreenHueLo`.
-    public static let defringeGreenHueLoRange: ClosedRange<Double> = 0.0...100.0
-    /// High edge of the green hue band (#3411). XMP key `crs:DefringeGreenHueHi`.
-    public static let defringeGreenHueHiRange: ClosedRange<Double> = 0.0...100.0
+  /// White balance correlated color temperature in Kelvin.
+  public static let temperatureRange: ClosedRange<Double> = 2000.0...12000.0
+  /// White balance green/magenta tint. Range matches ACR's crs:Tint span (#1870).
+  public static let tintRange: ClosedRange<Double> = -150.0...150.0
+  /// Normalised image-relative x of the neutral the white balance was sampled at (#2434); meaningful only when `wbSource` is 'Sampled'. XMP key `papp:WbSampleX`.
+  public static let wbSampleXRange: ClosedRange<Double> = 0.0...1.0
+  /// Normalised image-relative y of the neutral the white balance was sampled at (#2434); meaningful only when `wbSource` is 'Sampled'. XMP key `papp:WbSampleY`.
+  public static let wbSampleYRange: ClosedRange<Double> = 0.0...1.0
+  /// Version of the estimator that produced an 'Auto' or 'Sampled' white balance (#2434; `raw_core::stages::white_balance_sample::WB_ALGORITHM_VERSION`), 0 when the pair was not derived. A re-derivation of the math bumps it so an old sidecar's stored reading is never reinterpreted. XMP key `papp:WbAlgorithmVersion`.
+  public static let wbAlgorithmVersionRange: ClosedRange<Double> = 0.0...1000000.0
+  /// Linear exposure in EV stops applied in scene-linear.
+  public static let exposureRange: ClosedRange<Double> = -4.0...4.0
+  /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design spec § 4.1). XMP key `papp:Brightness` (NOT `crs:Brightness`, an ACR PV2010 key with different semantics).
+  public static let brightnessRange: ClosedRange<Double> = -100.0...100.0
+  /// Contrast — routed to AgX slope per spec § 3.6a.
+  public static let contrastRange: ClosedRange<Double> = -100.0...100.0
+  /// Highlights tone-region control.
+  public static let highlightsRange: ClosedRange<Double> = -100.0...100.0
+  /// Shadows tone-region control.
+  public static let shadowsRange: ClosedRange<Double> = -100.0...100.0
+  /// Whites tone-region control.
+  public static let whitesRange: ClosedRange<Double> = -100.0...100.0
+  /// Blacks tone-region control.
+  public static let blacksRange: ClosedRange<Double> = -100.0...100.0
+  /// Parametric tone curve — highlights region (PV2012, upper quarter).
+  public static let parametricHighlightsRange: ClosedRange<Double> = -100.0...100.0
+  /// Parametric tone curve — lights region (PV2012, upper midtones).
+  public static let parametricLightsRange: ClosedRange<Double> = -100.0...100.0
+  /// Parametric tone curve — darks region (PV2012, lower midtones).
+  public static let parametricDarksRange: ClosedRange<Double> = -100.0...100.0
+  /// Parametric tone curve — shadows region (PV2012, lower quarter).
+  public static let parametricShadowsRange: ClosedRange<Double> = -100.0...100.0
+  /// Parametric tone curve — shadow/darks split point (ACR crs:ParametricShadowSplit, #2320).
+  public static let parametricShadowSplitRange: ClosedRange<Double> = 0.0...100.0
+  /// Parametric tone curve — darks/lights split point (ACR crs:ParametricMidtoneSplit, #2320).
+  public static let parametricMidtoneSplitRange: ClosedRange<Double> = 0.0...100.0
+  /// Parametric tone curve — lights/highlights split point (ACR crs:ParametricHighlightSplit, #2320).
+  public static let parametricHighlightSplitRange: ClosedRange<Double> = 0.0...100.0
+  /// Vibrance (saturation with skin-tone protection) per spec § 3.7.
+  public static let vibranceRange: ClosedRange<Double> = -100.0...100.0
+  /// Global saturation.
+  public static let saturationRange: ClosedRange<Double> = -100.0...100.0
+  /// Midtone local contrast (unsharp radius 40 per spec § 3.8).
+  public static let clarityRange: ClosedRange<Double> = -100.0...100.0
+  /// Fine texture (unsharp radius 3 per spec § 3.8).
+  public static let textureRange: ClosedRange<Double> = -100.0...100.0
+  /// Sharpening amount per spec § 3.10 (0 = stage skipped, 100 = full RL). Default = reference-renderer import (40).
+  public static let sharpenAmountRange: ClosedRange<Double> = 0.0...150.0
+  /// Sharpening PSF Gaussian sigma. Default = reference-renderer import (1.0).
+  public static let sharpenRadiusRange: ClosedRange<Double> = 0.5...3.0
+  /// Sharpening edge-attenuation strength.
+  public static let sharpenDetailRange: ClosedRange<Double> = 0.0...100.0
+  /// Sharpening edge-mask threshold.
+  public static let sharpenMaskingRange: ClosedRange<Double> = 0.0...100.0
+  /// Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped).
+  public static let captureSharpeningAmountRange: ClosedRange<Double> = 0.0...100.0
+  /// Capture sharpening Gaussian PSF sigma in pixels (ticket #456: renamed from `captureSharpeningRadius` after PR #452 swapped the PSF for a true Gaussian).
+  public static let captureSharpeningSigmaRange: ClosedRange<Double> = 0.5...2.0
+  /// Deprecated: use `captureSharpeningSigma`. Kept as a back-compat alias for source-level callers and the XMP `papp:CaptureSharpeningRadius` read-path; no code reads this field after parse.
+  public static let captureSharpeningRadiusRange: ClosedRange<Double> = 0.5...2.0
+  /// Luminance noise reduction strength per spec § 3.11.
+  public static let nrLuminanceRange: ClosedRange<Double> = 0.0...100.0
+  /// Color noise reduction strength (default = the reference renderer's default).
+  public static let nrColorRange: ClosedRange<Double> = 0.0...100.0
+  /// Dehaze strength.
+  public static let dehazeRange: ClosedRange<Double> = -100.0...100.0
+  /// Vignette amount — scene-linear radial EV gain (#1109, tone/zoom design spec § 10.1); negative darkens corners, positive lightens them.
+  public static let vignetteAmountRange: ClosedRange<Double> = -100.0...100.0
+  /// Vignette transition softness from center to edge (#1109) — maps onto mask width 0.05–0.9 around the fixed 0.7 midpoint.
+  public static let vignetteFeatherRange: ClosedRange<Double> = 0.0...100.0
+  /// Grain intensity — display-linear deterministic film grain (#1110, tone/zoom design spec § 10.2); 0 disables the stage.
+  public static let grainAmountRange: ClosedRange<Double> = 0.0...100.0
+  /// Grain particle size (#1110) — maps onto the noise pitch 1–6 px at a 2000-px long edge (resolution-stable).
+  public static let grainSizeRange: ClosedRange<Double> = 0.0...100.0
+  /// Grain roughness (#1110) — mixes a second noise octave at 2x frequency.
+  public static let grainRoughnessRange: ClosedRange<Double> = 0.0...100.0
+  /// Film look blend strength in percent; 100 = full look, lerped in display-linear against the pre-look value. XMP: papp:FilmStrength.
+  public static let filmStrengthRange: ClosedRange<Double> = 0.0...100.0
+  /// Split-tone shadow hue in degrees (#1111, tone/zoom design spec § 10.3) — display-linear Oklab tint.
+  public static let splitToneShadowHueRange: ClosedRange<Double> = 0.0...360.0
+  /// Split-tone shadow saturation (#1111); 0 disables the shadow tint.
+  public static let splitToneShadowSaturationRange: ClosedRange<Double> = 0.0...100.0
+  /// Split-tone highlight hue in degrees (#1111).
+  public static let splitToneHighlightHueRange: ClosedRange<Double> = 0.0...360.0
+  /// Split-tone highlight saturation (#1111); 0 disables the highlight tint.
+  public static let splitToneHighlightSaturationRange: ClosedRange<Double> = 0.0...100.0
+  /// Colour-grading balance — warps the tonal axis via a Yd^exp2(-bal/100) remap, shifting the shadow/midtone/highlight crossovers (#275, formerly #1111). Primary drag-bar field for the Color Grading tool. XMP: crs:SplitToningBalance.
+  public static let splitToneBalanceRange: ClosedRange<Double> = -100.0...100.0
+  /// Colour-grading shadow luminance offset (#275). XMP: crs:ColorGradeShadowLum.
+  public static let colorGradeShadowLuminanceRange: ClosedRange<Double> = -100.0...100.0
+  /// Colour-grading midtone hue in degrees (#275). XMP: crs:ColorGradeMidtoneHue.
+  public static let colorGradeMidtoneHueRange: ClosedRange<Double> = 0.0...360.0
+  /// Colour-grading midtone saturation (#275); 0 disables the midtone tint. XMP: crs:ColorGradeMidtoneSat.
+  public static let colorGradeMidtoneSaturationRange: ClosedRange<Double> = 0.0...100.0
+  /// Colour-grading midtone luminance offset (#275). XMP: crs:ColorGradeMidtoneLum.
+  public static let colorGradeMidtoneLuminanceRange: ClosedRange<Double> = -100.0...100.0
+  /// Colour-grading highlight luminance offset (#275). XMP: crs:ColorGradeHighlightLum.
+  public static let colorGradeHighlightLuminanceRange: ClosedRange<Double> = -100.0...100.0
+  /// Colour-grading global hue in degrees (#275) — the unweighted wheel that tints every tone. XMP: crs:ColorGradeGlobalHue.
+  public static let colorGradeGlobalHueRange: ClosedRange<Double> = 0.0...360.0
+  /// Colour-grading global saturation (#275); 0 disables the global tint. XMP: crs:ColorGradeGlobalSat.
+  public static let colorGradeGlobalSaturationRange: ClosedRange<Double> = 0.0...100.0
+  /// Colour-grading global luminance offset (#275). XMP: crs:ColorGradeGlobalLum.
+  public static let colorGradeGlobalLuminanceRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Red hue adjustment (#1112, tone/zoom design spec § 10.4). Oklab hue rotation on the Red band; ±100 ↔ ±30° (pending ACR calibration). XMP: crs:HueAdjustmentRed.
+  public static let hueAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Orange hue adjustment (#1112). XMP: crs:HueAdjustmentOrange.
+  public static let hueAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Yellow hue adjustment (#1112). XMP: crs:HueAdjustmentYellow.
+  public static let hueAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Green hue adjustment (#1112). XMP: crs:HueAdjustmentGreen.
+  public static let hueAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Aqua hue adjustment (#1112). XMP: crs:HueAdjustmentAqua.
+  public static let hueAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Blue hue adjustment (#1112). XMP: crs:HueAdjustmentBlue.
+  public static let hueAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Purple hue adjustment (#1112). XMP: crs:HueAdjustmentPurple.
+  public static let hueAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Magenta hue adjustment (#1112). XMP: crs:HueAdjustmentMagenta.
+  public static let hueAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Red saturation adjustment (#1112). Scales Oklab chroma on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:SaturationAdjustmentRed.
+  public static let saturationAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Orange saturation adjustment (#1112). XMP: crs:SaturationAdjustmentOrange.
+  public static let saturationAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Yellow saturation adjustment (#1112). XMP: crs:SaturationAdjustmentYellow.
+  public static let saturationAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Green saturation adjustment (#1112). XMP: crs:SaturationAdjustmentGreen.
+  public static let saturationAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Aqua saturation adjustment (#1112). XMP: crs:SaturationAdjustmentAqua.
+  public static let saturationAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Blue saturation adjustment (#1112). XMP: crs:SaturationAdjustmentBlue.
+  public static let saturationAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Purple saturation adjustment (#1112). XMP: crs:SaturationAdjustmentPurple.
+  public static let saturationAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Magenta saturation adjustment (#1112). XMP: crs:SaturationAdjustmentMagenta.
+  public static let saturationAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Red luminance adjustment (#1112). Scales Oklab L on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:LuminanceAdjustmentRed.
+  public static let luminanceAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Orange luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentOrange.
+  public static let luminanceAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Yellow luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentYellow.
+  public static let luminanceAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Green luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentGreen.
+  public static let luminanceAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Aqua luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentAqua.
+  public static let luminanceAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Blue luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentBlue.
+  public static let luminanceAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Purple luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentPurple.
+  public static let luminanceAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
+  /// HSL Magenta luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentMagenta.
+  public static let luminanceAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
+  /// B&W Red luminance weight (#276). Scales Oklab L on the Red band while black_white is On; ±100 ↔ scale ×2 / ×0. XMP: crs:GrayMixerRed.
+  public static let grayMixerRedRange: ClosedRange<Double> = -100.0...100.0
+  /// B&W Orange luminance weight (#276). XMP: crs:GrayMixerOrange.
+  public static let grayMixerOrangeRange: ClosedRange<Double> = -100.0...100.0
+  /// B&W Yellow luminance weight (#276). XMP: crs:GrayMixerYellow.
+  public static let grayMixerYellowRange: ClosedRange<Double> = -100.0...100.0
+  /// B&W Green luminance weight (#276). XMP: crs:GrayMixerGreen.
+  public static let grayMixerGreenRange: ClosedRange<Double> = -100.0...100.0
+  /// B&W Aqua luminance weight (#276). XMP: crs:GrayMixerAqua.
+  public static let grayMixerAquaRange: ClosedRange<Double> = -100.0...100.0
+  /// B&W Blue luminance weight (#276). XMP: crs:GrayMixerBlue.
+  public static let grayMixerBlueRange: ClosedRange<Double> = -100.0...100.0
+  /// B&W Purple luminance weight (#276). XMP: crs:GrayMixerPurple.
+  public static let grayMixerPurpleRange: ClosedRange<Double> = -100.0...100.0
+  /// B&W Magenta luminance weight (#276). XMP: crs:GrayMixerMagenta.
+  public static let grayMixerMagentaRange: ClosedRange<Double> = -100.0...100.0
+  /// Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.
+  public static let chromaPrefilterRange: ClosedRange<Double> = 0.0...100.0
+  /// BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.
+  public static let deepDenoiseRange: ClosedRange<Double> = 0.0...100.0
+  /// Geometric-distortion correction strength (#376) — the DNG `WarpRectilinear` component common to all three planes. 100 (default) applies the vendor's authored warp in full; 0 leaves the frame undistorted-as-shot. XMP key `crs:LensProfileDistortionScale`. Part of the decoded-image cache key.
+  public static let lensCorrectionDistortionRange: ClosedRange<Double> = 0.0...100.0
+  /// Lateral chromatic-aberration correction strength (#376) — each plane's DNG `WarpRectilinear` deviation from the green reference plane. Has no effect on a DNG carrying a single coefficient set (no CA encoded). XMP key `crs:LensProfileChromaticAberrationScale`. Part of the decoded-image cache key.
+  public static let lensCorrectionCaRange: ClosedRange<Double> = 0.0...100.0
+  /// Vignetting / lens-shading correction strength (#376) — the DNG `FixVignetteRadial` and `GainMap` gain opcodes. XMP key `crs:LensProfileVignettingScale`. Part of the decoded-image cache key.
+  public static let lensCorrectionVignettingRange: ClosedRange<Double> = 0.0...100.0
+  /// Vertical keystone correction (#3410, `crs:PerspectiveVertical`). Projective coefficient about the image centre: positive converges the bottom edge (the correction for a camera tilted up at a building). 0 (default) contributes an identity row to the homography.
+  public static let perspectiveVerticalRange: ClosedRange<Double> = -100.0...100.0
+  /// Horizontal keystone correction (#3410, `crs:PerspectiveHorizontal`). Projective coefficient about the image centre: positive converges the right edge. 0 (default) is identity.
+  public static let perspectiveHorizontalRange: ClosedRange<Double> = -100.0...100.0
+  /// Geometry rotation in degrees, positive = clockwise (#3410, `crs:PerspectiveRotate`). Adobe's ±10° fine level, independent of `crop.angle`'s ±45° straighten: this one rotates INSIDE the frame the crop then samples, so the two compose rather than replace one another. 0 (default) is identity.
+  public static let perspectiveRotateRange: ClosedRange<Double> = -10.0...10.0
+  /// Uniform scale about the image centre, in percent (#3410, `crs:PerspectiveScale`). Below 100 shrinks the frame's content inward (exposing the transparent surround a keystone leaves behind); above 100 magnifies it to push that surround off-frame. 100 (default) is identity.
+  public static let perspectiveScaleRange: ClosedRange<Double> = 50.0...150.0
+  /// Aspect stretch (#3410, `crs:PerspectiveAspect`). Positive stretches horizontally and compresses vertically by the reciprocal factor, so frame area is preserved; negative does the opposite. 0 (default) is identity.
+  public static let perspectiveAspectRange: ClosedRange<Double> = -100.0...100.0
+  /// Horizontal offset of the transformed frame (#3410, `crs:PerspectiveX`). ±100 shifts by one half-extent — half the frame width. 0 (default) is identity.
+  public static let perspectiveXRange: ClosedRange<Double> = -100.0...100.0
+  /// Vertical offset of the transformed frame (#3410, `crs:PerspectiveY`). ±100 shifts by one half-extent — half the frame height. 0 (default) is identity.
+  public static let perspectiveYRange: ClosedRange<Double> = -100.0...100.0
+  /// Purple-fringe suppression strength (#3411), ACR's Defringe amount. Desaturates in-band chroma next to high-contrast edges in scene-linear Oklab; 0 (default) skips the stage bit-identically. XMP key `crs:DefringePurpleAmount`.
+  public static let defringePurpleAmountRange: ClosedRange<Double> = 0.0...20.0
+  /// Low edge of the purple hue band on ACR's [0, 100] defringe-hue axis (#3411). Inert while `defringePurpleAmount` is 0. XMP key `crs:DefringePurpleHueLo`.
+  public static let defringePurpleHueLoRange: ClosedRange<Double> = 0.0...100.0
+  /// High edge of the purple hue band (#3411). XMP key `crs:DefringePurpleHueHi`.
+  public static let defringePurpleHueHiRange: ClosedRange<Double> = 0.0...100.0
+  /// Green-fringe suppression strength (#3411), ACR's Defringe amount for the green family. 0 (default) skips the stage bit-identically. XMP key `crs:DefringeGreenAmount`.
+  public static let defringeGreenAmountRange: ClosedRange<Double> = 0.0...20.0
+  /// Low edge of the green hue band on ACR's [0, 100] defringe-hue axis (#3411). Inert while `defringeGreenAmount` is 0. XMP key `crs:DefringeGreenHueLo`.
+  public static let defringeGreenHueLoRange: ClosedRange<Double> = 0.0...100.0
+  /// High edge of the green hue band (#3411). XMP key `crs:DefringeGreenHueHi`.
+  public static let defringeGreenHueHiRange: ClosedRange<Double> = 0.0...100.0
 
-    // MARK: - Pipeline-output version (canonical, generated)
+  // MARK: - Pipeline-output version (canonical, generated)
 
-    /// Monotonic version of the develop pipeline's rendered output
-    /// (#1926). Bump in `raw_core::version::PIPELINE_OUTPUT_VERSION`
-    /// whenever a change alters the pixels produced for the same
-    /// (RAW, sidecar) input, or silently reinterprets a stored
-    /// AdjustmentModel value without a load-time converter. Fold it
-    /// into every rendered-output cache key so a single bump
-    /// invalidates stale entries across all platforms.
-    public static let pipelineOutputVersion: UInt32 = 4
+  /// Monotonic version of the develop pipeline's rendered output
+  /// (#1926). Bump in `raw_core::version::PIPELINE_OUTPUT_VERSION`
+  /// whenever a change alters the pixels produced for the same
+  /// (RAW, sidecar) input, or silently reinterprets a stored
+  /// AdjustmentModel value without a load-time converter. Fold it
+  /// into every rendered-output cache key so a single bump
+  /// invalidates stale entries across all platforms.
+  public static let pipelineOutputVersion: UInt32 = 5
 }
 
 // MARK: - Copy / paste / sync groups (#944, canonical, generated)
@@ -370,188 +370,188 @@ extension AdjustmentModel {
 /// presents them; raw values are the canonical storage / wire keys shared
 /// with the Web client.
 public enum AdjustmentGroup: String, CaseIterable, Sendable, Hashable {
-    case whiteBalance = "white_balance"
-    case tone = "tone"
-    case color = "color"
-    case detail = "detail"
-    case effects = "effects"
-    case geometry = "geometry"
+  case whiteBalance = "white_balance"
+  case tone = "tone"
+  case color = "color"
+  case detail = "detail"
+  case effects = "effects"
+  case geometry = "geometry"
 }
 
 extension AdjustmentGroup {
-    /// Human-readable label for the selective-paste UI.
-    public var label: String {
-        switch self {
-        case .whiteBalance: return "White Balance"
-        case .tone: return "Tone"
-        case .color: return "Color"
-        case .detail: return "Detail"
-        case .effects: return "Effects"
-        case .geometry: return "Geometry"
-        }
+  /// Human-readable label for the selective-paste UI.
+  public var label: String {
+    switch self {
+    case .whiteBalance: return "White Balance"
+    case .tone: return "Tone"
+    case .color: return "Color"
+    case .detail: return "Detail"
+    case .effects: return "Effects"
+    case .geometry: return "Geometry"
     }
+  }
 
-    /// Canonical snake_case `AdjustmentModel` field names this group
-    /// carries. Names the Swift model does not mirror are simply skipped
-    /// by the merge — same passthrough rule the preset bridge uses.
-    public var fieldNames: [String] {
-        switch self {
-        case .whiteBalance:
-            return [
-                "temperature",
-                "tint",
-                "temperature_seen",
-                "tint_seen",
-                "wb_method",
-                "wb_scale_version",
-                "wb_source",
-            ]
-        case .tone:
-            return [
-                "exposure",
-                "brightness",
-                "contrast",
-                "highlights",
-                "shadows",
-                "whites",
-                "blacks",
-                "parametric_highlights",
-                "parametric_lights",
-                "parametric_darks",
-                "parametric_shadows",
-                "parametric_shadow_split",
-                "parametric_midtone_split",
-                "parametric_highlight_split",
-                "auto_exposure",
-                "tone_curve_mode",
-                "tone_curve_luma",
-                "tone_curve_red",
-                "tone_curve_green",
-                "tone_curve_blue",
-                "display_tone_curve_luma",
-                "display_tone_curve_red",
-                "display_tone_curve_green",
-                "display_tone_curve_blue",
-            ]
-        case .color:
-            return [
-                "vibrance",
-                "saturation",
-                "hue_adjustment_red",
-                "hue_adjustment_orange",
-                "hue_adjustment_yellow",
-                "hue_adjustment_green",
-                "hue_adjustment_aqua",
-                "hue_adjustment_blue",
-                "hue_adjustment_purple",
-                "hue_adjustment_magenta",
-                "saturation_adjustment_red",
-                "saturation_adjustment_orange",
-                "saturation_adjustment_yellow",
-                "saturation_adjustment_green",
-                "saturation_adjustment_aqua",
-                "saturation_adjustment_blue",
-                "saturation_adjustment_purple",
-                "saturation_adjustment_magenta",
-                "luminance_adjustment_red",
-                "luminance_adjustment_orange",
-                "luminance_adjustment_yellow",
-                "luminance_adjustment_green",
-                "luminance_adjustment_aqua",
-                "luminance_adjustment_blue",
-                "luminance_adjustment_purple",
-                "luminance_adjustment_magenta",
-                "black_white",
-                "gray_mixer_red",
-                "gray_mixer_orange",
-                "gray_mixer_yellow",
-                "gray_mixer_green",
-                "gray_mixer_aqua",
-                "gray_mixer_blue",
-                "gray_mixer_purple",
-                "gray_mixer_magenta",
-                "split_tone_shadow_hue",
-                "split_tone_shadow_saturation",
-                "split_tone_highlight_hue",
-                "split_tone_highlight_saturation",
-                "split_tone_balance",
-                "color_grade_shadow_luminance",
-                "color_grade_midtone_hue",
-                "color_grade_midtone_saturation",
-                "color_grade_midtone_luminance",
-                "color_grade_highlight_luminance",
-                "color_grade_global_hue",
-                "color_grade_global_saturation",
-                "color_grade_global_luminance",
-                "highlight_recovery",
-                "look",
-                "profile",
-            ]
-        case .detail:
-            return [
-                "clarity",
-                "texture",
-                "dehaze",
-                "sharpen_amount",
-                "sharpen_radius",
-                "sharpen_detail",
-                "sharpen_masking",
-                "capture_sharpening_amount",
-                "capture_sharpening_sigma",
-                "nr_luminance",
-                "nr_color",
-                "chroma_prefilter",
-                "hot_pixel_suppression",
-                "deep_denoise",
-                "lens_profile_enable",
-                "lens_correction_distortion",
-                "lens_correction_ca",
-                "lens_correction_vignetting",
-                "demosaic",
-                "auto_lateral_ca",
-                "defringe_purple_amount",
-                "defringe_purple_hue_lo",
-                "defringe_purple_hue_hi",
-                "defringe_green_amount",
-                "defringe_green_hue_lo",
-                "defringe_green_hue_hi",
-            ]
-        case .effects:
-            return [
-                "vignette_amount",
-                "vignette_feather",
-                "grain_amount",
-                "grain_size",
-                "grain_roughness",
-                "film_look",
-                "film_strength",
-            ]
-        case .geometry:
-            return [
-                "crop",
-                "perspective_vertical",
-                "perspective_horizontal",
-                "perspective_rotate",
-                "perspective_scale",
-                "perspective_aspect",
-                "perspective_x",
-                "perspective_y",
-            ]
-        }
+  /// Canonical snake_case `AdjustmentModel` field names this group
+  /// carries. Names the Swift model does not mirror are simply skipped
+  /// by the merge — same passthrough rule the preset bridge uses.
+  public var fieldNames: [String] {
+    switch self {
+    case .whiteBalance:
+      return [
+        "temperature",
+        "tint",
+        "temperature_seen",
+        "tint_seen",
+        "wb_method",
+        "wb_scale_version",
+        "wb_source",
+      ]
+    case .tone:
+      return [
+        "exposure",
+        "brightness",
+        "contrast",
+        "highlights",
+        "shadows",
+        "whites",
+        "blacks",
+        "parametric_highlights",
+        "parametric_lights",
+        "parametric_darks",
+        "parametric_shadows",
+        "parametric_shadow_split",
+        "parametric_midtone_split",
+        "parametric_highlight_split",
+        "auto_exposure",
+        "tone_curve_mode",
+        "tone_curve_luma",
+        "tone_curve_red",
+        "tone_curve_green",
+        "tone_curve_blue",
+        "display_tone_curve_luma",
+        "display_tone_curve_red",
+        "display_tone_curve_green",
+        "display_tone_curve_blue",
+      ]
+    case .color:
+      return [
+        "vibrance",
+        "saturation",
+        "hue_adjustment_red",
+        "hue_adjustment_orange",
+        "hue_adjustment_yellow",
+        "hue_adjustment_green",
+        "hue_adjustment_aqua",
+        "hue_adjustment_blue",
+        "hue_adjustment_purple",
+        "hue_adjustment_magenta",
+        "saturation_adjustment_red",
+        "saturation_adjustment_orange",
+        "saturation_adjustment_yellow",
+        "saturation_adjustment_green",
+        "saturation_adjustment_aqua",
+        "saturation_adjustment_blue",
+        "saturation_adjustment_purple",
+        "saturation_adjustment_magenta",
+        "luminance_adjustment_red",
+        "luminance_adjustment_orange",
+        "luminance_adjustment_yellow",
+        "luminance_adjustment_green",
+        "luminance_adjustment_aqua",
+        "luminance_adjustment_blue",
+        "luminance_adjustment_purple",
+        "luminance_adjustment_magenta",
+        "black_white",
+        "gray_mixer_red",
+        "gray_mixer_orange",
+        "gray_mixer_yellow",
+        "gray_mixer_green",
+        "gray_mixer_aqua",
+        "gray_mixer_blue",
+        "gray_mixer_purple",
+        "gray_mixer_magenta",
+        "split_tone_shadow_hue",
+        "split_tone_shadow_saturation",
+        "split_tone_highlight_hue",
+        "split_tone_highlight_saturation",
+        "split_tone_balance",
+        "color_grade_shadow_luminance",
+        "color_grade_midtone_hue",
+        "color_grade_midtone_saturation",
+        "color_grade_midtone_luminance",
+        "color_grade_highlight_luminance",
+        "color_grade_global_hue",
+        "color_grade_global_saturation",
+        "color_grade_global_luminance",
+        "highlight_recovery",
+        "look",
+        "profile",
+      ]
+    case .detail:
+      return [
+        "clarity",
+        "texture",
+        "dehaze",
+        "sharpen_amount",
+        "sharpen_radius",
+        "sharpen_detail",
+        "sharpen_masking",
+        "capture_sharpening_amount",
+        "capture_sharpening_sigma",
+        "nr_luminance",
+        "nr_color",
+        "chroma_prefilter",
+        "hot_pixel_suppression",
+        "deep_denoise",
+        "lens_profile_enable",
+        "lens_correction_distortion",
+        "lens_correction_ca",
+        "lens_correction_vignetting",
+        "demosaic",
+        "auto_lateral_ca",
+        "defringe_purple_amount",
+        "defringe_purple_hue_lo",
+        "defringe_purple_hue_hi",
+        "defringe_green_amount",
+        "defringe_green_hue_lo",
+        "defringe_green_hue_hi",
+      ]
+    case .effects:
+      return [
+        "vignette_amount",
+        "vignette_feather",
+        "grain_amount",
+        "grain_size",
+        "grain_roughness",
+        "film_look",
+        "film_strength",
+      ]
+    case .geometry:
+      return [
+        "crop",
+        "perspective_vertical",
+        "perspective_horizontal",
+        "perspective_rotate",
+        "perspective_scale",
+        "perspective_aspect",
+        "perspective_x",
+        "perspective_y",
+      ]
     }
+  }
 }
 
 /// `AdjustmentModel` fields deliberately never moved by copy / paste /
 /// sync. See `raw_core::types::adjustment::schema::groups` for the
 /// per-field rationale (notably the mask decision).
 public let adjustmentNonCopyableFields: [String] = [
-    "lens_profile",
-    "local_adjustments",
-    "inpaint_removals",
-    "retouch_spots",
-    "mask_rasters",
-    "capture_sharpening_radius",
-    "wb_sample_x",
-    "wb_sample_y",
-    "wb_algorithm_version",
+  "lens_profile",
+  "local_adjustments",
+  "inpaint_removals",
+  "retouch_spots",
+  "mask_rasters",
+  "capture_sharpening_radius",
+  "wb_sample_x",
+  "wb_sample_y",
+  "wb_algorithm_version",
 ]

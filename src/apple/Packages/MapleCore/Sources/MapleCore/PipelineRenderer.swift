@@ -104,6 +104,8 @@ public struct MapleSceneLinearImageData: Sendable {
   /// reproduces the full-image AE brightness instead of omitting the
   /// stage.
   public let aeGain: Float
+  /// Full-frame pre-AE scene anchor (#3601); NaN means this buffer has no export.
+  public let whitesAnchorEv: Float
   /// Whether this RAW carries a parsed `OpcodeList3` at all
   /// (`RawImage::has_lens_corrections`, #2231) — `false` for the fp16
   /// tile paths (no export) and for any source with no `OpcodeList3` tag.
@@ -139,6 +141,7 @@ public struct MapleSceneLinearImageData: Sendable {
     iso: UInt32,
     wbFrame: WbSliderFrame? = nil,
     aeGain: Float = 1.0,
+    whitesAnchorEv: Float = .nan,
     hasLensCorrections: Bool = false,
     lensCorrectionCaInert: Bool = true,
     lensCorrectionDistortionInert: Bool = true,
@@ -153,6 +156,7 @@ public struct MapleSceneLinearImageData: Sendable {
     self.iso = iso
     self.wbFrame = wbFrame
     self.aeGain = aeGain
+    self.whitesAnchorEv = whitesAnchorEv
     self.hasLensCorrections = hasLensCorrections
     self.lensCorrectionCaInert = lensCorrectionCaInert
     self.lensCorrectionDistortionInert = lensCorrectionDistortionInert
@@ -671,6 +675,7 @@ public struct PipelineRenderer: Sendable {
       iso: buf.iso,
       wbFrame: WbSliderFrame(buffer: buf),
       aeGain: buf.ae_gain,
+      whitesAnchorEv: buf.whites_anchor_ev,
       hasLensCorrections: buf.has_lens_corrections != 0,
       lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
       lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
@@ -723,6 +728,7 @@ public struct PipelineRenderer: Sendable {
       iso: buf.iso,
       wbFrame: WbSliderFrame(buffer: buf),
       aeGain: buf.ae_gain,
+      whitesAnchorEv: buf.whites_anchor_ev,
       hasLensCorrections: buf.has_lens_corrections != 0,
       lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
       lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
@@ -774,6 +780,7 @@ public struct PipelineRenderer: Sendable {
       iso: buf.iso,
       wbFrame: WbSliderFrame(buffer: buf),
       aeGain: buf.ae_gain,
+      whitesAnchorEv: buf.whites_anchor_ev,
       hasLensCorrections: buf.has_lens_corrections != 0,
       lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
       lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
@@ -828,6 +835,7 @@ public struct PipelineRenderer: Sendable {
       iso: buf.iso,
       wbFrame: WbSliderFrame(buffer: buf),
       aeGain: buf.ae_gain,
+      whitesAnchorEv: buf.whites_anchor_ev,
       hasLensCorrections: buf.has_lens_corrections != 0,
       lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
       lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
@@ -1346,7 +1354,8 @@ extension PipelineRenderer {
     decodedTint: Double = 0.0,
     skipAgX: Bool = false,
     iso: UInt32 = 0,
-    wbFrame: WbSliderFrame? = nil
+    wbFrame: WbSliderFrame? = nil,
+    whitesAnchorEv: Float = .nan
   ) -> MapleAdjustmentParams {
     // Diagnostic for the magenta-cast investigation: log every value the
     // Apple shell hands to the Rust slider chain. If temperature or tint
@@ -1361,6 +1370,7 @@ extension PipelineRenderer {
     // the literal-init form during xcodebuild after #515 grew the
     // struct to 18 fields. See #565.
     var params = MapleAdjustmentParams()
+    params.whites_anchor_ev = whitesAnchorEv
     params.temperature = Float(model.temperature)
     params.tint = Float(model.tint)
     params.exposure = Float(model.exposure)

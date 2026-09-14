@@ -105,6 +105,7 @@ fn cpu_reference(input: &[f32], model: &AdjustmentModel, skip_agx: bool) -> Vec<
         h,
         model,
         &ChainOptions {
+            whites_anchor_ev: Some(super::gpu_live_test_support::input_whites_anchor(input)),
             decoded_temp: ANCHOR.0,
             decoded_tint: ANCHOR.1,
             skip_agx,
@@ -136,7 +137,7 @@ fn gpu_surface(input: &[f32], model: &AdjustmentModel, input_shape: u32) -> Vec<
     let curve = ProfileCurve::identity();
     let lut = ColorLut::identity(2);
     let arr = owned_arrays(model, &curve, &lut);
-    let mut p = make_params(model, WbMethod::Cat16, 2, &arr);
+    let mut p = make_params(&input, model, WbMethod::Cat16, 2, &arr);
     p.decoded_temperature = ANCHOR.0;
     p.decoded_tint = ANCHOR.1;
     p.input_shape = input_shape;

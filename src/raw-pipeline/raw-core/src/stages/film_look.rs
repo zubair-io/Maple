@@ -174,6 +174,7 @@ mod tests {
 
     fn image_from_pixels(w: u32, h: u32, pixels: Vec<[f32; 3]>) -> Image {
         Image {
+            whites_anchor_ev: None,
             width: w,
             height: h,
             pixels,

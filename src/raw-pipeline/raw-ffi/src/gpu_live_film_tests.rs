@@ -74,6 +74,8 @@ fn cpu_reference(
         img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
     }
 
+    img.whites_anchor_ev = Some(super::gpu_live_test_support::input_whites_anchor(input));
+
     raw_core::stages::white_balance::apply(
         &mut img,
         model.temperature,
@@ -106,7 +108,7 @@ fn cpu_reference(
     // elided — a no-op at this file's models) → rec2020_to_srgb →
     // srgb_gamma_encode → identity curve/LUT (the Auto-Profile tail the GPU
     // chain always appends).
-    raw_core::view::agx::apply(&mut img, model.contrast);
+    raw_core::view::agx::apply(&mut img, model.contrast, model.whites);
     if let Some((data, size)) = lut {
         let film_lut = raw_core::film::FilmLut {
             size,
@@ -144,7 +146,7 @@ fn gpu_surface(
     let curve = ProfileCurve::identity();
     let identity_lut = ColorLut::identity(2);
     let arr = owned_arrays(model, &curve, &identity_lut);
-    let mut p = make_params(model, WbMethod::Cat16, 2, &arr);
+    let mut p = make_params(&input, model, WbMethod::Cat16, 2, &arr);
     match lut {
         Some((data, size)) => {
             p.film_strength = strength;

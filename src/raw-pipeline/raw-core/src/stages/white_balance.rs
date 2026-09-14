@@ -566,8 +566,8 @@ pub(crate) use v5::legacy_slider_source_xy;
 // version conversions) so every file stays under the 600-LOC budget (same
 // `#[path]` split pattern as `stages/nlm.rs`).
 #[cfg(test)]
-#[path = "white_balance_tests.rs"]
-mod tests;
-#[cfg(test)]
 #[path = "white_balance_resolve_tests.rs"]
 mod resolve_tests;
+#[cfg(test)]
+#[path = "white_balance_tests.rs"]
+mod tests;

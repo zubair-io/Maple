@@ -162,6 +162,7 @@ mod tests {
             })
             .collect();
         Image {
+            whites_anchor_ev: None,
             width,
             height,
             pixels,

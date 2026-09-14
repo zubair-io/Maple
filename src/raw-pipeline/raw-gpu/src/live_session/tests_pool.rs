@@ -39,7 +39,7 @@ fn second_render_same_signature_allocates_nothing() {
         ("mild", mild_case()),
         ("aggressive", aggressive_case()),
     ] {
-        let inputs = case.gpu_inputs();
+        let inputs = case.gpu_inputs_for(&input);
         // A fresh session per case (reset() clears the prior case's cache).
         let session = LiveSession::new(&ctx, &input, w, h).expect("session");
 
@@ -121,8 +121,8 @@ fn same_signature_value_change_is_correct_and_zero_alloc() {
         m.exposure = 0.4; // uniform-path change
         m.parametric_lights = 40.0; // data-buffer-path change
     });
-    let base = base_case.gpu_inputs();
-    let edited = edited_case.gpu_inputs();
+    let base = base_case.gpu_inputs_for(&input);
+    let edited = edited_case.gpu_inputs_for(&input);
 
     // Same signature (only values differ)? Compared at a fixed stand-in session
     // id (`0`) — this assertion is about SHAPE (active set), not session
@@ -193,7 +193,7 @@ fn signature_change_allocates_once_then_zero() {
     let session = LiveSession::new(&ctx, &input, w, h).expect("session");
 
     // Shape A: neutral (view tail only).
-    let a = neutral_case().gpu_inputs();
+    let a = neutral_case().gpu_inputs_for(&input);
     let base = session.pool_alloc_count(&ctx);
     session
         .render_to_buffer(&ctx, &a, &cancel)
@@ -211,7 +211,7 @@ fn signature_change_allocates_once_then_zero() {
     // Shape B: dehaze engaged — a DIFFERENT signature → its own bucket allocates.
     let mut b_case = neutral_case();
     b_case.model.dehaze = 40.0;
-    let b = b_case.gpu_inputs();
+    let b = b_case.gpu_inputs_for(&input);
     let pre_b = session.pool_alloc_count(&ctx);
     session
         .render_to_buffer(&ctx, &b, &cancel)

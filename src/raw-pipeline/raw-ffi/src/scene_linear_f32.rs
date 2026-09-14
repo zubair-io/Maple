@@ -97,8 +97,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, f32_rgba, ae_gain) =
-            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain(
+        let (w, h, f32_rgba, ae_gain, whites_anchor_ev) =
+            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
                 &raw_img, &model, quality, token,
             ) {
                 Ok(t) => t,
@@ -117,6 +117,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             raw_img.iso,
             &wb_frame_export(&raw_img),
             ae_gain,
+            whites_anchor_ev,
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),
@@ -197,8 +198,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, f32_rgba, ae_gain) =
-            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain(
+        let (w, h, f32_rgba, ae_gain, whites_anchor_ev) =
+            match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
                 &raw_img, &model, quality, token,
             ) {
                 Ok(t) => t,
@@ -217,6 +218,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
             raw_img.iso,
             &wb_frame_export(&raw_img),
             ae_gain,
+            whites_anchor_ev,
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),
@@ -291,7 +293,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, f32_rgba, ae_gain) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain(
+        let (w, h, f32_rgba, ae_gain, whites_anchor_ev) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
             &raw_img, &model, quality, max_long_edge, token,
         ) {
             Ok(t) => t,
@@ -307,6 +309,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             raw_img.iso,
             &wb_frame_export(&raw_img),
             ae_gain,
+            whites_anchor_ev,
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),
@@ -392,7 +395,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, f32_rgba, ae_gain) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain(
+        let (w, h, f32_rgba, ae_gain, whites_anchor_ev) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
             &raw_img, &model, quality, max_long_edge, token,
         ) {
             Ok(t) => t,
@@ -408,6 +411,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             raw_img.iso,
             &wb_frame_export(&raw_img),
             ae_gain,
+            whites_anchor_ev,
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),

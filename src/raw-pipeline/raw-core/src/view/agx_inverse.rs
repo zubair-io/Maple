@@ -65,7 +65,13 @@ fn inv_lut(y: f32) -> f32 {
 /// Rec.2020, given the same `slope` the forward pass used
 /// (`slope = 1 + (contrast/100)*0.5`). In-gamut assumption: the forward
 /// `oklab_gamut_compress` is treated as identity (it is for in-gamut pixels).
-pub fn inverse_agx_pixel(display: [f32; 3], slope: f32) -> [f32; 3] {
+///
+/// `whites` is the white-point remap from `view::agx_whites`, undone (via
+/// `unremap_norm`) after the contrast slope is undone — the exact inverse of
+/// the forward `agx::agx_pixel` order.
+/// `whites` must already be resolved with the forward image's frozen anchor;
+/// this inverse must never resolve it again.
+pub fn inverse_agx_pixel(display: [f32; 3], slope: f32, whites: f32) -> [f32; 3] {
     // 1) Undo the outset matrix (inv(OUTSET) == INSET).
     let sig = matrix_mul(&AGX_INSET_MATRIX, display);
     // 2) Ratio-preserving forward => max channel of `sig` equals sigmoid(norm).
@@ -73,15 +79,17 @@ pub fn inverse_agx_pixel(display: [f32; 3], slope: f32) -> [f32; 3] {
     if sn <= RATIO_FLOOR {
         return [0.0, 0.0, 0.0];
     }
-    // 3) Reverse the sigmoid LUT, 4) undo the contrast slope, 5) undo log encode.
+    // 3) Reverse the sigmoid LUT, 4) undo the contrast slope, 5) undo the
+    //    whites remap, 6) undo log encode.
     let modulated = inv_lut(sn);
-    let norm = (modulated - MID_NORM) / slope + MID_NORM;
+    let remapped = (modulated - MID_NORM) / slope + MID_NORM;
+    let norm = crate::view::agx_whites::unremap_norm(remapped, whites);
     let log_v = norm * (AGX_MAX_EV - AGX_MIN_EV) + AGX_MIN_EV;
     let n = AGX_MID_GRAY * log_v.exp2();
-    // 6) Undo the ratio scale: inset = sig · (n / sn).
+    // 7) Undo the ratio scale: inset = sig · (n / sn).
     let scale = n / sn;
     let inset = [sig[0] * scale, sig[1] * scale, sig[2] * scale];
-    // 7) Undo the inset matrix (inv(INSET) == OUTSET).
+    // 8) Undo the inset matrix (inv(INSET) == OUTSET).
     matrix_mul(&AGX_OUTSET_MATRIX, inset)
 }
 
@@ -99,7 +107,11 @@ pub fn srgb_gamma_inv(y: f32) -> f32 {
 /// (`AgX → rec2020_to_srgb → srgb_gamma → quantize`). In-gamut assumption: the
 /// forward Oklab gamut-compress in `rec2020_to_srgb` is treated as identity (it
 /// is for in-gamut pixels). Dither is zero-mean sub-LSB and is not modelled.
-pub fn display_u8_to_scene_linear(rgb: [u8; 3], slope: f32) -> [f32; 3] {
+///
+/// `whites` is the white-point remap from `view::agx_whites`, undone as part
+/// of [`inverse_agx_pixel`].
+/// `whites` is the resolved transform strength, not the user slider value.
+pub fn display_u8_to_scene_linear(rgb: [u8; 3], slope: f32, whites: f32) -> [f32; 3] {
     let srgb_lin = [
         srgb_gamma_inv(rgb[0] as f32 / 255.0),
         srgb_gamma_inv(rgb[1] as f32 / 255.0),
@@ -109,7 +121,7 @@ pub fn display_u8_to_scene_linear(rgb: [u8; 3], slope: f32) -> [f32; 3] {
         .inverse()
         .expect("M_REC2020_TO_SRGB is invertible");
     let display_rec2020 = m_inv.mul_vec(srgb_lin);
-    inverse_agx_pixel(display_rec2020, slope)
+    inverse_agx_pixel(display_rec2020, slope, whites)
 }
 
 #[cfg(test)]
@@ -122,7 +134,7 @@ mod tests {
     fn forward(scene: [f32; 3], contrast: f32) -> [f32; 3] {
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = scene;
-        agx::apply(&mut img, contrast);
+        agx::apply(&mut img, contrast, 0.0);
         img.pixels[0]
     }
 
@@ -133,7 +145,7 @@ mod tests {
             let scene = [v, v, v];
             let disp = forward(scene, 0.0);
             let slope = 1.0 + (0.0 / 100.0) * 0.5;
-            let back = inverse_agx_pixel(disp, slope);
+            let back = inverse_agx_pixel(disp, slope, 0.0);
             for c in 0..3 {
                 let rel = (back[c] - scene[c]).abs() / scene[c];
                 assert!(
@@ -158,7 +170,7 @@ mod tests {
         ];
         for scene in cases {
             let disp = forward(scene, 0.0);
-            let back = inverse_agx_pixel(disp, 1.0);
+            let back = inverse_agx_pixel(disp, 1.0, 0.0);
             for c in 0..3 {
                 let rel = (back[c] - scene[c]).abs() / scene[c].max(1e-3);
                 assert!(
@@ -180,7 +192,7 @@ mod tests {
         for &contrast in &[-50.0f32, 0.0, 50.0] {
             let disp = forward(scene, contrast);
             let slope = 1.0 + (contrast / 100.0) * 0.5;
-            let back = inverse_agx_pixel(disp, slope);
+            let back = inverse_agx_pixel(disp, slope, 0.0);
             for c in 0..3 {
                 let rel = (back[c] - scene[c]).abs() / scene[c];
                 assert!(rel < 0.05, "contrast {} ch{} rel err {}", contrast, c, rel);
@@ -206,14 +218,45 @@ mod tests {
         let scene = [0.18f32, 0.13, 0.20];
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = scene;
-        agx::apply(&mut img, 0.0);
+        agx::apply(&mut img, 0.0, 0.0);
         rec2020_to_srgb(&mut img);
         srgb_gamma_encode(&mut img);
         let u8s = dither_and_quantize(&mut img); // [r, g, b]
-        let back = super::display_u8_to_scene_linear([u8s[0], u8s[1], u8s[2]], 1.0);
+        let back = super::display_u8_to_scene_linear([u8s[0], u8s[1], u8s[2]], 1.0, 0.0);
         for c in 0..3 {
             let rel = (back[c] - scene[c]).abs() / scene[c];
             assert!(rel < 0.06, "ch{} rel {} back={:?}", c, rel, back);
+        }
+    }
+
+    #[test]
+    fn inverse_undoes_whites_for_in_gamut_greys() {
+        for w in [-100.0f32, -30.0, 40.0, 100.0] {
+            for y in [0.01f32, 0.1, 0.18, 0.4, 0.9] {
+                let d = crate::view::agx::neutral_curve(y, 1.0, w);
+                if d >= 0.97 {
+                    continue;
+                }
+                let back = inverse_agx_pixel([d; 3], 1.0, w)[1];
+                assert!((back - y).abs() / y < 2e-3, "w={w} y={y} back={back}");
+            }
+        }
+    }
+    #[test]
+    fn inverse_uses_the_forward_images_resolved_strength_once() {
+        for anchor in [0.0, 2.5, 5.0] {
+            for whites in [-70.0, 40.0, 100.0] {
+                let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+                img.pixels[0] = [0.18; 3];
+                img.whites_anchor_ev = Some(anchor);
+                agx::apply(&mut img, 0.0, whites);
+                let resolved = crate::view::whites_anchor::resolve(whites, anchor);
+                let back = inverse_agx_pixel(img.pixels[0], 1.0, resolved);
+                assert!(
+                    (back[1] - 0.18).abs() < 4e-4,
+                    "anchor={anchor} whites={whites}"
+                );
+            }
         }
     }
 }

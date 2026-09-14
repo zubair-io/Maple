@@ -532,6 +532,7 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
             raw_img.iso,
             &crate::scene_linear_f32::wb_frame_export(raw_img),
             ae_gain,
+            f32::NAN, // Tile callers retain the full-frame anchor; never measure a crop.
             raw_img.has_lens_corrections(),
             raw_img.lens_correction_ca_inert(),
             raw_img.lens_correction_distortion_inert(),

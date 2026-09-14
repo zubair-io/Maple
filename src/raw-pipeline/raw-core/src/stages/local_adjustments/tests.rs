@@ -3,6 +3,7 @@ use crate::types::{Mask, Point2};
 
 fn flat_image(w: u32, h: u32, v: f32) -> Image {
     Image {
+        whites_anchor_ev: None,
         width: w,
         height: h,
         pixels: vec![[v, v, v]; (w * h) as usize],

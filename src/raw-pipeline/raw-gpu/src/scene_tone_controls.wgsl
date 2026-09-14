@@ -5,20 +5,22 @@
 // of `raw_core::stages::scene_tone_controls::apply`, in order:
 //   1.  exposure   (linear gain 2^exposure)
 //   1b. brightness (midtone-band gain, #1102 / tone-zoom design § 4.1)
-//   4.  whites     (smoothstep-weighted gain near the diffuse-white endpoint)
 //   5.  blacks     (smoothstep-weighted toe — sign-branched crush/lift)
+//
+// Whites moved to the AgX view transform (#2441, `view::agx_whites`) —
+// this kernel no longer touches it.
 //
 // Highlights and shadows (steps 2–3) moved OUT of this kernel at #1103: they
 // are spatial now (tonal detail mask over a blurred luma plane) and run as
 // `scene_tone_sh.wgsl` dispatches between the two halves of this kernel. The
 // `SceneToneControlsPass` host encodes:
-//   this kernel (exposure + brightness, whites/blacks zeroed)
+//   this kernel (exposure + brightness, blacks zeroed)
 //   → [luma extract → 3× box blur → scene_tone_sh (highlights)]
 //   → [luma extract → 3× box blur → scene_tone_sh (shadows)]
-//   → this kernel (whites + blacks, exposure/brightness zeroed)
-// and collapses to a SINGLE all-four-fields dispatch when neither highlights
-// nor shadows is active (then 1 → 1b → 4 → 5 here ≡ the Rust loops, which
-// run the same point steps in the same order).
+//   → this kernel (blacks, exposure/brightness zeroed)
+// and collapses to a SINGLE exposure/brightness/blacks dispatch when neither
+// highlights nor shadows is active (then 1 → 1b → 5 here ≡ the Rust loops,
+// which run the same point steps in the same order).
 //
 // PARITY-CRITICAL invariants (mirrored verbatim from the Rust stage):
 //
@@ -26,7 +28,7 @@
 //   step recomputes luma `Y = dot(LUMA_REC2020, p)` from the UPDATED pixel — NOT
 //   from a single luma snapshot taken up front. Recomputing per step is what
 //   makes the GPU output match the Rust loop bit-for-near-bit.
-// * Per-field activation thresholds: exposure |·| ≥ 1e-6; brightness/whites/
+// * Per-field activation thresholds: exposure |·| ≥ 1e-6; brightness/
 //   blacks |·| ≥ 1e-3. A field below threshold is skipped (its branch does
 //   not run), exactly as the Rust `apply_*` flags gate each block.
 // * Blacks branches on sign (crush = multiplicative when `b_amount < 0`,
@@ -45,10 +47,10 @@
 // raw_core::stages::scene_tone_controls::LUMA_REC2020 (= [0.2627, 0.6780, 0.0593]).
 const LUMA_REC2020: vec3<f32> = vec3<f32>(0.2627, 0.6780, 0.0593);
 
-// Whites/blacks monotonicity bounds pinned to raw-core. #2186 restores the
+// Blacks monotonicity bound pinned to raw-core. #2186 restores the
 // positive Blacks toe to the 0.20 black range and halves its full-rail endpoint
-// so it remains monotone without reaching scene-linear midtones.
-const WHITES_MIN_GAIN: f32 = 0.32;
+// so it remains monotone without reaching scene-linear midtones. Whites'
+// bound moved to the AgX view transform along with the operation (#2441).
 const B_CRUSH_EDGE: f32 = 0.2;
 const B_LIFT_EDGE: f32 = 0.20;
 const B_LIFT_MAX: f32 = 0.125;
@@ -56,7 +58,7 @@ const B_LIFT_MAX: f32 = 0.125;
 struct Params {
     exposure: f32,    // EV; gain = 2^exposure
     brightness: f32,  // -100..100 (midtone-band gain, #1102)
-    whites: f32,      // -100..100
+    _pad3: u32,       // was `whites`; moved to the AgX view transform (#2441)
     blacks: f32,      // -100..100
     count: u32,       // number of RGBA pixels
     _pad0: u32,
@@ -85,18 +87,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // `apply_*` gates and the amount preconditioning above the pixel loop.
     let apply_exposure = abs(params.exposure) >= 1e-6;
     let apply_brightness = abs(params.brightness) >= 1e-3;
-    let apply_whites = abs(params.whites) >= 1e-3;
     let apply_blacks = abs(params.blacks) >= 1e-3;
 
     let exp_gain = exp2(params.exposure);
 
     // Brightness EV-per-unit-weight amount (raw-core B_STRENGTH = 0.7).
     let br_amount = 0.7 * params.brightness / 100.0;
-
-    // Whites negative-gain floor (#1918): positive gain is unconditionally
-    // monotone and passes through unclamped; the negative side saturates at
-    // −WHITES_MIN_GAIN. Mirrors raw-core's `(whites/200).max(-WHITES_MIN_GAIN)`.
-    let w_amount = max(params.whites / 200.0, -WHITES_MIN_GAIN);
 
     let b_amount = params.blacks / 100.0;   // -1..+1
     let b_add_pos = B_LIFT_MAX * params.blacks / 100.0;
@@ -116,14 +112,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         let w = smoothstep(0.05, 0.25, y) * (1.0 - smoothstep(1.0, 4.0, y));
         let gain = exp2(br_amount * w);
         p = p * gain;
-    }
-
-    // 4. Whites — smoothstep-weighted gain near the diffuse-white endpoint.
-    if (apply_whites) {
-        let y_old = luma(p);
-        let w = smoothstep(0.5, 1.0, y_old);
-        let w_gain = 1.0 + w_amount * w;
-        p = p * w_gain;
     }
 
     // 5. Blacks — smoothstep-weighted toe. Sign-branched:

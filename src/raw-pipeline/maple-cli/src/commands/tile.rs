@@ -65,7 +65,7 @@ pub fn run(
         let b = decode_fp16(fp16[i * 4 + 2]);
         *p = [r, g, b];
     }
-    raw_core::view::agx::apply(&mut img, model.contrast);
+    raw_core::view::agx::apply(&mut img, model.contrast, model.whites);
     raw_core::view::encode::rec2020_to_srgb(&mut img);
     raw_core::view::encode::srgb_gamma_encode(&mut img);
     // No per-pixel Look pass: #443 retired the static Look LUT, matching

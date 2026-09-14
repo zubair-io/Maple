@@ -65,6 +65,7 @@ extension RenderActor {
           decoded: decoded, model: model, targetSize: boundedTarget,
           asShot: anchor, decodedAtModel: model, profileLUT: profileLUT,
           noiseProfile: raw.noiseProfile, iso: raw.iso, wbFrame: raw.wbFrame,
+          whitesAnchorEv: raw.whitesAnchorEv,
           targetPrimariesOverride: filmActive ? .srgb : nil)
       } else {
         processed = pipeline.processSceneLinearNonRaw(

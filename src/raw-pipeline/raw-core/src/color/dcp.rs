@@ -345,6 +345,20 @@ pub(crate) fn camera_to_rec2020_matrix(profile: &DcpProfile) -> crate::Result<Ma
     Ok(m_pro_to_rec2020().mul_mat(&camera_to_prophoto_matrix(profile)?))
 }
 
+/// Decode-time Whites statistic in the as-shot linear Rec.2020 frame (#3601).
+/// Call before user camera-space WB. Sampling the shared linear colorimetry
+/// transform keeps the anchor independent of slider WB and avoids a second
+/// develop or intermediate image. HSM and subsequent appearance/spatial
+/// processing are deliberately outside this statistic.
+pub(crate) fn scene_white_anchor(camera: &Image, profile: &DcpProfile) -> crate::Result<f32> {
+    camera.assert_space(ColorSpace::CameraNativeLinearRgb);
+    let matrix = camera_to_rec2020_matrix(profile)?;
+    Ok(crate::view::whites_anchor::measure(
+        camera.pixels.len(),
+        |i| soft_floor(matrix.mul_vec(camera.pixels[i])),
+    ))
+}
+
 fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
 

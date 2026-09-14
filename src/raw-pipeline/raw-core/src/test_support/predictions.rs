@@ -5,7 +5,7 @@
 
 // Reference the stage's monotonicity-bound constants directly (#1918) so the
 // predictor can't drift from production if the bounds are retuned.
-use crate::stages::scene_tone_controls::{B_CRUSH_EDGE, B_LIFT_EDGE, B_LIFT_MAX, WHITES_MIN_GAIN};
+use crate::stages::scene_tone_controls::{B_CRUSH_EDGE, B_LIFT_EDGE, B_LIFT_MAX};
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
@@ -86,19 +86,6 @@ pub fn predict_shadows(scene: f32, s_slider: f32) -> f32 {
     let w = t * t;
     let mult = 1.0 + ((1.5 * s_slider / 100.0).exp2() - 1.0) * w;
     scene * mult
-}
-
-/// scene_tone_controls::apply, step 4. Parametric upper-end curve
-/// (Ticket #267) — smoothstep-weighted gain near diffuse white. The
-/// negative gain is floored at the monotonicity bound (#1918,
-/// `WHITES_MIN_GAIN` in the stage); positive gain passes through.
-pub fn predict_whites(scene: f32, w_slider: f32) -> f32 {
-    if w_slider.abs() < 1e-3 {
-        return scene;
-    }
-    let w = smoothstep(0.5, 1.0, scene);
-    let w_gain = 1.0 + (w_slider / 200.0).max(-WHITES_MIN_GAIN) * w;
-    scene * w_gain
 }
 
 /// scene_tone_controls::apply, step 5. Parametric toe curve (Ticket #268)

@@ -260,7 +260,7 @@ pub(crate) fn prefix_model_for(
 
 /// Develop the STRIPPED PREFIX to the post-`auto_exposure` scene-linear Rec.2020
 /// buffer the GPU chain consumes, packed to interleaved RGBA f32 (alpha 1.0) — the
-/// upload shape [`LiveSession::new`] expects. Returns `(rgba, w, h, prefix_model)`;
+/// upload shape [`LiveSession::new`] expects. Returns `(rgba, w, h, prefix_model, whites_anchor_ev)`;
 /// the returned `prefix_model` is the EXACT model this buffer was developed from
 /// (equal to [`prefix_model_for`]), so a caller can cache it and re-develop ONLY
 /// when it changes (the persistent session's zero-re-upload boundary — an identical
@@ -282,7 +282,7 @@ pub(crate) fn develop_prefix_rgba(
     ext: &str,
     model: &AdjustmentModel,
     max_long_edge: u32,
-) -> Result<(Vec<f32>, u32, u32, AdjustmentModel), String> {
+) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32), String> {
     let ae_mode = effective_ae_mode(model, raw, ext);
     let prefix_model = stripped_prefix_model(model, ae_mode);
     // AMaZE by default (#940): this develop runs at live-session open and
@@ -299,18 +299,16 @@ pub(crate) fn develop_prefix_rgba(
         max_long_edge,
     )
     .map_err(|e| e.to_string())?;
+    let whites_anchor_ev = scene
+        .whites_anchor_ev
+        .ok_or("RAW prefix develop did not produce a Whites anchor")?;
     let (w, h) = (scene.width, scene.height);
-    // Pack scene RGB (12 B/px) → upload RGBA (16 B/px). Both are briefly alive
-    // here; a chunk-wise `drain` would NOT lower that peak (a `Vec` never releases
-    // partial capacity, so the source allocation stays resident until the final
-    // drop regardless of how it is consumed). The sized develop above is what
-    // bounds the transient: ≤ ~80 MB at the 2048 default vs ~2.8 GB at full
-    // sensor res on a 100 MP frame (#1080).
+    // Pack RGB → RGBA; sized develop bounds both resident buffers (#1080).
     let mut rgba: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
     for p in &scene.pixels {
         rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
     }
-    Ok((rgba, w, h, prefix_model))
+    Ok((rgba, w, h, prefix_model, whites_anchor_ev))
 }
 
 /// Fit the Auto Profile curve + residual LUT against the embedded JPEG (the SAME
@@ -372,6 +370,7 @@ pub(crate) fn chain_inputs_for_model(
     model: &AdjustmentModel,
     film_lut: Option<&raw_core::film::FilmLut>,
     film_lut_key: u32,
+    whites_anchor_ev: f32,
 ) -> FullChainInputs<'static> {
     let (profile_curve_flat, residual_lut_size, residual_lut_data) =
         fit_profile_artifacts(raw_img, raw, ext, model);
@@ -389,6 +388,7 @@ pub(crate) fn chain_inputs_for_model(
         },
         film_lut,
         film_lut_key,
+        whites_anchor_ev,
     )
 }
 
@@ -432,12 +432,13 @@ async fn render_gpu_core(
         .map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let target = effective_target_long_edge(max_long_edge, &ctx);
 
-    let (rgba, w, h, _prefix_model) = develop_prefix_rgba(raw_img, raw, ext, model, target)?;
+    let (rgba, w, h, _prefix_model, whites_anchor_ev) =
+        develop_prefix_rgba(raw_img, raw, ext, model, target)?;
     // No film-look on the one-shot GPU path: this entry has no session to hold
     // the uploaded `.mlut` bytes across calls (a per-call upload would defeat
     // the "cache-served, cheap to rebuild" cost profile the tick loop needs).
     // The persistent `WebLiveSession` carries the loaded look instead (Task 9).
-    let inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0);
+    let inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.

@@ -90,7 +90,7 @@ extension RenderActor {
       // or flip a cancel flag here — same-asset slider ticks during a cold
       // open share this one decode and its flag; nobody cancels until a
       // genuinely different decode supersedes it (the replace path below).
-      guard let (decoded, _, _, _, _, _, _, _, _) = await existing.value else { return nil }
+      guard let (decoded, _, _, _, _, _, _, _, _, _) = await existing.value else { return nil }
       return await normalize(decoded, asset)
     }
     // #951: a DIFFERENT-identity decode is superseding the in-flight one
@@ -121,7 +121,10 @@ extension RenderActor {
     decodeCancelFlag = cancelFlag
     let task:
       Task<
-        (CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Bool, Bool, Bool, RawCameraSupport?)?,
+        (
+          CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Bool, Bool, Bool,
+          RawCameraSupport?
+        )?,
         Never
       > =
         Task.detached(priority: .userInitiated) { [pipeline, cancelFlag, self] in
@@ -177,7 +180,7 @@ extension RenderActor {
             }
             guard let nonRawImage else { return nil }
             return (
-              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0),
+              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0), Float.nan,
               false, true, true, nil
             )
           }
@@ -228,7 +231,8 @@ extension RenderActor {
             guard let sizedResult else { return nil }
             return (
               sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
-              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.hasLensCorrections,
+              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.whitesAnchorEv,
+              sizedResult.hasLensCorrections,
               sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert,
               sizedResult.cameraSupport
             )
@@ -249,7 +253,8 @@ extension RenderActor {
           guard let refineResult else { return nil }
           return (
             refineResult.image, refineResult.noiseProfile, refineResult.iso,
-            refineResult.wbFrame, refineResult.aeGain, refineResult.hasLensCorrections,
+            refineResult.wbFrame, refineResult.aeGain, refineResult.whitesAnchorEv,
+            refineResult.hasLensCorrections,
             refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert,
             refineResult.cameraSupport
           )
@@ -269,7 +274,7 @@ extension RenderActor {
 
     guard
       let (
-        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain,
+        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv,
         decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert,
         decodeCameraSupport
       ) = decodeResult
@@ -359,6 +364,7 @@ extension RenderActor {
       // `NativeDetailRenderer` needs the gain of the buffer actually
       // on screen, not a stale one from a superseded decode.
       decodedAeGain = decodeAeGain
+      decodedWhitesAnchorEv = decodeWhitesAnchorEv
       // Camera/lens support rides the same write gate (describes this decoded buffer).
       decodedHasLensCorrections = decodeHasLensCorrections
       decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
@@ -427,6 +433,7 @@ extension RenderActor {
     decodedISO = 0
     decodedWbFrame = nil
     decodedAeGain = 1.0
+    decodedWhitesAnchorEv = .nan
     decodedHasLensCorrections = false
     decodedLensCorrectionCaInert = true
     decodedLensCorrectionDistortionInert = true
@@ -463,6 +470,7 @@ extension RenderActor {
       iso: decodedISO,
       wbFrame: decodedWbFrame,
       aeGain: decodedAeGain,
+      whitesAnchorEv: decodedWhitesAnchorEv,
       decodeGeneration: decodeGeneration,
       hasLensCorrections: decodedHasLensCorrections,
       lensCorrectionCaInert: decodedLensCorrectionCaInert,

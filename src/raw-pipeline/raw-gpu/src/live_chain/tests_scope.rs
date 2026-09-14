@@ -61,7 +61,7 @@ fn every_rgba_pass_in_the_live_chain_preserves_alpha() {
         px[3] = (i % 97) as f32 / 96.0;
     }
     let case = many_stages_active_case();
-    let inputs = case.gpu_inputs();
+    let inputs = case.gpu_inputs_for(&input);
     let out = run_live_chain(&input, w as u32, h as u32, &inputs);
     for (i, (a, b)) in input.chunks_exact(4).zip(out.chunks_exact(4)).enumerate() {
         assert_eq!(

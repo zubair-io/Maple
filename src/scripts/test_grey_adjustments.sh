@@ -13,3 +13,10 @@ cargo test -p raw-core --features test-support --test grey_adjustments -- --noca
 # Display-domain gates (contrast direction + vignette/grain/split-tone) —
 # split into their own target under the 600-LOC file budget (#1170).
 cargo test -p raw-core --features test-support --test grey_adjustments_display -- --nocapture
+# White-balance (temperature/tint) gates — split into their own target under
+# the 600-LOC file budget when the whites view-transform remap pushed
+# grey_adjustments.rs over the cap (#3601).
+cargo test -p raw-core --features test-support --test grey_adjustments_wb -- --nocapture
+
+# Decode metadata must remain stable across live-edit controls (#3601).
+cargo test -p raw-core --features test-support --test whites_anchor_develop -- --nocapture

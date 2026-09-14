@@ -32,8 +32,8 @@ mod adjustment;
 mod adjustment_groups;
 mod adjustment_tables;
 mod adjustment_transfer;
-mod batch_transfer_contract;
 mod adjustment_ts_enums;
+mod batch_transfer_contract;
 mod capability_registry;
 mod capability_summary;
 mod color_matrices;
@@ -316,6 +316,18 @@ fn main() {
         fs::create_dir_all(parent).expect("create parent dir");
     }
     fs::write(&cli.out, out).expect("write generated file");
+}
+
+/// Match swift-format's two-space indentation in the legacy four-space templates.
+/// Keep generation platform-independent; codegen also runs on Linux CI.
+fn swift_indentation(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| {
+            let spaces = line.bytes().take_while(|b| *b == b' ').count();
+            format!("{}{}\n", " ".repeat(spaces / 2), &line[spaces..])
+        })
+        .collect()
 }
 
 /// snake_case -> camelCase. `temperature` -> `temperature`,

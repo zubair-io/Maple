@@ -80,7 +80,17 @@ fn chain_inputs_carry_a_registered_bitmap_raster() {
         other => panic!("expected Bitmap, got {other:?}"),
     }
 
-    let inputs = super::chain_inputs_for_model(&raw_img, &bytes, ext, &model, None, 0);
+    let inputs = super::chain_inputs_for_model(
+        &raw_img,
+        &bytes,
+        ext,
+        &model,
+        None,
+        0,
+        super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
+            .expect("prefix anchor")
+            .4,
+    );
     assert_eq!(inputs.mask_rasters.len(), 1, "one distinct raster resolved");
     assert_eq!(inputs.mask_rasters[0].id, id);
     assert_eq!(
@@ -97,7 +107,17 @@ fn chain_inputs_carry_a_registered_bitmap_raster() {
     mask_registry::release(id);
     let unresolved =
         mask_registry::parse_model(Some(&sidecar_with_person_skin(digest))).expect("parse");
-    let inputs = super::chain_inputs_for_model(&raw_img, &bytes, ext, &unresolved, None, 0);
+    let inputs = super::chain_inputs_for_model(
+        &raw_img,
+        &bytes,
+        ext,
+        &unresolved,
+        None,
+        0,
+        super::develop_prefix_rgba(&raw_img, &bytes, ext, &unresolved, 16)
+            .expect("prefix anchor")
+            .4,
+    );
     assert!(inputs.mask_rasters.is_empty());
     assert_eq!(
         inputs.local_adjustments[2], 0.0,

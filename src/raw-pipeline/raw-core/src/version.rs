@@ -100,7 +100,9 @@
 ///   saturation level rather than using the zero-exposure thresholds.
 /// - 4 — the highlights slider runs in Adobe's direction (positive brightens),
 ///   so every stored non-zero Highlights value renders differently.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 4;
+/// - 5 — whites moved from a scene-linear gain to the AgX white-point remap
+///   (#3601), so every stored non-zero Whites value renders differently.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 5;
 
 #[cfg(test)]
 mod tests {

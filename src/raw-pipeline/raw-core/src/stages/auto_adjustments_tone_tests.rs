@@ -108,8 +108,8 @@ fn empty_buffer_recommends_no_tone_change() {
 #[test]
 fn scene_target_round_trips_through_display_code() {
     for code in [ANCHOR_P005, ANCHOR_P10, ANCHOR_P95, ANCHOR_P995] {
-        let scene = scene_target(code, 1.0);
-        let back = display_code(scene, 1.0);
+        let scene = scene_target(code, 1.0, 0.0);
+        let back = display_code(scene, 1.0, 0.0);
         assert!(
             (back - code).abs() < 0.01,
             "code {code} → scene {scene} → code {back}"
@@ -122,10 +122,10 @@ fn scene_target_round_trips_through_display_code() {
 /// calibration.
 #[test]
 fn anchors_are_ordered_and_straddle_mid_gray() {
-    let s005 = scene_target(ANCHOR_P005, 1.0);
-    let s10 = scene_target(ANCHOR_P10, 1.0);
-    let s95 = scene_target(ANCHOR_P95, 1.0);
-    let s995 = scene_target(ANCHOR_P995, 1.0);
+    let s005 = scene_target(ANCHOR_P005, 1.0, 0.0);
+    let s10 = scene_target(ANCHOR_P10, 1.0, 0.0);
+    let s95 = scene_target(ANCHOR_P95, 1.0, 0.0);
+    let s995 = scene_target(ANCHOR_P995, 1.0, 0.0);
     assert!(
         s005 < s10 && s10 < MID_GRAY && MID_GRAY < s95 && s95 < s995,
         "{s005} {s10} {MID_GRAY} {s95} {s995}"
@@ -136,19 +136,21 @@ fn anchors_are_ordered_and_straddle_mid_gray() {
 // The extracted transfers are the SHIPPING transfers
 // ---------------------------------------------------------------------------
 
-/// `whites_mult`, `blacks_crush_factor` and `blacks_lift_delta` were lifted out
-/// of `scene_tone_controls::apply`'s inner loops so this calibration inverts the
+/// `blacks_crush_factor` and `blacks_lift_delta` were lifted out of
+/// `scene_tone_controls::apply`'s inner loop so this calibration inverts the
 /// shipping math instead of a hand-copied twin. Lifting them changed the render
 /// path, so it has to be BIT-identical, not merely close — a float refactor that
 /// reorders one multiply moves every pixel and the parity budgets with it.
+/// (Whites was covered here too until #2441 moved that slider's transfer into
+/// the AgX view transform and deleted `scene_tone_controls::whites_mult`
+/// outright — there is no shipping scene-linear whites transfer left to pin.)
 ///
 /// This re-evaluates the pre-extraction expressions verbatim and demands exact
 /// equality across the slider range and the luma range the stage sees.
 #[test]
 fn extracted_transfers_are_bit_identical_to_the_inline_originals() {
     use crate::stages::scene_tone_controls::{
-        blacks_crush_factor, blacks_lift_delta, whites_mult, B_CRUSH_EDGE, B_LIFT_EDGE, B_LIFT_MAX,
-        WHITES_MIN_GAIN,
+        blacks_crush_factor, blacks_lift_delta, B_CRUSH_EDGE, B_LIFT_EDGE, B_LIFT_MAX,
     };
     // Local copy of the stage's private `smoothstep`, itself verbatim.
     fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
@@ -160,14 +162,6 @@ fn extracted_transfers_are_bit_identical_to_the_inline_originals() {
         let y = i as f32 * 0.02; // 0 … 8.0 scene-linear
         for j in -100..=100 {
             let slider = j as f32;
-
-            let w_amount = (slider / 200.0).max(-WHITES_MIN_GAIN);
-            let inline_whites = 1.0 + w_amount * smoothstep(0.5, 1.0, y);
-            assert_eq!(
-                whites_mult(y, w_amount),
-                inline_whites,
-                "whites y={y} s={slider}"
-            );
 
             let b_amount = slider / 100.0;
             let inline_crush = 1.0 + b_amount * (1.0 - smoothstep(0.0, B_CRUSH_EDGE, y));
@@ -201,7 +195,6 @@ fn every_solve_lands_a_reachable_target() {
     let cases: &[(&str, f32, f32, fn(f32, f32) -> f32)] = &[
         ("highlights", 1.4, 0.80, highlights_at),
         ("shadows", 0.012, 1.70, shadows_at),
-        ("whites", 1.6, 1.20, whites_at),
         ("blacks", 0.010, 0.72, blacks_at),
     ];
     for (label, y, ratio, transfer) in cases {
@@ -221,28 +214,54 @@ fn every_solve_lands_a_reachable_target() {
 /// on the same number — railing with a smaller value on it.
 #[test]
 fn solve_stays_interior_when_the_anchor_is_out_of_reach() {
-    // Whites gains at most 1.5× and is EXACTLY the identity below luma 0.5, so
-    // at y = 0.30 it has no authority at all. The solve must say "no opinion",
-    // not run to an endpoint.
-    assert_eq!(
-        solve_toward(0.30, 0.99, whites_at),
-        0.0,
-        "a slider with no authority at this luma must return 0"
-    );
+    // Highlights is EXACTLY the identity below luma 0.25, so at y = 0.10 it has
+    // no authority at all: the solve must say "no opinion", not run to an
+    // endpoint.
+    assert_eq!(solve_toward(0.10, 0.99, highlights_at), 0.0);
 
-    // Whites at luma 1.6 DOES have authority, but nowhere near enough to reach
-    // display code 0.99. The solve must still land strictly inside its range.
-    let v = solve_toward(1.6, 0.99, whites_at);
+    // Whites (now a display-domain solve against the AgX white-point remap)
+    // must still land strictly inside its range for an anchor far out of reach.
+    let v = solve_whites(
+        Anchors {
+            p995: 1.6,
+            ..typical_anchors()
+        },
+        0.99,
+        0.0,
+    );
+    assert!(v.abs() < 95.0);
+}
+
+/// `whites` is now a display-domain solve against the AgX white-point remap
+/// (`agx::neutral_curve`'s third parameter), not an inversion of a scene-linear
+/// transfer function. A p99.5 that sits below the population anchor must lift
+/// (positive slider); one that sits above must compress (negative slider) — and
+/// the sign must actually move the RENDERED code in that direction.
+#[test]
+fn solve_whites_moves_toward_the_p995_anchor_in_the_display_domain() {
+    let dark = Anchors {
+        p995: 0.30,
+        ..typical_anchors()
+    };
+    let bright = Anchors {
+        p995: 5.0,
+        ..typical_anchors()
+    };
     assert!(
-        v.abs() < 95.0,
-        "solve must stay interior even for an unreachable anchor, got {v}"
+        solve_whites(dark, ANCHOR_P995, 0.0) > 0.0,
+        "dark top must lift"
     );
     assert!(
-        v > 0.0,
-        "and must still move in the right direction, got {v}"
+        solve_whites(bright, ANCHOR_P995, 0.0) < 0.0,
+        "blown top must compress"
     );
-    assert!(settle(v).abs() < SOFT_LIMIT);
-    assert!(SOFT_LIMIT < 50.0, "the soft limit must be far from railing");
+    let w = solve_whites(dark, ANCHOR_P995, 0.0);
+    let landed = srgb_gamma(agx::neutral_curve(
+        dark.p995,
+        1.0,
+        crate::view::whites_anchor::resolve(w, 0.0),
+    ));
+    assert!(landed > srgb_gamma(agx::neutral_curve(dark.p995, 1.0, 0.0)));
 }
 
 /// The soft limit is an ASYMPTOTE, not a clamp: arbitrarily large input must
@@ -284,7 +303,7 @@ fn contrast_solve_closes_half_the_midtone_spread_gap() {
     let a = typical_anchors();
     let spread_at = |c: f32| {
         let slope = 1.0 + (c / 100.0) * 0.5;
-        display_code(a.p75, slope) - display_code(a.p25, slope)
+        display_code(a.p75, slope, 0.0) - display_code(a.p25, slope, 0.0)
     };
     let before = spread_at(0.0);
     let v = solve_contrast(a);
@@ -319,7 +338,7 @@ fn contrast_engages_in_both_directions() {
         p75: 1.6,
         ..typical_anchors()
     };
-    let (c_flat, c_punchy) = (solve(flat).contrast, solve(punchy).contrast);
+    let (c_flat, c_punchy) = (solve(flat, 0.0).contrast, solve(punchy, 0.0).contrast);
     assert!(
         c_flat > 0.0,
         "flat scene should gain contrast, got {c_flat}"
@@ -345,11 +364,11 @@ fn endpoint_sliders_follow_the_scene() {
         ..typical_anchors()
     };
     assert!(
-        solve(blown).highlights < 0.0,
+        solve(blown, 0.0).highlights < 0.0,
         "blown frame must recover (Adobe: negative)"
     );
     assert!(
-        solve(murky).highlights > 0.0,
+        solve(murky, 0.0).highlights > 0.0,
         "murky frame must gain (Adobe: positive)"
     );
 }
@@ -368,8 +387,14 @@ fn shadow_sliders_follow_the_scene() {
         p10: 0.004,
         ..typical_anchors()
     };
-    assert!(solve(milky).shadows < 0.0, "milky shadows must come down");
-    assert!(solve(buried).shadows > 0.0, "buried shadows must come up");
+    assert!(
+        solve(milky, 0.0).shadows < 0.0,
+        "milky shadows must come down"
+    );
+    assert!(
+        solve(buried, 0.0).shadows > 0.0,
+        "buried shadows must come up"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -409,9 +434,9 @@ fn slider_magnitude_scales_with_the_measured_deviation() {
         ..typical_anchors()
     };
     let (a, b, c) = (
-        solve(near).shadows,
-        solve(far).shadows,
-        solve(farther).shadows,
+        solve(near, 0.0).shadows,
+        solve(far, 0.0).shadows,
+        solve(farther, 0.0).shadows,
     );
     assert!(
         a > b && b > c,
@@ -463,7 +488,7 @@ fn degenerate_scenes_stay_bounded_and_finite() {
         ),
     ];
     for (name, a) in cases {
-        let t = solve(*a);
+        let t = solve(*a, 0.0);
         for (label, v) in [
             ("contrast", t.contrast),
             ("highlights", t.highlights),
@@ -508,3 +533,25 @@ fn exposure_recommendation_feeds_the_tone_solve() {
 #[cfg(test)]
 #[path = "auto_adjustments_tone_fixture_tests.rs"]
 mod fixtures;
+
+#[test]
+fn whites_solver_uses_the_frozen_full_frame_anchor() {
+    let anchors = Anchors {
+        p995: 0.30,
+        ..typical_anchors()
+    };
+    let low = solve_whites(anchors, ANCHOR_P995, 0.0);
+    let high = solve_whites(anchors, ANCHOR_P995, 2.5);
+    assert!(
+        high > low,
+        "lower image authority must require more slider movement"
+    );
+    let output = |w, anchor| {
+        srgb_gamma(agx::neutral_curve(
+            anchors.p995,
+            1.0,
+            crate::view::whites_anchor::resolve(w, anchor),
+        ))
+    };
+    assert!((output(low, 0.0) - output(high, 2.5)).abs() < 1e-5);
+}

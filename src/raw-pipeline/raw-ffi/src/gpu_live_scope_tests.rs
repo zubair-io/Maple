@@ -39,7 +39,7 @@ fn live_render_writes_scope_stats_one_tick_late_when_enabled() {
     let curve = nonidentity_curve();
     let lut = nonidentity_lut(9);
     let arr = owned_arrays(&model, &curve, &lut);
-    let mut params = make_params(&model, WbMethod::Cat16, 9, &arr);
+    let mut params = make_params(&input, &model, WbMethod::Cat16, 9, &arr);
     let mut bins = vec![0u32; 128 * 128];
     let max = crate::scope_stats::MAPLE_SCOPE_SNAPSHOT_MAX_DIM as usize;
     let mut snapshot = vec![0u8; max * max * 3];
@@ -120,7 +120,7 @@ fn null_scope_out_is_never_written_and_disabled_scope_is_free() {
     let curve = nonidentity_curve();
     let lut = nonidentity_lut(9);
     let arr = owned_arrays(&model, &curve, &lut);
-    let params = make_params(&model, WbMethod::Cat16, 9, &arr); // scope_* left at the disabled default
+    let params = make_params(&input, &model, WbMethod::Cat16, 9, &arr); // scope_* left at the disabled default
 
     let mut out = vec![0u8; (w * h * 3) as usize];
     for _ in 0..2 {

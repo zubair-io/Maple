@@ -193,6 +193,7 @@ pub(super) fn build_full_chain_inputs(
     noise: NoiseProfileInputs,
     film_lut: Option<&raw_core::film::FilmLut>,
     film_lut_key: u32,
+    whites_anchor_ev: f32,
 ) -> FullChainInputs<'static> {
     use raw_core::types::WbMethod;
 
@@ -207,6 +208,7 @@ pub(super) fn build_full_chain_inputs(
     };
 
     FullChainInputs {
+        whites_anchor_ev,
         wb_matrix,
         wb_temperature: model.temperature,
         wb_tint: model.tint,

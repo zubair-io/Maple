@@ -44,8 +44,13 @@ pub fn gamut_guard_display_encoded_srgb(img: &mut Image) {
         {
             return;
         }
-        let lin = [srgb_gamma_inv(p[0]), srgb_gamma_inv(p[1]), srgb_gamma_inv(p[2])];
-        let compressed = compress_to_unit_cube_oklab(lin, srgb_linear_to_oklab, oklab_to_srgb_linear);
+        let lin = [
+            srgb_gamma_inv(p[0]),
+            srgb_gamma_inv(p[1]),
+            srgb_gamma_inv(p[2]),
+        ];
+        let compressed =
+            compress_to_unit_cube_oklab(lin, srgb_linear_to_oklab, oklab_to_srgb_linear);
         p[0] = srgb_gamma(compressed[0]);
         p[1] = srgb_gamma(compressed[1]);
         p[2] = srgb_gamma(compressed[2]);
@@ -151,7 +156,7 @@ mod tests {
             let sat = 100.0 * (i as f32) / ((N - 1) as f32); // grading sat 0 → 100
             let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
             img.pixels[0] = [0.18, 0.18, 0.18]; // neutral midtone
-            crate::view::agx::apply(&mut img, 0.0);
+            crate::view::agx::apply(&mut img, 0.0, 0.0);
             // Tint every zone the same hue so the midtone is graded
             // regardless of the balance crossover; ramp all saturations.
             crate::stages::color_grade::apply(

@@ -31,6 +31,7 @@ extension RenderActor {
     // Seeded preview buffers carry no AE-gain export (#1167/#2070); 1.0
     // is the correct no-op gain for a buffer with no explicit export
     // (matches `MapleSceneLinearImageData.aeGain`'s default).
+    self.decodedWhitesAnchorEv = .nan
     self.decodedAeGain = 1.0
     // Seeded previews carry no camera-support metadata or lens-correction
     // export (#2231). Clear both, like `decodedWbFrame` above, so stale
@@ -63,6 +64,7 @@ extension RenderActor {
     self.decodedProfile = nil  // #871 — see `seed(...)`
     self.decodedAutoExposure = nil  // #1387 — see `seed(...)`
     self.decodedWbFrame = nil  // #1781 — see `seed(...)`
+    self.decodedWhitesAnchorEv = .nan
     self.decodedAeGain = 1.0  // #1167/#2070 — see `seed(...)`
     self.decodedCameraSupport = nil
     self.decodedHasLensCorrections = false  // #2231/#3189 — see `seed(...)`

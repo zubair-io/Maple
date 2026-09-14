@@ -1,10 +1,11 @@
 //! Scene tone controls — a P2 scene-linear WGSL port (epic #925 / #990),
 //! reworked at #1103 into a small spatial DAG (tone/zoom design § 4.2).
 //!
-//! Ports the six tone steps of `raw_core::stages::scene_tone_controls::apply`
+//! Ports the tone steps of `raw_core::stages::scene_tone_controls::apply`
 //! (spec § 3.6 + § 4.1–4.2): exposure, brightness, highlights, shadows,
-//! whites, blacks. The point steps (exposure/brightness and whites/blacks)
-//! run in `scene_tone_controls.wgsl`; highlights and shadows are spatial
+//! blacks. Whites moved to the AgX view transform (#2441, `view::agx_whites`)
+//! and is no longer part of this stage. The point steps (exposure/brightness
+//! and blacks) run in `scene_tone_controls.wgsl`; highlights and shadows are spatial
 //! since #1103 — each is a `scene_tone_sh.wgsl` dispatch reading a
 //! gaussian-blurred luma plane (σ = 15 px · longEdge/2000) prepared with the
 //! shared `box_blur.wgsl` primitive, mirroring raw-core's per-step
@@ -19,15 +20,15 @@
 //! ```text
 //! [point: exposure+brightness] → [luma → 3× box blur → SH(highlights)]
 //!                              → [luma → 3× box blur → SH(shadows)]
-//!                              → [point: whites+blacks]
+//!                              → [point: blacks]
 //! ```
 //!
 //! Three pieces (the per-stage template):
 //! 1. [`apply_scene_tone_controls`] — the CPU oracle: a faithful port of the
 //!    Rust stage over a flat RGBA f32 buffer (now width/height-aware — the
 //!    detail mask blurs a 2-D luma plane).
-//! 2. [`SceneToneControlsPass`] — the GPU-resident [`Pass`]; carries the six
-//!    slider values.
+//! 2. [`SceneToneControlsPass`] — the GPU-resident [`Pass`]; carries the five
+//!    slider values this stage still consumes (whites moved to AgX, #2441).
 //! 3. The headless parity test (in `#[cfg(test)] mod tests`) — GPU vs
 //!    `raw_core::stages::scene_tone_controls::apply` (the real stage, via the
 //!    dev-dep) within 1e-4.
@@ -37,16 +38,17 @@ use crate::context::GpuContext;
 use crate::spatial::{self, alloc_plane, alloc_rgba, box_blur_encode, encode_simple};
 
 /// `repr(C)` params uniform for the POINT kernel (`scene_tone_controls.wgsl`):
-/// exposure / brightness / whites / blacks + the RGBA pixel `count` + padding
+/// exposure / brightness / blacks + the RGBA pixel `count` + padding
 /// to 32 bytes (8 × u32/f32; the kernel's `Params` matches). Highlights and
 /// shadows left this struct at #1103 — they dispatch `scene_tone_sh.wgsl`
-/// with [`ShParams`].
+/// with [`ShParams`]. `_pad3` was `whites` before #2441 moved that slider to
+/// the AgX view transform.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
     exposure: f32,
     brightness: f32,
-    whites: f32,
+    _pad3: u32,
     blacks: f32,
     count: u32,
     _pad0: u32,
@@ -81,10 +83,10 @@ const SH_MASK_EDGE0: f32 = 0.05;
 const SH_MASK_EDGE1: f32 = 0.25;
 const SH_MASK_SIGMA_REF_PX: f32 = 15.0;
 const SH_MASK_REF_LONG_EDGE: f32 = 2000.0;
-// Whites/blacks monotonicity bounds — transcribed from raw-core and pinned by
+// Blacks monotonicity bound — transcribed from raw-core and pinned by
 // the parity test. #2186 restores the positive Blacks toe to the 0.20 black
-// range and halves its full-rail endpoint so it remains monotone.
-const WHITES_MIN_GAIN: f32 = 0.32;
+// range and halves its full-rail endpoint so it remains monotone. Whites'
+// bound moved to the AgX view transform along with the operation (#2441).
 const B_CRUSH_EDGE: f32 = 0.2;
 const B_LIFT_EDGE: f32 = 0.20;
 const B_LIFT_MAX: f32 = 0.125;
@@ -228,7 +230,6 @@ pub struct SceneToneOptions {
     pub brightness: f32,
     pub highlights: f32,
     pub shadows: f32,
-    pub whites: f32,
     pub blacks: f32,
 }
 
@@ -253,7 +254,6 @@ pub fn apply_scene_tone_controls(
         brightness,
         highlights,
         shadows,
-        whites,
         blacks,
     } = options;
     debug_assert_eq!(buf.len(), width * height * 4);
@@ -261,7 +261,6 @@ pub fn apply_scene_tone_controls(
     let apply_brightness = brightness.abs() >= 1e-3;
     let apply_highlights = highlights.abs() >= 1e-3;
     let apply_shadows = shadows.abs() >= 1e-3;
-    let apply_whites = whites.abs() >= 1e-3;
     let apply_blacks = blacks.abs() >= 1e-3;
 
     let exp_gain = exposure.exp2();
@@ -270,8 +269,6 @@ pub fn apply_scene_tone_controls(
     let br_amount = 0.7 * brightness / 100.0;
     let h_amount = highlights / 100.0;
     let s_amount = shadows / 100.0;
-    // Whites negative-gain floor (#1918); positive gain passes through unclamped.
-    let w_amount = (whites / 200.0).max(-WHITES_MIN_GAIN);
     let b_amount = blacks / 100.0;
     let b_add_pos = B_LIFT_MAX * blacks / 100.0;
 
@@ -304,17 +301,9 @@ pub fn apply_scene_tone_controls(
         masked_pass(buf, width, height, |y| shadows_mult(y, s_amount));
     }
 
-    // 4 + 5. Whites, then blacks — point ops.
-    if apply_whites || apply_blacks {
+    // 5. Blacks — point op. Whites moved to the AgX view transform (#2441).
+    if apply_blacks {
         for px in buf.chunks_exact_mut(4) {
-            if apply_whites {
-                let y_old = luma([px[0], px[1], px[2]]);
-                let w = smoothstep(0.5, 1.0, y_old);
-                let w_gain = 1.0 + w_amount * w;
-                px[0] *= w_gain;
-                px[1] *= w_gain;
-                px[2] *= w_gain;
-            }
             if apply_blacks {
                 let y_old = luma([px[0], px[1], px[2]]);
                 if b_amount < 0.0 {
@@ -344,7 +333,8 @@ pub fn apply_scene_tone_controls(
     }
 }
 
-/// A GPU-resident scene-tone-controls stage. Carries the six slider values;
+/// A GPU-resident scene-tone-controls stage. Carries the five slider values
+/// this stage still consumes (whites moved to the AgX view transform, #2441);
 /// the device, pipelines, and ping-pong buffers come from the [`GpuContext`] /
 /// [`ChainRunner`]. Encodes the #1103 DAG (point ops + per-step blurred-luma
 /// masked S/H) over pooled scratch buffers.
@@ -353,22 +343,21 @@ pub struct SceneToneControlsPass {
     pub brightness: f32,
     pub highlights: f32,
     pub shadows: f32,
-    pub whites: f32,
     pub blacks: f32,
 }
 
 /// The sub-stages of the scene-tone DAG, in chain order.
 #[derive(Clone, Copy)]
 enum Step {
-    /// Point kernel: exposure + brightness (whites/blacks zeroed).
+    /// Point kernel: exposure + brightness (blacks zeroed).
     PointPre,
     /// Masked kernel, mode 0.
     Highlights,
     /// Masked kernel, mode 1.
     Shadows,
-    /// Point kernel: whites + blacks (exposure/brightness zeroed).
+    /// Point kernel: blacks (exposure/brightness zeroed).
     PointPost,
-    /// Single point kernel with all four fields — the collapsed fast path
+    /// Single point kernel with all three fields — the collapsed fast path
     /// when neither highlights nor shadows is active.
     PointAll,
 }
@@ -381,13 +370,13 @@ impl SceneToneControlsPass {
         src: &wgpu::Buffer,
         dst: &wgpu::Buffer,
         count: u32,
-        fields: (f32, f32, f32, f32),
+        fields: (f32, f32, f32),
     ) {
-        let (exposure, brightness, whites, blacks) = fields;
+        let (exposure, brightness, blacks) = fields;
         let params = Params {
             exposure,
             brightness,
-            whites,
+            _pad3: 0,
             blacks,
             count,
             _pad0: 0,
@@ -468,13 +457,13 @@ impl Pass for SceneToneControlsPass {
         let apply_pre = self.exposure.abs() >= 1e-6 || self.brightness.abs() >= 1e-3;
         let apply_h = self.highlights.abs() >= 1e-3;
         let apply_s = self.shadows.abs() >= 1e-3;
-        let apply_post = self.whites.abs() >= 1e-3 || self.blacks.abs() >= 1e-3;
+        let apply_post = self.blacks.abs() >= 1e-3;
 
         // Build the active step list in chain order.
         let mut steps: Vec<Step> = Vec::with_capacity(4);
         if !apply_h && !apply_s {
             // Fast path — the pre-#1103 single point dispatch (the kernel runs
-            // 1 → 1b → 4 → 5 sequentially, identical to the Rust loops when
+            // 1 → 1b → 5 sequentially, identical to the Rust loops when
             // highlights/shadows are inactive).
             steps.push(Step::PointAll);
         } else {
@@ -519,7 +508,7 @@ impl Pass for SceneToneControlsPass {
                     cur,
                     out,
                     count,
-                    (self.exposure, self.brightness, self.whites, self.blacks),
+                    (self.exposure, self.brightness, self.blacks),
                 ),
                 Step::PointPre => self.encode_point(
                     ctx,
@@ -527,16 +516,11 @@ impl Pass for SceneToneControlsPass {
                     cur,
                     out,
                     count,
-                    (self.exposure, self.brightness, 0.0, 0.0),
+                    (self.exposure, self.brightness, 0.0),
                 ),
-                Step::PointPost => self.encode_point(
-                    ctx,
-                    encoder,
-                    cur,
-                    out,
-                    count,
-                    (0.0, 0.0, self.whites, self.blacks),
-                ),
+                Step::PointPost => {
+                    self.encode_point(ctx, encoder, cur, out, count, (0.0, 0.0, self.blacks))
+                }
                 Step::Highlights => self.encode_masked(
                     ctx,
                     encoder,

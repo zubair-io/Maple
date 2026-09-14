@@ -176,7 +176,7 @@ pub(crate) fn emit_swift(registry: &[Capability], evidence: &Evidence) -> String
     }
     s.push_str("    ]\n");
     s.push_str("}\n");
-    s
+    crate::swift_indentation(&s)
 }
 
 fn swift_cases(key: &str, ids: &[&str]) -> String {
@@ -419,9 +419,9 @@ mod tests {
             CAPABILITY_REGISTRY.len()
         );
         assert!(out.contains("public enum CapabilitySurface: String, CaseIterable, Sendable {"));
-        assert!(out.contains("    case apiFilesystem = \"api_filesystem\"\n"));
-        assert!(out.contains("            surfaces: [.apple, .web, .windows],\n"));
-        assert!(out.contains("            fields: [],\n"));
+        assert!(out.contains("  case apiFilesystem = \"api_filesystem\"\n"));
+        assert!(out.contains("      surfaces: [.apple, .web, .windows],\n"));
+        assert!(out.contains("      fields: [],\n"));
         assert!(out.contains("public static let pipelineOutputVersion: UInt32 = 2\n"));
         // No evidence: nothing can leave Core.
         assert_eq!(

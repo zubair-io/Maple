@@ -93,6 +93,8 @@ pub struct WebLiveSession {
     /// The EXACT stripped-prefix model `session`'s uploaded buffer was developed
     /// from. A render re-develops iff its newly-derived prefix model differs.
     prefix_model: AdjustmentModel,
+    /// Pre-AE anchor measured alongside the uploaded prefix, reused on every tick.
+    whites_anchor_ev: f32,
     /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
     /// normalized + clamped to the device texture cap in `open`. Fixed for the
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
@@ -216,7 +218,7 @@ impl WebLiveSession {
         // cached for the re-develop check. Native dims ride the handle so the
         // editor's zoom math stays full-res-aware (#1101 contract).
         let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-        let (rgba, width, height, prefix_model) =
+        let (rgba, width, height, prefix_model, whites_anchor_ev) =
             develop_prefix_rgba(&raw_img, &raw, &ext, &model, target_long_edge)
                 .map_err(|e| JsError::new(&e))?;
 
@@ -247,6 +249,7 @@ impl WebLiveSession {
             present,
             session,
             prefix_model,
+            whites_anchor_ev,
             target_long_edge,
             width,
             height,
@@ -286,7 +289,7 @@ impl WebLiveSession {
         // branch: same buffer, same LiveSession, zero new GPU buffers.
         let new_prefix = prefix_model_for(&self.raw_img, &self.raw, &self.ext, &model);
         if new_prefix != self.prefix_model {
-            let (rgba, w, h, prefix_model) = develop_prefix_rgba(
+            let (rgba, w, h, prefix_model, whites_anchor_ev) = develop_prefix_rgba(
                 &self.raw_img,
                 &self.raw,
                 &self.ext,
@@ -305,6 +308,7 @@ impl WebLiveSession {
             }
             self.session.update_image(&self.ctx, &rgba);
             self.prefix_model = prefix_model;
+            self.whites_anchor_ev = whites_anchor_ev;
             self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, &model);
         }
 
@@ -500,6 +504,7 @@ impl WebLiveSession {
             model,
             self.film_lut.as_ref(),
             self.film_lut_key,
+            self.whites_anchor_ev,
         );
         // #1913 (generalised by #3191): the display-encode primaries MUST match
         // the canvas colour-space tag the present surface ACHIEVED — not the

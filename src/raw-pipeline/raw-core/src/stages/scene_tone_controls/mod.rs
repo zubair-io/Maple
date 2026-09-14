@@ -75,21 +75,11 @@ pub(crate) const H_W1: f32 = 1.0;
 pub(crate) const H_GAIN_EV: f32 = 0.7;
 
 // ----------------------------------------------------------------------
-// Whites / blacks monotonicity bounds (#1918). Same methodology as the
+// Blacks monotonicity bound (#1918). Same methodology as the
 // shadows/highlights gain caps above: keep d(out)/d(in) > 0 across the
 // full documented ±100 slider range so a reachable slider setting can't
 // invert local tonal ordering (a solarization band in gradients).
 // ----------------------------------------------------------------------
-
-/// Whites negative-gain floor. The whites point-op is
-/// `T(Y) = Y · (1 + a · smoothstep(0.5, 1.0, Y))`, so
-/// `T'(Y) = 1 + a · M(Y)` with `M(Y) = s(Y) + Y·s'(Y)`; `M` peaks at
-/// `M_max ≈ 2.9716` (Y ≈ 0.820). `T'` goes negative once `a < −1/M_max ≈
-/// −0.3365`, i.e. at `whites ≈ −67` (`a = whites/200`) — inside the ±100
-/// range. Positive `a` is unconditionally monotone (`M ≥ 0`), so only the
-/// negative side is floored; the effective gain saturates at `−0.32`
-/// (≈5 % margin) for `whites < −64` instead of solarizing.
-pub(crate) const WHITES_MIN_GAIN: f32 = 0.32;
 
 /// Blacks negative-crush smoothstep edge — the toe weight is
 /// `w = 1 − smoothstep(0, B_CRUSH_EDGE, Y)`. The multiplicative crush
@@ -202,21 +192,9 @@ pub(crate) fn highlights_mult(y: f32, h_amount: f32) -> f32 {
     shape * g
 }
 
-/// Whites multiplier at luma `y` (step 4 below). `w_amount = max(whites/200,
-/// −WHITES_MIN_GAIN)`, hoisted by the caller because the negative-side floor is
-/// slider-global, not per-pixel.
-///
-/// Extracted verbatim from step 4's inner loop (#1376) so
-/// `stages::auto_adjustments_tone` inverts the shipping transfer function
-/// rather than a hand-copied twin that could silently drift from it.
-#[inline]
-pub(crate) fn whites_mult(y: f32, w_amount: f32) -> f32 {
-    1.0 + w_amount * smoothstep(0.5, 1.0, y)
-}
-
 /// Blacks CRUSH factor at luma `y` for `b_amount = blacks/100 < 0` (step 5).
 /// Multiplicative, weighted by the toe over the `B_CRUSH_EDGE` span.
-/// Extracted verbatim alongside [`whites_mult`] (#1376).
+/// Extracted verbatim from step 5's inner loop (#1376).
 #[inline]
 pub(crate) fn blacks_crush_factor(y: f32, b_amount: f32) -> f32 {
     1.0 + b_amount * (1.0 - smoothstep(0.0, B_CRUSH_EDGE, y))
@@ -224,7 +202,7 @@ pub(crate) fn blacks_crush_factor(y: f32, b_amount: f32) -> f32 {
 
 /// Blacks LIFT delta at luma `y` for `b_add_pos = B_LIFT_MAX · blacks/100 ≥ 0`
 /// (step 5). Additive, weighted by the toe over the `B_LIFT_EDGE` span.
-/// Extracted verbatim alongside [`whites_mult`] (#1376).
+/// Extracted verbatim from step 5's inner loop (#1376).
 #[inline]
 pub(crate) fn blacks_lift_delta(y: f32, b_add_pos: f32) -> f32 {
     b_add_pos * (1.0 - smoothstep(0.0, B_LIFT_EDGE, y))
@@ -280,9 +258,11 @@ fn masked_multiplier_pass(img: &mut Image, radius: usize, mult_of_y: impl Fn(f32
 }
 
 /// Apply scene-referred tone controls per spec § 3.6 + tone/zoom design
-/// § 4.1–4.2. Steps 1–5b (exposure, brightness, highlights, shadows, whites,
-/// blacks); tone curves (steps 6–7) deferred. Contrast is NOT applied here;
-/// it modulates the AgX sigmoid slope downstream (spec § 3.6a).
+/// § 4.1–4.2: exposure, brightness, highlights, shadows, blacks; tone
+/// curves (steps 6–7) deferred. Whites moved to the AgX view transform
+/// (#2441, `view::agx_whites`) — this stage no longer touches it. Contrast
+/// is NOT applied here; it modulates the AgX sigmoid slope downstream
+/// (spec § 3.6a).
 ///
 /// Structure (#1103): the point-op steps run in per-pixel loops exactly as
 /// before; highlights and shadows each run as a full-image masked pass (the
@@ -323,7 +303,6 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
         && model.brightness.abs() < 1e-3
         && model.highlights.abs() < 1e-3
         && model.shadows.abs() < 1e-3
-        && model.whites.abs() < 1e-3
         && model.blacks.abs() < 1e-3
     {
         return;
@@ -334,7 +313,6 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
     let apply_brightness = model.brightness.abs() >= 1e-3;
     let apply_highlights = model.highlights.abs() >= 1e-3;
     let apply_shadows = model.shadows.abs() >= 1e-3;
-    let apply_whites = model.whites.abs() >= 1e-3;
     let apply_blacks = model.blacks.abs() >= 1e-3;
 
     // Brightness: EV-per-unit-weight amount (spec § 4.1). The per-pixel
@@ -346,10 +324,6 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
     let h_amount = model.highlights / 100.0;
     // Shadows (#1103): see `shadows_mult`.
     let s_amount = model.shadows / 100.0;
-    // Whites: smoothstep-weighted upper-end gain (see step 4). The negative
-    // side is floored at the monotonicity bound (#1918, WHITES_MIN_GAIN);
-    // positive gain is unconditionally monotone and passes through unclamped.
-    let w_amount = (model.whites / 200.0).max(-WHITES_MIN_GAIN);
     // Blacks: smoothstep-weighted toe (see step 5). The amount has two
     // shapes depending on sign — see comment block at the call site.
     let b_amount = model.blacks / 100.0; // -1..+1
@@ -399,30 +373,11 @@ pub fn apply_with_mask_anchor(img: &mut Image, model: &AdjustmentModel, mask_lon
         masked_multiplier_pass(img, mask_radius, |y| shadows_mult(y, s_amount));
     }
 
-    // 4 + 5. Whites, then blacks — point ops (unchanged from pre-#1103).
-    if apply_whites || apply_blacks {
+    // 5. Blacks — point op (unchanged from pre-#1103). Whites moved to
+    // the AgX view transform (#2441, view::agx_whites) — this stage no
+    // longer touches it.
+    if apply_blacks {
         for p in &mut img.pixels {
-            // 4. Whites — smoothstep-weighted gain near the diffuse-white
-            // endpoint.
-            //
-            // Pre-fix (#267): uniform scalar gain `1 + whites/200` brightened
-            // every pixel including mid-gray. The reference renderer's whites
-            // slider weights its action near the upper end of the
-            // diffuse-white range and leaves midtones untouched.
-            //
-            // Post-fix: weight the gain by smoothstep(0.5, 1.0, Y). At Y=0.5
-            // the weight is 0 → gain=1.0 → no change. At Y=1.0+ the weight
-            // saturates to 1 → full whites/200 gain. RGB is scaled uniformly
-            // by the same factor so hue is preserved.
-            if apply_whites {
-                let y_old =
-                    LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
-                let w_gain = whites_mult(y_old, w_amount);
-                p[0] *= w_gain;
-                p[1] *= w_gain;
-                p[2] *= w_gain;
-            }
-
             // 5. Blacks — smoothstep-weighted toe curve.
             //
             // Pre-fix (#268): additive shift `p += blacks/400` clamped at

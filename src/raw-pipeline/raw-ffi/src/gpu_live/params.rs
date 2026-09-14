@@ -268,6 +268,7 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     let (_, mask_rasters) = crate::mask_registry::layers_and_rasters_from_flat(&local_flat);
 
     FullChainInputs {
+        whites_anchor_ev: p.whites_anchor_ev,
         wb_matrix,
         wb_temperature: gate_temperature,
         wb_tint: gate_tint,

@@ -12,6 +12,7 @@ use crate::types::{Mask, Point2};
 /// isn't worth the indirection.
 fn flat_image(w: u32, h: u32, v: f32) -> Image {
     Image {
+        whites_anchor_ev: None,
         width: w,
         height: h,
         pixels: vec![[v, v, v]; (w * h) as usize],
@@ -54,6 +55,7 @@ fn hue_100_rotates_oklab_hue_by_30_degrees_and_keeps_l_and_c() {
         },
     )];
     let mut img = Image {
+        whites_anchor_ev: None,
         width: 3,
         height: 1,
         pixels: vec![src; 3],
@@ -214,7 +216,10 @@ fn range_gates_on_chroma_and_lightness() {
     // Grey has no hue: weight 0 regardless of the band.
     assert_eq!(range::weight(&SKIN_TONE_RANGE, [0.18, 0.18, 0.18]), 0.0);
     // A very dark skin-hued pixel falls under l_min.
-    assert_eq!(range::weight(&SKIN_TONE_RANGE, [0.004, 0.0024, 0.0015]), 0.0);
+    assert_eq!(
+        range::weight(&SKIN_TONE_RANGE, [0.004, 0.0024, 0.0015]),
+        0.0
+    );
 }
 
 #[test]
@@ -239,6 +244,7 @@ fn range_refinement_scopes_the_layer_to_matching_pixels_only() {
     };
     let blue = [0.05, 0.08, 0.6];
     let mut img = Image {
+        whites_anchor_ev: None,
         width: 2,
         height: 1,
         pixels: vec![skin_like(), blue],

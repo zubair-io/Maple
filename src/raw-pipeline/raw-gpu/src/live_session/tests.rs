@@ -211,7 +211,7 @@ fn session_render_matches_direct_chain_plus_dither_byte_exact() {
         ("mild", mild_case()),
         ("aggressive", aggressive_case()),
     ] {
-        let inputs = case.gpu_inputs();
+        let inputs = case.gpu_inputs_for(&input);
 
         let session = LiveSession::new_with_airlight_readback(&ctx, &input, w, h).expect("session");
         let cancel = CancelToken::new();
@@ -249,7 +249,7 @@ fn pre_cancelled_render_returns_none() {
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let case = aggressive_case();
-    let inputs = case.gpu_inputs();
+    let inputs = case.gpu_inputs_for(&input);
 
     let session = LiveSession::new(&ctx, &input, w, h).expect("session");
     let cancel = CancelToken::new();
@@ -269,7 +269,7 @@ fn rerender_same_inputs_is_byte_identical() {
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let case = aggressive_case();
-    let inputs = case.gpu_inputs();
+    let inputs = case.gpu_inputs_for(&input);
 
     let session = LiveSession::new(&ctx, &input, w, h).expect("session");
     let cancel = CancelToken::new();

@@ -52,6 +52,8 @@ pub struct ChainOptions<'a> {
     /// anchor (#2476). `None` = the buffer IS the whole frame (every FFI/WASM
     /// caller); a caller handing in a CROP (the live-vs-tile gate) sets it.
     pub mask_long_edge: Option<u32>,
+    /// Full-frame pre-AE anchor; required for detail crops.
+    pub whites_anchor_ev: Option<f32>,
 }
 
 impl Default for ChainOptions<'_> {
@@ -65,6 +67,7 @@ impl Default for ChainOptions<'_> {
             noise_profile: None,
             iso: 100,
             mask_long_edge: None,
+            whites_anchor_ev: None,
         }
     }
 }
