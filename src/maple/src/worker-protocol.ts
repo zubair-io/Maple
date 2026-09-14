@@ -72,7 +72,15 @@ export function prepareForTransfer(
   transferList: ArrayBuffer[] = [],
 ): { value: unknown; transferList: ArrayBuffer[] } {
   if (isTypedArray(value)) {
-    const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    // `.buffer` is typed `ArrayBufferLike` (`ArrayBuffer | SharedArrayBuffer`)
+    // because that's the general TypedArray contract, but every typed array
+    // this function ever sees comes from `Buffer.from`/`Buffer.alloc`/a
+    // `new Uint8Array(...)`/`new Float32Array(...)` inside this package —
+    // never a `SharedArrayBuffer` view — so the narrowing cast is safe.
+    const buffer = value.buffer.slice(
+      value.byteOffset,
+      value.byteOffset + value.byteLength,
+    ) as ArrayBuffer;
     transferList.push(buffer);
     const placeholder: TransferPlaceholder = {
       [TRANSFER_MARK]: transferKindOf(value),
