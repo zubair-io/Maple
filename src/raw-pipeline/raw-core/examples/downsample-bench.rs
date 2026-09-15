@@ -126,6 +126,7 @@ fn production(src: &[[f32; 3]], sw: usize, sh: usize, cap: u32) -> Vec<[f32; 3]>
         height: sh as u32,
         pixels: src.to_vec(),
         space: ColorSpace::CameraNativeLinearRgb,
+        whites_anchor_ev: None,
     };
     downsample_image_area(&mut img, cap);
     img.pixels
@@ -212,6 +213,7 @@ fn main() {
                         height: sh as u32,
                         pixels: src.clone(),
                         space: ColorSpace::CameraNativeLinearRgb,
+                        whites_anchor_ev: None,
                     };
                     let t = Instant::now();
                     downsample_image_area(&mut img, cap);
