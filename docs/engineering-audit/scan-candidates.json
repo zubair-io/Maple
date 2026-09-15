@@ -1,0 +1,6147 @@
+{
+  "commit": "1f233acb91dd97c2103a6903279be4dee5329192",
+  "status": "Untriaged static-analysis candidates, not confirmed defects. Coverage fields are tool estimates, not measured execution coverage. Existing suppressions apply.",
+  "projects": {
+    "api": {
+      "version": "2.103.0",
+      "summary": {
+        "total_issues": 113,
+        "unused_files": 1,
+        "unused_exports": 77,
+        "unused_types": 18,
+        "private_type_leaks": 0,
+        "unused_dependencies": 1,
+        "unused_enum_members": 0,
+        "unused_class_members": 10,
+        "unused_store_members": 0,
+        "unprovided_injects": 0,
+        "unrendered_components": 0,
+        "unused_component_props": 0,
+        "unused_component_emits": 0,
+        "unused_component_inputs": 0,
+        "unused_component_outputs": 0,
+        "unused_svelte_events": 0,
+        "unused_server_actions": 0,
+        "unused_load_data_keys": 0,
+        "unresolved_imports": 1,
+        "unlisted_dependencies": 0,
+        "duplicate_exports": 2,
+        "type_only_dependencies": 0,
+        "test_only_dependencies": 0,
+        "circular_dependencies": 2,
+        "re_export_cycles": 0,
+        "boundary_violations": 0,
+        "boundary_coverage_violations": 0,
+        "boundary_call_violations": 0,
+        "policy_violations": 0,
+        "stale_suppressions": 1,
+        "unused_catalog_entries": 0,
+        "empty_catalog_groups": 0,
+        "unresolved_catalog_references": 0,
+        "unused_dependency_overrides": 0,
+        "misconfigured_dependency_overrides": 0,
+        "invalid_client_exports": 0,
+        "mixed_client_server_barrels": 0,
+        "misplaced_directives": 0,
+        "route_collisions": 0,
+        "dynamic_segment_name_conflicts": 0
+      },
+      "candidates": {
+        "unused_files": [
+          {
+            "path": "src/enrichment/burst-siblings.ts"
+          }
+        ],
+        "unused_exports": [
+          {
+            "path": "src/auth/rate_limit.ts",
+            "export_name": "trustedProxyCount",
+            "is_type_only": false,
+            "line": 44,
+            "col": 16,
+            "span_start": 1958,
+            "is_re_export": false
+          },
+          {
+            "path": "src/auth/refresh_store.ts",
+            "export_name": "revokeOne",
+            "is_type_only": false,
+            "line": 226,
+            "col": 22,
+            "span_start": 8701,
+            "is_re_export": false
+          },
+          {
+            "path": "src/db/client.ts",
+            "export_name": "indexerQueueCollection",
+            "is_type_only": false,
+            "line": 174,
+            "col": 22,
+            "span_start": 5743,
+            "is_re_export": false
+          },
+          {
+            "path": "src/enrichment/face-detector.ts",
+            "export_name": "DEFAULT_DETECTION_THRESHOLD",
+            "is_type_only": false,
+            "line": 112,
+            "col": 13,
+            "span_start": 5078,
+            "is_re_export": false
+          },
+          {
+            "path": "src/enrichment/face-models-bootstrap.ts",
+            "export_name": "DEFAULT_ANTELOPEV2_URL",
+            "is_type_only": false,
+            "line": 38,
+            "col": 13,
+            "span_start": 1704,
+            "is_re_export": false
+          },
+          {
+            "path": "src/enrichment/face-models-bootstrap.ts",
+            "export_name": "DEFAULT_ANTELOPEV2_SHA256",
+            "is_type_only": false,
+            "line": 51,
+            "col": 13,
+            "span_start": 2337,
+            "is_re_export": false
+          },
+          {
+            "path": "src/enrichment/face-models.ts",
+            "export_name": "_getCachedModelsForTests",
+            "is_type_only": false,
+            "line": 510,
+            "col": 16,
+            "span_start": 21781,
+            "is_re_export": false
+          },
+          {
+            "path": "src/ffi/ffi-child-worker.ts",
+            "export_name": "ChildProcessWorker",
+            "is_type_only": false,
+            "line": 27,
+            "col": 9,
+            "span_start": 992,
+            "is_re_export": true
+          },
+          {
+            "path": "src/fs/browse.ts",
+            "export_name": "SYSTEM_DIRS",
+            "is_type_only": false,
+            "line": 63,
+            "col": 13,
+            "span_start": 1967,
+            "is_re_export": false
+          },
+          {
+            "path": "src/fs/browse.ts",
+            "export_name": "encodeCursor",
+            "is_type_only": false,
+            "line": 512,
+            "col": 16,
+            "span_start": 18017,
+            "is_re_export": false
+          },
+          {
+            "path": "src/fs/browse.ts",
+            "export_name": "decodeCursor",
+            "is_type_only": false,
+            "line": 516,
+            "col": 16,
+            "span_start": 18147,
+            "is_re_export": false
+          },
+          {
+            "path": "src/fs/duplicates.ts",
+            "export_name": "KEEP_FILENAME",
+            "is_type_only": false,
+            "line": 35,
+            "col": 13,
+            "span_start": 1898,
+            "is_re_export": false
+          },
+          {
+            "path": "src/fs/hidden-marker.ts",
+            "export_name": "hiddenMarkerPath",
+            "is_type_only": false,
+            "line": 11,
+            "col": 16,
+            "span_start": 450,
+            "is_re_export": false
+          },
+          {
+            "path": "src/fs/xmp.ts",
+            "export_name": "ensureMapleDir",
+            "is_type_only": false,
+            "line": 82,
+            "col": 22,
+            "span_start": 3743,
+            "is_re_export": false
+          },
+          {
+            "path": "src/fs/xmp.ts",
+            "export_name": "writeThumb",
+            "is_type_only": false,
+            "line": 234,
+            "col": 22,
+            "span_start": 10824,
+            "is_re_export": false
+          },
+          {
+            "path": "src/handler-registry/http-transport.ts",
+            "export_name": "DEFAULT_TIMEOUT_MS",
+            "is_type_only": false,
+            "line": 20,
+            "col": 13,
+            "span_start": 772,
+            "is_re_export": false
+          },
+          {
+            "path": "src/handler-registry/registry.ts",
+            "export_name": "refresh",
+            "is_type_only": false,
+            "line": 108,
+            "col": 16,
+            "span_start": 3045,
+            "is_re_export": false
+          },
+          {
+            "path": "src/imports/capture-time.ts",
+            "export_name": "EXIF_READ_CONCURRENCY",
+            "is_type_only": false,
+            "line": 18,
+            "col": 13,
+            "span_start": 793,
+            "is_re_export": false
+          },
+          {
+            "path": "src/imports/capture-time.ts",
+            "export_name": "resolveCapturedAtMs",
+            "is_type_only": false,
+            "line": 55,
+            "col": 22,
+            "span_start": 2196,
+            "is_re_export": false
+          },
+          {
+            "path": "src/imports/dest.ts",
+            "export_name": "MISC_SEGMENT",
+            "is_type_only": false,
+            "line": 58,
+            "col": 13,
+            "span_start": 2640,
+            "is_re_export": false
+          },
+          {
+            "path": "src/imports/scan.ts",
+            "export_name": "MOVIE_EXTS",
+            "is_type_only": false,
+            "line": 52,
+            "col": 13,
+            "span_start": 2314,
+            "is_re_export": false
+          },
+          {
+            "path": "src/imports/worker.ts",
+            "export_name": "remapSidecarDest",
+            "is_type_only": false,
+            "line": 158,
+            "col": 16,
+            "span_start": 6225,
+            "is_re_export": false
+          },
+          {
+            "path": "src/imports/worker.ts",
+            "export_name": "_resetImportRunnerForTests",
+            "is_type_only": false,
+            "line": 510,
+            "col": 16,
+            "span_start": 19745,
+            "is_re_export": false
+          },
+          {
+            "path": "src/imports/worker.ts",
+            "export_name": "ObjectId",
+            "is_type_only": false,
+            "line": 514,
+            "col": 9,
+            "span_start": 19815,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/checkpoint.ts",
+            "export_name": "checkpointsCollection",
+            "is_type_only": false,
+            "line": 27,
+            "col": 22,
+            "span_start": 876,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/checkpoint.ts",
+            "export_name": "ensureCheckpointIndexes",
+            "is_type_only": false,
+            "line": 33,
+            "col": 22,
+            "span_start": 1074,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/checkpoint.ts",
+            "export_name": "markInflight",
+            "is_type_only": false,
+            "line": 52,
+            "col": 22,
+            "span_start": 1679,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/checkpoint.ts",
+            "export_name": "clearInflight",
+            "is_type_only": false,
+            "line": 61,
+            "col": 22,
+            "span_start": 1952,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/exif.ts",
+            "export_name": "normalizeExif",
+            "is_type_only": false,
+            "line": 193,
+            "col": 16,
+            "span_start": 8276,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/id.ts",
+            "export_name": "TAG_PRIMARY",
+            "is_type_only": false,
+            "line": 17,
+            "col": 13,
+            "span_start": 571,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/id.ts",
+            "export_name": "TAG_FALLBACK",
+            "is_type_only": false,
+            "line": 19,
+            "col": 13,
+            "span_start": 645,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/images.repo.ts",
+            "export_name": "hasOnlySoftDeletedFileInfo",
+            "is_type_only": false,
+            "line": 324,
+            "col": 16,
+            "span_start": 14650,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/images.repo.ts",
+            "export_name": "findByMapleId",
+            "is_type_only": false,
+            "line": 474,
+            "col": 22,
+            "span_start": 19700,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/images.repo.ts",
+            "export_name": "listExpiredDeletions",
+            "is_type_only": false,
+            "line": 505,
+            "col": 22,
+            "span_start": 21097,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/images.repo.ts",
+            "export_name": "hardDelete",
+            "is_type_only": false,
+            "line": 510,
+            "col": 22,
+            "span_start": 21298,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/indexer.repo.ts",
+            "export_name": "deadLetterCollection",
+            "is_type_only": false,
+            "line": 23,
+            "col": 22,
+            "span_start": 551,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/indexer.repo.ts",
+            "export_name": "ensureIndexerIndexes",
+            "is_type_only": false,
+            "line": 28,
+            "col": 22,
+            "span_start": 727,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/indexer.repo.ts",
+            "export_name": "recordDeadLetter",
+            "is_type_only": false,
+            "line": 34,
+            "col": 22,
+            "span_start": 951,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/indexer.repo.ts",
+            "export_name": "listDeadLetter",
+            "is_type_only": false,
+            "line": 58,
+            "col": 22,
+            "span_start": 1525,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/previewer.ts",
+            "export_name": "resolvePreviewPath",
+            "is_type_only": false,
+            "line": 203,
+            "col": 16,
+            "span_start": 8676,
+            "is_re_export": false
+          },
+          {
+            "path": "src/indexer/screenshot.ts",
+            "export_name": "SCREENSHOT_FILENAME_RE",
+            "is_type_only": false,
+            "line": 37,
+            "col": 13,
+            "span_start": 1764,
+            "is_re_export": false
+          },
+          {
+            "path": "src/otel-logs.ts",
+            "export_name": "flush",
+            "is_type_only": false,
+            "line": 149,
+            "col": 22,
+            "span_start": 6269,
+            "is_re_export": false
+          },
+          {
+            "path": "src/people/cluster-embeddings.ts",
+            "export_name": "updateCentroid",
+            "is_type_only": false,
+            "line": 56,
+            "col": 16,
+            "span_start": 2584,
+            "is_re_export": false
+          },
+          {
+            "path": "src/people/clustering-job.ts",
+            "export_name": "DEFAULT_SIMILARITY_THRESHOLD",
+            "is_type_only": false,
+            "line": 45,
+            "col": 2,
+            "span_start": 1994,
+            "is_re_export": true
+          },
+          {
+            "path": "src/people/clustering-job.ts",
+            "export_name": "l2Normalise",
+            "is_type_only": false,
+            "line": 47,
+            "col": 2,
+            "span_start": 2043,
+            "is_re_export": true
+          },
+          {
+            "path": "src/people/clustering-job.ts",
+            "export_name": "dotProduct",
+            "is_type_only": false,
+            "line": 48,
+            "col": 2,
+            "span_start": 2058,
+            "is_re_export": true
+          },
+          {
+            "path": "src/people/clustering-job.ts",
+            "export_name": "updateCentroid",
+            "is_type_only": false,
+            "line": 49,
+            "col": 2,
+            "span_start": 2072,
+            "is_re_export": true
+          },
+          {
+            "path": "src/people/clustering-job.ts",
+            "export_name": "clusterEmbeddings",
+            "is_type_only": false,
+            "line": 50,
+            "col": 2,
+            "span_start": 2090,
+            "is_re_export": true
+          },
+          {
+            "path": "src/people/people.repo.ts",
+            "export_name": "readFaces",
+            "is_type_only": false,
+            "line": 428,
+            "col": 22,
+            "span_start": 17189,
+            "is_re_export": false
+          },
+          {
+            "path": "src/routes/search/index.ts",
+            "export_name": "buildFilter",
+            "is_type_only": false,
+            "line": 32,
+            "col": 9,
+            "span_start": 1375,
+            "is_re_export": true
+          },
+          {
+            "path": "src/routes/search/project.ts",
+            "export_name": "computeAddress",
+            "is_type_only": false,
+            "line": 65,
+            "col": 16,
+            "span_start": 2554,
+            "is_re_export": false
+          },
+          {
+            "path": "src/routes/search/query.ts",
+            "export_name": "SCENE_TYPES",
+            "is_type_only": false,
+            "line": 44,
+            "col": 13,
+            "span_start": 2285,
+            "is_re_export": false
+          },
+          {
+            "path": "src/routes/search/query.ts",
+            "export_name": "FLAG_BY_NAME",
+            "is_type_only": false,
+            "line": 57,
+            "col": 13,
+            "span_start": 2966,
+            "is_re_export": false
+          },
+          {
+            "path": "src/routes/search/query.ts",
+            "export_name": "escapeRegex",
+            "is_type_only": false,
+            "line": 64,
+            "col": 16,
+            "span_start": 3125,
+            "is_re_export": false
+          },
+          {
+            "path": "src/routes/search/query.ts",
+            "export_name": "asNumber",
+            "is_type_only": false,
+            "line": 75,
+            "col": 16,
+            "span_start": 3487,
+            "is_re_export": false
+          },
+          {
+            "path": "src/routes/search.ts",
+            "export_name": "buildFilter",
+            "is_type_only": false,
+            "line": 10,
+            "col": 2,
+            "span_start": 291,
+            "is_re_export": true
+          },
+          {
+            "path": "src/runtime/change-feed-tailer.ts",
+            "export_name": "__resetChangeFeedTailerForTests",
+            "is_type_only": false,
+            "line": 136,
+            "col": 16,
+            "span_start": 4612,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/dedupe-config.repo.ts",
+            "export_name": "DEFAULT_DRY_RUN",
+            "is_type_only": false,
+            "line": 27,
+            "col": 13,
+            "span_start": 1067,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/dedupe.helpers.ts",
+            "export_name": "CACHE_STAGES",
+            "is_type_only": false,
+            "line": 137,
+            "col": 13,
+            "span_start": 5725,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/migration/audit-video-geo-backfill.ts",
+            "export_name": "auditCollection",
+            "is_type_only": false,
+            "line": 73,
+            "col": 22,
+            "span_start": 2880,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/migration/scrub-mirror-orphans.ts",
+            "export_name": "SCRUB_MIRROR_ORPHANS_ID",
+            "is_type_only": false,
+            "line": 47,
+            "col": 13,
+            "span_start": 2408,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/missing-reaper-config.repo.ts",
+            "export_name": "DEFAULT_PRUNE_WINDOW_HOURS",
+            "is_type_only": false,
+            "line": 21,
+            "col": 13,
+            "span_start": 840,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/missing-reaper.helpers.ts",
+            "export_name": "ORIGINAL_FILE_STAGES",
+            "is_type_only": false,
+            "line": 49,
+            "col": 13,
+            "span_start": 2195,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/run-stage.test-helpers.ts",
+            "export_name": "matchesFilter",
+            "is_type_only": false,
+            "line": 147,
+            "col": 16,
+            "span_start": 5618,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/run-stage.test-helpers.ts",
+            "export_name": "getNestedValue",
+            "is_type_only": false,
+            "line": 172,
+            "col": 16,
+            "span_start": 6549,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/run-stage.test-helpers.ts",
+            "export_name": "applySet",
+            "is_type_only": false,
+            "line": 182,
+            "col": 16,
+            "span_start": 6855,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/run-stage.ts",
+            "export_name": "bootConfig",
+            "is_type_only": false,
+            "line": 52,
+            "col": 9,
+            "span_start": 2093,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/run-stage.ts",
+            "export_name": "versionBumpReset",
+            "is_type_only": false,
+            "line": 52,
+            "col": 52,
+            "span_start": 2136,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/run-stage.ts",
+            "export_name": "BACKOFF_MS",
+            "is_type_only": false,
+            "line": 64,
+            "col": 27,
+            "span_start": 2353,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/run-stage.ts",
+            "export_name": "POLL_INTERVAL_MS",
+            "is_type_only": false,
+            "line": 64,
+            "col": 9,
+            "span_start": 2335,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/run-stage.ts",
+            "export_name": "nextPollDelay",
+            "is_type_only": false,
+            "line": 64,
+            "col": 56,
+            "span_start": 2382,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/run-stage.ts",
+            "export_name": "runOnce",
+            "is_type_only": false,
+            "line": 97,
+            "col": 22,
+            "span_start": 3494,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/stages/face-embed.ts",
+            "export_name": "FACE_EMBED_TARGET_VERSION",
+            "is_type_only": false,
+            "line": 62,
+            "col": 13,
+            "span_start": 2888,
+            "is_re_export": false
+          },
+          {
+            "path": "src/workers/status-broadcast.ts",
+            "export_name": "COUNT_INTERVAL_MS",
+            "is_type_only": false,
+            "line": 39,
+            "col": 13,
+            "span_start": 1622,
+            "is_re_export": false
+          },
+          {
+            "path": "src/xmp/metadata-parser.ts",
+            "export_name": "METADATA_PARSER_VERSION",
+            "is_type_only": false,
+            "line": 20,
+            "col": 13,
+            "span_start": 931,
+            "is_re_export": false
+          },
+          {
+            "path": "tests/search/_setup.ts",
+            "export_name": "BEARER",
+            "is_type_only": false,
+            "line": 23,
+            "col": 13,
+            "span_start": 905,
+            "is_re_export": false
+          },
+          {
+            "path": "tests/search/_setup.ts",
+            "export_name": "MONGO_URI",
+            "is_type_only": false,
+            "line": 38,
+            "col": 13,
+            "span_start": 1185,
+            "is_re_export": false
+          }
+        ],
+        "unused_types": [
+          {
+            "path": "src/backup/upload-session.ts",
+            "export_name": "OpenOrResumeResult",
+            "is_type_only": true,
+            "line": 52,
+            "col": 17,
+            "span_start": 2538,
+            "is_re_export": false
+          },
+          {
+            "path": "src/db/migrations.ts",
+            "export_name": "BackfillPersonFaceCountResult",
+            "is_type_only": true,
+            "line": 483,
+            "col": 14,
+            "span_start": 19586,
+            "is_re_export": true
+          },
+          {
+            "path": "src/people/cluster-pool.ts",
+            "export_name": "WorkerMongoConfig",
+            "is_type_only": true,
+            "line": 47,
+            "col": 17,
+            "span_start": 2636,
+            "is_re_export": false
+          },
+          {
+            "path": "src/people/clustering-job.ts",
+            "export_name": "ClusterSeed",
+            "is_type_only": true,
+            "line": 53,
+            "col": 2,
+            "span_start": 2159,
+            "is_re_export": true
+          },
+          {
+            "path": "src/people/clustering-job.ts",
+            "export_name": "OnlineClusterOptions",
+            "is_type_only": true,
+            "line": 54,
+            "col": 2,
+            "span_start": 2174,
+            "is_re_export": true
+          },
+          {
+            "path": "src/people/clustering-job.ts",
+            "export_name": "OnlineClusterResult",
+            "is_type_only": true,
+            "line": 55,
+            "col": 2,
+            "span_start": 2198,
+            "is_re_export": true
+          },
+          {
+            "path": "src/routes/geocode-search.ts",
+            "export_name": "GeocodeSuggestion",
+            "is_type_only": true,
+            "line": 55,
+            "col": 17,
+            "span_start": 2128,
+            "is_re_export": false
+          },
+          {
+            "path": "src/routes/search/index.ts",
+            "export_name": "SearchQuery",
+            "is_type_only": true,
+            "line": 33,
+            "col": 14,
+            "span_start": 1422,
+            "is_re_export": true
+          },
+          {
+            "path": "src/routes/search/index.ts",
+            "export_name": "SearchResult",
+            "is_type_only": true,
+            "line": 34,
+            "col": 14,
+            "span_start": 1469,
+            "is_re_export": true
+          },
+          {
+            "path": "src/routes/search/index.ts",
+            "export_name": "SearchResultPHLink",
+            "is_type_only": true,
+            "line": 34,
+            "col": 28,
+            "span_start": 1483,
+            "is_re_export": true
+          },
+          {
+            "path": "src/routes/search/query.ts",
+            "export_name": "SearchScope",
+            "is_type_only": true,
+            "line": 55,
+            "col": 12,
+            "span_start": 2895,
+            "is_re_export": false
+          },
+          {
+            "path": "src/routes/search.ts",
+            "export_name": "SearchQuery",
+            "is_type_only": true,
+            "line": 13,
+            "col": 2,
+            "span_start": 359,
+            "is_re_export": true
+          },
+          {
+            "path": "src/routes/search.ts",
+            "export_name": "SearchResult",
+            "is_type_only": true,
+            "line": 14,
+            "col": 2,
+            "span_start": 379,
+            "is_re_export": true
+          },
+          {
+            "path": "src/routes/search.ts",
+            "export_name": "SearchResultPHLink",
+            "is_type_only": true,
+            "line": 15,
+            "col": 2,
+            "span_start": 400,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/discover/index.ts",
+            "export_name": "WatchEvent",
+            "is_type_only": true,
+            "line": 43,
+            "col": 47,
+            "span_start": 2428,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/migration/index.ts",
+            "export_name": "MigrationBatchResult",
+            "is_type_only": true,
+            "line": 37,
+            "col": 25,
+            "span_start": 1526,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/run-stage.ts",
+            "export_name": "StageDep",
+            "is_type_only": true,
+            "line": 58,
+            "col": 2,
+            "span_start": 2267,
+            "is_re_export": true
+          },
+          {
+            "path": "src/workers/worker-status.repo.ts",
+            "export_name": "WorkerStatusDoc",
+            "is_type_only": true,
+            "line": 52,
+            "col": 17,
+            "span_start": 2268,
+            "is_re_export": false
+          }
+        ],
+        "unused_dependencies": [
+          {
+            "package_name": "@justmaple/maple",
+            "location": "dependencies",
+            "path": "package.json",
+            "line": 38
+          }
+        ],
+        "unused_class_members": [
+          {
+            "path": "src/enrichment/describe-providers/anthropic.ts",
+            "parent_name": "AnthropicProvider",
+            "member_name": "name",
+            "kind": "class_property",
+            "line": 57,
+            "col": 2
+          },
+          {
+            "path": "src/enrichment/describe-providers/anthropic.ts",
+            "parent_name": "AnthropicProvider",
+            "member_name": "health",
+            "kind": "class_method",
+            "line": 72,
+            "col": 2
+          },
+          {
+            "path": "src/enrichment/describe-providers/gemini.ts",
+            "parent_name": "GeminiProvider",
+            "member_name": "name",
+            "kind": "class_property",
+            "line": 58,
+            "col": 2
+          },
+          {
+            "path": "src/enrichment/describe-providers/gemini.ts",
+            "parent_name": "GeminiProvider",
+            "member_name": "health",
+            "kind": "class_method",
+            "line": 71,
+            "col": 2
+          },
+          {
+            "path": "src/enrichment/describe-providers/ollama.ts",
+            "parent_name": "OllamaProvider",
+            "member_name": "name",
+            "kind": "class_property",
+            "line": 50,
+            "col": 2
+          },
+          {
+            "path": "src/enrichment/describe-providers/openai.ts",
+            "parent_name": "OpenAIProvider",
+            "member_name": "name",
+            "kind": "class_property",
+            "line": 50,
+            "col": 2
+          },
+          {
+            "path": "src/enrichment/describe-providers/openai.ts",
+            "parent_name": "OpenAIProvider",
+            "member_name": "health",
+            "kind": "class_method",
+            "line": 63,
+            "col": 2
+          },
+          {
+            "path": "src/enrichment/describe-providers/openai.ts",
+            "parent_name": "OpenAIProvider",
+            "member_name": "describe",
+            "kind": "class_method",
+            "line": 71,
+            "col": 2
+          },
+          {
+            "path": "src/runtime/change-bus.ts",
+            "parent_name": "ChangeBus",
+            "member_name": "getPersistedHighWatermark",
+            "kind": "class_method",
+            "line": 98,
+            "col": 2
+          },
+          {
+            "path": "src/workers/discover/sweeper.ts",
+            "parent_name": "SweeperLoop",
+            "member_name": "stop",
+            "kind": "class_method",
+            "line": 312,
+            "col": 2
+          }
+        ],
+        "unresolved_imports": [
+          {
+            "path": "src/indexer/indexer.repo.ts",
+            "specifier": "./channel.ts",
+            "line": 10,
+            "col": 14,
+            "specifier_col": 27
+          }
+        ],
+        "duplicate_exports": [
+          {
+            "export_name": "sameEntry",
+            "locations": [
+              {
+                "path": "src/workers/dedupe.helpers.ts",
+                "line": 66,
+                "col": 16
+              },
+              {
+                "path": "src/workers/missing-reaper.helpers.ts",
+                "line": 72,
+                "col": 16
+              }
+            ]
+          },
+          {
+            "export_name": "setMeilisearchClientForTests",
+            "locations": [
+              {
+                "path": "src/enrichment/meilisearch-client.ts",
+                "line": 449,
+                "col": 16
+              },
+              {
+                "path": "src/workers/stages/meili.ts",
+                "line": 128,
+                "col": 16
+              }
+            ]
+          }
+        ],
+        "circular_dependencies": [
+          {
+            "files": [
+              "src/db/client.ts",
+              "src/db/migrations.ts",
+              "src/people/people-face-count.repo.ts"
+            ],
+            "length": 3,
+            "line": 15,
+            "col": 2,
+            "edges": [
+              {
+                "path": "src/db/client.ts",
+                "line": 15,
+                "col": 2
+              },
+              {
+                "path": "src/db/migrations.ts",
+                "line": 1,
+                "col": 0
+              },
+              {
+                "path": "src/people/people-face-count.repo.ts",
+                "line": 21,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "files": ["src/enrichment/face-detector.ts", "src/enrichment/face-pool.ts"],
+            "length": 2,
+            "line": 205,
+            "col": 35,
+            "edges": [
+              {
+                "path": "src/enrichment/face-detector.ts",
+                "line": 205,
+                "col": 35
+              },
+              {
+                "path": "src/enrichment/face-pool.ts",
+                "line": 33,
+                "col": 2
+              }
+            ]
+          }
+        ],
+        "stale_suppressions": [
+          {
+            "path": "src/routes/search/buckets.ts",
+            "line": 154,
+            "col": 0,
+            "origin": {
+              "type": "comment",
+              "issue_kind": "duplicates",
+              "reason": "inherited loose token-clone vs",
+              "is_file_level": false,
+              "kind_known": false
+            }
+          }
+        ]
+      },
+      "duplication": [
+        {
+          "instances": [
+            {
+              "file": "scripts/seed-fake-workers.ts",
+              "start_line": 89,
+              "end_line": 100,
+              "start_col": 12,
+              "end_col": 5
+            },
+            {
+              "file": "scripts/seed-fake-workers.ts",
+              "start_line": 108,
+              "end_line": 118,
+              "start_col": 6,
+              "end_col": 5
+            }
+          ],
+          "token_count": 65,
+          "line_count": 12,
+          "fingerprint": "dup:27dcc240"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/auth/lan_handoff_store.ts",
+              "start_line": 19,
+              "end_line": 24,
+              "start_col": 0,
+              "end_col": 39
+            },
+            {
+              "file": "src/auth/native_code_store.ts",
+              "start_line": 14,
+              "end_line": 19,
+              "start_col": 0,
+              "end_col": 34
+            }
+          ],
+          "token_count": 54,
+          "line_count": 6,
+          "fingerprint": "dup:d2d65ca1",
+          "suggested_name": "Uint8Array"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/auth/native_code_store.ts",
+              "start_line": 79,
+              "end_line": 86,
+              "start_col": 6,
+              "end_col": 81
+            },
+            {
+              "file": "src/auth/native_code_store.ts",
+              "start_line": 106,
+              "end_line": 113,
+              "start_col": 6,
+              "end_col": 81
+            }
+          ],
+          "token_count": 57,
+          "line_count": 8,
+          "fingerprint": "dup:8ab22f01",
+          "suggested_name": "row"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/backup/fs-util.ts",
+              "start_line": 14,
+              "end_line": 24,
+              "start_col": 7,
+              "end_col": 3
+            },
+            {
+              "file": "src/routes/backup-sidecar.ts",
+              "start_line": 42,
+              "end_line": 52,
+              "start_col": 0,
+              "end_col": 3
+            }
+          ],
+          "token_count": 74,
+          "line_count": 11,
+          "fingerprint": "dup:b058b34b"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/backup/location-segments.ts",
+              "start_line": 31,
+              "end_line": 94,
+              "start_col": 0,
+              "end_col": 1
+            },
+            {
+              "file": "src/routes/library-relocate-helper.ts",
+              "start_line": 4,
+              "end_line": 50,
+              "start_col": 0,
+              "end_col": 1
+            }
+          ],
+          "token_count": 103,
+          "line_count": 64,
+          "fingerprint": "dup:9c6d7bcb",
+          "suggested_name": "the"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/backup/upload-session.ts",
+              "start_line": 261,
+              "end_line": 287,
+              "start_col": 6,
+              "end_col": 5
+            },
+            {
+              "file": "src/backup/upload-session.ts",
+              "start_line": 294,
+              "end_line": 320,
+              "start_col": 6,
+              "end_col": 5
+            }
+          ],
+          "token_count": 125,
+          "line_count": 27,
+          "fingerprint": "dup:08964005",
+          "suggested_name": "_id"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/db/assets.repo.ts",
+              "start_line": 158,
+              "end_line": 187,
+              "start_col": 30,
+              "end_col": 1
+            },
+            {
+              "file": "src/db/assets.repo.ts",
+              "start_line": 218,
+              "end_line": 240,
+              "start_col": 30,
+              "end_col": 1
+            }
+          ],
+          "token_count": 54,
+          "line_count": 30,
+          "fingerprint": "dup:18cb01d7",
+          "suggested_name": "dbOverride"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/db/assets.trash.ts",
+              "start_line": 106,
+              "end_line": 122,
+              "start_col": 2,
+              "end_col": 3
+            },
+            {
+              "file": "src/db/assets.trash.ts",
+              "start_line": 218,
+              "end_line": 234,
+              "start_col": 2,
+              "end_col": 3
+            }
+          ],
+          "token_count": 70,
+          "line_count": 17,
+          "fingerprint": "dup:e556d25e"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/db/client.ts",
+              "start_line": 373,
+              "end_line": 402,
+              "start_col": 18,
+              "end_col": 7
+            },
+            {
+              "file": "tests/search/_setup.ts",
+              "start_line": 286,
+              "end_line": 315,
+              "start_col": 2,
+              "end_col": 4
+            }
+          ],
+          "token_count": 66,
+          "line_count": 30,
+          "fingerprint": "dup:3859e248"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/enrichment/describe-providers/anthropic.ts",
+              "start_line": 128,
+              "end_line": 146,
+              "start_col": 6,
+              "end_col": 5
+            },
+            {
+              "file": "src/enrichment/describe-providers/openai.ts",
+              "start_line": 113,
+              "end_line": 127,
+              "start_col": 6,
+              "end_col": 53
+            }
+          ],
+          "token_count": 65,
+          "line_count": 19,
+          "fingerprint": "dup:2968e78d"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/enrichment/describe-providers/anthropic.ts",
+              "start_line": 142,
+              "end_line": 193,
+              "start_col": 11,
+              "end_col": 1
+            },
+            {
+              "file": "src/enrichment/describe-providers/gemini.ts",
+              "start_line": 125,
+              "end_line": 188,
+              "start_col": 11,
+              "end_col": 1
+            },
+            {
+              "file": "src/enrichment/describe-providers/openai.ts",
+              "start_line": 127,
+              "end_line": 171,
+              "start_col": 11,
+              "end_col": 1
+            }
+          ],
+          "token_count": 166,
+          "line_count": 64,
+          "fingerprint": "dup:5764a60f"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/enrichment/describe-providers/anthropic.ts",
+              "start_line": 189,
+              "end_line": 196,
+              "start_col": 18,
+              "end_col": 78
+            },
+            {
+              "file": "src/enrichment/describe-providers/gemini.ts",
+              "start_line": 184,
+              "end_line": 191,
+              "start_col": 18,
+              "end_col": 78
+            }
+          ],
+          "token_count": 74,
+          "line_count": 8,
+          "fingerprint": "dup:c689dd84"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/enrichment/describe-providers/anthropic.ts",
+              "start_line": 202,
+              "end_line": 208,
+              "start_col": 0,
+              "end_col": 3
+            },
+            {
+              "file": "src/enrichment/describe-providers/gemini.ts",
+              "start_line": 195,
+              "end_line": 201,
+              "start_col": 0,
+              "end_col": 3
+            },
+            {
+              "file": "src/enrichment/describe-providers/openai.ts",
+              "start_line": 178,
+              "end_line": 184,
+              "start_col": 0,
+              "end_col": 3
+            }
+          ],
+          "token_count": 71,
+          "line_count": 7,
+          "fingerprint": "dup:37535166",
+          "suggested_name": "status"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/enrichment/describe-providers/gemini.ts",
+              "start_line": 128,
+              "end_line": 159,
+              "start_col": 21,
+              "end_col": 3
+            },
+            {
+              "file": "src/enrichment/describe-providers/ollama.ts",
+              "start_line": 102,
+              "end_line": 136,
+              "start_col": 21,
+              "end_col": 3
+            }
+          ],
+          "token_count": 166,
+          "line_count": 35,
+          "fingerprint": "dup:32485ffc"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/enrichment/describe-providers/gemini.ts",
+              "start_line": 190,
+              "end_line": 201,
+              "start_col": 0,
+              "end_col": 3
+            },
+            {
+              "file": "src/enrichment/describe-providers/openai.ts",
+              "start_line": 173,
+              "end_line": 184,
+              "start_col": 0,
+              "end_col": 3
+            }
+          ],
+          "token_count": 137,
+          "line_count": 12,
+          "fingerprint": "dup:6b0c2382",
+          "suggested_name": "status"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/enrichment/face-pool.ts",
+              "start_line": 142,
+              "end_line": 150,
+              "start_col": 28,
+              "end_col": 12
+            },
+            {
+              "file": "src/people/cluster-pool.ts",
+              "start_line": 113,
+              "end_line": 121,
+              "start_col": 28,
+              "end_col": 12
+            }
+          ],
+          "token_count": 64,
+          "line_count": 9,
+          "fingerprint": "dup:ff236a2e",
+          "suggested_name": "worker"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/enrichment/nominatim-client.ts",
+              "start_line": 124,
+              "end_line": 153,
+              "start_col": 39,
+              "end_col": 5
+            },
+            {
+              "file": "src/enrichment/nominatim-client.ts",
+              "start_line": 165,
+              "end_line": 191,
+              "start_col": 39,
+              "end_col": 5
+            }
+          ],
+          "token_count": 129,
+          "line_count": 30,
+          "fingerprint": "dup:415e1d0f",
+          "suggested_name": "status"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 199,
+              "end_line": 221,
+              "start_col": 2,
+              "end_col": 37
+            },
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 888,
+              "end_line": 910,
+              "start_col": 2,
+              "end_col": 22
+            }
+          ],
+          "token_count": 110,
+          "line_count": 23,
+          "fingerprint": "dup:a0da7571"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 199,
+              "end_line": 219,
+              "start_col": 6,
+              "end_col": 3
+            },
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 888,
+              "end_line": 908,
+              "start_col": 6,
+              "end_col": 3
+            },
+            {
+              "file": "src/routes/imports.ts",
+              "start_line": 49,
+              "end_line": 67,
+              "start_col": 18,
+              "end_col": 3
+            }
+          ],
+          "token_count": 107,
+          "line_count": 21,
+          "fingerprint": "dup:04ee8159"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 199,
+              "end_line": 213,
+              "start_col": 2,
+              "end_col": 35
+            },
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 553,
+              "end_line": 567,
+              "start_col": 2,
+              "end_col": 47
+            },
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 888,
+              "end_line": 902,
+              "start_col": 2,
+              "end_col": 35
+            }
+          ],
+          "token_count": 64,
+          "line_count": 15,
+          "fingerprint": "dup:6cb5d7ba",
+          "suggested_name": "reqPath"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 567,
+              "end_line": 587,
+              "start_col": 45,
+              "end_col": 0
+            },
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 902,
+              "end_line": 925,
+              "start_col": 33,
+              "end_col": 0
+            }
+          ],
+          "token_count": 118,
+          "line_count": 24,
+          "fingerprint": "dup:7ea0837f"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 586,
+              "end_line": 599,
+              "start_col": 62,
+              "end_col": 5
+            },
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 925,
+              "end_line": 938,
+              "start_col": 51,
+              "end_col": 5
+            }
+          ],
+          "token_count": 71,
+          "line_count": 14,
+          "fingerprint": "dup:5c4739d1",
+          "suggested_name": "cursor"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 598,
+              "end_line": 618,
+              "start_col": 13,
+              "end_col": 59
+            },
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 940,
+              "end_line": 947,
+              "start_col": 13,
+              "end_col": 30
+            }
+          ],
+          "token_count": 73,
+          "line_count": 21,
+          "fingerprint": "dup:4efad275"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 674,
+              "end_line": 707,
+              "start_col": 8,
+              "end_col": 39
+            },
+            {
+              "file": "src/fs/browse.ts",
+              "start_line": 948,
+              "end_line": 981,
+              "start_col": 8,
+              "end_col": 39
+            }
+          ],
+          "token_count": 195,
+          "line_count": 34,
+          "fingerprint": "dup:ecc2754c",
+          "suggested_name": "childReal"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/sidecar-io.ts",
+              "start_line": 50,
+              "end_line": 65,
+              "start_col": 23,
+              "end_col": 13
+            },
+            {
+              "file": "src/fs/sidecar-io.ts",
+              "start_line": 91,
+              "end_line": 111,
+              "start_col": 52,
+              "end_col": 13
+            }
+          ],
+          "token_count": 126,
+          "line_count": 21,
+          "fingerprint": "dup:7d092a4a"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/fs/xmp-conflict.ts",
+              "start_line": 143,
+              "end_line": 164,
+              "start_col": 2,
+              "end_col": 1
+            },
+            {
+              "file": "src/fs/xmp.ts",
+              "start_line": 62,
+              "end_line": 76,
+              "start_col": 2,
+              "end_col": 1
+            }
+          ],
+          "token_count": 53,
+          "line_count": 22,
+          "fingerprint": "dup:65d3a6dc",
+          "suggested_name": "sidecar"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/imports/dest.ts",
+              "start_line": 162,
+              "end_line": 170,
+              "start_col": 60,
+              "end_col": 21
+            },
+            {
+              "file": "src/imports/dest.ts",
+              "start_line": 190,
+              "end_line": 198,
+              "start_col": 86,
+              "end_col": 21
+            }
+          ],
+          "token_count": 68,
+          "line_count": 9,
+          "fingerprint": "dup:ec2793e4",
+          "suggested_name": "filename"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/imports/repo.ts",
+              "start_line": 122,
+              "end_line": 128,
+              "start_col": 21,
+              "end_col": 25
+            },
+            {
+              "file": "src/job-runner/jobs.repo.ts",
+              "start_line": 121,
+              "end_line": 130,
+              "start_col": 8,
+              "end_col": 25
+            }
+          ],
+          "token_count": 59,
+          "line_count": 10,
+          "fingerprint": "dup:8999f3c4",
+          "suggested_name": "limit"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/imports/repo.ts",
+              "start_line": 353,
+              "end_line": 363,
+              "start_col": 2,
+              "end_col": 14
+            },
+            {
+              "file": "src/imports/repo.ts",
+              "start_line": 396,
+              "end_line": 406,
+              "start_col": 2,
+              "end_col": 14
+            }
+          ],
+          "token_count": 65,
+          "line_count": 11,
+          "fingerprint": "dup:4ee8ac98"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/imports/scan.ts",
+              "start_line": 320,
+              "end_line": 339,
+              "start_col": 8,
+              "end_col": 48
+            },
+            {
+              "file": "src/imports/scan.ts",
+              "start_line": 459,
+              "end_line": 483,
+              "start_col": 8,
+              "end_col": 38
+            }
+          ],
+          "token_count": 91,
+          "line_count": 25,
+          "fingerprint": "dup:d3f15f60"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/indexer/exif.ts",
+              "start_line": 342,
+              "end_line": 347,
+              "start_col": 39,
+              "end_col": 3
+            },
+            {
+              "file": "src/indexer/exif.ts",
+              "start_line": 352,
+              "end_line": 357,
+              "start_col": 39,
+              "end_col": 3
+            }
+          ],
+          "token_count": 50,
+          "line_count": 6,
+          "fingerprint": "dup:5d0484e1"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/map/map-config.repo.ts",
+              "start_line": 92,
+              "end_line": 104,
+              "start_col": 32,
+              "end_col": 3
+            },
+            {
+              "file": "src/observability/observability-config.repo.ts",
+              "start_line": 45,
+              "end_line": 57,
+              "start_col": 32,
+              "end_col": 3
+            }
+          ],
+          "token_count": 85,
+          "line_count": 13,
+          "fingerprint": "dup:fc781a11"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/people/clustering-metrics.ts",
+              "start_line": 149,
+              "end_line": 154,
+              "start_col": 81,
+              "end_col": 30
+            },
+            {
+              "file": "src/people/clustering-metrics.ts",
+              "start_line": 184,
+              "end_line": 189,
+              "start_col": 72,
+              "end_col": 44
+            }
+          ],
+          "token_count": 54,
+          "line_count": 6,
+          "fingerprint": "dup:358656df",
+          "suggested_name": "ct"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/people/clustering-quality-harness.ts",
+              "start_line": 152,
+              "end_line": 157,
+              "start_col": 41,
+              "end_col": 49
+            },
+            {
+              "file": "src/people/clustering-quality-harness.ts",
+              "start_line": 240,
+              "end_line": 246,
+              "start_col": 40,
+              "end_col": 4
+            }
+          ],
+          "token_count": 50,
+          "line_count": 7,
+          "fingerprint": "dup:faf92f9c"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/people/people-face-count.repo.ts",
+              "start_line": 40,
+              "end_line": 51,
+              "start_col": 23,
+              "end_col": 40
+            },
+            {
+              "file": "src/people/people-face-count.repo.ts",
+              "start_line": 184,
+              "end_line": 195,
+              "start_col": 40,
+              "end_col": 43
+            }
+          ],
+          "token_count": 53,
+          "line_count": 12,
+          "fingerprint": "dup:5c3782f9",
+          "suggested_name": "$ne"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/people/people.repo.ts",
+              "start_line": 302,
+              "end_line": 317,
+              "start_col": 8,
+              "end_col": 33
+            },
+            {
+              "file": "src/people/people.repo.ts",
+              "start_line": 370,
+              "end_line": 382,
+              "start_col": 8,
+              "end_col": 27
+            }
+          ],
+          "token_count": 101,
+          "line_count": 16,
+          "fingerprint": "dup:6f6e51db"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/apns-devices.ts",
+              "start_line": 74,
+              "end_line": 87,
+              "start_col": 7,
+              "end_col": 8
+            },
+            {
+              "file": "src/routes/apns-devices.ts",
+              "start_line": 92,
+              "end_line": 103,
+              "start_col": 9,
+              "end_col": 8
+            }
+          ],
+          "token_count": 50,
+          "line_count": 14,
+          "fingerprint": "dup:bfcf2d5b"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/auth-account.ts",
+              "start_line": 70,
+              "end_line": 82,
+              "start_col": 6,
+              "end_col": 47
+            },
+            {
+              "file": "src/routes/auth.ts",
+              "start_line": 282,
+              "end_line": 296,
+              "start_col": 6,
+              "end_col": 49
+            }
+          ],
+          "token_count": 77,
+          "line_count": 15,
+          "fingerprint": "dup:26c004a0",
+          "suggested_name": "challengeRow"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/auth-account.ts",
+              "start_line": 149,
+              "end_line": 158,
+              "start_col": 18,
+              "end_col": 8
+            },
+            {
+              "file": "src/routes/auth.ts",
+              "start_line": 214,
+              "end_line": 223,
+              "start_col": 8,
+              "end_col": 11
+            }
+          ],
+          "token_count": 71,
+          "line_count": 10,
+          "fingerprint": "dup:f72cc493",
+          "suggested_name": "credential"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/auth-lan-handoff.ts",
+              "start_line": 81,
+              "end_line": 94,
+              "start_col": 72,
+              "end_col": 5
+            },
+            {
+              "file": "src/routes/auth.ts",
+              "start_line": 422,
+              "end_line": 435,
+              "start_col": 71,
+              "end_col": 7
+            }
+          ],
+          "token_count": 61,
+          "line_count": 14,
+          "fingerprint": "dup:ea552668",
+          "suggested_name": "user"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/auth-lan-handoff.ts",
+              "start_line": 86,
+              "end_line": 95,
+              "start_col": 4,
+              "end_col": 75
+            },
+            {
+              "file": "src/routes/auth-native-code.ts",
+              "start_line": 34,
+              "end_line": 45,
+              "start_col": 2,
+              "end_col": 73
+            }
+          ],
+          "token_count": 51,
+          "line_count": 12,
+          "fingerprint": "dup:650c42b1",
+          "suggested_name": "user"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/auth-native-code.ts",
+              "start_line": 62,
+              "end_line": 69,
+              "start_col": 32,
+              "end_col": 75
+            },
+            {
+              "file": "src/routes/auth.ts",
+              "start_line": 123,
+              "end_line": 130,
+              "start_col": 23,
+              "end_col": 45
+            }
+          ],
+          "token_count": 55,
+          "line_count": 8,
+          "fingerprint": "dup:e38673c4"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/backup-ingest.ts",
+              "start_line": 48,
+              "end_line": 60,
+              "start_col": 43,
+              "end_col": 81
+            },
+            {
+              "file": "src/routes/backup-notify-deleted.ts",
+              "start_line": 27,
+              "end_line": 39,
+              "start_col": 51,
+              "end_col": 50
+            },
+            {
+              "file": "src/routes/backup-rendered.ts",
+              "start_line": 130,
+              "end_line": 142,
+              "start_col": 45,
+              "end_col": 50
+            },
+            {
+              "file": "src/routes/backup-sidecar.ts",
+              "start_line": 71,
+              "end_line": 83,
+              "start_col": 44,
+              "end_col": 50
+            }
+          ],
+          "token_count": 54,
+          "line_count": 13,
+          "fingerprint": "dup:0109c7cc",
+          "suggested_name": "libraryId"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/backup-ingest.ts",
+              "start_line": 83,
+              "end_line": 115,
+              "start_col": 13,
+              "end_col": 45
+            },
+            {
+              "file": "src/routes/backup-rendered.ts",
+              "start_line": 180,
+              "end_line": 212,
+              "start_col": 13,
+              "end_col": 81
+            }
+          ],
+          "token_count": 170,
+          "line_count": 33,
+          "fingerprint": "dup:1563e48e"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/backup-ingest.ts",
+              "start_line": 151,
+              "end_line": 184,
+              "start_col": 50,
+              "end_col": 14
+            },
+            {
+              "file": "src/routes/backup-rendered.ts",
+              "start_line": 235,
+              "end_line": 265,
+              "start_col": 50,
+              "end_col": 14
+            }
+          ],
+          "token_count": 81,
+          "line_count": 34,
+          "fingerprint": "dup:9d769cc8",
+          "suggested_name": "the"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/backup-ingest.ts",
+              "start_line": 205,
+              "end_line": 294,
+              "start_col": 8,
+              "end_col": 39
+            },
+            {
+              "file": "src/routes/backup-rendered.ts",
+              "start_line": 272,
+              "end_line": 349,
+              "start_col": 10,
+              "end_col": 72
+            }
+          ],
+          "token_count": 332,
+          "line_count": 90,
+          "fingerprint": "dup:3b272670",
+          "suggested_name": "session"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/backup-ingest.ts",
+              "start_line": 361,
+              "end_line": 377,
+              "start_col": 15,
+              "end_col": 67
+            },
+            {
+              "file": "src/routes/backup-rendered.ts",
+              "start_line": 344,
+              "end_line": 354,
+              "start_col": 13,
+              "end_col": 65
+            }
+          ],
+          "token_count": 53,
+          "line_count": 17,
+          "fingerprint": "dup:942cffba",
+          "suggested_name": "finalPath"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/backup-notify-deleted.ts",
+              "start_line": 27,
+              "end_line": 39,
+              "start_col": 51,
+              "end_col": 49
+            },
+            {
+              "file": "src/routes/backup-rendered.ts",
+              "start_line": 130,
+              "end_line": 142,
+              "start_col": 45,
+              "end_col": 49
+            },
+            {
+              "file": "src/routes/backup-sidecar.ts",
+              "start_line": 71,
+              "end_line": 83,
+              "start_col": 44,
+              "end_col": 49
+            }
+          ],
+          "token_count": 61,
+          "line_count": 13,
+          "fingerprint": "dup:5d3dee86",
+          "suggested_name": "libraryId"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/backup-rendered.ts",
+              "start_line": 92,
+              "end_line": 100,
+              "start_col": 0,
+              "end_col": 13
+            },
+            {
+              "file": "src/routes/backup-sidecar.ts",
+              "start_line": 59,
+              "end_line": 67,
+              "start_col": 0,
+              "end_col": 13
+            }
+          ],
+          "token_count": 96,
+          "line_count": 9,
+          "fingerprint": "dup:488dfde5",
+          "suggested_name": "relPath"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/backup-rendered.ts",
+              "start_line": 130,
+              "end_line": 144,
+              "start_col": 45,
+              "end_col": 63
+            },
+            {
+              "file": "src/routes/backup-sidecar.ts",
+              "start_line": 71,
+              "end_line": 85,
+              "start_col": 44,
+              "end_col": 61
+            }
+          ],
+          "token_count": 70,
+          "line_count": 15,
+          "fingerprint": "dup:b95b0742",
+          "suggested_name": "headers"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/enrichment-admin.ts",
+              "start_line": 60,
+              "end_line": 65,
+              "start_col": 6,
+              "end_col": 9
+            },
+            {
+              "file": "src/routes/imports.ts",
+              "start_line": 295,
+              "end_line": 300,
+              "start_col": 6,
+              "end_col": 9
+            }
+          ],
+          "token_count": 57,
+          "line_count": 6,
+          "fingerprint": "dup:c3d0670d"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 215,
+              "end_line": 224,
+              "start_col": 39,
+              "end_col": 6
+            },
+            {
+              "file": "src/routes/fs.ts",
+              "start_line": 130,
+              "end_line": 139,
+              "start_col": 44,
+              "end_col": 10
+            },
+            {
+              "file": "src/routes/fs.ts",
+              "start_line": 182,
+              "end_line": 191,
+              "start_col": 44,
+              "end_col": 10
+            }
+          ],
+          "token_count": 75,
+          "line_count": 10,
+          "fingerprint": "dup:f5cd0f81"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 358,
+              "end_line": 368,
+              "start_col": 17,
+              "end_col": 56
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 949,
+              "end_line": 957,
+              "start_col": 18,
+              "end_col": 80
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 991,
+              "end_line": 999,
+              "start_col": 23,
+              "end_col": 80
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 1187,
+              "end_line": 1197,
+              "start_col": 16,
+              "end_col": 48
+            }
+          ],
+          "token_count": 50,
+          "line_count": 11,
+          "fingerprint": "dup:6a8ed28c"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 420,
+              "end_line": 434,
+              "start_col": 17,
+              "end_col": 35
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 493,
+              "end_line": 512,
+              "start_col": 15,
+              "end_col": 77
+            }
+          ],
+          "token_count": 101,
+          "line_count": 20,
+          "fingerprint": "dup:33ff8216",
+          "suggested_name": "folderIdStr"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 552,
+              "end_line": 573,
+              "start_col": 39,
+              "end_col": 42
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 1044,
+              "end_line": 1065,
+              "start_col": 30,
+              "end_col": 67
+            }
+          ],
+          "token_count": 108,
+          "line_count": 22,
+          "fingerprint": "dup:131a5f11",
+          "suggested_name": "validated"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 552,
+              "end_line": 568,
+              "start_col": 39,
+              "end_col": 61
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 1044,
+              "end_line": 1060,
+              "start_col": 30,
+              "end_col": 61
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 1096,
+              "end_line": 1112,
+              "start_col": 30,
+              "end_col": 98
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 1188,
+              "end_line": 1208,
+              "start_col": 28,
+              "end_col": 35
+            }
+          ],
+          "token_count": 75,
+          "line_count": 21,
+          "fingerprint": "dup:0fa3c3fd",
+          "suggested_name": "folderId"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 949,
+              "end_line": 977,
+              "start_col": 18,
+              "end_col": 5
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 991,
+              "end_line": 1019,
+              "start_col": 23,
+              "end_col": 5
+            }
+          ],
+          "token_count": 178,
+          "line_count": 29,
+          "fingerprint": "dup:be58443f"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 1043,
+              "end_line": 1060,
+              "start_col": 16,
+              "end_col": 61
+            },
+            {
+              "file": "src/routes/folders.ts",
+              "start_line": 1095,
+              "end_line": 1112,
+              "start_col": 15,
+              "end_col": 98
+            }
+          ],
+          "token_count": 91,
+          "line_count": 18,
+          "fingerprint": "dup:b2ab03b9",
+          "suggested_name": "folderId"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/fs.ts",
+              "start_line": 101,
+              "end_line": 119,
+              "start_col": 10,
+              "end_col": 10
+            },
+            {
+              "file": "src/routes/fs.ts",
+              "start_line": 163,
+              "end_line": 177,
+              "start_col": 15,
+              "end_col": 10
+            }
+          ],
+          "token_count": 80,
+          "line_count": 19,
+          "fingerprint": "dup:a700ac2a"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/fs.ts",
+              "start_line": 116,
+              "end_line": 146,
+              "start_col": 41,
+              "end_col": 49
+            },
+            {
+              "file": "src/routes/fs.ts",
+              "start_line": 174,
+              "end_line": 194,
+              "start_col": 37,
+              "end_col": 49
+            }
+          ],
+          "token_count": 157,
+          "line_count": 31,
+          "fingerprint": "dup:39885eec"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/fs.ts",
+              "start_line": 146,
+              "end_line": 159,
+              "start_col": 67,
+              "end_col": 7
+            },
+            {
+              "file": "src/routes/fs.ts",
+              "start_line": 194,
+              "end_line": 207,
+              "start_col": 78,
+              "end_col": 7
+            }
+          ],
+          "token_count": 67,
+          "line_count": 14,
+          "fingerprint": "dup:98c99b52",
+          "suggested_name": "Optional"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/imports.ts",
+              "start_line": 170,
+              "end_line": 180,
+              "start_col": 11,
+              "end_col": 7
+            },
+            {
+              "file": "src/routes/imports.ts",
+              "start_line": 194,
+              "end_line": 204,
+              "start_col": 7,
+              "end_col": 7
+            }
+          ],
+          "token_count": 50,
+          "line_count": 11,
+          "fingerprint": "dup:6c9f6fa4"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/imports.ts",
+              "start_line": 305,
+              "end_line": 315,
+              "start_col": 53,
+              "end_col": 22
+            },
+            {
+              "file": "src/routes/jobs.ts",
+              "start_line": 150,
+              "end_line": 158,
+              "start_col": 54,
+              "end_col": 20
+            }
+          ],
+          "token_count": 55,
+          "line_count": 11,
+          "fingerprint": "dup:986fa561"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/library/preview.ts",
+              "start_line": 52,
+              "end_line": 67,
+              "start_col": 27,
+              "end_col": 71
+            },
+            {
+              "file": "src/routes/library/thumb.ts",
+              "start_line": 198,
+              "end_line": 214,
+              "start_col": 28,
+              "end_col": 71
+            }
+          ],
+          "token_count": 112,
+          "line_count": 17,
+          "fingerprint": "dup:4aabe7c6",
+          "suggested_name": "relDir"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/library-relocate.ts",
+              "start_line": 48,
+              "end_line": 69,
+              "start_col": 0,
+              "end_col": 24
+            },
+            {
+              "file": "src/workers/migration/move-backup-asset.ts",
+              "start_line": 42,
+              "end_line": 51,
+              "start_col": 0,
+              "end_col": 24
+            }
+          ],
+          "token_count": 61,
+          "line_count": 22,
+          "fingerprint": "dup:329159d5",
+          "suggested_name": "ts"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/library-relocate.ts",
+              "start_line": 82,
+              "end_line": 87,
+              "start_col": 26,
+              "end_col": 13
+            },
+            {
+              "file": "src/workers/migration/refile-backups.ts",
+              "start_line": 61,
+              "end_line": 66,
+              "start_col": 21,
+              "end_col": 13
+            }
+          ],
+          "token_count": 62,
+          "line_count": 6,
+          "fingerprint": "dup:07bef82d",
+          "suggested_name": "capturedYear"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/library-relocate.ts",
+              "start_line": 158,
+              "end_line": 175,
+              "start_col": 2,
+              "end_col": 9
+            },
+            {
+              "file": "src/routes/metadata-snapshots.ts",
+              "start_line": 151,
+              "end_line": 164,
+              "start_col": 2,
+              "end_col": 9
+            }
+          ],
+          "token_count": 65,
+          "line_count": 18,
+          "fingerprint": "dup:3a6ce69f"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/library-relocate.ts",
+              "start_line": 347,
+              "end_line": 364,
+              "start_col": 33,
+              "end_col": 29
+            },
+            {
+              "file": "src/routes/library-relocate.ts",
+              "start_line": 404,
+              "end_line": 423,
+              "start_col": 27,
+              "end_col": 48
+            }
+          ],
+          "token_count": 104,
+          "line_count": 20,
+          "fingerprint": "dup:ae3dbb80",
+          "suggested_name": "addresses"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/library-relocate.ts",
+              "start_line": 347,
+              "end_line": 369,
+              "start_col": 33,
+              "end_col": 8
+            },
+            {
+              "file": "src/routes/library-relocate.ts",
+              "start_line": 404,
+              "end_line": 428,
+              "start_col": 27,
+              "end_col": 8
+            },
+            {
+              "file": "src/routes/metadata-snapshots.ts",
+              "start_line": 199,
+              "end_line": 222,
+              "start_col": 27,
+              "end_col": 6
+            }
+          ],
+          "token_count": 73,
+          "line_count": 25,
+          "fingerprint": "dup:3aa387ab",
+          "suggested_name": "addresses"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/mirror.ts",
+              "start_line": 86,
+              "end_line": 96,
+              "start_col": 51,
+              "end_col": 5
+            },
+            {
+              "file": "src/routes/mirror.ts",
+              "start_line": 101,
+              "end_line": 111,
+              "start_col": 27,
+              "end_col": 7
+            }
+          ],
+          "token_count": 76,
+          "line_count": 11,
+          "fingerprint": "dup:c5c7faef",
+          "suggested_name": "folder"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/pano.ts",
+              "start_line": 462,
+              "end_line": 471,
+              "start_col": 6,
+              "end_col": 5
+            },
+            {
+              "file": "src/routes/pano.ts",
+              "start_line": 476,
+              "end_line": 485,
+              "start_col": 9,
+              "end_col": 5
+            }
+          ],
+          "token_count": 83,
+          "line_count": 10,
+          "fingerprint": "dup:04b7e1f9"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/people.ts",
+              "start_line": 251,
+              "end_line": 262,
+              "start_col": 15,
+              "end_col": 31
+            },
+            {
+              "file": "src/routes/people.ts",
+              "start_line": 299,
+              "end_line": 310,
+              "start_col": 15,
+              "end_col": 31
+            }
+          ],
+          "token_count": 62,
+          "line_count": 12,
+          "fingerprint": "dup:38a448fa",
+          "suggested_name": "msg"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/people.ts",
+              "start_line": 447,
+              "end_line": 455,
+              "start_col": 67,
+              "end_col": 10
+            },
+            {
+              "file": "src/routes/people.ts",
+              "start_line": 468,
+              "end_line": 476,
+              "start_col": 47,
+              "end_col": 10
+            }
+          ],
+          "token_count": 54,
+          "line_count": 9,
+          "fingerprint": "dup:8a4b4f67",
+          "suggested_name": "msg"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/search/buckets.ts",
+              "start_line": 158,
+              "end_line": 178,
+              "start_col": 4,
+              "end_col": 28
+            },
+            {
+              "file": "src/routes/search/facets.ts",
+              "start_line": 49,
+              "end_line": 69,
+              "start_col": 4,
+              "end_col": 7
+            }
+          ],
+          "token_count": 91,
+          "line_count": 21,
+          "fingerprint": "dup:d1b215e3",
+          "suggested_name": "filterOrError"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/search/facets.ts",
+              "start_line": 325,
+              "end_line": 328,
+              "start_col": 29,
+              "end_col": 29
+            },
+            {
+              "file": "src/routes/search/facets.ts",
+              "start_line": 339,
+              "end_line": 353,
+              "start_col": 32,
+              "end_col": 6
+            }
+          ],
+          "token_count": 54,
+          "line_count": 9,
+          "fingerprint": "dup:347f3306",
+          "suggested_name": "_id"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/search/nl-date.ts",
+              "start_line": 177,
+              "end_line": 181,
+              "start_col": 10,
+              "end_col": 78
+            },
+            {
+              "file": "src/routes/search/nl-date.ts",
+              "start_line": 198,
+              "end_line": 203,
+              "start_col": 12,
+              "end_col": 80
+            }
+          ],
+          "token_count": 83,
+          "line_count": 6,
+          "fingerprint": "dup:feae4ee2",
+          "suggested_name": "yearStr"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/routes/xmp.ts",
+              "start_line": 96,
+              "end_line": 104,
+              "start_col": 6,
+              "end_col": 44
+            },
+            {
+              "file": "src/routes/xmp.ts",
+              "start_line": 193,
+              "end_line": 201,
+              "start_col": 9,
+              "end_col": 44
+            }
+          ],
+          "token_count": 63,
+          "line_count": 9,
+          "fingerprint": "dup:c5154c8f"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/workers/cache-gc.ts",
+              "start_line": 299,
+              "end_line": 302,
+              "start_col": 63,
+              "end_col": 71
+            },
+            {
+              "file": "src/workers/cache-gc.ts",
+              "start_line": 326,
+              "end_line": 337,
+              "start_col": 28,
+              "end_col": 5
+            }
+          ],
+          "token_count": 55,
+          "line_count": 12,
+          "fingerprint": "dup:7b4b9d4e",
+          "suggested_name": "stat"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/workers/discover/_test-helpers.ts",
+              "start_line": 16,
+              "end_line": 32,
+              "start_col": 0,
+              "end_col": 3
+            },
+            {
+              "file": "tests/search/_setup.ts",
+              "start_line": 38,
+              "end_line": 54,
+              "start_col": 0,
+              "end_col": 3
+            }
+          ],
+          "token_count": 88,
+          "line_count": 17,
+          "fingerprint": "dup:da31648d"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/workers/discover/index.ts",
+              "start_line": 152,
+              "end_line": 157,
+              "start_col": 22,
+              "end_col": 5
+            },
+            {
+              "file": "src/workers/discover/index.ts",
+              "start_line": 158,
+              "end_line": 163,
+              "start_col": 21,
+              "end_col": 5
+            }
+          ],
+          "token_count": 51,
+          "line_count": 6,
+          "fingerprint": "dup:88b0f158",
+          "suggested_name": "shutdown"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/workers/migration/backfill-video-exif.ts",
+              "start_line": 62,
+              "end_line": 78,
+              "start_col": 8,
+              "end_col": 54
+            },
+            {
+              "file": "src/workers/migration/refile-backups.ts",
+              "start_line": 140,
+              "end_line": 159,
+              "start_col": 8,
+              "end_col": 21
+            }
+          ],
+          "token_count": 91,
+          "line_count": 20,
+          "fingerprint": "dup:b29ab5fc"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/workers/migration/clear-video-screenshot-flags.ts",
+              "start_line": 92,
+              "end_line": 185,
+              "start_col": 39,
+              "end_col": 2
+            },
+            {
+              "file": "src/workers/migration/rearm-video-posters.ts",
+              "start_line": 104,
+              "end_line": 193,
+              "start_col": 39,
+              "end_col": 2
+            }
+          ],
+          "token_count": 56,
+          "line_count": 94,
+          "fingerprint": "dup:4f520a9e",
+          "suggested_name": "the"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/workers/migration/clear-video-screenshot-flags.ts",
+              "start_line": 116,
+              "end_line": 132,
+              "start_col": 8,
+              "end_col": 60
+            },
+            {
+              "file": "src/workers/migration/redrive-preview-missing-describe.ts",
+              "start_line": 82,
+              "end_line": 99,
+              "start_col": 8,
+              "end_col": 60
+            }
+          ],
+          "token_count": 94,
+          "line_count": 18,
+          "fingerprint": "dup:33227022",
+          "suggested_name": "coll"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/workers/migration/rearm-video-posters.ts",
+              "start_line": 160,
+              "end_line": 176,
+              "start_col": 4,
+              "end_col": 45
+            },
+            {
+              "file": "src/workers/migration/redrive-preview-missing-describe.ts",
+              "start_line": 88,
+              "end_line": 108,
+              "start_col": 4,
+              "end_col": 45
+            }
+          ],
+          "token_count": 86,
+          "line_count": 21,
+          "fingerprint": "dup:05ccc25d"
+        },
+        {
+          "instances": [
+            {
+              "file": "src/workers/mirror/copy.ts",
+              "start_line": 129,
+              "end_line": 141,
+              "start_col": 93,
+              "end_col": 3
+            },
+            {
+              "file": "src/workers/mirror/scan.ts",
+              "start_line": 177,
+              "end_line": 189,
+              "start_col": 93,
+              "end_col": 3
+            }
+          ],
+          "token_count": 51,
+          "line_count": 13,
+          "fingerprint": "dup:f2ed0a7e"
+        }
+      ],
+      "complexity": [
+        {
+          "path": "src/routes/search/query.ts",
+          "name": "buildFilter",
+          "line": 186,
+          "col": 7,
+          "cyclomatic": 67,
+          "cognitive": 84,
+          "line_count": 326,
+          "param_count": 3,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 82.2,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/enrichment.ts",
+          "name": "<arrow>",
+          "line": 205,
+          "col": 4,
+          "cyclomatic": 66,
+          "cognitive": 68,
+          "line_count": 290,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 1006.9,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/backup-ingest.ts",
+          "name": "backupIngestRoutes",
+          "line": 49,
+          "col": 2,
+          "cyclomatic": 65,
+          "cognitive": 85,
+          "line_count": 491,
+          "param_count": 1,
+          "react_prop_count": 4,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 79.3,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/fs/browse.ts",
+          "name": "listDirContents",
+          "line": 549,
+          "col": 7,
+          "cyclomatic": 61,
+          "cognitive": 123,
+          "line_count": 297,
+          "param_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 73.6,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/metadata-snapshots.ts",
+          "name": "overrideToXmpSnapshot",
+          "line": 68,
+          "col": 7,
+          "cyclomatic": 61,
+          "cognitive": 34,
+          "line_count": 62,
+          "param_count": 1,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 73.6,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/db/client.ts",
+          "name": "ensureIndexes",
+          "line": 354,
+          "col": 7,
+          "cyclomatic": 60,
+          "cognitive": 121,
+          "line_count": 1350,
+          "param_count": 0,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 72.2,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/backup-rendered.ts",
+          "name": "backupRenderedRoutes",
+          "line": 131,
+          "col": 2,
+          "cyclomatic": 43,
+          "cognitive": 43,
+          "line_count": 254,
+          "param_count": 1,
+          "react_prop_count": 4,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 49.2,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/missing-reaper.ts",
+          "name": "runMissingReaperOnce",
+          "line": 130,
+          "col": 7,
+          "cyclomatic": 39,
+          "cognitive": 100,
+          "line_count": 244,
+          "param_count": 1,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 44.1,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/folders.ts",
+          "name": "<arrow>",
+          "line": 642,
+          "col": 43,
+          "cyclomatic": 38,
+          "cognitive": 76,
+          "line_count": 293,
+          "param_count": 0,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 349.9,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/discover/handle-event.ts",
+          "name": "handleEvent",
+          "line": 38,
+          "col": 7,
+          "cyclomatic": 33,
+          "cognitive": 51,
+          "line_count": 417,
+          "param_count": 3,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 36.7,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/xmp/metadata-serializer.ts",
+          "name": "requiredNamespacePrefixes",
+          "line": 208,
+          "col": 0,
+          "cyclomatic": 33,
+          "cognitive": 20,
+          "line_count": 36,
+          "param_count": 1,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 268.2,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/search/nl-date.ts",
+          "name": "parseNlDateRange",
+          "line": 106,
+          "col": 7,
+          "cyclomatic": 32,
+          "cognitive": 54,
+          "line_count": 139,
+          "param_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 35.5,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/backup/upload-session.ts",
+          "name": "openOrResume",
+          "line": 69,
+          "col": 20,
+          "cyclomatic": 30,
+          "cognitive": 44,
+          "line_count": 271,
+          "param_count": 1,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 224.4,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/stages/exif.ts",
+          "name": "tryMergeWithExistingPrimary",
+          "line": 201,
+          "col": 0,
+          "cyclomatic": 30,
+          "cognitive": 27,
+          "line_count": 109,
+          "param_count": 3,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 224.4,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/folders.ts",
+          "name": "<arrow>",
+          "line": 1188,
+          "col": 4,
+          "cyclomatic": 28,
+          "cognitive": 38,
+          "line_count": 112,
+          "param_count": 1,
+          "react_prop_count": 3,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 197.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/xmp/metadata-serializer.ts",
+          "name": "buildMetadataAttrParts",
+          "line": 155,
+          "col": 0,
+          "cyclomatic": 28,
+          "cognitive": 29,
+          "line_count": 41,
+          "param_count": 1,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 197.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/imports/worker.ts",
+          "name": "processImport",
+          "line": 242,
+          "col": 29,
+          "cyclomatic": 27,
+          "cognitive": 57,
+          "line_count": 186,
+          "param_count": 1,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 184.5,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/job-runner/handlers/pano-stitch.ts",
+          "name": "parsePayload",
+          "line": 68,
+          "col": 0,
+          "cyclomatic": 27,
+          "cognitive": 25,
+          "line_count": 53,
+          "param_count": 1,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 184.5,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/search/project.ts",
+          "name": "projectAsset",
+          "line": 75,
+          "col": 7,
+          "cyclomatic": 26,
+          "cognitive": 18,
+          "line_count": 58,
+          "param_count": 3,
+          "exceeded": "both",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/fs/browse.ts",
+          "name": "listDirFast",
+          "line": 884,
+          "col": 7,
+          "cyclomatic": 25,
+          "cognitive": 36,
+          "line_count": 118,
+          "param_count": 2,
+          "exceeded": "both",
+          "severity": "high"
+        },
+        {
+          "path": "src/routes/library/folder.ts",
+          "name": "buildFolderListing",
+          "line": 41,
+          "col": 0,
+          "cyclomatic": 25,
+          "cognitive": 28,
+          "line_count": 157,
+          "param_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 160.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/presets/preset-validation.ts",
+          "name": "validatePresetFields",
+          "line": 88,
+          "col": 7,
+          "cyclomatic": 24,
+          "cognitive": 42,
+          "line_count": 58,
+          "param_count": 1,
+          "exceeded": "both",
+          "severity": "critical"
+        },
+        {
+          "path": "src/routes/library-relocate.ts",
+          "name": "<arrow>",
+          "line": 405,
+          "col": 4,
+          "cyclomatic": 23,
+          "cognitive": 34,
+          "line_count": 129,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 137.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/observability.ts",
+          "name": "<arrow>",
+          "line": 131,
+          "col": 4,
+          "cyclomatic": 22,
+          "cognitive": 23,
+          "line_count": 74,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 126.5,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/people/cluster-load.ts",
+          "name": "recomputeCentroids",
+          "line": 200,
+          "col": 7,
+          "cyclomatic": 21,
+          "cognitive": 33,
+          "line_count": 124,
+          "param_count": 0,
+          "exceeded": "both",
+          "severity": "high"
+        },
+        {
+          "path": "src/routes/admin-purge-subthreshold-faces.ts",
+          "name": "<arrow>",
+          "line": 99,
+          "col": 2,
+          "cyclomatic": 21,
+          "cognitive": 32,
+          "line_count": 136,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 116.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/changes.ts",
+          "name": "<anonymous>",
+          "line": 130,
+          "col": 4,
+          "cyclomatic": 21,
+          "cognitive": 27,
+          "line_count": 123,
+          "param_count": 1,
+          "react_prop_count": 3,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 116.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/observability.ts",
+          "name": "<arrow>",
+          "line": 210,
+          "col": 4,
+          "cyclomatic": 21,
+          "cognitive": 24,
+          "line_count": 72,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 116.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/pano.ts",
+          "name": "<arrow>",
+          "line": 322,
+          "col": 4,
+          "cyclomatic": 20,
+          "cognitive": 27,
+          "line_count": 136,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "cognitive_crap",
+          "severity": "critical",
+          "crap": 106.4,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/enrichment/meilisearch-test-harness.ts",
+          "name": "fetchImpl",
+          "line": 38,
+          "col": 21,
+          "cyclomatic": 19,
+          "cognitive": 20,
+          "line_count": 34,
+          "param_count": 2,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 97.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/enrichment/face-pool.ts",
+          "name": "onMessage",
+          "line": 153,
+          "col": 19,
+          "cyclomatic": 18,
+          "cognitive": 21,
+          "line_count": 34,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 88.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/imports/scan.ts",
+          "name": "walk",
+          "line": 165,
+          "col": 0,
+          "cyclomatic": 18,
+          "cognitive": 48,
+          "line_count": 102,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "critical",
+          "crap": 88.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/middleware/request-context.ts",
+          "name": "<arrow>",
+          "line": 305,
+          "col": 16,
+          "cyclomatic": 18,
+          "cognitive": 19,
+          "line_count": 75,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 88.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/people/people.repo.ts",
+          "name": "assignFaceToPerson",
+          "line": 293,
+          "col": 7,
+          "cyclomatic": 18,
+          "cognitive": 25,
+          "line_count": 62,
+          "param_count": 3,
+          "exceeded": "cognitive",
+          "severity": "high"
+        },
+        {
+          "path": "src/routes/events.ts",
+          "name": "tick",
+          "line": 170,
+          "col": 17,
+          "cyclomatic": 18,
+          "cognitive": 17,
+          "line_count": 52,
+          "param_count": 0,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 88.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/xmp/metadata-serializer.ts",
+          "name": "applyMerge",
+          "line": 321,
+          "col": 0,
+          "cyclomatic": 18,
+          "cognitive": 28,
+          "line_count": 71,
+          "param_count": 2,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 88.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/enrichment/face-models.ts",
+          "name": "<arrow>",
+          "line": 284,
+          "col": 17,
+          "cyclomatic": 18,
+          "cognitive": 8,
+          "line_count": 96,
+          "param_count": 0,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 88.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/imports/scan.ts",
+          "name": "buildImportFiles",
+          "line": 449,
+          "col": 7,
+          "cyclomatic": 17,
+          "cognitive": 32,
+          "line_count": 147,
+          "param_count": 3,
+          "exceeded": "cognitive",
+          "severity": "high"
+        },
+        {
+          "path": "src/indexer/exif.ts",
+          "name": "readExif",
+          "line": 303,
+          "col": 7,
+          "cyclomatic": 17,
+          "cognitive": 21,
+          "line_count": 60,
+          "param_count": 1,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/job-runner/handlers/pano-stitch.ts",
+          "name": "run",
+          "line": 133,
+          "col": 11,
+          "cyclomatic": 17,
+          "cognitive": 20,
+          "line_count": 237,
+          "param_count": 2,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 79.4,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/assets/histogram.ts",
+          "name": "histogramRoutes",
+          "line": 118,
+          "col": 2,
+          "cyclomatic": 17,
+          "cognitive": 18,
+          "line_count": 91,
+          "param_count": 1,
+          "react_prop_count": 3,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/routes/folders.ts",
+          "name": "<arrow>",
+          "line": 552,
+          "col": 4,
+          "cyclomatic": 17,
+          "cognitive": 21,
+          "line_count": 384,
+          "param_count": 1,
+          "react_prop_count": 4,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 79.4,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/migration/audit-video-geo-backfill.ts",
+          "name": "runBatch",
+          "line": 197,
+          "col": 16,
+          "cyclomatic": 17,
+          "cognitive": 23,
+          "line_count": 167,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 79.4,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/migration/backfill-video-exif.ts",
+          "name": "runBatch",
+          "line": 67,
+          "col": 16,
+          "cyclomatic": 17,
+          "cognitive": 26,
+          "line_count": 109,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 79.4,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/migration/refile-backups.ts",
+          "name": "runBatch",
+          "line": 145,
+          "col": 16,
+          "cyclomatic": 17,
+          "cognitive": 22,
+          "line_count": 133,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 79.4,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/trash-gc.ts",
+          "name": "runTrashGcOnce",
+          "line": 43,
+          "col": 7,
+          "cyclomatic": 17,
+          "cognitive": 31,
+          "line_count": 74,
+          "param_count": 1,
+          "exceeded": "cognitive",
+          "severity": "high"
+        },
+        {
+          "path": "src/enrichment/face-detector.ts",
+          "name": "alignFaceCrop",
+          "line": 237,
+          "col": 0,
+          "cyclomatic": 16,
+          "cognitive": 22,
+          "line_count": 117,
+          "param_count": 3,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 71.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/mirror/scan.ts",
+          "name": "runMirrorScanOnce",
+          "line": 54,
+          "col": 7,
+          "cyclomatic": 16,
+          "cognitive": 31,
+          "line_count": 105,
+          "param_count": 1,
+          "exceeded": "cognitive",
+          "severity": "high"
+        },
+        {
+          "path": "src/indexer/images.repo.ts",
+          "name": "assetAbsPath",
+          "line": 362,
+          "col": 7,
+          "cyclomatic": 15,
+          "cognitive": 17,
+          "line_count": 36,
+          "param_count": 3,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/routes/folders.ts",
+          "name": "<arrow>",
+          "line": 1096,
+          "col": 4,
+          "cyclomatic": 15,
+          "cognitive": 18,
+          "line_count": 82,
+          "param_count": 1,
+          "react_prop_count": 3,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 63.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/search/query.ts",
+          "name": "extractDatesFromQuery",
+          "line": 131,
+          "col": 7,
+          "cyclomatic": 15,
+          "cognitive": 19,
+          "line_count": 40,
+          "param_count": 2,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/workers/mirror/copy.ts",
+          "name": "runMirrorCopyOnce",
+          "line": 60,
+          "col": 7,
+          "cyclomatic": 15,
+          "cognitive": 17,
+          "line_count": 50,
+          "param_count": 1,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/enrichment/face-detector.ts",
+          "name": "decodeScrfdOutputs",
+          "line": 395,
+          "col": 0,
+          "cyclomatic": 14,
+          "cognitive": 24,
+          "line_count": 81,
+          "param_count": 2,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 56.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/indexer/exif.ts",
+          "name": "normalizeExif",
+          "line": 193,
+          "col": 7,
+          "cyclomatic": 14,
+          "cognitive": 11,
+          "line_count": 45,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 56.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/enrichment/place-parser.ts",
+          "name": "mapAddress",
+          "line": 199,
+          "col": 0,
+          "cyclomatic": 14,
+          "cognitive": 13,
+          "line_count": 18,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 56.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/enrichment/describe-providers/gemini.ts",
+          "name": "extractCandidateText",
+          "line": 162,
+          "col": 0,
+          "cyclomatic": 14,
+          "cognitive": 9,
+          "line_count": 27,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 56.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/observability.ts",
+          "name": "<arrow>",
+          "line": 298,
+          "col": 4,
+          "cyclomatic": 14,
+          "cognitive": 14,
+          "line_count": 62,
+          "param_count": 1,
+          "react_prop_count": 4,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 56.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/people/clustering-job.ts",
+          "name": "runOnlineClustering",
+          "line": 121,
+          "col": 7,
+          "cyclomatic": 13,
+          "cognitive": 19,
+          "line_count": 171,
+          "param_count": 1,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/people/clustering-quality-harness.ts",
+          "name": "loadFixtures",
+          "line": 79,
+          "col": 0,
+          "cyclomatic": 13,
+          "cognitive": 19,
+          "line_count": 37,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "critical",
+          "crap": 182.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/smoke.test.ts",
+          "name": "<arrow>",
+          "line": 59,
+          "col": 4,
+          "cyclomatic": 13,
+          "cognitive": 8,
+          "line_count": 73,
+          "param_count": 0,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 49.5,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/auth.ts",
+          "name": "<arrow>",
+          "line": 390,
+          "col": 4,
+          "cyclomatic": 13,
+          "cognitive": 14,
+          "line_count": 67,
+          "param_count": 1,
+          "react_prop_count": 4,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 49.5,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "scripts/seed-fake-workers.ts",
+          "name": "main",
+          "line": 43,
+          "col": 0,
+          "cyclomatic": 12,
+          "cognitive": 25,
+          "line_count": 82,
+          "param_count": 0,
+          "exceeded": "cognitive_crap",
+          "severity": "critical",
+          "crap": 156.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/handler-registry/http-transport.ts",
+          "name": "dispatchAi",
+          "line": 44,
+          "col": 7,
+          "cyclomatic": 12,
+          "cognitive": 16,
+          "line_count": 66,
+          "param_count": 2,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/imports/scan.ts",
+          "name": "scanFolder",
+          "line": 312,
+          "col": 7,
+          "cyclomatic": 12,
+          "cognitive": 20,
+          "line_count": 96,
+          "param_count": 2,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/routes/cloudflare.ts",
+          "name": "<arrow>",
+          "line": 63,
+          "col": 4,
+          "cyclomatic": 12,
+          "cognitive": 16,
+          "line_count": 45,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "cognitive_crap",
+          "severity": "moderate",
+          "crap": 43.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/mirror/scrub.ts",
+          "name": "deleteOrphanRefs",
+          "line": 223,
+          "col": 7,
+          "cyclomatic": 12,
+          "cognitive": 21,
+          "line_count": 45,
+          "param_count": 2,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/routes/library-relocate.ts",
+          "name": "geoDir",
+          "line": 100,
+          "col": 0,
+          "cyclomatic": 12,
+          "cognitive": 9,
+          "line_count": 26,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 43.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/migration/apply-video-geo-backfill.ts",
+          "name": "runBatch",
+          "line": 88,
+          "col": 16,
+          "cyclomatic": 12,
+          "cognitive": 14,
+          "line_count": 121,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 43.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/auth-account.ts",
+          "name": "<arrow>",
+          "line": 68,
+          "col": 4,
+          "cyclomatic": 12,
+          "cognitive": 8,
+          "line_count": 49,
+          "param_count": 1,
+          "react_prop_count": 3,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 43.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/auth.ts",
+          "name": "<arrow>",
+          "line": 166,
+          "col": 4,
+          "cyclomatic": 12,
+          "cognitive": 12,
+          "line_count": 82,
+          "param_count": 1,
+          "react_prop_count": 3,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 43.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/pano.ts",
+          "name": "findInDocs",
+          "line": 254,
+          "col": 21,
+          "cyclomatic": 11,
+          "cognitive": 21,
+          "line_count": 22,
+          "param_count": 3,
+          "exceeded": "cognitive_crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/pano.ts",
+          "name": "resolveAssetPaths",
+          "line": 169,
+          "col": 0,
+          "cyclomatic": 11,
+          "cognitive": 16,
+          "line_count": 145,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/fs.ts",
+          "name": "<arrow>",
+          "line": 209,
+          "col": 4,
+          "cyclomatic": 11,
+          "cognitive": 10,
+          "line_count": 76,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/people/clustering-quality-harness.ts",
+          "name": "runHarness",
+          "line": 150,
+          "col": 0,
+          "cyclomatic": 11,
+          "cognitive": 11,
+          "line_count": 85,
+          "param_count": 2,
+          "exceeded": "crap",
+          "severity": "critical",
+          "crap": 132.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/imports.ts",
+          "name": "<arrow>",
+          "line": 195,
+          "col": 4,
+          "cyclomatic": 11,
+          "cognitive": 11,
+          "line_count": 86,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/middleware/request-context.ts",
+          "name": "<arrow>",
+          "line": 239,
+          "col": 11,
+          "cyclomatic": 11,
+          "cognitive": 11,
+          "line_count": 56,
+          "param_count": 1,
+          "react_prop_count": 4,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/network.ts",
+          "name": "<arrow>",
+          "line": 86,
+          "col": 4,
+          "cyclomatic": 11,
+          "cognitive": 9,
+          "line_count": 32,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/folders.ts",
+          "name": "<arrow>",
+          "line": 230,
+          "col": 4,
+          "cyclomatic": 11,
+          "cognitive": 11,
+          "line_count": 117,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/maintenance.ts",
+          "name": "startMaintenanceJobs",
+          "line": 63,
+          "col": 7,
+          "cyclomatic": 11,
+          "cognitive": 9,
+          "line_count": 34,
+          "param_count": 0,
+          "exceeded": "crap",
+          "severity": "critical",
+          "crap": 132.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/people.ts",
+          "name": "<arrow>",
+          "line": 276,
+          "col": 4,
+          "cyclomatic": 11,
+          "cognitive": 14,
+          "line_count": 39,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/xmp-batch.ts",
+          "name": "processEntry",
+          "line": 51,
+          "col": 0,
+          "cyclomatic": 11,
+          "cognitive": 12,
+          "line_count": 50,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/assets/histogram.ts",
+          "name": "readCached",
+          "line": 68,
+          "col": 0,
+          "cyclomatic": 11,
+          "cognitive": 6,
+          "line_count": 25,
+          "param_count": 2,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/library-relocate.ts",
+          "name": "setDeep",
+          "line": 205,
+          "col": 20,
+          "cyclomatic": 10,
+          "cognitive": 9,
+          "line_count": 18,
+          "param_count": 3,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/presets.ts",
+          "name": "<arrow>",
+          "line": 102,
+          "col": 4,
+          "cyclomatic": 10,
+          "cognitive": 14,
+          "line_count": 51,
+          "param_count": 1,
+          "react_prop_count": 2,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/backup-rendered.ts",
+          "name": "isSafeRelPath",
+          "line": 92,
+          "col": 0,
+          "cyclomatic": 10,
+          "cognitive": 10,
+          "line_count": 10,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/people.ts",
+          "name": "<arrow>",
+          "line": 161,
+          "col": 4,
+          "cyclomatic": 10,
+          "cognitive": 9,
+          "line_count": 44,
+          "param_count": 1,
+          "react_prop_count": 3,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/backup-sidecar.ts",
+          "name": "isSafeRelPath",
+          "line": 59,
+          "col": 0,
+          "cyclomatic": 10,
+          "cognitive": 10,
+          "line_count": 10,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/indexer/video-metadata.ts",
+          "name": "handleMeta",
+          "line": 173,
+          "col": 21,
+          "cyclomatic": 10,
+          "cognitive": 10,
+          "line_count": 28,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/auth.ts",
+          "name": "<arrow>",
+          "line": 281,
+          "col": 4,
+          "cyclomatic": 10,
+          "cognitive": 7,
+          "line_count": 97,
+          "param_count": 1,
+          "react_prop_count": 3,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/migration/restructure-fs.ts",
+          "name": "dropOldCache",
+          "line": 215,
+          "col": 0,
+          "cyclomatic": 10,
+          "cognitive": 12,
+          "line_count": 31,
+          "param_count": 3,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/runtime/change-bus.ts",
+          "name": "publish",
+          "line": 46,
+          "col": 9,
+          "cyclomatic": 10,
+          "cognitive": 12,
+          "line_count": 18,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/routes/presets.ts",
+          "name": "findMongoUnsafeKey",
+          "line": 56,
+          "col": 0,
+          "cyclomatic": 9,
+          "cognitive": 16,
+          "line_count": 17,
+          "param_count": 1,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/workers/mirror/scrub.ts",
+          "name": "findMirrorOrphans",
+          "line": 168,
+          "col": 7,
+          "cyclomatic": 9,
+          "cognitive": 23,
+          "line_count": 46,
+          "param_count": 1,
+          "exceeded": "cognitive",
+          "severity": "moderate"
+        },
+        {
+          "path": "src/workers/start-workers.ts",
+          "name": "startWorkers",
+          "line": 64,
+          "col": 7,
+          "cyclomatic": 9,
+          "cognitive": 8,
+          "line_count": 124,
+          "param_count": 0,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 90.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/people/clustering-quality-harness.ts",
+          "name": "loadBudgets",
+          "line": 117,
+          "col": 0,
+          "cyclomatic": 8,
+          "cognitive": 9,
+          "line_count": 32,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 72.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/start-workers.ts",
+          "name": "stopWorkers",
+          "line": 193,
+          "col": 7,
+          "cyclomatic": 7,
+          "cognitive": 6,
+          "line_count": 93,
+          "param_count": 0,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 56.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/enrichment/face-pool.child.ts",
+          "name": "<arrow>",
+          "line": 40,
+          "col": 22,
+          "cyclomatic": 6,
+          "cognitive": 3,
+          "line_count": 15,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 42.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/workers/worker-main.ts",
+          "name": "main",
+          "line": 25,
+          "col": 0,
+          "cyclomatic": 6,
+          "cognitive": 7,
+          "line_count": 49,
+          "param_count": 0,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 42.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/people/clustering-quality-harness.ts",
+          "name": "parseArgs",
+          "line": 56,
+          "col": 0,
+          "cyclomatic": 5,
+          "cognitive": 8,
+          "line_count": 17,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 30.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "src/enrichment/burst-siblings.ts",
+          "name": "findBurstSiblings",
+          "line": 13,
+          "col": 7,
+          "cyclomatic": 5,
+          "cognitive": 3,
+          "line_count": 40,
+          "param_count": 3,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 30.0,
+          "coverage_tier": "none",
+          "coverage_source": "estimated"
+        }
+      ]
+    },
+    "web": {
+      "version": "2.103.0",
+      "summary": {
+        "total_issues": 99,
+        "unused_files": 0,
+        "unused_exports": 8,
+        "unused_types": 1,
+        "private_type_leaks": 0,
+        "unused_dependencies": 0,
+        "unused_enum_members": 0,
+        "unused_class_members": 61,
+        "unused_store_members": 0,
+        "unprovided_injects": 0,
+        "unrendered_components": 0,
+        "unused_component_props": 0,
+        "unused_component_emits": 0,
+        "unused_component_inputs": 8,
+        "unused_component_outputs": 4,
+        "unused_svelte_events": 0,
+        "unused_server_actions": 0,
+        "unused_load_data_keys": 0,
+        "unresolved_imports": 0,
+        "unlisted_dependencies": 12,
+        "duplicate_exports": 1,
+        "type_only_dependencies": 0,
+        "test_only_dependencies": 0,
+        "circular_dependencies": 0,
+        "re_export_cycles": 0,
+        "boundary_violations": 0,
+        "boundary_coverage_violations": 0,
+        "boundary_call_violations": 0,
+        "policy_violations": 0,
+        "stale_suppressions": 4,
+        "unused_catalog_entries": 0,
+        "empty_catalog_groups": 0,
+        "unresolved_catalog_references": 0,
+        "unused_dependency_overrides": 0,
+        "misconfigured_dependency_overrides": 0,
+        "invalid_client_exports": 0,
+        "mixed_client_server_barrels": 0,
+        "misplaced_directives": 0,
+        "route_collisions": 0,
+        "dynamic_segment_name_conflicts": 0
+      },
+      "candidates": {
+        "unused_exports": [
+          {
+            "path": "projects/maple-common/src/lib/api/folder-listing-cache.ts",
+            "export_name": "FolderListingIdbCache",
+            "is_type_only": false,
+            "line": 60,
+            "col": 13,
+            "span_start": 2743,
+            "is_re_export": false
+          },
+          {
+            "path": "projects/maple-common/src/lib/components/image-canvas/image-canvas.zoom-gestures.ts",
+            "export_name": "FIT_SNAP_FACTOR",
+            "is_type_only": false,
+            "line": 24,
+            "col": 13,
+            "span_start": 1379,
+            "is_re_export": false
+          },
+          {
+            "path": "projects/maple-common/src/lib/components/image-canvas/image-canvas.zoom-gestures.ts",
+            "export_name": "FIT_UNDERSHOOT",
+            "is_type_only": false,
+            "line": 26,
+            "col": 13,
+            "span_start": 1494,
+            "is_re_export": false
+          },
+          {
+            "path": "projects/maple-common/src/lib/editor/parity/editor-parity-manifest.builders.ts",
+            "export_name": "SLIDER_INTERACTION",
+            "is_type_only": false,
+            "line": 25,
+            "col": 13,
+            "span_start": 968,
+            "is_re_export": false
+          },
+          {
+            "path": "projects/maple-common/src/lib/editor/parity/editor-parity-manifest.builders.ts",
+            "export_name": "SLIDER_A11Y",
+            "is_type_only": false,
+            "line": 35,
+            "col": 13,
+            "span_start": 1619,
+            "is_re_export": false
+          },
+          {
+            "path": "projects/maple-common/src/lib/folder-access/fallback-backend.ts",
+            "export_name": "fallbackWriteBlob",
+            "is_type_only": false,
+            "line": 44,
+            "col": 22,
+            "span_start": 1726,
+            "is_re_export": false
+          },
+          {
+            "path": "projects/maple-common/src/lib/folder-access/fallback-backend.ts",
+            "export_name": "fallbackReadBlob",
+            "is_type_only": false,
+            "line": 57,
+            "col": 22,
+            "span_start": 2125,
+            "is_re_export": false
+          },
+          {
+            "path": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker-handlers.ts",
+            "export_name": "liveCanvas",
+            "is_type_only": false,
+            "line": 138,
+            "col": 11,
+            "span_start": 6663,
+            "is_re_export": false
+          }
+        ],
+        "unused_types": [
+          {
+            "path": "projects/maple-common/src/lib/api/folder-listing-cache.ts",
+            "export_name": "FolderListingRecord",
+            "is_type_only": true,
+            "line": 35,
+            "col": 17,
+            "span_start": 1767,
+            "is_re_export": false
+          }
+        ],
+        "unused_class_members": [
+          {
+            "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "parent_name": "PeopleBulkController",
+            "member_name": "mergeTargetsList",
+            "kind": "class_property",
+            "line": 39,
+            "col": 2
+          },
+          {
+            "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "parent_name": "PeopleBulkController",
+            "member_name": "enterSelectMode",
+            "kind": "class_method",
+            "line": 52,
+            "col": 2
+          },
+          {
+            "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "parent_name": "PeopleBulkController",
+            "member_name": "exitSelectMode",
+            "kind": "class_method",
+            "line": 56,
+            "col": 2
+          },
+          {
+            "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "parent_name": "PeopleBulkController",
+            "member_name": "isPersonSelected",
+            "kind": "class_method",
+            "line": 61,
+            "col": 2
+          },
+          {
+            "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "parent_name": "PeopleBulkController",
+            "member_name": "togglePersonSelection",
+            "kind": "class_method",
+            "line": 65,
+            "col": 2
+          },
+          {
+            "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "parent_name": "PeopleBulkController",
+            "member_name": "mergeSelectedInto",
+            "kind": "class_method",
+            "line": 96,
+            "col": 2
+          },
+          {
+            "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "parent_name": "PeopleBulkController",
+            "member_name": "hideSelectedPeople",
+            "kind": "class_method",
+            "line": 103,
+            "col": 2
+          },
+          {
+            "path": "projects/maple/src/app/settings/people/thumb-blob-cache.ts",
+            "parent_name": "ThumbBlobCache",
+            "member_name": "blobs",
+            "kind": "class_method",
+            "line": 52,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/addressing/fs-access-library-source.ts",
+            "parent_name": "FsAccessLibrarySource",
+            "member_name": "imageBlob",
+            "kind": "class_method",
+            "line": 118,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/addressing/fs-access-library-source.ts",
+            "parent_name": "FsAccessLibrarySource",
+            "member_name": "previewBlob",
+            "kind": "class_method",
+            "line": 184,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "registerFolder",
+            "kind": "class_method",
+            "line": 489,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "listAssets",
+            "kind": "class_method",
+            "line": 636,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "getAsset",
+            "kind": "class_method",
+            "line": 643,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "acknowledgeHidden",
+            "kind": "class_method",
+            "line": 710,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "getHiddenPhotos",
+            "kind": "class_method",
+            "line": 714,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "getXmp",
+            "kind": "class_method",
+            "line": 910,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "deleteXmp",
+            "kind": "class_method",
+            "line": 936,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "putPreview",
+            "kind": "class_method",
+            "line": 951,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "rescanFolder",
+            "kind": "class_method",
+            "line": 960,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "scanFolder",
+            "kind": "class_method",
+            "line": 973,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "createPerson",
+            "kind": "class_method",
+            "line": 1221,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "assignFaceToPerson",
+            "kind": "class_method",
+            "line": 1255,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+            "parent_name": "BunApiBackendService",
+            "member_name": "hideFace",
+            "kind": "class_method",
+            "line": 1270,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/people.store.ts",
+            "parent_name": "PeopleStore",
+            "member_name": "mergePeople",
+            "kind": "class_method",
+            "line": 482,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/api/people.store.ts",
+            "parent_name": "PeopleStore",
+            "member_name": "setPersonCover",
+            "kind": "class_method",
+            "line": 547,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/auth/auth.service.ts",
+            "parent_name": "AuthService",
+            "member_name": "isOwner",
+            "kind": "class_method",
+            "line": 165,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/auth/auth.service.ts",
+            "parent_name": "AuthService",
+            "member_name": "loadMe",
+            "kind": "class_method",
+            "line": 350,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/components/asset-grid/asset-grid.component.ts",
+            "parent_name": "AssetGridComponent",
+            "member_name": "trackRow",
+            "kind": "class_property",
+            "line": 87,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/components/asset-grid/asset-grid.component.ts",
+            "parent_name": "AssetGridComponent",
+            "member_name": "STAR_INDICES",
+            "kind": "class_property",
+            "line": 106,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+            "parent_name": "InMemoryUserPresetStore",
+            "member_name": "list",
+            "kind": "class_method",
+            "line": 38,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+            "parent_name": "InMemoryUserPresetStore",
+            "member_name": "put",
+            "kind": "class_method",
+            "line": 42,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+            "parent_name": "InMemoryUserPresetStore",
+            "member_name": "delete",
+            "kind": "class_method",
+            "line": 46,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+            "parent_name": "IdbUserPresetStore",
+            "member_name": "list",
+            "kind": "class_method",
+            "line": 66,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+            "parent_name": "IdbUserPresetStore",
+            "member_name": "put",
+            "kind": "class_method",
+            "line": 76,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+            "parent_name": "IdbUserPresetStore",
+            "member_name": "delete",
+            "kind": "class_method",
+            "line": 87,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/folder-access/folder-access.service.ts",
+            "parent_name": "FolderAccessService",
+            "member_name": "reopenPersistedHandle",
+            "kind": "class_method",
+            "line": 337,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/folder-access/folder-access.service.ts",
+            "parent_name": "FolderAccessService",
+            "member_name": "removePersistedHandle",
+            "kind": "class_method",
+            "line": 342,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/observability/maple-error-handler.ts",
+            "parent_name": "MapleErrorHandler",
+            "member_name": "handleError",
+            "kind": "class_method",
+            "line": 19,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+            "parent_name": "ObservabilityConfigIdbCache",
+            "member_name": "get",
+            "kind": "class_method",
+            "line": 43,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+            "parent_name": "ObservabilityConfigIdbCache",
+            "member_name": "put",
+            "kind": "class_method",
+            "line": 52,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+            "parent_name": "ObservabilityConfigIdbCache",
+            "member_name": "clear",
+            "kind": "class_method",
+            "line": 64,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+            "parent_name": "InMemoryObservabilityConfigCache",
+            "member_name": "clear",
+            "kind": "class_method",
+            "line": 95,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "adminVisible",
+            "kind": "class_property",
+            "line": 73,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "openIndexerAdmin",
+            "kind": "class_method",
+            "line": 74,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "closeIndexerAdmin",
+            "kind": "class_method",
+            "line": 77,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "inspectorVisible",
+            "kind": "class_property",
+            "line": 122,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "activeTab",
+            "kind": "class_property",
+            "line": 125,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "thumbnailUrls",
+            "kind": "class_property",
+            "line": 134,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "openSelfHostedFolder",
+            "kind": "class_method",
+            "line": 176,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "updateAssetDimensions",
+            "kind": "class_method",
+            "line": 243,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "seedAsShotWhiteBalance",
+            "kind": "class_method",
+            "line": 247,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "cacheThumbnailUrl",
+            "kind": "class_method",
+            "line": 295,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "thumbnailUrlFor",
+            "kind": "class_method",
+            "line": 299,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "cancelQueuedThumbnail",
+            "kind": "class_method",
+            "line": 318,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "isEdited",
+            "kind": "class_method",
+            "line": 338,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "setColorLabel",
+            "kind": "class_method",
+            "line": 363,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+            "parent_name": "LibraryStateService",
+            "member_name": "updateIndexThumb",
+            "kind": "class_method",
+            "line": 423,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-status.service.ts",
+            "parent_name": "LibraryStatusService",
+            "member_name": "status",
+            "kind": "class_property",
+            "line": 57,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-store.service.ts",
+            "parent_name": "LibraryStore",
+            "member_name": "librariesById",
+            "kind": "class_property",
+            "line": 142,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/state/library-store.service.ts",
+            "parent_name": "LibraryStore",
+            "member_name": "sourceIdForFsPath",
+            "kind": "class_method",
+            "line": 504,
+            "col": 2
+          },
+          {
+            "path": "projects/maple-common/src/lib/xmp/sidecar-idb-cache.ts",
+            "parent_name": "SidecarIdbCache",
+            "member_name": "clear",
+            "kind": "class_method",
+            "line": 76,
+            "col": 2
+          }
+        ],
+        "unlisted_dependencies": [
+          {
+            "package_name": "@angular/forms",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.ts",
+                "line": 18,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/api",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 30,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/api-logs",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 31,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/exporter-logs-otlp-http",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 46,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/exporter-trace-otlp-http",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 44,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/instrumentation",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 47,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/instrumentation-fetch",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 48,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/resources",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 32,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/sdk-logs",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 45,
+                "col": 9
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/sdk-trace-web",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 39,
+                "col": 2
+              }
+            ]
+          },
+          {
+            "package_name": "@opentelemetry/semantic-conventions",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+                "line": 34,
+                "col": 2
+              }
+            ]
+          },
+          {
+            "package_name": "@simplewebauthn/browser",
+            "imported_from": [
+              {
+                "path": "projects/maple-common/src/lib/auth/auth.service.ts",
+                "line": 4,
+                "col": 9
+              }
+            ]
+          }
+        ],
+        "duplicate_exports": [
+          {
+            "export_name": "appConfig",
+            "locations": [
+              {
+                "path": "projects/maple/src/app/app.config.ts",
+                "line": 38,
+                "col": 13
+              },
+              {
+                "path": "projects/maple-syrup/src/app/app.config.ts",
+                "line": 15,
+                "col": 13
+              }
+            ]
+          }
+        ],
+        "stale_suppressions": [
+          {
+            "path": "projects/maple-common/src/lib/addressing/maple-id-fallback.worker.ts",
+            "line": 31,
+            "col": 0,
+            "origin": {
+              "type": "comment",
+              "issue_kind": "unresolved-import",
+              "is_file_level": false
+            }
+          },
+          {
+            "path": "projects/maple-common/src/lib/raw-pipeline/embedded-preview.worker.ts",
+            "line": 33,
+            "col": 0,
+            "origin": {
+              "type": "comment",
+              "issue_kind": "unresolved-import",
+              "is_file_level": false
+            }
+          },
+          {
+            "path": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.test-helpers.ts",
+            "line": 24,
+            "col": 0,
+            "origin": {
+              "type": "comment",
+              "issue_kind": "unused-class-member",
+              "is_file_level": false
+            }
+          },
+          {
+            "path": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+            "line": 464,
+            "col": 0,
+            "origin": {
+              "type": "comment",
+              "issue_kind": "unused-class-member",
+              "is_file_level": false
+            }
+          }
+        ],
+        "unused_component_inputs": [
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "input_name": "variant",
+            "line": 14,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "input_name": "message",
+            "line": 15,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "input_name": "actionLabel",
+            "line": 16,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "input_name": "visible",
+            "line": 31,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "input_name": "assetIds",
+            "line": 32,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "input_name": "visible",
+            "line": 37,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "input_name": "assetSnapshots",
+            "line": 38,
+            "col": 11
+          },
+          {
+            "path": "projects/maple-common/src/lib/components/editor/value-hud.component.ts",
+            "component_name": "value-hud.component",
+            "input_name": "progress",
+            "line": 43,
+            "col": 2
+          }
+        ],
+        "unused_component_outputs": [
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "output_name": "actionPressed",
+            "line": 17,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "output_name": "pick",
+            "line": 21,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "output_name": "dismiss",
+            "line": 33,
+            "col": 11
+          },
+          {
+            "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+            "component_name": "self-hosted-browse-content.component.spec",
+            "output_name": "dismiss",
+            "line": 39,
+            "col": 11
+          }
+        ]
+      },
+      "duplication": [
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/app.ts",
+              "start_line": 28,
+              "end_line": 44,
+              "start_col": 2,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple-syrup/src/app/app.ts",
+              "start_line": 30,
+              "end_line": 43,
+              "start_col": 2,
+              "end_col": 5
+            }
+          ],
+          "token_count": 53,
+          "line_count": 17,
+          "fingerprint": "dup:574d4c17"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/ai/ai-settings.component.ts",
+              "start_line": 219,
+              "end_line": 229,
+              "start_col": 20,
+              "end_col": 27
+            },
+            {
+              "file": "projects/maple/src/app/settings/ai/ai-settings.component.ts",
+              "start_line": 261,
+              "end_line": 271,
+              "start_col": 19,
+              "end_col": 27
+            }
+          ],
+          "token_count": 59,
+          "line_count": 11,
+          "fingerprint": "dup:0ad44e5b",
+          "suggested_name": "provider"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/cloudflare/cloudflare.component.ts",
+              "start_line": 79,
+              "end_line": 94,
+              "start_col": 40,
+              "end_col": 9
+            },
+            {
+              "file": "projects/maple/src/app/settings/pano/pano-settings.component.ts",
+              "start_line": 64,
+              "end_line": 79,
+              "start_col": 37,
+              "end_col": 9
+            }
+          ],
+          "token_count": 60,
+          "line_count": 16,
+          "fingerprint": "dup:8ec8c2ea",
+          "suggested_name": "formSeeded"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/cloudflare/cloudflare.component.ts",
+              "start_line": 79,
+              "end_line": 90,
+              "start_col": 40,
+              "end_col": 7
+            },
+            {
+              "file": "projects/maple/src/app/settings/network/network-settings.component.ts",
+              "start_line": 73,
+              "end_line": 84,
+              "start_col": 37,
+              "end_col": 7
+            },
+            {
+              "file": "projects/maple/src/app/settings/pano/pano-settings.component.ts",
+              "start_line": 64,
+              "end_line": 75,
+              "start_col": 37,
+              "end_col": 7
+            }
+          ],
+          "token_count": 52,
+          "line_count": 12,
+          "fingerprint": "dup:7b4090b9",
+          "suggested_name": "formSeeded"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/imports/imports.component.ts",
+              "start_line": 206,
+              "end_line": 221,
+              "start_col": 17,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/settings/imports/imports.component.ts",
+              "start_line": 272,
+              "end_line": 287,
+              "start_col": 3,
+              "end_col": 5
+            }
+          ],
+          "token_count": 52,
+          "line_count": 16,
+          "fingerprint": "dup:0dcd11da"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/network/network-settings.component.ts",
+              "start_line": 149,
+              "end_line": 156,
+              "start_col": 6,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/settings/observability/observability.component.ts",
+              "start_line": 218,
+              "end_line": 228,
+              "start_col": 6,
+              "end_col": 5
+            }
+          ],
+          "token_count": 76,
+          "line_count": 11,
+          "fingerprint": "dup:95a4f86f"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+              "start_line": 88,
+              "end_line": 93,
+              "start_col": 11,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+              "start_line": 111,
+              "end_line": 116,
+              "start_col": 31,
+              "end_col": 5
+            }
+          ],
+          "token_count": 53,
+          "line_count": 6,
+          "fingerprint": "dup:840be1ce"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+              "start_line": 88,
+              "end_line": 93,
+              "start_col": 12,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+              "start_line": 111,
+              "end_line": 116,
+              "start_col": 32,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+              "start_line": 161,
+              "end_line": 166,
+              "start_col": 81,
+              "end_col": 5
+            }
+          ],
+          "token_count": 52,
+          "line_count": 6,
+          "fingerprint": "dup:ea8e4e94"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/people/people-list.component.scss",
+              "start_line": 19,
+              "end_line": 70,
+              "start_col": 0,
+              "end_col": 1
+            },
+            {
+              "file": "projects/maple/src/app/settings/people/people.component.scss",
+              "start_line": 154,
+              "end_line": 207,
+              "start_col": 0,
+              "end_col": 1
+            }
+          ],
+          "token_count": 175,
+          "line_count": 54,
+          "fingerprint": "dup:d0c0f3da",
+          "suggested_name": "the"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/users/users.component.ts",
+              "start_line": 95,
+              "end_line": 101,
+              "start_col": 77,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/settings/users/users.component.ts",
+              "start_line": 108,
+              "end_line": 114,
+              "start_col": 86,
+              "end_col": 5
+            }
+          ],
+          "token_count": 78,
+          "line_count": 7,
+          "fingerprint": "dup:72200754"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/workers/derivative-audit-settings.component.ts",
+              "start_line": 55,
+              "end_line": 69,
+              "start_col": 77,
+              "end_col": 36
+            },
+            {
+              "file": "projects/maple/src/app/settings/workers/generated-search-settings.component.ts",
+              "start_line": 59,
+              "end_line": 71,
+              "start_col": 61,
+              "end_col": 36
+            }
+          ],
+          "token_count": 68,
+          "line_count": 15,
+          "fingerprint": "dup:3541f6ec",
+          "suggested_name": "signal"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/workers/derivative-audit-settings.component.ts",
+              "start_line": 209,
+              "end_line": 220,
+              "start_col": 10,
+              "end_col": 11
+            },
+            {
+              "file": "projects/maple/src/app/settings/workers/mirror-settings.component.ts",
+              "start_line": 288,
+              "end_line": 301,
+              "start_col": 10,
+              "end_col": 11
+            }
+          ],
+          "token_count": 50,
+          "line_count": 14,
+          "fingerprint": "dup:ab812313",
+          "suggested_name": "stopPolling"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/settings/workers/imports-panel.service.ts",
+              "start_line": 56,
+              "end_line": 62,
+              "start_col": 4,
+              "end_col": 22
+            },
+            {
+              "file": "projects/maple/src/app/settings/workers/migration-panel.service.ts",
+              "start_line": 31,
+              "end_line": 37,
+              "start_col": 4,
+              "end_col": 22
+            }
+          ],
+          "token_count": 52,
+          "line_count": 7,
+          "fingerprint": "dup:23ba5b4c",
+          "suggested_name": "timer"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+              "start_line": 62,
+              "end_line": 75,
+              "start_col": 45,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+              "start_line": 87,
+              "end_line": 95,
+              "start_col": 29,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+              "start_line": 102,
+              "end_line": 110,
+              "start_col": 32,
+              "end_col": 5
+            }
+          ],
+          "token_count": 61,
+          "line_count": 14,
+          "fingerprint": "dup:8237889f",
+          "suggested_name": "the"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+              "start_line": 87,
+              "end_line": 95,
+              "start_col": 28,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+              "start_line": 102,
+              "end_line": 110,
+              "start_col": 31,
+              "end_col": 5
+            }
+          ],
+          "token_count": 62,
+          "line_count": 9,
+          "fingerprint": "dup:f5328dde"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/addressing/http-library-source.ts",
+              "start_line": 69,
+              "end_line": 79,
+              "start_col": 17,
+              "end_col": 47
+            },
+            {
+              "file": "projects/maple-common/src/lib/addressing/http-library-source.ts",
+              "start_line": 82,
+              "end_line": 89,
+              "start_col": 19,
+              "end_col": 47
+            }
+          ],
+          "token_count": 58,
+          "line_count": 11,
+          "fingerprint": "dup:85ccf5ab"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/api/filesystem-browse.service.ts",
+              "start_line": 156,
+              "end_line": 163,
+              "start_col": 17,
+              "end_col": 0
+            },
+            {
+              "file": "projects/maple-common/src/lib/xmp/xmp-adjustment-restore.service.ts",
+              "start_line": 169,
+              "end_line": 176,
+              "start_col": 26,
+              "end_col": 0
+            }
+          ],
+          "token_count": 51,
+          "line_count": 8,
+          "fingerprint": "dup:8a50130e",
+          "suggested_name": "registeredFolders"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/api/folder-listing-cache.ts",
+              "start_line": 106,
+              "end_line": 114,
+              "start_col": 60,
+              "end_col": 49
+            },
+            {
+              "file": "projects/maple-common/src/lib/film/film-lut-idb-cache.ts",
+              "start_line": 53,
+              "end_line": 61,
+              "start_col": 52,
+              "end_col": 49
+            }
+          ],
+          "token_count": 85,
+          "line_count": 9,
+          "fingerprint": "dup:b8edb3a5"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/auth/auth.service.ts",
+              "start_line": 385,
+              "end_line": 391,
+              "start_col": 24,
+              "end_col": 6
+            },
+            {
+              "file": "projects/maple-common/src/lib/auth/auth.service.ts",
+              "start_line": 401,
+              "end_line": 407,
+              "start_col": 27,
+              "end_col": 6
+            }
+          ],
+          "token_count": 50,
+          "line_count": 7,
+          "fingerprint": "dup:c2547d89",
+          "suggested_name": "stepUp"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/components/folder-tree/folder-tree-crud.component.ts",
+              "start_line": 175,
+              "end_line": 184,
+              "start_col": 31,
+              "end_col": 5
+            },
+            {
+              "file": "projects/maple-common/src/lib/components/folder-tree/folder-tree-crud.component.ts",
+              "start_line": 222,
+              "end_line": 231,
+              "start_col": 18,
+              "end_col": 5
+            }
+          ],
+          "token_count": 74,
+          "line_count": 10,
+          "fingerprint": "dup:bc4af446",
+          "suggested_name": "libraryId"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+              "start_line": 60,
+              "end_line": 75,
+              "start_col": 40,
+              "end_col": 7
+            },
+            {
+              "file": "projects/maple-common/src/lib/xmp/sidecar-idb-cache.ts",
+              "start_line": 72,
+              "end_line": 90,
+              "start_col": 41,
+              "end_col": 7
+            }
+          ],
+          "token_count": 110,
+          "line_count": 19,
+          "fingerprint": "dup:89d42691",
+          "suggested_name": "db"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.sample-range.types.ts",
+              "start_line": 53,
+              "end_line": 72,
+              "start_col": 2,
+              "end_col": 1
+            },
+            {
+              "file": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.sample-wb.types.ts",
+              "start_line": 57,
+              "end_line": 74,
+              "start_col": 51,
+              "end_col": 1
+            }
+          ],
+          "token_count": 81,
+          "line_count": 20,
+          "fingerprint": "dup:75a8813b"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/xmp/wb-dng-temperature.ts",
+              "start_line": 164,
+              "end_line": 172,
+              "start_col": 49,
+              "end_col": 54
+            },
+            {
+              "file": "projects/maple-common/src/lib/xmp/wb-dng-temperature.ts",
+              "start_line": 214,
+              "end_line": 222,
+              "start_col": 49,
+              "end_col": 47
+            }
+          ],
+          "token_count": 61,
+          "line_count": 9,
+          "fingerprint": "dup:c9702e85"
+        },
+        {
+          "instances": [
+            {
+              "file": "projects/maple-common/src/lib/xmp/xmp-enum-attrs.ts",
+              "start_line": 99,
+              "end_line": 107,
+              "start_col": 27,
+              "end_col": 63
+            },
+            {
+              "file": "projects/maple-common/src/lib/xmp/xmp-enum-attrs.ts",
+              "start_line": 114,
+              "end_line": 122,
+              "start_col": 23,
+              "end_col": 59
+            }
+          ],
+          "token_count": 54,
+          "line_count": 9,
+          "fingerprint": "dup:418a7166",
+          "suggested_name": "lower"
+        }
+      ],
+      "complexity": [
+        {
+          "path": "projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.form-mapping.ts",
+          "name": "buildBatchApplyMetadata",
+          "line": 48,
+          "col": 7,
+          "cyclomatic": 52,
+          "cognitive": 76,
+          "line_count": 102,
+          "param_count": 2,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 61.1,
+          "coverage_tier": "high",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple/src/app/settings/settings-icon.component.ts",
+          "name": "<template>",
+          "line": 42,
+          "col": 0,
+          "cyclomatic": 32,
+          "cognitive": 1,
+          "line_count": 474,
+          "param_count": 0,
+          "exceeded": "cyclomatic_crap",
+          "severity": "critical",
+          "crap": 253.2,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/components/image-canvas/image-canvas.gpu-present.ts",
+          "name": "testGpuPresent",
+          "line": 163,
+          "col": 29,
+          "cyclomatic": 22,
+          "cognitive": 23,
+          "line_count": 87,
+          "param_count": 0,
+          "exceeded": "all",
+          "severity": "critical",
+          "crap": 126.5,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/components/crop-overlay/crop-geometry.ts",
+          "name": "hitTestHandle",
+          "line": 83,
+          "col": 7,
+          "cyclomatic": 21,
+          "cognitive": 20,
+          "line_count": 29,
+          "param_count": 4,
+          "exceeded": "both",
+          "severity": "moderate"
+        },
+        {
+          "path": "projects/maple-common/src/lib/components/crop-overlay/crop-geometry.ts",
+          "name": "applyAspect",
+          "line": 161,
+          "col": 0,
+          "cyclomatic": 19,
+          "cognitive": 23,
+          "line_count": 61,
+          "param_count": 4,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 97.0,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/state/library-store.service.ts",
+          "name": "currentRegisteredFolder",
+          "line": 428,
+          "col": 25,
+          "cyclomatic": 14,
+          "cognitive": 21,
+          "line_count": 30,
+          "param_count": 1,
+          "exceeded": "cognitive_crap",
+          "severity": "high",
+          "crap": 56.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/components/image-canvas/image-canvas.gpu-present.ts",
+          "name": "open",
+          "line": 268,
+          "col": 12,
+          "cyclomatic": 14,
+          "cognitive": 14,
+          "line_count": 122,
+          "param_count": 3,
+          "exceeded": "crap",
+          "severity": "high",
+          "crap": 56.3,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/state/library-fetch.service.spec.ts",
+          "name": "findByAddress",
+          "line": 163,
+          "col": 2,
+          "cyclomatic": 11,
+          "cognitive": 16,
+          "line_count": 21,
+          "param_count": 2,
+          "exceeded": "cognitive_crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/pano/pano-dialog.component.ts",
+          "name": "onSubmit",
+          "line": 145,
+          "col": 10,
+          "cyclomatic": 11,
+          "cognitive": 13,
+          "line_count": 110,
+          "param_count": 0,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.ts",
+          "name": "_resetToMixed",
+          "line": 479,
+          "col": 23,
+          "cyclomatic": 11,
+          "cognitive": 10,
+          "line_count": 51,
+          "param_count": 0,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 37.1,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/pano/pano-dialog.component.ts",
+          "name": "error",
+          "line": 239,
+          "col": 15,
+          "cyclomatic": 10,
+          "cognitive": 8,
+          "line_count": 14,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/components/crop-overlay/crop-overlay.component.ts",
+          "name": "cursorFor",
+          "line": 210,
+          "col": 0,
+          "cyclomatic": 10,
+          "cognitive": 1,
+          "line_count": 20,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/deep-link/deep-link.service.ts",
+          "name": "resolve",
+          "line": 39,
+          "col": 9,
+          "cyclomatic": 10,
+          "cognitive": 10,
+          "line_count": 41,
+          "param_count": 1,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        },
+        {
+          "path": "projects/maple-common/src/lib/state/library-fetch.service.spec.ts",
+          "name": "selectInitialFolder",
+          "line": 241,
+          "col": 2,
+          "cyclomatic": 10,
+          "cognitive": 10,
+          "line_count": 25,
+          "param_count": 2,
+          "exceeded": "crap",
+          "severity": "moderate",
+          "crap": 31.6,
+          "coverage_tier": "partial",
+          "coverage_source": "estimated"
+        }
+      ]
+    }
+  }
+}

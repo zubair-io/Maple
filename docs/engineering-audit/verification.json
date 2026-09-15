@@ -1,0 +1,63 @@
+{
+  "commit": "1f233acb91dd97c2103a6903279be4dee5329192",
+  "date": "2026-09-15",
+  "environment": "macOS arm64; Bun 1.4.3-canary.1; Fallow 2.103.0; frozen-lockfile installs, install scripts disabled",
+  "checks": [
+    {
+      "name": "file-budget",
+      "command": "bash tools/check-file-budget.sh",
+      "result": "pass",
+      "detail": "0 hard violations; 485 soft warnings; 23 allowlisted"
+    },
+    {
+      "name": "ui-adoption",
+      "command": "node src/web/scripts/check-maple-ui-adoption.mjs",
+      "result": "pass",
+      "detail": "17 migrated scopes"
+    },
+    {
+      "name": "ui-contracts",
+      "command": "bash tools/check-maple-ui-contracts.sh",
+      "result": "pass",
+      "detail": "28 contracts"
+    },
+    {
+      "name": "editor-parity-manifest",
+      "command": "bun tools/check-editor-parity-manifest.ts",
+      "result": "pass",
+      "detail": "63 capabilities; 31 web tools; 33 Apple tools; 102 ranges"
+    },
+    {
+      "name": "swift-regression-coverage",
+      "command": "python3 tools/check-swift-regressions-coverage.py",
+      "result": "pass",
+      "detail": "412 classes: 35 run, 377 excluded; 180 untriaged"
+    },
+    {
+      "name": "api-typecheck",
+      "command": "cd src/api && bun run typecheck",
+      "result": "fail",
+      "detail": "137 diagnostics in 80 files; 23 diagnostics in 18 non-test files"
+    },
+    {
+      "name": "selected-contract-tests",
+      "command": "bun test src/api/src/presets/adjustment-fields.test.ts src/api/src/indexer/id.test.ts src/api/src/cloudflare/thumb-key.test.ts src/api/src/backup/location-segments.test.ts",
+      "result": "pass",
+      "detail": "36 tests, 175 assertions"
+    },
+    {
+      "name": "typescript-scan",
+      "command": "src/{web,api}/node_modules/.bin/fallow --root src/{web,api} --format json --no-cache",
+      "result": "findings",
+      "detail": "web 99 check candidates / 24 clone groups / 14 complexity findings; API 113 / 85 / 100"
+    }
+  ],
+  "not_run": [
+    "Complete application test suites",
+    "Rust CPU/GPU perceptual parity harnesses",
+    "Fresh device performance measurements",
+    "Windows execution",
+    "Cloudflare worker-isolate tests",
+    "Full dependency vulnerability or license review"
+  ]
+}
