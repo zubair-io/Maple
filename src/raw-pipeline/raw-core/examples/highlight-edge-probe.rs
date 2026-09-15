@@ -43,6 +43,28 @@ fn main() {
                     [1.0; 3],
                     0.0,
                 );
+                // Counterfactual sensor-domain reconstruction: preserve each
+                // observed, unclipped photosite and replace only censored ones.
+                // The oracle comparison separates missing support propagation
+                // from errors in the initial highlight estimate. AMaZE uses
+                // fixed .8/1 clipping branches, so >1 inputs are diagnostic only.
+                let mut recovered_mosaic = mosaic.clone();
+                let mut oracle_replacement = mosaic.clone();
+                let mut oracle_mosaic = mosaic.clone();
+                for i in 0..mosaic.pixels.len() {
+                    let c = cfa.color_at(i as u32 % side, i as u32 / side) as usize;
+                    oracle_mosaic.pixels[i][c] = truth[i][c];
+                    if mosaic.pixels[i][c] >= 1.0 {
+                        recovered_mosaic.pixels[i][c] = rgb.pixels[i][c].max(mosaic.pixels[i][c]);
+                        oracle_replacement.pixels[i][c] = truth[i][c];
+                    }
+                }
+                assert_eq!(oracle_replacement.pixels, oracle_mosaic.pixels);
+                let recovered = amaze(&recovered_mosaic, cfa);
+                let oracle = amaze(&oracle_mosaic, cfa);
+                let mut first_green_error = 0.0f32;
+                let mut second_green_error = 0.0f32;
+                let mut changed_unclipped = 0usize;
                 let mut witness_error = 0.0f32;
                 let mut measured_clips = 0usize;
                 let mut below_sensor_bound = 0usize;
@@ -56,13 +78,24 @@ fn main() {
                                 .max((p[2] / p[1] - chroma[2] / chroma[1]).abs());
                         }
                         let c = cfa.color_at(x, y) as usize;
+                        if c != 1 {
+                            first_green_error = first_green_error
+                                .max((rgb.pixels[i][1] - oracle.pixels[i][1]).abs());
+                            second_green_error = second_green_error
+                                .max((recovered.pixels[i][1] - oracle.pixels[i][1]).abs());
+                        }
+                        if mosaic.pixels[i][c] < 1.0
+                            && recovered.pixels[i][c] != mosaic.pixels[i][c]
+                        {
+                            changed_unclipped += 1;
+                        }
                         if truth[i][c] >= 1.0 {
                             measured_clips += 1;
                             below_sensor_bound += usize::from(rgb.pixels[i][c] < 1.0 - 1e-5);
                         }
                     }
                 }
-                println!("cfa={cfa:?} direction={direction} phase={phase} witness_ratio_error={witness_error:.6} measured_clips={measured_clips} reconstructed_below_sensor_bound={below_sensor_bound}");
+                println!("cfa={cfa:?} direction={direction} phase={phase} witness_ratio_error={witness_error:.6} measured_clips={measured_clips} reconstructed_below_sensor_bound={below_sensor_bound} first_neighbor_green_error={first_green_error:.6} second_neighbor_green_error={second_green_error:.6} changed_measured_unclipped={changed_unclipped}");
             }
         }
     }
