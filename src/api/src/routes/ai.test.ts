@@ -1,7 +1,8 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { type Db } from 'mongodb';
 import { aiRoutes } from './ai.ts';
+import { enrichmentRoutes } from './enrichment.ts';
 import { closeDb, getDb, isDbConnected } from '../db/client.ts';
 import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
 import { signAccessToken } from '../auth/tokens.ts';
@@ -66,7 +67,7 @@ afterEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
 });
 
-function app(): Elysia {
+function app() {
   return new Elysia().use(aiRoutes);
 }
 
@@ -156,7 +157,7 @@ describe('/api/ai routes', () => {
   });
 
   describe('GET & PUT /api/ai/config', () => {
-    it('sets and updates API keys in process.env and enrichment config', async () => {
+    it('persists API keys without changing the process environment', async () => {
       const putRes = await req(
         '/api/ai/config',
         {
@@ -171,7 +172,7 @@ describe('/api/ai routes', () => {
         ownerToken,
       );
       expect(putRes.status).toBe(200);
-      expect(process.env.MAPLE_OPENAI_API_KEY).toBe('sk-test-saved-key');
+      expect(process.env.MAPLE_OPENAI_API_KEY).toBeUndefined();
 
       const fromDb = await loadEnrichmentConfig();
       expect(fromDb?.openai_api_key).toBe('sk-test-saved-key');
@@ -217,7 +218,7 @@ describe('/api/ai routes', () => {
       expect(data.providers.ollama.url).toBe('http://new-ollama:11434');
     });
 
-    it('clears API key and removes env var when passed empty string', async () => {
+    it('clears a saved key even when a deployment key exists', async () => {
       process.env.MAPLE_OPENAI_API_KEY = 'sk-existing-key';
 
       const clearRes = await req(
@@ -234,7 +235,7 @@ describe('/api/ai routes', () => {
         ownerToken,
       );
       expect(clearRes.status).toBe(200);
-      expect(process.env.MAPLE_OPENAI_API_KEY).toBeUndefined();
+      expect(process.env.MAPLE_OPENAI_API_KEY).toBe('sk-existing-key');
 
       const getRes = await req('/api/ai/config', {}, ownerToken);
       const data = (await getRes.json()) as { providers: { openai: { has_key: boolean } } };
@@ -281,8 +282,103 @@ describe('/api/ai routes', () => {
       );
       expect(putRes.status).toBe(400);
       const data = (await putRes.json()) as { error: string };
-      expect(data.error).toContain('Invalid worker: invalid-worker-name');
+      expect(data.error).toContain('Invalid worker assignment: invalid-worker-name');
     });
+  });
+
+  it('never exposes provider keys through the member enrichment response', async () => {
+    await saveEnrichmentConfig({ openai_api_key: 'test-db-secret' });
+    process.env.MAPLE_ANTHROPIC_API_KEY = 'test-env-secret';
+    const res = await new Elysia().use(enrichmentRoutes).handle(
+      new Request('http://localhost/api/enrichment/config', {
+        headers: { authorization: `Bearer ${memberToken}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).not.toContain('test-db-secret');
+    expect(body).not.toContain('test-env-secret');
+    const config = JSON.parse(body);
+    expect(config).not.toHaveProperty('openai_api_key');
+    expect(config).not.toHaveProperty('anthropic_api_key');
+    expect(config).not.toHaveProperty('gemini_api_key');
+  });
+
+  it('rejects a mixed valid/invalid assignment request before any settings change', async () => {
+    const res = await req(
+      '/api/ai/config',
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          providers: { openai: { api_key: 'must-not-save' } },
+          workers: {
+            describe: { provider: 'openai', model: 'gpt-4o' },
+            unknown: { provider: 'ollama', model: 'example' },
+          },
+        }),
+      },
+      ownerToken,
+    );
+    expect(res.status).toBe(400);
+    expect((await loadEnrichmentConfig())?.openai_api_key).toBeUndefined();
+    expect(await db!.collection('worker_config').findOne({ name: 'describe' })).toBeNull();
+  });
+
+  it('rejects invalid Ollama servers without saving credentials', async () => {
+    const res = await req(
+      '/api/ai/config',
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          providers: {
+            openai: { api_key: 'must-not-save' },
+            ollama: { servers: [{ url: 'http://ollama:11434', concurrency: -1 }] },
+          },
+        }),
+      },
+      ownerToken,
+    );
+    expect(res.status).toBe(400);
+    expect((await loadEnrichmentConfig())?.openai_api_key).toBeUndefined();
+  });
+
+  it('uses a saved key for discovery after restart and honors an explicit clear', async () => {
+    await saveEnrichmentConfig({ openai_api_key: 'test-persisted-key' });
+    const fakeFetch = Object.assign(
+      async (_input: URL | RequestInfo, init?: RequestInit) => {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer test-persisted-key');
+        return Response.json({ data: [{ id: 'gpt-4o' }] });
+      },
+      { preconnect: globalThis.fetch.preconnect },
+    );
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(fakeFetch);
+    try {
+      const options = { method: 'POST', headers: { 'content-type': 'application/json' } };
+      const res = await req(
+        '/api/ai/models',
+        {
+          ...options,
+          body: JSON.stringify({ provider: 'openai' }),
+        },
+        ownerToken,
+      );
+      expect((await res.json()).source).toBe('live');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const cleared = await req(
+        '/api/ai/test',
+        {
+          ...options,
+          body: JSON.stringify({ provider: 'openai', api_key: null }),
+        },
+        ownerToken,
+      );
+      expect(cleared.status).toBe(400);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   describe('POST /api/ai/models', () => {

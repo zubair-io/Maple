@@ -21,7 +21,9 @@ import {
   describeServersForRuntime,
   syncDescribeStageCapacity,
 } from '../workers/describe-capacity.ts';
-import { loadEnrichmentConfig, DESCRIBE_VISION_OLLAMA_TAG } from './enrichment-config.repo.ts';
+import { loadEnrichmentConfig, asDescribeProvider } from './enrichment-config.repo.ts';
+import { getDescribeProvider } from './describe-providers/index.ts';
+import { loadWorkerConfigSafe } from '../workers/worker-config.repo.ts';
 import {
   resolveEnrichmentConfig,
   type ResolvedEnrichmentConfig,
@@ -30,10 +32,6 @@ import { resetDescribeDeps } from '../workers/stages/describe.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 
 const log = childLogger('describe');
-
-/** Logged at boot for operator visibility. Single source of truth for
- * the Ollama tag lives in `enrichment-config.repo.ts`. */
-const LOCKED_MODEL = DESCRIBE_VISION_OLLAMA_TAG;
 
 /**
  * Lifecycle hook called at boot. In Plan 3+ the stage-controller runtime
@@ -49,13 +47,9 @@ export async function startDescribeWorker(): Promise<never[]> {
 /**
  * Re-apply settings after the operator changes them via the UI. Invalidates
  * the stage handler's cached deps so a URL change takes effect on the next
- * claim, then health-checks Ollama at the new URL.
- *
- * Provider and model are locked — the stage handler ignores
- * `describe_provider` / `describe_model` / `describe_system_prompt`, so this
- * bootstrap does too. Logging the locked model rather than the resolved
- * field avoids misleading operators who still have stale paid-provider
- * values in their pre-#157 config row.
+ * claim, then health-checks the selected provider. Only Ollama derives
+ * stage concurrency from the server list; paid providers retain the
+ * operator's stage concurrency.
  */
 export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): Promise<void> {
   // Invalidate any cached provider in the stage handler so the URL change
@@ -69,6 +63,18 @@ export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): P
 
   if (!resolved.describe_worker_enabled) {
     log.info('describe worker disabled (describe_worker_enabled=false)');
+    return;
+  }
+
+  const worker = await loadWorkerConfigSafe('describe');
+  const provider = asDescribeProvider(worker?.ai_provider ?? '') ?? resolved.describe_provider;
+  if (provider !== 'ollama') {
+    try {
+      await getDescribeProvider(provider, { apiKey: resolved[`${provider}_api_key`] }).health();
+      log.info({ provider }, 'describe provider healthy');
+    } catch (err) {
+      log.error({ provider, err }, 'describe provider health check failed');
+    }
     return;
   }
 
@@ -102,7 +108,7 @@ export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): P
   await syncDescribeStageCapacity(pool.capacity);
 
   log.info(
-    { servers: pool.servers.map((s) => s.url), model: LOCKED_MODEL },
+    { servers: pool.servers.map((s) => s.url), model: worker?.ai_model ?? resolved.describe_model },
     'checking describe-server health',
   );
   const results = await pool.health();

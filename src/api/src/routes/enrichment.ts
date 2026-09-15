@@ -20,6 +20,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { toPublicConfig } from './enrichment-public-config.ts';
 import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
 import {
@@ -35,10 +36,7 @@ import {
   loadEnrichmentConfig,
   saveEnrichmentConfig,
 } from '../enrichment/enrichment-config.repo.ts';
-import {
-  resolveEnrichmentConfig,
-  type ResolvedEnrichmentConfig,
-} from '../enrichment/enrichment-config.resolve.ts';
+import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { applyEnrichmentConfig } from '../enrichment/bootstrap.ts';
 import { applyDescribeConfig } from '../enrichment/describe-bootstrap.ts';
 import { NominatimClient, NominatimError } from '../enrichment/nominatim-client.ts';
@@ -47,7 +45,6 @@ import { readWorkerStatus } from '../workers/worker-status.repo.ts';
 import { validateHttpUrl } from '../observability/observability-config.repo.ts';
 import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
 import { validateDescribePatch } from './enrichment-describe-patch.ts';
-import { describeServersForRuntime } from '../workers/describe-capacity.ts';
 import {
   createMeilisearchClient,
   reconfigureMeilisearch,
@@ -161,24 +158,6 @@ function boundedIntegerError(
   if (value === null || value === undefined) return null;
   const valid = Number.isInteger(value) && value >= min && value <= max;
   return valid ? null : `Invalid ${field}: must be an integer between ${min} and ${max}`;
-}
-
-/** Strip the secret Meilisearch API key from a resolved config before it
- * goes over HTTP, replacing it with a boolean "is a key set" indicator. The
- * raw key is never echoed to clients; `source.meilisearch_api_key` (db/env/
- * unset) is safe to keep so the UI can show provenance. */
-async function toPublicConfig(resolved: ResolvedEnrichmentConfig) {
-  const { meilisearch_api_key, ...safe } = resolved;
-  return {
-    ...safe,
-    // Report the list the RUNTIME will use, not the resolver's placeholder:
-    // for a deploy that hasn't saved one, the derived single server inherits
-    // the describe stage's existing concurrency, and the settings UI has to
-    // show that number or the operator reads a value the worker never uses.
-    describe_servers: await describeServersForRuntime(resolved),
-    meilisearch_api_key_set:
-      typeof meilisearch_api_key === 'string' && meilisearch_api_key.length > 0,
-  };
 }
 
 const TestDescribeBody = t.Object({

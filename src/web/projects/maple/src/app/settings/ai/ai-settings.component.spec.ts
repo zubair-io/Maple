@@ -110,4 +110,41 @@ describe('AiSettingsComponent', () => {
 
     expect(component.saveState().kind).toBe('saved');
   });
+  it('omits credentials when discovering and testing a saved provider', async () => {
+    await load();
+    component.selectProvider('anthropic');
+    const models = http.expectOne('/api/ai/models');
+    expect(models.request.body).not.toHaveProperty('api_key');
+    models.flush({ models: ['saved-model'], source: 'live' });
+    component.testConnection();
+    const test = http.expectOne('/api/ai/test');
+    expect(test.request.body).not.toHaveProperty('api_key');
+    test.flush({ ok: true });
+  });
+
+  it('ignores model responses from a provider that is no longer selected', async () => {
+    await load();
+    component.selectProvider('openai');
+    const older = http.expectOne('/api/ai/models');
+    component.selectProvider('anthropic');
+    const current = http.expectOne('/api/ai/models');
+    current.flush({ models: ['claude-current'], source: 'live' });
+    older.flush({ models: ['gpt-old'], source: 'live' });
+    component.assignActiveToWorker('describe');
+    expect(component.workerAssignments()['describe']).toEqual({
+      provider: 'anthropic',
+      model: 'claude-current',
+    });
+  });
+
+  it('keeps the latest discovery result when the same provider is refreshed twice', async () => {
+    await load();
+    component.fetchModels('ollama');
+    const older = http.expectOne('/api/ai/models');
+    component.fetchModels('ollama');
+    const current = http.expectOne('/api/ai/models');
+    current.flush({ models: ['new-model'], source: 'live' });
+    older.flush({ models: ['old-model'], source: 'live' });
+    expect(component.selectedModel()).toBe('new-model');
+  });
 });
