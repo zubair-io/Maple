@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { maple } from '../src/index.ts';
+import { maple, type ResizePosition } from '../src/index.ts';
 
 /** Gate for #3502: fits, position/gravity, withoutReduction, kernel alias. */
 describe('Resize modes', () => {
@@ -77,7 +77,7 @@ describe('Resize modes', () => {
       channels: 3 as const,
     };
     const png = await maple(half).toFormat('png').toBuffer();
-    const crop = async (position: string) => {
+    const crop = async (position: ResizePosition) => {
       const out = await maple(png)
         .resize({ width: 2, height: 2, fit: 'cover', position, kernel: 'nearest' })
         .toFormat('png')
@@ -105,6 +105,7 @@ describe('Resize modes', () => {
   it('rejects the entropy and attention strategies by name', async () => {
     await expect(
       maple(await src())
+        // @ts-expect-error Exercise the runtime rejection for untyped JavaScript callers.
         .resize({ width: 8, height: 8, fit: 'cover', position: 'entropy' })
         .toFormat('png')
         .toBuffer(),
