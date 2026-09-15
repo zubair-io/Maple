@@ -215,6 +215,8 @@ public final class EngineHost {
       await engine.stop()
     }
     await runner?.value
+    // A companion operation already in flight can schedule a retry while
+    // the runner drains. Sweep those late retries after it has fully exited.
     if let engine { await engine.stop() }
     runnerTask = nil
     engine = nil
