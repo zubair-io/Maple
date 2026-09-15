@@ -271,6 +271,23 @@ describe('/api/ai routes', () => {
       );
       expect(res.status).toBe(400);
     });
+
+    it('falls back to environment API key when api_key is omitted in payload', async () => {
+      process.env.MAPLE_OPENAI_API_KEY = 'sk-env-test-key';
+      const res = await req(
+        '/api/ai/models',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ provider: 'openai' }),
+        },
+        ownerToken,
+      );
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as { models: string[]; source: string };
+      expect(data.models.length).toBeGreaterThan(0);
+      delete process.env.MAPLE_OPENAI_API_KEY;
+    });
   });
 
   describe('POST /api/ai/test', () => {
