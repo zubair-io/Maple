@@ -2,6 +2,7 @@
 // Concurrency-cap tests for BackupEngine.run() (#700), split out of
 // BackupEngineTests to keep that file under the 600-line budget (#702).
 import XCTest
+
 @testable import MapleBackup
 
 /// Reader that tracks the peak number of concurrent `read(...)` calls, so a
@@ -9,130 +10,182 @@ import XCTest
 /// synchronous-on-entry (before the first `await`), so reentrancy during the
 /// sleep registers overlapping reads in `peak`.
 private actor CountingAssetReader: AssetReader {
-    private(set) var current = 0
-    private(set) var peak = 0
-    private let holdNanos: UInt64
+  private(set) var current = 0
+  private(set) var peak = 0
+  private let holdNanos: UInt64
 
-    init(holdMillis: UInt64 = 50) { self.holdNanos = holdMillis * 1_000_000 }
+  init(holdMillis: UInt64 = 50) { self.holdNanos = holdMillis * 1_000_000 }
 
-    func read(phassetLocalId: String) async throws -> AssetReadResult {
-        current += 1
-        peak = max(peak, current)
-        try? await Task.sleep(nanoseconds: holdNanos)
-        current -= 1
-        return AssetReadResult(
-            originalBytes: Data(count: 256),
-            renderedBytes: nil,
-            sidecar: PayloadAssembler.SidecarInput(
-                phassetLocalId: phassetLocalId,
-                deviceId: "d",
-                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
-                latitude: nil, longitude: nil,
-                favorite: false, caption: nil,
-                keywords: [], tags: [],
-                livePhotoCompanion: nil, burstStackId: nil,
-                originalFilename: "IMG.heic",
-                mtime: 0),
-            mapleId: "hash-\(phassetLocalId)")
-    }
+  func read(phassetLocalId: String) async throws -> AssetReadResult {
+    current += 1
+    peak = max(peak, current)
+    try? await Task.sleep(nanoseconds: holdNanos)
+    current -= 1
+    return AssetReadResult(
+      originalBytes: Data(count: 256),
+      renderedBytes: nil,
+      sidecar: PayloadAssembler.SidecarInput(
+        phassetLocalId: phassetLocalId,
+        deviceId: "d",
+        captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+        latitude: nil, longitude: nil,
+        favorite: false, caption: nil,
+        keywords: [], tags: [],
+        livePhotoCompanion: nil, burstStackId: nil,
+        originalFilename: "IMG.heic",
+        mtime: 0),
+      mapleId: "hash-\(phassetLocalId)")
+  }
 }
 
 final class BackupEngineConcurrencyTests: XCTestCase {
 
-    override func setUp() {
-        StubURLProtocol.stub = nil
-        StubURLProtocol.clearRecording()
-    }
-    override func tearDown() {
-        StubURLProtocol.stub = nil
-        StubURLProtocol.clearRecording()
-    }
+  override func setUp() {
+    StubURLProtocol.stub = nil
+    StubURLProtocol.clearRecording()
+  }
+  override func tearDown() {
+    StubURLProtocol.stub = nil
+    StubURLProtocol.clearRecording()
+  }
 
-    /// The `maxConcurrency` override caps how many `process(task:)` runs proceed
-    /// in parallel inside `run()`. With cap=2 and 6 queued tasks, the gating
-    /// reader's peak concurrent-read count must saturate at exactly 2.
-    func testConcurrencyCapIsRespected() async throws {
-        // Single always-200 stub: every /ingest returns the maple_id JSON and
-        // every /sidecar returns 200 — no companion retries linger, so run()
-        // terminates once the queue drains.
-        StubURLProtocol.stub = .ok(
-            json: #"{"maple_id":"m","target_rel_path":"2024/03/15/IMG.heic"}"#)
-
-        let tmpRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("engine-conc-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
-        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
-        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
-
-        let queue = InProcessBackupQueue()
-        let state = try BackupStateStore(databaseURL: stateURL)
-        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
-        let reader = CountingAssetReader(holdMillis: 60)
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        let engine = BackupEngine(queue: queue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: reader,
-                                  maxConcurrency: 2)
-
-        for i in 0..<6 {
-            let id = BackupTaskID(deviceId: "d", phassetLocalId: "P\(i)")
-            let t = BackupTask(id: id, state: .pending, priority: .background)
-            try await state.upsert(t)
-            await queue.enqueue(t, priority: .background)
+  func testLiveRunnerProcessesWorkEnqueuedAfterItBecomesIdle() async throws {
+    StubURLProtocol.stub = .ok(json: #"{"maple_id":"m","target_rel_path":"IMG.heic"}"#)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let queue = InProcessBackupQueue()
+    let state = try BackupStateStore(databaseURL: root.appendingPathComponent("state.sqlite"))
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!,
+      libraryId: "lib", deviceId: "d", transport: stubTransport())
+    let engine = BackupEngine(
+      queue: queue, state: state, upload: upload,
+      sidecars: AppSupportSidecarStore(root: root), reader: CountingAssetReader())
+    let events = await queue.observe()
+    let first = expectation(description: "first late upload")
+    let second = expectation(description: "second late upload")
+    let observer = Task {
+      for await event in events {
+        if case .completed(let id, _) = event {
+          if id.phassetLocalId == "1" { first.fulfill() } else { second.fulfill() }
         }
+      }
+    }
+    let runner = Task { await engine.run(keepAlive: true) }
+    try await Task.sleep(for: .milliseconds(50))
+    let task1 = BackupTask(
+      id: BackupTaskID(deviceId: "d", phassetLocalId: "1"),
+      state: .pending, priority: .background)
+    try await state.upsert(task1)
+    await queue.enqueue(task1, priority: .background)
+    await fulfillment(of: [first], timeout: 3)
+    try await Task.sleep(for: .milliseconds(50))
+    let task2 = BackupTask(
+      id: BackupTaskID(deviceId: "d", phassetLocalId: "2"),
+      state: .pending, priority: .background)
+    try await state.upsert(task2)
+    await queue.enqueue(task2, priority: .background)
+    await fulfillment(of: [second], timeout: 3)
+    await engine.waitUntilDrained()
+    runner.cancel()
+    await engine.stop()
+    await runner.value
+    observer.cancel()
+  }
+  /// The `maxConcurrency` override caps how many `process(task:)` runs proceed
+  /// in parallel inside `run()`. With cap=2 and 6 queued tasks, the gating
+  /// reader's peak concurrent-read count must saturate at exactly 2.
+  func testConcurrencyCapIsRespected() async throws {
+    // Single always-200 stub: every /ingest returns the maple_id JSON and
+    // every /sidecar returns 200 — no companion retries linger, so run()
+    // terminates once the queue drains.
+    StubURLProtocol.stub = .ok(
+      json: #"{"maple_id":"m","target_rel_path":"2024/03/15/IMG.heic"}"#)
 
-        await engine.run()
+    let tmpRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("engine-conc-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
 
-        let peak = await reader.peak
-        XCTAssertLessThanOrEqual(peak, 2,
-            "engine must not exceed the maxConcurrency=2 cap")
-        XCTAssertEqual(peak, 2,
-            "with 6 tasks and a gating reader the cap should actually be reached")
+    let queue = InProcessBackupQueue()
+    let state = try BackupStateStore(databaseURL: stateURL)
+    let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+    let reader = CountingAssetReader(holdMillis: 60)
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!,
+      libraryId: "lib", deviceId: "d",
+      transport: stubTransport())
+    let engine = BackupEngine(
+      queue: queue, state: state, upload: upload,
+      sidecars: sidecars, reader: reader,
+      maxConcurrency: 2)
+
+    for i in 0..<6 {
+      let id = BackupTaskID(deviceId: "d", phassetLocalId: "P\(i)")
+      let t = BackupTask(id: id, state: .pending, priority: .background)
+      try await state.upsert(t)
+      await queue.enqueue(t, priority: .background)
     }
 
-    /// The default concurrency is 8 (raised from 4 in #700). Exercised via the
-    /// gating reader with 12 queued tasks against the default-constructed engine.
-    func testDefaultConcurrencyIsEight() async throws {
-        StubURLProtocol.stub = .ok(
-            json: #"{"maple_id":"m","target_rel_path":"2024/03/15/IMG.heic"}"#)
+    await engine.run()
 
-        let tmpRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("engine-conc8-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
-        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
-        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+    let peak = await reader.peak
+    XCTAssertLessThanOrEqual(
+      peak, 2,
+      "engine must not exceed the maxConcurrency=2 cap")
+    XCTAssertEqual(
+      peak, 2,
+      "with 6 tasks and a gating reader the cap should actually be reached")
+  }
 
-        let queue = InProcessBackupQueue()
-        let state = try BackupStateStore(databaseURL: stateURL)
-        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
-        let reader = CountingAssetReader(holdMillis: 60)
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        // Default init — no maxConcurrency override.
-        let engine = BackupEngine(queue: queue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: reader)
+  /// The default concurrency is 8 (raised from 4 in #700). Exercised via the
+  /// gating reader with 12 queued tasks against the default-constructed engine.
+  func testDefaultConcurrencyIsEight() async throws {
+    StubURLProtocol.stub = .ok(
+      json: #"{"maple_id":"m","target_rel_path":"2024/03/15/IMG.heic"}"#)
 
-        for i in 0..<12 {
-            let id = BackupTaskID(deviceId: "d", phassetLocalId: "Q\(i)")
-            let t = BackupTask(id: id, state: .pending, priority: .background)
-            try await state.upsert(t)
-            await queue.enqueue(t, priority: .background)
-        }
+    let tmpRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("engine-conc8-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
 
-        await engine.run()
+    let queue = InProcessBackupQueue()
+    let state = try BackupStateStore(databaseURL: stateURL)
+    let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+    let reader = CountingAssetReader(holdMillis: 60)
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!,
+      libraryId: "lib", deviceId: "d",
+      transport: stubTransport())
+    // Default init — no maxConcurrency override.
+    let engine = BackupEngine(
+      queue: queue, state: state, upload: upload,
+      sidecars: sidecars, reader: reader)
 
-        let peak = await reader.peak
-        XCTAssertLessThanOrEqual(peak, 8,
-            "default cap must be 8 — never more")
-        XCTAssertEqual(peak, 8,
-            "with 12 tasks the default cap of 8 should be reached")
+    for i in 0..<12 {
+      let id = BackupTaskID(deviceId: "d", phassetLocalId: "Q\(i)")
+      let t = BackupTask(id: id, state: .pending, priority: .background)
+      try await state.upsert(t)
+      await queue.enqueue(t, priority: .background)
     }
+
+    await engine.run()
+
+    let peak = await reader.peak
+    XCTAssertLessThanOrEqual(
+      peak, 8,
+      "default cap must be 8 — never more")
+    XCTAssertEqual(
+      peak, 8,
+      "with 12 tasks the default cap of 8 should be reached")
+  }
 }
 
 // MARK: - #1026: event-driven retry wakeup (replaces the 1s poll in run())
@@ -143,260 +196,285 @@ final class BackupEngineConcurrencyTests: XCTestCase {
 /// while idle; an event-driven wakeup only calls back in right after a retry
 /// actually re-enqueues.
 private actor DequeueSpyQueue: BackupQueue {
-    private let inner = InProcessBackupQueue()
-    private(set) var dequeueTimestamps: [Date] = []
+  private let inner = InProcessBackupQueue()
+  private(set) var dequeueTimestamps: [Date] = []
 
-    func enqueue(_ task: BackupTask, priority: BackupPriority) async {
-        await inner.enqueue(task, priority: priority)
-    }
-    func cancel(_ id: BackupTaskID) async { await inner.cancel(id) }
-    func dequeue() async -> BackupTask? {
-        dequeueTimestamps.append(Date())
-        return await inner.dequeue()
-    }
-    // Not exercised by these tests — a minimal conformance is enough; forwarding
-    // to `inner.observe()` isn't possible here since the protocol requires this
-    // to stay synchronous while `inner` is a different actor.
-    func observe() -> AsyncStream<BackupQueueEvent> { AsyncStream { _ in } }
-    func snapshot() async -> [BackupTask] { await inner.snapshot() }
-    func emit(_ event: BackupQueueEvent) async { await inner.emit(event) }
+  func enqueue(_ task: BackupTask, priority: BackupPriority) async {
+    await inner.enqueue(task, priority: priority)
+  }
+  func cancel(_ id: BackupTaskID) async { await inner.cancel(id) }
+  func dequeue() async -> BackupTask? {
+    dequeueTimestamps.append(Date())
+    return await inner.dequeue()
+  }
+  // Not exercised by these tests — a minimal conformance is enough; forwarding
+  // to `inner.observe()` isn't possible here since the protocol requires this
+  // to stay synchronous while `inner` is a different actor.
+  func observe() -> AsyncStream<BackupQueueEvent> { AsyncStream { _ in } }
+  func snapshot() async -> [BackupTask] { await inner.snapshot() }
+  func emit(_ event: BackupQueueEvent) async { await inner.emit(event) }
 }
 
 final class BackupEngineRetryWakeupTests: XCTestCase {
 
-    override func setUp() {
-        StubURLProtocol.stub = nil
-        StubURLProtocol.clearRecording()
-    }
-    override func tearDown() {
-        StubURLProtocol.stub = nil
-        StubURLProtocol.clearRecording()
-    }
+  override func setUp() {
+    StubURLProtocol.stub = nil
+    StubURLProtocol.clearRecording()
+  }
+  override func tearDown() {
+    StubURLProtocol.stub = nil
+    StubURLProtocol.clearRecording()
+  }
 
-    /// A companion retry outstanding must not strand `run()`.
-    ///
-    /// The companion path (`scheduleCompanionRetry`) puts an entry in
-    /// `retryTasks` but never enqueues to the upload queue — and before this
-    /// fix it never signalled either. So once the queue drained, `run()` saw a
-    /// non-empty `retryTasks`, parked on `retryWake.wait()`, and no wake could
-    /// ever arrive: the companion finished, its entry was removed silently, and
-    /// the runner stayed suspended forever. With `isRunning` latched, every
-    /// later `run()` was then a no-op and backup was dead until relaunch.
-    ///
-    /// The 1 s poll masked this — it re-checked `retryTasks` each tick and
-    /// exited once the entry cleared. Replacing the poll with an indefinite
-    /// park is what turned it fatal, so it is this ticket's regression to own.
-    ///
-    /// Deterministic, not a race: with the bug, `run()` cannot return.
-    func testCompanionRetryDoesNotStrandRun() async throws {
-        // ingest 200+json → sidecar 500 (inline attempt fails, schedules the
-        // companion retry) → sidecar 200 (the retry lands).
-        StubURLProtocol.stub = .sequence([
-            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
-            .status(500),
-            .status(200),
-        ])
-        let (state, sidecars, tmpRoot) = try harness()
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-        let queue = InProcessBackupQueue()
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        let engine = BackupEngine(queue: queue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: StubAssetReader(),
-                                  maxConcurrency: 1,
-                                  companionBackoff: { _ in 0 })
-        defer { Task { await engine.stop() } }
+  /// A companion retry outstanding must not strand `run()`.
+  ///
+  /// The companion path (`scheduleCompanionRetry`) puts an entry in
+  /// `retryTasks` but never enqueues to the upload queue — and before this
+  /// fix it never signalled either. So once the queue drained, `run()` saw a
+  /// non-empty `retryTasks`, parked on `retryWake.wait()`, and no wake could
+  /// ever arrive: the companion finished, its entry was removed silently, and
+  /// the runner stayed suspended forever. With `isRunning` latched, every
+  /// later `run()` was then a no-op and backup was dead until relaunch.
+  ///
+  /// The 1 s poll masked this — it re-checked `retryTasks` each tick and
+  /// exited once the entry cleared. Replacing the poll with an indefinite
+  /// park is what turned it fatal, so it is this ticket's regression to own.
+  ///
+  /// Deterministic, not a race: with the bug, `run()` cannot return.
+  func testCompanionRetryDoesNotStrandRun() async throws {
+    // ingest 200+json → sidecar 500 (inline attempt fails, schedules the
+    // companion retry) → sidecar 200 (the retry lands).
+    StubURLProtocol.stub = .sequence([
+      .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+      .status(500),
+      .status(200),
+    ])
+    let (state, sidecars, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let queue = InProcessBackupQueue()
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!,
+      libraryId: "lib", deviceId: "d",
+      transport: stubTransport())
+    let engine = BackupEngine(
+      queue: queue, state: state, upload: upload,
+      sidecars: sidecars, reader: StubAssetReader(),
+      maxConcurrency: 1,
+      companionBackoff: { _ in 0 })
+    defer { Task { await engine.stop() } }
 
-        // A local-edit sidecar makes the companion path run for real.
-        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
-        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
-        let task = BackupTask(id: id, state: .pending, priority: .background)
-        try await state.upsert(task)
-        await queue.enqueue(task, priority: .background)
+    // A local-edit sidecar makes the companion path run for real.
+    try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+    let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+    let task = BackupTask(id: id, state: .pending, priority: .background)
+    try await state.upsert(task)
+    await queue.enqueue(task, priority: .background)
 
-        // `run()` must return on its own once the queue drains and the
-        // companion retires. Before the fix it parks here indefinitely.
-        let runner = Task { await engine.run() }
-        await awaitCompletion(of: runner, timeout: 5.0)
+    // `run()` must return on its own once the queue drains and the
+    // companion retires. Before the fix it parks here indefinitely.
+    let runner = Task { await engine.run() }
+    await awaitCompletion(of: runner, timeout: 5.0)
 
-        let row = try await state.find(id)
-        XCTAssertEqual(row?.state, .uploaded,
-                       "the photo still uploads — the companion is best-effort")
-    }
+    let row = try await state.find(id)
+    XCTAssertEqual(
+      row?.state, .uploaded,
+      "the photo still uploads — the companion is best-effort")
+  }
 
-    /// Fresh state store + sidecar store in a throwaway tmp dir. Callers pick
-    /// whichever `BackupQueue` implementation the test needs (a plain
-    /// `InProcessBackupQueue`, or the timestamping `DequeueSpyQueue` below).
-    private func harness() throws -> (BackupStateStore, AppSupportSidecarStore, URL) {
-        let tmpRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("engine-wake-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
-        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
-        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
-        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
-        return (try BackupStateStore(databaseURL: stateURL),
-                AppSupportSidecarStore(root: sidecarRoot), tmpRoot)
-    }
+  /// Fresh state store + sidecar store in a throwaway tmp dir. Callers pick
+  /// whichever `BackupQueue` implementation the test needs (a plain
+  /// `InProcessBackupQueue`, or the timestamping `DequeueSpyQueue` below).
+  private func harness() throws -> (BackupStateStore, AppSupportSidecarStore, URL) {
+    let tmpRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("engine-wake-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+    let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+    return (
+      try BackupStateStore(databaseURL: stateURL),
+      AppSupportSidecarStore(root: sidecarRoot), tmpRoot
+    )
+  }
 
-    /// Await `task` or fail if it hangs — a regression here would otherwise
-    /// stall the whole test run instead of failing fast. See `awaitBounded`
-    /// (`Helpers/TestShared.swift`) for why this can't be a `withTaskGroup`.
-    private func awaitCompletion(of task: Task<Void, Never>, timeout: TimeInterval,
-                                 file: StaticString = #filePath, line: UInt = #line) async {
-        let finished = await awaitBounded(timeout: timeout) { await task.value; return true } != nil
-        XCTAssertTrue(finished, "did not complete within \(timeout)s — possible hang",
-                      file: file, line: line)
-    }
+  /// Await `task` or fail if it hangs — a regression here would otherwise
+  /// stall the whole test run instead of failing fast. See `awaitBounded`
+  /// (`Helpers/TestShared.swift`) for why this can't be a `withTaskGroup`.
+  private func awaitCompletion(
+    of task: Task<Void, Never>, timeout: TimeInterval,
+    file: StaticString = #filePath, line: UInt = #line
+  ) async {
+    let finished =
+      await awaitBounded(timeout: timeout) {
+        await task.value
+        return true
+      } != nil
+    XCTAssertTrue(
+      finished, "did not complete within \(timeout)s — possible hang",
+      file: file, line: line)
+  }
 
-    /// (a) A failed upload's retry re-enqueues and `run()` — parked on the
-    /// event-driven wait, not a poll — picks it up and finishes the task.
-    /// The elapsed time is bounded close to the fixed ~2s first-retry
-    /// backoff, proving the wake doesn't add the up-to-1s latency a fixed
-    /// poll tick could have added on top of it.
-    func testRunProcessesRetryAfterEventDrivenWake() async throws {
-        StubURLProtocol.stub = .sequence([
-            .status(500),
-            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
-            .status(200),
-        ])
-        let (state, sidecars, tmpRoot) = try harness()
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-        let queue = InProcessBackupQueue()
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        let engine = BackupEngine(queue: queue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: StubAssetReader())
+  /// (a) A failed upload's retry re-enqueues and `run()` — parked on the
+  /// event-driven wait, not a poll — picks it up and finishes the task.
+  /// The elapsed time is bounded close to the fixed ~2s first-retry
+  /// backoff, proving the wake doesn't add the up-to-1s latency a fixed
+  /// poll tick could have added on top of it.
+  func testRunProcessesRetryAfterEventDrivenWake() async throws {
+    StubURLProtocol.stub = .sequence([
+      .status(500),
+      .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+      .status(200),
+    ])
+    let (state, sidecars, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let queue = InProcessBackupQueue()
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!,
+      libraryId: "lib", deviceId: "d",
+      transport: stubTransport())
+    let engine = BackupEngine(
+      queue: queue, state: state, upload: upload,
+      sidecars: sidecars, reader: StubAssetReader())
 
-        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
-        let task = BackupTask(id: id, state: .pending, priority: .background)
-        try await state.upsert(task)
-        await queue.enqueue(task, priority: .background)
+    let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+    let task = BackupTask(id: id, state: .pending, priority: .background)
+    try await state.upsert(task)
+    await queue.enqueue(task, priority: .background)
 
-        let start = Date()
-        await engine.run()
-        let elapsed = Date().timeIntervalSince(start)
+    let start = Date()
+    await engine.run()
+    let elapsed = Date().timeIntervalSince(start)
 
-        let row = try await state.find(id)
-        XCTAssertEqual(row?.state, .uploaded, "the retried upload should land")
-        XCTAssertLessThan(elapsed, 2.5,
-            "retry should fire promptly off the ~2s backoff, not after an extra poll tick (got \(elapsed)s)")
-    }
+    let row = try await state.find(id)
+    XCTAssertEqual(row?.state, .uploaded, "the retried upload should land")
+    XCTAssertLessThan(
+      elapsed, 2.5,
+      "retry should fire promptly off the ~2s backoff, not after an extra poll tick (got \(elapsed)s)"
+    )
+  }
 
-    /// (b) While idle with a retry pending, `run()` must not wake on a fixed
-    /// interval. With a 2s first-retry backoff, a 1s poll would produce a
-    /// `dequeue()` call around the 1s mark even though nothing has changed.
-    /// The event-driven wait must leave that window silent.
-    func testRunDoesNotWakeOnFixedIntervalWhileRetryPending() async throws {
-        StubURLProtocol.stub = .status(500)
-        let (state, sidecars, tmpRoot) = try harness()
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-        let spyQueue = DequeueSpyQueue()
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        let engine = BackupEngine(queue: spyQueue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: StubAssetReader(),
-                                  maxConcurrency: 1)
+  /// (b) While idle with a retry pending, `run()` must not wake on a fixed
+  /// interval. With a 2s first-retry backoff, a 1s poll would produce a
+  /// `dequeue()` call around the 1s mark even though nothing has changed.
+  /// The event-driven wait must leave that window silent.
+  func testRunDoesNotWakeOnFixedIntervalWhileRetryPending() async throws {
+    StubURLProtocol.stub = .status(500)
+    let (state, sidecars, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let spyQueue = DequeueSpyQueue()
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!,
+      libraryId: "lib", deviceId: "d",
+      transport: stubTransport())
+    let engine = BackupEngine(
+      queue: spyQueue, state: state, upload: upload,
+      sidecars: sidecars, reader: StubAssetReader(),
+      maxConcurrency: 1)
 
-        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
-        let task = BackupTask(id: id, state: .pending, priority: .background)
-        try await state.upsert(task)
-        await spyQueue.enqueue(task, priority: .background)
+    let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+    let task = BackupTask(id: id, state: .pending, priority: .background)
+    try await state.upsert(task)
+    await spyQueue.enqueue(task, priority: .background)
 
-        let start = Date()
-        let runnerTask = Task { await engine.run() }
+    let start = Date()
+    let runnerTask = Task { await engine.run() }
 
-        // Let the first failure land (near-instant) and the ~2s backoff run
-        // well past where a 1s poll would have ticked, then tear down.
-        try? await Task.sleep(nanoseconds: 2_300_000_000)
-        await engine.stop()
-        runnerTask.cancel()
-        await awaitCompletion(of: runnerTask, timeout: 2.0)
+    // Let the first failure land (near-instant) and the ~2s backoff run
+    // well past where a 1s poll would have ticked, then tear down.
+    try? await Task.sleep(nanoseconds: 2_300_000_000)
+    await engine.stop()
+    runnerTask.cancel()
+    await awaitCompletion(of: runnerTask, timeout: 2.0)
 
-        let timestamps = await spyQueue.dequeueTimestamps
-        let offsets = timestamps.map { $0.timeIntervalSince(start) }
-        let quietWindowHits = offsets.filter { $0 > 0.4 && $0 < 1.6 }
-        XCTAssertTrue(quietWindowHits.isEmpty,
-            "no dequeue() call should land in the 0.4s–1.6s quiet window while parked on a 2s-out retry — a fixed 1s poll would have ticked here, got offsets \(offsets)")
-    }
+    let timestamps = await spyQueue.dequeueTimestamps
+    let offsets = timestamps.map { $0.timeIntervalSince(start) }
+    let quietWindowHits = offsets.filter { $0 > 0.4 && $0 < 1.6 }
+    XCTAssertTrue(
+      quietWindowHits.isEmpty,
+      "no dequeue() call should land in the 0.4s–1.6s quiet window while parked on a 2s-out retry — a fixed 1s poll would have ticked here, got offsets \(offsets)"
+    )
+  }
 
-    /// (c) `stop()` still tears down cleanly (no hang) when `run()` is
-    /// currently parked on the event-driven wait — the wake must fire on
-    /// teardown, not only on a genuine retry.
-    func testStopTearsDownCleanlyWhileParkedOnRetry() async throws {
-        StubURLProtocol.stub = .status(500)
-        let (state, sidecars, tmpRoot) = try harness()
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-        let queue = InProcessBackupQueue()
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        let engine = BackupEngine(queue: queue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: StubAssetReader(),
-                                  maxConcurrency: 1)
+  /// (c) `stop()` still tears down cleanly (no hang) when `run()` is
+  /// currently parked on the event-driven wait — the wake must fire on
+  /// teardown, not only on a genuine retry.
+  func testStopTearsDownCleanlyWhileParkedOnRetry() async throws {
+    StubURLProtocol.stub = .status(500)
+    let (state, sidecars, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let queue = InProcessBackupQueue()
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!,
+      libraryId: "lib", deviceId: "d",
+      transport: stubTransport())
+    let engine = BackupEngine(
+      queue: queue, state: state, upload: upload,
+      sidecars: sidecars, reader: StubAssetReader(),
+      maxConcurrency: 1)
 
-        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
-        let task = BackupTask(id: id, state: .pending, priority: .background)
-        try await state.upsert(task)
-        await queue.enqueue(task, priority: .background)
+    let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+    let task = BackupTask(id: id, state: .pending, priority: .background)
+    try await state.upsert(task)
+    await queue.enqueue(task, priority: .background)
 
-        let runnerTask = Task { await engine.run() }
-        // Give the inline failure + retry scheduling time to land, so run()
-        // is genuinely parked (queue empty, a retry sleeping ~2s out) before
-        // teardown — the scenario the fixed-interval poll used to cover.
-        try? await Task.sleep(nanoseconds: 150_000_000)
+    let runnerTask = Task { await engine.run() }
+    // Give the inline failure + retry scheduling time to land, so run()
+    // is genuinely parked (queue empty, a retry sleeping ~2s out) before
+    // teardown — the scenario the fixed-interval poll used to cover.
+    try? await Task.sleep(nanoseconds: 150_000_000)
 
-        await engine.stop()
-        runnerTask.cancel()
-        await awaitCompletion(of: runnerTask, timeout: 1.0)
-    }
+    await engine.stop()
+    runnerTask.cancel()
+    await awaitCompletion(of: runnerTask, timeout: 1.0)
+  }
 
-    /// (d) A second concurrent `run()` call must not strand the first.
-    /// `RetryWakeSignal` has exactly one continuation slot — two loops both
-    /// parking on it would race to overwrite one another's continuation,
-    /// permanently stranding whichever registered first once the retry
-    /// landed and only the other, still-registered waiter got woken. `run()`
-    /// guards against this with `isRunning`, making a second concurrent call
-    /// a safe no-op instead.
-    func testConcurrentRunCallsDoNotStrandTheFirst() async throws {
-        StubURLProtocol.stub = .sequence([
-            .status(500),
-            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
-            .status(200),
-        ])
-        let (state, sidecars, tmpRoot) = try harness()
-        defer { try? FileManager.default.removeItem(at: tmpRoot) }
-        let queue = InProcessBackupQueue()
-        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
-                                  libraryId: "lib", deviceId: "d",
-                                  transport: stubTransport())
-        let engine = BackupEngine(queue: queue, state: state, upload: upload,
-                                  sidecars: sidecars, reader: StubAssetReader(),
-                                  maxConcurrency: 1)
+  /// (d) A second concurrent `run()` call must not strand the first.
+  /// `RetryWakeSignal` has exactly one continuation slot — two loops both
+  /// parking on it would race to overwrite one another's continuation,
+  /// permanently stranding whichever registered first once the retry
+  /// landed and only the other, still-registered waiter got woken. `run()`
+  /// guards against this with `isRunning`, making a second concurrent call
+  /// a safe no-op instead.
+  func testConcurrentRunCallsDoNotStrandTheFirst() async throws {
+    StubURLProtocol.stub = .sequence([
+      .status(500),
+      .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+      .status(200),
+    ])
+    let (state, sidecars, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let queue = InProcessBackupQueue()
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!,
+      libraryId: "lib", deviceId: "d",
+      transport: stubTransport())
+    let engine = BackupEngine(
+      queue: queue, state: state, upload: upload,
+      sidecars: sidecars, reader: StubAssetReader(),
+      maxConcurrency: 1)
 
-        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
-        let task = BackupTask(id: id, state: .pending, priority: .background)
-        try await state.upsert(task)
-        await queue.enqueue(task, priority: .background)
+    let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+    let task = BackupTask(id: id, state: .pending, priority: .background)
+    try await state.upsert(task)
+    await queue.enqueue(task, priority: .background)
 
-        let runnerA = Task { await engine.run() }
-        // Let A dequeue, fail, schedule the ~2s retry, and actually park on
-        // retryWake.wait() before starting B. This is precisely the window
-        // where an unguarded RetryWakeSignal lets a second waiter silently
-        // overwrite the first's parked continuation — starting B immediately
-        // alongside A doesn't reliably hit it, since B can just as easily
-        // race ahead and see an empty `retryTasks` (exiting via the
-        // queue-drained branch) before A has even scheduled its retry.
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        let runnerB = Task { await engine.run() }
+    let runnerA = Task { await engine.run() }
+    // Let A dequeue, fail, schedule the ~2s retry, and actually park on
+    // retryWake.wait() before starting B. This is precisely the window
+    // where an unguarded RetryWakeSignal lets a second waiter silently
+    // overwrite the first's parked continuation — starting B immediately
+    // alongside A doesn't reliably hit it, since B can just as easily
+    // race ahead and see an empty `retryTasks` (exiting via the
+    // queue-drained branch) before A has even scheduled its retry.
+    try? await Task.sleep(nanoseconds: 300_000_000)
+    let runnerB = Task { await engine.run() }
 
-        await awaitCompletion(of: runnerA, timeout: 3.0)
-        await awaitCompletion(of: runnerB, timeout: 3.0)
+    await awaitCompletion(of: runnerA, timeout: 3.0)
+    await awaitCompletion(of: runnerB, timeout: 3.0)
 
-        let row = try await state.find(id)
-        XCTAssertEqual(row?.state, .uploaded,
-            "the retried upload must still complete despite a concurrent second run() call")
-    }
+    let row = try await state.find(id)
+    XCTAssertEqual(
+      row?.state, .uploaded,
+      "the retried upload must still complete despite a concurrent second run() call")
+  }
 }
