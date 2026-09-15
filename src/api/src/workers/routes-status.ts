@@ -11,7 +11,7 @@
  */
 
 import { getDb } from '../db/client.ts';
-import type { WorkerConfigDoc } from './worker-config.repo.ts';
+import { sanitizeWorkerConfig, type WorkerConfigDoc } from './worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
 import { deriveBatchSize } from './loop-policy.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
@@ -29,7 +29,7 @@ export { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
 export const DEAD_LIST_LIMIT_DEFAULT = 50;
 export const DEAD_LIST_LIMIT_MAX = 500;
 
-export { sanitizeWorkerConfig } from './worker-config.repo.ts';
+export { sanitizeWorkerConfig };
 
 // ── Demand signal ───────────────────────────────────────────────────────────
 
