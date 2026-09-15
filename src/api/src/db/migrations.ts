@@ -479,6 +479,7 @@ export async function hardenFileinfoCompoundIndex(db: Db): Promise<FileinfoUniqu
 
 // backfill-person-face-count-2026-06-27 — populate `face_count` on every live
 // person so GET /api/people reads it directly instead of running an O(total-
-// faces) $unwind per request (#1594). Impl in people-face-count.repo.ts.
-export type { BackfillPersonFaceCountResult } from '../people/people-face-count.repo.ts';
-export { backfillPersonFaceCount } from '../people/people-face-count.repo.ts';
+// faces) $unwind per request (#1594). Keep bootstrap independent of repositories
+// that import the DB singleton.
+export type { BackfillPersonFaceCountResult } from './migrations.person-face-count.ts';
+export { backfillPersonFaceCount } from './migrations.person-face-count.ts';

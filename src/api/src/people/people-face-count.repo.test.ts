@@ -273,6 +273,32 @@ describe('face_count — backfill migration', () => {
     const stored = await h.db.collection<PersonDoc>('people').findOne({ _id: noFaces._id });
     expect(stored?.face_count).toBe(0);
   });
+
+  it('excludes hidden faces and merged people and remains idempotent', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { backfillPersonFaceCount } = await import('../db/migrations.ts');
+    const live = await createPerson('Backfill-Live');
+    const merged = await createPerson('Backfill-Merged');
+    await h.db
+      .collection<PersonDoc>('people')
+      .updateOne({ _id: merged._id }, { $set: { merged_into: live._id, face_count: 99 } });
+    const face = { bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, confidence: 0.9 };
+    await h.insertAssetWithFaces([
+      { ...face, person_id: live._id.toHexString() },
+      { ...face, person_id: live._id.toHexString(), hidden: true },
+      { ...face, person_id: merged._id.toHexString() },
+      { ...face, person_id: null },
+    ]);
+
+    const first = await backfillPersonFaceCount(h.db);
+    const second = await backfillPersonFaceCount(h.db);
+    expect(first).toEqual({ updated: 1, zeroed: 0 });
+    expect(second).toEqual(first);
+    const people = h.db.collection<PersonDoc>('people');
+    expect((await people.findOne({ _id: live._id }))?.face_count).toBe(1);
+    expect((await people.findOne({ _id: merged._id }))?.face_count).toBe(99);
+  });
 });
 
 // ---------------------------------------------------------------------------
