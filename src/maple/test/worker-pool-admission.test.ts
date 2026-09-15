@@ -152,6 +152,7 @@ describe('bounded Bun worker admission', () => {
   it('cleans up failed postMessage calls without consuming capacity', async () => {
     ControlledWorker.failPost = true;
     expect(((await outcome(filename())) as Error).message).toMatch(/cannot be cloned/);
+    expect(ControlledWorker.instances[0].terminated).toBe(true);
     ControlledWorker.failPost = false;
     const recovered = filename();
     ControlledWorker.instances[1].reply();

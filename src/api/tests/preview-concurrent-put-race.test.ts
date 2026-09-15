@@ -72,9 +72,12 @@ describe('PUT /api/preview — concurrent writers never expose a partial AVIF (#
 
     const WRITER_COUNT = 10;
     const READER_COUNT = 6;
-    const candidates: Buffer[] = await Promise.all(
-      Array.from({ length: WRITER_COUNT }, (_, i) => distinctAvif(i * 20, 40, 200 - i * 15)),
-    );
+    // Fixture encoding is setup, not the write race. Respect the package's
+    // bounded admission while retaining all ten concurrent PUTs below.
+    const candidates: Buffer[] = [];
+    for (let i = 0; i < WRITER_COUNT; i++) {
+      candidates.push(await distinctAvif(i * 20, 40, 200 - i * 15));
+    }
     const seed = await distinctAvif(1, 2, 3);
 
     // Pre-seed so the race starts from an "old" state that already exists on
