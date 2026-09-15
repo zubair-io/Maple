@@ -89,16 +89,24 @@ test('invalid IDs never advance uploads; normalized IDs preserve resume, retry a
         }),
       );
       expect(response.status).toBe(ids[0] === 'bad' ? 400 : 200);
-      if (response.status === 200) expect(await response.json()).toEqual({ missing: [] });
+      await assertMissingIds(response);
     }
   } finally {
     await closeDb();
     await client.close();
     await server.stop();
     await rm(root, { recursive: true });
-    if (previous.uri === undefined) delete process.env.MAPLE_MONGO_URI;
-    else process.env.MAPLE_MONGO_URI = previous.uri;
-    if (previous.db === undefined) delete process.env.MAPLE_MONGO_DB;
-    else process.env.MAPLE_MONGO_DB = previous.db;
+    restoreMongoEnvironment(previous);
   }
 }, 30000);
+
+function restoreMongoEnvironment(previous: { uri: string | undefined; db: string | undefined }) {
+  if (previous.uri === undefined) delete process.env.MAPLE_MONGO_URI;
+  else process.env.MAPLE_MONGO_URI = previous.uri;
+  if (previous.db === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = previous.db;
+}
+
+async function assertMissingIds(response: Response) {
+  if (response.status === 200) expect(await response.json()).toEqual({ missing: [] });
+}
