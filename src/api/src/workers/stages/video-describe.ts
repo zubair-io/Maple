@@ -86,8 +86,7 @@ interface VideoDescribeDeps {
   provider?: DescribeProviderName;
 }
 
-let _testDeps: VideoDescribeDeps | null = null;
-let _cachedPool: { pool: DescribeServerPool; fingerprint: string } | null = null;
+let _deps: VideoDescribeDeps | null = null;
 
 function resolveVideoProvider(workerProvider?: string, cfgProvider?: string): DescribeProviderName {
   if (workerProvider) return workerProvider as DescribeProviderName;
@@ -105,38 +104,34 @@ function resolveVideoModel(
   return DEFAULT_DESCRIBE_MODELS[provider] || DESCRIBE_VISION_OLLAMA_TAG;
 }
 
-function getOrCreateVideoDescribePool(
+function createVideoDescribePool(
   provider: DescribeProviderName,
   servers: ReturnType<typeof resolveEnrichmentConfig>['describe_servers'],
   concurrency: number,
 ): DescribeServerPool {
-  const poolServers = provider === 'ollama' ? servers : [{ url: provider, concurrency }];
-  const videoFp = JSON.stringify({ provider, concurrency, servers: poolServers });
-  if (!_cachedPool || _cachedPool.fingerprint !== videoFp) {
-    const pool =
-      provider === 'ollama'
-        ? new DescribeServerPool(servers)
-        : new DescribeServerPool(poolServers, () => getDescribeProvider(provider));
-    _cachedPool = { pool, fingerprint: videoFp };
+  if (provider === 'ollama') {
+    return new DescribeServerPool(servers);
   }
-  return _cachedPool.pool;
+  return new DescribeServerPool([{ url: provider, concurrency }], () =>
+    getDescribeProvider(provider),
+  );
 }
 
 async function getDeps(): Promise<VideoDescribeDeps> {
-  if (_testDeps) return _testDeps;
+  if (_deps) return _deps;
   const cfg = resolveEnrichmentConfig(await loadEnrichmentConfig());
   const workerConfig = await loadWorkerConfigSafe('video-describe');
 
   const provider = resolveVideoProvider(workerConfig?.ai_provider, cfg.describe_provider);
   const model = resolveVideoModel(workerConfig?.ai_model, cfg.describe_model, provider);
   const systemPrompt = composeVideoDescribePrompt(workerConfig?.prompt_text);
-  const pool = getOrCreateVideoDescribePool(
+  const pool = createVideoDescribePool(
     provider,
     cfg.describe_servers,
     workerConfig?.concurrency ?? 1,
   );
 
-  return {
+  _deps = {
     sampleFrames: sampleVideoFrames,
     describe: (frames) =>
       pool.run(async (p, server) => ({
@@ -150,19 +145,19 @@ async function getDeps(): Promise<VideoDescribeDeps> {
     model,
     provider,
   };
+  return _deps;
 }
 
 /** Invalidate the deps cache so the next call re-reads the describe server
  * list from the persisted config — wired the same way `describe.ts`'s
  * `resetDescribeDeps` is, from `applyDescribeConfig`. */
 export function resetVideoDescribeDeps(): void {
-  _testDeps = null;
-  _cachedPool = null;
+  _deps = null;
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
 export function setVideoDescribeDepsForTests(deps: VideoDescribeDeps | null): void {
-  _testDeps = deps;
+  _deps = deps;
 }
 
 type FallbackLevel = VideoDescriptionMeta['fallback_level'];
