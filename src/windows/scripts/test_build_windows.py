@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -184,6 +185,39 @@ exit 0""",
                 )
                 result, _ = self.run_wrapper(OMIT_OUTPUT=output)
                 self.assert_failed(result, "missing")
+
+
+class WindowsCodegenEncoding(unittest.TestCase):
+    def test_agx_shader_is_utf8_without_locale_defaults(self):
+        repo = SCRIPT.parents[3]
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "agx_coeffs.wgsl"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-X",
+                    "warn_default_encoding",
+                    "-Werror::EncodingWarning",
+                    str(repo / "src/scripts/derive_agx_lut.py"),
+                    "--wgsl",
+                    str(output),
+                ],
+                capture_output=True,
+                check=False,
+                env={**os.environ, "PYTHONUTF8": "0"},
+            )
+            self.assertEqual(
+                result.returncode, 0, result.stderr.decode("utf-8", "replace")
+            )
+            shader = output.read_bytes()
+            self.assertIn("—".encode(), shader)
+            self.assertNotIn(b"\r\n", shader)
+            self.assertEqual(
+                shader,
+                (
+                    repo / "src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl"
+                ).read_bytes(),
+            )
 
 
 if __name__ == "__main__":
