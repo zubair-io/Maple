@@ -115,44 +115,64 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
       console.log('[backup-exists.test] MongoDB unreachable — skipping');
       return;
     }
-    await seedAsset(db, libraryId, 'present-a');
-    await seedAsset(db, libraryId, 'present-b');
+    await seedAsset(db, libraryId, '02326e4802370e56c95b1b75b976ec74');
+    await seedAsset(db, libraryId, '0229d03e9b6a0dc6c1fb2d5c2772d62c');
 
     const res = await post(libraryId.toHexString(), {
-      maple_ids: ['present-a', 'missing-x', 'present-b', 'missing-y'],
+      maple_ids: [
+        '02326e4802370e56c95b1b75b976ec74',
+        '0207b9137a8575b96dfa8e745187bd52',
+        '0229d03e9b6a0dc6c1fb2d5c2772d62c',
+        '02f3d72fdbc7589497c07f85d9cbfb67',
+      ],
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { missing: string[] };
     // Present ids excluded; missing ones returned in input order.
-    expect(body.missing).toEqual(['missing-x', 'missing-y']);
+    expect(body.missing).toEqual([
+      '0207b9137a8575b96dfa8e745187bd52',
+      '02f3d72fdbc7589497c07f85d9cbfb67',
+    ]);
   });
 
   it('scopes presence to the requested library', async () => {
     if (!mongo || !db || !libraryId) return;
     // Seed the same maple_id but linked to a DIFFERENT library.
     const otherLibrary = new ObjectId();
-    await seedAsset(db, otherLibrary, 'shared-id');
+    await seedAsset(db, otherLibrary, '02bfd7313542364285aa15157dffa946');
 
     const res = await post(libraryId.toHexString(), {
-      maple_ids: ['shared-id'],
+      maple_ids: ['02bfd7313542364285aa15157dffa946'],
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { missing: string[] };
     // Present in another library, so still "missing" for this one.
-    expect(body.missing).toEqual(['shared-id']);
+    expect(body.missing).toEqual(['02bfd7313542364285aa15157dffa946']);
   });
 
   it('de-duplicates input ids and preserves first-seen order', async () => {
     if (!mongo || !db || !libraryId) return;
-    await seedAsset(db, libraryId, 'have');
+    await seedAsset(db, libraryId, '02193c45b5281908d2d9c814ba73be69');
 
     const res = await post(libraryId.toHexString(), {
-      maple_ids: ['a', 'b', 'a', 'have', 'b', 'have', 'c'],
+      maple_ids: [
+        '02ca978112ca1bbdcafac231b39a23dc',
+        '023e23e8160039594a33894f6564e1b1',
+        '02ca978112ca1bbdcafac231b39a23dc',
+        '02193c45b5281908d2d9c814ba73be69',
+        '023e23e8160039594a33894f6564e1b1',
+        '02193c45b5281908d2d9c814ba73be69',
+        '022e7d2c03a9507ae265ecf5b5356885',
+      ],
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { missing: string[] };
-    // 'have' excluded (present); duplicates collapsed; order preserved.
-    expect(body.missing).toEqual(['a', 'b', 'c']);
+    // '02193c45b5281908d2d9c814ba73be69' excluded (present); duplicates collapsed; order preserved.
+    expect(body.missing).toEqual([
+      '02ca978112ca1bbdcafac231b39a23dc',
+      '023e23e8160039594a33894f6564e1b1',
+      '022e7d2c03a9507ae265ecf5b5356885',
+    ]);
   });
 
   it('empty array yields an empty missing list', async () => {
@@ -166,7 +186,7 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   it('unknown library → 404', async () => {
     if (!mongo || !db) return;
     const res = await post(new ObjectId().toHexString(), {
-      maple_ids: ['anything'],
+      maple_ids: ['02ee0874170b7f6f32b8c2ac9573c428'],
     });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: string };
@@ -175,7 +195,7 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
 
   it('invalid library id → 400', async () => {
     if (!mongo || !db) return;
-    const res = await post('not-an-objectid', { maple_ids: ['anything'] });
+    const res = await post('not-an-objectid', { maple_ids: ['02ee0874170b7f6f32b8c2ac9573c428'] });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe('invalid library id');
@@ -199,7 +219,7 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
 
   it('more than 1000 ids → 400', async () => {
     if (!mongo || !db || !libraryId) return;
-    const tooMany = Array.from({ length: 1001 }, (_, i) => `id-${i}`);
+    const tooMany = Array.from({ length: 1001 }, (_, i) => i.toString(16).padStart(32, '0'));
     const res = await post(libraryId.toHexString(), { maple_ids: tooMany });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -208,7 +228,7 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
 
   it('accepts exactly 1000 ids', async () => {
     if (!mongo || !db || !libraryId) return;
-    const exactly = Array.from({ length: 1000 }, (_, i) => `id-${i}`);
+    const exactly = Array.from({ length: 1000 }, (_, i) => i.toString(16).padStart(32, '0'));
     const res = await post(libraryId.toHexString(), { maple_ids: exactly });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { missing: string[] };

@@ -8,20 +8,8 @@
 //
 // Output: 16 bytes, hex-encoded lowercase (32 chars).
 //
-// DELIBERATE DUPLICATE: this is a byte-for-byte port of the pure functions in
-// `src/api/src/indexer/id.ts` (primary/fallback/deriveId/toHex/concat/toLeU64/
-// fromHex). That file also exports `hashFileForId`, which opens a fd via
-// `node:fs/promises` — a Node-only API that has no browser equivalent and
-// would break ng-packagr's library build if imported from `maple-common`. The
-// pure hashing functions have no such dependency, but re-importing them from
-// `src/api` isn't possible either: `src/api` and `src/web` are separate
-// packages/runtimes in this monorepo (api targets Bun, web targets the
-// browser) with no shared-source mechanism between them. This module is kept
-// in sync with `id.ts` BY CONVENTION, the same category as this repo's other
-// confirmed "independently implemented, byte-identical by convention" pairs
-// (e.g. the Swift CIEDE2000 port cross-validated against
-// `compare_images.py`). `maple-id.spec.ts` proves parity against `id.ts`'s
-// `primary()` output for identical inputs.
+// Hashing adapters retain their existing derivation policy. Parsing is shared
+// with the API through the dependency-free maple-id-parser module.
 //
 // `fallback()` below still exists for small/in-memory buffers (tests, and
 // any small-file case), but the browser's real fallback-form path does NOT
@@ -45,13 +33,9 @@ export const TAG_FALLBACK = 0x02;
 /** Number of leading bytes that feed sha1Head. */
 export const SHA1_HEAD_BYTES = 64 * 1024;
 
-export type IdKind = 'primary' | 'fallback';
-
-export interface MapleId {
-  readonly bytes: Uint8Array;
-  readonly hex: string;
-  readonly kind: IdKind;
-}
+import type { MapleId } from './maple-id-parser';
+export { fromHex, isMapleId } from './maple-id-parser';
+export type { MapleId, IdKind } from './maple-id-parser';
 
 function toLeU64(n: bigint | number): Uint8Array {
   const out = new Uint8Array(8);
@@ -142,31 +126,4 @@ export function deriveId(
   return capturedAt !== null
     ? primary(bytes, capturedAt, cameraSerial, shutterCount)
     : fallback(bytes, bytes.length);
-}
-
-/** Parse a 32-char hex id back into bytes. */
-export function fromHex(hex: string): MapleId {
-  if (hex.length !== 32) {
-    throw new Error(`maple:id: expected 32 hex chars, got ${hex.length}`);
-  }
-  // `Number.parseInt` accepts a PARTIALLY valid string — `parseInt('0g', 16)`
-  // is `0`, not `NaN` (it parses the leading valid digits and silently stops
-  // at the first invalid one), so a per-byte `!Number.isFinite(byte)` check
-  // never actually catches a malformed pair like "0g" or "f!". `raw-core`'s
-  // reference `from_hex` validates every nibble strictly and rejects any of
-  // them; this port must match that, not silently accept garbage as if it
-  // were a real byte. Validating the whole string up front against a strict
-  // hex-only pattern closes that gap in one place, before any parsing.
-  if (!/^[0-9a-fA-F]{32}$/.test(hex)) {
-    throw new Error('maple:id: invalid hex digit');
-  }
-  const out = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) {
-    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return {
-    bytes: out,
-    hex: hex.toLowerCase(),
-    kind: out[0] === TAG_PRIMARY ? 'primary' : 'fallback',
-  };
 }
