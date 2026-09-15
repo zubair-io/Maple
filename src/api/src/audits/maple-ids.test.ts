@@ -30,6 +30,10 @@ test('read-only audit separates invalid, legacy, case, collisions and unresolved
         { status: 'uploading' },
       ]);
     await db.collection('meilisearch_backfill_failures').insertOne({ maple_id: 'bad-id' });
+    await db.collection('video_geo_backfill_audit').insertMany([
+      { maple_id: canonical, donor_maple_id: 'bad-donor' },
+      { maple_id: canonical.toUpperCase(), donor_maple_id: canonical },
+    ]);
     const before = await Promise.all(
       ID_COLLECTIONS.map((name) => db.collection(name).find().toArray()),
     );
@@ -43,6 +47,8 @@ test('read-only audit separates invalid, legacy, case, collisions and unresolved
       malformed: 2,
       'missing-legacy': 3,
     });
+    expect(summary.counts.video_geo_backfill_audit['noncanonical-case']).toBe(1);
+    expect(summary.counts['video_geo_backfill_audit.donor_maple_id'].malformed).toBe(1);
     expect(summary.collisionGroups).toBe(1);
     expect(findings.filter((f) => f.type === 'collision-owner')).toHaveLength(2);
     expect(findings.filter((f) => f.type === 'unresolved-reference')).toHaveLength(1);
