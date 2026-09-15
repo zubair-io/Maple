@@ -34,13 +34,13 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
         'X-Maple-Lon': '139.69',
         'X-Maple-Filename': 'IMG_0420.HEIC',
         'X-Maple-Total-Bytes': '256',
-        'X-Maple-Maple-Id': 'abc123',
+        'X-Maple-Maple-Id': '026ca13d52ca70c883e0f0bb101e425a',
         'Content-Range': 'bytes 0-255/256',
       }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.maple_id).toBe('abc123');
+    expect(body.maple_id).toBe('026ca13d52ca70c883e0f0bb101e425a');
     expect(body.target_rel_path).toBe('2024/Japan/Tokyo/IMG_0420.HEIC');
 
     const onDisk = await fs.readFile(path.join(suite.handle.tmpLib, body.target_rel_path));
@@ -74,7 +74,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
         'X-Maple-Capture-Date': '2024-03-15T10:30:00Z',
         'X-Maple-Filename': 'IMG_0421.HEIC',
         'X-Maple-Total-Bytes': '256',
-        'X-Maple-Maple-Id': 'def456',
+        'X-Maple-Maple-Id': '028f61ad5cfa0c471c8cbf810ea285cb',
         'Content-Range': 'bytes 128-255/256',
       }),
     );
@@ -88,7 +88,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     // recognises the completed session and short-circuits to 200 with the
     // stored maple_id + target_rel_path.
     const retryPhid = 'ABC/L0/RETRY';
-    const retryMapleId = 'maple-retry-after-complete';
+    const retryMapleId = '02161cb9ee6ab785420f9ffa3fe9e07f';
     const bytes = Buffer.alloc(128, 7);
     const headers = {
       'X-Maple-Device-Id': deviceId,
@@ -170,7 +170,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
   });
 
   test('second device with same maple_id → $push phasset_link, no new AssetDoc', async () => {
-    const sharedMapleId = 'shared-id-dedup';
+    const sharedMapleId = '02155ffeb77424a83923b93d70c9451b';
     const deviceA = 'device-A-dedup';
     const deviceB = 'device-B-dedup';
     const phidA = 'ABC/L0/010';
@@ -226,7 +226,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
           'X-Maple-Capture-Date': '2024-03-15T10:30:00Z',
           'X-Maple-Filename': 'x.heic',
           'X-Maple-Total-Bytes': '1',
-          'X-Maple-Maple-Id': 'x',
+          'X-Maple-Maple-Id': '022d711642b726b04401627ca9fbac32',
           'Content-Range': 'bytes 0-0/1',
         },
         body: Buffer.alloc(1),

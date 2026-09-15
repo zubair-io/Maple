@@ -74,7 +74,7 @@ describe('backup-ingest screenshot routing', () => {
         'X-Maple-Capture-Date': '2024-03-15T10:30:00Z',
         'X-Maple-Filename': 'Screenshot 2024-03-15 at 10.04.32.png',
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': 'screenshot-1',
+        'X-Maple-Maple-Id': '0282e60066a2de261b6653bcdda90d1c',
         // Note: a GPS fix is supplied to prove the screenshot folder wins over
         // the location layout.
         'X-Maple-Lat': '37.7749',
@@ -87,7 +87,7 @@ describe('backup-ingest screenshot routing', () => {
     expect(body.target_rel_path).toBe('2024/Screenshot/Screenshot 2024-03-15 at 10.04.32.png');
 
     const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: 'screenshot-1' });
+    const doc = await a.findOne({ maple_id: '0282e60066a2de261b6653bcdda90d1c' });
     expect(doc?.fileinfo?.[0].path).toBe('2024/Screenshot');
     expect(doc?.is_screenshot).toBe(true);
 
@@ -106,7 +106,7 @@ describe('backup-ingest screenshot routing', () => {
         'X-Maple-Capture-Date': '2024-03-15T10:30:00Z',
         'X-Maple-Filename': 'IMG_2024.HEIC',
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': 'screenshot-2',
+        'X-Maple-Maple-Id': '0269a8aa01fe5537076d023dd5e9cc42',
         'Content-Range': 'bytes 0-63/64',
       }),
     );
@@ -115,7 +115,7 @@ describe('backup-ingest screenshot routing', () => {
     expect(body.target_rel_path).toBe('2024/Misc/IMG_2024.HEIC');
 
     const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: 'screenshot-2' });
+    const doc = await a.findOne({ maple_id: '0269a8aa01fe5537076d023dd5e9cc42' });
     expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
     expect(doc?.is_screenshot).toBe(false);
   });
@@ -132,7 +132,7 @@ describe('backup-ingest screenshot routing', () => {
         // layout, not the Screenshot folder.
         'X-Maple-Filename': 'Screenshot_20240315_103000.mp4',
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': 'screenshot-video-1',
+        'X-Maple-Maple-Id': '0259712afe2eaf516245979e4a802972',
         'Content-Range': 'bytes 0-63/64',
       }),
     );
@@ -141,7 +141,7 @@ describe('backup-ingest screenshot routing', () => {
     expect(body.target_rel_path).toBe('2024/Misc/Screenshot_20240315_103000.mp4');
 
     const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: 'screenshot-video-1' });
+    const doc = await a.findOne({ maple_id: '0259712afe2eaf516245979e4a802972' });
     expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
     expect(doc?.is_screenshot).toBe(false);
 

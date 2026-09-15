@@ -32,6 +32,7 @@
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
+import { fromHex, isMapleId } from '../indexer/id.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
@@ -71,6 +72,11 @@ export const backupExistsRoutes = new Elysia().post(
       return { error: 'maple_ids must be an array of strings' };
     }
 
+    if (rawIds.some((id) => !isMapleId(id))) {
+      set.status = 400;
+      return { error: 'invalid maple_id' };
+    }
+
     // Check library exists.
     const folder = await (await foldersCollection()).findOne({ _id: libraryId });
     if (!folder) {
@@ -82,7 +88,8 @@ export const backupExistsRoutes = new Elysia().post(
     // computed against this de-duped list so the response never repeats an id.
     const seen = new Set<string>();
     const ids: string[] = [];
-    for (const id of rawIds as string[]) {
+    for (const rawId of rawIds as string[]) {
+      const id = fromHex(rawId).hex;
       if (seen.has(id)) continue;
       seen.add(id);
       ids.push(id);

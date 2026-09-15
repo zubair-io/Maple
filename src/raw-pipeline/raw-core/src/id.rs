@@ -310,6 +310,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn streaming_fallback_matches_typescript_large_file_golden() {
+        let bytes: Vec<u8> = (0..70001).map(|i| (i % 251) as u8).collect();
+        assert_eq!(
+            hash_via_splits(&bytes, &[0, 65536, 70001]).to_hex(),
+            "020cd7e09e4485130fa4e571188060f1"
+        );
+    }
+
+    #[test]
+    fn shared_typescript_parser_vectors() {
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../test-fixtures/ids/parser.json"))
+                .unwrap();
+        for value in vectors["valid"].as_array().unwrap() {
+            let text = value.as_str().unwrap();
+            assert_eq!(
+                MapleId::from_hex(text).unwrap().to_hex(),
+                text.to_lowercase()
+            );
+        }
+        for value in vectors["invalid"].as_array().unwrap() {
+            assert!(MapleId::from_hex(value.as_str().unwrap()).is_err());
+        }
+    }
+
+    #[test]
     fn hex_roundtrip() {
         let id = MapleId([
             0x01, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22,

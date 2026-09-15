@@ -10,7 +10,7 @@ const libId = new ObjectId();
 const deviceId = 'test-device-rendered';
 const phid = 'REND/L0/001';
 const phid2 = 'REND/L0/002';
-const mapleId = 'rendered-maple-id';
+const mapleId = '02371b94aade2246ba56c6770a7624e1';
 const originalRelPath = '2024/Tokyo/03-15/IMG_RENDERED.HEIC';
 let tmpLib: string;
 
@@ -134,7 +134,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
 
   test('explicit extension via X-Maple-Filename-Ext', async () => {
     const phidExt = 'REND/L0/EXT';
-    const mapleIdExt = 'rendered-ext-maple-id';
+    const mapleIdExt = '026120dc19a247bbd0298afea4874eea';
     const bytes = Buffer.alloc(64, 8);
 
     // Insert a minimal asset so the rendered endpoint can update it.
@@ -173,7 +173,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
 
   test('X-Maple-Suffix-Override: Live Photo .mov lands as <base>.mov (no .rendered. infix)', async () => {
     const phidMov = 'REND/L0/MOV';
-    const mapleIdMov = 'rendered-mov-maple-id';
+    const mapleIdMov = '0291b57f1646235c26b1fe54758048e9';
     const bytes = Buffer.alloc(96, 9);
 
     const a = await assetsCollection();
@@ -216,7 +216,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
   });
 
   test('chunked resume across two chunks', async () => {
-    const mapleId2 = 'rendered-resume-maple-id';
+    const mapleId2 = '02ac8d4d43295e11b7487e09f0563977';
 
     // Insert a minimal asset.
     const a = await assetsCollection();
@@ -283,7 +283,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
 
   test('409 on resume offset mismatch', async () => {
     const phidOff = 'REND/L0/OFF';
-    const mapleIdOff = 'rendered-offset-maple-id';
+    const mapleIdOff = '02a6633b6643f75243e080e787fedf0c';
 
     const a = await assetsCollection();
     await a.insertOne({

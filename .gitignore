@@ -7,6 +7,8 @@
 test-fixtures/*
 # Exception: the per-case ΔE budget table IS committed (it's the CI ratchet).
 !test-fixtures/budgets.json
+# Shared strict image-ID parser vectors (TypeScript and Rust, #3642).
+!test-fixtures/ids/
 # Exception: the pano per-set metric budget table IS committed (CI ratchet
 # for src/scripts/test_pano_pipeline.sh — #1120).
 !test-fixtures/pano-budgets.json
