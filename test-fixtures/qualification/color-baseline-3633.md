@@ -78,3 +78,29 @@ bash src/scripts/test_color_pipeline.sh
 ```
 
 The harness renders both Neutral and Auto, uses its existing no-bundled-lens path, and applies the committed budgets without overrides. Expect six comparisons and zero skips. The no-fixtures soft-pass path is not evidence of this gate passing.
+
+
+## Green-denominator consistency experiment
+
+When green is not clipped, keep it as the denominator for the stored R/G and B/G estimates instead of inferring a different green from a brighter red/blue anchor. This is an algebraic consistency hypothesis, not a claim that demosaiced green always has better sensor evidence. The un-clipped output channels remain untouched.
+
+All six cases rendered and compared, zero skipped. `test_0007` now passes Neutral max 43.11 (limit 44.10) and Auto max 37.22 (limit 39.00). `test_0000` remains unchanged and failing at 42.07 / 41.72. `test_0017` remains unchanged at 34.76 / 34.17. This candidate is still incomplete; synthetic edge/channel coverage and wider qualification remain required before it could ship.
+
+At test_0007 sensor (5772,1718), the 20 contributing neighbors give confidence-blended R/G 1.07173 and B/G 2.54682, while the input's R/G is 1.47060. The original red anchor invents a different green to produce B=3.36861; retaining input G=0.96393013 gives B=2.45495. This explains the direction of the measured improvement without changing the physical clipping thresholds.
+
+## test_0000 stage-order observation
+
+A temporary trace inside the actual full develop pipeline (after embedded OpcodeList3) sampled the native footprint of the maximum-error downsampled pixel. At (182,6337), input [2.455214, 1.2348444, 1.317717] has clip mask 0 and passes through. Nearby (184,6337), input [5.122901, 2.0130403, 2.8843458] has clipped green and becomes [5.122901, 2.5850992, 2.8843458]. Thresholds are [5.3988748, 2.0038414, 2.9704792].
+
+This fixture carries WarpRectilinear. The current full/sized/panorama pipeline resamples before reconstructing highlights; the sized pipeline also downsamples before reconstruction. Resampling can mix a sensor-clipped channel below its threshold, so post-resample clip detection does not preserve the original saturation evidence. A diagnostic moving baseline exposure, WB pre-gain, and reconstruction before the warp is being measured. Exposure/WB gains commute with the linear per-channel warp; highlight reconstruction does not. No stage-order change has been accepted yet.
+
+
+## Pre-warp reconstruction experiment
+
+Moving baseline exposure, WB pre-gain, and highlight reconstruction before OpcodeList3 in the full develop path, together with the green-denominator correction, still fails two of six comparisons (zero skipped). `test_0000` maxima improve to 39.18 Neutral / 39.80 Auto; limits remain 39.10 / 36.50. `test_0007` and `test_0017` retain the preceding experiment's passing results. The maximum on `test_0000` moves to (2811,329) in the 4000-pixel reference; candidate RGB is (0.8471,0.4314,0.4784), reference (0.7333,0.6431,0.3255).
+
+The actual DNG has one WarpRectilinear opcode with identical planes, radial coefficients [0.984778,0.035585,-0.075203,0.054787], tangential [0,0], center [0.5,0.5]. Mapping the new maximum's native output footprint back through this warp locates sensor coordinates near (8612,1042). A pre-warp trace shows green saturation at nearby (8612,1045): input [4.971276,2.013911,2.6488168], reconstructed [4.971276,2.4207985,2.6488168]. Its 40 fully-unclipped witnesses have mean R/G 2.29062, median 2.18548, standard deviation 0.62228. The field includes real spatial color variation; treating it as mere noise is not justified.
+
+The next diagnostic estimates each clipped channel relative to the mean of the target's known channels, using that same known-channel mask for every witness. This avoids both the brightest-anchor choice and taking ratios of independently averaged ratios. It retains existing clip thresholds, neighborhood, witness minimum and confidence rule, keeps every un-clipped channel unchanged, and uses no new tuning constant or heap allocation. This remains a diagnostic until the objective gates and synthetic invariants establish its behavior.
+
+Qualification scope discovered during the investigation: the installed full manifest contains 777 cases across 20 fixtures; all 777 RAW paths and 606 down-resolution references are present. All 20 baseline references are present. The six-case subset reproduces this issue's reported failures; it is not full-corpus qualification. Any accepted candidate needs the wider baseline comparison and relevant synthetic/CPU-GPU parity gates.
