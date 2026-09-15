@@ -5,6 +5,10 @@ import { aiRoutes } from './ai.ts';
 import { closeDb, getDb, isDbConnected } from '../db/client.ts';
 import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
 import { signAccessToken } from '../auth/tokens.ts';
+import {
+  loadEnrichmentConfig,
+  saveEnrichmentConfig,
+} from '../enrichment/enrichment-config.repo.ts';
 
 const JWT_SECRET = 'x'.repeat(32);
 withTestEnv('MAPLE_JWT_SECRET', JWT_SECRET);
@@ -169,10 +173,48 @@ describe('/api/ai routes', () => {
       expect(putRes.status).toBe(200);
       expect(process.env.MAPLE_OPENAI_API_KEY).toBe('sk-test-saved-key');
 
+      const fromDb = await loadEnrichmentConfig();
+      expect(fromDb?.openai_api_key).toBe('sk-test-saved-key');
+
+      // Verify that after simulated restart (env cleared), key still resolves from DB
+      delete process.env.MAPLE_OPENAI_API_KEY;
       const getRes = await req('/api/ai/config', {}, ownerToken);
       expect(getRes.status).toBe(200);
       const data = (await getRes.json()) as { providers: { openai: { has_key: boolean } } };
       expect(data.providers.openai.has_key).toBe(true);
+    });
+
+    it('updates describe_servers[0].url when updating Ollama URL and server list exists', async () => {
+      await saveEnrichmentConfig({
+        describe_servers: [
+          { url: 'http://old-ollama:11434', concurrency: 2 },
+          { url: 'http://worker-2:11434', concurrency: 2 },
+        ],
+      });
+
+      const putRes = await req(
+        '/api/ai/config',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            providers: {
+              ollama: { url: 'http://new-ollama:11434' },
+            },
+          }),
+        },
+        ownerToken,
+      );
+      expect(putRes.status).toBe(200);
+
+      const fromDb = await loadEnrichmentConfig();
+      expect(fromDb?.describe_provider_url).toBe('http://new-ollama:11434');
+      expect(fromDb?.describe_servers?.[0]?.url).toBe('http://new-ollama:11434');
+      expect(fromDb?.describe_servers?.[1]?.url).toBe('http://worker-2:11434');
+
+      const getRes = await req('/api/ai/config', {}, ownerToken);
+      const data = (await getRes.json()) as { providers: { ollama: { url: string } } };
+      expect(data.providers.ollama.url).toBe('http://new-ollama:11434');
     });
 
     it('clears API key and removes env var when passed empty string', async () => {

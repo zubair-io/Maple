@@ -108,15 +108,17 @@ function createVideoDescribePool(
   provider: DescribeProviderName,
   servers: ReturnType<typeof resolveEnrichmentConfig>['describe_servers'],
   concurrency: number,
+  apiKey?: string | null,
 ): DescribeServerPool {
   if (provider === 'ollama') {
     return new DescribeServerPool(servers);
   }
   return new DescribeServerPool([{ url: provider, concurrency }], () =>
-    getDescribeProvider(provider),
+    getDescribeProvider(provider, { apiKey: apiKey ?? undefined }),
   );
 }
 
+// fallow-ignore-next-line complexity
 async function getDeps(): Promise<VideoDescribeDeps> {
   if (_deps) return _deps;
   const cfg = resolveEnrichmentConfig(await loadEnrichmentConfig());
@@ -125,10 +127,19 @@ async function getDeps(): Promise<VideoDescribeDeps> {
   const provider = resolveVideoProvider(workerConfig?.ai_provider, cfg.describe_provider);
   const model = resolveVideoModel(workerConfig?.ai_model, cfg.describe_model, provider);
   const systemPrompt = composeVideoDescribePrompt(workerConfig?.prompt_text);
+  const apiKey =
+    provider === 'openai'
+      ? cfg.openai_api_key
+      : provider === 'anthropic'
+        ? cfg.anthropic_api_key
+        : provider === 'gemini'
+          ? cfg.gemini_api_key
+          : null;
   const pool = createVideoDescribePool(
     provider,
     cfg.describe_servers,
     workerConfig?.concurrency ?? 1,
+    apiKey,
   );
 
   _deps = {
@@ -286,6 +297,9 @@ const videoDescribeStage = defineStage({
     paused: false,
     pausedOnFirstBoot: true,
     last_seen_target_version: 0,
+  },
+  onConfigChange: () => {
+    resetVideoDescribeDeps();
   },
   handler: videoDescribeHandler,
 });

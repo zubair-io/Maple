@@ -415,16 +415,22 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
     expect(c).toBeNull();
   });
 
-  it('save then load round-trips both fields', async () => {
+  it('save then load round-trips fields', async () => {
     if (!mongoReachable) return;
     await saveEnrichmentConfig({
       nominatim_url: 'http://nominatim.test:8080',
       geocode_worker_enabled: true,
+      openai_api_key: 'sk-test-123',
+      anthropic_api_key: 'sk-ant-456',
+      gemini_api_key: 'aiza-789',
     });
     const c = await loadEnrichmentConfig();
     expect(c).toMatchObject({
       nominatim_url: 'http://nominatim.test:8080',
       geocode_worker_enabled: true,
+      openai_api_key: 'sk-test-123',
+      anthropic_api_key: 'sk-ant-456',
+      gemini_api_key: 'aiza-789',
     });
     expect(typeof c!.updated_at).toBe('number');
   });

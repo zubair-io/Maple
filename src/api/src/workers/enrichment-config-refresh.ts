@@ -29,8 +29,14 @@ let readyVectorFingerprint: string | null = null;
 export function workerEnrichmentFingerprint(config: ResolvedEnrichmentConfig): string {
   return JSON.stringify({
     describeWorkerEnabled: config.describe_worker_enabled,
+    describeProvider: config.describe_provider,
+    describeModel: config.describe_model,
+    describeSystemPrompt: config.describe_system_prompt,
     describeUrl: config.describe_provider_url,
     describeServers: config.describe_servers,
+    openaiApiKey: config.openai_api_key,
+    anthropicApiKey: config.anthropic_api_key,
+    geminiApiKey: config.gemini_api_key,
     meiliUrl: config.meilisearch_url,
     meiliApiKey: config.meilisearch_api_key,
     meiliTaskTimeoutSeconds: config.meilisearch_task_timeout_seconds,

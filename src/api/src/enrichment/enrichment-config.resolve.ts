@@ -71,6 +71,9 @@ export interface ResolvedEnrichmentConfig {
   describe_system_prompt: string;
   describe_daily_cap_usd: number;
   transcribe_model_tier: WhisperTier;
+  openai_api_key: string | null;
+  anthropic_api_key: string | null;
+  gemini_api_key: string | null;
   /** Phase 5 face worker. Resolved from DB → env → built-in default false. */
   face_worker_enabled: boolean;
   /** Resolved model dir (DB → env → default `~/.maple/models/`). Always
@@ -114,6 +117,9 @@ export interface ResolvedEnrichmentConfig {
     describe_system_prompt: 'db' | 'env' | 'default';
     describe_daily_cap_usd: 'db' | 'env' | 'default';
     transcribe_model_tier: 'db' | 'default';
+    openai_api_key: 'db' | 'env' | 'unset';
+    anthropic_api_key: 'db' | 'env' | 'unset';
+    gemini_api_key: 'db' | 'env' | 'unset';
     face_worker_enabled: 'db' | 'env' | 'default';
     face_model_dir: 'db' | 'env' | 'default';
     face_detector_url: 'db' | 'env' | 'unset';
@@ -162,6 +168,7 @@ function resolveServiceSearchRateLimit(db: EnrichmentConfig | null): {
     : { value: DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE, source: 'default' };
 }
 
+// fallow-ignore-next-line complexity
 export function resolveEnrichmentConfig(
   db: EnrichmentConfig | null,
   env: NodeJS.ProcessEnv = process.env,
@@ -311,6 +318,19 @@ export function resolveEnrichmentConfig(
   const transcribeTierSource: 'db' | 'default' =
     db?.transcribe_model_tier === transcribeTier ? 'db' : 'default';
 
+  const resolveApiKey = (
+    saved: string | null | undefined,
+    envVar: string | undefined,
+  ): { value: string | null; source: 'db' | 'env' | 'unset' } => {
+    if (saved && saved.trim().length > 0) return { value: saved.trim(), source: 'db' };
+    if (envVar && envVar.trim().length > 0) return { value: envVar.trim(), source: 'env' };
+    return { value: null, source: 'unset' };
+  };
+
+  const openai = resolveApiKey(db?.openai_api_key, env.MAPLE_OPENAI_API_KEY);
+  const anthropic = resolveApiKey(db?.anthropic_api_key, env.MAPLE_ANTHROPIC_API_KEY);
+  const gemini = resolveApiKey(db?.gemini_api_key, env.MAPLE_GEMINI_API_KEY);
+
   // ── Face worker (Phase 5) ────────────────────────────────────────────
   let faceEnabled = false;
   let faceEnabledSource: ResolvedEnrichmentConfig['source']['face_worker_enabled'] = 'default';
@@ -426,6 +446,9 @@ export function resolveEnrichmentConfig(
     describe_system_prompt: describePrompt,
     describe_daily_cap_usd: describeCap,
     transcribe_model_tier: transcribeTier,
+    openai_api_key: openai.value,
+    anthropic_api_key: anthropic.value,
+    gemini_api_key: gemini.value,
     face_worker_enabled: faceEnabled,
     face_model_dir: faceModelDir,
     face_detector_url: faceDetectorUrl.value,
@@ -453,6 +476,9 @@ export function resolveEnrichmentConfig(
       describe_system_prompt: describePromptSource,
       describe_daily_cap_usd: describeCapSource,
       transcribe_model_tier: transcribeTierSource,
+      openai_api_key: openai.source,
+      anthropic_api_key: anthropic.source,
+      gemini_api_key: gemini.source,
       face_worker_enabled: faceEnabledSource,
       face_model_dir: faceModelDirSource,
       face_detector_url: faceDetectorUrl.source,
