@@ -47,8 +47,8 @@
     },
     {
       "id": "no_correction_data",
-      "label": "No correction data",
-      "explanation": "This camera does not write lens correction into the file, and Maple does not maintain its own lens profiles, so the lens-correction controls have nothing to apply."
+      "label": "No embedded correction data",
+      "explanation": "No embedded lens corrections are recorded for this file. Maple may still apply an explicitly selected profile or an automatic match from its bundled Lensfun database; this status does not describe external profile availability."
     }
   ],
   "profile_fallback_order": [
