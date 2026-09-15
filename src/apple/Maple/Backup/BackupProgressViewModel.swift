@@ -222,6 +222,8 @@ public final class BackupProgressViewModel {
     lastWalkSummary = nil
     let stream = await queue.observe()
     isRunning = true
+    // This Task inherits the class-level MainActor isolation, including
+    // after each stream suspension; apply(_:) stays on the UI actor.
     observerTask = Task { [weak self] in
       guard let self else { return }
       for await event in stream {

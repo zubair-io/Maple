@@ -84,7 +84,7 @@ public final class EngineHost {
   /// Tears down any prior run, creates a fresh queue (so settings
   /// changes take effect), rehydrates persisted pending tasks, and
   /// launches a new runner Task.
-  public func start(settings: BackupSettings) async {
+  public func start(settings: BackupSettings, retryFailed: Bool = false) async {
     log.info(
       "start(settings:) called serverURL=\(settings.serverURL, privacy: .public) libraryId=\(settings.libraryId, privacy: .public) wifiOnly=\(settings.wifiOnly)"
     )
@@ -187,6 +187,13 @@ public final class EngineHost {
         libraryId: settings.libraryId, serverBaseURL: serverBaseURL)
       // Runner is live — flip the user-visible phase to Running.
       progress.setPhase(.running)
+      // Own initial discovery here, after the queue and runner are ready.
+      // A second caller can return early while startup is in progress; it
+      // must not subscribe early and lose the initial walk to the phase gate.
+      ChangeObserverWiring.start(
+        deviceId: deviceId, settings: settings,
+        libraryId: settings.libraryId, serverBaseURL: serverBaseURL,
+        retryFailed: retryFailed)
       log.info("start ok engine running, state initialized")
     } catch {
       // The most likely failures are filesystem permission issues or
