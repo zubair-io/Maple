@@ -259,7 +259,7 @@ actor PhotoKitAssetReader: AssetReader {
     onStatus: @escaping @Sendable (String) async -> Void = { _ in }
   ) async throws -> Data {
     await onStatus("Reading Photos…")
-    let request = PhotoResourceRead()
+    let request = try PhotoResourceRead()
     return try await withTaskCancellationHandler {
       try Task.checkCancellation()
       return try await withCheckedThrowingContinuation { continuation in
@@ -290,12 +290,14 @@ private final class PhotoResourceRead: @unchecked Sendable {
   private let lock = NSLock()
   private var continuation: CheckedContinuation<Data, Error>?
   private var requestID: PHAssetResourceDataRequestID?
-  private var bytes = Data()
+  private let buffer: BackupResourceBuffer
   private var finished = false
   private var terminalError: Error?
   private var lastActivity = Date()
   private var cloudProgress = -1.0
   private var timer: DispatchSourceTimer?
+
+  init() throws { buffer = try BackupResourceBuffer() }
 
   func begin(
     resource: PHAssetResource, continuation: CheckedContinuation<Data, Error>,
@@ -341,12 +343,20 @@ private final class PhotoResourceRead: @unchecked Sendable {
     return true
   }
 
-  private func received(_ chunk: Data?) {
+  private func received(_ chunk: Data) {
     lock.lock()
-    defer { lock.unlock() }
-    guard !finished else { return }
-    lastActivity = Date()
-    if let chunk { bytes.append(chunk) }
+    guard !finished else {
+      lock.unlock()
+      return
+    }
+    do {
+      try buffer.append(chunk)
+      lastActivity = Date()
+      lock.unlock()
+    } catch {
+      lock.unlock()
+      finish(error: error)
+    }
   }
 
   private func checkTimeout() {
@@ -374,17 +384,20 @@ private final class PhotoResourceRead: @unchecked Sendable {
     terminalError = error
     let continuation = self.continuation
     self.continuation = nil
-    let data = bytes
-    bytes = Data()
+    let result: Result<Data, Error>
+    if let error {
+      buffer.cancel()
+      result = .failure(error)
+    } else {
+      result = Result { try buffer.finish() }
+    }
     let id = requestID
     timer?.cancel()
     timer = nil
     lock.unlock()
     if let error {
       if let id { PHAssetResourceManager.default().cancelDataRequest(id) }
-      continuation?.resume(throwing: error)
-    } else {
-      continuation?.resume(returning: data)
     }
+    continuation?.resume(with: result)
   }
 }

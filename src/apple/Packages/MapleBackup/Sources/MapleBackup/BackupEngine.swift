@@ -268,6 +268,7 @@ public actor BackupEngine {
       // a retry (or busy re-enqueue) and rethrow. Companions are handled
       // AFTER this do/catch — they never reach these catch blocks, so a
       // companion failure can't fail the photo or re-upload the bytes.
+      await queue.emit(.progress(task.id, sent: 0, total: Int64(read.originalBytes.count)))
       result = try await upload.upload(
         phassetLocalId: task.id.phassetLocalId,
         filename: read.sidecar.originalFilename,
