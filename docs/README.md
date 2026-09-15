@@ -4,6 +4,10 @@ Every document in this directory describes the code as it is in the tree today. 
 
 ## Start here
 
+The [engineering map](engineering-map.md) and [engineering quality assessment](engineering-quality.md)
+record the 2026-09-15 KTLO audit at an explicit source revision, with reproducible
+file/module inventories, verified findings, scan candidates, and coverage limits.
+
 | Doc                                              | Read it to…                                                                                                                                                 |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [architecture.md](architecture.md)               | See every deploy unit, how the one Rust core reaches each of them, the data model, the two-phase render, and the codegen single-sourcing.                   |
