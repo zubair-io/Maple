@@ -1,0 +1,26 @@
+name: Maple package types
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  maple-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      # The API lock pins the package's TypeScript and Bun/Node type tooling.
+      # Typechecking needs neither platform binaries nor image fixtures.
+      - name: Install frozen development dependencies
+        working-directory: src/api
+        run: bun install --frozen-lockfile
+      - name: Typecheck package source and every test
+        working-directory: src/maple
+        run: |
+          ln -s ../api/node_modules node_modules
+          bun run typecheck
