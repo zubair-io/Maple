@@ -252,6 +252,7 @@ export async function bootConfig(
   const existing = await repo.load(stage.name);
 
   const merged: WorkerConfig = {
+    ...existing,
     concurrency: pickInt(existing?.concurrency, stage.defaults.concurrency),
     maxAttempts: pickInt(existing?.maxAttempts, stage.defaults.maxAttempts),
     paused:
@@ -323,7 +324,11 @@ export function notifyConfigChange(
     updated.concurrency !== current.concurrency
   ) {
     try {
-      void stage.onConfigChange(updated, current);
+      const result = stage.onConfigChange(updated, current);
+      if (result)
+        void result.catch((err: unknown) =>
+          log?.warn({ err }, `${stage.name} onConfigChange rejected`),
+        );
     } catch (e) {
       log?.warn({ err: e }, `${stage.name} onConfigChange threw`);
     }

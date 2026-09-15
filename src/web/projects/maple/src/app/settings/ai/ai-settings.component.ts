@@ -7,12 +7,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   AiApiService,
@@ -20,7 +21,6 @@ import {
   type AvailableWorker,
   type MuiSelectOption,
   MuiButtonComponent,
-  MuiCheckboxComponent,
   MuiInputComponent,
   MuiSelectComponent,
 } from '@maple-common';
@@ -91,6 +91,9 @@ type SaveState =
 })
 export class AiSettingsComponent implements OnInit {
   private readonly aiApi = inject(AiApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  private modelRequest = 0;
+  private connectionRequest = 0;
 
   readonly providers = PROVIDERS;
   readonly loading = signal(true);
@@ -169,29 +172,36 @@ export class AiSettingsComponent implements OnInit {
     if (avail && avail.length > 0) {
       this.availableWorkers.set(avail);
     }
-    const describeModel = workers?.['describe']?.model;
-    this.selectedModel.set(describeModel ?? this.activeMeta().defaultModel);
+    const assignment = workers?.['describe'];
+    const provider = PROVIDERS.find((p) => p.id === assignment?.provider);
+    if (provider) this.activeProvider.set(provider.id);
+    this.selectedModel.set(assignment?.model ?? this.activeMeta().defaultModel);
   }
 
   loadConfig(): void {
     this.loading.set(true);
     this.loadError.set(null);
-    this.aiApi.getConfig().subscribe({
-      next: (cfg: AiConfigResponse) => {
-        this.applyLoadedProviders(cfg.providers);
-        this.applyLoadedWorkers(cfg);
-        this.loading.set(false);
-        this.fetchModels(this.activeProvider());
-      },
-      error: (err: HttpErrorResponse) => {
-        this.loadError.set(err.error?.message ?? 'Failed to load AI configuration.');
-        this.loading.set(false);
-      },
-    });
+    this.aiApi
+      .getConfig()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (cfg: AiConfigResponse) => {
+          this.applyLoadedProviders(cfg.providers);
+          this.applyLoadedWorkers(cfg);
+          this.loading.set(false);
+          this.fetchModels(this.activeProvider());
+        },
+        error: (err: HttpErrorResponse) => {
+          this.loadError.set(err.error?.message ?? 'Failed to load AI configuration.');
+          this.loading.set(false);
+        },
+      });
   }
 
   selectProvider(id: AiProviderId): void {
     this.activeProvider.set(id);
+    this.connectionRequest++;
+    this.testLoading.set(false);
     this.testResult.set(null);
     this.modelsError.set(null);
     const existing = this.modelsByProvider()[id];
@@ -211,30 +221,38 @@ export class AiSettingsComponent implements OnInit {
     const payload = {
       provider,
       url: provider === 'ollama' ? this.fOllamaUrl().trim() : null,
-      api_key: this.getApiKeyForProvider(provider) || null,
+      ...(this.getApiKeyForProvider(provider)
+        ? { api_key: this.getApiKeyForProvider(provider) }
+        : {}),
     };
 
-    this.aiApi.listModels(payload).subscribe({
-      next: (res) => {
-        if (res.models && res.models.length > 0) {
-          this.modelsByProvider.update((cur) => ({
-            ...cur,
-            [provider]: res.models,
-          }));
-          if (!res.models.includes(this.selectedModel())) {
-            this.selectedModel.set(res.models[0]!);
+    const request = ++this.modelRequest;
+    this.aiApi
+      .listModels(payload)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          if (request !== this.modelRequest || provider !== this.activeProvider()) return;
+          if (res.models && res.models.length > 0) {
+            this.modelsByProvider.update((cur) => ({
+              ...cur,
+              [provider]: res.models,
+            }));
+            if (!res.models.includes(this.selectedModel())) {
+              this.selectedModel.set(res.models[0]!);
+            }
           }
-        }
-        if (res.error) {
-          this.modelsError.set(res.error);
-        }
-        this.modelsLoading.set(false);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.modelsError.set(err.error?.error ?? 'Failed to fetch models from provider.');
-        this.modelsLoading.set(false);
-      },
-    });
+          if (res.error) {
+            this.modelsError.set(res.error);
+          }
+          this.modelsLoading.set(false);
+        },
+        error: (err: HttpErrorResponse) => {
+          if (request !== this.modelRequest || provider !== this.activeProvider()) return;
+          this.modelsError.set(err.error?.error ?? 'Failed to fetch models from provider.');
+          this.modelsLoading.set(false);
+        },
+      });
   }
 
   testConnection(): void {
@@ -245,26 +263,34 @@ export class AiSettingsComponent implements OnInit {
     const payload = {
       provider,
       url: provider === 'ollama' ? this.fOllamaUrl().trim() : null,
-      api_key: this.getApiKeyForProvider(provider) || null,
+      ...(this.getApiKeyForProvider(provider)
+        ? { api_key: this.getApiKeyForProvider(provider) }
+        : {}),
     };
 
-    this.aiApi.testConnection(payload).subscribe({
-      next: (res) => {
-        this.testLoading.set(false);
-        if (res.ok) {
-          this.testResult.set({ ok: true, message: 'Connection successful!' });
-        } else {
-          this.testResult.set({ ok: false, message: res.error ?? 'Connection failed' });
-        }
-      },
-      error: (err: HttpErrorResponse) => {
-        this.testLoading.set(false);
-        this.testResult.set({
-          ok: false,
-          message: err.error?.error ?? err.message ?? 'Connection failed',
-        });
-      },
-    });
+    const request = ++this.connectionRequest;
+    this.aiApi
+      .testConnection(payload)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          if (request !== this.connectionRequest) return;
+          this.testLoading.set(false);
+          if (res.ok) {
+            this.testResult.set({ ok: true, message: 'Connection successful!' });
+          } else {
+            this.testResult.set({ ok: false, message: res.error ?? 'Connection failed' });
+          }
+        },
+        error: (err: HttpErrorResponse) => {
+          if (request !== this.connectionRequest) return;
+          this.testLoading.set(false);
+          this.testResult.set({
+            ok: false,
+            message: err.error?.error ?? err.message ?? 'Connection failed',
+          });
+        },
+      });
   }
 
   onModelChange(model: string): void {
@@ -316,23 +342,29 @@ export class AiSettingsComponent implements OnInit {
       patch.providers!.gemini = { api_key: geminiKey };
     }
 
-    this.aiApi.updateConfig(patch).subscribe({
-      next: () => {
-        this.saveState.set({ kind: 'saved' });
-        if (openAiKey) this.hasOpenAiKey.set(true);
-        if (anthropicKey) this.hasAnthropicKey.set(true);
-        if (geminiKey) this.hasGeminiKey.set(true);
-        setTimeout(() => {
-          this.saveState.update((s) => (s.kind === 'saved' ? { kind: 'idle' } : s));
-        }, 2000);
-      },
-      error: (err: HttpErrorResponse) => {
-        this.saveState.set({
-          kind: 'error',
-          message: err.error?.error ?? err.error?.message ?? 'Failed to save configuration.',
-        });
-      },
-    });
+    this.aiApi
+      .updateConfig(patch)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.saveState.set({ kind: 'saved' });
+          if (openAiKey) this.hasOpenAiKey.set(true);
+          if (anthropicKey) this.hasAnthropicKey.set(true);
+          if (geminiKey) this.hasGeminiKey.set(true);
+          this.fOpenAiKey.set('');
+          this.fAnthropicKey.set('');
+          this.fGeminiKey.set('');
+          setTimeout(() => {
+            this.saveState.update((s) => (s.kind === 'saved' ? { kind: 'idle' } : s));
+          }, 2000);
+        },
+        error: (err: HttpErrorResponse) => {
+          this.saveState.set({
+            kind: 'error',
+            message: err.error?.error ?? err.error?.message ?? 'Failed to save configuration.',
+          });
+        },
+      });
   }
 
   getApiKeyForProvider(provider: AiProviderId): string {

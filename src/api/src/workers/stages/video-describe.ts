@@ -88,14 +88,17 @@ interface VideoDescribeDeps {
 
 let _deps: VideoDescribeDeps | null = null;
 
-function resolveVideoProvider(workerProvider?: string, cfgProvider?: string): DescribeProviderName {
+function resolveVideoProvider(
+  workerProvider?: string | null,
+  cfgProvider?: string,
+): DescribeProviderName {
   if (workerProvider) return workerProvider as DescribeProviderName;
   if (cfgProvider) return cfgProvider as DescribeProviderName;
   return 'ollama';
 }
 
 function resolveVideoModel(
-  workerModel: string | undefined,
+  workerModel: string | null | undefined,
   cfgModel: string | undefined,
   provider: DescribeProviderName,
 ): string {
@@ -114,7 +117,7 @@ function createVideoDescribePool(
     return new DescribeServerPool(servers);
   }
   return new DescribeServerPool([{ url: provider, concurrency }], () =>
-    getDescribeProvider(provider, { apiKey: apiKey ?? undefined }),
+    getDescribeProvider(provider, { apiKey }),
   );
 }
 
