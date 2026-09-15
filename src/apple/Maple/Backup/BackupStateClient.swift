@@ -21,59 +21,63 @@ import MapleBackup
 
 actor BackupStateClient {
 
-    /// One asset the server reports as already backed up for this device.
-    struct ServerAsset: Decodable, Sendable {
-        let phassetLocalId: String
-        let mapleId: String?
-        let relPath: String?
+  /// One asset the server reports as already backed up for this device.
+  struct ServerAsset: Decodable, Sendable {
+    let phassetLocalId: String
+    let mapleId: String?
+    let relPath: String?
 
-        enum CodingKeys: String, CodingKey {
-            case phassetLocalId = "phasset_local_id"
-            case mapleId = "maple_id"
-            case relPath = "rel_path"
-        }
+    enum CodingKeys: String, CodingKey {
+      case phassetLocalId = "phasset_local_id"
+      case mapleId = "maple_id"
+      case relPath = "rel_path"
     }
+  }
 
-    private struct Response: Decodable {
-        let assets: [ServerAsset]
+  private struct Response: Decodable {
+    let assets: [ServerAsset]
+  }
+
+  private let baseURL: URL
+  private let libraryId: String
+  private let deviceId: String
+  /// Authenticated transport (#855) — required so the gated `/backup/state`
+  /// route isn't hit without a bearer.
+  private let transport: AuthorizingTransport
+
+  init(
+    baseURL: URL, libraryId: String, deviceId: String,
+    transport: @escaping AuthorizingTransport
+  ) {
+    self.baseURL = baseURL
+    self.libraryId = libraryId
+    self.deviceId = deviceId
+    self.transport = transport
+  }
+
+  /// Fetch the assets the server already has for this device in this library.
+  /// Throws on network failure or non-200 so the caller can fall back to
+  /// local-state-only reconciliation.
+  func fetchKnownAssets() async throws -> [ServerAsset] {
+    let endpoint =
+      baseURL
+      .appendingPathComponent("api")
+      .appendingPathComponent("libraries")
+      .appendingPathComponent(libraryId)
+      .appendingPathComponent("backup")
+      .appendingPathComponent("state")
+    var comps = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+    comps.queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
+
+    var req = URLRequest(url: comps.url!)
+    req.httpMethod = "GET"
+    req.timeoutInterval = 10
+    req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
+
+    let (data, response) = try await transport(req)
+    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+      throw URLError(.badServerResponse)
     }
-
-    private let baseURL: URL
-    private let libraryId: String
-    private let deviceId: String
-    /// Authenticated transport (#855) — required so the gated `/backup/state`
-    /// route isn't hit without a bearer.
-    private let transport: AuthorizingTransport
-
-    init(baseURL: URL, libraryId: String, deviceId: String,
-         transport: @escaping AuthorizingTransport) {
-        self.baseURL = baseURL
-        self.libraryId = libraryId
-        self.deviceId = deviceId
-        self.transport = transport
-    }
-
-    /// Fetch the assets the server already has for this device in this library.
-    /// Throws on network failure or non-200 so the caller can fall back to
-    /// local-state-only reconciliation.
-    func fetchKnownAssets() async throws -> [ServerAsset] {
-        let endpoint = baseURL
-            .appendingPathComponent("api")
-            .appendingPathComponent("libraries")
-            .appendingPathComponent(libraryId)
-            .appendingPathComponent("backup")
-            .appendingPathComponent("state")
-        var comps = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
-        comps.queryItems = [URLQueryItem(name: "device_id", value: deviceId)]
-
-        var req = URLRequest(url: comps.url!)
-        req.httpMethod = "GET"
-        req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
-
-        let (data, response) = try await transport(req)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        return try JSONDecoder().decode(Response.self, from: data).assets
-    }
+    return try JSONDecoder().decode(Response.self, from: data).assets
+  }
 }

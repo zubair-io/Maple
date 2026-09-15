@@ -65,8 +65,9 @@ final class BackupProgressViewModelTests: XCTestCase {
     let vm = BackupProgressViewModel()
     XCTAssertEqual(vm.progressLabel, "No photos queued")
 
-    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
-      enumerated: 97_312, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
+    vm.recordWalkSummary(
+      BackupProgressViewModel.WalkSummary(
+        enumerated: 97_312, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
 
     XCTAssertTrue(vm.isAllBackedUp)
     XCTAssertEqual(vm.progressLabel, "All photos backed up · \(97_312.formatted()) photos")
@@ -77,11 +78,13 @@ final class BackupProgressViewModelTests: XCTestCase {
   /// the counting path once `.enqueued` events arrive.
   func testWalkSummaryWithEnqueuedWorkKeepsCountingLabel() {
     let vm = BackupProgressViewModel()
-    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
-      enumerated: 100, enqueued: 2, failedPermanently: 0, finishedAt: Date()))
+    vm.recordWalkSummary(
+      BackupProgressViewModel.WalkSummary(
+        enumerated: 100, enqueued: 2, failedPermanently: 0, finishedAt: Date()))
     XCTAssertFalse(vm.isAllBackedUp)
-    XCTAssertEqual(vm.progressLabel, "No photos queued",
-                   "no .enqueued events observed yet — still the cold empty state")
+    XCTAssertEqual(
+      vm.progressLabel, "No photos queued",
+      "no .enqueued events observed yet — still the cold empty state")
 
     vm.apply(.enqueued(BackupTask(id: taskID("new-1"), state: .pending, priority: .background)))
     vm.apply(.enqueued(BackupTask(id: taskID("new-2"), state: .pending, priority: .background)))
@@ -93,11 +96,13 @@ final class BackupProgressViewModelTests: XCTestCase {
   /// enqueued after an "all backed up" walk switches back to counting.
   func testEnqueuedEventOverridesAllBackedUpSummary() {
     let vm = BackupProgressViewModel()
-    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
-      enumerated: 97_312, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
+    vm.recordWalkSummary(
+      BackupProgressViewModel.WalkSummary(
+        enumerated: 97_312, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
     XCTAssertTrue(vm.isAllBackedUp)
 
-    vm.apply(.enqueued(BackupTask(id: taskID("fresh-capture"), state: .pending, priority: .background)))
+    vm.apply(
+      .enqueued(BackupTask(id: taskID("fresh-capture"), state: .pending, priority: .background)))
 
     XCTAssertFalse(vm.isAllBackedUp)
     XCTAssertEqual(vm.progressLabel, "0 of 1 photos")
@@ -107,8 +112,9 @@ final class BackupProgressViewModelTests: XCTestCase {
   /// selected) is NOT "all backed up" — there was nothing to check.
   func testWalkSummaryWithZeroEnumeratedIsNotAllBackedUp() {
     let vm = BackupProgressViewModel()
-    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
-      enumerated: 0, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
+    vm.recordWalkSummary(
+      BackupProgressViewModel.WalkSummary(
+        enumerated: 0, enqueued: 0, failedPermanently: 0, finishedAt: Date()))
     XCTAssertFalse(vm.isAllBackedUp)
     XCTAssertEqual(vm.progressLabel, "No photos queued")
   }
@@ -117,9 +123,11 @@ final class BackupProgressViewModelTests: XCTestCase {
   /// caption it ("13 failed permanently").
   func testWalkSummaryExposesPermanentFailures() {
     let vm = BackupProgressViewModel()
-    vm.recordWalkSummary(BackupProgressViewModel.WalkSummary(
-      enumerated: 97_312, enqueued: 0, failedPermanently: 13, finishedAt: Date()))
-    XCTAssertTrue(vm.isAllBackedUp)
+    vm.recordWalkSummary(
+      BackupProgressViewModel.WalkSummary(
+        enumerated: 97_312, enqueued: 0, failedPermanently: 13, finishedAt: Date()))
+    XCTAssertFalse(vm.isAllBackedUp)
+    XCTAssertEqual(vm.progressLabel, "13 photos need attention")
     XCTAssertEqual(vm.lastWalkSummary?.failedPermanently, 13)
   }
 
@@ -137,8 +145,40 @@ final class BackupProgressViewModelTests: XCTestCase {
     vm.apply(.started(id))
     let tile = vm.inFlight.first(where: { $0.id == id })
     XCTAssertNotNil(tile)
-    XCTAssertEqual(tile?.bytesSent, 0, "the re-added tile starts fresh, not frozen at the failed offset")
+    XCTAssertEqual(
+      tile?.bytesSent, 0, "the re-added tile starts fresh, not frozen at the failed offset")
     XCTAssertEqual(tile?.bytesTotal, 0)
     XCTAssertEqual(vm.totalFailed, 0)
+  }
+
+  func testFailureSummaryNeverClaimsAllPhotosAreBackedUp() {
+    let vm = BackupProgressViewModel()
+    vm.recordWalkSummary(
+      .init(
+        enumerated: 100000, enqueued: 0,
+        failedPermanently: 17, finishedAt: Date()))
+    XCTAssertFalse(vm.isAllBackedUp)
+  }
+
+  func testCompletedPhotoStaysOutOfPendingAfterStaleScanSnapshot() {
+    let vm = BackupProgressViewModel()
+    let id = BackupTaskID(deviceId: "d", phassetLocalId: "photo")
+    vm.setPendingPhotoIDs(["photo"])
+    vm.apply(.completed(id, mapleId: "maple"))
+    vm.setPendingPhotoIDs(["photo"])
+    XCTAssertFalse(vm.pendingPhotoIDs.contains("photo"))
+    vm.apply(.completed(id, mapleId: "maple"))
+    XCTAssertEqual(vm.totalCompleted, 1)
+  }
+
+  func testReadingStatusDistinguishesICloudFromUpload() {
+    let vm = BackupProgressViewModel()
+    let id = BackupTaskID(deviceId: "d", phassetLocalId: "photo")
+    vm.apply(.started(id))
+    vm.apply(.preparing(id, message: "Downloading from iCloud · 42%"))
+    XCTAssertEqual(vm.inFlight.first?.preparation, "Downloading from iCloud · 42%")
+    XCTAssertNil(vm.inFlight.first?.fractionDone)
+    vm.apply(.progress(id, sent: 10, total: 20))
+    XCTAssertEqual(vm.inFlight.first?.fractionDone, 0.5)
   }
 }

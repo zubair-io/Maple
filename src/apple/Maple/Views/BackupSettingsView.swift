@@ -5,14 +5,15 @@
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §7.
 
-import SwiftUI
-import OSLog
-import Photos
+import MapleBackup
 import MapleCore
 import MapleUI
-import MapleBackup
+import OSLog
+import Photos
+import SwiftUI
 
-private let settingsLog = Logger(subsystem: "app.justmaple.aperture", category: "Backup.SettingsView")
+private let settingsLog = Logger(
+  subsystem: "app.justmaple.aperture", category: "Backup.SettingsView")
 
 struct BackupSettingsView: View {
   @State private var settings: BackupSettings = BackupSettings.load() ?? .defaults
@@ -91,6 +92,11 @@ struct BackupSettingsView: View {
       Section {
         Button {
           Task {
+            if EngineHost.shared.progress.phase == .running {
+              BackupSettings.isStoppedByUser = true
+              await EngineHost.shared.stop()
+              return
+            }
             settingsLog.info("Start button tapped — saving + starting engine")
             // Explicit user action, so requesting Photos authorization here
             // is legitimate (it only prompts while `.notDetermined`; a
@@ -102,16 +108,24 @@ struct BackupSettingsView: View {
             guard photosStatus == .authorized || photosStatus == .limited else {
               settingsLog.error("start bail: Photos authorization is \(photosStatus.rawValue)")
               #if os(macOS)
-              photosAccessError = "Maple doesn't have Photos access. Grant it in System Settings → Privacy & Security → Photos, then try again."
+                photosAccessError =
+                  "Maple doesn't have Photos access. Grant it in System Settings → Privacy & Security → Photos, then try again."
               #else
-              photosAccessError = "Maple doesn't have Photos access. Grant it in Settings → Privacy & Security → Photos → Maple, then try again."
+                photosAccessError =
+                  "Maple doesn't have Photos access. Grant it in Settings → Privacy & Security → Photos → Maple, then try again."
               #endif
               return
             }
             photosAccessError = nil
+            BackupSettings.isStoppedByUser = false
             settings.save()
+            hasStarted = true
+            Self.saveHasStarted(true)
             await EngineHost.shared.start(settings: settings)
-            settingsLog.info("EngineHost.start returned engine=\(EngineHost.shared.engine != nil ? "ok" : "nil") err=\(EngineHost.shared.lastStartError ?? "none", privacy: .public)")
+            settingsLog.info(
+              "EngineHost.start returned engine=\(EngineHost.shared.engine != nil ? "ok" : "nil") err=\(EngineHost.shared.lastStartError ?? "none", privacy: .public)"
+            )
+            guard EngineHost.shared.engine != nil else { return }
             // Kick the PhotoKit walk + change observer. Without this the
             // engine boots against an empty queue and the user just sees
             // 'No photos queued' even though they configured everything.
@@ -122,29 +136,35 @@ struct BackupSettingsView: View {
             // thread (ChangeObserverWiring.enqueueAllNew → Task.detached)
             // so this call is non-blocking for the UI.
             if let serverBaseURL = URL(string: settings.serverURL),
-               let storage = try? DeviceIdentity.defaultStorageURL(),
-               let deviceId = try? DeviceIdentity.current(storageURL: storage) {
+              let storage = try? DeviceIdentity.defaultStorageURL(),
+              let deviceId = try? DeviceIdentity.current(storageURL: storage)
+            {
               // This is the explicit user Start/Restart path — pass
               // retryFailed:true so a Restart resets and re-enqueues
               // .failedRetry tasks (the user chose "Retry failed + new").
               // The launch path in MapleApp and the periodic walk stay
               // new-only.
-              settingsLog.info("kicking ChangeObserverWiring.start deviceId=\(deviceId, privacy: .public) retryFailed=true")
-              ChangeObserverWiring.start(deviceId: deviceId, settings: settings,
-                                         libraryId: settings.libraryId,
-                                         serverBaseURL: serverBaseURL,
-                                         retryFailed: true)
+              settingsLog.info(
+                "kicking ChangeObserverWiring.start deviceId=\(deviceId, privacy: .public) retryFailed=true"
+              )
+              ChangeObserverWiring.start(
+                deviceId: deviceId, settings: settings,
+                libraryId: settings.libraryId,
+                serverBaseURL: serverBaseURL,
+                retryFailed: true)
             } else {
-              settingsLog.error("ChangeObserverWiring NOT started — failed to resolve serverBaseURL or DeviceIdentity")
+              settingsLog.error(
+                "ChangeObserverWiring NOT started — failed to resolve serverBaseURL or DeviceIdentity"
+              )
             }
             hasStarted = true
             Self.saveHasStarted(true)
           }
         } label: {
-          Text(hasStarted ? "Restart Backup" : "Start Backup")
+          Text(EngineHost.shared.progress.phase == .running ? "Stop Backup" : "Start Backup")
             .frame(maxWidth: .infinity)
         }
-        .disabled(!settings.isConfigured)
+        .disabled(!settings.isConfigured || EngineHost.shared.progress.phase == .starting)
         .buttonStyle(.borderedProminent)
         .accessibilityIdentifier("backup.startButton")
         if let photosAccessError {
@@ -262,9 +282,11 @@ struct BackupSettingsView: View {
   @ViewBuilder
   private var pathPreview: some View {
     if settings.isConfigured,
-       let selectedLib = libraries.first(where: { $0.id == settings.libraryId }) {
-      BackupPathPreview(libraryName: selectedLib.displayName,
-                        rootFolder: settings.rootFolder)
+      let selectedLib = libraries.first(where: { $0.id == settings.libraryId })
+    {
+      BackupPathPreview(
+        libraryName: selectedLib.displayName,
+        rootFolder: settings.rootFolder)
     }
   }
 
@@ -301,10 +323,11 @@ private struct BackupPathPreview: View {
     // Fixed sample — safe filename, real PathFormatter call. Shows the geo
     // layout: <year>/<State|Country>/<Town/City||Place>/<file>.
     let sampleDate = ISO8601DateFormatter().date(from: "2024-03-15T12:00:00Z") ?? Date()
-    let formatted = (try? PathFormatter.format(
-      captureDate: sampleDate,
-      location: ["California", "San Francisco"],
-      filename: "IMG_0420.HEIC")) ?? "2024/California/San Francisco/IMG_0420.HEIC"
+    let formatted =
+      (try? PathFormatter.format(
+        captureDate: sampleDate,
+        location: ["California", "San Francisco"],
+        filename: "IMG_0420.HEIC")) ?? "2024/California/San Francisco/IMG_0420.HEIC"
     let trail = rootFolder.isEmpty ? formatted : "\(rootFolder)/\(formatted)"
 
     return VStack(alignment: .leading, spacing: 4) {
@@ -330,11 +353,11 @@ private struct BackupPathPreview: View {
 // preview env).
 
 #Preview("Default") {
-    BackupSettingsView()
-        .frame(width: 480, height: 700)
+  BackupSettingsView()
+    .frame(width: 480, height: 700)
 }
 
 #Preview("Path preview only") {
-    BackupPathPreview(libraryName: "MyLibrary", rootFolder: "iPhone")
-        .padding()
+  BackupPathPreview(libraryName: "MyLibrary", rootFolder: "iPhone")
+    .padding()
 }
