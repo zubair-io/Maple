@@ -35,6 +35,8 @@
 actor RetryWakeSignal {
   private var continuation: CheckedContinuation<Void, Never>?
   private var pending = false
+  private var nextToken: UInt64 = 0
+  private var waitingToken: UInt64?
 
   /// Park until `signal()` fires, or return immediately if one already
   /// landed.
@@ -62,25 +64,28 @@ actor RetryWakeSignal {
       pending = false
       return
     }
+    let token = nextToken
+    nextToken &+= 1
     await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
         // Back under actor isolation. A signal may have landed while
         // the enclosing `await` was suspended.
-        if Task.isCancelled {
-          continuation.resume()
-          return
-        }
         if pending {
           pending = false
           continuation.resume()
           return
         }
+        if Task.isCancelled {
+          continuation.resume()
+          return
+        }
+        waitingToken = token
         self.continuation = continuation
       }
     } onCancel: { [weak self] in
       // Detached so the wake isn't born already-cancelled — an inherited
       // cancelled context could drop the hop and leave the waiter parked.
-      Task.detached { await self?.cancelWait() }
+      Task.detached { await self?.cancelWait(token) }
     }
   }
 
@@ -90,6 +95,7 @@ actor RetryWakeSignal {
   func signal() {
     if let continuation {
       self.continuation = nil
+      waitingToken = nil
       continuation.resume()
     } else {
       pending = true
@@ -103,9 +109,12 @@ actor RetryWakeSignal {
   /// NOT fall through to setting `pending = true`, or a cancellation that
   /// arrives just after a genuine wake would cause the *next* `wait()` to
   /// return spuriously instead of only this one.
-  private func cancelWait() {
-    if let continuation {
+  private func cancelWait(_ token: UInt64) {
+    // Cancellation can arrive after signal resumed this waiter and a newer
+    // waiter parked. Only the owner of the current continuation may cancel it.
+    if waitingToken == token, let continuation {
       self.continuation = nil
+      waitingToken = nil
       continuation.resume()
     }
   }
