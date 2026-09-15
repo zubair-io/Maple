@@ -21,7 +21,13 @@ export interface BackfillPersonFaceCountResult {
  */
 export async function backfillPersonFaceCount(db: Db): Promise<BackfillPersonFaceCountResult> {
   const cursor = db.collection('assets').aggregate<{ _id: string; count: number }>([
-    { $match: { faces: { $exists: true, $ne: [] } } },
+    {
+      $match: {
+        deleted_at: null,
+        fileinfo: { $elemMatch: { deleted_at: null, missing_since: null } },
+        faces: { $exists: true, $ne: [] },
+      },
+    },
     { $unwind: '$faces' },
     {
       $match: {
