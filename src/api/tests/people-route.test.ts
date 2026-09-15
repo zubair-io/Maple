@@ -124,7 +124,7 @@ async function insertAssetWithFaces(faces: AssetFaceDoc[]): Promise<ObjectId> {
   // way production does on boot — the idempotent `backfillPersonFaceCount`
   // migration primitive — so `listPeople` (which now reads `face_count`)
   // reflects the seeded faces.
-  const { backfillPersonFaceCount } = await import('../src/people/people-face-count.repo.ts');
+  const { backfillPersonFaceCount } = await import('../src/db/migrations.ts');
   await backfillPersonFaceCount(db!);
   return res.insertedId;
 }
