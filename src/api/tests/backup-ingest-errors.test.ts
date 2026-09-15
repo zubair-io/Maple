@@ -90,7 +90,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Capture-Date': '2024-05-01T08:00:00Z',
         'X-Maple-Filename': 'IMG_tmp_test.HEIC',
         'X-Maple-Total-Bytes': '256',
-        'X-Maple-Maple-Id': 'tmp-test-id',
+        'X-Maple-Maple-Id': '02c95e7822abec480fcc6f2c2e50c949',
         'Content-Range': 'bytes 128-255/256',
       }),
     );
@@ -124,6 +124,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Phasset-Id': phidResume,
         'X-Maple-Capture-Date': '2024-04-01T08:00:00Z',
         'X-Maple-Filename': 'IMG_b.heic', // different filename → new target_rel_path
+        'X-Maple-Maple-Id': '0228b843a5819e9eb07600ca6dcf9ec6',
         'X-Maple-Total-Bytes': '256',
         'Content-Range': 'bytes 128-255/256',
       }),
@@ -153,7 +154,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Capture-Date': '2024-04-01T08:00:00Z',
         'X-Maple-Filename': 'IMG_b.heic',
         'X-Maple-Total-Bytes': '256',
-        'X-Maple-Maple-Id': 'self-heal-restart-test',
+        'X-Maple-Maple-Id': '0228b843a5819e9eb07600ca6dcf9ec6',
         'Content-Range': 'bytes 128-255/256',
       }),
     );
@@ -179,14 +180,14 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Capture-Date': captureDate,
         'X-Maple-Filename': fname,
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': 'collision-maple-id',
+        'X-Maple-Maple-Id': '020db9773e5f839256c49efb15f64047',
         'Content-Range': 'bytes 0-63/64',
       }),
     );
     expect(rCollide.status).toBe(200);
     const b = await rCollide.json();
     expect(b.target_rel_path).toBe('2024/Misc/IMG_COLLISION-1.HEIC');
-    expect(b.maple_id).toBe('collision-maple-id');
+    expect(b.maple_id).toBe('020db9773e5f839256c49efb15f64047');
 
     // The pre-existing file is untouched; our bytes landed at the sibling path.
     expect((await fs.readFile(preExistingPath)).equals(Buffer.alloc(64, 0))).toBe(true);
@@ -198,7 +199,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     // reconstruction would resolve back to the other file.
     const { assetsCollection } = await import('../src/db/client.ts');
     const assets = await assetsCollection();
-    const row = await assets.findOne({ maple_id: 'collision-maple-id' });
+    const row = await assets.findOne({ maple_id: '020db9773e5f839256c49efb15f64047' });
     expect(row).not.toBeNull();
     expect(row!.fileinfo[0].path).toBe('2024/Misc');
     expect(row!.fileinfo[0].filename).toBe('IMG_COLLISION-1.HEIC');
@@ -213,7 +214,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Capture-Date': captureDate,
         'X-Maple-Filename': fname,
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': 'collision-maple-id',
+        'X-Maple-Maple-Id': '020db9773e5f839256c49efb15f64047',
         'Content-Range': 'bytes 0-63/64',
       }),
     );
@@ -221,7 +222,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     expect((await rRetry.json()).target_rel_path).toBe('2024/Misc/IMG_COLLISION-1.HEIC');
 
     // Clean up
-    await assets.deleteMany({ maple_id: 'collision-maple-id' });
+    await assets.deleteMany({ maple_id: '020db9773e5f839256c49efb15f64047' });
     await fs.unlink(preExistingPath);
     await fs.unlink(siblingPath);
   });
@@ -240,7 +241,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
 
     const { assetsCollection } = await import('../src/db/client.ts');
     const assets = await assetsCollection();
-    await assets.deleteMany({ maple_id: 'recover-maple-id' });
+    await assets.deleteMany({ maple_id: '021818a50385f713fc2eef7b8298ca92' });
 
     const rRecover = await authedHandle(
       ingest(bytes, {
@@ -249,14 +250,14 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Capture-Date': captureDate,
         'X-Maple-Filename': fname,
         'X-Maple-Total-Bytes': String(bytes.byteLength),
-        'X-Maple-Maple-Id': 'recover-maple-id',
+        'X-Maple-Maple-Id': '021818a50385f713fc2eef7b8298ca92',
         'Content-Range': `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
       }),
     );
     expect(rRecover.status).toBe(200);
     const b = await rRecover.json();
     expect(b.target_rel_path).toBe('2024/Misc/IMG_RECOVER.HEIC');
-    expect(b.maple_id).toBe('recover-maple-id');
+    expect(b.maple_id).toBe('021818a50385f713fc2eef7b8298ca92');
 
     // The original file is still there (no spurious sibling), and the missing
     // asset row was created.
@@ -268,11 +269,11 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
       siblingExists = false;
     }
     expect(siblingExists).toBe(false);
-    const row = await assets.findOne({ maple_id: 'recover-maple-id' });
+    const row = await assets.findOne({ maple_id: '021818a50385f713fc2eef7b8298ca92' });
     expect(row).not.toBeNull();
 
     // Clean up
-    await assets.deleteMany({ maple_id: 'recover-maple-id' });
+    await assets.deleteMany({ maple_id: '021818a50385f713fc2eef7b8298ca92' });
     await fs.unlink(preExistingPath);
   });
 });

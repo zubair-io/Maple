@@ -25,6 +25,7 @@
  *   404 — library not found, or no prior upload (neither maple_id nor device+phasset matched)
  *   413 — body exceeds 256 KB
  */
+import { fromHex, isMapleId } from '../indexer/id.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
@@ -84,7 +85,12 @@ export const backupSidecarRoutes = new Elysia().post(
     const phid = headers['x-maple-phasset-id'];
     const targetRelPath = headers['x-maple-target-rel-path'];
     // Optional content-hash dedup key. Primary lookup when present (#698).
-    const mapleId = headers['x-maple-id'];
+    const rawMapleId = headers['x-maple-id'];
+    if (rawMapleId !== undefined && !isMapleId(rawMapleId)) {
+      set.status = 400;
+      return { error: 'invalid x-maple-id' };
+    }
+    const mapleId = rawMapleId === undefined ? undefined : fromHex(rawMapleId).hex;
 
     if (!deviceId || !phid || !targetRelPath) {
       set.status = 400;
