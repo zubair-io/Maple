@@ -65,8 +65,7 @@ import {
   loadEnrichmentConfig,
 } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
-import { getDb } from '../../db/client.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from '../worker-config.repo.ts';
+import { loadWorkerConfigSafe } from '../worker-config.repo.ts';
 import type { VideoDescriptionMeta } from '../../db/schema.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
@@ -89,38 +88,48 @@ interface VideoDescribeDeps {
 
 let _deps: VideoDescribeDeps | null = null;
 
+function resolveVideoProvider(workerProvider?: string, cfgProvider?: string): DescribeProviderName {
+  if (workerProvider) return workerProvider as DescribeProviderName;
+  if (cfgProvider) return cfgProvider as DescribeProviderName;
+  return 'ollama';
+}
+
+function resolveVideoModel(
+  workerModel: string | undefined,
+  cfgModel: string | undefined,
+  provider: DescribeProviderName,
+): string {
+  if (workerModel) return workerModel;
+  if (cfgModel) return cfgModel;
+  return DEFAULT_DESCRIBE_MODELS[provider] || DESCRIBE_VISION_OLLAMA_TAG;
+}
+
+function createVideoDescribePool(
+  provider: DescribeProviderName,
+  servers: ReturnType<typeof resolveEnrichmentConfig>['describe_servers'],
+  concurrency: number,
+): DescribeServerPool {
+  if (provider === 'ollama') {
+    return new DescribeServerPool(servers);
+  }
+  return new DescribeServerPool([{ url: provider, concurrency }], () =>
+    getDescribeProvider(provider),
+  );
+}
+
 async function getDeps(): Promise<VideoDescribeDeps> {
   if (_deps) return _deps;
   const cfg = resolveEnrichmentConfig(await loadEnrichmentConfig());
+  const workerConfig = await loadWorkerConfigSafe('video-describe');
 
-  let workerConfig: WorkerConfigDoc | null = null;
-  try {
-    const db = await getDb();
-    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-    workerConfig = await repo.load('video-describe');
-  } catch {
-    // Database may be offline during tests
-  }
-
-  const provider = (workerConfig?.ai_provider ??
-    cfg.describe_provider ??
-    'ollama') as DescribeProviderName;
-  const model =
-    workerConfig?.ai_model ??
-    cfg.describe_model ??
-    DEFAULT_DESCRIBE_MODELS[provider] ??
-    DESCRIBE_VISION_OLLAMA_TAG;
+  const provider = resolveVideoProvider(workerConfig?.ai_provider, cfg.describe_provider);
+  const model = resolveVideoModel(workerConfig?.ai_model, cfg.describe_model, provider);
   const systemPrompt = composeVideoDescribePrompt(workerConfig?.prompt_text);
-
-  let pool: DescribeServerPool;
-  if (provider === 'ollama') {
-    pool = new DescribeServerPool(cfg.describe_servers);
-  } else {
-    pool = new DescribeServerPool(
-      [{ url: provider, concurrency: workerConfig?.concurrency ?? 1 }],
-      () => getDescribeProvider(provider),
-    );
-  }
+  const pool = createVideoDescribePool(
+    provider,
+    cfg.describe_servers,
+    workerConfig?.concurrency ?? 1,
+  );
 
   _deps = {
     sampleFrames: sampleVideoFrames,

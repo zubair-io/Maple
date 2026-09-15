@@ -11,11 +11,42 @@
  */
 
 import type { Collection } from 'mongodb';
+import { getDb } from '../db/client.ts';
 import type { WorkerConfig } from './run-stage.ts';
 
 export interface WorkerConfigDoc extends WorkerConfig {
   /** Stage name — the unique key for this collection. */
   name: string;
+}
+
+export async function loadWorkerConfigSafe(workerName: string): Promise<WorkerConfig | null> {
+  try {
+    const db = await getDb();
+    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+    return await repo.load(workerName);
+  } catch (err) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.warn(`[${workerName} worker] Failed to load worker config from database:`, err);
+    }
+    return null;
+  }
+}
+
+export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
+  return {
+    concurrency: doc.concurrency,
+    maxAttempts: doc.maxAttempts,
+    paused: doc.paused,
+    last_seen_target_version: doc.last_seen_target_version,
+    // Only present when a stage paused itself with an explanation; an
+    // operator pause carries none, so the key is omitted rather than
+    // surfaced as a permanent `null` on every row.
+    ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
+    ...(typeof doc.version === 'string' ? { version: doc.version } : {}),
+    ...(typeof doc.prompt_text === 'string' ? { prompt_text: doc.prompt_text } : {}),
+    ...(typeof doc.ai_provider === 'string' ? { ai_provider: doc.ai_provider } : {}),
+    ...(typeof doc.ai_model === 'string' ? { ai_model: doc.ai_model } : {}),
+  };
 }
 
 export class WorkerConfigRepo {
@@ -25,20 +56,7 @@ export class WorkerConfigRepo {
   async load(name: string): Promise<WorkerConfig | null> {
     const doc = await this.coll.findOne({ name });
     if (!doc) return null;
-    return {
-      concurrency: doc.concurrency,
-      maxAttempts: doc.maxAttempts,
-      paused: doc.paused,
-      last_seen_target_version: doc.last_seen_target_version,
-      // Only present when a stage paused itself with an explanation; an
-      // operator pause carries none, so the key is omitted rather than
-      // surfaced as a permanent `null` on every row.
-      ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
-      ...(typeof doc.version === 'string' ? { version: doc.version } : {}),
-      ...(typeof doc.prompt_text === 'string' ? { prompt_text: doc.prompt_text } : {}),
-      ...(typeof doc.ai_provider === 'string' ? { ai_provider: doc.ai_provider } : {}),
-      ...(typeof doc.ai_model === 'string' ? { ai_model: doc.ai_model } : {}),
-    };
+    return sanitizeWorkerConfig(doc);
   }
 
   /** Upsert (insert-or-replace) a stage config. */

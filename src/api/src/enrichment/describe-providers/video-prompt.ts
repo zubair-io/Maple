@@ -16,7 +16,7 @@
  * not values it has to trust.
  */
 
-export const VIDEO_DESCRIBE_SCHEMA_PREFIX = `You are indexing a personal video library for search. You will receive several JPEG images, in order. They are frames SAMPLED CHRONOLOGICALLY from ONE video clip — not separate photos. Consecutive images may be seconds or minutes apart; do not assume continuous motion between them, and never invent what happens in the gaps you were not shown.
+const VIDEO_DESCRIBE_SCHEMA_PREFIX = `You are indexing a personal video library for search. You will receive several JPEG images, in order. They are frames SAMPLED CHRONOLOGICALLY from ONE video clip — not separate photos. Consecutive images may be seconds or minutes apart; do not assume continuous motion between them, and never invent what happens in the gaps you were not shown.
 
 Return ONLY a valid JSON object matching this schema:
 
@@ -31,7 +31,7 @@ Return ONLY a valid JSON object matching this schema:
   ]
 }`;
 
-export const DEFAULT_VIDEO_DESCRIBE_TEXT_PROMPT = `Rules:
+const DEFAULT_VIDEO_DESCRIBE_TEXT_PROMPT = `Rules:
 - Add a scenes entry for each image that shows something worth calling out, in chronological order, each with the correct frame_index — skip an image only when it adds nothing beyond an adjacent entry already sent.
 - Describe only what is visible in each frame. Do not infer what happens between frames.
 - Never guess real names of people. Use generic descriptors.
@@ -48,8 +48,6 @@ export function composeVideoDescribePrompt(customText?: string | null): string {
   }
   return `${VIDEO_DESCRIBE_SCHEMA_PREFIX}\n\n${text}`;
 }
-
-export const VIDEO_DESCRIBE_SYSTEM_PROMPT = composeVideoDescribePrompt();
 
 /**
  * Bumped whenever `VIDEO_DESCRIBE_SYSTEM_PROMPT` changes. Stamped on

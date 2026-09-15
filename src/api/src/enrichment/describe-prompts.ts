@@ -80,7 +80,7 @@ export const DEFAULT_DESCRIBE_SYSTEM_PROMPT =
  * §Prompt. Wired into the describe handler by ticket #149 alongside
  * the model swap; that commit also bumps `DESCRIBE_PROMPT_VERSION`.
  */
-export const DESCRIBE_VISION_SCHEMA_PREFIX = `You are indexing a personal photo library for search. Analyze this image and return ONLY a valid JSON object.
+const DESCRIBE_VISION_SCHEMA_PREFIX = `You are indexing a personal photo library for search. Analyze this image and return ONLY a valid JSON object.
 
 Schema:
 
@@ -104,7 +104,7 @@ Schema:
   "shot_type":       "action | static | candid | posed | architectural | nature | event"
 }`;
 
-export const DEFAULT_DESCRIBE_TEXT_PROMPT = `Caption rules — this field powers text search, so pack it with retrievable specifics:
+const DEFAULT_DESCRIBE_TEXT_PROMPT = `Caption rules — this field powers text search, so pack it with retrievable specifics:
 - Lead with subjects and action, then setting. Never open with "This image shows" or similar.
 - Include when present: number of people and approximate ages (child/teen/adult/elderly), clothing colors, hair, animal breeds, vehicle makes/types, landmarks, assistive devices, sports gear, unusual objects.
 - Describe only what is visible. Do not infer relationships (say "three people," not "a family").

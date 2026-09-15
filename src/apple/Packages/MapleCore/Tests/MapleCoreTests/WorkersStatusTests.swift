@@ -130,6 +130,7 @@ final class StageCatalogTests: XCTestCase {
 
   func test_statusLabel_coversEveryState() {
     XCTAssertEqual(StageCatalog.statusLabel(.running), "Running")
+    XCTAssertEqual(StageCatalog.statusLabel(.idle), "Idle")
     XCTAssertEqual(StageCatalog.statusLabel(.paused), "Paused")
     XCTAssertEqual(StageCatalog.statusLabel(.error), "Error")
     XCTAssertEqual(StageCatalog.statusLabel(.starting), "Starting")

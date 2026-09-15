@@ -29,32 +29,7 @@ export { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
 export const DEAD_LIST_LIMIT_DEFAULT = 50;
 export const DEAD_LIST_LIMIT_MAX = 500;
 
-/**
- * Config knobs removed in #674. PATCH rejects these with a 400 so a stale
- * client that still sends them gets a clear signal instead of a silent no-op.
- */
-export const REMOVED_CONFIG_KEYS = ['pollIntervalMs', 'batchSize'] as const;
-
-/**
- * Pick only the live `WorkerConfig` fields off a raw `worker_config` Mongo doc.
- * Existing docs may still carry removed knobs (`pollIntervalMs` / `batchSize`,
- * dropped in #674); without this projection those stale keys would leak back
- * out through GET /status and the WS `workers-status` frame. Mirrors
- * `WorkerConfigRepo.load`'s explicit field list so the two never drift.
- */
-export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
-  return {
-    concurrency: doc.concurrency,
-    maxAttempts: doc.maxAttempts,
-    paused: doc.paused,
-    last_seen_target_version: doc.last_seen_target_version,
-    ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
-    ...(typeof doc.version === 'string' ? { version: doc.version } : {}),
-    ...(typeof doc.prompt_text === 'string' ? { prompt_text: doc.prompt_text } : {}),
-    ...(typeof doc.ai_provider === 'string' ? { ai_provider: doc.ai_provider } : {}),
-    ...(typeof doc.ai_model === 'string' ? { ai_model: doc.ai_model } : {}),
-  };
-}
+export { sanitizeWorkerConfig } from './worker-config.repo.ts';
 
 // ── Demand signal ───────────────────────────────────────────────────────────
 
@@ -82,7 +57,7 @@ export function _resetDemandThrottleForTests(): void {
 
 // ── Assembly ────────────────────────────────────────────────────────────────
 
-export type StatusDbState = {
+type StatusDbState = {
   configMap: Map<string, WorkerConfig>;
   /** The worker's persisted counts, or null when it has not counted yet. */
   counts: StatusCountsSnapshot | null;
@@ -140,7 +115,57 @@ async function loadConfigMap(): Promise<Map<string, WorkerConfig>> {
  * response — even when the worker process is not running (statuses is empty
  * or missing that name). Workers absent from `statuses` default to
  * `status: 'stopped'` with zeroed live fields. */
-export function assembleWorkersStatus(
+function resolveStageCounts(name: string, dbState: StatusDbState) {
+  if (name === MIGRATION_WORKER_NAME) {
+    return {
+      pending: dbState.migrationPending,
+      ready: dbState.migrationPending,
+      blocked: 0,
+      dead: 0,
+    };
+  }
+  const pending = dbState.counts?.pending[name] || 0;
+  const ready = dbState.counts?.ready[name] || 0;
+  return {
+    pending,
+    ready,
+    blocked: Math.max(0, pending - ready),
+    dead: dbState.counts?.dead[name] || 0,
+  };
+}
+
+function resolveLiveSnapshot(s: StageStatusSnapshot | undefined) {
+  if (!s) {
+    return { status: 'stopped' as const, inFlight: 0, throughput: 0, lastError: null };
+  }
+  return {
+    status: s.status,
+    inFlight: s.inFlight,
+    throughput: s.throughput,
+    lastError: s.lastError || null,
+  };
+}
+
+function assembleStageRow(
+  name: string,
+  s: StageStatusSnapshot | undefined,
+  dbState: StatusDbState,
+) {
+  const rowCounts = resolveStageCounts(name, dbState);
+  const live = resolveLiveSnapshot(s);
+  const config = dbState.configMap.get(name) || null;
+  const configured = config?.concurrency || 0;
+  return {
+    name,
+    ...live,
+    configured,
+    ...rowCounts,
+    config,
+    batchSize: deriveBatchSize(configured),
+  };
+}
+
+function assembleWorkersStatus(
   statuses: Record<string, StageStatusSnapshot>,
   dbState: StatusDbState,
 ): WorkersStatusPayload {
@@ -152,37 +177,7 @@ export function assembleWorkersStatus(
     ...Object.keys(counts?.pending ?? {}),
   ]);
 
-  const stages = Array.from(nameSet).map((name) => {
-    const s = statuses[name];
-    const pending =
-      name === MIGRATION_WORKER_NAME ? dbState.migrationPending : (counts?.pending[name] ?? 0);
-    const ready =
-      name === MIGRATION_WORKER_NAME ? dbState.migrationPending : (counts?.ready[name] ?? 0);
-    // pending and ready are counted by separate (non-atomic) queries, so
-    // clamp the derived blocked count to avoid a transient negative.
-    const blocked = Math.max(0, pending - ready);
-    const dead = counts?.dead[name] ?? 0;
-    const config = dbState.configMap.get(name) ?? null;
-    const configured = config?.concurrency ?? 0;
-    // batchSize is no longer a knob — it's derived as 5×concurrency at the
-    // claim site (#674). Surface the derived value so the UI's
-    // "inFlight / batchSize" cell stays meaningful.
-    const batchSize = deriveBatchSize(configured);
-    return {
-      name,
-      status: s?.status ?? ('stopped' as const),
-      inFlight: s?.inFlight ?? 0,
-      configured,
-      pending,
-      ready,
-      blocked,
-      dead,
-      throughput: s?.throughput ?? 0,
-      lastError: s?.lastError ?? null,
-      config,
-      batchSize,
-    };
-  });
+  const stages = Array.from(nameSet).map((name) => assembleStageRow(name, statuses[name], dbState));
   return {
     stages,
     damaged: counts?.damaged ?? 0,
