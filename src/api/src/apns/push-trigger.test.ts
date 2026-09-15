@@ -47,7 +47,9 @@ beforeEach(async () => {
     return;
   }
   await db.collection('apns_device_tokens').deleteMany({});
-  await db.collection('app_settings').deleteMany({ _id: 'apns' });
+  await db
+    .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+    .deleteMany({ _id: 'apns' });
   __resetChangeBusForTests();
   for (const k of ENV_KEYS) delete process.env[k];
 });

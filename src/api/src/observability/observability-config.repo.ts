@@ -138,7 +138,9 @@ export async function saveObservabilityConfig(patch: Partial<ObservabilityConfig
   if (patch.sample_ratio !== undefined) {
     set['config.sample_ratio'] = patch.sample_ratio;
   }
-  await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await db
+    .collection<ObservabilityConfigDoc>(COLL)
+    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
 /**

@@ -120,10 +120,10 @@ describe('/api/render/config', () => {
   it('persists to app_settings under _id "render"', async () => {
     if (!db) return;
     await putConfig({ gpu_live_render_enabled: false });
-    const doc = await db.collection('app_settings').findOne({ _id: 'render' as never });
+    const doc = await db
+      .collection<{ _id: string; config: { gpu_live_render_enabled: boolean } }>('app_settings')
+      .findOne({ _id: 'render' });
     expect(doc).not.toBeNull();
-    expect(
-      (doc as { config: { gpu_live_render_enabled: boolean } }).config.gpu_live_render_enabled,
-    ).toBe(false);
+    expect(doc?.config.gpu_live_render_enabled).toBe(false);
   });
 });

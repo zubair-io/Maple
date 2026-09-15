@@ -53,7 +53,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!mongoReachable) return;
   await db!.collection('assets').deleteMany({});
-  await db!.collection('migrations').deleteMany({});
+  await db!
+    .collection<{ _id: string; rows: number; applied_at: Date }>('migrations')
+    .deleteMany({});
   await db!.collection('folders').deleteMany({});
 });
 
@@ -76,12 +78,14 @@ describe('migrations module', () => {
     await recordMigration(db!, 'exif-captured-year-month-backfill', 42);
     expect(await migrationApplied(db!, 'exif-captured-year-month-backfill')).toBe(true);
     // Stores rows + applied_at.
-    const doc = await db!.collection('migrations').findOne({
-      _id: 'exif-captured-year-month-backfill',
-    } as Parameters<ReturnType<typeof db.collection>['findOne']>[0]);
+    const doc = await db!
+      .collection<{ _id: string; rows: number; applied_at: Date }>('migrations')
+      .findOne({
+        _id: 'exif-captured-year-month-backfill',
+      });
     expect(doc).toBeDefined();
-    expect((doc as { rows: number }).rows).toBe(42);
-    expect((doc as { applied_at: Date }).applied_at).toBeInstanceOf(Date);
+    expect(doc?.rows).toBe(42);
+    expect(doc?.applied_at).toBeInstanceOf(Date);
   });
 
   it("recordMigration is idempotent — duplicate calls don't throw", async () => {
@@ -95,9 +99,11 @@ describe('migrations module', () => {
     await recordMigration(db!, 'place-search-blob-backfill', 99);
     expect(await migrationApplied(db!, 'place-search-blob-backfill')).toBe(true);
     // First write wins; second is a no-op.
-    const doc = await db!.collection('migrations').findOne({
-      _id: 'place-search-blob-backfill',
-    } as Parameters<ReturnType<typeof db.collection>['findOne']>[0]);
-    expect((doc as { rows: number }).rows).toBe(10);
+    const doc = await db!
+      .collection<{ _id: string; rows: number; applied_at: Date }>('migrations')
+      .findOne({
+        _id: 'place-search-blob-backfill',
+      });
+    expect(doc?.rows).toBe(10);
   });
 });

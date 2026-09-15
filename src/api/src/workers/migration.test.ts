@@ -257,9 +257,9 @@ describe('migration end-to-end (restructure)', () => {
       await setMigrationEnabled('refile-backups', true, new Date().toISOString());
       await runMigrationTickOnce(50, new Date().toISOString());
 
-      const docs = (await assets.find({ _id: { $in: [idA, idB] } }).toArray()) as {
-        fileinfo: { path: string; filename: string }[];
-      }[];
+      const docs = await assets
+        .find<{ fileinfo: { path: string; filename: string }[] }>({ _id: { $in: [idA, idB] } })
+        .toArray();
       // Both now live under 2024/Misc; filenames are DUP.HEIC and DUP.1.HEIC.
       for (const d of docs) expect(d.fileinfo[0].path).toBe('2024/Misc');
       const names = docs.map((d) => d.fileinfo[0].filename).sort();

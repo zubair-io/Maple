@@ -53,7 +53,8 @@ const previewerModule = await import('../../indexer/previewer.ts');
 
 /** Simulated decode+AVIF-encode: tracks concurrency, writes a dummy file so
  * the route's subsequent read succeeds, never touches maple/libraw. */
-async function fakeGeneratePreview(_absPath: string, previewPath: string): Promise<void> {
+async function fakeGeneratePreview(_absPath: string, previewPath?: string): Promise<void> {
+  if (!previewPath) throw new Error('Expected an explicit preview output path');
   activeGenerations++;
   peakConcurrent = Math.max(peakConcurrent, activeGenerations);
   await new Promise((r) => setTimeout(r, 25));

@@ -7,6 +7,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  api-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install API deps
+        working-directory: src/api
+        run: bun install --frozen-lockfile
+      - name: Typecheck API source and tests
+        working-directory: src/api
+        run: bun run typecheck
+
   api-tests:
     runs-on: ubuntu-latest
     services:

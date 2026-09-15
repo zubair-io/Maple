@@ -122,8 +122,8 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     const a = await assetsCollection();
     const docs = await a.find({ maple_id: retryMapleId }).toArray();
     expect(docs.length).toBe(1);
-    expect(docs[0].phasset_links.length).toBe(1);
-    expect(docs[0].phasset_links[0].phasset_local_id).toBe(retryPhid);
+    expect(docs[0].phasset_links?.length).toBe(1);
+    expect(docs[0].phasset_links?.[0].phasset_local_id).toBe(retryPhid);
   });
 
   test('missing required header → 400', async () => {
@@ -208,8 +208,8 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     const a = await assetsCollection();
     const docs = await a.find({ maple_id: sharedMapleId }).toArray();
     expect(docs.length).toBe(1);
-    expect(docs[0].phasset_links.length).toBe(2);
-    const deviceIds = docs[0].phasset_links.map((l: any) => l.device_id);
+    expect(docs[0].phasset_links?.length).toBe(2);
+    const deviceIds = docs[0].phasset_links?.map((l) => l.device_id);
     expect(deviceIds).toContain(deviceA);
     expect(deviceIds).toContain(deviceB);
   });

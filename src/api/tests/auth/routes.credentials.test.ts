@@ -28,7 +28,7 @@ beforeEach(async () => {
   });
   userId = ins.insertedId;
   jwt = await signAccessToken(
-    { sub: userId.toHexString(), email: 'u@m.c', role: 'member' },
+    { file_access: true, sub: userId.toHexString(), email: 'u@m.c', role: 'member' },
     'x'.repeat(32),
   );
   // #861: removing a credential is sensitive — needs a fresh step-up token.

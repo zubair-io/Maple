@@ -27,6 +27,7 @@ export const BEARER =
       sub: '00000000000000000000000a',
       email: 'tester@maple.local',
       role: 'owner',
+      file_access: true,
     },
     SECRET,
   ));

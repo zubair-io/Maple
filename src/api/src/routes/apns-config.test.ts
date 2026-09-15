@@ -37,14 +37,16 @@ beforeEach(async () => {
     mongoReachable = false;
     return;
   }
-  await db.collection('app_settings').deleteMany({ _id: 'apns' });
+  await db
+    .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+    .deleteMany({ _id: 'apns' });
 });
 
 afterEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
 });
 
-function app(): Elysia {
+function app() {
   return new Elysia().use(apnsConfigRoutes);
 }
 

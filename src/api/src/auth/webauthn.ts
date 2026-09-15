@@ -184,7 +184,7 @@ export async function buildDiscoverableAuthenticationOptions() {
  * byteOffset/length), not its underlying ArrayBuffer. Handles both shapes so a
  * driver/config change can't silently corrupt the key and break every login.
  */
-function credentialPublicKeyBytes(pk: unknown): Uint8Array {
+function credentialPublicKeyBytes(pk: unknown): Uint8Array<ArrayBuffer> {
   if (pk instanceof Uint8Array) return Uint8Array.from(pk); // Node Buffer / Uint8Array
   const buf = (pk as { buffer?: unknown } | null)?.buffer; // BSON Binary
   if (buf instanceof Uint8Array) return Uint8Array.from(buf);

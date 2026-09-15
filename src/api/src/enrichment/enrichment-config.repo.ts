@@ -436,5 +436,7 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
     set['config.service_search_rate_limit_per_minute'] =
       remapped.service_search_rate_limit_per_minute;
   }
-  await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await db
+    .collection<EnrichmentConfigDoc>(COLL)
+    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }

@@ -92,15 +92,7 @@ async function resolvePreviewCachePath(real: string): Promise<string> {
     const asset = await lookupAssetByReal(real);
     if (asset) {
       const libs = await loadLibraryRoots();
-      const pathKeyed = cachePathForAsset(
-        {
-          maple_id: asset.maple_id as string | undefined,
-          fileinfo: asset.fileinfo as never,
-        },
-        libs,
-        'previews',
-        PREVIEW_CACHE_SUFFIX,
-      );
+      const pathKeyed = cachePathForAsset(asset, libs, 'previews', PREVIEW_CACHE_SUFFIX);
       if (pathKeyed) return pathKeyed;
     }
   } catch (err) {
