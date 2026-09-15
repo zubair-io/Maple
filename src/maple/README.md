@@ -686,6 +686,27 @@ setMapleConcurrency(8);
 setMapleExecutionMode('sync');
 ```
 
+### Bounded Bun worker admission
+
+The `bun:ffi` fallback accepts at most one waiting call per configured worker,
+in addition to the calls already running. With the default concurrency of four,
+that is four running and four waiting calls; the maximum concurrency of 16 gives
+16 waiting slots. Lowering concurrency preserves already accepted work while it
+drains. These are request-count limits, not an image-size or total-memory limit.
+
+When all waiting slots are occupied, the call rejects with the exported
+`MapleWorkerPoolOverloadedError` (`code: 'MAPLE_WORKER_POOL_OVERLOADED'`) before
+retaining its input in the pool. Await outstanding work before submitting more;
+large batches should use bounded producer concurrency rather than enqueueing the
+entire batch with `Promise.all`. Maple does not retry rejected calls automatically.
+
+A worker failure rejects its active call and replacement workers drain accepted
+waiting calls. If a replacement cannot start, waiting calls reject and their
+inputs are released. `shutdownMaplePool()` rejects running and waiting calls,
+clears queued inputs, and terminates workers; a subsequent call creates a fresh
+pool. The N-API backend uses its own scheduling and is unaffected by this Bun
+fallback limit, as is explicit synchronous mode.
+
 A process that only ever calls into Maple and does nothing else exits on
 its own once its calls finish, on either binding — a resolvable napi addon
 holds no handle open at all, and the `bun:ffi` fallback's idle worker

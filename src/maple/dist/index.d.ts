@@ -11,4 +11,4 @@ export * from './builder-state';
 export * from './builder-validate';
 export * from './builder';
 export { runCli } from './cli';
-export { callNative, getMapleConcurrency, getMapleExecutionMode, setMapleConcurrency, setMapleExecutionMode, shutdownMaplePool, type MapleExecutionMode, } from './worker-pool';
+export { callNative, MapleWorkerPoolOverloadedError, getMapleConcurrency, getMapleExecutionMode, setMapleConcurrency, setMapleExecutionMode, shutdownMaplePool, type MapleExecutionMode, } from './worker-pool';

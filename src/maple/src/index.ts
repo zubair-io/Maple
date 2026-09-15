@@ -14,6 +14,7 @@ export * from './builder';
 export { runCli } from './cli';
 export {
   callNative,
+  MapleWorkerPoolOverloadedError,
   getMapleConcurrency,
   getMapleExecutionMode,
   setMapleConcurrency,

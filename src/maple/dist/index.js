@@ -918,6 +918,13 @@ function restoreFromTransfer(value) {
 }
 
 // src/worker-pool.ts
+class MapleWorkerPoolOverloadedError extends Error {
+  code = "MAPLE_WORKER_POOL_OVERLOADED";
+  constructor() {
+    super("Maple worker pool is full; await an outstanding call before submitting more work");
+    this.name = "MapleWorkerPoolOverloadedError";
+  }
+}
 var MIN_CONCURRENCY = 1;
 var MAX_CONCURRENCY = 16;
 var DEFAULT_CONCURRENCY = 4;
@@ -954,11 +961,16 @@ class NativeWorkerPool {
     if (this.shuttingDown) {
       return Promise.reject(new Error("Maple worker pool is shut down"));
     }
+    const worker = this.acquireIdleWorker();
+    if (worker instanceof Error)
+      return Promise.reject(worker);
+    if (!worker && this.queue.length >= getMapleConcurrency()) {
+      return Promise.reject(new MapleWorkerPoolOverloadedError);
+    }
     const id = this.nextId++;
     const request = { id, method, args };
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      const worker = this.acquireIdleWorker();
       if (worker) {
         this.send(worker, request);
       } else {
@@ -971,7 +983,11 @@ class NativeWorkerPool {
     if (idle)
       return idle;
     if (this.workers.length < getMapleConcurrency()) {
-      return this.spawnWorker();
+      try {
+        return this.spawnWorker();
+      } catch (error) {
+        return error instanceof Error ? error : new Error(String(error));
+      }
     }
     return null;
   }
@@ -994,9 +1010,15 @@ class NativeWorkerPool {
   send(poolWorker, request) {
     poolWorker.busyWith = request.id;
     poolWorker.worker.ref?.();
-    poolWorker.worker.postMessage(request);
+    try {
+      poolWorker.worker.postMessage(request);
+    } catch (error) {
+      this.handleWorkerDeath(poolWorker, error instanceof Error ? error.message : String(error));
+    }
   }
   handleResponse(poolWorker, response) {
+    if (!this.workers.includes(poolWorker) || poolWorker.busyWith !== response.id)
+      return;
     const pending = this.pending.get(response.id);
     this.pending.delete(response.id);
     poolWorker.busyWith = null;
@@ -1012,6 +1034,8 @@ class NativeWorkerPool {
     }
   }
   handleWorkerDeath(poolWorker, message) {
+    if (!this.workers.includes(poolWorker))
+      return;
     this.workers = this.workers.filter((w) => w !== poolWorker);
     const failedRequestId = poolWorker.busyWith;
     poolWorker.busyWith = null;
@@ -1036,6 +1060,15 @@ class NativeWorkerPool {
   pumpQueue() {
     while (this.queue.length > 0) {
       const worker = this.acquireIdleWorker();
+      if (worker instanceof Error) {
+        for (const request of this.queue.splice(0)) {
+          const pending = this.pending.get(request.id);
+          this.pending.delete(request.id);
+          if (pending)
+            setImmediate(() => pending.reject(worker));
+        }
+        return;
+      }
       if (!worker)
         return;
       const next = this.queue.shift();
@@ -1052,11 +1085,12 @@ class NativeWorkerPool {
       pending.reject(new Error("Maple worker pool shut down"));
     }
     this.pending.clear();
-    for (const poolWorker of this.workers) {
-      poolWorker.worker.terminate();
-    }
+    const workers = this.workers;
     this.workers = [];
     this.queue.length = 0;
+    for (const poolWorker of workers) {
+      poolWorker.worker.terminate();
+    }
   }
 }
 function workerEntryUrl() {
@@ -2800,6 +2834,7 @@ export {
   AuxBlob,
   MAPLE_VERSION,
   MapleImageBuilder,
+  MapleWorkerPoolOverloadedError,
   applyEffort,
   applyFormat,
   applyQuality,
