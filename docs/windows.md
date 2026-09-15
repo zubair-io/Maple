@@ -197,7 +197,7 @@ It skip-passes when no RAW fixture is available, and when `python3` is genuinely
 The Rust half builds anywhere; the C# app builds on Windows only.
 
 ```bash
-# One shot: codegen + raw-ffi + the Rust host + the WinUI app (dotnet optional)
+# On Windows in Git Bash: codegen + raw-ffi + diagnostic host + WinUI app
 bash src/windows/scripts/build-windows.sh
 
 # Or the pieces, from the repo root:
@@ -211,7 +211,13 @@ dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
 dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
 ```
 
-`build-windows.sh` honours `WINDOWS_TARGET` (default `x86_64-pc-windows-msvc`) and runs `tools/codegen.sh` first so `Themes/Tokens.xaml` and the other generated outputs are current. The csproj copies `raw_ffi.dll` and `maple-cli.exe` out of `src/raw-pipeline/target/release/` when they exist, so build the Rust side before the app.
+`build-windows.sh` supports **native Windows/MSVC builds only**. `WINDOWS_TARGET` defaults to `x86_64-pc-windows-msvc`; ARM64 hosts can select `aarch64-pc-windows-msvc`. The selected target must match `rustc -vV`'s host. Cross-compilation from macOS/Linux or between architectures is rejected before building. Install Cargo/Rust, the MSVC build tools and Windows SDK, .NET 8 SDK, Git Bash, and Python 3. Missing tools or outputs fail the build.
+
+The wrapper regenerates declarations, explicitly targets both Rust builds, and selects the matching WinUI platform and runtime. Native artifacts live under `target/<triple>/release/` in their respective Rust workspaces. The application and its required `raw_ffi.dll` are verified under `src/windows/Maple.WinUI/bin/Release/<triple>/`. `CARGO_TARGET_DIR` cannot redirect those outputs.
+
+Direct builds shown above retain the csproj's legacy `src/raw-pipeline/target/release/` lookup. With `-p:MapleRustTarget=<triple>`, the csproj reads only that target's release directory and fails if the core DLL is absent. The optional panorama CLI is copied from the same directory when present; the wrapper does not build it. Build `maple-cli` separately with `--features pano --target <triple>` before invoking the wrapper when packaging panorama support.
+
+Wrapper contract tests run without native tools: `python3 src/windows/scripts/test_build_windows.py`. Windows CI also runs the actual x64 wrapper; those compilation checks do not qualify interactive GPU or color performance.
 
 ```powershell
 # Qualification run (Windows, after building the app and maple-cli)
