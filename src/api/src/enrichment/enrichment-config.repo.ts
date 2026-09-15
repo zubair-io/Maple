@@ -217,6 +217,10 @@ export interface EnrichmentConfig {
   describe_provider_url?: string | null;
   /** Whisper model tier used for newly transcribed assets. */
   transcribe_model_tier?: WhisperTier | null;
+  /** API key for third-party AI providers. */
+  openai_api_key?: string | null;
+  anthropic_api_key?: string | null;
+  gemini_api_key?: string | null;
   // ── Face worker (Phase 5) ────────────────────────────────────────────
   /** Phase 5 face worker. Default off — opt-in because the worker requires
    * SCRFD + ArcFace ONNX model files on disk (or downloadable from
@@ -332,6 +336,7 @@ function copyMeilisearchSemanticFields(
  * under the new schema where the resolver can find it, instead of
  * silently dropping the write. When BOTH the legacy and new keys are
  * present in one patch, the new key wins. */
+// fallow-ignore-next-line complexity
 export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Promise<void> {
   const db = await getDb();
   const set: Record<string, unknown> = {
@@ -386,6 +391,15 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   }
   if (remapped.transcribe_model_tier !== undefined) {
     set['config.transcribe_model_tier'] = remapped.transcribe_model_tier;
+  }
+  if (remapped.openai_api_key !== undefined) {
+    set['config.openai_api_key'] = remapped.openai_api_key;
+  }
+  if (remapped.anthropic_api_key !== undefined) {
+    set['config.anthropic_api_key'] = remapped.anthropic_api_key;
+  }
+  if (remapped.gemini_api_key !== undefined) {
+    set['config.gemini_api_key'] = remapped.gemini_api_key;
   }
   if (remapped.face_worker_enabled !== undefined) {
     set['config.face_worker_enabled'] = remapped.face_worker_enabled;

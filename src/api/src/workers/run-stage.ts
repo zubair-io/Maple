@@ -35,6 +35,7 @@ import {
   bootConfig,
   defineStage,
   invalidationSets,
+  notifyConfigChange,
   resolveStageDeps,
   versionBumpReset,
 } from './stage-config.ts';
@@ -48,16 +49,7 @@ import type {
   WorkerConfig,
 } from './stage-config.ts';
 
-// ---------------------------------------------------------------------------
-// Stage-definition / config plumbing lives in `./stage-config.ts`. Re-exported
-// here so the many stage files and tests that import these from `run-stage.ts`
-// keep working unchanged (`import { defineStage, type ImageDoc } from
-// './run-stage.ts'`, etc.).
-// ---------------------------------------------------------------------------
-
 export { bootConfig, defineStage, resolveStageDeps, versionBumpReset };
-// Claim query lives in `./claim-query.ts`; re-exported so existing importers
-// (`run-stage.ts`) keep working unchanged.
 export { buildClaimQuery } from './claim-query.ts';
 export type {
   ImageDoc,
@@ -69,8 +61,6 @@ export type {
   WorkerConfig,
 };
 
-// Poll-loop timing policy lives in `./loop-policy.ts`. Re-exported here so the
-// many stage files and tests that import these from `run-stage.ts` keep working.
 export { POLL_INTERVAL_MS, BACKOFF_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
 
 // ---------------------------------------------------------------------------
@@ -420,6 +410,7 @@ export async function runStage<TPatch extends Record<string, unknown>>(
     reloadConfig: async () => {
       const updated = await repo.load(stage.name);
       if (updated) {
+        notifyConfigChange(stage as StageConfig<unknown>, updated, config, log);
         config = updated;
         log.info({ config }, `${stage.name} config reloaded`);
       }
@@ -459,7 +450,10 @@ export async function runStage<TPatch extends Record<string, unknown>>(
     if (Date.now() - lastConfigReadAt >= CONFIG_RELOAD_INTERVAL_MS) {
       try {
         const updated = await repo.load(stage.name);
-        if (updated) config = updated;
+        if (updated) {
+          notifyConfigChange(stage as StageConfig<unknown>, updated, config, log);
+          config = updated;
+        }
         lastConfigReadAt = Date.now();
       } catch {
         /* keep previous config on load failure */

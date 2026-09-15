@@ -194,6 +194,8 @@ export interface StageConfig<TPatch = Record<string, unknown>> {
    * misbehaving hook can never stall or crash the poll loop.
    */
   onProgress?: (processedThisTick: number, idle: boolean) => void | Promise<void>;
+  /** Optional callback invoked when worker_config changes for this stage. */
+  onConfigChange?: (updated: WorkerConfig, old: WorkerConfig) => void | Promise<void>;
 }
 
 /** Zero-cost identity helper that provides `TPatch` inference at stage sites. */
@@ -304,4 +306,26 @@ export function resolveStageDeps(
   dependsOn: StageDep[],
 ): Array<{ name: string; minVersion: number }> {
   return dependsOn.map((d) => (typeof d === 'string' ? { name: d, minVersion: 1 } : d));
+}
+
+/** Check if stage configuration changed and invoke onConfigChange hook. */
+export function notifyConfigChange(
+  stage: StageConfig<unknown>,
+  updated: WorkerConfig,
+  current: WorkerConfig,
+  log?: { warn: (obj: unknown, msg: string) => void },
+): void {
+  if (!stage.onConfigChange) return;
+  if (
+    updated.ai_provider !== current.ai_provider ||
+    updated.ai_model !== current.ai_model ||
+    updated.prompt_text !== current.prompt_text ||
+    updated.concurrency !== current.concurrency
+  ) {
+    try {
+      void stage.onConfigChange(updated, current);
+    } catch (e) {
+      log?.warn({ err: e }, `${stage.name} onConfigChange threw`);
+    }
+  }
 }

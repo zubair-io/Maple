@@ -7,6 +7,12 @@ describe('worker enrichment config refresh', () => {
     const base = resolveEnrichmentConfig(null, {});
     const fingerprint = workerEnrichmentFingerprint(base);
     const changes = [
+      { describe_provider: 'openai' as const },
+      { describe_model: 'gpt-4o' },
+      { describe_system_prompt: 'Custom prompt text' },
+      { openai_api_key: 'sk-proj-test' },
+      { anthropic_api_key: 'sk-ant-test' },
+      { gemini_api_key: 'AIzaSyTest' },
       { describe_provider_url: 'http://ollama.internal:11434' },
       { meilisearch_url: 'http://meili.internal:7700' },
       { meilisearch_api_key: 'new-secret' },
