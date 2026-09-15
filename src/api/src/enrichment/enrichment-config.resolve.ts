@@ -322,7 +322,8 @@ export function resolveEnrichmentConfig(
     saved: string | null | undefined,
     envVar: string | undefined,
   ): { value: string | null; source: 'db' | 'env' | 'unset' } => {
-    if (saved && saved.trim().length > 0) return { value: saved.trim(), source: 'db' };
+    // An explicit clear must also override an inherited deployment key.
+    if (saved !== undefined) return { value: saved?.trim() || null, source: 'db' };
     if (envVar && envVar.trim().length > 0) return { value: envVar.trim(), source: 'env' };
     return { value: null, source: 'unset' };
   };

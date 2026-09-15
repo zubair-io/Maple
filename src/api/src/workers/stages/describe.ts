@@ -83,7 +83,7 @@ let _deps: DescribeDeps | null = null;
 const FIXED_DESCRIBE_MODEL = DESCRIBE_VISION_OLLAMA_TAG;
 
 function resolveDescribeProvider(
-  workerProvider?: string,
+  workerProvider?: string | null,
   cfgProvider?: string,
 ): DescribeProviderName {
   if (workerProvider) return workerProvider as DescribeProviderName;
@@ -92,7 +92,7 @@ function resolveDescribeProvider(
 }
 
 function resolveDescribeModel(
-  workerModel: string | undefined,
+  workerModel: string | null | undefined,
   cfgModel: string | undefined,
   provider: DescribeProviderName,
 ): string {
@@ -118,7 +118,7 @@ async function createDescribePool(
           ? cfg.gemini_api_key
           : null;
   return new DescribeServerPool([{ url: provider, concurrency }], () =>
-    getDescribeProvider(provider, { apiKey: apiKey ?? undefined }),
+    getDescribeProvider(provider, { apiKey }),
   );
 }
 

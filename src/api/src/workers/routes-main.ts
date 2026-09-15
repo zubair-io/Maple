@@ -19,6 +19,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { WorkerConfigBody } from './worker-config.schema.ts';
 import { type Collection, type Filter, ObjectId } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
@@ -490,22 +491,7 @@ export function workerRoutes(): Elysia {
           }
         },
         {
-          // Loosely-typed body (`additionalProperties: true`, the default) so the
-          // removed knobs survive normalization and the handler can 400 on them.
-          // The accepted fields are still bounds-validated here; concurrency's
-          // ceiling rose 32 → 100 (#674).
-          body: t.Object({
-            concurrency: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
-            maxAttempts: t.Optional(t.Integer({ minimum: 1, maximum: 20 })),
-            paused: t.Optional(t.Boolean()),
-            pollIntervalMs: t.Optional(t.Unknown()),
-            batchSize: t.Optional(t.Unknown()),
-            sweepDirIntervalMs: t.Optional(t.Integer({ minimum: 0, maximum: 60_000 })),
-            version: t.Optional(t.Union([t.String(), t.Null()])),
-            prompt_text: t.Optional(t.Union([t.String(), t.Null()])),
-            ai_provider: t.Optional(t.Union([t.String(), t.Null()])),
-            ai_model: t.Optional(t.Union([t.String(), t.Null()])),
-          }),
+          body: WorkerConfigBody,
         },
       )
 
