@@ -24,7 +24,10 @@ beforeAll(async () => {
   }
 });
 beforeEach(async () => {
-  if (reachable) await (await getDb()).collection('worker_status').deleteMany({ _id: 'singleton' });
+  if (reachable)
+    await (await getDb())
+      .collection<{ _id: string; [key: string]: unknown }>('worker_status')
+      .deleteMany({ _id: 'singleton' });
 });
 afterAll(async () => {
   if (suiteDb) await suiteDb.dropDatabase();

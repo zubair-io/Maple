@@ -99,7 +99,7 @@ describe('PUT /api/preview', () => {
     // Written to the canonical cache path — filename incl. extension + `.avif`.
     const previewPath = join(tmp, '.maple', 'previews', 'IMG_1234.CR2.avif');
     const written = await readFile(previewPath);
-    expect(Buffer.from(written)).toEqual(avif);
+    expect(written.equals(avif)).toBe(true);
   });
 
   it('overwrites an existing preview in place (pure cache, no versioning)', async () => {
@@ -113,7 +113,7 @@ describe('PUT /api/preview', () => {
     expect((await put(original, second)).status).toBe(204);
 
     const previewPath = join(tmp, '.maple', 'previews', 'a.dng.avif');
-    expect(Buffer.from(await readFile(previewPath))).toEqual(second);
+    expect((await readFile(previewPath)).equals(second)).toBe(true);
   });
 
   it('rejects a non-AVIF body with 422 and writes nothing', async () => {
@@ -305,6 +305,6 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
     expect(res.status).toBe(204);
 
     const previewPath = join(tmp, '.maple', 'previews', 'still-avif.dng.avif');
-    expect(Buffer.from(await readFile(previewPath))).toEqual(avif);
+    expect((await readFile(previewPath)).equals(avif)).toBe(true);
   });
 });

@@ -40,12 +40,12 @@ describe('PUT /api/preview — concurrent writers never expose a partial AVIF (#
   let tmp = '';
   let scratchDir = '';
 
-  const put = (path: string, body: BodyInit) =>
+  const put = (path: string, body: BodyInit | Buffer) =>
     new Elysia().use(previewPathRoutes).handle(
       new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
         method: 'PUT',
         headers: { 'content-type': 'image/avif' },
-        body,
+        body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
       }),
     );
 

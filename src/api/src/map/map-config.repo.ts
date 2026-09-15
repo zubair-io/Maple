@@ -75,7 +75,9 @@ export async function saveMapConfig(patch: Partial<MapConfig>): Promise<void> {
   if (patch.tile_url !== undefined) {
     set['config.tile_url'] = patch.tile_url;
   }
-  await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await db
+    .collection<MapConfigDoc>(COLL)
+    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
 /**

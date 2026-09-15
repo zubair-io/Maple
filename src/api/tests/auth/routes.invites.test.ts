@@ -12,11 +12,11 @@ const app = new Elysia().use(authRoutes);
 const ownerId = new ObjectId();
 const memberId = new ObjectId();
 const ownerJwt = await signAccessToken(
-  { sub: ownerId.toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: ownerId.toHexString(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 const memberJwt = await signAccessToken(
-  { sub: memberId.toHexString(), email: 'm@m.c', role: 'member' },
+  { file_access: true, sub: memberId.toHexString(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
 // #861: create/rescind are sensitive — they need a fresh step-up token.

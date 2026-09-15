@@ -24,7 +24,7 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
-let app: Elysia | null = null;
+let app: Pick<Elysia, 'handle'> | null = null;
 
 const realFetch = globalThis.fetch;
 
@@ -62,7 +62,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection('app_settings').deleteMany({});
+  await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
 });
 
 afterEach(() => {
@@ -148,7 +148,7 @@ describe('GET /api/observability/config', () => {
 
   it('returns the saved DB row but REDACTS the ingestion key', async () => {
     if (!mongoReachable) return;
-    await db!.collection('app_settings').insertOne({
+    await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').insertOne({
       _id: 'observability',
       config: {
         endpoint: 'https://from-db.test:4318',
@@ -264,7 +264,7 @@ describe('PUT/GET /api/observability/config — ingestion_key write semantics', 
     expect((got.body as { ingestion_key_set: boolean }).ingestion_key_set).toBe(true);
     // Persisted in the DB even though it's never returned.
     const saved = await db!
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .findOne<{ config: { ingestion_key?: string } }>({
         _id: 'observability',
       } as never);
@@ -276,7 +276,7 @@ describe('PUT/GET /api/observability/config — ingestion_key write semantics', 
     await put('/api/observability/config', { ingestion_key: 'keep-me' });
     await put('/api/observability/config', { ingestion_key: '' });
     const saved = await db!
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .findOne<{ config: { ingestion_key?: string } }>({
         _id: 'observability',
       } as never);
@@ -288,7 +288,7 @@ describe('PUT/GET /api/observability/config — ingestion_key write semantics', 
     await put('/api/observability/config', { ingestion_key: 'delete-me' });
     await put('/api/observability/config', { ingestion_key: null });
     const saved = await db!
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .findOne<{ config: { ingestion_key?: string | null } }>({
         _id: 'observability',
       } as never);
@@ -399,7 +399,7 @@ describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', (
   /** Seed an enabled DB config so the proxy forwards. Signals default on
    * except metrics; override per test. */
   async function seedConfig(over: Record<string, unknown> = {}): Promise<void> {
-    await db!.collection('app_settings').updateOne(
+    await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').updateOne(
       { _id: 'observability' } as never,
       {
         $set: {

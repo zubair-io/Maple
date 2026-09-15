@@ -155,7 +155,7 @@ export const histogramRoutes = new Elysia().get(
     // `maple_id` needed (previews are path-keyed, see `cachePathForAsset`'s
     // doc), just an asset row with `fileinfo`.
     const jsonPath = cachePathForAsset(
-      { maple_id: info.maple_id ?? undefined, fileinfo: info.fileinfo },
+      { fileinfo: info.fileinfo },
       libs,
       'previews',
       'histogram.json',

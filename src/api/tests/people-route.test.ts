@@ -16,7 +16,7 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
-let app: Elysia | null = null;
+let app: Pick<Elysia, 'handle'> | null = null;
 
 const DIM = 512;
 

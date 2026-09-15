@@ -140,11 +140,11 @@ export async function renderHeicThumbToFile(
   // heic-convert → JPEG quality 0.9 (its own intermediate-decode scale, not
   // the thumb's output quality); the subsequent Maple resize re-encodes at
   // the caller-specified quality so the intermediate doesn't bloat the cache.
-  const jpegBuffer = (await heicConvert({
+  const jpegBuffer = await heicConvert({
     buffer: inputBuffer,
     format: 'JPEG',
     quality: 0.9,
-  })) as Buffer;
+  });
   const builder = maple(jpegBuffer)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(inside(sizePx));

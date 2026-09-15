@@ -267,7 +267,6 @@ export const auditVideoGeoBackfill: Migration = {
           await audit.replaceOne(
             { _id: doc._id },
             {
-              _id: doc._id,
               maple_id: doc.maple_id,
               captured_at: capturedAt ?? '',
               decision: 'skip',

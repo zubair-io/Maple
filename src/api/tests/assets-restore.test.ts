@@ -15,7 +15,12 @@ process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const BEARER =
   'Bearer ' +
   (await signAccessToken(
-    { sub: '00000000000000000000000a', email: 'tester@maple.local', role: 'owner' },
+    {
+      file_access: true,
+      sub: '00000000000000000000000a',
+      email: 'tester@maple.local',
+      role: 'owner',
+    },
     process.env.MAPLE_JWT_SECRET!,
   ));
 

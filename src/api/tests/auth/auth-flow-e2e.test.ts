@@ -205,7 +205,7 @@ describe('auth lifecycle e2e (#852 stack)', () => {
       last_seen_at: null,
     });
     const bearer = await signAccessToken(
-      { sub: ins.insertedId.toHexString(), email, role: 'owner' },
+      { file_access: true, sub: ins.insertedId.toHexString(), email, role: 'owner' },
       process.env.MAPLE_JWT_SECRET!,
     );
     const verifier = 'v'.repeat(64);
@@ -293,7 +293,7 @@ describe('auth lifecycle e2e (#852 stack)', () => {
   it('PhotoKit-backup routes reject anonymous requests and pass auth with a bearer (#853 gate)', async () => {
     const LIB = new ObjectId().toHexString();
     const bearer = await signAccessToken(
-      { sub: '0'.repeat(24), email: 'svc@maple.test', role: 'owner' },
+      { file_access: true, sub: '0'.repeat(24), email: 'svc@maple.test', role: 'owner' },
       process.env.MAPLE_JWT_SECRET!,
     );
     const routes: ReadonlyArray<readonly [string, string]> = [

@@ -79,7 +79,9 @@ export async function saveRenderConfig(patch: Partial<RenderConfig>): Promise<vo
   if (patch.gpu_live_render_enabled !== undefined) {
     set['config.gpu_live_render_enabled'] = patch.gpu_live_render_enabled;
   }
-  await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await db
+    .collection<RenderConfigDoc>(COLL)
+    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
 /**

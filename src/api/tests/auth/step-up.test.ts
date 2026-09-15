@@ -31,7 +31,7 @@ beforeEach(async () => {
   });
   ownerId = ins.insertedId;
   bearer = await signAccessToken(
-    { sub: ownerId.toHexString(), email: EMAIL, role: 'owner' },
+    { file_access: true, sub: ownerId.toHexString(), email: EMAIL, role: 'owner' },
     SECRET,
   );
 });

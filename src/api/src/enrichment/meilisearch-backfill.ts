@@ -110,7 +110,7 @@ function freshState(now: string, remaining: number): BackfillState {
  * documents already in its index and needs no re-upsert. Same distinction
  * `documentShapeOf` draws in `meilisearch-vector-coverage.ts`.
  */
-function generationIsCurrent(state: BackfillState | null): state is BackfillState {
+function generationIsCurrent(state: BackfillState | null): boolean {
   return state !== null && state.doc_shape_version === ASSET_DOC_SHAPE_VERSION;
 }
 

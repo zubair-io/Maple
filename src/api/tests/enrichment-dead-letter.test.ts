@@ -20,7 +20,7 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
-let app: Elysia | null = null;
+let app: Pick<Elysia, 'handle'> | null = null;
 
 async function tryConnect(): Promise<MongoClient | null> {
   const c = new MongoClient(MONGO_URI, {

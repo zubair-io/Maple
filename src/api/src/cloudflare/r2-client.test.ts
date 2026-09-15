@@ -43,12 +43,12 @@ describe('thumbExistsInR2', () => {
   });
 
   it('returns false on a 404', async () => {
-    globalThis.fetch = (async () => new Response(null, { status: 404 })) as typeof fetch;
+    stubFetch([404]);
     expect(await thumbExistsInR2(CONFIG, 'thumbs/x')).toBe(false);
   });
 
   it('throws on a 500', async () => {
-    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch;
+    stubFetch([500]);
     await expect(thumbExistsInR2(CONFIG, 'thumbs/x')).rejects.toThrow(/R2 head failed \(500\)/);
   });
 });

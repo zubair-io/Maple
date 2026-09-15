@@ -33,7 +33,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (dbReachable) {
     const db = await getDb();
-    await db.collection('worker_status').deleteMany({ _id: 'singleton' });
+    await db
+      .collection<{ _id: string; [key: string]: unknown }>('worker_status')
+      .deleteMany({ _id: 'singleton' });
     // `/status` derives each stage's pending/ready/dead from a live
     // countDocuments over the `assets` collection. In the shared CI Mongo an
     // earlier test file can leave asset docs behind, which makes the
@@ -270,7 +272,9 @@ describe('GET /api/workers/status', () => {
       );
       expect(row?.pending).toBe(40);
     } finally {
-      await (await getDb()).collection('app_settings').deleteOne({ _id: 'migration' as never });
+      await (await getDb())
+        .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+        .deleteOne({ _id: 'migration' as never });
     }
   });
 

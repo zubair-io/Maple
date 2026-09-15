@@ -24,16 +24,16 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
-let app: Elysia | null = null;
+let app: Pick<Elysia, 'handle'> | null = null;
 
 const realFetch = globalThis.fetch;
 
 const ownerJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 const memberJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
 
@@ -76,7 +76,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection('app_settings').deleteMany({});
+  await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
 });
 
 afterEach(() => {
@@ -176,7 +176,7 @@ describe('PUT /api/enrichment/config — meilisearch_url', () => {
     expect(body.meilisearch_url).toBe('http://meili.test:7700');
     expect(body.source.meilisearch_url).toBe('db');
     const saved = await db!
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .findOne<{ config: { meilisearch_url?: string } }>({ _id: 'enrichment' } as never);
     expect(saved!.config.meilisearch_url).toBe('http://meili.test:7700');
   });
@@ -297,7 +297,7 @@ describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', 
 
     // ...but it IS persisted in Mongo.
     const saved = await db!
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .findOne<{ config: { meilisearch_api_key?: string } }>({ _id: 'enrichment' } as never);
     expect(saved!.config.meilisearch_api_key).toBe('super-secret');
   });
@@ -317,7 +317,7 @@ describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', 
       meilisearch_api_key: '',
     });
     const saved = await db!
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .findOne<{ config: { meilisearch_api_key?: string } }>({ _id: 'enrichment' } as never);
     expect(saved!.config.meilisearch_api_key).toBe('keep-me');
   });
@@ -336,7 +336,7 @@ describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', 
       meilisearch_api_key: null,
     });
     const saved = await db!
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .findOne<{ config: { meilisearch_api_key?: string | null } }>({ _id: 'enrichment' } as never);
     expect(saved!.config.meilisearch_api_key).toBeNull();
   });
@@ -369,7 +369,9 @@ describe('PUT /api/enrichment/config — owner gate (#2353)', () => {
     expect(r.status).toBe(403);
     expect((r.body as { error: string }).error).toBe('owner role required');
     // The rejected request must not have persisted anything.
-    const saved = await db!.collection('app_settings').findOne({ _id: 'enrichment' });
+    const saved = await db!
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+      .findOne({ _id: 'enrichment' });
     expect(saved).toBeNull();
   });
 

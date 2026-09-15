@@ -71,7 +71,9 @@ export async function savePerformanceConfig(patch: Partial<PerformanceConfig>): 
   if (patch.ffi_workers !== undefined) {
     set['config.ffi_workers'] = patch.ffi_workers;
   }
-  await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await db
+    .collection<PerformanceConfigDoc>(COLL)
+    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
 export interface ResolvedPerformanceConfig {

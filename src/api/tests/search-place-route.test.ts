@@ -24,6 +24,7 @@ const BEARER =
       sub: '00000000000000000000000a',
       email: 'tester@maple.local',
       role: 'owner',
+      file_access: true,
     },
     SECRET,
   ));
@@ -510,11 +511,11 @@ describe('/api/search?placeQuery', () => {
     // first run — wipe the sentinel here so this test's legacy-row
     // assertion can exercise the backfill against a freshly-inserted
     // legacy-shaped doc.
-    await db.collection('migrations').deleteMany({
+    await db.collection<{ _id: string; rows: number; applied_at: Date }>('migrations').deleteMany({
       _id: {
         $in: ['place-search-blob-backfill', 'asset-search-blob-backfill'],
       },
-    } as Parameters<ReturnType<typeof db.collection>['deleteMany']>[0]);
+    });
     // Insert a legacy-shaped doc: place set, but search_blob empty (the
     // Phase 2 worker shipped this shape before Phase 3 landed). The
     // backfill in ensureIndexes should populate search_blob.

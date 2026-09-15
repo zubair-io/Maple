@@ -13,12 +13,12 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 const realFetch = globalThis.fetch;
 let mongo: MongoClient | null = null;
 let db: Db | null = null;
-let app: Elysia | null = null;
+let app: Pick<Elysia, 'handle'> | null = null;
 
 // PUT /config is owner-gated (#2353); the other routes exercised here
 // (POST /test-meili) only need a valid bearer, so an owner token covers both.
 const ownerJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 
@@ -40,7 +40,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await db?.collection('app_settings').deleteMany({});
+  await db?.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
 });
 
 afterEach(() => {
@@ -89,7 +89,7 @@ describe('semantic settings validation and connection readiness', () => {
 
   it('uses the saved write-only key when the test field is blank', async () => {
     if (!app || !db) return;
-    await db.collection('app_settings').insertOne({
+    await db.collection<{ _id: string; [key: string]: unknown }>('app_settings').insertOne({
       _id: 'enrichment',
       config: { meilisearch_api_key: 'saved-secret' },
     } as never);
@@ -108,7 +108,7 @@ describe('semantic settings validation and connection readiness', () => {
 
   it('returns semantic readiness details instead of health-only success', async () => {
     if (!app || !db) return;
-    await db.collection('app_settings').insertOne({
+    await db.collection<{ _id: string; [key: string]: unknown }>('app_settings').insertOne({
       _id: 'enrichment',
       config: {
         meilisearch_semantic_enabled: true,

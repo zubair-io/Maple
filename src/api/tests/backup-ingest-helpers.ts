@@ -54,7 +54,7 @@ export function makeIngestRequest(libId: ObjectId) {
     new Request(`http://localhost/api/libraries/${libId.toHexString()}/backup/ingest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream', ...headers },
-      body,
+      body: new Uint8Array(body),
     });
 }
 

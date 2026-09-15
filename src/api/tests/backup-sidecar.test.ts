@@ -93,7 +93,7 @@ function sidecarRequest(
   return new Request(`http://localhost/api/libraries/${id}/backup/sidecar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body,
+    body: typeof body === 'string' ? body : new Uint8Array(body),
   });
 }
 

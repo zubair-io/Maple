@@ -94,21 +94,26 @@ describe('/api/network/*', () => {
   it('reflects a saved local_ip_override', async () => {
     if (!mongo || !db) return;
     await db
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .updateOne(
         { _id: 'network' },
         { $set: { config: { local_ip_override: '10.0.0.5', local_port_override: 4000 } } },
         { upsert: true },
       );
     const res = await getLocalAddress();
-    const body = (await res.json()) as { available: boolean; ip?: string; port?: number };
+    const body = (await res.json()) as {
+      available: boolean;
+      ip?: string;
+      port?: number;
+      scheme?: string;
+    };
     expect(body).toEqual({ available: true, ip: '10.0.0.5', port: 4000, scheme: 'http' });
   });
 
   it('reports available: false when disabled', async () => {
     if (!mongo || !db) return;
     await db
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .updateOne({ _id: 'network' }, { $set: { config: { enabled: false } } }, { upsert: true });
     const res = await getLocalAddress();
     const body = await res.json();

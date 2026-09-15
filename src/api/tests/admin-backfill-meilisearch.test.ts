@@ -28,7 +28,7 @@ let mongoReachable = false;
 let db: Db | null = null;
 
 const ownerJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 
@@ -124,7 +124,9 @@ beforeEach(async () => {
   if (!mongoReachable) return;
   await db!.collection('assets').deleteMany({});
   await db!.collection('people').deleteMany({});
-  await db!.collection('meilisearch_backfill_state').deleteMany({});
+  await db!
+    .collection<{ _id: string; [key: string]: unknown }>('meilisearch_backfill_state')
+    .deleteMany({});
   await db!.collection('meilisearch_backfill_failures').deleteMany({});
   await db!.collection('meilisearch_backfill_leases').deleteMany({});
   setMeilisearchClientForTests(null);

@@ -118,7 +118,8 @@ describe('refresh rotation (#858)', () => {
     const a1 = await issueRefreshToken(userId, 'iPhone');
     const c = await refreshTokensCollection();
     const a = await c.findOne({ token_hash: { $exists: true } });
-    await revokeFamily(a!.family_id);
+    if (!a?.family_id) throw new Error('Expected refresh-token family');
+    await revokeFamily(a.family_id);
     await expect(rotateRefreshToken(a1.raw)).rejects.toThrow();
   });
 });

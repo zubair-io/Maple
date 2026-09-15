@@ -11,7 +11,12 @@ process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const BEARER =
   'Bearer ' +
   (await signAccessToken(
-    { sub: '00000000000000000000000a', email: 'tester@maple.local', role: 'owner' },
+    {
+      file_access: true,
+      sub: '00000000000000000000000a',
+      email: 'tester@maple.local',
+      role: 'owner',
+    },
     process.env.MAPLE_JWT_SECRET!,
   ));
 
@@ -90,6 +95,7 @@ describe('FileProvider: sync all file types', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const { data } = res;
+    if (!data) throw new Error('Expected directory response data');
 
     expect(data.sidecars).toHaveLength(0);
     expect(data.dirs.map((d) => d.name)).toContain('sub');

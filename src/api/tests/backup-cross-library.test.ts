@@ -114,7 +114,7 @@ function ingest(body: Buffer, headers: Record<string, string>): Request {
   return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/ingest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body,
+    body: typeof body === 'string' ? body : new Uint8Array(body),
   });
 }
 
@@ -122,7 +122,7 @@ function sidecar(body: string, headers: Record<string, string>): Request {
   return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/sidecar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/xml', ...headers },
-    body,
+    body: typeof body === 'string' ? body : new Uint8Array(body),
   });
 }
 
@@ -130,7 +130,7 @@ function rendered(body: Buffer, headers: Record<string, string>): Request {
   return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/rendered`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body,
+    body: typeof body === 'string' ? body : new Uint8Array(body),
   });
 }
 

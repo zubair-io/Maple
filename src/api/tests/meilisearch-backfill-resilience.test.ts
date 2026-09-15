@@ -19,11 +19,11 @@ const folder = new ObjectId();
 
 // admin-meilisearch-status is owner-gated (#2353).
 const ownerJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 const memberJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
 
