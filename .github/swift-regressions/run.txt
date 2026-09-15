@@ -52,3 +52,5 @@ LensProfileXMPTests
 # decoding, LensProfileChoice.build's option ordering, and select(_:)'s
 # undoable-edit contract via EditSession.preview() (bytes-backed, no RAW).
 LensProfileChoiceTests
+
+WhitesAnchorHostTests
