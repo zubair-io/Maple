@@ -109,8 +109,16 @@ async function createDescribePool(
   if (provider === 'ollama') {
     return new DescribeServerPool(await describeServersForRuntime(cfg));
   }
+  const apiKey =
+    provider === 'openai'
+      ? cfg.openai_api_key
+      : provider === 'anthropic'
+        ? cfg.anthropic_api_key
+        : provider === 'gemini'
+          ? cfg.gemini_api_key
+          : null;
   return new DescribeServerPool([{ url: provider, concurrency }], () =>
-    getDescribeProvider(provider),
+    getDescribeProvider(provider, { apiKey: apiKey ?? undefined }),
   );
 }
 
@@ -408,6 +416,9 @@ const describeStage = defineStage({
     paused: false,
     last_seen_target_version: 0,
     pausedOnFirstBoot: true,
+  },
+  onConfigChange: () => {
+    resetDescribeDeps();
   },
   handler: describeHandler,
 });

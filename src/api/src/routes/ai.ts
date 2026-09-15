@@ -10,6 +10,7 @@ import {
   loadEnrichmentConfig,
   saveEnrichmentConfig,
   DEFAULT_DESCRIBE_MODELS,
+  type EnrichmentConfig,
 } from '../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import {
@@ -121,10 +122,20 @@ function applyOllamaPatch(
         servers?: Array<{ url: string; concurrency?: number | null }> | null;
       }
     | undefined,
+  current?: EnrichmentConfig | null,
 ): void {
   if (!ollama) return;
   if (ollama.url !== undefined) {
     patch.describe_provider_url = ollama.url;
+    if (
+      ollama.servers === undefined &&
+      current?.describe_servers &&
+      current.describe_servers.length > 0
+    ) {
+      patch.describe_servers = current.describe_servers.map((s, idx) =>
+        idx === 0 && ollama.url ? { ...s, url: ollama.url } : s,
+      );
+    }
   }
   if (ollama.servers !== undefined) {
     patch.describe_servers = ollama.servers;
@@ -215,9 +226,10 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
     async ({ body, set }) => {
       const db = await getDb();
       const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+      const currentEnrichment = await loadEnrichmentConfig();
 
       const enrichmentPatch: Record<string, unknown> = {};
-      applyOllamaPatch(enrichmentPatch, body.providers?.ollama);
+      applyOllamaPatch(enrichmentPatch, body.providers?.ollama, currentEnrichment);
       applyApiKeyUpdate(
         enrichmentPatch,
         'openai_api_key',
@@ -264,9 +276,15 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
         set.status = 400;
         return { error: `Invalid provider "${body.provider}"` };
       }
+      let apiKey = body.api_key;
+      if (apiKey === undefined) {
+        const config = await loadEnrichmentConfig();
+        const keyProp = `${provider}_api_key` as keyof EnrichmentConfig;
+        apiKey = (config?.[keyProp] as string | undefined | null) ?? undefined;
+      }
       return await listProviderModels(provider, {
         url: body.url ?? null,
-        apiKey: body.api_key,
+        apiKey,
       });
     },
     { body: ModelQueryBody, beforeHandle: requireOwnerBeforeHandle },
@@ -276,7 +294,13 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
   .post(
     '/test',
     async ({ body, set }) => {
-      const result = await handleAiTestConnection(body.provider, body.url, body.api_key);
+      let apiKey = body.api_key;
+      if (apiKey === undefined) {
+        const config = await loadEnrichmentConfig();
+        const keyProp = `${body.provider}_api_key` as keyof EnrichmentConfig;
+        apiKey = (config?.[keyProp] as string | undefined | null) ?? undefined;
+      }
+      const result = await handleAiTestConnection(body.provider, body.url, apiKey);
       if (!result.ok && result.status) {
         set.status = result.status;
       }
