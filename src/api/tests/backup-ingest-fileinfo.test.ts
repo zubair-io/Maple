@@ -82,7 +82,7 @@ describe('backup-ingest writes fileinfo[0]', () => {
         'X-Maple-Capture-Date': '2024-03-15T10:30:00Z',
         'X-Maple-Filename': 'IMG_FI.HEIC',
         'X-Maple-Total-Bytes': '128',
-        'X-Maple-Maple-Id': 'fileinfo-1',
+        'X-Maple-Maple-Id': '0296473a13ba7b62635db695bbc3e728',
         // No GPS → path-formatter falls back to date-only buckets.
         'Content-Range': 'bytes 0-127/128',
       }),
@@ -91,7 +91,7 @@ describe('backup-ingest writes fileinfo[0]', () => {
     const body = await res.json();
 
     const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: 'fileinfo-1' });
+    const doc = await a.findOne({ maple_id: '0296473a13ba7b62635db695bbc3e728' });
     expect(doc).toBeTruthy();
     expect(doc?.fileinfo).toHaveLength(1);
     // path = directory part of body.target_rel_path; filename = basename.
@@ -106,7 +106,7 @@ describe('backup-ingest writes fileinfo[0]', () => {
     // On Linux/macOS (the test environment) path.sep is already '/', so we
     // just confirm no backslashes leak into storage.
     const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: 'fileinfo-1' });
+    const doc = await a.findOne({ maple_id: '0296473a13ba7b62635db695bbc3e728' });
     expect(doc?.fileinfo?.[0].path).not.toContain('\\');
   });
 });

@@ -31,7 +31,7 @@ const libB = new ObjectId();
 const deviceId = 'test-device-cross-lib';
 const phid = 'XLIB/L0/001';
 // A content hash that already lives in library A (e.g. a prior folder scan).
-const sharedMapleId = 'cross-library-shared-content-id';
+const sharedMapleId = '02e759ceff3390dab8d6cd1425d1e196';
 // The bytes the device uploads — identical content, hence the same maple_id.
 const sharedBytes = Buffer.alloc(256, 0x5a);
 
