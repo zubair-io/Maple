@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import type { PersonDoc } from '../db/schema.ts';
+import type { AssetDoc, PersonDoc } from '../db/schema.ts';
 import { setupMongoHarness } from './people-repo.test-helpers.ts';
 
 const TEST_DB = `maple_test_face_count_${process.pid}`;
@@ -272,6 +272,62 @@ describe('face_count — backfill migration', () => {
 
     const stored = await h.db.collection<PersonDoc>('people').findOne({ _id: noFaces._id });
     expect(stored?.face_count).toBe(0);
+  });
+
+  it('all repair paths exclude trash and require a single live file location', async () => {
+    if (!h.mongoReachable) return;
+    const { createPerson } = await import('./people.repo.ts');
+    const { faceCountByPerson, recomputePersonFaceCount } =
+      await import('./people-face-count.repo.ts');
+    const { backfillPersonFaceCount } = await import('../db/migrations.ts');
+    const person = await createPerson('Backfill-Liveness');
+    const hex = person._id.toHexString();
+    const assets = h.db.collection<AssetDoc>('assets');
+    const now = new Date().toISOString();
+    for (const state of [
+      'live',
+      'trash',
+      'deleted',
+      'missing',
+      'split',
+      'one-live',
+      'empty',
+    ] as const) {
+      const id = await h.insertAssetWithFaces([
+        { bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, confidence: 0.9, person_id: hex },
+      ]);
+      const file = (await assets.findOne({ _id: id }))?.fileinfo?.[0];
+      if (!file) throw new Error('Expected seeded file location');
+      const dead = { ...file, deleted_at: now, missing_since: null };
+      const missing = { ...file, deleted_at: null, missing_since: now };
+      const locations = {
+        live: [file],
+        trash: [file],
+        deleted: [dead],
+        missing: [missing],
+        split: [dead, missing],
+        'one-live': [dead, file],
+        empty: [],
+      };
+      await assets.updateOne(
+        { _id: id },
+        {
+          $set: {
+            deleted_at: state === 'trash' ? now : null,
+            fileinfo: locations[state],
+          },
+        },
+      );
+    }
+    expect((await faceCountByPerson()).get(hex)).toBe(2);
+    expect(await recomputePersonFaceCount(hex)).toBe(2);
+    await h.db
+      .collection<PersonDoc>('people')
+      .updateOne({ _id: person._id }, { $set: { face_count: 99 } });
+    expect(await backfillPersonFaceCount(h.db)).toEqual({ updated: 1, zeroed: 0 });
+    expect(
+      (await h.db.collection<PersonDoc>('people').findOne({ _id: person._id }))?.face_count,
+    ).toBe(2);
   });
 
   it('excludes hidden faces and merged people and remains idempotent', async () => {

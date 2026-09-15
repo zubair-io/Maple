@@ -29,7 +29,8 @@ const log = childLogger('people:face-count');
 
 /**
  * Aggregate `asset.faces` grouped by `person_id` and return a map from hex
- * person id to count. Excludes faces with no `person_id` and hidden faces.
+ * person id to count. Excludes faces with no `person_id`, hidden faces, and
+ * assets that are trashed or have no live file location.
  *
  * Exposed for ad-hoc repair; the bootstrap migration uses the same semantics.
  * NOT called on the hot GET /api/people path — that reads `person.face_count` directly.
@@ -37,7 +38,13 @@ const log = childLogger('people:face-count');
 export async function faceCountByPerson(): Promise<Map<string, number>> {
   const assets = await assetsCollection();
   const cursor = assets.aggregate<{ _id: string; count: number }>([
-    { $match: { faces: { $exists: true, $ne: [] } } },
+    {
+      $match: {
+        deleted_at: null,
+        fileinfo: { $elemMatch: { deleted_at: null, missing_since: null } },
+        faces: { $exists: true, $ne: [] },
+      },
+    },
     { $unwind: '$faces' },
     {
       $match: {
@@ -71,7 +78,13 @@ export async function recomputePersonFaceCount(personHex: string): Promise<numbe
   }
   const assets = await assetsCollection();
   const cursor = assets.aggregate<{ count: number }>([
-    { $match: { 'faces.person_id': personHex } },
+    {
+      $match: {
+        deleted_at: null,
+        fileinfo: { $elemMatch: { deleted_at: null, missing_since: null } },
+        'faces.person_id': personHex,
+      },
+    },
     { $unwind: '$faces' },
     { $match: { 'faces.person_id': personHex, 'faces.hidden': { $ne: true } } },
     { $count: 'count' },
