@@ -14,15 +14,17 @@
 import Foundation
 import MapleBackup
 import MapleCore
+
 #if canImport(Photos)
-import Photos
+  import Photos
 #endif
 
 @main
 struct MapleBackupAgentEntryPoint {
   static func main() async throws {
-    guard let s = BackupSettings.load(), s.isConfigured else {
-      FileHandle.standardError.write(Data("MapleBackupAgent: no backup settings configured; exiting\n".utf8))
+    guard !BackupSettings.isStoppedByUser, let s = BackupSettings.load(), s.isConfigured else {
+      FileHandle.standardError.write(
+        Data("MapleBackupAgent: no backup settings configured; exiting\n".utf8))
       return
     }
     guard let url = URL(string: s.serverURL) else {
@@ -37,10 +39,11 @@ struct MapleBackupAgentEntryPoint {
 
     let appSupport = try FileManager.default.url(
       for: .applicationSupportDirectory, in: .userDomainMask,
-      appropriateFor: nil, create: true)
-      .appendingPathComponent("Maple", isDirectory: true)
+      appropriateFor: nil, create: true
+    )
+    .appendingPathComponent("Maple", isDirectory: true)
     try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-    let stateURL = appSupport.appendingPathComponent("backup-state.sqlite")
+    let stateURL = appSupport.appendingPathComponent(s.stateDatabaseFilename)
     let state = try BackupStateStore(databaseURL: stateURL)
 
     let queue = InProcessBackupQueue()
@@ -83,13 +86,13 @@ struct MapleBackupAgentEntryPoint {
       transport: { try await authClient.data(for: $0) })
 
     #if canImport(Photos)
-    // PhotoKitAssetReader.swift is also a Compile Sources member of this
-    // agent target (drag it in via Xcode Build Phases → Compile Sources).
-    let reader: any AssetReader = PhotoKitAssetReader(
-      deviceId: deviceId,
-      geocode: GeocodeClient(baseURL: effectiveURL))
+      // PhotoKitAssetReader.swift is also a Compile Sources member of this
+      // agent target (drag it in via Xcode Build Phases → Compile Sources).
+      let reader: any AssetReader = PhotoKitAssetReader(
+        deviceId: deviceId,
+        geocode: GeocodeClient(baseURL: effectiveURL))
     #else
-    fatalError("MapleBackupAgent requires Photos.framework")
+      fatalError("MapleBackupAgent requires Photos.framework")
     #endif
 
     let engine = BackupEngine(

@@ -9,10 +9,10 @@
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §7, §21.
 
-import SwiftUI
-import Photos
 import MapleBackup
 import MapleCore
+import Photos
+import SwiftUI
 
 struct BackupStatusPanel: View {
   // Use the engine-hosted VM so progress survives navigation.
@@ -37,7 +37,7 @@ struct BackupStatusPanel: View {
   private static let uploadRowHeight: CGFloat = uploadTileSize + 2 + 12
 
   /// True while a backup is in any active phase (running / paused /
-  /// restarting). `.restarting` matters most here: it's exactly when the
+  /// restarting). `.starting` matters most here: it's exactly when the
   /// engine tears down and `inFlight` empties, so it must keep the strip
   /// mounted to avoid the collapse-and-snap flicker.
   private var isBackupActive: Bool {
@@ -46,6 +46,15 @@ struct BackupStatusPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
+      if let address = EngineHost.shared.uploadAddress {
+        Label(
+          EngineHost.shared.usesLocalAddress ? "Local network" : "Server connection",
+          systemImage: "network")
+        Text(address.absoluteString)
+          .font(.caption)
+          .textSelection(.enabled)
+          .accessibilityIdentifier("backup.connection.address")
+      }
       // Run-state row — the PRIMARY fix for "the panel never tells me whether
       // backup is running". Reads `progress.phase`, which `EngineHost` drives
       // through the real engine lifecycle (Stopped / Running / Paused /
@@ -83,18 +92,20 @@ struct BackupStatusPanel: View {
       // (photos that ran out of retries — e.g. deleted from Photos before
       // their upload finished). Session-scoped failures stay on the
       // "Failed:" row below; this is the persisted, cross-session figure.
-      if progress.isAllBackedUp, let summary = progress.lastWalkSummary {
+      if let summary = progress.lastWalkSummary {
         VStack(alignment: .leading, spacing: 2) {
           Text("Library checked \(summary.finishedAt.formatted(.relative(presentation: .named))).")
             .font(.caption)
             .foregroundStyle(.secondary)
             .accessibilityIdentifier("backup.status.allBackedUp")
           if summary.failedPermanently > 0 {
-            Label("\(summary.failedPermanently.formatted()) photos failed permanently and won't be retried.",
-                  systemImage: "exclamationmark.triangle")
-              .font(.caption)
-              .foregroundStyle(.orange)
-              .accessibilityIdentifier("backup.status.failedPermanently")
+            Label(
+              "\(summary.failedPermanently.formatted()) photos need attention. Stop and start backup to retry.",
+              systemImage: "exclamationmark.triangle"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .accessibilityIdentifier("backup.status.failedPermanently")
           }
         }
       }
@@ -109,52 +120,39 @@ struct BackupStatusPanel: View {
           .accessibilityIdentifier("backup.status.throughput")
       }
 
-      // "Uploading now" + "Recently completed" thumbnail strips.
-      //
-      // #711: while a backup is active these rows reserve a STABLE height and
-      // toggle only their *content*, never the whole section. `inFlight` blips
-      // empty for a frame as one upload finishes before the next starts; if the
-      // `if` gated the section we'd un-render → collapse → snap back → flicker.
-      // Keeping the container mounted at a fixed height absorbs that blip.
-      //
-      // The reserved height is the row at its *tallest* (tile + % label slot),
-      // so the frame never grows when tiles/labels appear. The % label slot is
-      // always rendered (an empty placeholder when `fractionDone == nil`) so a
-      // per-tile label arriving/clearing can't change the row height either.
-      //
-      // Shown when a backup is active OR the list is non-empty: `active` covers
-      // the blip-empty flicker, `!isEmpty` keeps a finished backup's results
-      // visible after the engine returns to `.stopped`.
-      if isBackupActive || !progress.inFlight.isEmpty {
+      // Show work only when present; each tile distinguishes Photos reads from uploads.
+      if !progress.inFlight.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
-          Text("Uploading now")
+          Text("Backing up now")
             .font(.caption)
             .foregroundStyle(.secondary)
-          HStack(spacing: 8) {
-            ForEach(progress.inFlight.prefix(3)) { item in
-              VStack(spacing: 2) {
-                // `size:` is pinned to the same constant that drives
-                // `uploadRowHeight` so the tile and the reserved row height
-                // can't drift apart (review on #711).
-                ThumbnailTile(localIdentifier: item.id.phassetLocalId, size: Self.uploadTileSize)
-                // Always reserve the label line so a tile's height is stable
-                // whether or not a fraction has arrived yet. The placeholder
-                // is hidden from VoiceOver so the blank line isn't an empty
-                // accessibility element (review on #711).
-                Text(item.fractionDone.map { "\(Int($0 * 100))%" } ?? " ")
-                  .font(.system(size: Self.uploadLabelFontSize))
-                  .foregroundStyle(.secondary)
-                  .monospacedDigit()
-                  .accessibilityHidden(item.fractionDone == nil)
+          ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+              ForEach(progress.inFlight) { item in
+                VStack(spacing: 2) {
+                  // `size:` is pinned to the same constant that drives
+                  // `uploadRowHeight` so the tile and the reserved row height
+                  // can't drift apart (review on #711).
+                  ThumbnailTile(localIdentifier: item.id.phassetLocalId, size: Self.uploadTileSize)
+                  // Always reserve the label line so a tile's height is stable
+                  // whether or not a fraction has arrived yet. The placeholder
+                  // is hidden from VoiceOver so the blank line isn't an empty
+                  // accessibility element (review on #711).
+                  Text(item.fractionDone.map { "\(Int($0 * 100))%" } ?? item.preparation)
+                    .font(.system(size: Self.uploadLabelFontSize))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+
+                }
               }
+              Spacer()
             }
-            Spacer()
           }
-          .frame(height: Self.uploadRowHeight, alignment: .top)
+          .frame(minHeight: Self.uploadRowHeight, alignment: .top)
         }
       }
 
-      if isBackupActive || !progress.recentCompleted.isEmpty {
+      if !progress.recentCompleted.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
           Text("Recently completed")
             .font(.caption)
@@ -178,15 +176,19 @@ struct BackupStatusPanel: View {
           .foregroundStyle(.secondary)
           .accessibilityIdentifier("backup.status.done")
         if progress.uploadedCompanionsPendingCount > 0 {
-          Label("Finishing: \(progress.uploadedCompanionsPendingCount.formatted())",
-                systemImage: "arrow.triangle.2.circlepath")
-            .foregroundStyle(.secondary)
-            .accessibilityIdentifier("backup.status.companionsPending")
-            .help("Uploaded — sidecar/rendered companions still finishing in the background.")
+          Label(
+            "Finishing: \(progress.uploadedCompanionsPendingCount.formatted())",
+            systemImage: "arrow.triangle.2.circlepath"
+          )
+          .foregroundStyle(.secondary)
+          .accessibilityIdentifier("backup.status.companionsPending")
+          .help("Uploaded — sidecar/rendered companions still finishing in the background.")
         }
-        Label("Failed: \(progress.totalFailed.formatted())", systemImage: "exclamationmark.triangle")
-          .foregroundStyle(progress.totalFailed > 0 ? .red : .secondary)
-          .accessibilityIdentifier("backup.status.failed")
+        Label(
+          "Failed: \(progress.totalFailed.formatted())", systemImage: "exclamationmark.triangle"
+        )
+        .foregroundStyle(progress.totalFailed > 0 ? .red : .secondary)
+        .accessibilityIdentifier("backup.status.failed")
       }
       .font(.caption)
 
@@ -194,36 +196,9 @@ struct BackupStatusPanel: View {
         Text("Last error: \(err)")
           .font(.caption2)
           .foregroundStyle(.secondary)
-          .lineLimit(2)
+          .fixedSize(horizontal: false, vertical: true)
       }
 
-      HStack {
-        // Pause is only meaningful while the engine is actively running.
-        Button("Pause") {
-          Task { await EngineHost.shared.pause() }
-        }
-        .disabled(progress.phase != .running)
-        .accessibilityIdentifier("backup.pauseButton")
-
-        // Resume only when paused or fully stopped. `EngineHost.resume()`
-        // surfaces a visible error (via lastStartError → the banner above) if
-        // settings can't be loaded, instead of the old silent no-op.
-        Button("Resume") {
-          Task { await EngineHost.shared.resume() }
-        }
-        .disabled(!(progress.phase == .paused || progress.phase == .stopped))
-        .accessibilityIdentifier("backup.resumeButton")
-
-        // While a restart is in flight, show an inline spinner so the controls
-        // don't look frozen during the (potentially slow) teardown + walk.
-        if progress.phase == .restarting {
-          ProgressView()
-            .controlSize(.small)
-            .accessibilityIdentifier("backup.restartingSpinner")
-        }
-      }
-      .buttonStyle(.bordered)
-      .controlSize(.small)
     }
     .padding(.vertical, 4)
     // No .task / .onDisappear here: the progress VM is now hoisted onto
@@ -287,8 +262,7 @@ struct BackupStatusPanel: View {
   private var statusColor: Color {
     switch progress.phase {
     case .running: return .green
-    case .paused: return .orange
-    case .restarting: return .blue
+    case .starting: return .blue
     case .stopped: return .secondary
     }
   }
@@ -326,13 +300,21 @@ private struct ThumbnailTile: View {
     options.resizeMode = .fast
     options.isNetworkAccessAllowed = false
     let target = CGSize(width: size * 2, height: size * 2)  // @2x for retina
-    let img: PlatformImage? = await withCheckedContinuation { (continuation: CheckedContinuation<PlatformImage?, Never>) in
+    let img: PlatformImage? = await withCheckedContinuation {
+      (continuation: CheckedContinuation<PlatformImage?, Never>) in
       // Resume-latch — `.opportunistic` may call the handler twice (low-res
       // then hi-res). We're happy with whichever resolves first; resuming
       // twice would crash.
       final class Latch: @unchecked Sendable {
-        private let lock = NSLock(); private var fired = false
-        func tryFire() -> Bool { lock.lock(); defer { lock.unlock() }; if fired { return false }; fired = true; return true }
+        private let lock = NSLock()
+        private var fired = false
+        func tryFire() -> Bool {
+          lock.lock()
+          defer { lock.unlock() }
+          if fired { return false }
+          fired = true
+          return true
+        }
       }
       let latch = Latch()
       PHImageManager.default().requestImage(
@@ -351,13 +333,13 @@ private struct ThumbnailTile: View {
 // Cross-platform image alias + view builder. PhotoKit returns UIImage on UIKit
 // platforms and NSImage on AppKit.
 #if canImport(UIKit)
-import UIKit
-typealias PlatformImage = UIImage
-private func platformImageView(_ image: UIImage) -> Image { Image(uiImage: image) }
+  import UIKit
+  typealias PlatformImage = UIImage
+  private func platformImageView(_ image: UIImage) -> Image { Image(uiImage: image) }
 #elseif canImport(AppKit)
-import AppKit
-typealias PlatformImage = NSImage
-private func platformImageView(_ image: NSImage) -> Image { Image(nsImage: image) }
+  import AppKit
+  typealias PlatformImage = NSImage
+  private func platformImageView(_ image: NSImage) -> Image { Image(nsImage: image) }
 #endif
 
 // MARK: - Previews
@@ -369,7 +351,7 @@ private func platformImageView(_ image: NSImage) -> Image { Image(nsImage: image
 // absent.
 
 #Preview("Default — no backup running") {
-    BackupStatusPanel()
-        .padding()
-        .frame(width: 360)
+  BackupStatusPanel()
+    .padding()
+    .frame(width: 360)
 }

@@ -14,300 +14,377 @@
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §8.
 
 import Foundation
-import Photos
 import ImageIO
 import MapleBackup
 import MapleCore
+import Photos
 
 actor PhotoKitAssetReader: AssetReader {
 
-    private let deviceId: String
-    private let geocode: GeocodeClient
+  private let deviceId: String
+  private let geocode: GeocodeClient
 
-    init(deviceId: String, geocode: GeocodeClient) {
-        self.deviceId = deviceId
-        self.geocode = geocode
+  init(deviceId: String, geocode: GeocodeClient) {
+    self.deviceId = deviceId
+    self.geocode = geocode
+  }
+
+  func read(phassetLocalId: String) async throws -> AssetReadResult {
+    try await read(phassetLocalId: phassetLocalId, onStatus: { _ in })
+  }
+
+  func read(
+    phassetLocalId: String,
+    onStatus: @escaping @Sendable (String) async -> Void
+  ) async throws -> AssetReadResult {
+    guard let asset = PhotoKitCatalog.shared.asset(localId: phassetLocalId) else {
+      throw ReaderError.assetNotFound(phassetLocalId)
     }
 
-    func read(phassetLocalId: String) async throws -> AssetReadResult {
-        guard let asset = PhotoKitCatalog.shared.asset(localId: phassetLocalId) else {
-            throw ReaderError.assetNotFound(phassetLocalId)
-        }
+    let resources = PHAssetResource.assetResources(for: asset)
+    guard
+      let originalResource = resources.first(where: {
+        $0.type == .photo || $0.type == .video || $0.type == .audio
+      })
+    else {
+      throw ReaderError.noOriginalResource(phassetLocalId)
+    }
+    let renderedResource = resources.first(where: { $0.type == .fullSizePhoto })
 
-        let resources = PHAssetResource.assetResources(for: asset)
-        guard let originalResource = resources.first(where: {
-            $0.type == .photo || $0.type == .video || $0.type == .audio
-        }) else {
-            throw ReaderError.noOriginalResource(phassetLocalId)
-        }
-        let renderedResource = resources.first(where: { $0.type == .fullSizePhoto })
+    // Live Photo: detect and read the paired .mov twin.
+    // The paired video resource sits alongside the still as a
+    // PHAssetResourceType.pairedVideo. We only read it when the asset
+    // subtype flags it as a Live Photo, to avoid spurious reads.
+    let isLivePhoto = asset.mediaSubtypes.contains(.photoLive)
+    let liveVideoResource: PHAssetResource? =
+      isLivePhoto
+      ? resources.first(where: { $0.type == .pairedVideo })
+      : nil
 
-        // Live Photo: detect and read the paired .mov twin.
-        // The paired video resource sits alongside the still as a
-        // PHAssetResourceType.pairedVideo. We only read it when the asset
-        // subtype flags it as a Live Photo, to avoid spurious reads.
-        let isLivePhoto = asset.mediaSubtypes.contains(.photoLive)
-        let liveVideoResource: PHAssetResource? = isLivePhoto
-            ? resources.first(where: { $0.type == .pairedVideo })
-            : nil
+    let originalBytes = try await Self.readAllBytes(of: originalResource, onStatus: onStatus)
+    let renderedBytes: Data? =
+      if let renderedResource {
+        try await Self.readAllBytes(of: renderedResource, onStatus: onStatus)
+      } else {
+        nil
+      }
+    let liveVideoBytes: Data? =
+      if let liveVideoResource {
+        try await Self.readAllBytes(of: liveVideoResource, onStatus: onStatus)
+      } else {
+        nil
+      }
 
-        let originalBytes = try await Self.readAllBytes(of: originalResource)
-        let renderedBytes: Data? = if let renderedResource {
-            try await Self.readAllBytes(of: renderedResource)
-        } else {
-            nil
-        }
-        let liveVideoBytes: Data? = if let liveVideoResource {
-            try await Self.readAllBytes(of: liveVideoResource)
-        } else {
-            nil
-        }
+    let captureDate = asset.creationDate ?? Date()
+    let lat = asset.location?.coordinate.latitude
+    let lon = asset.location?.coordinate.longitude
+    let filename = originalResource.originalFilename
 
-        let captureDate = asset.creationDate ?? Date()
-        let lat = asset.location?.coordinate.latitude
-        let lon = asset.location?.coordinate.longitude
-        let filename = originalResource.originalFilename
+    // Resolve the device-stable cross-device cloud id. Local-DB lookup
+    // (no iCloud round-trip); nil when iCloud Photos is off or the
+    // asset has no cloud identifier yet.
+    let phassetCloudId = Self.resolveCloudIdentifier(for: phassetLocalId)
 
-        // Resolve the device-stable cross-device cloud id. Local-DB lookup
-        // (no iCloud round-trip); nil when iCloud Photos is off or the
-        // asset has no cloud identifier yet.
-        let phassetCloudId = Self.resolveCloudIdentifier(for: phassetLocalId)
-
-        // Spec-form maple_id derivation. Matches the server indexer at
-        // `src/api/src/workers/stages/exif.ts` so a photo that was already
-        // indexed via folder scan and is now being backed up from a device
-        // resolves to the *same* AssetDoc row (server's
-        // `findOne({ maple_id })` short-circuits with a `$push` to
-        // phasset_links rather than writing a second file).
-        //
-        // Primary form when EXIF DateTimeOriginal is present in the
-        // original bytes; fallback (full-file BLAKE3 + filesize) otherwise.
-        guard let mapleId = Self.deriveMapleId(originalBytes: originalBytes) else {
-            throw ReaderError.hashFailed
-        }
-
-        // For a Live Photo, the .mov twin filename derives from the still:
-        // strip the extension of the original filename and append ".mov".
-        // The companion is referenced in the sidecar so the server can
-        // link them. Actual twin bytes are uploaded via uploadRendered.
-        // The server names the file `<base>.mov` via suffix-override.
-        let liveVideoFilename: String? = liveVideoResource.map { _ in
-            let base = (filename as NSString).deletingPathExtension
-            return "\(base).mov"
-        }
-        let livePhotoCompanion: String? = liveVideoFilename
-
-        let sidecar = PayloadAssembler.SidecarInput(
-            phassetLocalId: phassetLocalId,
-            deviceId: deviceId,
-            captureDate: captureDate,
-            latitude: lat,
-            longitude: lon,
-            favorite: asset.isFavorite,
-            caption: nil,
-            keywords: [],
-            tags: [],
-            livePhotoCompanion: livePhotoCompanion,
-            burstStackId: asset.burstIdentifier,
-            originalFilename: filename,
-            mtime: asset.modificationDate?.timeIntervalSince1970
-                ?? asset.creationDate?.timeIntervalSince1970
-                ?? 0,
-            phassetCloudId: phassetCloudId)
-
-        return AssetReadResult(
-            originalBytes: originalBytes,
-            renderedBytes: renderedBytes,
-            liveVideoBytes: liveVideoBytes,
-            liveVideoFilename: liveVideoFilename,
-            sidecar: sidecar,
-            mapleId: mapleId)
+    // Spec-form maple_id derivation. Matches the server indexer at
+    // `src/api/src/workers/stages/exif.ts` so a photo that was already
+    // indexed via folder scan and is now being backed up from a device
+    // resolves to the *same* AssetDoc row (server's
+    // `findOne({ maple_id })` short-circuits with a `$push` to
+    // phasset_links rather than writing a second file).
+    //
+    // Primary form when EXIF DateTimeOriginal is present in the
+    // original bytes; fallback (full-file BLAKE3 + filesize) otherwise.
+    guard let mapleId = Self.deriveMapleId(originalBytes: originalBytes) else {
+      throw ReaderError.hashFailed
     }
 
-    // MARK: - Cloud identifier resolution
-
-    /// Resolve `PHCloudIdentifier.stringValue` for the local id, or nil
-    /// when the asset has no cloud counterpart (iCloud Photos off, asset
-    /// pending sync, deleted, etc.). Local Photos-DB lookup — no network.
-    nonisolated private static func resolveCloudIdentifier(for localId: String) -> String? {
-        let mappings = PHPhotoLibrary.shared().cloudIdentifierMappings(
-            forLocalIdentifiers: [localId])
-        guard let entry = mappings[localId] else { return nil }
-        switch entry {
-        case .success(let cloudId): return cloudId.stringValue
-        case .failure: return nil
-        }
+    // For a Live Photo, the .mov twin filename derives from the still:
+    // strip the extension of the original filename and append ".mov".
+    // The companion is referenced in the sidecar so the server can
+    // link them. Actual twin bytes are uploaded via uploadRendered.
+    // The server names the file `<base>.mov` via suffix-override.
+    let liveVideoFilename: String? = liveVideoResource.map { _ in
+      let base = (filename as NSString).deletingPathExtension
+      return "\(base).mov"
     }
+    let livePhotoCompanion: String? = liveVideoFilename
 
-    // MARK: - Maple id derivation
+    let sidecar = PayloadAssembler.SidecarInput(
+      phassetLocalId: phassetLocalId,
+      deviceId: deviceId,
+      captureDate: captureDate,
+      latitude: lat,
+      longitude: lon,
+      favorite: asset.isFavorite,
+      caption: nil,
+      keywords: [],
+      tags: [],
+      livePhotoCompanion: livePhotoCompanion,
+      burstStackId: asset.burstIdentifier,
+      originalFilename: filename,
+      mtime: asset.modificationDate?.timeIntervalSince1970
+        ?? asset.creationDate?.timeIntervalSince1970
+        ?? 0,
+      phassetCloudId: phassetCloudId)
 
-    /// Derive the spec-form `maple_id` for a phid WITHOUT the rest of the
-    /// `read(phassetLocalId:)` pipeline (no geocode, no sidecar assembly, no
-    /// rendered/live twins). Feeds the SAME `deriveMapleId(originalBytes:)`
-    /// path the upload reader uses so device and server agree byte-for-byte.
-    ///
-    /// Reads the full original resource bytes: the primary form only hashes
-    /// the leading 64 KB + EXIF date, but the fallback form (no EXIF) hashes
-    /// the whole file + size, so reading the full bytes is required for parity
-    /// on EXIF-less assets. Cost is bounded in practice because step (a) of the
-    /// walk (server PHID reconciliation) keeps the candidate set small.
-    ///
-    /// `nonisolated` + `async` so the walk's content-reconciliation step can
-    /// `await` it from a detached background Task in batches without blocking
-    /// any thread. Returns nil when the asset is missing, has no original
-    /// resource, or the bytes can't be read / hashed — callers treat nil as
-    /// "enqueue and let server-side dedup decide".
-    nonisolated static func deriveMapleId(forPHID phid: String) async -> String? {
-        guard let asset = PhotoKitCatalog.shared.asset(localId: phid) else { return nil }
-        let resources = PHAssetResource.assetResources(for: asset)
-        guard let originalResource = resources.first(where: {
-            $0.type == .photo || $0.type == .video || $0.type == .audio
-        }) else { return nil }
-        guard let bytes = try? await readAllBytes(of: originalResource),
-              !bytes.isEmpty else { return nil }
-        return deriveMapleId(originalBytes: bytes)
+    return AssetReadResult(
+      originalBytes: originalBytes,
+      renderedBytes: renderedBytes,
+      liveVideoBytes: liveVideoBytes,
+      liveVideoFilename: liveVideoFilename,
+      sidecar: sidecar,
+      mapleId: mapleId)
+  }
+
+  // MARK: - Cloud identifier resolution
+
+  /// Resolve `PHCloudIdentifier.stringValue` for the local id, or nil
+  /// when the asset has no cloud counterpart (iCloud Photos off, asset
+  /// pending sync, deleted, etc.). Local Photos-DB lookup — no network.
+  nonisolated private static func resolveCloudIdentifier(for localId: String) -> String? {
+    let mappings = PHPhotoLibrary.shared().cloudIdentifierMappings(
+      forLocalIdentifiers: [localId])
+    guard let entry = mappings[localId] else { return nil }
+    switch entry {
+    case .success(let cloudId): return cloudId.stringValue
+    case .failure: return nil
     }
+  }
 
-    /// Compute the 32-character spec-form `maple_id` for an asset's
-    /// original bytes. Reads EXIF DateTimeOriginal from the bytes (matches
-    /// the indexer's `readExif` source of truth) and feeds the primary
-    /// derivation when present; otherwise falls back to full-bytes hash
-    /// plus filesize.
-    ///
-    /// Camera serial and shutter count are passed as nil/0 to match the
-    /// server indexer (`src/api/src/workers/stages/exif.ts:64`), which
-    /// currently doesn't surface them on `AssetExif`. When the indexer
-    /// starts persisting them, this helper must update in lockstep —
-    /// otherwise dedup will silently regress on cameras that report
-    /// shutter counts.
-    private static func deriveMapleId(originalBytes: Data) -> String? {
-        if let ts = readExifCaptureDateISO8601UTC(from: originalBytes) {
-            // Cap the head slice at the spec's 64 KB. Hashing the whole
-            // file is wasted work — `MapleId::primary` ignores everything
-            // past `SHA1_HEAD_BYTES`. Use `Data(prefix:)` rather than
-            // slicing so the resulting `Data` is a contiguous owned
-            // buffer (the FFI binds via `withUnsafeBytes`).
-            let head = originalBytes.count > 64 * 1024
-                ? originalBytes.prefix(64 * 1024)
-                : originalBytes
-            if let id = MapleId.primary(
-                headBytes: Data(head),
-                capturedAtISO8601: ts
-            ) {
-                return id
-            }
-        }
-        return MapleId.fallback(bytes: originalBytes)
+  // MARK: - Maple id derivation
+
+  /// Compute the 32-character spec-form `maple_id` for an asset's
+  /// original bytes. Reads EXIF DateTimeOriginal from the bytes (matches
+  /// the indexer's `readExif` source of truth) and feeds the primary
+  /// derivation when present; otherwise falls back to full-bytes hash
+  /// plus filesize.
+  ///
+  /// Camera serial and shutter count are passed as nil/0 to match the
+  /// server indexer (`src/api/src/workers/stages/exif.ts:64`), which
+  /// currently doesn't surface them on `AssetExif`. When the indexer
+  /// starts persisting them, this helper must update in lockstep —
+  /// otherwise dedup will silently regress on cameras that report
+  /// shutter counts.
+  private static func deriveMapleId(originalBytes: Data) -> String? {
+    if let ts = readExifCaptureDateISO8601UTC(from: originalBytes) {
+      // Cap the head slice at the spec's 64 KB. Hashing the whole
+      // file is wasted work — `MapleId::primary` ignores everything
+      // past `SHA1_HEAD_BYTES`. Use `Data(prefix:)` rather than
+      // slicing so the resulting `Data` is a contiguous owned
+      // buffer (the FFI binds via `withUnsafeBytes`).
+      let head =
+        originalBytes.count > 64 * 1024
+        ? originalBytes.prefix(64 * 1024)
+        : originalBytes
+      if let id = MapleId.primary(
+        headBytes: Data(head),
+        capturedAtISO8601: ts
+      ) {
+        return id
+      }
     }
+    return MapleId.fallback(bytes: originalBytes)
+  }
 
-    /// Read EXIF capture timestamp from the asset bytes and normalise to
-    /// the ISO 8601 string the server indexer hashes
-    /// (`<exifr>.DateTimeOriginal.toISOString()`).
-    ///
-    /// Tries `DateTimeOriginal` first, then `DateTimeDigitized` (= exifr's
-    /// `CreateDate`) to match the indexer's fallback at
-    /// `src/api/src/indexer/exif.ts:117`
-    /// (`asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`). Without
-    /// the second key, a file that has only `CreateDate` would compute a
-    /// fallback-form id on device but a primary-form id on the server,
-    /// breaking dedup.
-    ///
-    /// EXIF date strings have no timezone designator. exifr's default
-    /// behaviour is to interpret them as UTC and emit a Date — we match
-    /// that interpretation here so the resulting ISO 8601 string is
-    /// byte-for-byte the same value the indexer feeds into BLAKE3. (If
-    /// the indexer later honours `OffsetTimeOriginal`, this helper has to
-    /// follow in lockstep.)
-    ///
-    /// Returns nil when both keys are absent or neither parses —
-    /// callers fall through to fallback-form derivation.
-    private static func readExifCaptureDateISO8601UTC(from data: Data) -> String? {
-        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        guard let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-              let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
-        else { return nil }
-        let dateStr =
-            (exif[kCGImagePropertyExifDateTimeOriginal] as? String)
-            ?? (exif[kCGImagePropertyExifDateTimeDigitized] as? String)
-        guard let dateStr else { return nil }
-        guard let date = Self.exifDateParser
-            .date(from: dateStr.trimmingCharacters(in: .whitespaces)) else {
-            return nil
-        }
-        return Self.iso8601UTCFormatter.string(from: date)
+  /// Read EXIF capture timestamp from the asset bytes and normalise to
+  /// the ISO 8601 string the server indexer hashes
+  /// (`<exifr>.DateTimeOriginal.toISOString()`).
+  ///
+  /// Tries `DateTimeOriginal` first, then `DateTimeDigitized` (= exifr's
+  /// `CreateDate`) to match the indexer's fallback at
+  /// `src/api/src/indexer/exif.ts:117`
+  /// (`asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`). Without
+  /// the second key, a file that has only `CreateDate` would compute a
+  /// fallback-form id on device but a primary-form id on the server,
+  /// breaking dedup.
+  ///
+  /// EXIF date strings have no timezone designator. exifr's default
+  /// behaviour is to interpret them as UTC and emit a Date — we match
+  /// that interpretation here so the resulting ISO 8601 string is
+  /// byte-for-byte the same value the indexer feeds into BLAKE3. (If
+  /// the indexer later honours `OffsetTimeOriginal`, this helper has to
+  /// follow in lockstep.)
+  ///
+  /// Returns nil when both keys are absent or neither parses —
+  /// callers fall through to fallback-form derivation.
+  private static func readExifCaptureDateISO8601UTC(from data: Data) -> String? {
+    guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    guard let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+      let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any]
+    else { return nil }
+    let dateStr =
+      (exif[kCGImagePropertyExifDateTimeOriginal] as? String)
+      ?? (exif[kCGImagePropertyExifDateTimeDigitized] as? String)
+    guard let dateStr else { return nil }
+    guard
+      let date = Self.exifDateParser
+        .date(from: dateStr.trimmingCharacters(in: .whitespaces))
+    else {
+      return nil
     }
+    return Self.iso8601UTCFormatter.string(from: date)
+  }
 
-    /// EXIF date parser — `yyyy:MM:dd HH:mm:ss`, UTC, POSIX locale.
-    /// Cached as a `static let` because `DateFormatter` allocation is
-    /// non-trivial on large backups (one parse per asset). `DateFormatter`
-    /// is documented thread-safe for reads after configuration.
-    private static let exifDateParser: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy:MM:dd HH:mm:ss"
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
-    }()
+  /// EXIF date parser — `yyyy:MM:dd HH:mm:ss`, UTC, POSIX locale.
+  /// Cached as a `static let` because `DateFormatter` allocation is
+  /// non-trivial on large backups (one parse per asset). `DateFormatter`
+  /// is documented thread-safe for reads after configuration.
+  private static let exifDateParser: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy:MM:dd HH:mm:ss"
+    f.timeZone = TimeZone(secondsFromGMT: 0)
+    f.locale = Locale(identifier: "en_US_POSIX")
+    return f
+  }()
 
-    /// ISO 8601 UTC formatter with millisecond precision — matches
-    /// JavaScript's `Date.prototype.toISOString()` (`YYYY-MM-DDTHH:mm:ss.sssZ`),
-    /// the exact wire format exifr emits and the indexer hashes into the
-    /// primary-form maple_id. Cached for the same reason as
-    /// `exifDateParser`.
-    private static let iso8601UTCFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        return f
-    }()
+  /// ISO 8601 UTC formatter with millisecond precision — matches
+  /// JavaScript's `Date.prototype.toISOString()` (`YYYY-MM-DDTHH:mm:ss.sssZ`),
+  /// the exact wire format exifr emits and the indexer hashes into the
+  /// primary-form maple_id. Cached for the same reason as
+  /// `exifDateParser`.
+  private static let iso8601UTCFormatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    f.timeZone = TimeZone(secondsFromGMT: 0)
+    return f
+  }()
 
-    // MARK: - Reading bytes
+  // MARK: - Reading bytes
 
-    /// Stream a PHAssetResource into a single Data buffer.
-    /// Uses dataReceivedHandler so iCloud-Photos-only assets get pulled on
-    /// demand (isNetworkAccessAllowed = true).
-    private static func readAllBytes(of resource: PHAssetResource) async throws -> Data {
-        let options = PHAssetResourceRequestOptions()
-        options.isNetworkAccessAllowed = true
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-            let lock = NSLock()
-            var accumulator = Data()
-            // Latch — PhotoKit fires the completion handler at most once,
-            // but defensive in case future SDKs change the contract.
-            var fired = false
-            PHAssetResourceManager.default().requestData(
-                for: resource,
-                options: options,
-                dataReceivedHandler: { chunk in
-                    lock.lock()
-                    accumulator.append(chunk)
-                    lock.unlock()
-                },
-                completionHandler: { error in
-                    lock.lock()
-                    if fired { lock.unlock(); return }
-                    fired = true
-                    let snapshot = accumulator
-                    lock.unlock()
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else {
-                        continuation.resume(returning: snapshot)
-                    }
-                })
-        }
+  /// Stream a PHAssetResource into a single Data buffer.
+  /// Uses dataReceivedHandler so iCloud-Photos-only assets get pulled on
+  /// demand (isNetworkAccessAllowed = true).
+  private static func readAllBytes(
+    of resource: PHAssetResource,
+    onStatus: @escaping @Sendable (String) async -> Void = { _ in }
+  ) async throws -> Data {
+    await onStatus("Reading Photos…")
+    let request = PhotoResourceRead()
+    return try await withTaskCancellationHandler {
+      try Task.checkCancellation()
+      return try await withCheckedThrowingContinuation { continuation in
+        request.begin(resource: resource, continuation: continuation, onStatus: onStatus)
+      }
+    } onCancel: {
+      request.finish(error: CancellationError())
     }
+  }
 
-    enum ReaderError: Error, LocalizedError {
-        case assetNotFound(String)
-        case noOriginalResource(String)
-        case hashFailed
-        var errorDescription: String? {
-            switch self {
-            case .assetNotFound(let id): return "PHAsset \(id) not found"
-            case .noOriginalResource(let id): return "PHAsset \(id) has no original resource"
-            case .hashFailed: return "BLAKE3 hash of original bytes failed (empty data)"
-            }
-        }
+  enum ReaderError: Error, LocalizedError {
+    case assetNotFound(String)
+    case noOriginalResource(String)
+    case hashFailed
+    var errorDescription: String? {
+      switch self {
+      case .assetNotFound(let id): return "PHAsset \(id) not found"
+      case .noOriginalResource(let id): return "PHAsset \(id) has no original resource"
+      case .hashFailed: return "BLAKE3 hash of original bytes failed (empty data)"
+      }
     }
+  }
+}
+
+/// Owns the PhotoKit callback lifetime. Cancellation resumes immediately even
+/// if PhotoKit never sends completion; a silent resource request times out.
+private final class PhotoResourceRead: @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuation: CheckedContinuation<Data, Error>?
+  private var requestID: PHAssetResourceDataRequestID?
+  private var bytes = Data()
+  private var finished = false
+  private var terminalError: Error?
+  private var lastActivity = Date()
+  private var cloudProgress = -1.0
+  private var timer: DispatchSourceTimer?
+
+  func begin(
+    resource: PHAssetResource, continuation: CheckedContinuation<Data, Error>,
+    onStatus: @escaping @Sendable (String) async -> Void
+  ) {
+    lock.lock()
+    if finished {
+      let error = terminalError ?? CancellationError()
+      lock.unlock()
+      continuation.resume(throwing: error)
+      return
+    }
+    self.continuation = continuation
+    let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+    self.timer = timer
+    timer.schedule(deadline: .now() + 10, repeating: 10)
+    timer.setEventHandler { [weak self] in self?.checkTimeout() }
+    timer.resume()
+    lock.unlock()
+    let options = PHAssetResourceRequestOptions()
+    options.isNetworkAccessAllowed = true
+    options.progressHandler = { [weak self] progress in
+      guard self?.advanced(progress) == true else { return }
+      Task { await onStatus("Downloading from iCloud · \(Int(progress * 100))%") }
+    }
+    let id = PHAssetResourceManager.default().requestData(
+      for: resource, options: options,
+      dataReceivedHandler: { [weak self] in self?.received($0) },
+      completionHandler: { [weak self] in self?.finish(error: $0) })
+    lock.lock()
+    requestID = id
+    let cancel = finished
+    lock.unlock()
+    if cancel { PHAssetResourceManager.default().cancelDataRequest(id) }
+  }
+
+  private func advanced(_ progress: Double) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !finished, progress > cloudProgress else { return false }
+    cloudProgress = progress
+    lastActivity = Date()
+    return true
+  }
+
+  private func received(_ chunk: Data?) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !finished else { return }
+    lastActivity = Date()
+    if let chunk { bytes.append(chunk) }
+  }
+
+  private func checkTimeout() {
+    lock.lock()
+    let timedOut = !finished && Date().timeIntervalSince(lastActivity) >= 60
+    lock.unlock()
+    if timedOut {
+      finish(
+        error: NSError(
+          domain: "MapleBackup.Photos", code: 1,
+          userInfo: [
+            NSLocalizedDescriptionKey:
+              "Photos/iCloud has not delivered data for 60 seconds. Retrying this photo."
+          ]))
+    }
+  }
+
+  func finish(error: Error?) {
+    lock.lock()
+    guard !finished else {
+      lock.unlock()
+      return
+    }
+    finished = true
+    terminalError = error
+    let continuation = self.continuation
+    self.continuation = nil
+    let data = bytes
+    bytes = Data()
+    let id = requestID
+    timer?.cancel()
+    timer = nil
+    lock.unlock()
+    if let error {
+      if let id { PHAssetResourceManager.default().cancelDataRequest(id) }
+      continuation?.resume(throwing: error)
+    } else {
+      continuation?.resume(returning: data)
+    }
+  }
 }

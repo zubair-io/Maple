@@ -251,7 +251,8 @@ struct MapleApp: App {
   /// posts `.maplePhotosAccessGranted`, which re-runs this.
   @MainActor
   static func startBackupIfAuthorized() async {
-    guard let settings = BackupSettings.load(), settings.isConfigured,
+    guard !BackupSettings.isStoppedByUser, let settings = BackupSettings.load(),
+      settings.isConfigured,
       let serverBaseURL = URL(string: settings.serverURL)
     else { return }
     // A configured backup could only have been set up with library access

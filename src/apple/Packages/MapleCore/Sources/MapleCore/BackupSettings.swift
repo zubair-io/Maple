@@ -9,84 +9,98 @@
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §7.
 
+import CryptoKit
 import Foundation
 
 public struct BackupSettings: Equatable, Codable, Sendable {
 
-    /// Maple Cloud server base URL. Empty until the user configures one.
-    public var serverURL: String
+  /// Maple Cloud server base URL. Empty until the user configures one.
+  public var serverURL: String
 
-    /// Library id on the server (an ObjectId hex string).
-    public var libraryId: String
+  /// Library id on the server (an ObjectId hex string).
+  public var libraryId: String
 
-    /// Folder relative to the library root where the backup tree lands.
-    /// Empty string (the default) writes directly under the library root.
-    /// Subdirectory values like `"iPhotoBackups"` are also accepted by
-    /// callers that want to keep the imported tree out of the library's
-    /// top level.
-    public var rootFolder: String
+  /// Folder relative to the library root where the backup tree lands.
+  /// Empty string (the default) writes directly under the library root.
+  /// Subdirectory values like `"iPhotoBackups"` are also accepted by
+  /// callers that want to keep the imported tree out of the library's
+  /// top level.
+  public var rootFolder: String
 
-    /// Both bytes and sidecar uploads are gated to Wi-Fi by default.
-    public var wifiOnly: Bool
+  /// Both bytes and sidecar uploads are gated to Wi-Fi by default.
+  public var wifiOnly: Bool
 
-    /// Inclusion toggles — match spec §7.
-    public var includeLivePhotos: Bool
-    public var includeVideos: Bool
-    public var includeBursts: Bool
-    public var includeSharedLibrary: Bool
-    public var includeSharedAlbums: Bool
+  /// Inclusion toggles — match spec §7.
+  public var includeLivePhotos: Bool
+  public var includeVideos: Bool
+  public var includeBursts: Bool
+  public var includeSharedLibrary: Bool
+  public var includeSharedAlbums: Bool
 
-    public init(
-        serverURL: String,
-        libraryId: String,
-        rootFolder: String,
-        wifiOnly: Bool,
-        includeLivePhotos: Bool,
-        includeVideos: Bool,
-        includeBursts: Bool,
-        includeSharedLibrary: Bool,
-        includeSharedAlbums: Bool
-    ) {
-        self.serverURL = serverURL
-        self.libraryId = libraryId
-        self.rootFolder = rootFolder
-        self.wifiOnly = wifiOnly
-        self.includeLivePhotos = includeLivePhotos
-        self.includeVideos = includeVideos
-        self.includeBursts = includeBursts
-        self.includeSharedLibrary = includeSharedLibrary
-        self.includeSharedAlbums = includeSharedAlbums
-    }
+  public init(
+    serverURL: String,
+    libraryId: String,
+    rootFolder: String,
+    wifiOnly: Bool,
+    includeLivePhotos: Bool,
+    includeVideos: Bool,
+    includeBursts: Bool,
+    includeSharedLibrary: Bool,
+    includeSharedAlbums: Bool
+  ) {
+    self.serverURL = serverURL
+    self.libraryId = libraryId
+    self.rootFolder = rootFolder
+    self.wifiOnly = wifiOnly
+    self.includeLivePhotos = includeLivePhotos
+    self.includeVideos = includeVideos
+    self.includeBursts = includeBursts
+    self.includeSharedLibrary = includeSharedLibrary
+    self.includeSharedAlbums = includeSharedAlbums
+  }
 
-    /// Defaults match the spec §7 inclusion-toggle defaults.
-    public static let defaults = BackupSettings(
-        serverURL: "",
-        libraryId: "",
-        rootFolder: "",
-        wifiOnly: true,
-        includeLivePhotos: true,
-        includeVideos: true,
-        includeBursts: false,
-        includeSharedLibrary: true,
-        includeSharedAlbums: false)
+  /// Defaults match the spec §7 inclusion-toggle defaults.
+  public static let defaults = BackupSettings(
+    serverURL: "",
+    libraryId: "",
+    rootFolder: "",
+    wifiOnly: true,
+    includeLivePhotos: true,
+    includeVideos: true,
+    includeBursts: false,
+    includeSharedLibrary: true,
+    includeSharedAlbums: false)
 
-    /// True when the user has picked a server and a library — the minimum
-    /// to start the backup engine. EngineHost gates `.start(...)` on this.
-    public var isConfigured: Bool {
-        !serverURL.isEmpty && !libraryId.isEmpty
-    }
+  /// True when the user has picked a server and a library — the minimum
+  /// to start the backup engine. EngineHost gates `.start(...)` on this.
+  public var isConfigured: Bool {
+    !serverURL.isEmpty && !libraryId.isEmpty
+  }
 
-    // MARK: - Persistence
+  /// Backed-up state belongs to one destination. A different library must
+  /// never inherit uploaded markers from the previous server/library.
+  public var stateDatabaseFilename: String {
+    let identity = Data("\(serverURL)\n\(libraryId)".utf8)
+    let digest = SHA256.hash(data: identity).map { String(format: "%02x", $0) }.joined()
+    return "backup-state-\(digest).sqlite"
+  }
 
-    private static let key = "maple.backup.settings.v1"
+  public static var isStoppedByUser: Bool {
+    get { UserDefaults.standard.bool(forKey: "maple.backup.stoppedByUser") }
+    set { UserDefaults.standard.set(newValue, forKey: "maple.backup.stoppedByUser") }
+  }
 
-    public func save(to defaults: UserDefaults = .standard) {
-        guard let data = try? JSONEncoder().encode(self) else { return }
-        defaults.set(data, forKey: Self.key)
-    }
+  // MARK: - Persistence
 
-    public static func load(from defaults: UserDefaults = .standard) -> BackupSettings? {
-        guard let data = defaults.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(BackupSettings.self, from: data)
-    }
+  private static let key = "maple.backup.settings.v1"
+
+  public func save(to defaults: UserDefaults = .standard) {
+    guard let data = try? JSONEncoder().encode(self) else { return }
+    defaults.set(data, forKey: Self.key)
+  }
+
+  public static func load(from defaults: UserDefaults = .standard) -> BackupSettings? {
+    guard let data = defaults.data(forKey: key) else { return nil }
+    return try? JSONDecoder().decode(BackupSettings.self, from: data)
+  }
 }

@@ -24,148 +24,181 @@
 //     suppresses the single-select outline. Matches BrowseGrid's original
 //     multi-select chrome exactly.
 
-import SwiftUI
 import MapleCore
 import MapleUI
+import SwiftUI
 
 // MARK: - PhotoThumbnailCell
 
 struct PhotoThumbnailCell: View {
 
-    // MARK: Inputs
+  // MARK: Inputs
 
-    let item: PhotoGridItem
-    let provider: ThumbnailProvider
-    let displayMode: GridDisplayMode
+  let item: PhotoGridItem
+  let provider: ThumbnailProvider
+  let displayMode: GridDisplayMode
 
-    var isSelected: Bool = false
-    /// When non-nil, applies `.matchedTransitionSource(id:in:)` on iOS 18+
-    /// using `item.id` as the tag. The zoom-open transition (#1489) adopts
-    /// this seam in M1+. Setting this to `nil` is a no-op (no transition tag).
-    var transitionNamespace: Namespace.ID? = nil
-    /// Multi-select checked state. When non-nil the cell is in multi-select
-    /// mode and renders a checkmark badge at top-trailing:
-    ///   - `true`  — filled checkmark.circle.fill white-on-accent (selected)
-    ///   - `false` — unfilled circle white-on-dark-scrim (unselected)
-    /// Also suppresses the single-select outline so the two indicators don't
-    /// conflict. When `nil` behaves as before (single-select outline only).
-    var multiSelectChecked: Bool? = nil
-    /// Drag-onto-source-tree payload (#2646). `nil` disables dragging for
-    /// this cell entirely (the default — PhotoKit/merged-timeline surfaces
-    /// never opt in). When non-nil, carries either just this item's id or
-    /// the whole active selection — the caller (`BrowseGrid`) decides,
-    /// per the design doc's "multi-select drag carries the whole selection
-    /// if the dragged item is part of it."
-    var dragPayload: DraggedAssetPayload? = nil
-    /// Cell tap handler.
-    let onTap: () -> Void
-    /// Fired from the cell's `.onAppear`. SwiftUI may call `.onAppear` more than
-    /// once (re-insertion / scroll in-out), so the work MUST be idempotent — use
-    /// it for session priming or page-load triggers, not exactly-once side effects.
-    /// The thumbnail `.task(id:)` runs independently; this is a supplemental hook.
-    var onAppear: (() -> Void)? = nil
-    /// Right-click / long-press context menu content (#2653 — grid "Move to
-    /// Trash"). `nil` disables the context menu entirely for this cell (the
-    /// default — merged-timeline/PhotoKit surfaces don't opt in).
-    var contextMenuItems: AnyView? = nil
+  var isSelected: Bool = false
+  /// When non-nil, applies `.matchedTransitionSource(id:in:)` on iOS 18+
+  /// using `item.id` as the tag. The zoom-open transition (#1489) adopts
+  /// this seam in M1+. Setting this to `nil` is a no-op (no transition tag).
+  var transitionNamespace: Namespace.ID? = nil
+  /// Multi-select checked state. When non-nil the cell is in multi-select
+  /// mode and renders a checkmark badge at top-trailing:
+  ///   - `true`  — filled checkmark.circle.fill white-on-accent (selected)
+  ///   - `false` — unfilled circle white-on-dark-scrim (unselected)
+  /// Also suppresses the single-select outline so the two indicators don't
+  /// conflict. When `nil` behaves as before (single-select outline only).
+  var multiSelectChecked: Bool? = nil
+  /// Drag-onto-source-tree payload (#2646). `nil` disables dragging for
+  /// this cell entirely (the default — PhotoKit/merged-timeline surfaces
+  /// never opt in). When non-nil, carries either just this item's id or
+  /// the whole active selection — the caller (`BrowseGrid`) decides,
+  /// per the design doc's "multi-select drag carries the whole selection
+  /// if the dragged item is part of it."
+  var dragPayload: DraggedAssetPayload? = nil
+  /// Cell tap handler.
+  let onTap: () -> Void
+  /// Fired from the cell's `.onAppear`. SwiftUI may call `.onAppear` more than
+  /// once (re-insertion / scroll in-out), so the work MUST be idempotent — use
+  /// it for session priming or page-load triggers, not exactly-once side effects.
+  /// The thumbnail `.task(id:)` runs independently; this is a supplemental hook.
+  var onAppear: (() -> Void)? = nil
+  /// Right-click / long-press context menu content (#2653 — grid "Move to
+  /// Trash"). `nil` disables the context menu entirely for this cell (the
+  /// default — merged-timeline/PhotoKit surfaces don't opt in).
+  var contextMenuItems: AnyView? = nil
 
-    // MARK: State
+  // MARK: State
 
-    /// Decoded thumbnail bitmap. Fetched + decoded OFF the main actor in the
-    /// `.task` below and cached by `item.id`; never decoded in `body`.
-    @State private var decoded: CGImage?
+  /// Decoded thumbnail bitmap. Fetched + decoded OFF the main actor in the
+  /// `.task` below and cached by `item.id`; never decoded in `body`.
+  @State private var decoded: CGImage?
 
-    /// Multi-select-aware accessibility label — restores the per-cell
-    /// "<name>, selected / not selected" announcement BrowseGrid had before the
-    /// shared-cell migration. Single-select mode announces just the name.
-    private var accessibilityLabelText: String {
-        guard let checked = multiSelectChecked else { return item.displayName }
-        return "\(item.displayName), \(checked ? "selected" : "not selected")"
+  /// Multi-select-aware accessibility label — restores the per-cell
+  /// "<name>, selected / not selected" announcement BrowseGrid had before the
+  /// shared-cell migration. Single-select mode announces just the name.
+  private var accessibilityLabelText: String {
+    guard let checked = multiSelectChecked else { return item.displayName }
+    return "\(item.displayName), \(checked ? "selected" : "not selected")"
+  }
+
+  /// Selection hint, multi-select only. Empty (no hint) in single-select
+  /// because the tap action is surface-specific (open vs. select), so only the
+  /// universal multi-select select/deselect hint is asserted here.
+  private var accessibilityHintText: String {
+    guard let checked = multiSelectChecked else { return "" }
+    return "Double tap to \(checked ? "deselect" : "select")"
+  }
+
+  private var isPendingUpload: Bool {
+    let localID: String?
+    switch item.thumbnailSource {
+    case .photoKit(let id): localID = id
+    case .local(let ref, let box):
+      localID =
+        ref.thumbnailProvenance == .photoKit || box?.source is PhotoKitSource ? ref.stableID : nil
+    case .merged(let cell, _):
+      switch cell {
+      case .localOnly(let local), .synced(let local, _):
+        localID = local.id.hasPrefix("ph:") ? String(local.id.dropFirst(3)) : local.id
+      case .cloudOnly: localID = nil
+      }
+    case .cloud: localID = nil
     }
+    guard let localID else { return false }
+    return EngineHost.shared.progress.pendingPhotoIDs.contains(localID)
+  }
 
-    /// Selection hint, multi-select only. Empty (no hint) in single-select
-    /// because the tap action is surface-specific (open vs. select), so only the
-    /// universal multi-select select/deselect hint is asserted here.
-    private var accessibilityHintText: String {
-        guard let checked = multiSelectChecked else { return "" }
-        return "Double tap to \(checked ? "deselect" : "select")"
+  // MARK: Body
+
+  var body: some View {
+    // Render the decoded bitmap. `decoded` is set by the async `.task`; the
+    // sync `cachedImage(forKey:)` peek (an O(1) string lookup) shows a
+    // previously-decoded tile immediately on scroll-back, with no
+    // placeholder flash and no main-thread decode.
+    ThumbnailImage(
+      image: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id),
+      displayMode: displayMode
+    )
+    .opacity(item.overlays.hidden ? 0.4 : 1.0)
+    .overlay {
+      GridCellOverlayView(overlays: item.overlays)
     }
-
-    // MARK: Body
-
-    var body: some View {
-        // Render the decoded bitmap. `decoded` is set by the async `.task`; the
-        // sync `cachedImage(forKey:)` peek (an O(1) string lookup) shows a
-        // previously-decoded tile immediately on scroll-back, with no
-        // placeholder flash and no main-thread decode.
-        ThumbnailImage(image: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id),
-                       displayMode: displayMode)
-            .opacity(item.overlays.hidden ? 0.4 : 1.0)
-            .overlay {
-                GridCellOverlayView(overlays: item.overlays)
-            }
-            .overlay(alignment: .topLeading) {
-                if item.overlays.hidden {
-                    Text("HIDDEN")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
-                        .padding(6)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                // Multi-select badge — only present when multiSelectChecked is non-nil.
-                if let checked = multiSelectChecked {
-                    Image(systemName: checked ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(checked ? .white : Color.white.opacity(0.90))
-                        .background(
-                            Circle()
-                                .fill(checked ? Color.accentColor : Color.black.opacity(0.45))
-                                .padding(-2)
-                        )
-                        .padding(6)
-                        .accessibilityHidden(true)
-                }
-            }
-            .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
-            .contentShape(Rectangle())
-            // Drag preview (#2779): the cell's already-decoded bitmap (or the
-            // sync `cachedImage` peek used above for the tile itself) — no
-            // new decode work for the preview closure. `nil` when neither is
-            // available yet (fast drag on a just-scrolled-in cell); the
-            // preview then falls back to `ThumbnailImage`'s placeholder.
-            .modifier(DragPayloadModifier(
-                payload: dragPayload,
-                thumbnail: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id)))
-            .onTapGesture { onTap() }
-            .onAppear { onAppear?() }
-            .modifier(OptionalContextMenu(items: contextMenuItems))
-            // Accessibility: UITest harness resolves cells by displayName via
-            // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
-            // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
-            .accessibilityIdentifier("thumb-\(item.displayName)")
-            .accessibilityLabel(accessibilityLabelText)
-            .accessibilityHint(accessibilityHintText)
-            .task(id: item.id) {
-                // Fetch bytes, then decode — both OFF the main actor. The whole
-                // load is one task keyed on the lightweight `item.id`, and it is
-                // cancelled when the cell scrolls off-screen, so a fast fling
-                // doesn't decode tiles that are no longer visible. No arrival
-                // animation: a `withAnimation` fade here runs a 0.18s opacity
-                // transition per tile on the main thread, so a scroll that
-                // resolves 20–30 tiles at once drives that many overlapping
-                // animations and hitches the scroll. Thumbnails just appear
-                // (Photos.app does the same during scroll).
-                let bytes = await provider.thumbnail(for: item.thumbnailSource)
-                guard !Task.isCancelled else { return }
-                let image = await ThumbnailDecoder.image(for: bytes, key: item.id)
-                guard !Task.isCancelled else { return }
-                decoded = image
-            }
+    .overlay(alignment: .bottomTrailing) {
+      if isPendingUpload {
+        Image(systemName: "arrow.up.circle.fill")
+          .foregroundStyle(.white)
+          .shadow(radius: 1)
+          .padding(4)
+          .accessibilityLabel("Pending backup upload")
+          .help("Pending backup upload")
+      }
     }
+    .overlay(alignment: .topLeading) {
+      if item.overlays.hidden {
+        Text("HIDDEN")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(.white)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 3)
+          .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
+          .padding(6)
+      }
+    }
+    .overlay(alignment: .topTrailing) {
+      // Multi-select badge — only present when multiSelectChecked is non-nil.
+      if let checked = multiSelectChecked {
+        Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: 20, weight: .semibold))
+          .foregroundStyle(checked ? .white : Color.white.opacity(0.90))
+          .background(
+            Circle()
+              .fill(checked ? Color.accentColor : Color.black.opacity(0.45))
+              .padding(-2)
+          )
+          .padding(6)
+          .accessibilityHidden(true)
+      }
+    }
+    .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
+    .contentShape(Rectangle())
+    // Drag preview (#2779): the cell's already-decoded bitmap (or the
+    // sync `cachedImage` peek used above for the tile itself) — no
+    // new decode work for the preview closure. `nil` when neither is
+    // available yet (fast drag on a just-scrolled-in cell); the
+    // preview then falls back to `ThumbnailImage`'s placeholder.
+    .modifier(
+      DragPayloadModifier(
+        payload: dragPayload,
+        thumbnail: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id))
+    )
+    .onTapGesture { onTap() }
+    .onAppear { onAppear?() }
+    .modifier(OptionalContextMenu(items: contextMenuItems))
+    // Accessibility: UITest harness resolves cells by displayName via
+    // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
+    // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
+    .accessibilityIdentifier("thumb-\(item.displayName)")
+    .accessibilityLabel(accessibilityLabelText)
+    .accessibilityHint(accessibilityHintText)
+    .task(id: item.id) {
+      // Fetch bytes, then decode — both OFF the main actor. The whole
+      // load is one task keyed on the lightweight `item.id`, and it is
+      // cancelled when the cell scrolls off-screen, so a fast fling
+      // doesn't decode tiles that are no longer visible. No arrival
+      // animation: a `withAnimation` fade here runs a 0.18s opacity
+      // transition per tile on the main thread, so a scroll that
+      // resolves 20–30 tiles at once drives that many overlapping
+      // animations and hitches the scroll. Thumbnails just appear
+      // (Photos.app does the same during scroll).
+      let bytes = await provider.thumbnail(for: item.thumbnailSource)
+      guard !Task.isCancelled else { return }
+      let image = await ThumbnailDecoder.image(for: bytes, key: item.id)
+      guard !Task.isCancelled else { return }
+      decoded = image
+    }
+  }
 
 }
 
@@ -174,15 +207,15 @@ struct PhotoThumbnailCell: View {
 /// which would regress every grid surface that doesn't opt in (merged
 /// timeline, PhotoKit).
 private struct OptionalContextMenu: ViewModifier {
-    let items: AnyView?
+  let items: AnyView?
 
-    func body(content: Content) -> some View {
-        if let items {
-            content.contextMenu { items }
-        } else {
-            content
-        }
+  func body(content: Content) -> some View {
+    if let items {
+      content.contextMenu { items }
+    } else {
+      content
     }
+  }
 }
 
 // MARK: - GridCellOverlayView
@@ -191,161 +224,148 @@ private struct OptionalContextMenu: ViewModifier {
 /// byte-identical to the originals from LibraryCell, CloudTimelineCell, and
 /// CloudTimelineMergedCell.
 private struct GridCellOverlayView: View {
-    let overlays: GridCellOverlays
+  let overlays: GridCellOverlays
 
-    var body: some View {
-        ZStack {
-            // --- sync badge (merged timeline) — bottom-trailing ---
-            if let sync = overlays.sync {
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        syncBadge(for: sync)
-                            .padding(4)
-                    }
-                }
-            }
-
-            // --- style-specific rating / flag badges ---
-            switch overlays.style {
-            case .phone:
-                phoneBadges
-            case .desktop:
-                desktopBadges
-            case .cloud:
-                cloudBadges
-            }
+  var body: some View {
+    ZStack {
+      // --- sync badge (merged timeline) — bottom-trailing ---
+      if let sync = overlays.sync {
+        VStack {
+          Spacer()
+          HStack {
+            Spacer()
+            syncBadge(for: sync)
+              .padding(4)
+          }
         }
+      }
+
+      // --- style-specific rating / flag badges ---
+      switch overlays.style {
+      case .phone:
+        phoneBadges
+      case .desktop:
+        desktopBadges
+      case .cloud:
+        cloudBadges
+      }
+    }
+  }
+
+  // MARK: Phone badge layout (S2 spec)
+
+  /// Green pick dot top-left (4pt inset), ≥4★ gold bottom-left (4pt inset).
+  /// No reject badge in v0.1 per the spec.
+  /// Matches `LibraryCell.phoneBadgeOverlay` exactly.
+  @ViewBuilder
+  private var phoneBadges: some View {
+    let stars = overlays.rating
+    let isPick = overlays.flag == .pick
+
+    if isPick {
+      ZStack(alignment: .topLeading) {
+        Color.clear
+        Circle()
+          .fill(MapleTokens.successText)
+          .frame(width: 6, height: 6)
+          .padding(4)
+      }
     }
 
-    // MARK: Phone badge layout (S2 spec)
-
-    /// Green pick dot top-left (4pt inset), ≥4★ gold bottom-left (4pt inset).
-    /// No reject badge in v0.1 per the spec.
-    /// Matches `LibraryCell.phoneBadgeOverlay` exactly.
-    @ViewBuilder
-    private var phoneBadges: some View {
-        let stars = overlays.rating
-        let isPick = overlays.flag == .pick
-
-        if isPick {
-            ZStack(alignment: .topLeading) {
-                Color.clear
-                Circle()
-                    .fill(MapleTokens.successText)
-                    .frame(width: 6, height: 6)
-                    .padding(4)
-            }
+    if stars >= 4 {
+      ZStack(alignment: .bottomLeading) {
+        Color.clear
+        HStack(spacing: 1) {
+          ForEach(0..<stars, id: \.self) { _ in
+            Image(systemName: "star.fill")
+              .font(.system(size: 6))
+              .foregroundStyle(MapleTokens.star)
+          }
         }
-
-        if stars >= 4 {
-            ZStack(alignment: .bottomLeading) {
-                Color.clear
-                HStack(spacing: 1) {
-                    ForEach(0..<stars, id: \.self) { _ in
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 6))
-                            .foregroundStyle(MapleTokens.star)
-                    }
-                }
-                .padding(4)
-            }
-        }
+        .padding(4)
+      }
     }
+  }
 
-    // MARK: Desktop badge layout (iPad / Mac)
+  // MARK: Desktop badge layout (iPad / Mac)
 
-    /// Rating/flag row at bottom-leading, via MapleUI's read-only
-    /// `MuiRatingFlags` (Maple UI adoption epic #3019, MA4) — replaces the
-    /// hand-rolled `FlagBadge` + `StarView` pair this cell used to compose
-    /// directly (`LibraryCell.badgeOverlay(.desktop)`'s original shape).
-    @ViewBuilder
-    private var desktopBadges: some View {
-        let stars = overlays.rating
-        let flag = overlays.flag ?? .none
+  /// Rating/flag row at bottom-leading, via MapleUI's read-only
+  /// `MuiRatingFlags` (Maple UI adoption epic #3019, MA4) — replaces the
+  /// hand-rolled `FlagBadge` + `StarView` pair this cell used to compose
+  /// directly (`LibraryCell.badgeOverlay(.desktop)`'s original shape).
+  @ViewBuilder
+  private var desktopBadges: some View {
+    let stars = overlays.rating
+    let flag = overlays.flag ?? .none
 
-        // Cloud-timeline surfaces show star ratings at top-leading instead.
-        // When there's a sync badge the surface is cloud/merged — use top-leading.
-        // When no sync badge, it's the library/browse surface — use bottom-leading.
-        if overlays.sync != nil {
-            // Cloud surface: rating top-leading (matches CloudTimelineCell)
-            if stars > 0 {
-                ZStack(alignment: .topLeading) {
-                    Color.clear
-                    HStack(spacing: 1) {
-                        ForEach(0..<stars, id: \.self) { _ in
-                            Image(systemName: "star.fill")
-                                .font(.caption2)
-                        }
-                    }
-                    .foregroundStyle(.yellow)
-                    .padding(4)
-                }
+    // Cloud-timeline surfaces show star ratings at top-leading instead.
+    // When there's a sync badge the surface is cloud/merged — use top-leading.
+    // When no sync badge, it's the library/browse surface — use bottom-leading.
+    if overlays.sync != nil {
+      // Cloud surface: rating top-leading (matches CloudTimelineCell)
+      if stars > 0 {
+        ZStack(alignment: .topLeading) {
+          Color.clear
+          HStack(spacing: 1) {
+            ForEach(0..<stars, id: \.self) { _ in
+              Image(systemName: "star.fill")
+                .font(.caption2)
             }
-        } else {
-            // Library / browse surface: rating/flag row bottom-leading.
-            if flag != .none || stars > 0 {
-                ZStack(alignment: .bottomLeading) {
-                    Color.clear
-                    MuiRatingFlags(
-                        rating: .constant(stars),
-                        flag: .constant(RatingFlagsRow.muiFlag(for: flag)),
-                        readonly: true
-                    )
-                    .padding(4)
-                }
-            }
+          }
+          .foregroundStyle(.yellow)
+          .padding(4)
         }
-    }
-
-    // MARK: Cloud badge layout (cloud-only timeline cells)
-
-    /// Rating stars at top-leading, yellow, caption2 font. Used for cloud-only
-    /// `SearchAsset` cells that have no sync badge (`sync == nil`) but still need
-    /// the cloud-timeline star placement. Matches `CloudTimelineCell` exactly:
-    /// `Image(systemName:"star.fill").font(.caption2).foregroundStyle(.yellow)`,
-    /// 4pt padding, top-leading alignment.
-    @ViewBuilder
-    private var cloudBadges: some View {
-        let stars = overlays.rating
-        if stars > 0 {
-            ZStack(alignment: .topLeading) {
-                Color.clear
-                HStack(spacing: 1) {
-                    ForEach(0..<stars, id: \.self) { _ in
-                        Image(systemName: "star.fill")
-                            .font(.caption2)
-                    }
-                }
-                .foregroundStyle(.yellow)
-                .padding(4)
-            }
+      }
+    } else {
+      // Library / browse surface: rating/flag row bottom-leading.
+      if flag != .none || stars > 0 {
+        ZStack(alignment: .bottomLeading) {
+          Color.clear
+          MuiRatingFlags(
+            rating: .constant(stars),
+            flag: .constant(RatingFlagsRow.muiFlag(for: flag)),
+            readonly: true
+          )
+          .padding(4)
         }
+      }
     }
+  }
 
-    // MARK: Sync badge
+  // MARK: Cloud badge layout (cloud-only timeline cells)
 
-    /// Sync badge icon — matches `CloudTimelineMergedCell.badgeView` exactly.
-    @ViewBuilder
-    private func syncBadge(for sync: SyncBadge) -> some View {
-        switch sync {
-        case .synced:
-            Image(systemName: "checkmark.icloud.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(radius: 1)
-        case .cloudOnly:
-            Image(systemName: "icloud.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(radius: 1)
-        case .localOnly:
-            // Pending-upload state is implied. No badge (matches
-            // CloudTimelineMergedCell.badgeView .localOnly → EmptyView).
-            EmptyView()
+  /// Rating stars at top-leading, yellow, caption2 font. Used for cloud-only
+  /// `SearchAsset` cells that have no sync badge (`sync == nil`) but still need
+  /// the cloud-timeline star placement. Matches `CloudTimelineCell` exactly:
+  /// `Image(systemName:"star.fill").font(.caption2).foregroundStyle(.yellow)`,
+  /// 4pt padding, top-leading alignment.
+  @ViewBuilder
+  private var cloudBadges: some View {
+    let stars = overlays.rating
+    if stars > 0 {
+      ZStack(alignment: .topLeading) {
+        Color.clear
+        HStack(spacing: 1) {
+          ForEach(0..<stars, id: \.self) { _ in
+            Image(systemName: "star.fill")
+              .font(.caption2)
+          }
         }
+        .foregroundStyle(.yellow)
+        .padding(4)
+      }
     }
+  }
+
+  // MARK: Sync badge
+
+  /// Sync badge icon — matches `CloudTimelineMergedCell.badgeView` exactly.
+  @ViewBuilder
+  private func syncBadge(for sync: SyncBadge) -> some View {
+    // Server presence is normal; only the live pending-upload overlay
+    // above needs an icon (#3638).
+    EmptyView()
+  }
 }
 
 // MARK: - ZoomSourceTag
@@ -354,16 +374,16 @@ private struct GridCellOverlayView: View {
 /// provided. A no-op on older OS and when namespace is nil. The zoom-open
 /// transition (#1489) adopts this seam in M1+.
 private struct ZoomSourceTag: ViewModifier {
-    let id: String
-    let namespace: Namespace.ID?
+  let id: String
+  let namespace: Namespace.ID?
 
-    func body(content: Content) -> some View {
-        if #available(iOS 18.0, macOS 15.0, *), let ns = namespace {
-            content.matchedTransitionSource(id: id, in: ns)
-        } else {
-            content
-        }
+  func body(content: Content) -> some View {
+    if #available(iOS 18.0, macOS 15.0, *), let ns = namespace {
+      content.matchedTransitionSource(id: id, in: ns)
+    } else {
+      content
     }
+  }
 }
 
 // MARK: - DragPayloadModifier
@@ -376,107 +396,111 @@ private struct ZoomSourceTag: ViewModifier {
 /// payload carries more than one asset — a single-asset drag shows just the
 /// thumbnail, matching the design doc's Finder/Photos convention.
 private struct DragPayloadModifier: ViewModifier {
-    let payload: DraggedAssetPayload?
-    /// The cell's already-decoded thumbnail, passed through from
-    /// `PhotoThumbnailCell.body` so the preview closure does no decode work
-    /// of its own. `nil` renders `AssetDragPreview`'s placeholder.
-    let thumbnail: CGImage?
+  let payload: DraggedAssetPayload?
+  /// The cell's already-decoded thumbnail, passed through from
+  /// `PhotoThumbnailCell.body` so the preview closure does no decode work
+  /// of its own. `nil` renders `AssetDragPreview`'s placeholder.
+  let thumbnail: CGImage?
 
-    func body(content: Content) -> some View {
-        if let payload {
-            content.draggable(payload) {
-                AssetDragPreview(thumbnail: thumbnail, count: payload.ids.count)
-            }
-        } else {
-            content
-        }
+  func body(content: Content) -> some View {
+    if let payload {
+      content.draggable(payload) {
+        AssetDragPreview(thumbnail: thumbnail, count: payload.ids.count)
+      }
+    } else {
+      content
     }
+  }
 }
 
 // MARK: - Previews
 
 #Preview("Phone — pick + 4★ selected") {
-    let overlays = GridCellOverlays(rating: 4, flag: .pick, sync: nil, style: .phone)
-    let item = PhotoGridItem(id: "p1", displayName: "IMG_0001.dng",
-                             thumbnailSource: .photoKit(localID: "x"), overlays: overlays)
-    PhotoThumbnailCell(
-        item: item,
-        provider: .preview(),
-        displayMode: .fill,
-        isSelected: true,
-        onTap: {}
-    )
-    .frame(width: 120, height: 120)
-    .padding()
-    .background(MapleTokens.bg)
+  let overlays = GridCellOverlays(rating: 4, flag: .pick, sync: nil, style: .phone)
+  let item = PhotoGridItem(
+    id: "p1", displayName: "IMG_0001.dng",
+    thumbnailSource: .photoKit(localID: "x"), overlays: overlays)
+  PhotoThumbnailCell(
+    item: item,
+    provider: .preview(),
+    displayMode: .fill,
+    isSelected: true,
+    onTap: {}
+  )
+  .frame(width: 120, height: 120)
+  .padding()
+  .background(MapleTokens.bg)
 }
 
 #Preview("Desktop — reject + 3★") {
-    let overlays = GridCellOverlays(rating: 3, flag: .reject, sync: nil, style: .desktop)
-    let item = PhotoGridItem(id: "d1", displayName: "IMG_0002.dng",
-                             thumbnailSource: .photoKit(localID: "y"), overlays: overlays)
-    PhotoThumbnailCell(
-        item: item,
-        provider: .preview(),
-        displayMode: .fill,
-        isSelected: false,
-        onTap: {}
-    )
-    .frame(width: 180, height: 180)
-    .padding()
-    .background(MapleTokens.bg)
+  let overlays = GridCellOverlays(rating: 3, flag: .reject, sync: nil, style: .desktop)
+  let item = PhotoGridItem(
+    id: "d1", displayName: "IMG_0002.dng",
+    thumbnailSource: .photoKit(localID: "y"), overlays: overlays)
+  PhotoThumbnailCell(
+    item: item,
+    provider: .preview(),
+    displayMode: .fill,
+    isSelected: false,
+    onTap: {}
+  )
+  .frame(width: 180, height: 180)
+  .padding()
+  .background(MapleTokens.bg)
 }
 
 #Preview("Cloud — synced badge + 5★") {
-    let overlays = GridCellOverlays(rating: 5, flag: nil, sync: .synced, style: .desktop)
-    let item = PhotoGridItem(
-        id: "c1",
-        displayName: "cloud.dng",
-        thumbnailSource: .cloud(absPath: "/photos/a.dng", host: "srv"),
-        overlays: overlays
-    )
-    PhotoThumbnailCell(
-        item: item,
-        provider: .preview(),
-        displayMode: .fill,
-        isSelected: false,
-        onTap: {}
-    )
-    .frame(width: 140, height: 140)
-    .padding()
-    .background(MapleTokens.bg)
+  let overlays = GridCellOverlays(rating: 5, flag: nil, sync: .synced, style: .desktop)
+  let item = PhotoGridItem(
+    id: "c1",
+    displayName: "cloud.dng",
+    thumbnailSource: .cloud(absPath: "/photos/a.dng", host: "srv"),
+    overlays: overlays
+  )
+  PhotoThumbnailCell(
+    item: item,
+    provider: .preview(),
+    displayMode: .fill,
+    isSelected: false,
+    onTap: {}
+  )
+  .frame(width: 140, height: 140)
+  .padding()
+  .background(MapleTokens.bg)
 }
 
 #Preview("Multi-select — checked") {
-    let overlays = GridCellOverlays(rating: 0, flag: nil, style: .desktop)
-    let item = PhotoGridItem(id: "ms1", displayName: "IMG_0010.dng",
-                             thumbnailSource: .photoKit(localID: "z"), overlays: overlays)
-    PhotoThumbnailCell(
-        item: item,
-        provider: .preview(),
-        displayMode: .fill,
-        isSelected: true,
-        multiSelectChecked: true,
-        onTap: {}
-    )
-    .frame(width: 180, height: 180)
-    .padding()
-    .background(MapleTokens.bg)
+  let overlays = GridCellOverlays(rating: 0, flag: nil, style: .desktop)
+  let item = PhotoGridItem(
+    id: "ms1", displayName: "IMG_0010.dng",
+    thumbnailSource: .photoKit(localID: "z"), overlays: overlays)
+  PhotoThumbnailCell(
+    item: item,
+    provider: .preview(),
+    displayMode: .fill,
+    isSelected: true,
+    multiSelectChecked: true,
+    onTap: {}
+  )
+  .frame(width: 180, height: 180)
+  .padding()
+  .background(MapleTokens.bg)
 }
 
 #Preview("Multi-select — unchecked") {
-    let overlays = GridCellOverlays(rating: 0, flag: nil, style: .desktop)
-    let item = PhotoGridItem(id: "ms2", displayName: "IMG_0011.dng",
-                             thumbnailSource: .photoKit(localID: "w"), overlays: overlays)
-    PhotoThumbnailCell(
-        item: item,
-        provider: .preview(),
-        displayMode: .fill,
-        isSelected: false,
-        multiSelectChecked: false,
-        onTap: {}
-    )
-    .frame(width: 180, height: 180)
-    .padding()
-    .background(MapleTokens.bg)
+  let overlays = GridCellOverlays(rating: 0, flag: nil, style: .desktop)
+  let item = PhotoGridItem(
+    id: "ms2", displayName: "IMG_0011.dng",
+    thumbnailSource: .photoKit(localID: "w"), overlays: overlays)
+  PhotoThumbnailCell(
+    item: item,
+    provider: .preview(),
+    displayMode: .fill,
+    isSelected: false,
+    multiSelectChecked: false,
+    onTap: {}
+  )
+  .frame(width: 180, height: 180)
+  .padding()
+  .background(MapleTokens.bg)
 }
