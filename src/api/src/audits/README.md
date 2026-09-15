@@ -20,6 +20,8 @@ writers for conclusive impact evidence. Reports contain database record IDs.
   as legacy, malformed values, and valid uppercase/mixed-case values.
 - `upload_sessions.maple_id`: retained completed-upload references, including
   synthetic rendered/video sessions. Missing values are normal while uploading.
+- `video_geo_backfill_audit.maple_id` and `donor_maple_id`: historical video
+  migration provenance. Missing donor IDs are expected for `no-donor` decisions.
 - `meilisearch_backfill_failures.maple_id`: search retry references. Their `_id`
   is the stable Mongo asset ID, not the content ID.
 - Case-fold collisions count distinct **asset owners**, not repeated session
@@ -51,24 +53,50 @@ legacy **head-only** fallback, while browser streaming fallback hashes the whole
 file. The 70,001-byte regression fixture pins both distinct results and primary
 output. Changing that policy is outside #3642.
 
-## Impact verification status
+## Verified database impact (2026-09-15)
 
-No production database or representative snapshot has been provided for this
-change. **Stored-data impact and the migration decision remain unresolved.**
-Synthetic temporary-Mongo tests prove detection, collision reporting, repeatable
-execution and no mutations; they do not establish zero affected production rows.
-Do not close #3642 or deploy normalization based on those synthetic results.
+The user-designated server's `maple` database was audited read-only. The initial
+scan and expanded scan agreed on asset/session counts. The expanded scan ran
+from 2026-09-15T20:38:54.848Z to 2026-09-15T20:39:08.506Z.
+The server is standalone; these are live observations, not a consistent snapshot.
+No database records, indexes, original files, or user edits were written.
 
-If the representative audit reports affected records, the issue requires a
-versioned, resumable migration using the existing migration mechanisms before
-completion. Do not infer replacement IDs from permissive parsing. Case folding
-is a proven normalization only after collision and reference review. Malformed
-IDs require authoritative bytes/metadata and provenance; ambiguous records must
-remain recoverable. Preserve `_id`, originals, edits and file paths. The migration
-must include dry-run mappings, collision checks, external-ID compatibility,
-writer coordination, reference updates and a rollback/recovery procedure. A
-clean representative audit plus unchanged generation can justify no migration;
-attach that evidence to the issue instead of adding an empty rewrite migration.
+| Collection / field                      | Canonical | Malformed | Case differences | Missing / legacy |
+| --------------------------------------- | --------: | --------: | ---------------: | ---------------: |
+| assets.maple_id                         |   335,286 |         0 |                0 |               63 |
+| upload_sessions.maple_id                |         4 |         0 |                0 |               40 |
+| meilisearch_backfill_failures.maple_id  |         0 |         0 |                0 |                0 |
+| video_geo_backfill_audit.maple_id       |     8,114 |         0 |                0 |                0 |
+| video_geo_backfill_audit.donor_maple_id |     2,398 |         0 |                0 |            5,716 |
+
+- **Zero case-fold collision groups.** The live `maple_id_gt_1` asset index is
+  unique with partial filter `{ maple_id: { $gt: '' } }`.
+- All 40 sessions without IDs are `state: open`. All 5,716 missing donor IDs
+  correspond to `decision: no-donor`.
+- The 63 assets without IDs have absent fields (not invalid hex): 62 live image
+  records and one deleted image record. They are classified as missing/legacy;
+  the parser fix does not supply identity for them, and no IDs were invented.
+- Twelve historical video-audit references no longer resolve by content ID.
+  Looking up their stable asset `_id` found six absent assets and six assets
+  with changed IDs. None is malformed or noncanonical. Historical provenance
+  was retained. Upload-session, donor and search-retry references had zero
+  unresolved IDs.
+
+**Migration decision: no ID rewrite is needed for this correction in the audited
+records.** There are no malformed or noncanonical stored IDs to repair, no
+normalization collisions, and existing generation remains byte-for-byte unchanged
+(including the legacy server fallback). Missing legacy values and historical
+references are not evidence of permissive-parser corruption. A syntactically
+valid ID is not proof of correct derivation; original bytes were not rehashed.
+External Meilisearch/client/cache state was not independently scanned, and this
+result does not claim byte-derived identity verification. No valid record is
+re-keyed, so no downstream reference migration or old-ID alias is introduced.
+
+The committed aggregate evidence is `maple-ids-evidence.json`. Detailed JSONL
+findings stay local to avoid publishing individual production record IDs.
+If later audits find affected records, #3642's migration requirements apply:
+versioned/resumable repair with authoritative provenance, collision checks,
+reference and old-client compatibility, writer coordination and recovery.
 
 ## Local validation (2026-09-15)
 

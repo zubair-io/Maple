@@ -5,6 +5,7 @@ export const ID_COLLECTIONS = [
   'assets',
   'upload_sessions',
   'meilisearch_backfill_failures',
+  'video_geo_backfill_audit',
 ] as const;
 export type IdStatus = 'canonical' | 'noncanonical-case' | 'malformed' | 'missing-legacy';
 export function idStatus(value: unknown): IdStatus {
@@ -16,39 +17,45 @@ export function idStatus(value: unknown): IdStatus {
 /** Read-only, bounded-memory scan. The caller streams findings to its report. */
 export async function auditMapleIds(db: Db, emit: (finding: Document) => void | Promise<void>) {
   const counts: Record<string, Record<IdStatus, number>> = {};
-  for (const name of ID_COLLECTIONS) {
+  const targets = [
+    ...ID_COLLECTIONS.map((name) => ({ name, field: 'maple_id' })),
+    { name: 'video_geo_backfill_audit', field: 'donor_maple_id' },
+  ];
+  for (const { name, field } of targets) {
     const totals = { canonical: 0, 'noncanonical-case': 0, malformed: 0, 'missing-legacy': 0 };
-    counts[name] = totals;
+    counts[field === 'maple_id' ? name : `${name}.${field}`] = totals;
     const cursor = db.collection(name).find(
       {},
       {
-        projection: { maple_id: 1, status: 1 },
+        projection: { [field]: 1, state: 1 },
         batchSize: 250,
       },
     );
     try {
       for await (const row of cursor) {
-        const status = idStatus(row.maple_id);
+        const status = idStatus(row[field]);
         totals[status]++;
         if (status !== 'canonical') {
           await emit({
             type: status,
             collection: name,
             record: row._id,
-            value: row.maple_id ?? null,
-            status: row.status,
+            value: row[field] ?? null,
+            state: row.state,
+            field,
           });
         }
-        if (name !== 'assets' && isMapleId(row.maple_id)) {
+        if (name !== 'assets' && isMapleId(row[field])) {
           const exact = await db
             .collection('assets')
-            .findOne({ maple_id: row.maple_id }, { projection: { _id: 1 } });
+            .findOne({ maple_id: row[field] }, { projection: { _id: 1 } });
           if (!exact) {
             await emit({
               type: 'unresolved-reference',
+              field,
               collection: name,
               record: row._id,
-              value: row.maple_id,
+              value: row[field],
             });
           }
         }
