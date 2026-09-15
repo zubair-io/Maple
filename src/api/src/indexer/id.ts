@@ -14,9 +14,9 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { sha1 } from '@noble/hashes/legacy.js';
 
 /** First byte of a primary-form id. */
-export const TAG_PRIMARY = 0x01;
+const TAG_PRIMARY = 0x01;
 /** First byte of a fallback-form id. */
-export const TAG_FALLBACK = 0x02;
+const TAG_FALLBACK = 0x02;
 
 /** Number of leading bytes that feed sha1Head. */
 export const SHA1_HEAD_BYTES = 64 * 1024;
@@ -26,10 +26,7 @@ export {
   fromHex,
   isMapleId,
 } from '../../../web/projects/maple-common/src/lib/addressing/maple-id-parser.ts';
-export type {
-  MapleId,
-  IdKind,
-} from '../../../web/projects/maple-common/src/lib/addressing/maple-id-parser.ts';
+export type { MapleId } from '../../../web/projects/maple-common/src/lib/addressing/maple-id-parser.ts';
 
 function toLeU64(n: bigint | number): Uint8Array {
   const out = new Uint8Array(8);
