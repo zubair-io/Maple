@@ -141,7 +141,7 @@ function pauseResumeHandler(paused: boolean) {
 
 // ── Routes: Main entry that combines all route definitions ──────────────────
 
-export function workerRoutes(): Elysia {
+export function workerRoutes() {
   return (
     new Elysia({ prefix: '/api/workers' })
 

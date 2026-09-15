@@ -83,7 +83,9 @@ export async function saveNetworkConfig(patch: Partial<NetworkConfig>): Promise<
   if (patch.local_port_override !== undefined) {
     set['config.local_port_override'] = patch.local_port_override;
   }
-  await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await db
+    .collection<NetworkConfigDoc>(COLL)
+    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
 /** Best-effort validator for an operator-supplied `local_ip_override`. We

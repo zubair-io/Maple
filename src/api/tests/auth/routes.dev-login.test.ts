@@ -8,7 +8,7 @@ import {
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
-async function freshAppWith(devAuth: '1' | undefined): Promise<Elysia> {
+async function freshAppWith(devAuth: '1' | undefined) {
   // Re-import the routes module after toggling the env var so the
   // route handlers observe the current value (they read process.env
   // on each request, so a fresh import isn't strictly needed — but

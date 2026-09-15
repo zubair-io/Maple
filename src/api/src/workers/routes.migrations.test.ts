@@ -31,7 +31,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (dbReachable) {
     const db = await getDb();
-    await db.collection('worker_status').deleteMany({ _id: 'singleton' });
+    await db
+      .collection<{ _id: string; [key: string]: unknown }>('worker_status')
+      .deleteMany({ _id: 'singleton' });
     // `/status` derives each stage's pending/ready/dead from a live
     // countDocuments over the `assets` collection. In the shared CI Mongo an
     // earlier test file can leave asset docs behind, which makes the
@@ -100,7 +102,9 @@ describe('migration routes', () => {
       // Listing is a demand signal too — the worker refreshes while it's watched.
       expect(await readStatusCountsDemand()).toBeGreaterThan(Date.now());
     } finally {
-      await (await getDb()).collection('app_settings').deleteOne({ _id: 'migration' as never });
+      await (await getDb())
+        .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+        .deleteOne({ _id: 'migration' as never });
     }
   });
 
@@ -129,12 +133,14 @@ describe('migration routes', () => {
   it('Reset clears the semantic-backfill cursor as well as generic migration state', async () => {
     if (!dbReachable) return;
     const db = await getDb();
-    await db.collection('meilisearch_backfill_state').insertOne({
-      _id: 'assets',
-      cursor: null,
-      scanned: 10,
-      completed_at: '2026-07-26T00:00:00.000Z',
-    });
+    await db
+      .collection<{ _id: string; [key: string]: unknown }>('meilisearch_backfill_state')
+      .insertOne({
+        _id: 'assets',
+        cursor: null,
+        scanned: 10,
+        completed_at: '2026-07-26T00:00:00.000Z',
+      });
 
     const res = await app.handle(
       new Request(
@@ -148,6 +154,10 @@ describe('migration routes', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(await db.collection('meilisearch_backfill_state').findOne({ _id: 'assets' })).toBeNull();
+    expect(
+      await db
+        .collection<{ _id: string; [key: string]: unknown }>('meilisearch_backfill_state')
+        .findOne({ _id: 'assets' }),
+    ).toBeNull();
   });
 });

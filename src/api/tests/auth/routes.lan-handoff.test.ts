@@ -36,7 +36,7 @@ beforeEach(async () => {
   });
   userId = ins.insertedId;
   bearer = await signAccessToken(
-    { sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
+    { file_access: true, sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
     process.env.MAPLE_JWT_SECRET!,
   );
 });

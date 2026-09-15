@@ -71,7 +71,7 @@ describe('transcribe stage', () => {
     });
     const result = await transcribeStage.handler(asset('voice.m4a') as never, {} as never);
     expect(result).toEqual({ wrote: true });
-    expect(stored?.text).toBe('hello there');
+    expect(stored).toMatchObject({ text: 'hello there' });
   });
 
   it('propagates a real ENOENT before probing media', async () => {

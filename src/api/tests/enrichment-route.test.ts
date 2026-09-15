@@ -24,16 +24,16 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
-let app: Elysia | null = null;
+let app: Pick<Elysia, 'handle'> | null = null;
 
 const realFetch = globalThis.fetch;
 
 const ownerJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 const memberJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
 
@@ -80,7 +80,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection('app_settings').deleteMany({});
+  await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
 });
 
 afterEach(() => {
@@ -166,7 +166,7 @@ describe('GET /api/enrichment/config', () => {
 
   it('returns the saved DB row when present', async () => {
     if (!mongoReachable) return;
-    await db!.collection('app_settings').insertOne({
+    await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').insertOne({
       _id: 'enrichment',
       config: {
         nominatim_url: 'http://from-db.test:8080',
@@ -212,7 +212,9 @@ describe('PUT /api/enrichment/config', () => {
     expect(r.status).toBe(502);
     expect((r.body as { error: string }).error).toMatch(/health check failed/);
     // DB row was NOT saved.
-    const saved = await db!.collection('app_settings').findOne({ _id: 'enrichment' });
+    const saved = await db!
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+      .findOne({ _id: 'enrichment' });
     expect(saved).toBeNull();
   });
 
@@ -228,7 +230,9 @@ describe('PUT /api/enrichment/config', () => {
     // Trailing slash is stripped on save.
     expect(body.nominatim_url).toBe('http://nominatim.test:8080');
     expect(body.source.nominatim_url).toBe('db');
-    const saved = await db!.collection('app_settings').findOne({ _id: 'enrichment' });
+    const saved = await db!
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+      .findOne({ _id: 'enrichment' });
     expect(saved).toBeTruthy();
   });
 
@@ -389,7 +393,11 @@ describe('PUT /api/enrichment/config — describe servers', () => {
       expect((r.body as { error: string }).error).toMatch(/Invalid describe_servers/);
     }
     // Nothing was persisted by the rejected writes.
-    expect(await db!.collection('app_settings').findOne({ _id: 'enrichment' })).toBeNull();
+    expect(
+      await db!
+        .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+        .findOne({ _id: 'enrichment' }),
+    ).toBeNull();
   });
 
   it('clears back to the single-server fallback on null', async () => {

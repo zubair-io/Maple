@@ -244,8 +244,12 @@ export async function decodeHdrToneMapped(buf: Uint8Array): Promise<DecodedRaste
 
   const result = await new Promise<{ width: number; height: number; data: Float32Array }>(
     (resolve, reject) => {
-      loader.on('load', function (this: { width: number; height: number; data: Float32Array }) {
-        resolve({ width: this.width, height: this.height, data: this.data });
+      loader.on('load', () => {
+        if (!loader.data) {
+          reject(new Error('psd-hdr-decode: HDR loader returned no pixel data'));
+          return;
+        }
+        resolve({ width: loader.width, height: loader.height, data: loader.data });
       });
       loader.on('error', (err: unknown) => {
         reject(err instanceof Error ? err : new Error(String(err) || 'hdr decode error'));

@@ -81,12 +81,7 @@ export const previewRoutes = new Elysia().get(
     }
 
     const libs = await loadLibraryRoots();
-    const previewPath = cachePathForAsset(
-      { maple_id: asset.maple_id as string, fileinfo: asset.fileinfo as never },
-      libs,
-      'previews',
-      PREVIEW_CACHE_SUFFIX,
-    );
+    const previewPath = cachePathForAsset(asset, libs, 'previews', PREVIEW_CACHE_SUFFIX);
     if (!previewPath) {
       set.status = 404;
       return { error: 'Cannot resolve preview path for this asset' };

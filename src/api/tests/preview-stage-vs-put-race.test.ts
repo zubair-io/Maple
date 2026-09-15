@@ -58,12 +58,12 @@ describe('PUT /api/preview racing the `preview` stage — no partial AVIF (#1997
   let scratchDir = '';
   let libraryId: ObjectId;
 
-  const put = (path: string, body: BodyInit) =>
+  const put = (path: string, body: BodyInit | Buffer) =>
     new Elysia().use(previewPathRoutes).handle(
       new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
         method: 'PUT',
         headers: { 'content-type': 'image/avif' },
-        body,
+        body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
       }),
     );
 

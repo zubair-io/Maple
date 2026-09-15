@@ -92,7 +92,7 @@ async function insertAsset(d: Db, filename: string): Promise<ObjectId> {
   return id;
 }
 
-function post(app: Elysia, body: unknown): Promise<Response> {
+function post(app: Pick<Elysia, 'handle'>, body: unknown): Promise<Response> {
   return app.handle(
     new Request('http://localhost/api/assets/batch-meta', {
       method: 'POST',

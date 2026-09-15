@@ -113,7 +113,7 @@ beforeEach(async () => {
   if (!mongoReachable || !db) return;
   // Reset relevant collections between tests.
   await db.collection('jobs').deleteMany({});
-  await db.collection('app_settings').deleteMany({});
+  await db.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
   await db.collection('assets').deleteMany({});
   await db.collection('folders').deleteMany({});
 
@@ -391,7 +391,9 @@ describe('panoStitchHandler (completion)', () => {
     );
 
     expect(outcome.kind).toBe('done');
-    const r = (outcome as { result: { outputAssetId: string | null; outputPath: string } }).result;
+    if (outcome.kind !== 'done') throw new Error('Expected completed stitch');
+    const r = outcome.result;
+    if (typeof r.outputAssetId !== 'string') throw new Error('Expected output asset ID');
     expect(r.outputAssetId).not.toBeNull();
 
     const doc = await db.collection('assets').findOne({ _id: new ObjectId(r.outputAssetId!) });
@@ -403,6 +405,7 @@ describe('panoStitchHandler (completion)', () => {
     const { fromHex, SHA1_HEAD_BYTES } = await import('../indexer/id.ts');
     expect(fromHex(doc!.maple_id as string).kind).toBe('fallback');
 
+    if (typeof r.outputPath !== 'string') throw new Error('Expected output path');
     const written = await fs.readFile(r.outputPath);
     const head = written.subarray(0, Math.min(written.length, SHA1_HEAD_BYTES));
     expect(doc!.sha1_head).toBe(createHash('sha1').update(head).digest('hex'));
