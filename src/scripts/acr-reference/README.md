@@ -6,13 +6,13 @@ Camera Raw) for the Maple raw-pipeline test corpus. Companion to
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `matrix.py` | The 43-case matrix — slider overrides + tier mapping |
-| `write_xmp.py` | Copy canonical XMPs from `test_0000/xmp/` into a target dir |
-| `run.py` | Orchestrator — writes XMPs + `manifest.json` for every (RAW, case) |
-| `acr_batch.jsx` | Photoshop ExtendScript — consumes `manifest.json`, renders PNGs |
-| `render.sh` | Thin shell wrapper — drives Photoshop headlessly via `osascript` |
+| File            | Role                                                               |
+| --------------- | ------------------------------------------------------------------ |
+| `matrix.py`     | The 43-case matrix — slider overrides + tier mapping               |
+| `write_xmp.py`  | Copy canonical XMPs from `test_0000/xmp/` into a target dir        |
+| `run.py`        | Orchestrator — writes XMPs + `manifest.json` for every (RAW, case) |
+| `acr_batch.jsx` | Photoshop ExtendScript — consumes `manifest.json`, renders PNGs    |
+| `render.sh`     | Thin shell wrapper — drives Photoshop headlessly via `osascript`   |
 
 ## One-shot render
 
@@ -99,26 +99,26 @@ layout differs.
 The corpus was flattened into sequential `test_NNNN` names. Alphabetical
 by original filename for stability:
 
-| test_NNNN | Original filename | Camera / notes |
-| --- | --- | --- |
-| `test_0000.DNG`  | *(already named)* | 100 MP Hasselblad L3D-100c reference |
-| `test_0001.RAW`  | *(already named)* | — |
-| `test_0002.dng`  | *(already named)* | — |
-| `test_0003.CR2`  | *(already named)* | — |
-| `test_0004.fff`  | `20151114_CCSG_on_Hasselblad_H5D40-0726.fff` | Hasselblad H5D-40 (medium format + colorchecker_d65) |
-| `test_0005.RAF`  | `20170525_0037TEST.RAF` | **Uncataloged** — not in fixtures.toml |
-| `test_0006.DNG`  | `5G4A9394-compressed-lossy.DNG` | Canon 5D III (via DNG Converter) — lossy JPEG DNG |
-| `test_0007.DNG`  | `5G4A9394-uncompressed.DNG` | Canon 5D III (via DNG Converter) — uncompressed linear DNG |
-| `test_0008.RAF`  | `AFXT2721.RAF` | Fuji X-T3 — X-Trans III |
-| `test_0009.CR2`  | `B13A0729.CR2` | Canon 5D IV — clipped highlights scene |
-| `test_0010.CR2`  | `B13A0733.CR2` | Canon 5D IV — primary Bayer fixture |
-| `test_0011.ARW`  | `DSC00396.ARW` | Sony α7R IV — 61 MP |
-| `test_0012.raf`  | `DSCF1317_GFX50R.raf` | Fuji GFX 50R — 51 MP medium format |
-| `test_0013.DNG`  | `IMG_1361.DNG` | iPhone 12 Pro — OpcodeList3, dual illuminant |
-| `test_0014.NEF`  | `Nikon-D850-14bit-lossless-compressed.NEF` | Nikon D850 |
-| `test_0015.dng`  | `PXL_20220910_093206982.dng` | Pixel 6 Pro — 10-bit DNG |
-| `test_0016.X3F`  | `SDIM0042.X3F` | Sigma SD1 Merrill — Foveon X3 |
-| `test_0017.dng`  | `f5381888.dng` | Leica M10 — dual-illuminant WB |
+| test_NNNN       | Original filename                            | Camera / notes                                             |
+| --------------- | -------------------------------------------- | ---------------------------------------------------------- |
+| `test_0000.DNG` | _(already named)_                            | 100 MP Hasselblad L3D-100c reference                       |
+| `test_0001.RAW` | _(already named)_                            | —                                                          |
+| `test_0002.dng` | _(already named)_                            | —                                                          |
+| `test_0003.CR2` | _(already named)_                            | —                                                          |
+| `test_0004.fff` | `20151114_CCSG_on_Hasselblad_H5D40-0726.fff` | Hasselblad H5D-40 (medium format + colorchecker_d65)       |
+| `test_0005.RAF` | `20170525_0037TEST.RAF`                      | **Uncataloged** — not in fixtures.toml                     |
+| `test_0006.DNG` | `5G4A9394-compressed-lossy.DNG`              | Canon 5D III (via DNG Converter) — lossy JPEG DNG          |
+| `test_0007.DNG` | `5G4A9394-uncompressed.DNG`                  | Canon 5D III (via DNG Converter) — uncompressed linear DNG |
+| `test_0008.RAF` | `AFXT2721.RAF`                               | Fuji X-T3 — X-Trans III                                    |
+| `test_0009.CR2` | `B13A0729.CR2`                               | Canon 5D IV — clipped highlights scene                     |
+| `test_0010.CR2` | `B13A0733.CR2`                               | Canon 5D IV — primary Bayer fixture                        |
+| `test_0011.ARW` | `DSC00396.ARW`                               | Sony α7R IV — 61 MP                                        |
+| `test_0012.raf` | `DSCF1317_GFX50R.raf`                        | Fuji GFX 50R — 51 MP medium format                         |
+| `test_0013.DNG` | `IMG_1361.DNG`                               | iPhone 12 Pro — OpcodeList3, dual illuminant               |
+| `test_0014.NEF` | `Nikon-D850-14bit-lossless-compressed.NEF`   | Nikon D850                                                 |
+| `test_0015.dng` | `PXL_20220910_093206982.dng`                 | Pixel 6 Pro — 10-bit DNG                                   |
+| `test_0016.X3F` | `SDIM0042.X3F`                               | Sigma SD1 Merrill — Foveon X3                              |
+| `test_0017.dng` | `f5381888.dng`                               | Leica M10 — dual-illuminant WB                             |
 
 Pano fixtures `pano_00/` and `pano_01/` were intentionally **not** renamed —
 they're multi-file stitching fixtures, not single-image test subjects.
@@ -142,7 +142,7 @@ they're multi-file stitching fixtures, not single-image test subjects.
    (all RAWs live directly in `test-fixtures/raws/`). This inconsistency
    predates this rename — the rename preserved the existing subpath
    scheme. If you want the corpus reorganized into subdirs, that's a
-   separate move. The verification harness here checks by *basename*,
+   separate move. The verification harness here checks by _basename_,
    so the current layout works.
 
 4. **`fixtures.toml`'s `[[fixture]]` for `colorchecker_d65`** references
