@@ -727,3 +727,20 @@ Maple is engineered to meet strict latency and throughput budgets:
 | **Batch Export Throughput** | Multi-core 8-core rendering            | ≥ 150 MP / sec     |
 | **Batch Thumbnailing**      | Multi-core 512px AVIF generation       | ≥ 120 images / sec |
 | **Memory RSS Ceiling**      | Peak RAM during 100MP RAW develop      | ≤ 450 MB           |
+
+## Development checks
+
+`bun run typecheck` checks both the package source and every TypeScript file
+under `test/`, using the package's strict compiler settings without emitting
+files. The **Maple package types** CI job runs it independently of native builds.
+To use the repository's locked development tools from a fresh checkout:
+
+```sh
+(cd src/api && bun install --frozen-lockfile)
+(cd src/maple && ln -s ../api/node_modules node_modules && bun run typecheck)
+```
+
+If `src/maple/node_modules` already exists, use that installation instead of
+creating the link. `bun test` is a separate runtime check: it needs matching
+native libraries, and some suites also require fixtures or an external decoder.
+A successful typecheck does not qualify those runtime paths.
