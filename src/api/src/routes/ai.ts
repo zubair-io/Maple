@@ -131,12 +131,17 @@ function applyOllamaPatch(
   }
 }
 
+const VALID_AI_WORKERS = new Set(['describe', 'video-describe']);
+
 async function updateWorkerAssignments(
   repo: WorkerConfigRepo,
   workers: Record<string, { provider: string; model: string }> | undefined,
 ): Promise<string | null> {
   if (!workers) return null;
   for (const [workerName, assignment] of Object.entries(workers)) {
+    if (!VALID_AI_WORKERS.has(workerName)) {
+      return `Invalid worker: ${workerName}`;
+    }
     const typedProvider = asDescribeProvider(assignment.provider);
     if (!typedProvider) {
       return `Unknown provider: ${assignment.provider}`;
