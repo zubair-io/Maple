@@ -26,6 +26,17 @@ import { restoreFromTransfer, type WorkerRequest, type WorkerResponse } from './
 
 export type MapleExecutionMode = 'worker' | 'sync';
 
+/** The Bun fallback has one waiting slot per configured worker. Await an
+ *  outstanding call before retrying; Maple never queues rejected inputs. */
+export class MapleWorkerPoolOverloadedError extends Error {
+  readonly code = 'MAPLE_WORKER_POOL_OVERLOADED';
+
+  constructor() {
+    super('Maple worker pool is full; await an outstanding call before submitting more work');
+    this.name = 'MapleWorkerPoolOverloadedError';
+  }
+}
+
 const MIN_CONCURRENCY = 1;
 const MAX_CONCURRENCY = 16;
 const DEFAULT_CONCURRENCY = 4;
@@ -83,11 +94,17 @@ class NativeWorkerPool {
     if (this.shuttingDown) {
       return Promise.reject(new Error('Maple worker pool is shut down'));
     }
+    // Admit before retaining args or creating a pending entry. Existing
+    // accepted work drains if concurrency is lowered below the queue size.
+    const worker = this.acquireIdleWorker();
+    if (worker instanceof Error) return Promise.reject(worker);
+    if (!worker && this.queue.length >= getMapleConcurrency()) {
+      return Promise.reject(new MapleWorkerPoolOverloadedError());
+    }
     const id = this.nextId++;
     const request: WorkerRequest = { id, method, args };
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      const worker = this.acquireIdleWorker();
       if (worker) {
         this.send(worker, request);
       } else {
@@ -96,11 +113,15 @@ class NativeWorkerPool {
     });
   }
 
-  private acquireIdleWorker(): PoolWorker | null {
+  private acquireIdleWorker(): PoolWorker | Error | null {
     const idle = this.workers.find((w) => w.busyWith === null);
     if (idle) return idle;
     if (this.workers.length < getMapleConcurrency()) {
-      return this.spawnWorker();
+      try {
+        return this.spawnWorker();
+      } catch (error) {
+        return error instanceof Error ? error : new Error(String(error));
+      }
     }
     return null;
   }
@@ -125,7 +146,13 @@ class NativeWorkerPool {
   private send(poolWorker: PoolWorker, request: WorkerRequest): void {
     poolWorker.busyWith = request.id;
     poolWorker.worker.ref?.();
-    poolWorker.worker.postMessage(request);
+    try {
+      poolWorker.worker.postMessage(request);
+    } catch (error) {
+      // Structured-clone failures must release the slot and queued inputs,
+      // just like a worker failure, rather than strand the pending map.
+      this.handleWorkerDeath(poolWorker, error instanceof Error ? error.message : String(error));
+    }
   }
 
   /**
@@ -168,6 +195,7 @@ class NativeWorkerPool {
    * reports timings to two decimal places.
    */
   private handleResponse(poolWorker: PoolWorker, response: WorkerResponse): void {
+    if (!this.workers.includes(poolWorker) || poolWorker.busyWith !== response.id) return;
     const pending = this.pending.get(response.id);
     this.pending.delete(response.id);
     poolWorker.busyWith = null;
@@ -193,6 +221,7 @@ class NativeWorkerPool {
    *  observed "error then close, worker already dead" behavior ever doesn't
    *  hold in some edge case. */
   private handleWorkerDeath(poolWorker: PoolWorker, message: string): void {
+    if (!this.workers.includes(poolWorker)) return; // error + close may both fire
     this.workers = this.workers.filter((w) => w !== poolWorker);
     const failedRequestId = poolWorker.busyWith;
     poolWorker.busyWith = null;
@@ -218,6 +247,16 @@ class NativeWorkerPool {
   private pumpQueue(): void {
     while (this.queue.length > 0) {
       const worker = this.acquireIdleWorker();
+      if (worker instanceof Error) {
+        // A replacement cannot start. Reject the waiting work so neither
+        // its promises nor image buffers remain retained indefinitely.
+        for (const request of this.queue.splice(0)) {
+          const pending = this.pending.get(request.id);
+          this.pending.delete(request.id);
+          if (pending) setImmediate(() => pending.reject(worker));
+        }
+        return;
+      }
       if (!worker) return;
       const next = this.queue.shift();
       if (next) this.send(worker, next);
@@ -238,11 +277,12 @@ class NativeWorkerPool {
       pending.reject(new Error('Maple worker pool shut down'));
     }
     this.pending.clear();
-    for (const poolWorker of this.workers) {
-      poolWorker.worker.terminate();
-    }
+    const workers = this.workers;
     this.workers = [];
     this.queue.length = 0;
+    for (const poolWorker of workers) {
+      poolWorker.worker.terminate();
+    }
   }
 }
 

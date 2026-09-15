@@ -19,6 +19,12 @@
  */
 import { type NativeBinding } from './native';
 export type MapleExecutionMode = 'worker' | 'sync';
+/** The Bun fallback has one waiting slot per configured worker. Await an
+ *  outstanding call before retrying; Maple never queues rejected inputs. */
+export declare class MapleWorkerPoolOverloadedError extends Error {
+    readonly code = "MAPLE_WORKER_POOL_OVERLOADED";
+    constructor();
+}
 /** Switch every future `callNative` call between the default worker-pool
  *  dispatch and the pre-#3508 same-thread synchronous call. */
 export declare function setMapleExecutionMode(mode: MapleExecutionMode): void;
