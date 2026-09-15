@@ -86,6 +86,7 @@ export const backupSidecarRoutes = new Elysia().post(
     const targetRelPath = headers['x-maple-target-rel-path'];
     // Optional content-hash dedup key. Primary lookup when present (#698).
     const mapleId = backupId(headers['x-maple-id'], 'x-maple-id');
+    if (mapleId instanceof Response) return mapleId;
 
     if (!deviceId || !phid || !targetRelPath) {
       set.status = 400;

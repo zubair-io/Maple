@@ -77,6 +77,7 @@ export const backupIngestRoutes = new Elysia().post(
     const latRaw = headers['x-maple-lat'];
     const lonRaw = headers['x-maple-lon'];
     const mapleId = backupId(headers['x-maple-maple-id'], 'x-maple-maple-id');
+    if (mapleId instanceof Response) return mapleId;
     const range = headers['content-range'];
 
     if (!deviceId || !phid || !captureRaw || !filename || !totalBytesRaw || !range) {
@@ -84,7 +85,9 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: 'missing required headers' };
     }
 
-    const { start, end, rangeTotal, totalBytes } = backupChunkRange(totalBytesRaw, range, mapleId);
+    const chunk = backupChunkRange(totalBytesRaw, range, mapleId);
+    if (chunk instanceof Response) return chunk;
+    const { start, end, rangeTotal, totalBytes } = chunk;
 
     // Parse and validate capture date.
     const captureDate = new Date(captureRaw);
