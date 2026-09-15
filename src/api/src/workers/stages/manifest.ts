@@ -1,43 +1,52 @@
 /**
- * Authoritative list of all per-image stage names.
+ * Definitions and starters for every canonical per-image stage.
  *
  * The discover producer imports this to build the `stages` skeleton on every
- * new image doc. The supervisor passes it to the runtime when spawning stage
- * children. Plan 3 adds face / describe / geocode / meili here; no
- * other file needs to change.
+ * new image doc. The orchestrator uses these same registrations to pre-register
+ * and boot runners. The dependency-free stage-names.ts remains safe for DB bootstrap.
  *
  * Order is cosmetic — the runtime enforces dependency ordering via each
  * stage's `dependsOn` array, not by position in this list.
  */
 
-import exifStage from './exif.ts';
-import thumbStage from './thumb.ts';
-import previewStage from './preview.ts';
-import faceDetectStage from './face-detect.ts';
-import faceEmbedStage from './face-embed.ts';
-import describeStage from './describe.ts';
-import geocodeStage from './geocode.ts';
-import meiliStage from './meili.ts';
-import sidecarMetadataIndexStage from './sidecar-metadata-index.ts';
-import cfThumbSyncStage from './cf-thumb-sync.ts';
-import transcribeStage from './transcribe.ts';
-import videoDescribeStage from './video-describe.ts';
-import { ALL_STAGE_NAMES, type StageName } from './stage-names.ts';
+import exifStage, { startExifStage } from './exif.ts';
+import thumbStage, { startThumbStage } from './thumb.ts';
+import previewStage, { startPreviewStage } from './preview.ts';
+import faceDetectStage, { startFaceDetectStage } from './face-detect.ts';
+import faceEmbedStage, { startFaceEmbedStage } from './face-embed.ts';
+import describeStage, { startDescribeStage } from './describe.ts';
+import geocodeStage, { startGeocodeStage } from './geocode.ts';
+import meiliStage, { startMeiliStage } from './meili.ts';
+import sidecarMetadataIndexStage, {
+  startSidecarMetadataIndexStage,
+} from './sidecar-metadata-index.ts';
+import cfThumbSyncStage, { startCfThumbSyncStage } from './cf-thumb-sync.ts';
+import transcribeStage, { startTranscribeStage } from './transcribe.ts';
+import videoDescribeStage, { startVideoDescribeStage } from './video-describe.ts';
+import type { RunStageHandle, StageConfig } from '../run-stage.ts';
+import { ALL_STAGE_NAMES, assertCompleteStageNames, type StageName } from './stage-names.ts';
 
-export const stageManifest = [
-  exifStage,
-  thumbStage,
-  previewStage,
-  faceDetectStage,
-  faceEmbedStage,
-  describeStage,
-  geocodeStage,
-  meiliStage,
-  sidecarMetadataIndexStage,
-  cfThumbSyncStage,
-  transcribeStage,
-  videoDescribeStage,
-];
+/** Definitions and starters are registered together; every canonical name is required. */
+export const stageRegistrations = {
+  exif: { definition: exifStage, start: startExifStage },
+  thumb: { definition: thumbStage, start: startThumbStage },
+  preview: { definition: previewStage, start: startPreviewStage },
+  'face-detect': { definition: faceDetectStage, start: startFaceDetectStage },
+  'face-embed': { definition: faceEmbedStage, start: startFaceEmbedStage },
+  describe: { definition: describeStage, start: startDescribeStage },
+  geocode: { definition: geocodeStage, start: startGeocodeStage },
+  meili: { definition: meiliStage, start: startMeiliStage },
+  'sidecar-metadata-index': {
+    definition: sidecarMetadataIndexStage,
+    start: startSidecarMetadataIndexStage,
+  },
+  'cf-thumb-sync': { definition: cfThumbSyncStage, start: startCfThumbSyncStage },
+  transcribe: { definition: transcribeStage, start: startTranscribeStage },
+  'video-describe': { definition: videoDescribeStage, start: startVideoDescribeStage },
+} satisfies Record<StageName, { definition: StageConfig; start: () => Promise<RunStageHandle> }>;
+
+export const stageManifest = ALL_STAGE_NAMES.map((name) => stageRegistrations[name].definition);
+assertCompleteStageNames(stageManifest.map((stage) => stage.name));
 
 export { ALL_STAGE_NAMES, type StageName } from './stage-names.ts';
 

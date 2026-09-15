@@ -21,3 +21,15 @@ export const ALL_STAGE_NAMES = [
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];
+
+/** Fail before boot if a stage list omits, duplicates, or invents a canonical name. */
+export function assertCompleteStageNames(names: readonly string[]): void {
+  const registered = new Set(names);
+  const missing = ALL_STAGE_NAMES.filter((name) => !registered.has(name));
+  const unknown = names.filter((name) => !(ALL_STAGE_NAMES as readonly string[]).includes(name));
+  if (missing.length > 0 || unknown.length > 0 || registered.size !== names.length) {
+    throw new Error(
+      `Incomplete stage registration: missing [${missing.join(', ')}], unknown [${unknown.join(', ')}], duplicates ${names.length - registered.size}`,
+    );
+  }
+}

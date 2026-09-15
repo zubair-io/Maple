@@ -20,36 +20,9 @@ import { child as childLogger } from '../log.ts';
 import type { RunStageHandle } from './run-stage.ts';
 import { resolveStageDeps } from './run-stage.ts';
 import { stageRegistry } from './registry.ts';
-import { stageManifest } from './stages/manifest.ts';
-import { startExifStage } from './stages/exif.ts';
-import { startThumbStage } from './stages/thumb.ts';
-import { startPreviewStage } from './stages/preview.ts';
-import { startFaceDetectStage } from './stages/face-detect.ts';
-import { startFaceEmbedStage } from './stages/face-embed.ts';
-import { startDescribeStage } from './stages/describe.ts';
-import { startGeocodeStage } from './stages/geocode.ts';
-import { startMeiliStage } from './stages/meili.ts';
-import { startSidecarMetadataIndexStage } from './stages/sidecar-metadata-index.ts';
-import { startCfThumbSyncStage } from './stages/cf-thumb-sync.ts';
-import { startTranscribeStage } from './stages/transcribe.ts';
-import { startVideoDescribeStage } from './stages/video-describe.ts';
+import { stageManifest, stageRegistrations, ALL_STAGE_NAMES } from './stages/manifest.ts';
 
 const log = childLogger('workers:orchestrator');
-
-const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHandle>]> = [
-  ['exif', startExifStage],
-  ['thumb', startThumbStage],
-  ['preview', startPreviewStage],
-  ['face-detect', startFaceDetectStage],
-  ['face-embed', startFaceEmbedStage],
-  ['describe', startDescribeStage],
-  ['geocode', startGeocodeStage],
-  ['meili', startMeiliStage],
-  ['sidecar-metadata-index', startSidecarMetadataIndexStage],
-  ['cf-thumb-sync', startCfThumbSyncStage],
-  ['transcribe', startTranscribeStage],
-  ['video-describe', startVideoDescribeStage],
-];
 
 const handles = new Map<string, RunStageHandle>();
 const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -102,7 +75,7 @@ async function attemptStart(
  * for a bounded retry in the background; the other stages still come up.
  *
  * Pre-registers all stages with the registry first so `GET /api/workers/status`
- * always returns the full set of 10 entries — even when a stage's `bootConfig()`
+ * always returns the full set of canonical entries — even when a stage's `bootConfig()`
  * is still mid-retry. Otherwise a slow-booting stage (Mongo blip, ONNX model
  * missing) silently vanishes from the API surface until it succeeds, which
  * regresses the old multi-process supervisor's contract.
@@ -111,7 +84,9 @@ export async function startAllStages(): Promise<void> {
   for (const stage of stageManifest) {
     stageRegistry.preregister(stage.name, stage.targetVersion, resolveStageDeps(stage.dependsOn));
   }
-  await Promise.all(STAGE_STARTERS.map(([name, starter]) => attemptStart(name, starter, 0)));
+  await Promise.all(
+    ALL_STAGE_NAMES.map((name) => attemptStart(name, stageRegistrations[name].start, 0)),
+  );
 }
 
 /**
