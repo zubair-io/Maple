@@ -21,7 +21,7 @@
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
-import { fromHex, isMapleId } from '../indexer/id.ts';
+import { backupId, backupChunkRange } from './backup-id.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
@@ -76,12 +76,7 @@ export const backupIngestRoutes = new Elysia().post(
     const totalBytesRaw = headers['x-maple-total-bytes'];
     const latRaw = headers['x-maple-lat'];
     const lonRaw = headers['x-maple-lon'];
-    const rawMapleId = headers['x-maple-maple-id'];
-    if (rawMapleId !== undefined && !isMapleId(rawMapleId)) {
-      set.status = 400;
-      return { error: 'invalid x-maple-maple-id' };
-    }
-    const mapleId = rawMapleId === undefined ? undefined : fromHex(rawMapleId).hex;
+    const mapleId = backupId(headers['x-maple-maple-id'], 'x-maple-maple-id');
     const range = headers['content-range'];
 
     if (!deviceId || !phid || !captureRaw || !filename || !totalBytesRaw || !range) {
@@ -89,37 +84,7 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: 'missing required headers' };
     }
 
-    const totalBytes = parseInt(totalBytesRaw, 10);
-    if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
-      set.status = 400;
-      return { error: 'invalid X-Maple-Total-Bytes' };
-    }
-
-    // Parse Content-Range: bytes <start>-<end>/<total>
-    const m = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(range);
-    if (!m) {
-      set.status = 400;
-      return { error: 'invalid Content-Range' };
-    }
-    const start = parseInt(m[1], 10);
-    const end = parseInt(m[2], 10);
-    const rangeTotal = parseInt(m[3], 10);
-    if (end < start) {
-      set.status = 400;
-      return { error: 'invalid Content-Range: end must be >= start' };
-    }
-    if (end >= rangeTotal) {
-      set.status = 400;
-      return { error: 'invalid Content-Range: end must be < total' };
-    }
-    if (rangeTotal !== totalBytes) {
-      set.status = 400;
-      return { error: 'Content-Range total mismatch with X-Maple-Total-Bytes' };
-    }
-    if (end + 1 === rangeTotal && !mapleId) {
-      set.status = 400;
-      return { error: 'X-Maple-Maple-Id required on final chunk' };
-    }
+    const { start, end, rangeTotal, totalBytes } = backupChunkRange(totalBytesRaw, range, mapleId);
 
     // Parse and validate capture date.
     const captureDate = new Date(captureRaw);
@@ -291,12 +256,14 @@ export const backupIngestRoutes = new Elysia().post(
       return { next_offset: end + 1 };
     }
 
-    // Also narrows the optional header after the non-final chunk returns.
-    if (!mapleId) throw new Error('validated final chunk is missing maple_id');
-
     // -----------------------------------------------------------------------
     // Final chunk — dedup check first, then move assembled file into place.
     // -----------------------------------------------------------------------
+
+    if (!mapleId) {
+      set.status = 400;
+      return { error: 'X-Maple-Maple-Id required on final chunk' };
+    }
 
     // 1. Dedup lookup BEFORE any filesystem operations.
     const a = await assetsCollection();
