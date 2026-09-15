@@ -141,7 +141,6 @@ describe('GET /api/assets/:id/histogram', () => {
     const libs = await loadLibraryRoots();
     const jsonPath = cachePathForAsset(
       {
-        maple_id: mapleId ?? undefined,
         fileinfo: [
           {
             path: '',
@@ -212,7 +211,6 @@ describe('GET /api/assets/:id/histogram', () => {
     const libs = await loadLibraryRoots();
     const jsonPath = cachePathForAsset(
       {
-        maple_id: mapleId ?? undefined,
         fileinfo: [
           {
             path: '',

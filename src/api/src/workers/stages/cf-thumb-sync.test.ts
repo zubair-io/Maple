@@ -104,7 +104,7 @@ describe('cf-thumb-sync stage', () => {
   beforeEach(async () => {
     if (!mongoReachable) return;
     await db!
-      .collection('app_settings')
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
       .updateOne({ _id: 'cloudflare' } as never, { $set: { config: CF_CONFIG } }, { upsert: true });
   });
 
@@ -155,7 +155,7 @@ describe('cf-thumb-sync stage', () => {
     if (!mongoReachable) return;
     let fetchCalled = false;
     let fetchMethod = '';
-    globalThis.fetch = (async (input, init) => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       fetchCalled = true;
       fetchMethod = input instanceof Request ? input.method : (init?.method ?? 'GET');
       return new Response('', { status: 200 });
@@ -180,7 +180,7 @@ describe('cf-thumb-sync stage', () => {
 
   it('throws when Cloudflare config is not complete/enabled, for run-stage.ts to retry/dead-letter', async () => {
     if (!mongoReachable) return;
-    await db!.collection('app_settings').deleteMany({});
+    await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
     stubFetch(200);
     const asset = await makeAsset('c.jpg', 'c'.repeat(32));
 

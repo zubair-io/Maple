@@ -200,8 +200,8 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     const assets = await assetsCollection();
     const row = await assets.findOne({ maple_id: 'collision-maple-id' });
     expect(row).not.toBeNull();
-    expect(row!.fileinfo[0].path).toBe('2024/Misc');
-    expect(row!.fileinfo[0].filename).toBe('IMG_COLLISION-1.HEIC');
+    expect(row!.fileinfo?.[0].path).toBe('2024/Misc');
+    expect(row!.fileinfo?.[0].filename).toBe('IMG_COLLISION-1.HEIC');
 
     // A retry after a downstream (sidecar/rendered) failure must short-circuit
     // to the RESOLVED sibling path, not the original colliding one — so the

@@ -101,9 +101,9 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     // Exactly one AssetDoc; phasset_links got the device link pushed onto it.
     const rows = await a.find({ maple_id: id.hex }).toArray();
     expect(rows.length).toBe(1);
-    expect(rows[0].phasset_links.length).toBe(1);
-    expect(rows[0].phasset_links[0].device_id).toBe(deviceForId);
-    expect(rows[0].phasset_links[0].phasset_local_id).toBe(devicePhid);
+    expect(rows[0].phasset_links?.length).toBe(1);
+    expect(rows[0].phasset_links?.[0].device_id).toBe(deviceForId);
+    expect(rows[0].phasset_links?.[0].phasset_local_id).toBe(devicePhid);
 
     // Only the indexer's file exists on disk under the library folder —
     // no second copy was written under the device's would-be target path.

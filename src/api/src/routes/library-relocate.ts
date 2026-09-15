@@ -158,7 +158,7 @@ async function findGeoDocs(
   const filenames = [...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean))];
   const c = await assetsCollection();
   const docs = await c
-    .find(
+    .find<ImageDoc>(
       { 'fileinfo.filename': { $in: filenames } },
       {
         projection: {
@@ -198,7 +198,7 @@ async function findGeoDocs(
   if (dirtyDocs.length > 0) {
     const dirtyIds = dirtyDocs.map((d) => d._id);
     // Fetch full documents to avoid partial projection issues in the handler
-    const fullDocs = await c.find({ _id: { $in: dirtyIds } }).toArray();
+    const fullDocs = await c.find<ImageDoc>({ _id: { $in: dirtyIds } }).toArray();
     const fullDocMap = new Map(fullDocs.map((d) => [d._id.toHexString(), d]));
 
     const bulkOps: any[] = [];
@@ -230,7 +230,7 @@ async function findGeoDocs(
           if (!fullDoc) return;
 
           try {
-            const result = await sidecarMetadataIndexHandler(fullDoc as ImageDoc, {
+            const result = await sidecarMetadataIndexHandler(fullDoc, {
               log,
               signal: new AbortController().signal,
             });

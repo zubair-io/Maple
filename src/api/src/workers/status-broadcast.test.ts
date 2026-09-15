@@ -27,7 +27,9 @@ beforeAll(async () => {
 
 async function cleanWorkerStatus(): Promise<void> {
   if (dbReachable) {
-    await (await getDb()).collection('worker_status').deleteMany({ _id: 'singleton' });
+    await (await getDb())
+      .collection<{ _id: string; [key: string]: unknown }>('worker_status')
+      .deleteMany({ _id: 'singleton' });
   }
 }
 

@@ -3,6 +3,7 @@
  */
 
 import { stat } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import { t, type Context } from 'elysia';
 import {
   RAW_EXTENSIONS,
@@ -132,7 +133,7 @@ export function previewFileETag(st: Awaited<ReturnType<typeof stat>>): string {
 /**
  * Safe stat — returns null on any error.
  */
-export async function safeStat(p: string): Promise<Awaited<ReturnType<typeof stat>> | null> {
+export async function safeStat(p: string): Promise<Stats | null> {
   try {
     return await stat(p);
   } catch {

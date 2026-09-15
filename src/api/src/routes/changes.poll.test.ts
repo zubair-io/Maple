@@ -14,7 +14,7 @@ import { withTestDb } from '../db/test-db.test-helpers.ts';
 withTestDb(`maple_test_changes_poll_${process.pid}`);
 
 let db: Db | null = null;
-let app: Elysia | null = null;
+let app: Pick<Elysia, 'handle'> | null = null;
 let mongoReachable = false;
 
 beforeAll(async () => {

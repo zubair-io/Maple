@@ -100,7 +100,7 @@ function rendered(body: Buffer, headers: Record<string, string>, libOverride?: s
   return new Request(`http://localhost/api/libraries/${id}/backup/rendered`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body,
+    body: new Uint8Array(body),
   });
 }
 

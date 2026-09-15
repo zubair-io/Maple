@@ -8,10 +8,9 @@
  * operator clears the dead-letter via the routes built on top of these
  * functions.
  *
- * This is intentionally a separate surface from the fast-pipeline
- * `indexer_dead_letter` collection (`src/indexer/indexer.repo.ts`). Slow-tier
- * dead letters live on the asset doc itself; fast-tier ones live in their
- * own collection. The two surfaces never overlap.
+ * These legacy enrichment dead letters live on the asset doc itself.
+ * The retired fast-pipeline `indexer_dead_letter` collection is no longer
+ * read or written by the API.
  */
 
 import type { ObjectId } from 'mongodb';
@@ -55,7 +54,7 @@ export interface EnrichmentDeadLetterGroup {
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 1000;
-/** Mirror of the fast-tier `groupDeadLetterByError` truncation. Keeps long
+/** Keeps long
  * error messages with the same head from fragmenting the histogram. */
 const ERROR_CLASS_LEN = 80;
 
@@ -112,7 +111,7 @@ export async function listEnrichmentDeadLetter(input: {
 /**
  * Cluster dead-letter rows by error message (truncated to 80 chars).
  *
- * Mirrors the fast-tier `groupDeadLetterByError` aggregation — same
+ * Uses the historical dead-letter grouping shape — same
  * truncation length, same sort order (count desc, then latestTs desc) so
  * the triage UI behaves consistently between tiers.
  */

@@ -40,12 +40,12 @@ const TOKEN_1 = 'a1'.repeat(32);
 const TOKEN_2 = 'b2'.repeat(32);
 const TOKEN_3 = 'c3'.repeat(32);
 
-function appAs(sub: string): Elysia {
+function appAs(sub: string) {
   return new Elysia().use(fakeAuth({ sub })).use(apnsDeviceRoutes);
 }
 
 async function postDevice(
-  app: Elysia,
+  app: Pick<Elysia, 'handle'>,
   deviceToken: string,
   overrides: Partial<{ platform: string; environment: string }> = {},
 ): Promise<Response> {

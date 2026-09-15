@@ -20,16 +20,16 @@ const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 let db: Db | null = null;
-let app: Elysia | null = null;
+let app: Pick<Elysia, 'handle'> | null = null;
 
 const realFetch = globalThis.fetch;
 
 const ownerJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 const memberJwt = await signAccessToken(
-  { sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  { file_access: true, sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
 
@@ -67,7 +67,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection('app_settings').deleteMany({});
+  await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
 });
 
 afterEach(() => {
@@ -200,9 +200,11 @@ describe('PUT /api/cloudflare/config', () => {
     await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
     const r = await put('/api/cloudflare/config', { enabled: false, bucket: 'renamed' }, ownerJwt);
     expect(r.status).toBe(200);
-    const saved = await db!.collection('app_settings').findOne<{
-      config: { secret_access_key?: string };
-    }>({ _id: 'cloudflare' } as never);
+    const saved = await db!
+      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
+      .findOne<{
+        config: { secret_access_key?: string };
+      }>({ _id: 'cloudflare' } as never);
     expect(saved!.config.secret_access_key).toBe('secretexample');
   });
 
