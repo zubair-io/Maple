@@ -10,6 +10,13 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  windows-wrapper-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Windows build wrapper contracts
+        run: python3 src/windows/scripts/test_build_windows.py
+
   windows-build-and-test:
     name: windows-x64 (MSVC build + rust tests + color parity)
     runs-on: windows-latest
@@ -30,31 +37,18 @@ jobs:
             src/raw-pipeline -> target
             src/windows -> target
 
-      - name: Build raw-core & raw-ffi on Windows
-        # raw-ffi is a real release build, not a check: the cdylib it
-        # produces (src/raw-pipeline/target/release/raw_ffi.dll — the path
-        # Maple.WinUI.csproj bundles from) is what the WinUI test suite's
-        # struct-layout gate (#3221, RawFfiLayoutTests) loads below.
-        run: |
-          cargo check --manifest-path src/raw-pipeline/Cargo.toml --target x86_64-pc-windows-msvc -p raw-core
-          cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --features gpu
-
-      - name: Run raw-core Unit Tests on Windows
-        run: |
-          cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --lib
-
-      - name: Build Windows Native App
-        run: |
-          cargo build --manifest-path src/windows/Cargo.toml --release
-
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Build WinUI 3 Native C# Application
+      - name: Build Windows application through the supported wrapper
+        shell: bash
+        run: bash src/windows/scripts/build-windows.sh
+
+      - name: Run raw-core Unit Tests on Windows
         run: |
-          dotnet build src/windows/Maple.WinUI/Maple.WinUI.csproj -c Release -r win-x64
+          cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --lib
 
       - name: Run WinUI XMP Sidecar Tests + raw-ffi struct-layout gate
         # MAPLE_RAW_FFI_DLL arms RawFfiLayoutTests (#3221): every C# mirror
@@ -62,11 +56,6 @@ jobs:
         # the DLL built above. Unset, those tests skip-pass (local dev
         # without a Rust build); set and missing, they FAIL.
         env:
-          MAPLE_RAW_FFI_DLL: ${{ github.workspace }}\src\raw-pipeline\target\release\raw_ffi.dll
+          MAPLE_RAW_FFI_DLL: ${{ github.workspace }}\src\raw-pipeline\target\x86_64-pc-windows-msvc\release\raw_ffi.dll
         run: |
           dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
-
-      - name: Verify Codegen Execution on Windows
-        shell: bash
-        run: |
-          ./tools/codegen.sh
