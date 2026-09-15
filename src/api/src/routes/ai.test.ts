@@ -222,6 +222,25 @@ describe('/api/ai routes', () => {
       expect(data.workers.describe.provider).toBe('openai');
       expect(data.workers.describe.model).toBe('gpt-4o');
     });
+
+    it('rejects invalid worker names with 400', async () => {
+      const putRes = await req(
+        '/api/ai/config',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            workers: {
+              'invalid-worker-name': { provider: 'openai', model: 'gpt-4o' },
+            },
+          }),
+        },
+        ownerToken,
+      );
+      expect(putRes.status).toBe(400);
+      const data = (await putRes.json()) as { error: string };
+      expect(data.error).toContain('Invalid worker: invalid-worker-name');
+    });
   });
 
   describe('POST /api/ai/models', () => {
