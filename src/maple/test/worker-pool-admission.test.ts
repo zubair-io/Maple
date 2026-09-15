@@ -149,6 +149,24 @@ describe('bounded Bun worker admission', () => {
     expect(await recovered).toEqual({ ok: true });
   });
 
+  it('preserves queued work for surviving workers when a replacement cannot start', async () => {
+    setMapleConcurrency(2);
+    const failed = outcome(filename());
+    const survivor = filename();
+    const waiting = [filename(), filename()];
+    ControlledWorker.failStart = true;
+    ControlledWorker.instances[0].die();
+    expect(await failed).toBeInstanceOf(Error);
+    expect(ControlledWorker.instances).toHaveLength(2);
+    const worker = ControlledWorker.instances[1];
+    worker.reply();
+    expect(await survivor).toEqual({ ok: true });
+    worker.reply();
+    expect(await waiting[0]).toEqual({ ok: true });
+    worker.reply();
+    expect(await waiting[1]).toEqual({ ok: true });
+  });
+
   it('cleans up failed postMessage calls without consuming capacity', async () => {
     ControlledWorker.failPost = true;
     expect(((await outcome(filename())) as Error).message).toMatch(/cannot be cloned/);

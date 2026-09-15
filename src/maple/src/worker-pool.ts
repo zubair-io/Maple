@@ -248,7 +248,9 @@ class NativeWorkerPool {
     while (this.queue.length > 0) {
       const worker = this.acquireIdleWorker();
       if (worker instanceof Error) {
-        // A replacement cannot start. Reject the waiting work so neither
+        // Surviving busy workers can still drain accepted work on reply.
+        if (this.workers.length > 0) return;
+        // No worker remains and a replacement cannot start. Reject work so neither
         // its promises nor image buffers remain retained indefinitely.
         for (const request of this.queue.splice(0)) {
           const pending = this.pending.get(request.id);
