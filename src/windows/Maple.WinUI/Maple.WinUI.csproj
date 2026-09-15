@@ -26,6 +26,10 @@
     <AssemblyTitle>Maple</AssemblyTitle>
     <Product>Maple</Product>
     <Company>Just Maple</Company>
+    <!-- The wrapper supplies the explicit Cargo target; direct native builds
+         retain their existing unqualified target/release path. -->
+    <MapleNativeDir Condition="'$(MapleRustTarget)' == ''">..\..\raw-pipeline\target\release</MapleNativeDir>
+    <MapleNativeDir Condition="'$(MapleRustTarget)' != ''">..\..\raw-pipeline\target\$(MapleRustTarget)\release</MapleNativeDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -49,10 +53,16 @@
     <PackageReference Include="CommunityToolkit.WinUI.UI.Controls" Version="7.1.2" />
   </ItemGroup>
 
+  <Target Name="RequireTargetedNativeCore" BeforeTargets="PrepareForBuild"
+          Condition="'$(MapleRustTarget)' != ''">
+    <Error Condition="!Exists('$(MapleNativeDir)\raw_ffi.dll')"
+           Text="Build the Rust core for $(MapleRustTarget) first: $(MapleNativeDir)\raw_ffi.dll is missing." />
+  </Target>
+
   <!-- Native Rust core: built by `cargo build - -release -p raw-ffi - -features gpu`
        in src/raw-pipeline (see ../scripts/build-windows.sh). Not committed. -->
-  <ItemGroup Condition="Exists('..\..\raw-pipeline\target\release\raw_ffi.dll')">
-    <None Include="..\..\raw-pipeline\target\release\raw_ffi.dll" Link="raw_ffi.dll">
+  <ItemGroup Condition="Exists('$(MapleNativeDir)\raw_ffi.dll')">
+    <None Include="$(MapleNativeDir)\raw_ffi.dll" Link="raw_ffi.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
@@ -60,8 +70,8 @@
   <!-- Pano stitcher (#2583): `cargo build - -release -p maple-cli - -features pano`.
        Ships beside the app; PanoProvisioner also falls back to the repo
        target dir for development. -->
-  <ItemGroup Condition="Exists('..\..\raw-pipeline\target\release\maple-cli.exe')">
-    <None Include="..\..\raw-pipeline\target\release\maple-cli.exe" Link="maple-cli.exe">
+  <ItemGroup Condition="Exists('$(MapleNativeDir)\maple-cli.exe')">
+    <None Include="$(MapleNativeDir)\maple-cli.exe" Link="maple-cli.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
