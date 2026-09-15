@@ -151,3 +151,76 @@ fixture-gated test is ignored. This synthetic case proves the specified
 algebraic behavior, not universal superiority of green at every demosaiced
 edge. Known-channel preservation and physical BaselineExposure thresholds are
 unchanged. Full baseline and cross-path qualification remain required.
+
+
+## Full candidate baseline result and broad unit coverage
+
+The pre-opcode reconstruction plus known-green candidate completed **40 baseline
+comparisons, 3 failures, zero skips**. Both 0007 failures are fixed, no additional
+baseline fails, and 0000 still fails max at 39.18 Neutral / 39.80 Auto. The
+additional 0011 Neutral bias failure is unchanged to displayed precision. This
+is improvement, not a passing canonical gate. Logs:
+`/tmp/maple-3633-all-baselines-prewarp.log` and
+`/tmp/maple-3633-core-debug-tests.log`.
+
+The documented debug-profile `cargo test -p raw-core --lib -j4` passes **2,384
+tests, 92 ignored**. A preceding broad release-profile attempt is not a passing
+qualification: three tests require debug assertions, and an existing
+release-only noise-reduction timing assertion ran during render contention.
+Its timing is invalid performance evidence; no performance claim is made.
+The narrow release highlight-recovery correctness filter remains 31 passed,
+one pre-existing ignored test.
+
+A diagnostic XMP copy with highlight recovery disabled (originals unchanged)
+confirms that removing reconstruction is not a fix: 0000 max becomes 43.22
+Neutral / 43.27 Auto, worse than the candidate, while the 0011 metrics are
+unchanged. All four comparisons execute, three fail, zero skip. This separates
+the Sony failure from highlight reconstruction. Fresh metadata inspection
+identifies Sony ILCE-7RM4, BaselineExposure zero, bundled DCP present, and
+AsShotNeutral [0.32569975, 1, 0.6666667]. Its reference/budget history still needs
+attribution; current hashes do not prove an ignored reference file is identical
+to the one used to seed a July budget.
+
+The evidence branch is rebased onto origin/main c280943a5c9c4a803dc2862f36f76413db530dc0.
+The intervening API/package type fixes do not change Rust pipeline, harness, or
+budgets. Immutable render binary provenance above remains the recorded original
+source revision; final qualification will rebuild the accepted source.
+
+
+## Demosaic witness reliability and rejected FCS changes
+
+`raw-core/examples/highlight-edge-probe.rs` reproduces a two-pixel saturated
+stripe with known constant chromaticity across all four Bayer arrangements,
+vertical/horizontal/diagonal directions and two phase offsets (24 cases).
+This is a diagnostic of undersampled edges, not a promise that arbitrary
+subpixel scene detail can be recovered. With the existing extra AMaZE
+false-color suppression (FCS), the largest fully-unclipped witness ratio error
+is 2.4375. All 46–48 actually measured saturated green sites in each case
+reconstruct below the sensor lower bound. Disabling just FCS reduces witness
+ratio error to approximately 0.542–0.553 and removes those lower-bound
+violations. This isolates a real interaction; it does not establish that
+removing FCS improves photographic references generally.
+
+Indeed, **FCS removal is rejected** by the six-case gate: 0000 maxima
+39.27/39.25 still fail, and 0007 Auto regresses to 42.45 (limit 39). A second
+candidate retained FCS except where its existing 3×3 support contained a
+saturated raw photosite. It also fixes the synthetic diagnostic, but fails four
+of six reference comparisons: 0000 maxima 39.79/39.75 and 0007 44.51/40.04.
+Neither FCS change remains in production source. No suppression-strength
+retuning was performed.
+
+## Reference-resampling contribution
+
+The committed reference generator (`src/scripts/acr-reference/acr_batch.jsx`)
+saves the native ACR document, then uses Photoshop `BICUBICSHARPER` for the
+4000-pixel reference. The comparison harness resizes Maple's native PNG with
+Lanczos. Comparing the existing 0000 ACR full PNG through that same Lanczos
+resize against its existing ACR down PNG gives mean 1.0233, p95 2.8304 and
+max 13.8882 ΔE2000; RGB mean biases are below 0.00002.
+
+At the candidate's remaining downsampled maximum (2811,329), Auto differs by
+39.796 from ACR down, versus 37.384 from ACR full resized with the same Lanczos
+kernel. At (2811,331), those values are 39.023 versus 30.643. Thus different
+resize kernels materially affect the sparse maximum tail, but do not by
+themselves explain or fix the remaining regression. No harness, reference,
+or budget change is proposed from this observation.
