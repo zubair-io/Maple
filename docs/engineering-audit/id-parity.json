@@ -1,0 +1,16 @@
+{
+  "commit": "1f233acb91dd97c2103a6903279be4dee5329192",
+  "input": "010g0g0g0g0g0g0g0g0g0g0g0g0g0g0g",
+  "api": {
+    "source": "src/api/src/indexer/id.ts",
+    "result": "accepted",
+    "hex": "010g0g0g0g0g0g0g0g0g0g0g0g0g0g0g",
+    "bytesHex": "01000000000000000000000000000000"
+  },
+  "web": {
+    "source": "src/web/projects/maple-common/src/lib/addressing/maple-id.ts",
+    "result": "rejected",
+    "error": "maple:id: invalid hex digit"
+  },
+  "scope": "Direct function calls; no production API parser caller found; not an endpoint exploit."
+}

@@ -1,0 +1,88 @@
+{
+  "commit": "1f233acb91dd97c2103a6903279be4dee5329192",
+  "tracked_files": 27612,
+  "third_party_files_excluded": 21039,
+  "source_extensions": [
+    ".cs",
+    ".css",
+    ".h",
+    ".html",
+    ".js",
+    ".metal",
+    ".mjs",
+    ".mts",
+    ".ps1",
+    ".py",
+    ".rs",
+    ".scss",
+    ".sh",
+    ".swift",
+    ".ts",
+    ".tsx",
+    ".wgsl",
+    ".xaml"
+  ],
+  "areas": {
+    "src/api": {
+      "source_files": 1002,
+      "authored_files": 999,
+      "authored_lines": 192283,
+      "test_or_story_files": 508
+    },
+    "src/apple": {
+      "source_files": 1573,
+      "authored_files": 1563,
+      "authored_lines": 241804,
+      "test_or_story_files": 590
+    },
+    "src/cloudflare": {
+      "source_files": 20,
+      "authored_files": 20,
+      "authored_lines": 1626,
+      "test_or_story_files": 8
+    },
+    "src/maple": {
+      "source_files": 80,
+      "authored_files": 50,
+      "authored_lines": 10959,
+      "test_or_story_files": 17
+    },
+    "src/raw-pipeline": {
+      "source_files": 1003,
+      "authored_files": 1001,
+      "authored_lines": 263052,
+      "test_or_story_files": 251
+    },
+    "src/scripts": {
+      "source_files": 65,
+      "authored_files": 65,
+      "authored_lines": 12835,
+      "test_or_story_files": 6
+    },
+    "src/web": {
+      "source_files": 1703,
+      "authored_files": 1691,
+      "authored_lines": 207624,
+      "test_or_story_files": 546
+    },
+    "src/windows": {
+      "source_files": 566,
+      "authored_files": 562,
+      "authored_lines": 73229,
+      "test_or_story_files": 127
+    },
+    "test-fixtures": {
+      "source_files": 1,
+      "authored_files": 1,
+      "authored_lines": 371,
+      "test_or_story_files": 0
+    },
+    "tools": {
+      "source_files": 33,
+      "authored_files": 33,
+      "authored_lines": 6368,
+      "test_or_story_files": 2
+    }
+  },
+  "limitations": "Physical lines; path-based classifications; inline tests remain in implementation files; not test coverage or a defect count."
+}
