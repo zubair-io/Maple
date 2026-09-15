@@ -150,3 +150,12 @@ describe('fromHex', () => {
     expect(() => fromHex(thirtyTwoCharsWithOneBadNibble)).toThrow(/invalid hex digit/);
   });
 });
+
+// Shared large-file golden from the unchanged API derivation (#3642).
+it('preserves primary and full-file fallback IDs above 64 KiB', () => {
+  const bytes = Uint8Array.from({ length: 70001 }, (_, i) => i % 251);
+  expect(primary(bytes, '2024:06:01 12:34:56', 'SN-1234', 4242).hex).toBe(
+    '01102ecbacd47a8405c6ed25cac58f85',
+  );
+  expect(fallback(bytes, bytes.length).hex).toBe('020cd7e09e4485130fa4e571188060f1');
+});
