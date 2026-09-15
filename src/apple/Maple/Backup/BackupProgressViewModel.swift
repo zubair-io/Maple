@@ -188,6 +188,7 @@ public final class BackupProgressViewModel {
   public private(set) var photosPerMinute: Double = 0
 
   private var observerTask: Task<Void, Never>?
+  private var observerGeneration = UUID()
   /// Track which task IDs we've counted so retries don't inflate totalEnqueued.
   public private(set) var pendingPhotoIDs: Set<String> = []
 
@@ -209,7 +210,10 @@ public final class BackupProgressViewModel {
   /// Subscribe to the queue's event stream and update state in real time.
   /// Idempotent — calling twice resets the prior observer.
   public func start(queue: any BackupQueue) async {
+    observerGeneration = UUID()
+    let generation = observerGeneration
     observerTask?.cancel()
+    observerTask = nil
     seenEnqueued.removeAll()
     pendingPhotoIDs.removeAll()
     completedPhotoIDs.removeAll()
@@ -221,6 +225,10 @@ public final class BackupProgressViewModel {
     lastError = nil
     lastWalkSummary = nil
     let stream = await queue.observe()
+    // start/stop can run while subscription suspends. Only its current
+    // owner may install an observer; keep subscription awaited so callers
+    // can immediately enqueue without losing their first progress events.
+    guard generation == observerGeneration, !Task.isCancelled else { return }
     isRunning = true
     // This Task inherits the class-level MainActor isolation, including
     // after each stream suspension; apply(_:) stays on the UI actor.
@@ -235,6 +243,7 @@ public final class BackupProgressViewModel {
   }
 
   public func stop() {
+    observerGeneration = UUID()
     observerTask?.cancel()
     observerTask = nil
     isRunning = false
