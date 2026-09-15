@@ -47,7 +47,7 @@ const W = 64;
 const H = 64;
 
 /** Deterministic gradient plus a structured high-frequency channel. */
-function source(channels: 3 | 4): Uint8Array {
+function source(channels: 3 | 4): Uint8Array<ArrayBuffer> {
   const data = new Uint8Array(W * H * channels);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
