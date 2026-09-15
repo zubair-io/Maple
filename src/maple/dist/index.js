@@ -1061,6 +1061,8 @@ class NativeWorkerPool {
     while (this.queue.length > 0) {
       const worker = this.acquireIdleWorker();
       if (worker instanceof Error) {
+        if (this.workers.length > 0)
+          return;
         for (const request of this.queue.splice(0)) {
           const pending = this.pending.get(request.id);
           this.pending.delete(request.id);

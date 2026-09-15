@@ -707,8 +707,9 @@ large batches should use bounded producer concurrency rather than enqueueing the
 entire batch with `Promise.all`. Maple does not retry rejected calls automatically.
 
 A worker failure rejects its active call and replacement workers drain accepted
-waiting calls. If a replacement cannot start, waiting calls reject and their
-inputs are released. `shutdownMaplePool()` rejects running and waiting calls,
+waiting calls. If a replacement cannot start, surviving workers continue draining
+accepted calls. If no worker remains, waiting calls reject and their inputs are
+released. `shutdownMaplePool()` rejects running and waiting calls,
 clears queued inputs, and terminates workers; a subsequent call creates a fresh
 pool. The N-API backend uses its own scheduling and is unaffected by this Bun
 fallback limit, as is explicit synchronous mode.
