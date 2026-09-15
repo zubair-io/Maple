@@ -2,7 +2,7 @@
 
 Tracking issue: https://github.com/zubair-io/Maple/issues/3633
 
-Status: investigation; no proposed production fix. Measurements recorded September 15, 2026.
+Status: investigation; candidate changes remain unqualified and are not ready for review. Measurements recorded September 15, 2026.
 
 Base: 1f233acb91dd97c2103a6903279be4dee5329192, clean isolated checkout Maple-color-baselines. No original or budget changes. Fresh release CLI, Rayon 4, installed read-only corpus; no performance claims.
 
@@ -104,3 +104,50 @@ The actual DNG has one WarpRectilinear opcode with identical planes, radial coef
 The next diagnostic estimates each clipped channel relative to the mean of the target's known channels, using that same known-channel mask for every witness. This avoids both the brightest-anchor choice and taking ratios of independently averaged ratios. It retains existing clip thresholds, neighborhood, witness minimum and confidence rule, keeps every un-clipped channel unchanged, and uses no new tuning constant or heap allocation. This remains a diagnostic until the objective gates and synthetic invariants establish its behavior.
 
 Qualification scope discovered during the investigation: the installed full manifest contains 777 cases across 20 fixtures; all 777 RAW paths and 606 down-resolution references are present. All 20 baseline references are present. The six-case subset reproduces this issue's reported failures; it is not full-corpus qualification. Any accepted candidate needs the wider baseline comparison and relevant synthetic/CPU-GPU parity gates.
+
+
+## Wider baseline control and rejected follow-up experiments
+
+The fresh unchanged main CLI completed all 20 available baseline fixtures in both
+Neutral and Auto: **40 comparisons, 5 failures, zero skips**. In addition to the
+four reproduced failures above, `test_0011` Neutral fails its channel-bias budget:
+R +0.0378, G +0.0315, B +0.0312 versus 0.0113. Its mean/p95/max are
+5.65/19.51/38.15; Auto passes. This additional existing failure must be included
+in the final qualification, rather than hidden by the original three-fixture
+subset. The exact 20-fixture RAW/XMP/reference input hashes are recorded in
+`color-baseline-3633-inputs.json`. Log: `/tmp/maple-3633-all-baselines-current.log`.
+
+The known-channel-mean reconstruction experiment did not clear the six-case
+gate: four failures, zero skips. Maxima were 39.28/39.21 for 0000 Neutral/Auto,
+44.48/39.59 for 0007, and 30.95/34.17 for 0017. It was removed from the candidate.
+
+A separate warp-interpolation diagnostic used the Adobe DNG SDK's documented
+bicubic coefficient A=-0.75 and support radius two, preserving the existing
+coordinate mapping and unbounded scene range. It did not copy the SDK's output
+clamp, and used analytic weights rather than the SDK's quantized phase table;
+it does not establish exact ACR equivalence. Maxima for 0000 improved only to
+39.22/38.94, still failing both limits. The other four comparisons retained the
+pre-warp candidate results. This diagnostic was also removed; no cubic warp
+change is proposed. Primary source provenance: Adobe-authored
+[dng_resample.cpp](https://android.googlesource.com/platform/external/dng_sdk/+/de700ad461e35af50b28b861943a0b0753b10929/source/dng_resample.cpp)
+and `dng_lens_correction.cpp` at the same revision.
+
+## Regression evidence for the remaining candidates
+
+The positive lens-gain invariant is independently reproducible with a synthetic
+64×64 DNG whose unsaturated sensor samples are 0.8, identity white balance, and
+positive FixVignetteRadial gain. On the unchanged stage order, enabling highlight
+reconstruction changes a valid output of approximately [1.607114, 1.607109,
+1.607111] into approximately [1, 1, 1]. Moving reconstruction ahead of
+OpcodeList3 fixes this regression across Full, AMaZE, and Preview demosaic in
+both full and sized paths. This is evidence of a real sensor-clipping semantics
+bug, independent of reference-image agreement. The test first failed against
+the original order and then passed against the candidate.
+
+A separate red/blue edge test fails against the brightest-anchor algorithm and
+passes when a known green remains the denominator of the existing R/G and B/G
+estimates. All 31 selected highlight-recovery tests pass; one pre-existing
+fixture-gated test is ignored. This synthetic case proves the specified
+algebraic behavior, not universal superiority of green at every demosaiced
+edge. Known-channel preservation and physical BaselineExposure thresholds are
+unchanged. Full baseline and cross-path qualification remain required.
