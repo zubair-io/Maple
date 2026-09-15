@@ -19,6 +19,28 @@ import XCTest
 @MainActor
 final class BackupProgressViewModelTests: XCTestCase {
 
+  func testStartFromDetachedTaskReceivesQueueEvents() async throws {
+    let vm = BackupProgressViewModel()
+    let queue = InProcessBackupQueue()
+    let task = BackupTask(id: taskID("detached"), state: .pending, priority: .background)
+    defer { vm.stop() }
+
+    await Task.detached {
+      await vm.start(queue: queue)
+      await queue.enqueue(task, priority: .background)
+    }.value
+
+    // Starting from a non-main executor must still subscribe before returning
+    // and deliver the event to the main-actor-isolated progress model.
+    let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+    while vm.totalEnqueued == 0 && ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTAssertTrue(vm.isRunning)
+    XCTAssertEqual(vm.totalEnqueued, 1)
+    XCTAssertTrue(vm.pendingPhotoIDs.contains("detached"))
+  }
+
   private func taskID(_ phasset: String) -> BackupTaskID {
     BackupTaskID(deviceId: "test-device", phassetLocalId: phasset)
   }

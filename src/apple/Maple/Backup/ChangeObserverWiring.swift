@@ -157,7 +157,14 @@ enum ChangeObserverWiring {
       await walkTask.value
       return
     }
+    let generation = self.generation
     let task = Task {
+      defer {
+        // Always release this walk, including cancellation, without clearing
+        // a replacement started after stop() advanced the generation.
+        if generation == self.generation { walkTask = nil }
+      }
+      guard generation == self.generation, !Task.isCancelled else { return }
       var retryFailures = retryFailed
       repeat {
         walkAgain = false
@@ -167,7 +174,6 @@ enum ChangeObserverWiring {
           retryFailed: retryFailures)
         retryFailures = false
       } while walkAgain && !Task.isCancelled
-      if !Task.isCancelled { walkTask = nil }
     }
     walkTask = task
     await task.value
