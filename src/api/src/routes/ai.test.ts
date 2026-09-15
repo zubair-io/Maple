@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 import { type Db } from 'mongodb';
 import { aiRoutes } from './ai.ts';
 import { enrichmentRoutes } from './enrichment.ts';
+import { computeWorkersStatus } from '../workers/routes-status.ts';
 import { closeDb, getDb, isDbConnected } from '../db/client.ts';
 import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
 import { signAccessToken } from '../auth/tokens.ts';
@@ -264,6 +265,13 @@ describe('/api/ai routes', () => {
       };
       expect(data.workers.describe.provider).toBe('openai');
       expect(data.workers.describe.model).toBe('gpt-4o');
+      const status = await computeWorkersStatus();
+      expect(status.stages.find((stage) => stage.name === 'describe')?.config?.ai_provider).toBe(
+        'openai',
+      );
+      expect(status.stages.find((stage) => stage.name === 'describe')?.config?.ai_model).toBe(
+        'gpt-4o',
+      );
     });
 
     it('rejects invalid worker names with 400', async () => {
