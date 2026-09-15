@@ -9,7 +9,7 @@ import path from 'node:path';
 const libId = new ObjectId();
 const deviceId = 'test-device-sidecar';
 const phid = 'SIDE/L0/001';
-const mapleId = 'sidecar-maple-id';
+const mapleId = '022361528672690f7f8881f7a9192407';
 const targetRelPath = '2024/Tokyo/03-15/IMG_SIDECAR.HEIC';
 let tmpLib: string;
 
@@ -322,7 +322,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
           'X-Maple-Device-Id': 'ghost-device',
           'X-Maple-Phasset-Id': 'GHOST/L0/000',
           'X-Maple-Target-Rel-Path': '2024/Tokyo/03-15/IMG_GHOST.HEIC',
-          'X-Maple-Id': 'no-such-maple-id',
+          'X-Maple-Id': '02c8c1d1463555325642fa4eadd31019',
         }),
       );
       expect(res.status).toBe(404);

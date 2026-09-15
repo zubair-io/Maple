@@ -37,6 +37,7 @@
  *         Body: { retry_after_seconds }. Same-key metadata mismatches
  *         self-heal silently (session reset in place).
  */
+import { fromHex, isMapleId } from '../indexer/id.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
@@ -144,7 +145,12 @@ export const backupRenderedRoutes = new Elysia().post(
     const originalRelPath = headers['x-maple-target-rel-path'];
     const totalBytesRaw = headers['x-maple-total-bytes'];
     const range = headers['content-range'];
-    const mapleId = headers['x-maple-maple-id'];
+    const rawMapleId = headers['x-maple-maple-id'];
+    if (rawMapleId !== undefined && !isMapleId(rawMapleId)) {
+      set.status = 400;
+      return { error: 'invalid x-maple-maple-id' };
+    }
+    const mapleId = rawMapleId === undefined ? undefined : fromHex(rawMapleId).hex;
     const filenameExt = headers['x-maple-filename-ext'];
     // Optional suffix-override: when present, the assembled file is named
     // `<base>.<suffixOverride>` instead of `<base>.rendered.<ext>`.
@@ -206,6 +212,10 @@ export const backupRenderedRoutes = new Elysia().post(
     if (rangeTotal !== totalBytes) {
       set.status = 400;
       return { error: 'Content-Range total mismatch with X-Maple-Total-Bytes' };
+    }
+    if (end + 1 === rangeTotal && !mapleId) {
+      set.status = 400;
+      return { error: 'X-Maple-Maple-Id required on final chunk' };
     }
 
     // Check library exists.
@@ -335,14 +345,12 @@ export const backupRenderedRoutes = new Elysia().post(
       return { next_offset: end + 1 };
     }
 
+    // Also narrows the optional header after the non-final chunk returns.
+    if (!mapleId) throw new Error('validated final chunk is missing maple_id');
+
     // -----------------------------------------------------------------------
     // Final chunk — move assembled file into place + update AssetDoc.
     // -----------------------------------------------------------------------
-
-    if (!mapleId) {
-      set.status = 400;
-      return { error: 'X-Maple-Maple-Id required on final chunk' };
-    }
 
     // Containment backstop: never write outside the library root, even if an
     // upstream guard was missed (#854).

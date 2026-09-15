@@ -21,13 +21,15 @@ export const TAG_FALLBACK = 0x02;
 /** Number of leading bytes that feed sha1Head. */
 export const SHA1_HEAD_BYTES = 64 * 1024;
 
-export type IdKind = 'primary' | 'fallback';
-
-export interface MapleId {
-  readonly bytes: Uint8Array;
-  readonly hex: string;
-  readonly kind: IdKind;
-}
+import type { MapleId } from '../../../web/projects/maple-common/src/lib/addressing/maple-id-parser.ts';
+export {
+  fromHex,
+  isMapleId,
+} from '../../../web/projects/maple-common/src/lib/addressing/maple-id-parser.ts';
+export type {
+  MapleId,
+  IdKind,
+} from '../../../web/projects/maple-common/src/lib/addressing/maple-id-parser.ts';
 
 function toLeU64(n: bigint | number): Uint8Array {
   const out = new Uint8Array(8);
@@ -154,24 +156,4 @@ export async function hashFileForId(absPath: string): Promise<{
   const sha1_head = toHex(sha1(head));
   const id = deriveId(head, null, null, null);
   return { maple_id: id.hex, sha1_head, size: stat.size, mtime: stat.mtimeMs };
-}
-
-/** Parse a 32-char hex id back into bytes. */
-export function fromHex(hex: string): MapleId {
-  if (hex.length !== 32) {
-    throw new Error(`maple:id: expected 32 hex chars, got ${hex.length}`);
-  }
-  const out = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) {
-    const byte = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    if (!Number.isFinite(byte)) {
-      throw new Error(`maple:id: invalid hex digit near index ${i * 2}`);
-    }
-    out[i] = byte;
-  }
-  return {
-    bytes: out,
-    hex: hex.toLowerCase(),
-    kind: out[0] === TAG_PRIMARY ? 'primary' : 'fallback',
-  };
 }

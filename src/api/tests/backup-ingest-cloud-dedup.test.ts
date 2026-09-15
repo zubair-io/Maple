@@ -170,7 +170,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
         'X-Maple-Capture-Date': '2024-08-01T08:00:00Z',
         'X-Maple-Filename': 'IMG_CLOUD.HEIC',
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': 'cloud-id-maple-id',
+        'X-Maple-Maple-Id': '02080b93a65e5abdcd6667d42963d570',
         'Content-Range': 'bytes 0-63/64',
       }),
     );
@@ -196,7 +196,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
         'X-Maple-Capture-Date': '2024-08-01T08:00:00Z',
         'X-Maple-Filename': 'IMG_NOCLOUD.HEIC',
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': 'no-cloud-maple-id',
+        'X-Maple-Maple-Id': '02cbd737df5df6dd7856fa70df9ad0d1',
         'Content-Range': 'bytes 0-63/64',
       }),
     );
@@ -213,7 +213,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
   });
 
   test("second device with same maple_id $push's the link including its cloud id", async () => {
-    const sharedMapleId = 'shared-maple-id-cloud-test';
+    const sharedMapleId = '02f0cdd420e020da4a3fcd60af3c35d3';
     const deviceA = 'device-A-cloud';
     const deviceB = 'device-B-cloud';
     const phidA = 'ABC/L0/CLOUD-A';

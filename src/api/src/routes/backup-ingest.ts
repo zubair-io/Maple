@@ -21,6 +21,7 @@
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
+import { fromHex, isMapleId } from '../indexer/id.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
@@ -75,7 +76,12 @@ export const backupIngestRoutes = new Elysia().post(
     const totalBytesRaw = headers['x-maple-total-bytes'];
     const latRaw = headers['x-maple-lat'];
     const lonRaw = headers['x-maple-lon'];
-    const mapleId = headers['x-maple-maple-id'];
+    const rawMapleId = headers['x-maple-maple-id'];
+    if (rawMapleId !== undefined && !isMapleId(rawMapleId)) {
+      set.status = 400;
+      return { error: 'invalid x-maple-maple-id' };
+    }
+    const mapleId = rawMapleId === undefined ? undefined : fromHex(rawMapleId).hex;
     const range = headers['content-range'];
 
     if (!deviceId || !phid || !captureRaw || !filename || !totalBytesRaw || !range) {
@@ -109,6 +115,10 @@ export const backupIngestRoutes = new Elysia().post(
     if (rangeTotal !== totalBytes) {
       set.status = 400;
       return { error: 'Content-Range total mismatch with X-Maple-Total-Bytes' };
+    }
+    if (end + 1 === rangeTotal && !mapleId) {
+      set.status = 400;
+      return { error: 'X-Maple-Maple-Id required on final chunk' };
     }
 
     // Parse and validate capture date.
@@ -281,14 +291,12 @@ export const backupIngestRoutes = new Elysia().post(
       return { next_offset: end + 1 };
     }
 
+    // Also narrows the optional header after the non-final chunk returns.
+    if (!mapleId) throw new Error('validated final chunk is missing maple_id');
+
     // -----------------------------------------------------------------------
     // Final chunk — dedup check first, then move assembled file into place.
     // -----------------------------------------------------------------------
-
-    if (!mapleId) {
-      set.status = 400;
-      return { error: 'X-Maple-Maple-Id required on final chunk' };
-    }
 
     // 1. Dedup lookup BEFORE any filesystem operations.
     const a = await assetsCollection();
