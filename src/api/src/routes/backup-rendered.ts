@@ -146,6 +146,7 @@ export const backupRenderedRoutes = new Elysia().post(
     const totalBytesRaw = headers['x-maple-total-bytes'];
     const range = headers['content-range'];
     const mapleId = backupId(headers['x-maple-maple-id'], 'x-maple-maple-id');
+    if (mapleId instanceof Response) return mapleId;
     const filenameExt = headers['x-maple-filename-ext'];
     // Optional suffix-override: when present, the assembled file is named
     // `<base>.<suffixOverride>` instead of `<base>.rendered.<ext>`.
@@ -181,7 +182,9 @@ export const backupRenderedRoutes = new Elysia().post(
       return { error: 'unsafe X-Maple-Suffix-Override' };
     }
 
-    const { start, end, rangeTotal, totalBytes } = backupChunkRange(totalBytesRaw, range, mapleId);
+    const chunk = backupChunkRange(totalBytesRaw, range, mapleId);
+    if (chunk instanceof Response) return chunk;
+    const { start, end, rangeTotal, totalBytes } = chunk;
 
     // Check library exists.
     const folder = await (await foldersCollection()).findOne({ _id: libraryId });
