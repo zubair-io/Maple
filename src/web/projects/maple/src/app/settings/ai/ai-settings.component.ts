@@ -150,29 +150,36 @@ export class AiSettingsComponent implements OnInit {
     this.loadConfig();
   }
 
+  private applyLoadedProviders(providers: AiConfigResponse['providers']): void {
+    const ollamaUrl = providers.ollama?.url;
+    if (ollamaUrl) {
+      this.fOllamaUrl.set(ollamaUrl);
+    }
+    this.hasOpenAiKey.set(Boolean(providers.openai?.has_key));
+    this.hasAnthropicKey.set(Boolean(providers.anthropic?.has_key));
+    this.hasGeminiKey.set(Boolean(providers.gemini?.has_key));
+  }
+
+  private applyLoadedWorkers(cfg: AiConfigResponse): void {
+    const workers = cfg.workers;
+    if (workers) {
+      this.workerAssignments.set({ ...workers });
+    }
+    const avail = cfg.available_workers;
+    if (avail && avail.length > 0) {
+      this.availableWorkers.set(avail);
+    }
+    const describeModel = workers?.['describe']?.model;
+    this.selectedModel.set(describeModel ?? this.activeMeta().defaultModel);
+  }
+
   loadConfig(): void {
     this.loading.set(true);
     this.loadError.set(null);
     this.aiApi.getConfig().subscribe({
       next: (cfg: AiConfigResponse) => {
-        if (cfg.providers.ollama?.url) {
-          this.fOllamaUrl.set(cfg.providers.ollama.url);
-        }
-        this.hasOpenAiKey.set(cfg.providers.openai?.has_key ?? false);
-        this.hasAnthropicKey.set(cfg.providers.anthropic?.has_key ?? false);
-        this.hasGeminiKey.set(cfg.providers.gemini?.has_key ?? false);
-
-        if (cfg.workers) {
-          this.workerAssignments.set({ ...cfg.workers });
-        }
-        if (cfg.available_workers?.length) {
-          this.availableWorkers.set(cfg.available_workers);
-        }
-
-        // Set initial selected model matching active provider
-        const initial = cfg.workers?.['describe']?.model ?? this.activeMeta().defaultModel;
-        this.selectedModel.set(initial);
-
+        this.applyLoadedProviders(cfg.providers);
+        this.applyLoadedWorkers(cfg);
         this.loading.set(false);
         this.fetchModels(this.activeProvider());
       },

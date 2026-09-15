@@ -14,7 +14,7 @@ import {
 import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import {
   listProviderModels,
-  testProviderConnection,
+  handleAiTestConnection,
   resolveEnvKey,
 } from '../enrichment/ai-providers.service.ts';
 import { getDb } from '../db/client.ts';
@@ -81,28 +81,97 @@ const UpdateAiConfigBody = t.Object({
   ),
 });
 
+function checkProviderKey(raw: Record<string, unknown> | null, provider: string): boolean {
+  if (resolveEnvKey(provider)) return true;
+  const configKey = `${provider}_api_key`;
+  return Boolean(raw && raw[configKey]);
+}
+
+function resolveWorkerAssignment(
+  cfg: WorkerConfigDoc | null,
+  fallbackProvider: string,
+  fallbackModel: string,
+): { provider: string; model: string } {
+  return {
+    provider: cfg?.ai_provider || fallbackProvider,
+    model: cfg?.ai_model || fallbackModel,
+  };
+}
+
+function applyApiKeyUpdate(
+  patch: Record<string, unknown>,
+  patchKey: string,
+  envVar: string,
+  key: string | null | undefined,
+): void {
+  if (key === undefined) return;
+  patch[patchKey] = key;
+  if (key) {
+    process.env[envVar] = key;
+  } else {
+    delete process.env[envVar];
+  }
+}
+
+function applyOllamaPatch(
+  patch: Record<string, unknown>,
+  ollama:
+    | {
+        url?: string | null;
+        servers?: Array<{ url: string; concurrency?: number | null }> | null;
+      }
+    | undefined,
+): void {
+  if (!ollama) return;
+  if (ollama.url !== undefined) {
+    patch.describe_provider_url = ollama.url;
+  }
+  if (ollama.servers !== undefined) {
+    patch.describe_servers = ollama.servers;
+  }
+}
+
+async function updateWorkerAssignments(
+  repo: WorkerConfigRepo,
+  workers: Record<string, { provider: string; model: string }> | undefined,
+): Promise<string | null> {
+  if (!workers) return null;
+  for (const [workerName, assignment] of Object.entries(workers)) {
+    const typedProvider = asDescribeProvider(assignment.provider);
+    if (!typedProvider) {
+      return `Unknown provider: ${assignment.provider}`;
+    }
+    await repo.patch(workerName, {
+      ai_provider: typedProvider,
+      ai_model: assignment.model,
+    });
+    if (workerName === 'describe') {
+      await saveEnrichmentConfig({
+        describe_provider: typedProvider,
+        describe_model: assignment.model,
+      } as never);
+    }
+  }
+  return null;
+}
+
 export const aiRoutes = new Elysia({ prefix: '/api/ai' })
   .use(requireAuth)
 
   // GET /api/ai/config — Return configured AI providers status & worker assignments
   .get('/config', async () => {
-    const raw = await loadEnrichmentConfig();
-    const resolved = resolveEnrichmentConfig(raw);
+    const raw = (await loadEnrichmentConfig()) as Record<string, unknown> | null;
+    const resolved = resolveEnrichmentConfig(raw as never);
 
     const db = await getDb();
     const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-    const describeConfig = await repo.load('describe');
-    const videoDescribeConfig = await repo.load('video-describe');
+    const [describeConfig, videoDescribeConfig] = await Promise.all([
+      repo.load('describe'),
+      repo.load('video-describe'),
+    ]);
 
-    const hasOpenaiKey = Boolean(
-      resolveEnvKey('openai') || (raw as Record<string, unknown> | null)?.openai_api_key,
-    );
-    const hasAnthropicKey = Boolean(
-      resolveEnvKey('anthropic') || (raw as Record<string, unknown> | null)?.anthropic_api_key,
-    );
-    const hasGeminiKey = Boolean(
-      resolveEnvKey('gemini') || (raw as Record<string, unknown> | null)?.gemini_api_key,
-    );
+    const defaultProvider = resolved.describe_provider || 'ollama';
+    const defaultModel = resolved.describe_model || DEFAULT_DESCRIBE_MODELS.ollama;
 
     return {
       providers: {
@@ -111,28 +180,22 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
           servers: resolved.describe_servers,
         },
         openai: {
-          has_key: hasOpenaiKey,
+          has_key: checkProviderKey(raw, 'openai'),
         },
         anthropic: {
-          has_key: hasAnthropicKey,
+          has_key: checkProviderKey(raw, 'anthropic'),
         },
         gemini: {
-          has_key: hasGeminiKey,
+          has_key: checkProviderKey(raw, 'gemini'),
         },
       },
       workers: {
-        describe: {
-          provider: describeConfig?.ai_provider ?? resolved.describe_provider ?? 'ollama',
-          model:
-            describeConfig?.ai_model ?? resolved.describe_model ?? DEFAULT_DESCRIBE_MODELS.ollama,
-        },
-        'video-describe': {
-          provider: videoDescribeConfig?.ai_provider ?? resolved.describe_provider ?? 'ollama',
-          model:
-            videoDescribeConfig?.ai_model ??
-            resolved.describe_model ??
-            DEFAULT_DESCRIBE_MODELS.ollama,
-        },
+        describe: resolveWorkerAssignment(describeConfig, defaultProvider, defaultModel),
+        'video-describe': resolveWorkerAssignment(
+          videoDescribeConfig,
+          defaultProvider,
+          defaultModel,
+        ),
       },
       available_workers: [
         { id: 'describe', name: 'Describe (Image Captioning & OCR)' },
@@ -148,53 +211,35 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
       const db = await getDb();
       const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
 
-      // 1. Update enrichment config for providers
       const enrichmentPatch: Record<string, unknown> = {};
-      if (body.providers?.ollama) {
-        if (body.providers.ollama.url !== undefined) {
-          enrichmentPatch.describe_provider_url = body.providers.ollama.url;
-        }
-        if (body.providers.ollama.servers !== undefined) {
-          enrichmentPatch.describe_servers = body.providers.ollama.servers;
-        }
-      }
-      if (body.providers?.openai?.api_key) {
-        enrichmentPatch.openai_api_key = body.providers.openai.api_key;
-        process.env.MAPLE_OPENAI_API_KEY = body.providers.openai.api_key;
-      }
-      if (body.providers?.anthropic?.api_key) {
-        enrichmentPatch.anthropic_api_key = body.providers.anthropic.api_key;
-        process.env.MAPLE_ANTHROPIC_API_KEY = body.providers.anthropic.api_key;
-      }
-      if (body.providers?.gemini?.api_key) {
-        enrichmentPatch.gemini_api_key = body.providers.gemini.api_key;
-        process.env.MAPLE_GEMINI_API_KEY = body.providers.gemini.api_key;
-      }
+      applyOllamaPatch(enrichmentPatch, body.providers?.ollama);
+      applyApiKeyUpdate(
+        enrichmentPatch,
+        'openai_api_key',
+        'MAPLE_OPENAI_API_KEY',
+        body.providers?.openai?.api_key,
+      );
+      applyApiKeyUpdate(
+        enrichmentPatch,
+        'anthropic_api_key',
+        'MAPLE_ANTHROPIC_API_KEY',
+        body.providers?.anthropic?.api_key,
+      );
+      applyApiKeyUpdate(
+        enrichmentPatch,
+        'gemini_api_key',
+        'MAPLE_GEMINI_API_KEY',
+        body.providers?.gemini?.api_key,
+      );
 
       if (Object.keys(enrichmentPatch).length > 0) {
         await saveEnrichmentConfig(enrichmentPatch as never);
       }
 
-      // 2. Update worker configs for assigned workers
-      if (body.workers) {
-        for (const [workerName, assignment] of Object.entries(body.workers)) {
-          const typedProvider = asDescribeProvider(assignment.provider);
-          if (!typedProvider) {
-            set.status = 400;
-            return { error: `Unknown provider: ${assignment.provider}` };
-          }
-          await repo.patch(workerName, {
-            ai_provider: typedProvider,
-            ai_model: assignment.model,
-          });
-          // Also keep describe_provider / describe_model in sync for describe worker
-          if (workerName === 'describe') {
-            await saveEnrichmentConfig({
-              describe_provider: typedProvider,
-              describe_model: assignment.model,
-            } as never);
-          }
-        }
+      const err = await updateWorkerAssignments(repo, body.workers);
+      if (err) {
+        set.status = 400;
+        return { error: err };
       }
 
       resetDescribeDeps();
@@ -219,27 +264,18 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
         apiKey: body.api_key ?? null,
       });
     },
-    { body: ModelQueryBody },
+    { body: ModelQueryBody, beforeHandle: requireOwnerBeforeHandle },
   )
 
   // POST /api/ai/test — Health-check a provider connection
   .post(
     '/test',
     async ({ body, set }) => {
-      const provider = asDescribeProvider(body.provider);
-      if (!provider) {
-        set.status = 400;
-        return { ok: false, error: `Invalid provider "${body.provider}"` };
-      }
-      const result = await testProviderConnection(provider, {
-        url: body.url ?? null,
-        apiKey: body.api_key ?? null,
-      });
-      if (!result.ok) {
-        set.status =
-          result.status && result.status >= 400 && result.status < 600 ? result.status : 400;
+      const result = await handleAiTestConnection(body.provider, body.url, body.api_key);
+      if (!result.ok && result.status) {
+        set.status = result.status;
       }
       return result;
     },
-    { body: TestConnectionBody },
+    { body: TestConnectionBody, beforeHandle: requireOwnerBeforeHandle },
   );

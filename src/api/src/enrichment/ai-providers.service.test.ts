@@ -98,5 +98,37 @@ describe('ai-providers.service', () => {
       expect(res.ok).toBe(false);
       expect(res.error).toBeDefined();
     });
+
+    it('fails when apiKey is explicitly empty even if env var exists', async () => {
+      const prev = process.env.MAPLE_OPENAI_API_KEY;
+      try {
+        process.env.MAPLE_OPENAI_API_KEY = 'sk-valid-key';
+        const res = await testProviderConnection('openai', { apiKey: '' });
+        expect(res.ok).toBe(false);
+        expect(res.error).toContain('is empty');
+      } finally {
+        if (prev === undefined) {
+          delete process.env.MAPLE_OPENAI_API_KEY;
+        } else {
+          process.env.MAPLE_OPENAI_API_KEY = prev;
+        }
+      }
+    });
+
+    it('returns fallback models when apiKey is explicitly empty even if env var exists', async () => {
+      const prev = process.env.MAPLE_OPENAI_API_KEY;
+      try {
+        process.env.MAPLE_OPENAI_API_KEY = 'sk-valid-key';
+        const res = await listProviderModels('openai', { apiKey: '' });
+        expect(res.source).toBe('fallback');
+        expect(res.error).toBe('No API key provided or found in environment');
+      } finally {
+        if (prev === undefined) {
+          delete process.env.MAPLE_OPENAI_API_KEY;
+        } else {
+          process.env.MAPLE_OPENAI_API_KEY = prev;
+        }
+      }
+    });
   });
 });

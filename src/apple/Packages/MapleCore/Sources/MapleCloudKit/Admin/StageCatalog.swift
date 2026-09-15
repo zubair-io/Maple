@@ -43,11 +43,13 @@ public enum StageCatalog {
     "preview": StageMeta(
       group: .ingest, icon: "photo.on.rectangle",
       description:
-        "Builds the 1280-px preview cache used by the editor and enrichment. Concurrency also caps on-demand regeneration from cache-miss preview requests."),
+        "Builds the 1280-px preview cache used by the editor and enrichment. Concurrency also caps on-demand regeneration from cache-miss preview requests."
+    ),
     "describe": StageMeta(
       group: .enrich, icon: "sparkles",
       description:
-        "Local vision-LLM via Ollama. Runs a multimodal model against the preview cache and produces a structured caption plus OCR text."),
+        "Local vision-LLM via Ollama. Runs a multimodal model against the preview cache and produces a structured caption plus OCR text."
+    ),
     "transcribe": StageMeta(
       group: .enrich, icon: "waveform",
       description: "Transcribes speech in video and audio files with whisper.cpp on the CPU."),
@@ -58,7 +60,8 @@ public enum StageCatalog {
     "face-detect": StageMeta(
       group: .enrich, icon: "face.smiling",
       description:
-        "Detects faces in cached thumbnails with the SCRFD-10G ONNX detector, emitting bounding boxes and landmarks."),
+        "Detects faces in cached thumbnails with the SCRFD-10G ONNX detector, emitting bounding boxes and landmarks."
+    ),
     "face-embed": StageMeta(
       group: .enrich, icon: "person.crop.square",
       description: "Computes face embeddings used to cluster detections into people."),
@@ -125,6 +128,7 @@ public enum StageCatalog {
   public static func statusLabel(_ state: StageRunState) -> String {
     switch state {
     case .running: return "Running"
+    case .idle: return "Idle"
     case .paused: return "Paused"
     case .error: return "Error"
     case .starting: return "Starting"

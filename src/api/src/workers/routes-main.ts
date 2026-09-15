@@ -65,7 +65,7 @@ import {
  * The worker process runs in a separate child; the in-process `stageRegistry`
  * is empty here, so we validate against this static set instead.
  */
-export const KNOWN_WORKER_NAMES = new Set<string>([
+const KNOWN_WORKER_NAMES = new Set<string>([
   ...ALL_STAGE_NAMES,
   MISSING_REAPER_NAME, // 'missing-reaper'
   MIGRATION_WORKER_NAME, // 'migration'
@@ -77,7 +77,7 @@ export const KNOWN_WORKER_NAMES = new Set<string>([
  * `POST /damaged/clear` resets their dead/attempt bookkeeping when un-tagging
  * so a cleared file is genuinely re-tried. Kept in sync with the stage configs
  * in `stages/{exif,thumb,preview}.ts`. */
-export const DAMAGE_TAGGING_STAGES = ['exif', 'thumb', 'preview'] as const;
+const DAMAGE_TAGGING_STAGES = ['exif', 'thumb', 'preview'] as const;
 
 /** 404 payload for a `:name`-gated route, or `null` when `name` is a known
  * worker/stage. Shared by every route below that validates `params.name`

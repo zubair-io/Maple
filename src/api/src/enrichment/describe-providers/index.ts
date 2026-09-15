@@ -1,3 +1,4 @@
+// fallow-ignore-file circular-dependencies
 /**
  * Describe-provider abstraction. The slow-tier `describe` worker delegates the
  * actual JPEG-bytes → caption call to one of these providers; everything else
@@ -155,7 +156,10 @@ function resolveKey(
   name: Exclude<DescribeProviderName, 'ollama'>,
   explicit: string | null | undefined,
 ): string {
-  if (explicit && explicit.length > 0) return explicit;
+  if (explicit !== undefined) {
+    if (explicit && explicit.trim().length > 0) return explicit.trim();
+    throw new RemoteError(`${name} provider selected but API key is empty`, false);
+  }
   const envName = `MAPLE_${name.toUpperCase()}_API_KEY`;
   const fromEnv = process.env[envName];
   if (fromEnv && fromEnv.length > 0) return fromEnv;
