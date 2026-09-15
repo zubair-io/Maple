@@ -253,7 +253,7 @@ struct MapleApp: App {
   static func startBackupIfAuthorized() async {
     guard !BackupSettings.isStoppedByUser, let settings = BackupSettings.load(),
       settings.isConfigured,
-      let serverBaseURL = URL(string: settings.serverURL)
+      URL(string: settings.serverURL) != nil
     else { return }
     // A configured backup could only have been set up with library access
     // in hand — latch that evidence so users whose grant was revoked
@@ -262,15 +262,6 @@ struct MapleApp: App {
     let status = PhotoKitLibrary.authorizationStatus()
     guard status == .authorized || status == .limited else { return }
     await EngineHost.shared.start(settings: settings)
-    // Use the same DeviceIdentity the engine just resolved.
-    if let storage = try? DeviceIdentity.defaultStorageURL(),
-      let deviceId = try? DeviceIdentity.current(storageURL: storage)
-    {
-      ChangeObserverWiring.start(
-        deviceId: deviceId, settings: settings,
-        libraryId: settings.libraryId,
-        serverBaseURL: serverBaseURL)
-    }
   }
 
   /// Register bundled .ttf font faces with the OS so `Font.custom("…", size:)`
