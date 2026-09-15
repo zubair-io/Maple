@@ -51,8 +51,7 @@ import {
 } from '../../enrichment/enrichment-config.repo.ts';
 import { composeDescribePrompt } from '../../enrichment/describe-prompts.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
-import { getDb } from '../../db/client.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from '../worker-config.repo.ts';
+import { loadWorkerConfigSafe } from '../worker-config.repo.ts';
 import {
   parseVisionJson,
   strippedRawFor,
@@ -83,39 +82,48 @@ let _deps: DescribeDeps | null = null;
 /** Sourced from shared constant as default when not configured. */
 const FIXED_DESCRIBE_MODEL = DESCRIBE_VISION_OLLAMA_TAG;
 
+function resolveDescribeProvider(
+  workerProvider?: string,
+  cfgProvider?: string,
+): DescribeProviderName {
+  if (workerProvider) return workerProvider as DescribeProviderName;
+  if (cfgProvider) return cfgProvider as DescribeProviderName;
+  return 'ollama';
+}
+
+function resolveDescribeModel(
+  workerModel: string | undefined,
+  cfgModel: string | undefined,
+  provider: DescribeProviderName,
+): string {
+  if (workerModel) return workerModel;
+  if (cfgModel) return cfgModel;
+  return DEFAULT_DESCRIBE_MODELS[provider] || FIXED_DESCRIBE_MODEL;
+}
+
+async function createDescribePool(
+  provider: DescribeProviderName,
+  cfg: ReturnType<typeof resolveEnrichmentConfig>,
+  concurrency: number,
+): Promise<DescribeServerPool> {
+  if (provider === 'ollama') {
+    return new DescribeServerPool(await describeServersForRuntime(cfg));
+  }
+  return new DescribeServerPool([{ url: provider, concurrency }], () =>
+    getDescribeProvider(provider),
+  );
+}
+
 async function getDeps(): Promise<DescribeDeps> {
   if (_deps) return _deps;
   const dbConfig = await loadEnrichmentConfig();
   const cfg = resolveEnrichmentConfig(dbConfig);
+  const workerConfig = await loadWorkerConfigSafe('describe');
 
-  let workerConfig: WorkerConfigDoc | null = null;
-  try {
-    const db = await getDb();
-    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-    workerConfig = await repo.load('describe');
-  } catch {
-    // Database may be offline during standalone unit tests
-  }
-
-  const provider = (workerConfig?.ai_provider ??
-    cfg.describe_provider ??
-    'ollama') as DescribeProviderName;
-  const model =
-    workerConfig?.ai_model ??
-    cfg.describe_model ??
-    DEFAULT_DESCRIBE_MODELS[provider] ??
-    FIXED_DESCRIBE_MODEL;
+  const provider = resolveDescribeProvider(workerConfig?.ai_provider, cfg.describe_provider);
+  const model = resolveDescribeModel(workerConfig?.ai_model, cfg.describe_model, provider);
   const systemPrompt = composeDescribePrompt(workerConfig?.prompt_text);
-
-  let pool: DescribeServerPool;
-  if (provider === 'ollama') {
-    pool = new DescribeServerPool(await describeServersForRuntime(cfg));
-  } else {
-    pool = new DescribeServerPool(
-      [{ url: provider, concurrency: workerConfig?.concurrency ?? 2 }],
-      () => getDescribeProvider(provider),
-    );
-  }
+  const pool = await createDescribePool(provider, cfg, workerConfig?.concurrency ?? 2);
 
   _deps = {
     pool,

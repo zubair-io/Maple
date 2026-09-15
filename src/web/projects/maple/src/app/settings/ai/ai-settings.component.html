@@ -28,8 +28,9 @@
           <div class="text-[13px] font-semibold text-[var(--s-text)] mb-2.5">AI Provider</div>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
             @for (p of providers; track p.id) {
-              <button
-                type="button"
+              <div
+                role="button"
+                tabindex="0"
                 class="provider-card p-3 rounded-lg border text-left transition-all relative cursor-pointer"
                 [class.is-active]="activeProvider() === p.id"
                 [class.border-[var(--s-border)]]="activeProvider() !== p.id"
@@ -37,6 +38,8 @@
                 [class.bg-[var(--s-surface2)]]="activeProvider() === p.id"
                 [class.bg-[var(--s-surface1)]]="activeProvider() !== p.id"
                 (click)="selectProvider(p.id)"
+                (keydown.enter)="selectProvider(p.id)"
+                (keydown.space)="selectProvider(p.id); $event.preventDefault()"
               >
                 <div class="flex items-center justify-between gap-1 mb-1">
                   <span class="font-medium text-[13.5px] text-[var(--s-text)]">{{ p.name }}</span>
@@ -49,7 +52,7 @@
                   }
                 </div>
                 <div class="text-[11px] text-[var(--s-text-muted)] line-clamp-1">{{ p.badge }}</div>
-              </button>
+              </div>
             }
           </div>
         </section>

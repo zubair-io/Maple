@@ -142,11 +142,14 @@ class StageRegistry {
     return out;
   }
 
-  async pause(name: string): Promise<{ ok: boolean; error?: string }> {
+  private async dispatchEntryAction(
+    name: string,
+    action: (entry: StageRegistryEntry) => Promise<void>,
+  ): Promise<{ ok: boolean; error?: string }> {
     const entry = this.entries.get(name);
     if (!entry) return { ok: false, error: `unknown stage: ${name}` };
     try {
-      await entry.pause();
+      await action(entry);
       return { ok: true };
     } catch (err) {
       return {
@@ -156,18 +159,12 @@ class StageRegistry {
     }
   }
 
+  async pause(name: string): Promise<{ ok: boolean; error?: string }> {
+    return this.dispatchEntryAction(name, (entry) => entry.pause());
+  }
+
   async resume(name: string): Promise<{ ok: boolean; error?: string }> {
-    const entry = this.entries.get(name);
-    if (!entry) return { ok: false, error: `unknown stage: ${name}` };
-    try {
-      await entry.resume();
-      return { ok: true };
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
+    return this.dispatchEntryAction(name, (entry) => entry.resume());
   }
 
   /**
@@ -182,19 +179,8 @@ class StageRegistry {
   }
 
   async notifyConfigChanged(name: string): Promise<{ ok: boolean; error?: string }> {
-    const entry = this.entries.get(name);
-    if (!entry) return { ok: false, error: `unknown stage: ${name}` };
-    try {
-      await entry.reloadConfig();
-      return { ok: true };
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
+    return this.dispatchEntryAction(name, (entry) => entry.reloadConfig());
   }
 }
 
 export const stageRegistry = new StageRegistry();
-export type { StageRegistry };
