@@ -224,3 +224,83 @@ kernel. At (2811,331), those values are 39.023 versus 30.643. Thus different
 resize kernels materially affect the sparse maximum tail, but do not by
 themselves explain or fix the remaining regression. No harness, reference,
 or budget change is proposed from this observation.
+
+
+## Sony 0011 reference attribution (read-only, September 15)
+
+The fifth unchanged-main failure is attributable to a changed reference target,
+not to the candidate highlight-recovery changes. Comparing the **same** existing
+main Neutral candidate with the original and corrected 4000×2667 references,
+using the harness's RGB conversion, Lanczos resize, float32 normalization and
+float32 mean reduction, gives:
+
+| Reference | R bias | G bias | B bias | .0113 bias budget |
+| --- | ---: | ---: | ---: | --- |
+| Original | .00950799 | .00412983 | .01025915 | passes |
+| Corrected | .03782028 | .03151138 | .03117711 | fails |
+
+Original PNG SHA256: `b64750bc587b3a98ac137ad0ca341421318c9877007d84e5b431fb8ce36fdaa4`.
+Corrected PNG SHA256: `eb0964fca514f80816250b685665f8767790c89ae9958be78e9696844a1da687`.
+Original is installed at `_Maple/test-fixtures/references/test_0011/down/baseline.png`
+and preserved under the sprint worktree's
+`.calibration-cache/acr-corrected-canonical/original-references/`.
+Corrected is installed at the sprint worktree's `test-fixtures/references/`
+and matches its `.calibration-cache/acr-corrected-canonical/renders/` copy.
+The cache's `provenance.json` records Photoshop 27.10.0, ACR 18.6 (2698),
+Adobe Standard and original/corrected hashes. This establishes local provenance;
+it does not independently prove the original PNG seeded the July budget.
+
+ExifTool's complete XMP-crs comparison finds the material differences:
+original ACR Version 18.2.2 -> 18.6; LensProfileEnable 1 -> 0;
+AutoLateralCA 1 -> 0. Original has Adobe (Sony FE 24-70mm F4 ZA OSS),
+LensDefaults, distortion and vignetting scales 100, and profile digest
+2644B741A716B86B2C354452E2587EC9; corrected removes those profile fields.
+Corrected additionally explicitly records Glow=0 and ReshapeAmount=0.
+Exposure, camera profile, process version, tone curve and all other shared
+Camera Raw settings agree. The separate lens-off control PNG has different
+file hash (`168201a408d5089563784c539f1700f890c974e7ddfcc84ad0926b060d9d1414`)
+but **identical decoded RGB pixels** to corrected.
+
+The old reference is not a valid lens-disabled baseline: it applies both lens
+profile and lateral CA corrections, whereas `test_color_pipeline.sh` explicitly
+passes `--no-bundled-lens` and documents lens-disabled references. Reverting the
+reference merely to pass the budget would restore that mismatch. These data
+cannot apportion effects between ACR version and lens correction without a
+matched-version render, but the existing lens-off control strongly anchors the
+corrected target's reproducibility.
+
+The bias is broad and predominantly tonal, not a sparse saturated-edge error.
+Reference L* bands (sRGB decoded to Y using .2126/.7152/.0722; means accumulated
+in float64 for descriptive accuracy) on the corrected target are:
+
+| L* | Pixels | R/G/B bias |
+| --- | ---: | --- |
+| 0–20 | 50.82% | +.04968 / +.04825 / +.05110 |
+| 20–40 | 10.95% | +.20990 / +.20720 / +.20707 |
+| 40–60 | .50% | +.17258 / +.18171 / +.16254 |
+| 60–80 | 8.37% | +.00895 / −.00461 / −.03021 |
+| 80–100 | 29.35% | −.04011 / −.05400 / −.05121 |
+
+Descriptive float64 full-frame bias differs slightly from the canonical
+float32 reduction (+.03808/.03189/.03191); use the canonical values above for
+budget decisions. Machine-readable bands for old/corrected/lens-off are in
+`/tmp/maple-3633-sony-reference-bands.json`.
+
+Next step: keep the corrected reference and unchanged ratchet; record this as
+a distinct Neutral tonal qualification failure exposed by reference repair.
+The unchanged .0113 ceiling now tests a different target; no old-versus-new
+reference qualification linking that ceiling was found in the inspected cache
+provenance. Diagnose Neutral tone/DCP versus the valid lens-disabled Adobe
+reference separately from highlight reconstruction. Auto already passes.
+Do not infer that Auto should cease being the default, or loosen the budget.
+No source, RAW, sidecar, reference or budget was changed in this investigation.
+
+
+## Relative-variance anchor diagnostic
+
+Choosing the known R/B anchor with the smaller coefficient of variation in its
+local ratio witnesses, only when G is clipped, did not resolve the gate. All
+six comparisons executed, two failed, zero skipped: 0000 maxima 39.79/39.48,
+0007 43.11/37.22, 0017 50.30/36.57. The 0017 Neutral tail worsens substantially
+from 34.76, so this estimator is rejected despite remaining within that
+fixture's loose maximum budget. Original candidate anchor logic is restored.
