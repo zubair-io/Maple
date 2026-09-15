@@ -77,8 +77,7 @@ interface DescribeDeps {
   provider?: DescribeProviderName;
 }
 
-let _testDeps: DescribeDeps | null = null;
-let _cachedPool: { pool: DescribeServerPool; fingerprint: string } | null = null;
+let _deps: DescribeDeps | null = null;
 
 /** Sourced from shared constant as default when not configured. */
 const FIXED_DESCRIBE_MODEL = DESCRIBE_VISION_OLLAMA_TAG;
@@ -102,26 +101,21 @@ function resolveDescribeModel(
   return DEFAULT_DESCRIBE_MODELS[provider] || FIXED_DESCRIBE_MODEL;
 }
 
-async function getOrCreateDescribePool(
+async function createDescribePool(
   provider: DescribeProviderName,
   cfg: ReturnType<typeof resolveEnrichmentConfig>,
   concurrency: number,
 ): Promise<DescribeServerPool> {
-  const imageServers =
-    provider === 'ollama' ? await describeServersForRuntime(cfg) : [{ url: provider, concurrency }];
-  const poolFp = JSON.stringify({ provider, concurrency, imageServers });
-  if (!_cachedPool || _cachedPool.fingerprint !== poolFp) {
-    const pool =
-      provider === 'ollama'
-        ? new DescribeServerPool(imageServers)
-        : new DescribeServerPool(imageServers, () => getDescribeProvider(provider));
-    _cachedPool = { pool, fingerprint: poolFp };
+  if (provider === 'ollama') {
+    return new DescribeServerPool(await describeServersForRuntime(cfg));
   }
-  return _cachedPool.pool;
+  return new DescribeServerPool([{ url: provider, concurrency }], () =>
+    getDescribeProvider(provider),
+  );
 }
 
 async function getDeps(): Promise<DescribeDeps> {
-  if (_testDeps) return _testDeps;
+  if (_deps) return _deps;
   const dbConfig = await loadEnrichmentConfig();
   const cfg = resolveEnrichmentConfig(dbConfig);
   const workerConfig = await loadWorkerConfigSafe('describe');
@@ -129,14 +123,15 @@ async function getDeps(): Promise<DescribeDeps> {
   const provider = resolveDescribeProvider(workerConfig?.ai_provider, cfg.describe_provider);
   const model = resolveDescribeModel(workerConfig?.ai_model, cfg.describe_model, provider);
   const systemPrompt = composeDescribePrompt(workerConfig?.prompt_text);
-  const pool = await getOrCreateDescribePool(provider, cfg, workerConfig?.concurrency ?? 2);
+  const pool = await createDescribePool(provider, cfg, workerConfig?.concurrency ?? 2);
 
-  return {
+  _deps = {
     pool,
     systemPrompt,
     model,
     provider,
   };
+  return _deps;
 }
 
 /** Invalidate the module-level deps cache so the next `getDeps()` call
@@ -144,13 +139,12 @@ async function getDeps(): Promise<DescribeDeps> {
  * `applyDescribeConfig` so an operator changing the URL in
  * `/settings/enrichment` takes effect without restarting the process. */
 export function resetDescribeDeps(): void {
-  _testDeps = null;
-  _cachedPool = null;
+  _deps = null;
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
 export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
-  _testDeps = deps;
+  _deps = deps;
 }
 
 // fallow-ignore-next-line complexity

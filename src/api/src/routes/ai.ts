@@ -266,7 +266,7 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
       }
       return await listProviderModels(provider, {
         url: body.url ?? null,
-        apiKey: body.api_key ?? null,
+        apiKey: body.api_key,
       });
     },
     { body: ModelQueryBody, beforeHandle: requireOwnerBeforeHandle },
