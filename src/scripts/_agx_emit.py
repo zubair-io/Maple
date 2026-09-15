@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """WGSL emitter for the AgX GPU kernel constants (epic #925 P2 / #990).
 
 Split out of `derive_agx_lut.py` to keep that file under the file-size budget
@@ -25,6 +24,7 @@ a `mul_<name>(v)` dot-product helper, so `out[i] = dot(row_i, v)` matches
 the Rust `matrix_mul` row-major semantics (a column-major `mat3x3<f32>`
 would silently transpose and break parity).
 """
+
 from __future__ import annotations
 
 import struct
@@ -119,4 +119,4 @@ def emit_wgsl(
         )
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body)
+    path.write_text(body, encoding="utf-8", newline="\n")
