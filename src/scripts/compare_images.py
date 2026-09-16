@@ -2,8 +2,9 @@
 """Compare two sRGB PNG images: CIEDE2000 + per-channel bias, optionally with
 per-tonal-zone and per-hue-angle breakdowns.
 
-This is the ONE diff implementation. `test_color_pipeline.sh` imports `diff()`
-in-process; the standalone CLI below wraps it.
+This is the ONE diff implementation. `test_color_pipeline.sh` calls
+`diff_manifest_case()` for matched native-pair reduction; the standalone CLI
+wraps `diff()` for direct image-pair comparisons.
 
 Usage:
     compare_images.py <candidate.png> <reference.png> [--zones] [--hue-bins N]
@@ -42,11 +43,12 @@ import json
 import os
 import sys
 import tempfile
-from typing import Optional
+import xml.etree.ElementTree as ET
+from decimal import Decimal, InvalidOperation
 
+import colour
 import numpy as np
 from PIL import Image
-import colour
 
 # 4000x2667 (down) and 12288x8192 (full) ACR refs trip Pillow's
 # decompression-bomb heuristic. They're our ground truth; suppress.
@@ -63,11 +65,13 @@ NEUTRAL_CHROMA = 5.0  # C* below this -> hue is ill-defined, goes to neutral buc
 # not colour-science's independently-derived equivalent, which agrees to
 # ~1e-4 but would make the comparator's own rotation a second, slightly
 # different implementation of the thing it's supposed to be checking.
-M_SRGB_TO_P3 = np.array([
-    [0.8224620, 0.1775380, 0.0],
-    [0.0331942, 0.9668058, 0.0],
-    [0.0170826, 0.0723974, 0.9105199],
-])
+M_SRGB_TO_P3 = np.array(
+    [
+        [0.8224620, 0.1775380, 0.0],
+        [0.0331942, 0.9668058, 0.0],
+        [0.0170826, 0.0723974, 0.9105199],
+    ]
+)
 M_P3_TO_SRGB = np.linalg.inv(M_SRGB_TO_P3)
 
 
@@ -90,7 +94,7 @@ def _lab(srgb: np.ndarray) -> np.ndarray:
     return colour.XYZ_to_Lab(colour.sRGB_to_XYZ(srgb))
 
 
-def _zone_stats(dE, ref_lab, cand, ref, roi: Optional[np.ndarray] = None) -> dict:
+def _zone_stats(dE, ref_lab, cand, ref, roi: np.ndarray | None = None) -> dict:
     L = ref_lab[..., 0].ravel()
     dEf = dE.ravel()
     cf = cand.reshape(-1, 3)
@@ -110,12 +114,16 @@ def _zone_stats(dE, ref_lab, cand, ref, roi: Optional[np.ndarray] = None) -> dic
             "mean_deltaE": float(dEf[m].mean()),
             "p95_deltaE": float(np.percentile(dEf[m], 95)),
             "max_deltaE": float(dEf[m].max()),
-            "bias_r": float(b[0]), "bias_g": float(b[1]), "bias_b": float(b[2]),
+            "bias_r": float(b[0]),
+            "bias_g": float(b[1]),
+            "bias_b": float(b[2]),
         }
     return zones
 
 
-def _hue_stats(dE, cand_lab, ref_lab, n_bins: int, roi: Optional[np.ndarray] = None) -> dict:
+def _hue_stats(
+    dE, cand_lab, ref_lab, n_bins: int, roi: np.ndarray | None = None
+) -> dict:
     a = ref_lab[..., 1].ravel()
     b = ref_lab[..., 2].ravel()
     C = np.hypot(a, b)
@@ -130,8 +138,12 @@ def _hue_stats(dE, cand_lab, ref_lab, n_bins: int, roi: Optional[np.ndarray] = N
         # neutral bucket would silently count pixels outside the ROI.
         neu = neu & roi.ravel()
     if neu.any():
-        neutral = {"n": int(neu.sum()), "mean_deltaE": float(dEf[neu].mean()),
-                   "a_shift": float(da[neu].mean()), "b_shift": float(db[neu].mean())}
+        neutral = {
+            "n": int(neu.sum()),
+            "mean_deltaE": float(dEf[neu].mean()),
+            "a_shift": float(da[neu].mean()),
+            "b_shift": float(db[neu].mean()),
+        }
     else:
         neutral = {"n": 0}
 
@@ -148,20 +160,35 @@ def _hue_stats(dE, cand_lab, ref_lab, n_bins: int, roi: Optional[np.ndarray] = N
         if n == 0:
             bins.append({"bin_deg": [round(lo, 1), round(hi, 1)], "n": 0})
             continue
-        bins.append({
-            "bin_deg": [round(lo, 1), round(hi, 1)], "n": n,
-            "mean_deltaE": float(dEf[m].mean()),
-            "a_shift": float(da[m].mean()), "b_shift": float(db[m].mean()),
-        })
+        bins.append(
+            {
+                "bin_deg": [round(lo, 1), round(hi, 1)],
+                "n": n,
+                "mean_deltaE": float(dEf[m].mean()),
+                "a_shift": float(da[m].mean()),
+                "b_shift": float(db[m].mean()),
+            }
+        )
     return {"neutral": neutral, "bins": bins}
 
 
-def diff(cand_path: str, ref_path: str, *, zones: bool = False,
-         hue_bins: int = 0, source_primaries: str = "srgb",
-         roi_path: Optional[str] = None) -> dict:
+def diff(
+    cand_path: str,
+    ref_path: str,
+    *,
+    zones: bool = False,
+    hue_bins: int = 0,
+    source_primaries: str = "srgb",
+    roi_path: str | None = None,
+    reference_size: tuple[int, int] | None = None,
+) -> dict:
     """ΔE2000 + per-channel bias of candidate vs reference, optionally with
     per-tonal-zone and per-hue-angle breakdowns. Candidate is Lanczos-resized
     to the reference dims. All binning is on the reference's Lab.
+
+    `reference_size`, when supplied by the color harness, reduces the native
+    reference with the same Lanczos kernel as the candidate. This avoids
+    measuring the reference exporter’s different resize filter (#3633).
 
     `source_primaries="p3"` rotates the candidate P3 -> sRGB primaries
     (see `p3_to_srgb_primaries`) before anything else runs, so every
@@ -177,8 +204,12 @@ def diff(cand_path: str, ref_path: str, *, zones: bool = False,
     inside the ROI," not "shadow pixels in the whole frame."
     """
     if source_primaries not in ("srgb", "p3"):
-        raise ValueError(f"source_primaries must be 'srgb' or 'p3', got {source_primaries!r}")
+        raise ValueError(
+            f"source_primaries must be 'srgb' or 'p3', got {source_primaries!r}"
+        )
     ref_im = Image.open(ref_path).convert("RGB")
+    if reference_size is not None and ref_im.size != reference_size:
+        ref_im = ref_im.resize(reference_size, Image.LANCZOS)
     cand_im = Image.open(cand_path).convert("RGB")
     if cand_im.size != ref_im.size:
         cand_im = cand_im.resize(ref_im.size, Image.LANCZOS)
@@ -187,14 +218,16 @@ def diff(cand_path: str, ref_path: str, *, zones: bool = False,
     if source_primaries == "p3":
         cand = p3_to_srgb_primaries(cand)
 
-    roi_mask: Optional[np.ndarray] = None
+    roi_mask: np.ndarray | None = None
     if roi_path is not None:
         roi_im = Image.open(roi_path).convert("L")
         if roi_im.size != ref_im.size:
             roi_im = roi_im.resize(ref_im.size, Image.NEAREST)
         roi_mask = np.asarray(roi_im, dtype=np.uint8) > 127
         if not roi_mask.any():
-            raise ValueError(f"ROI {roi_path!r} selects zero pixels at the reference's size")
+            raise ValueError(
+                f"ROI {roi_path!r} selects zero pixels at the reference's size"
+            )
 
     cand_lab = _lab(cand)
     ref_lab = _lab(ref)
@@ -213,7 +246,9 @@ def diff(cand_path: str, ref_path: str, *, zones: bool = False,
         "mean_deltaE": float(np.mean(dE_flat)),
         "p95_deltaE": float(np.percentile(dE_flat, 95)),
         "max_deltaE": float(np.max(dE_flat)),
-        "bias_r": float(bias[0]), "bias_g": float(bias[1]), "bias_b": float(bias[2]),
+        "bias_r": float(bias[0]),
+        "bias_g": float(bias[1]),
+        "bias_b": float(bias[2]),
         "n_pixels": n_pixels,
     }
     if zones:
@@ -221,6 +256,123 @@ def diff(cand_path: str, ref_path: str, *, zones: bool = False,
     if hue_bins:
         out["hue_bins"] = _hue_stats(dE, cand_lab, ref_lab, hue_bins, roi=roi_mask)
     return out
+
+
+def diff_manifest_case(
+    cand_path: str,
+    outputs: list[dict],
+    preferred_resolution: str,
+    *,
+    case_label: str,
+    reference_xmp: str | None = None,
+    zones: bool = False,
+    hue_bins: int = 0,
+) -> dict:
+    """Compare native candidate/reference with identical reduction (#3633).
+
+    The existing preferred-resolution reference supplies the comparison size;
+    its native `full` counterpart supplies the pixels. Missing full input is an
+    error, never a fallback to a differently filtered reference. Files remain
+    read-only and the numerical budgets and compared pixel population do not
+    change. Only exact baseline/baseline_auto labels use this protocol. Other cases,
+    including full-resolution detail, keep their existing behavior (#3678).
+    """
+    by_resolution = {output["resolution"]: output["png"] for output in outputs}
+    preferred = by_resolution[preferred_resolution]
+    if case_label not in ("baseline", "baseline_auto"):
+        # Incremental migration tracked by #3678: the nonbaseline corpus lacks
+        # qualified native pairs. Preserve its explicit legacy protocol; never
+        # select a protocol based on whether a file happens to be present.
+        return diff(cand_path, preferred, zones=zones, hue_bins=hue_bins) | {
+            "reference_protocol": "legacy-direct-reference"
+        }
+    native = by_resolution.get("full")
+    if native is None or not os.path.isfile(native):
+        raise FileNotFoundError(
+            f"native full reference required for matched reduction: {native!r}"
+        )
+    if reference_xmp is not None:
+        # The corpus may carry an Adobe-only authoring sidecar. Canonical Maple
+        # sidecars are intentionally different and must not be substituted.
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "acr-reference"))
+        from verify_settings import verify_png
+        from write_xmp import reference_settings
+
+        with open(reference_xmp, "rb") as sidecar:
+            expected = reference_settings(sidecar.read())
+        verify_png(native, expected)
+        verify_png(preferred, expected)
+    with Image.open(preferred) as image:
+        comparison_size = image.size
+        preferred_settings = _reference_crs(image)
+    with Image.open(native) as image:
+        native_size = image.size
+        native_settings = _reference_crs(image)
+    if preferred_settings != native_settings:
+        raise ValueError("native/down Camera Raw settings differ")
+    with Image.open(cand_path) as image:
+        if image.size != native_size:
+            raise ValueError(
+                f"candidate must have native reference dimensions: {image.size} != {native_size}"
+            )
+    width, height = native_size
+    down_width, down_height = comparison_size
+    if down_width > width or down_height > height:
+        raise ValueError("native reference is smaller than comparison reference")
+    # Either dimension may be rounded by at most one pixel on export.
+    if abs(down_width * height - down_height * width) > max(width, height):
+        raise ValueError("native/down reference aspect ratios differ")
+    return diff(
+        cand_path,
+        native,
+        zones=zones,
+        hue_bins=hue_bins,
+        reference_size=comparison_size,
+    ) | {"reference_protocol": "baseline-native-pair-lanczos"}
+
+
+def _reference_crs(image: Image.Image) -> dict:
+    """Canonical Camera Raw settings, including nested curves and local edits.
+
+    Ignore container timestamps, but retain every CRS field (including process
+    version). Refuse metadata-free pairs rather than infer matching settings
+    from filenames. Decimal spelling and XML attribute order are immaterial.
+    """
+    packet = image.info.get("XML:com.adobe.xmp") or image.info.get("xmp")
+    if not packet:
+        raise ValueError(f"reference has no Camera Raw XMP: {image.filename}")
+    root = ET.fromstring(packet)
+    namespace = "{http://ns.adobe.com/camera-raw-settings/1.0/}"
+
+    def scalar(value):
+        value = (value or "").strip()
+        try:
+            return Decimal(value)
+        except InvalidOperation:
+            return value
+
+    def subtree(element):
+        return (
+            element.tag,
+            tuple(
+                sorted((key, scalar(value)) for key, value in element.attrib.items())
+            ),
+            scalar(element.text),
+            tuple(subtree(child) for child in element),
+        )
+
+    settings = {}
+    for element in root.iter():
+        for key, value in element.attrib.items():
+            if key.startswith(namespace):
+                settings[key] = scalar(value)
+        if element.tag.startswith(namespace):
+            settings[element.tag] = (
+                subtree(element) if len(element) else scalar(element.text)
+            )
+    if not settings:
+        raise ValueError(f"reference has no Camera Raw settings: {image.filename}")
+    return settings
 
 
 def _srgb_to_p3_primaries(encoded: np.ndarray) -> np.ndarray:
@@ -253,8 +405,12 @@ def _self_test() -> int:
     # 2. White is invariant (both primaries share the D65 white point) —
     #    exact, not approximate, per `M_SRGB_TO_P3`'s own doc comment.
     white = np.ones((1, 1, 3), dtype=np.float64)
-    check("white round-trips exactly",
-          np.allclose(p3_to_srgb_primaries(_srgb_to_p3_primaries(white)), white, atol=1e-6))
+    check(
+        "white round-trips exactly",
+        np.allclose(
+            p3_to_srgb_primaries(_srgb_to_p3_primaries(white)), white, atol=1e-6
+        ),
+    )
 
     # 3. A gradient of in-P3-gamut colours round-trips sRGB -> P3 -> sRGB
     #    within tight numerical tolerance (float64 gamma round-trip noise
@@ -271,8 +427,14 @@ def _self_test() -> int:
     #    real-world case the clipping in `p3_to_srgb_primaries` exists for.
     p3_green = np.array([[[0.0, 1.0, 0.0]]], dtype=np.float64)
     rotated = p3_to_srgb_primaries(p3_green)
-    check("out-of-gamut P3 primary clips into [0,1], no NaN",
-          bool(np.all(np.isfinite(rotated)) and np.all(rotated >= 0.0) and np.all(rotated <= 1.0)))
+    check(
+        "out-of-gamut P3 primary clips into [0,1], no NaN",
+        bool(
+            np.all(np.isfinite(rotated))
+            and np.all(rotated >= 0.0)
+            and np.all(rotated <= 1.0)
+        ),
+    )
 
     # 5. End-to-end through the real `diff()` entry (the code path
     #    `maple-cli diff --source-primaries p3` and `test_color_pipeline.sh`
@@ -286,15 +448,22 @@ def _self_test() -> int:
         base = rng.uniform(0.1, 0.9, size=(32, 32, 3))
         Image.fromarray((base * 255).round().astype(np.uint8), "RGB").save(ref_path)
         p3_bytes = _srgb_to_p3_primaries(base)
-        Image.fromarray((p3_bytes * 255).round().astype(np.uint8), "RGB").save(cand_path)
+        Image.fromarray((p3_bytes * 255).round().astype(np.uint8), "RGB").save(
+            cand_path
+        )
         result = diff(cand_path, ref_path, source_primaries="p3")
-        check(f"diff(source_primaries='p3') mean ΔE00 < 0.5 "
-              f"(got {result['mean_deltaE']:.4f})", result["mean_deltaE"] < 0.5)
+        check(
+            f"diff(source_primaries='p3') mean ΔE00 < 0.5 "
+            f"(got {result['mean_deltaE']:.4f})",
+            result["mean_deltaE"] < 0.5,
+        )
         result_unrotated = diff(cand_path, ref_path, source_primaries="srgb")
-        check(f"same pair WITHOUT rotation reads much worse "
-              f"(rotated {result['mean_deltaE']:.4f} vs unrotated "
-              f"{result_unrotated['mean_deltaE']:.4f})",
-              result_unrotated["mean_deltaE"] > result["mean_deltaE"] + 1.0)
+        check(
+            f"same pair WITHOUT rotation reads much worse "
+            f"(rotated {result['mean_deltaE']:.4f} vs unrotated "
+            f"{result_unrotated['mean_deltaE']:.4f})",
+            result_unrotated["mean_deltaE"] > result["mean_deltaE"] + 1.0,
+        )
 
     # 6. An ROI restricted to the left half of a two-tone image reports
     #    statistics computed ONLY over that half — proving the mask actually
@@ -305,27 +474,37 @@ def _self_test() -> int:
         roi_path = os.path.join(tmp, "roi.png")
         h, w = 16, 16
         ref_arr = np.zeros((h, w, 3), dtype=np.uint8)
-        ref_arr[:, :w // 2] = [200, 50, 50]   # left half: red-ish
-        ref_arr[:, w // 2:] = [50, 50, 200]   # right half: blue-ish
+        ref_arr[:, : w // 2] = [200, 50, 50]  # left half: red-ish
+        ref_arr[:, w // 2 :] = [50, 50, 200]  # right half: blue-ish
         cand_arr = ref_arr.copy()
-        cand_arr[:, :w // 2] = [50, 50, 200]  # left half is WRONG (big ΔE)
+        cand_arr[:, : w // 2] = [50, 50, 200]  # left half is WRONG (big ΔE)
         # right half matches — so an ROI over the right half alone should
         # report near-zero error even though the whole-frame diff is large.
         Image.fromarray(ref_arr, "RGB").save(ref_path)
         Image.fromarray(cand_arr, "RGB").save(cand_path)
         roi_arr = np.zeros((h, w), dtype=np.uint8)
-        roi_arr[:, w // 2:] = 255
+        roi_arr[:, w // 2 :] = 255
         Image.fromarray(roi_arr, "L").save(roi_path)
 
         whole = diff(cand_path, ref_path)
         roi = diff(cand_path, ref_path, roi_path=roi_path)
-        check(f"whole-frame diff is large (got {whole['mean_deltaE']:.2f})", whole["mean_deltaE"] > 15)
-        check(f"ROI-restricted diff is near zero (got {roi['mean_deltaE']:.2f})", roi["mean_deltaE"] < 1.0)
-        check(f"ROI n_pixels is half the frame (got {roi['n_pixels']}, want {h * w // 2})",
-              roi["n_pixels"] == h * w // 2)
+        check(
+            f"whole-frame diff is large (got {whole['mean_deltaE']:.2f})",
+            whole["mean_deltaE"] > 15,
+        )
+        check(
+            f"ROI-restricted diff is near zero (got {roi['mean_deltaE']:.2f})",
+            roi["mean_deltaE"] < 1.0,
+        )
+        check(
+            f"ROI n_pixels is half the frame (got {roi['n_pixels']}, want {h * w // 2})",
+            roi["n_pixels"] == h * w // 2,
+        )
 
     if failures:
-        print(f"compare_images.py self-test: FAIL ({len(failures)}): {', '.join(failures)}")
+        print(
+            f"compare_images.py self-test: FAIL ({len(failures)}): {', '.join(failures)}"
+        )
         return 1
     print("compare_images.py self-test: PASS (6 checks)")
     return 0
@@ -337,25 +516,41 @@ def main() -> int:
     p.add_argument("reference", nargs="?")
     p.add_argument("--zones", action="store_true")
     p.add_argument("--hue-bins", type=int, default=0)
-    p.add_argument("--source-primaries", choices=("srgb", "p3"), default="srgb",
-                    help="Primaries the candidate was rendered in (#1339). "
-                         "'p3' rotates it to sRGB primaries before diffing "
-                         "against the (always-sRGB) ACR reference.")
-    p.add_argument("--self-test", action="store_true",
-                    help="Run the synthetic P3-rotation self-test and exit; "
-                         "ignores candidate/reference.")
-    p.add_argument("--roi", type=str, default=None,
-                    help="Grayscale PNG restricting the diff to pixels > 127 "
-                         "(resized nearest-neighbour to the reference's dims).")
+    p.add_argument(
+        "--source-primaries",
+        choices=("srgb", "p3"),
+        default="srgb",
+        help="Primaries the candidate was rendered in (#1339). "
+        "'p3' rotates it to sRGB primaries before diffing "
+        "against the (always-sRGB) ACR reference.",
+    )
+    p.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run the synthetic P3-rotation self-test and exit; "
+        "ignores candidate/reference.",
+    )
+    p.add_argument(
+        "--roi",
+        type=str,
+        default=None,
+        help="Grayscale PNG restricting the diff to pixels > 127 "
+        "(resized nearest-neighbour to the reference's dims).",
+    )
     args = p.parse_args()
     if args.self_test:
         return _self_test()
     if not args.candidate or not args.reference:
         p.error("candidate and reference are required unless --self-test is set")
     try:
-        out = diff(args.candidate, args.reference, zones=args.zones,
-                   hue_bins=args.hue_bins, source_primaries=args.source_primaries,
-                   roi_path=args.roi)
+        out = diff(
+            args.candidate,
+            args.reference,
+            zones=args.zones,
+            hue_bins=args.hue_bins,
+            source_primaries=args.source_primaries,
+            roi_path=args.roi,
+        )
     except Exception as e:  # noqa: BLE001 — CLI surfaces error as JSON
         print(json.dumps({"error": str(e)}))
         return 2

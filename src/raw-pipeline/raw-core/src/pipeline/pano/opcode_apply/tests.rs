@@ -236,12 +236,15 @@ fn warp_per_plane_sets_act_per_channel() {
     };
     apply_warp_rectilinear(&mut img, &warp, ActiveAreaRect::full(w, h), 1.0, 1.0);
     // Column 4 (center 16.5): R sampled at 16.5 + (4-16.5)*0.9 =
-    // 5.25 → 5.25; G/B stay 4.
+    // 5.25. The A=-0.75 cubic weights at phase 0.25 are
+    // [-27, 225, 67, -9]/256 over columns [4, 5, 6, 7], giving
+    // 5.296875 (this kernel does not reproduce linear ramps exactly).
+    // G/B remain at their integer identity positions, column 4.
     let px = img.pixels[4 * w as usize + 4];
     assert!((px[1] - 4.0).abs() < 1e-5, "G identity, got {}", px[1]);
     assert!((px[2] - 4.0).abs() < 1e-5, "B identity, got {}", px[2]);
     assert!(
-        (px[0] - 5.25).abs() < 1e-4,
+        (px[0] - 5.296875).abs() < 1e-4,
         "R from the 0.9 set, got {}",
         px[0]
     );
@@ -422,8 +425,14 @@ fn scale_active_area_halves_a_full_width_rect_to_fit_the_preview_buffer() {
     let scaled = scale_active_area(aa, 0.5, buf_w, buf_h);
     assert_eq!(scaled.left, 0);
     assert_eq!(scaled.top, 0);
-    assert_eq!(scaled.width, buf_w, "must reach the buffer's right edge exactly");
-    assert_eq!(scaled.height, buf_h, "must reach the buffer's bottom edge exactly");
+    assert_eq!(
+        scaled.width, buf_w,
+        "must reach the buffer's right edge exactly"
+    );
+    assert_eq!(
+        scaled.height, buf_h,
+        "must reach the buffer's bottom edge exactly"
+    );
     assert!(
         scaled.left + scaled.width <= buf_w,
         "scaled rect must fit the buffer width"
