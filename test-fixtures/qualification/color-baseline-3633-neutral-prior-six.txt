@@ -1,0 +1,82 @@
+test_color_pipeline: using caller-provided MAPLE_CLI=/tmp/maple-3633-neutral-prior-cli (no rebuild)
+test_color_pipeline: KEEP_TMP set — candidates in /var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.ogivjUgfdM
+test_color_pipeline: manifest=/tmp/maple-3633-baseline-manifest.json
+test_color_pipeline: preferred_resolution=down
+test_color_pipeline: reference protocols: baseline = matched native Lanczos; other cases = legacy (#3678)
+test_color_pipeline: filter=baseline
+
+test_color_pipeline: rendering candidates (neutral) ...
+  ok  test_0000/baseline
+  ok  test_0007/baseline
+  ok  test_0017/baseline
+  batch complete: 3 ok, 0 failed
+
+test_color_pipeline: rendering candidates (auto) ...
+  ok  test_0000/baseline
+  ok  test_0007/baseline
+  ok  test_0017/baseline
+  batch complete: 3 ok, 0 failed
+
+test_color_pipeline: diffing neutral candidates vs ACR ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+# reference protocol test_0000/baseline: baseline-native-pair-lanczos
+PASS test_0000    baseline                  10.67M    5.75   9.42  35.62   +0.0127  +0.0148  +0.0170
+# reference protocol test_0007/baseline: baseline-native-pair-lanczos
+PASS test_0007    baseline                  10.67M    4.84   8.08  43.73   +0.0114  +0.0164  +0.0251
+# reference protocol test_0017/baseline: baseline-native-pair-lanczos
+PASS test_0017    baseline                  10.67M    5.96  10.65  30.81   -0.0346  -0.0051  +0.0261
+----------------------------------------------------------------------------------------------------
+     test_0000    (1 cases)                      -    5.75      -      -   +0.0127  +0.0148  +0.0170
+     test_0007    (1 cases)                      -    4.84      -      -   +0.0114  +0.0164  +0.0251
+     test_0017    (1 cases)                      -    5.96      -      -   -0.0346  -0.0051  +0.0261
+====================================================================================================
+     GRAND        (3 cases)                      -    5.52      -      -   -0.0035  +0.0087  +0.0227
+
+# Reading the bias columns:
+#   bR/bG/bB are mean (candidate - reference) per channel in [0,1] sRGB-encoded units.
+#   Positive = Maple has too much of that channel. Negative = too little.
+#   Systematic bias (same sign across all fixtures) -> a calibration target.
+#   Cast that grows with exposure_max -> AgX gain. Only on wb_* -> WB delta logic.
+#   Cast on baseline only -> DCP / forward-matrix.
+# stats: 3 compared, 0 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+{"compared": 3, "breaches": 0, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": 5.516997519843218, "grand_bias_r": -0.0034796474501490593, "grand_bias_g": 0.008701931529988846, "grand_bias_b": 0.02272590436041355}
+
+test_color_pipeline: diffing auto candidates vs ACR ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+# reference protocol test_0000/baseline: baseline-native-pair-lanczos
+PASS test_0000    baseline_auto             10.67M    2.93   5.63  31.28   +0.0044  +0.0109  +0.0116
+# reference protocol test_0007/baseline: baseline-native-pair-lanczos
+PASS test_0007    baseline_auto             10.67M    1.61   3.41  38.55   -0.0109  -0.0092  -0.0050
+# reference protocol test_0017/baseline: baseline-native-pair-lanczos
+PASS test_0017    baseline_auto             10.67M    4.97   8.32  33.17   +0.0202  +0.0218  -0.0016
+----------------------------------------------------------------------------------------------------
+     test_0000    (1 cases)                      -    2.93      -      -   +0.0044  +0.0109  +0.0116
+     test_0007    (1 cases)                      -    1.61      -      -   -0.0109  -0.0092  -0.0050
+     test_0017    (1 cases)                      -    4.97      -      -   +0.0202  +0.0218  -0.0016
+====================================================================================================
+     GRAND        (3 cases)                      -    3.17      -      -   +0.0045  +0.0078  +0.0017
+
+# stats: 3 compared, 0 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+{"profile": "auto", "compared": 3, "breaches": 0, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": 3.170067070234506}
+
+test_color_pipeline: diffing sharpen/NR candidates vs ACR (full-res, #1936) ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
+# stats: 0 compared, 0 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+# note: no sharpen/nr manifest cases match the filter — detail pass is vacuous (case-level FILTER); the neutral pass above is the gate.
+{"profile": "detail-fullres", "compared": 0, "breaches": 0, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": null}
+
+test_color_pipeline: batch exits: neutral=0 auto=0; diff passes: neutral=0 auto=0 detail=0
+qualification: executed=6 failed=0 skipped=0
