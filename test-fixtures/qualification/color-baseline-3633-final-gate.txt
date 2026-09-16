@@ -1,9 +1,8 @@
-test_color_pipeline: using caller-provided MAPLE_CLI=/tmp/maple-3633-neutral-prior-cli (no rebuild)
-test_color_pipeline: KEEP_TMP set — candidates in /var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.RERPlLRXpG
+test_color_pipeline: using caller-provided MAPLE_CLI=/Users/riabuz/Projects/Maple-color-baselines/src/raw-pipeline/target/release/maple-cli (no rebuild)
+test_color_pipeline: KEEP_TMP set — candidates in /var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.focjKALdb2
 test_color_pipeline: manifest=/tmp/maple-3633-all-baselines.json
 test_color_pipeline: preferred_resolution=down
 test_color_pipeline: reference protocols: baseline = matched native Lanczos; other cases = legacy (#3678)
-test_color_pipeline: filter=baseline
 
 test_color_pipeline: rendering candidates (neutral) ...
   ok  test_0000/baseline

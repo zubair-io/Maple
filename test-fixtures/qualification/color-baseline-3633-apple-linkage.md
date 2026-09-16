@@ -1,7 +1,7 @@
 # Apple sidecar qualification linkage — #3633
 
-Candidate: `ac1431903278619507a6342e293feb4e7095c2ae`, pipeline version 6.
-Recorded at `2026-09-16T02:06:20Z`: **12 executed, 0 failed, 0 skipped**.
+Candidate: `fe3df490175fec39e0fa41b4817ac617cfd4d47b`, pipeline version 6.
+Recorded at `2026-09-16T02:46:02Z`: **12 executed, 0 failed, 0 skipped**.
 This qualifies the macOS host sidecar contract; it is not iOS or UI qualification.
 
 ## Fresh native build and staging
@@ -24,7 +24,7 @@ and staged the generated header in that slice's `Headers` directory and
 qualification archive, not a newly built universal or iOS framework.
 
 Archive SHA256 (also verified against SwiftPM's copied debug archive):
-`0dc2c489df437154202ccccaa9cbf61096037e67d46ff8d1d454518716b0f5f3`.
+`e5829cbeb8ce306cee21172e34f44675bddf750956f26a230788a4692daf4e4b`.
 
 ## Force and verify relinking
 
@@ -42,9 +42,9 @@ CARGO_BUILD_JOBS=4 bash tools/qualification/record.sh sidecar_contract_apple xct
 
 The accepted run reported `[14/15] Linking MapleCorePackageTests` and then
 12 passing tests with no skips. Executable modification time was
-`2026-09-15 22:06:09 America/New_York`, after the fresh archive was staged.
+`2026-09-15 22:45:44 America/New_York`, after the fresh archive was staged.
 Executable SHA256:
-`422aa3acb36230ef8bc95bcf22b9da0f7e8cb919389f3e73ce63b24db0bc4e45`.
+`79466bbddcfd40b3dcae3efe62dd400643b2091d7148f2ccc60a60e879bda78d`.
 
 `Package.resolved` remained unchanged, SHA256:
 `d36b54409779cad88f5de5f5182477f96ffc00b800d93770947fe0ebba36920b`.

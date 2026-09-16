@@ -13,13 +13,14 @@ nonbaseline comparisons retain their prior protocol pending #3678.
 - The original six photo comparisons pass. The full installed baseline set
   finishes **39 passed, one failed, zero skipped**, including all twenty Auto
   cases. Parent #3633 remains open for the pre-existing Sony 0011 Neutral bias.
-- Perceptual run source: d9e570ace. The final production source ac1431903 changes
-  only the sampler's loop implementation afterward; identical f32 scene
-  fingerprints are verified at 1600, 2048 and native 12288×8192. All 2,399 core
-  tests pass, with 92 existing ignored tests.
+- Final perceptual run source: fe3df4901, including the physical ActiveArea
+  correction found in independent review. The fresh 40-case run again finishes
+  **39 passed, one failed, zero skipped**. All 40 candidate PNGs are byte-identical
+  to d9e570ace; the new six-case synthetic boundary suite supplies coverage the
+  camera corpus lacks. All **2,405 core tests pass**, with 92 existing ignored.
 - Final Metal, synthetic and host sidecar evidence is recorded alongside this
   report. These checks do not qualify iOS UI, browser hardware or slider timing.
-- Measured sized preparation cost remains +68–86 ms versus main on the 100MP
+- Prior ac1431903 sized preparation measurements showed +68–86 ms versus main on the 100MP
   Bayer fixture after eliminating the compiler's extra per-pixel calls.
   See color-baseline-3633-final-performance.json for paired runs and limitations.
 

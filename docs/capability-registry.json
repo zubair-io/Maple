@@ -749,8 +749,8 @@
         "executed_cases": 41,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ac1431903278619507a6342e293feb4e7095c2ae",
-        "recorded_at": "2026-09-16T02:07:31Z",
+        "git_sha": "fe3df490175fec39e0fa41b4817ac617cfd4d47b",
+        "recorded_at": "2026-09-16T02:47:02Z",
         "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
@@ -772,8 +772,8 @@
         "executed_cases": 6,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ac1431903278619507a6342e293feb4e7095c2ae",
-        "recorded_at": "2026-09-16T02:07:24Z",
+        "git_sha": "fe3df490175fec39e0fa41b4817ac617cfd4d47b",
+        "recorded_at": "2026-09-16T02:46:54Z",
         "command": "bash src/scripts/test_synthetic_grey.sh"
       }
     },
@@ -795,8 +795,8 @@
         "executed_cases": 5,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ac1431903278619507a6342e293feb4e7095c2ae",
-        "recorded_at": "2026-09-16T02:07:33Z",
+        "git_sha": "fe3df490175fec39e0fa41b4817ac617cfd4d47b",
+        "recorded_at": "2026-09-16T02:47:03Z",
         "command": "bash src/scripts/test_grey_dcp.sh"
       }
     },
@@ -818,8 +818,8 @@
         "executed_cases": 7,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ac1431903278619507a6342e293feb4e7095c2ae",
-        "recorded_at": "2026-09-16T02:07:35Z",
+        "git_sha": "fe3df490175fec39e0fa41b4817ac617cfd4d47b",
+        "recorded_at": "2026-09-16T02:47:05Z",
         "command": "bash src/scripts/test_synthetic_color_chart.sh"
       }
     },
@@ -858,8 +858,8 @@
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ac1431903278619507a6342e293feb4e7095c2ae",
-        "recorded_at": "2026-09-16T02:06:20Z",
+        "git_sha": "fe3df490175fec39e0fa41b4817ac617cfd4d47b",
+        "recorded_at": "2026-09-16T02:46:02Z",
         "command": "swift test --package-path src/apple/Packages/MapleCore --disable-automatic-resolution --jobs 4 --filter SidecarTransactionContract"
       }
     },
@@ -881,8 +881,8 @@
         "executed_cases": 3,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ac1431903278619507a6342e293feb4e7095c2ae",
-        "recorded_at": "2026-09-16T02:08:31Z",
+        "git_sha": "fe3df490175fec39e0fa41b4817ac617cfd4d47b",
+        "recorded_at": "2026-09-16T02:44:28Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
@@ -912,19 +912,19 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:683a117cb09bb97701007f3daf63a0e71c93dacc2c15c3e11a8ac38bd448ed93",
+      "corpus_hash": "blake3:8610605ad0a9cc0cdf00fa72ec56236d5de523c17cb68603519993b869ba8728",
       "status": "satisfied",
       "record": {
         "backend": "metal",
         "pipeline_version": 6,
         "schema_version": 5,
-        "corpus_hash": "blake3:683a117cb09bb97701007f3daf63a0e71c93dacc2c15c3e11a8ac38bd448ed93",
+        "corpus_hash": "blake3:8610605ad0a9cc0cdf00fa72ec56236d5de523c17cb68603519993b869ba8728",
         "expected_cases": 18,
         "executed_cases": 18,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "ac1431903278619507a6342e293feb4e7095c2ae",
-        "recorded_at": "2026-09-16T02:07:21Z",
+        "git_sha": "fe3df490175fec39e0fa41b4817ac617cfd4d47b",
+        "recorded_at": "2026-09-16T02:46:48Z",
         "command": "env MAPLE_REQUIRE_GPU=1 bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ cargo\\ test\\ --locked\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render\\ --\\ --test-threads=1\\ --nocapture"
       }
     },

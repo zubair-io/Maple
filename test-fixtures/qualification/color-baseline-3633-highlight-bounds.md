@@ -35,6 +35,17 @@ introduced. Unbounded radiance and unchanged known-channel rules are preserved.
 
 The regression proves the estimator no longer reads masked-border samples. It
 does not claim that demosaic itself is independent of optical-black borders.
-Original files, references and numeric budgets remain unchanged. The previous
-ac1431903 platform records and d9e570ace perceptual run precede this correction;
-refreshed qualification is required before merging it.
+Original files, references and numeric budgets remain unchanged. The correction is committed as `fe3df490175fec39e0fa41b4817ac617cfd4d47b`.
+All forty freshly rendered baseline PNGs are byte-identical to the prior
+d9e570ace candidates; hashes are retained in the adjacent bounds-candidate-hashes
+JSON. This corpus does not expose the sensor-border regression; the executed
+synthetic regression is therefore essential evidence. The refreshed 40-case perceptual gate again reports **39 passed, one pre-existing
+Sony Neutral failure, zero skips**. Final-source records pass all 18 Metal,
+59 synthetic color, 12 freshly linked Apple host sidecar and three API sidecar
+cases, with zero failed or skipped cases. These do not qualify iOS UI, browser
+hardware, or slider performance.
+
+The expanded Metal opcode parity case uses physical ActiveArea `(8,8,48,48)`
+and smaller DefaultCrop `(10,10,44,44)`. Both HR-Off and ChromaticAdaptation
+outputs match the CPU byte-for-byte (44×44 pixels); the full-image variants
+remain within one LSB. This tests shared preparation reaching the GPU binding.
