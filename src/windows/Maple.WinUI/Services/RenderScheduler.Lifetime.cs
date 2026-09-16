@@ -22,6 +22,7 @@ namespace Maple.WinUI.Services
             Volatile.Write(ref _presentPending, 1);
             if (!queue.TryEnqueue(() =>
             {
+                Volatile.Write(ref _presentPending, 0);
                 try
                 {
                     lock (_gate)
