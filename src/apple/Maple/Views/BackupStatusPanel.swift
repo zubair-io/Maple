@@ -46,19 +46,7 @@ struct BackupStatusPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      if let address = EngineHost.shared.uploadAddress {
-        Label(
-          EngineHost.shared.usesLocalAddress ? "Local network" : "Server connection",
-          systemImage: "network")
-        Text(address.absoluteString)
-          .font(.caption)
-          .textSelection(.enabled)
-          .accessibilityIdentifier("backup.connection.address")
-      }
-      // Run-state row — the PRIMARY fix for "the panel never tells me whether
-      // backup is running". Reads `progress.phase`, which `EngineHost` drives
-      // through the real engine lifecycle (Stopped / Running / Paused /
-      // Restarting…). `@Observable` makes this update reactively.
+      // One row communicates both run state and connection route.
       statusRow
 
       // Surface engine-startup failures right at the top. Without this,
@@ -246,29 +234,39 @@ struct BackupStatusPanel: View {
 
   // MARK: - Status row
 
-  /// Prominent run-state row at the top of the panel. The dot + label make the
-  /// current phase legible at a glance; the whole row carries a single
-  /// accessibility label ("Backup status: Running") so UI tests and
-  /// VoiceOver can read the phase directly.
+  /// The connection glyph replaces the run-state dot. VoiceOver and help
+  /// describe the route explicitly so color is never the only signal.
   @ViewBuilder
   private var statusRow: some View {
     HStack(spacing: 8) {
-      Circle()
-        .fill(statusColor)
-        .frame(width: 10, height: 10)
+      Image(
+        systemName: EngineHost.shared.usesLocalAddress
+          ? "point.3.connected.trianglepath.dotted" : "network"
+      )
+      .font(.headline)
+      .foregroundStyle(statusColor)
+      .frame(width: 20)
+      .accessibilityHidden(true)
       Text(progress.phase.label)
         .font(.headline)
       Spacer()
     }
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Backup status: \(progress.phase.label)")
+    .accessibilityLabel("Backup status: \(progress.phase.label). \(connectionLabel)")
+    .help(connectionLabel)
     .accessibilityIdentifier("backup.status.phase")
+  }
+
+  private var connectionLabel: String {
+    guard EngineHost.shared.uploadAddress != nil else { return "Connection not established" }
+    let route = EngineHost.shared.usesLocalAddress ? "Local network" : "Internet connection"
+    return progress.phase == .stopped ? "Last connection: \(route)" : route
   }
 
   private var statusColor: Color {
     switch progress.phase {
-    case .running: return .green
-    case .starting: return .blue
+    case .running: return EngineHost.shared.usesLocalAddress ? .green : .orange
+    case .starting: return .orange
     case .stopped: return .secondary
     }
   }
