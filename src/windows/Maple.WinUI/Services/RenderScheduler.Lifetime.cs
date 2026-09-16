@@ -78,7 +78,7 @@ namespace Maple.WinUI.Services
 
         internal bool IsStopped
         {
-            get { lock (_gate) return _stopTask?.IsCompletedSuccessfully == true &&
+            get { lock (_gate) return _stopTask?.IsCompleted == true &&
                 !_gpuSessionOpen && !_gpuSessionHalfOpen && _panelNative == IntPtr.Zero; }
         }
 
