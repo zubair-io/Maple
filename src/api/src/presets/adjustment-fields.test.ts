@@ -1,13 +1,7 @@
 /**
- * Golden gate: the API's known-field validation table
- * (`adjustment-fields.ts`) must agree exactly with the codegen-generated
- * web module. Same convention as the tools/codegen.sh drift gate — one
- * canonical source (raw_core::types::ADJUSTMENT_SCHEMA), mirrors that are
- * test-pinned so they cannot drift.
- *
- * The import below reaches across the monorepo INTO src/web at TEST time
- * only — the API runtime never does this (the Docker image ships without
- * web sources), which is exactly why the runtime table is mirrored here.
+ * Cross-target contract: generated API preset validation tables agree exactly
+ * with the generated web model/ranges. Web imports are test-only; production
+ * API images contain only the generated API output.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -16,7 +10,7 @@ import { defaultGeneratedAdjustmentModel } from '../../../web/projects/maple-com
 // adjustment-model.generated.ts to keep both generated files well under
 // the file-size budget as the schema grows).
 import { ADJUSTMENT_RANGES } from '../../../web/projects/maple-common/src/lib/generated/adjustment-tables.generated.ts';
-import { NUMERIC_FIELD_RANGES, STRING_FIELDS } from './adjustment-fields.ts';
+import { allowsEmptyString, NUMERIC_FIELD_RANGES, STRING_FIELDS } from './adjustment-fields.ts';
 
 /** camelCase → snake_case, the mechanical mapping between the generated
  * TS property names and the canonical schema names (Apple's generated
@@ -26,6 +20,14 @@ function camelToSnake(name: string): string {
 }
 
 describe('adjustment-fields golden gate (vs generated web module)', () => {
+  it('only free-form strings permit empty values', () => {
+    expect([...STRING_FIELDS].filter(allowsEmptyString).sort()).toEqual([
+      'film_look',
+      'lens_profile',
+    ]);
+    expect(allowsEmptyString('unknown_field')).toBe(false);
+  });
+
   it('numeric field names + ranges match ADJUSTMENT_RANGES exactly', () => {
     const expected = Object.fromEntries(
       Object.entries(ADJUSTMENT_RANGES).map(([k, range]) => [camelToSnake(k), [...range]]),
