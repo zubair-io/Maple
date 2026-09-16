@@ -69,9 +69,15 @@ pub(super) fn sample<const N: usize>(
         let p3 = src[offset + xs[3]];
         // Cubic weights sum to one. Difference form preserves a constant
         // field exactly and avoids the full sixteen-tap 2D accumulation.
-        channels.map(|c| {
-            p1[c] + (p0[c] - p1[c]) * wx[0] + (p2[c] - p1[c]) * wx[2] + (p3[c] - p1[c]) * wx[3]
-        })
+        // Keep this fixed-size channel loop inline. Nested array::map can
+        // leave four non-inlined try_map calls per pixel in release builds.
+        let mut row = [0.0; N];
+        for i in 0..N {
+            let c = channels[i];
+            row[i] =
+                p1[c] + (p0[c] - p1[c]) * wx[0] + (p2[c] - p1[c]) * wx[2] + (p3[c] - p1[c]) * wx[3];
+        }
+        row
     });
     std::array::from_fn(|c| {
         rows[1][c]
