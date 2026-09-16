@@ -116,18 +116,15 @@ public final class BackupProgressViewModel {
   public private(set) var lastWalkSummary: WalkSummary?
 
   /// Live phase of the PhotoKit walk that seeds the queue (#3386). The
-  /// walk enumerates the library, pulls the server's known-asset list,
-  /// then hashes every remaining candidate and asks the server which it
-  /// lacks — minutes on a large library, during which the queue is still
-  /// empty. Without this the panel sat on Running / "No photos queued" for
-  /// the whole scan, indistinguishable from a wedged engine.
+  /// walk enumerates the library, checks server metadata, and queues new
+  /// candidates in batches while the upload workers continue running.
   public enum WalkPhase: Sendable, Hashable {
     /// No walk in flight.
     case idle
     /// Enumerating `PHAsset`s and fetching the server's known-asset list.
     case enumerating
     case checkingServer
-    /// Content-hashing candidates and checking them against the server.
+    /// Persisting and queueing candidates in batches.
     case reconciling(checked: Int, total: Int)
     /// The walk gave up before seeding the queue; the reason is shown
     /// verbatim so the user isn't left guessing.
@@ -194,6 +191,16 @@ public final class BackupProgressViewModel {
   public private(set) var pendingPhotoIDs: Set<String> = []
 
   private var completedPhotoIDs: Set<String> = []
+  private var libraryPhotoIDs: Set<String>?
+  private var backedUpPhotoIDs: Set<String> = []
+
+  /// Reconcile the eligible library with durable local/server backup records.
+  /// Include completions received while the scan was suspended, once each.
+  public func recordLibrarySnapshot(photoIDs: Set<String>, backedUpIDs: Set<String>) {
+    libraryPhotoIDs = photoIDs
+    backedUpPhotoIDs = backedUpIDs.union(completedPhotoIDs).intersection(photoIDs)
+  }
+
   public func setPendingPhotoIDs(_ ids: Set<String>) {
     pendingPhotoIDs = ids.subtracting(completedPhotoIDs)
   }
@@ -218,6 +225,8 @@ public final class BackupProgressViewModel {
     seenEnqueued.removeAll()
     pendingPhotoIDs.removeAll()
     completedPhotoIDs.removeAll()
+    libraryPhotoIDs = nil
+    backedUpPhotoIDs.removeAll()
     totalEnqueued = 0
     totalCompleted = 0
     totalFailed = 0
@@ -281,6 +290,10 @@ public final class BackupProgressViewModel {
   /// the backup is complete, not merely never-started (#3097). Any
   /// `.enqueued` event (a new capture) flips this back to the counting path.
   public var isAllBackedUp: Bool {
+    if let libraryPhotoIDs {
+      return !libraryPhotoIDs.isEmpty && backedUpPhotoIDs.count == libraryPhotoIDs.count
+        && totalFailed == 0
+    }
     guard totalEnqueued == 0, let summary = lastWalkSummary else { return false }
     return summary.enqueued == 0 && summary.enumerated > 0 && summary.failedPermanently == 0
       && totalFailed == 0
@@ -320,6 +333,10 @@ public final class BackupProgressViewModel {
   /// A completed backup ("all backed up") renders a full bar.
   public var fractionDone: Double {
     if isAllBackedUp { return 1.0 }
+    if let libraryPhotoIDs {
+      guard !libraryPhotoIDs.isEmpty else { return 0 }
+      return Double(backedUpPhotoIDs.count) / Double(libraryPhotoIDs.count)
+    }
     guard totalEnqueued > 0 else { return 0 }
     return min(1.0, Double(totalCompleted) / Double(totalEnqueued))
   }
@@ -328,8 +345,12 @@ public final class BackupProgressViewModel {
   /// last walk confirmed the library is fully backed up, say so instead of
   /// the cold-start "No photos queued" (#3097).
   public var progressLabel: String {
-    if isAllBackedUp, let summary = lastWalkSummary {
-      return "All photos backed up · \(summary.enumerated.formatted()) photos"
+    if isAllBackedUp, let total = libraryPhotoIDs?.count ?? lastWalkSummary?.enumerated {
+      return "All photos backed up · \(total.formatted()) photos"
+    }
+    if let libraryPhotoIDs {
+      return
+        "\(backedUpPhotoIDs.count.formatted()) of \(libraryPhotoIDs.count.formatted()) photos backed up"
     }
     if totalEnqueued == 0 {
       if let failures = lastWalkSummary?.failedPermanently, failures > 0 {
@@ -338,7 +359,7 @@ public final class BackupProgressViewModel {
       if phase == .starting || walkPhase != .idle { return "Finding photos to back up…" }
       return "No photos queued"
     }
-    return "\(totalCompleted.formatted()) of \(totalEnqueued.formatted()) photos"
+    return "\(totalCompleted.formatted()) of \(totalEnqueued.formatted()) uploads this run"
   }
 
   /// Human-readable throughput line, e.g. "12.4 MB/s · 84 photos/min", or nil
@@ -367,6 +388,7 @@ public final class BackupProgressViewModel {
     switch event {
     case .drained: break
     case .enqueued(let task):
+      libraryPhotoIDs?.insert(task.id.phassetLocalId)
       pendingPhotoIDs.insert(task.id.phassetLocalId)
       if seenEnqueued.insert(task.id).inserted {
         totalEnqueued += 1
@@ -391,6 +413,9 @@ public final class BackupProgressViewModel {
       republishThroughput()
     case .completed(let id, let mapleId):
       pendingPhotoIDs.remove(id.phassetLocalId)
+      if libraryPhotoIDs?.contains(id.phassetLocalId) == true {
+        backedUpPhotoIDs.insert(id.phassetLocalId)
+      }
       guard completedPhotoIDs.insert(id.phassetLocalId).inserted else { return }
       inFlight.removeAll { $0.id == id }
       totalCompleted += 1
