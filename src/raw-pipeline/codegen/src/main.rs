@@ -1,7 +1,9 @@
 //! Cross-platform codegen for raw-core canonical schemas.
 //!
-//! Two schemas today:
+//! Schemas include:
 //!
+//! - `color-labels` (`raw_core::color_labels::COLOR_LABELS`) — culling XMP
+//!   wire values for Swift, API/Web TypeScript and Windows C#.
 //! - `adjustment` (`raw_core::types::ADJUSTMENT_SCHEMA`, ticket #118) — slider
 //!   range constants, the canonical field-name enum, the TS interface, and
 //!   the TS default factory. Swift defaults stay hand-written in
@@ -36,6 +38,7 @@ mod adjustment_ts_enums;
 mod batch_transfer_contract;
 mod capability_registry;
 mod capability_summary;
+mod color_labels;
 mod color_matrices;
 mod export_recipe;
 mod film_catalog;
@@ -93,6 +96,8 @@ enum Target {
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
 enum Schema {
+    /// Culling metadata XMP vocabulary, with no pixel-processing behavior.
+    ColorLabels,
     ExportRecipe,
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
     /// TS interface + default factory.
@@ -169,6 +174,13 @@ fn load_evidence(cli: &Cli) -> Evidence {
 fn main() {
     let cli = Cli::parse();
     let out = match (cli.schema, cli.target) {
+        (Schema::ColorLabels, Target::Swift) => color_labels::emit_swift(),
+        (Schema::ColorLabels, Target::Ts) => color_labels::emit_ts(),
+        (Schema::ColorLabels, Target::Cs) => color_labels::emit_cs(),
+        (Schema::ColorLabels, _) => {
+            eprintln!("color-labels supports swift / ts / cs");
+            std::process::exit(2);
+        }
         (Schema::ExportRecipe, Target::Ts) => export_recipe::emit_ts(),
         (Schema::ExportRecipe, Target::Swift) => export_recipe::emit_swift(),
         (Schema::ExportRecipe, Target::Cs) => export_recipe::emit_cs(),

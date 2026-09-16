@@ -260,6 +260,7 @@
          Temp/Tint slider and AUTO paths, which live in view-model files
          this project cannot link. -->
     <Compile Include="..\Maple.WinUI\Generated\WhiteBalancePresets.g.cs" LinkBase="Generated" />
+    <Compile Include="..\Maple.WinUI\Generated\ColorLabelVocabulary.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Models\WhiteBalanceProvenance.cs" LinkBase="Models" />
     <!-- The eyedropper (#2434): `Services\WhiteBalanceSampler.cs` is the
          probe-sidecar + raw-ffi call + return-code→message seam (System.IO,
