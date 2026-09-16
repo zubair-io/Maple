@@ -159,7 +159,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             }
         });
     }
-    dump_after("01_baseline_exposure", &camera_rgb);
+    dump_after("00a_baseline_exposure", &camera_rgb);
 
     // DNG WB pre-gain per spec § 1.4.4.5 step 4: divide camera RGB by
     // AsShotNeutral so a neutral scene patch reads as (1, 1, 1) going into
@@ -202,7 +202,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             ),
         )
     });
-    dump_after("02_highlight_recovery", &camera_rgb);
+    dump_after("00b_highlight_recovery", &camera_rgb);
 
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
@@ -229,7 +229,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
                 crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(model),
             );
         });
-        dump_after("00a_opcode_list3", &camera_rgb);
+        dump_after("01a_opcode_list3", &camera_rgb);
     } else if crate::lens_profile::applies(raw, model) {
         let scale = 1.0 / effective_quality_divisor(quality, raw.cfa) as f32;
         stage("lcp_correction", || {
@@ -259,7 +259,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         // No-op (degenerate rect or full-coverage): keep camera_rgb as-is;
         // crop_to_default returns None instead of cloning the buffer.
     }
-    dump_after("00b_crop_to_default", &camera_rgb);
+    dump_after("01b_crop_to_default", &camera_rgb);
 
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
