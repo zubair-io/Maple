@@ -753,8 +753,8 @@
         "symbol": "normalizeExif",
         "line": 193
       },
-      "disposition": "false positive",
-      "reason": "Explicit named import in rename-reconcile.test.ts exercises this export; production-only reachability excludes a real test contract.",
+      "disposition": "requiring runtime evidence",
+      "reason": "The test imports the module namespace but only spies on readExif; no normalizeExif caller is demonstrated. Preserve the function pending consumer-contract evidence; an unused export modifier does not prove its body is unused internally.",
       "evidence": {
         "trace": {
           "file": "src/indexer/exif.ts",
@@ -4592,7 +4592,7 @@
         "line_count": 9
       },
       "disposition": "intentional checked duplicate",
-      "reason": "XMP read/write both authorize the path via the existing shared helper; atomic write/read semantics differ afterwards."
+      "reason": "XMP GET and DELETE both authorize the path via the existing shared helper; reading the sidecar and deleting it have distinct semantics afterwards."
     },
     {
       "kind": "duplication",
