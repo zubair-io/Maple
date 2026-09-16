@@ -53,6 +53,8 @@ pub(super) struct TileAnchors {
     pub window: TileWindow,
     /// Requested inner rect, relative to the padded developed buffer.
     pub inner: (u32, u32, u32, u32),
+    /// Physical sensor ActiveArea translated into the padded demosaic buffer.
+    pub active_area: Option<crate::image::CropRect>,
 }
 
 pub(super) struct DevelopedTile {
@@ -120,6 +122,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         ae_gain,
         window,
         mut inner,
+        active_area,
     } = anchors;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -172,11 +175,12 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
     });
     stage("tile_highlight_recovery", || {
-        highlight_recovery::apply(
+        highlight_recovery::apply_in_region(
             &mut camera_rgb,
             model.highlight_recovery,
             raw.as_shot_neutral,
             raw.baseline_exposure,
+            active_area,
         )
     });
     let (profile, profile_source) =

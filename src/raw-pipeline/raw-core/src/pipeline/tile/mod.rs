@@ -235,6 +235,24 @@ fn develop_tile_oriented_f32(
         s_w / divisor,
         s_h / divisor,
     );
+    let active_area = crate::pipeline::develop::highlight_active_area(raw, divisor).map(|area| {
+        let x = area.x.saturating_sub(rx / divisor);
+        let y = area.y.saturating_sub(ry / divisor);
+        crate::image::CropRect {
+            x,
+            y,
+            w: area
+                .x
+                .saturating_add(area.w)
+                .saturating_sub(rx / divisor)
+                .saturating_sub(x),
+            h: area
+                .y
+                .saturating_add(area.h)
+                .saturating_sub(ry / divisor)
+                .saturating_sub(y),
+        }
+    });
     let developed = develop_scene_linear_from_padded_mosaic(
         &mosaic,
         raw,
@@ -245,6 +263,7 @@ fn develop_tile_oriented_f32(
             ae_gain,
             window,
             inner,
+            active_area,
         },
     )?;
 

@@ -25,7 +25,7 @@
 //! returns before allocating the mask.
 
 use crate::{
-    image::{ColorSpace, Image},
+    image::{ColorSpace, CropRect, Image},
     xmp::HighlightRecoveryMode,
 };
 
@@ -53,6 +53,19 @@ pub fn apply(
     as_shot_neutral: [f32; 3],
     baseline_exposure: f32,
 ) {
+    apply_in_region(img, mode, as_shot_neutral, baseline_exposure, None);
+}
+
+/// Restrict both targets and witnesses to the physical sensor ActiveArea.
+/// The bounds are in this image's coordinates, before warp or DefaultCrop.
+/// Pixels outside the region are preserved and cannot supply scene evidence.
+pub(crate) fn apply_in_region(
+    img: &mut Image,
+    mode: HighlightRecoveryMode,
+    as_shot_neutral: [f32; 3],
+    baseline_exposure: f32,
+    active_area: Option<CropRect>,
+) {
     img.assert_space(ColorSpace::CameraNativeLinearRgb);
     match mode {
         HighlightRecoveryMode::Off => {}
@@ -61,10 +74,10 @@ pub fn apply(
             // get the new chromatic-adaptation behavior. The old code paths
             // produced the magenta cast that motivated this rewrite (see
             // module-level comment) — silently upgrading is the right call.
-            apply_chromatic_adaptation(img, as_shot_neutral, baseline_exposure);
+            apply_chromatic_adaptation(img, as_shot_neutral, baseline_exposure, active_area);
         }
         HighlightRecoveryMode::ChromaticAdaptation => {
-            apply_chromatic_adaptation(img, as_shot_neutral, baseline_exposure);
+            apply_chromatic_adaptation(img, as_shot_neutral, baseline_exposure, active_area);
         }
         HighlightRecoveryMode::OklabChromaReduction => {
             // Ticket #471: this variant runs POST-DCP in scene-linear
@@ -99,12 +112,27 @@ fn baseline_gain(baseline_exposure: f32) -> f32 {
 }
 
 /// Path C — chromatic-adaptation highlight reconstruction. See module comment.
-fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_exposure: f32) {
+fn apply_chromatic_adaptation(
+    img: &mut Image,
+    neutral: [f32; 3],
+    baseline_exposure: f32,
+    active_area: Option<CropRect>,
+) {
     let w = img.width as i32;
     let h = img.height as i32;
     if w == 0 || h == 0 {
         return;
     }
+    let region = active_area.unwrap_or(CropRect {
+        x: 0,
+        y: 0,
+        w: img.width,
+        h: img.height,
+    });
+    let left = region.x.min(img.width) as i32;
+    let top = region.y.min(img.height) as i32;
+    let right = region.x.saturating_add(region.w).min(img.width) as i32;
+    let bottom = region.y.saturating_add(region.h).min(img.height) as i32;
     let ceil = ceilings(neutral, baseline_exposure);
     let gain = baseline_gain(baseline_exposure);
     let margin = EPSILON * gain;
@@ -147,8 +175,8 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
     // remain excluded. Every accepted witness is therefore still original.
 
     // Pass 2: reconstruct each clipped pixel.
-    for y in 0..h {
-        for x in 0..w {
+    for y in top..bottom {
+        for x in left..right {
             let idx = (y * w + x) as usize;
             let m = clip_mask[idx];
             if m == 0 {
@@ -189,12 +217,12 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
             let mut count = 0u32;
             for dy in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
                 let ny = y + dy;
-                if ny < 0 || ny >= h {
+                if ny < top || ny >= bottom {
                     continue;
                 }
                 for dx in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
                     let nx = x + dx;
-                    if nx < 0 || nx >= w {
+                    if nx < left || nx >= right {
                         continue;
                     }
                     let n_idx = (ny * w + nx) as usize;
