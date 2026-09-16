@@ -110,7 +110,7 @@ final class BackupProgressViewModelTests: XCTestCase {
 
     vm.apply(.enqueued(BackupTask(id: taskID("new-1"), state: .pending, priority: .background)))
     vm.apply(.enqueued(BackupTask(id: taskID("new-2"), state: .pending, priority: .background)))
-    XCTAssertEqual(vm.progressLabel, "0 of 2 photos")
+    XCTAssertEqual(vm.progressLabel, "0 of 2 uploads this run")
     XCTAssertEqual(vm.fractionDone, 0.0)
   }
 
@@ -127,7 +127,7 @@ final class BackupProgressViewModelTests: XCTestCase {
       .enqueued(BackupTask(id: taskID("fresh-capture"), state: .pending, priority: .background)))
 
     XCTAssertFalse(vm.isAllBackedUp)
-    XCTAssertEqual(vm.progressLabel, "0 of 1 photos")
+    XCTAssertEqual(vm.progressLabel, "0 of 1 uploads this run")
   }
 
   /// An enumerated-zero walk (e.g. limited Photos access with nothing

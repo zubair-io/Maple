@@ -113,11 +113,12 @@ struct BackupStatusPanel: View {
       // Live throughput (#702) — rolling-window bytes/sec + photos/min from the
       // same .progress/.completed events the counters use. Hidden when idle.
       if let throughput = progress.throughputLabel {
-        Label(throughput, systemImage: "gauge.with.dots.needle.67percent")
+        Label("Backup speed: \(throughput)", systemImage: "gauge.with.dots.needle.67percent")
           .font(.caption)
           .foregroundStyle(.secondary)
           .monospacedDigit()
           .accessibilityIdentifier("backup.status.throughput")
+          .help("Estimated from upload progress across active photos; excludes iCloud downloads.")
       }
 
       // Show work only when present; each tile distinguishes Photos reads from uploads.
@@ -168,11 +169,10 @@ struct BackupStatusPanel: View {
         }
       }
 
-      // Three-way status breakdown (#702): fully done (bytes + all companions),
-      // uploaded with a companion still retrying, and truly failed (bytes
-      // exhausted). Replaces the old single Done/Failed pair.
+      // Session uploads are separate from the whole-library progress above.
+      // Related files can continue retrying after an original is saved.
       HStack(spacing: 16) {
-        Label("Done: \(progress.doneCount.formatted())", systemImage: "checkmark.circle")
+        Label("This run: \(progress.totalCompleted.formatted())", systemImage: "checkmark.circle")
           .foregroundStyle(.secondary)
           .accessibilityIdentifier("backup.status.done")
         if progress.uploadedCompanionsPendingCount > 0 {

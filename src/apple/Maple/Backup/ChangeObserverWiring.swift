@@ -267,6 +267,10 @@ enum ChangeObserverWiring {
     // a cleared/reinstalled local SQLite from re-uploading every photo on
     // restart: the server already knows about them. Best-effort — a network
     // failure falls back to local-state-only reconciliation.
+    let libraryPhotoIDs = Set(ids)
+    let locallyBackedUp = Set(ids.filter { stateByPhid[$0] == .uploaded })
+    EngineHost.shared.progress.recordLibrarySnapshot(
+      photoIDs: libraryPhotoIDs, backedUpIDs: locallyBackedUp)
     EngineHost.shared.progress.setWalkPhase(.checkingServer)
     var serverKnownPhids: Set<String> = []
     let stateClient = BackupStateClient(
@@ -288,6 +292,8 @@ enum ChangeObserverWiring {
 
     guard !Task.isCancelled else { return }
 
+    EngineHost.shared.progress.recordLibrarySnapshot(
+      photoIDs: libraryPhotoIDs, backedUpIDs: locallyBackedUp.union(serverKnownPhids))
     EngineHost.shared.progress.removePendingPhotoIDs(serverKnownPhids)
 
     var newPhids: [String] = []
