@@ -325,6 +325,7 @@ const NAMED_ICC_PROFILES = new Set(['srgb', 'p3']);
  */
 export function applyWithIccProfile(state: BuilderState, icc: string | Uint8Array | Buffer): void {
   if (icc instanceof Uint8Array) {
+    state.aux.discard(state.metadata.icc);
     state.metadata.icc = state.aux.add(icc);
     state.metadata.iccName = undefined;
     track(state, 'withIccProfile');
@@ -340,11 +341,13 @@ export function applyWithIccProfile(state: BuilderState, icc: string | Uint8Arra
     );
   }
   if (NAMED_ICC_PROFILES.has(icc)) {
+    state.aux.discard(state.metadata.icc);
     state.metadata.iccName = icc as 'srgb' | 'p3';
     state.metadata.icc = undefined;
     track(state, 'withIccProfile');
     return;
   }
+  state.aux.discard(state.metadata.icc);
   state.metadata.icc = state.aux.addPending(async () => {
     try {
       return await fs.readFile(icc);
