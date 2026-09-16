@@ -379,6 +379,12 @@ they are tried in this order:
 |  5  | `keepMetadata()`/`withMetadata()` — the fill, when the input carried none                | no (follows the output space) |
 |     | nothing matched → **no profile at all**                                                  | —                             |
 
+ICC file paths are read asynchronously when bitmap execution starts, not in
+`withIccProfile(path)`. `toBuffer()` rejects on a read error; `toFile()` returns
+`{ ok: false, error }`. The builder caches a successful read across terminal
+calls (including concurrent calls); a failed read can be retried. Replacing the
+profile before execution discards the superseded path without opening it.
+
 Rows 1 and 2 are both "an explicit `withIccProfile`", so they outrank
 everything else; between them, bytes win, because naming a profile AND
 supplying one is a contradiction the supplied bytes settle. Row 2 rotates the

@@ -79,11 +79,18 @@ interface AuxPart {
  */
 export class AuxBlob {
   private readonly parts: AuxPart[] = [];
+  private resolving: Promise<void> | null = null;
 
   add(bytes: Uint8Array): AuxRef {
     const ref: AuxRef = { off: 0, len: 0 };
     this.parts.push({ bytes, loader: null, ref });
     return ref;
+  }
+
+  /** Drop superseded metadata before its pending file is opened. */
+  discard(ref: AuxRef | undefined): void {
+    const index = this.parts.findIndex((part) => part.ref === ref);
+    if (index !== -1) this.parts.splice(index, 1);
   }
 
   /** Reserve a segment whose bytes are read lazily, once, inside `resolve()`. */
@@ -99,10 +106,17 @@ export class AuxBlob {
    * pending segments at all (the common case), and idempotent — a loader
    * that already ran is not re-run.
    */
-  async resolve(): Promise<void> {
+  resolve(): Promise<void> {
+    return (this.resolving ??= this.resolveParts().finally(() => {
+      this.resolving = null;
+    }));
+  }
+
+  private async resolveParts(): Promise<void> {
     for (const part of this.parts) {
       if (part.bytes === null && part.loader) {
         part.bytes = await part.loader();
+        part.loader = null;
       }
     }
     let offset = 0;
