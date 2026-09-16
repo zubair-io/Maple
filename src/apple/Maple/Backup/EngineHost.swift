@@ -201,8 +201,8 @@ public final class EngineHost {
       // BackupStatusPanel can show the user what went wrong instead
       // of silently leaving engine=nil and the queue empty.
       let msg = String(describing: error)
-      log.error("start failed: \(msg, privacy: .public)")
-      lastStartError = "Couldn't start backup: \(msg)"
+      BackupIssueStatus.log(.error, "Backup startup failed: \(msg)")
+      lastStartError = "Couldn't start backup. Check your server and storage settings."
       // The restart never produced a running engine — drop back to
       // Stopped so the panel doesn't show "Restarting…" forever.
       progress.setPhase(.stopped)
