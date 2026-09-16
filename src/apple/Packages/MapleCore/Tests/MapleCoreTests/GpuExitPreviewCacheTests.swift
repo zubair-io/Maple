@@ -23,7 +23,7 @@ final class GpuExitPreviewCacheTests: XCTestCase {
     XCTAssertEqual(parsed.1.stars, 3)
     XCTAssertEqual(session.undoHistory.count, 1)
     XCTAssertEqual(session.lastCommittedTransaction?.after, session.model)
-    XCTAssertNil(session.pendingPreviewImage)
+    XCTAssertFalse(session.previewPersistence.hasPendingImage)
     XCTAssertEqual(try Data(contentsOf: url), original)
 
     // A fresh actor must retrieve the JPEG from disk under the final XMP mtime.
