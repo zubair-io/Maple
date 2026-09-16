@@ -51,7 +51,7 @@ const CIVIC_PREFIX = /^(?:City|Town|Village)\s+of\s+/i;
  *
  * Country-agnostic: civic prefixes occur worldwide, so this runs regardless of
  * country. The NYC rename is scoped to the USA and applied by the caller, which
- * has the country/state context (see `backupLocationSegments`).
+ * has the country/state context (see `locationSegmentsFromFields`).
  */
 function stripCivicPrefix(name: string | null): string | null {
   if (name == null) return null;
@@ -59,36 +59,40 @@ function stripCivicPrefix(name: string | null): string | null {
   return stripped.length > 0 ? stripped : name;
 }
 
+/** Common folder naming policy; source-specific fallbacks stay in the adapters. */
+export function locationSegmentsFromFields(fields: {
+  countryCode?: string | null;
+  state?: string | null;
+  country?: string | null;
+  locality?: string | null;
+}): string[] {
+  const isUSA = (nonEmpty(fields.countryCode) ?? '').toLowerCase() === USA_COUNTRY_CODE;
+  const state = nonEmpty(fields.state);
+  const country = nonEmpty(fields.country);
+  // Cross-fallback preserves usable sparse responses without inventing a region.
+  const top = isUSA ? (state ?? country) : (country ?? state);
+  if (!top) return [];
+
+  const locality = stripCivicPrefix(nonEmpty(fields.locality));
+  // Rename only the NYC locality, never NY state or a non-NY namesake.
+  const city =
+    locality === 'New York' && isUSA && state === 'New York' ? 'New York City' : locality;
+  return city ? [top, city] : [top];
+}
+
 export function backupLocationSegments(place: Place | null | undefined): string[] {
   if (!place) return [];
   const addr = place.address ?? {};
   const rollups = place.rollups;
-
-  const countryCode = (
-    nonEmpty(addr.country_code) ??
-    nonEmpty(rollups?.country_code) ??
-    ''
-  ).toLowerCase();
-  const isUSA = countryCode === USA_COUNTRY_CODE;
-
-  // `rollups.region` mirrors `address.state` (full name) — kept as a defensive
-  // fallback in case the address sweep dropped it.
-  const state = nonEmpty(addr.state) ?? nonEmpty(rollups?.region);
-  const country = nonEmpty(addr.country);
-
-  // USA → State, else Country. Cross-fall-back so a sparse response (e.g. a US
-  // coordinate that resolved a country but no state) still produces a folder.
-  const top = isUSA ? (state ?? country) : (country ?? state);
-  if (!top) return [];
-
-  // Town/City || Place Name. The locality (the actual town/city) carries the
-  // operator overrides; the POI fallback is a landmark name and is left as-is.
-  const locality = stripCivicPrefix(nonEmpty(rollups?.locality));
-  // Rename the city "New York" → "New York City", scoped to NY state in the USA
-  // so a non-US locality named "New York" (e.g. the Lincolnshire village) and
-  // the "New York" state folder (the top segment) both stay untouched.
-  const city =
-    locality === 'New York' && isUSA && state === 'New York' ? 'New York City' : locality;
-  const sub = city ?? nonEmpty(place.pois?.[0]?.name);
-  return sub ? [top, sub] : [top];
+  const segments = locationSegmentsFromFields({
+    countryCode: nonEmpty(addr.country_code) ?? nonEmpty(rollups?.country_code),
+    // Rollup region mirrors the state and survives a sparse address sweep.
+    state: nonEmpty(addr.state) ?? nonEmpty(rollups?.region),
+    country: addr.country,
+    locality: rollups?.locality,
+  });
+  // Only the Place adapter has a POI fallback. Landmark names bypass civic/NYC
+  // rewriting, and cannot supply a folder when there is no country or state.
+  const poi = nonEmpty(place.pois?.[0]?.name);
+  return segments.length === 1 && poi ? [...segments, poi] : segments;
 }
