@@ -280,7 +280,7 @@ fn develop_scene_linear_for_pano(
             }
         });
     }
-    dump_after("pano_01_baseline_exposure", &camera_rgb);
+    dump_after("pano_00a_baseline_exposure", &camera_rgb);
 
     // DNG WB pre-gain (spec § 1.4.4.5 step 4) — skipped for 8-bit lossy
     // LinearRaw exactly as in develop (WB stays baked there).
@@ -309,7 +309,7 @@ fn develop_scene_linear_for_pano(
             ),
         )
     });
-    dump_after("pano_02_highlight_recovery", &camera_rgb);
+    dump_after("pano_00b_highlight_recovery", &camera_rgb);
 
     // Stage 2a (#1159): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
@@ -329,7 +329,7 @@ fn develop_scene_linear_for_pano(
                 opcode_apply::LensCorrectionScales::FULL,
             );
         });
-        dump_after("pano_00a_opcode_list3", &camera_rgb);
+        dump_after("pano_01a_opcode_list3", &camera_rgb);
     }
 
     // DNG § 6.3 DefaultCrop — same call as develop; divisor is 1 at Full
@@ -345,7 +345,7 @@ fn develop_scene_linear_for_pano(
             camera_rgb = cropped;
         }
     }
-    dump_after("pano_00b_crop_to_default", &camera_rgb);
+    dump_after("pano_01b_crop_to_default", &camera_rgb);
 
     // DCP colorimetry: camera RGB → scene-linear Rec.2020 D65. CM/FM + HSM
     // only (the Adobe aesthetic layers PTC/PLT don't run — #425).
