@@ -212,7 +212,13 @@ cd src/apple/Packages/MapleBackup && swift test
 cd src/apple/Packages/MapleUI && swift test
 ```
 
-Cloud CI is deliberately narrow. `.github/workflows/apple.yml` runs a single job on `macos-15` that does `swift build` of the MapleCore package on any change under `src/apple/**` or `src/raw-pipeline/**`. It never cross-compiles Rust: it runs `cbindgen` to generate `RawPipeline.h`, copies it into all three xcframework slices, and fakes `libraw_ffi.a` with a one-object stub archive, because SwiftPM validates that a binary target's archive exists but only links it into executables — which this job doesn't build. That is enough to catch the recurring failure mode where codegen adds an enum case beside an exhaustive `switch` that never gains an arm. **It is a compile gate only** — no Apple test target runs in cloud CI, and the app, extension and tvOS targets are never built there. Verify those locally or through Xcode Cloud.
+[Apple CI](../.github/workflows/apple.yml) has three distinct gates:
+
+- `swift-build` compiles MapleCore on `macos-15` with a generated header and stub archive. It does not link an executable or run tests.
+- `swift-regressions` builds a real release host Rust archive with `gpu,pano`, verifies its FFI exports, stages isolated packages, and executes the classes in [the run list](../.github/swift-regressions/run.txt) serially on `macos-latest`. Missing classes, skipped tests, failures, or incomplete execution fail the job; logs and derived xUnit results are uploaded.
+- `swift-regressions-coverage` checks that every MapleCore test class is listed as run or explicitly excluded. This is an inventory check, not execution or measured code coverage. An `untriaged` exclusion records unfinished classification, not evidence that a class cannot run.
+
+These jobs trigger on Apple/Rust source changes and changes to the workflow, class lists or coverage checker. They do not build the app, extensions or tvOS targets, execute XCUITest, or establish device performance. Those require local runs or separately configured Xcode Cloud workflows. See [Testing and CI](testing.md#what-ci-actually-builds-for-apple) for the exact execution contract and fixture rules.
 
 ### UI test harnesses
 

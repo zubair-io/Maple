@@ -86,12 +86,14 @@ python3 tools/check-perf-ratchet.py <fresh-row.json> <committed-row.json>
 Fails when a fresh run's tick p95/max, cold-open, or export time
 regresses past the committed row by more than a jitter margin — see
 `tools/check-perf-ratchet.py`'s header for the exact margins and why
-they're that wide. **This never runs in cloud CI.** Apple tests are not
-cloud-gated at all (`docs/apple.md` § "Build and test" — cloud CI compiles
-MapleCore only, no test target runs there), so a machine-dependent
-absolute-time gate has no CI machine to be stable on; it is a local,
-pre-PR sanity check the way `SliderTickPerfTests`' in-run ON/OFF ratio
-(#2113) is the machine-independent one that actually can run anywhere.
+they're that wide. **This absolute-time ratchet never runs in cloud CI.**
+Apple CI does execute selected MapleCore regressions against a real release
+Rust archive (see [Testing and CI](testing.md#what-ci-actually-builds-for-apple)).
+Those runs do not establish per-device performance: this ratchet needs the
+same reference device, fixture, viewport, thermal state and controlled load.
+It remains a local pre-PR check. `SliderTickPerfTests`' in-run ON/OFF ratio
+(#2113) is a separate relative check; its execution depends on the selected
+test classes, not on this report being generated.
 That in-run ratio gate is unrelated to this file and is untouched by it.
 
 ## macOS
