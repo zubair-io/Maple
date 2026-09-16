@@ -45,16 +45,15 @@ fn every_partial_mask_uses_the_same_known_energy_for_target_and_witnesses() {
         let observed = truth.map(|v| v.min(1.0));
         image.pixels[center] = observed;
         recover(&mut image, [1.0; 3], 0.0);
-        let known_mean = (0..3)
+        let known_max = (0..3)
             .filter(|c| mask & (1 << c) == 0)
             .map(|c| truth[c])
-            .sum::<f32>()
-            / (3 - mask.count_ones()) as f32;
+            .fold(f32::NEG_INFINITY, f32::max);
         for c in 0..3 {
             if mask & (1 << c) == 0 {
                 assert_eq!(image.pixels[center][c].to_bits(), observed[c].to_bits());
             } else {
-                let expected = known_mean + (48.0 / 49.0) * (truth[c] - known_mean);
+                let expected = known_max + (48.0 / 49.0) * (truth[c] - known_max);
                 assert!((image.pixels[center][c] - expected).abs() < 2e-6);
                 assert!(
                     image.pixels[center][c] > 1.0,
@@ -144,7 +143,7 @@ fn either_known_channel_can_supply_energy_across_a_dark_edge() {
             image.pixels[4 * 9 + 4] = observed;
             recover(&mut image, [1.0; 3], 0.0);
             let clipped = order.iter().position(|c| *c == 0).unwrap();
-            let expected = (green + 0.5) / 2.0 * (1.0 + 48.0 / 49.0 * (4.0 / 3.0 - 1.0));
+            let expected = 0.5 + 48.0 / 49.0 * ((green + 0.5) / 2.0 * (4.0 / 3.0) - 0.5);
             assert!((image.pixels[4 * 9 + 4][clipped] - expected).abs() < 1e-6);
             assert!(image.pixels[4 * 9 + 4][clipped] > 0.0);
             for c in 0..3 {
@@ -172,6 +171,31 @@ fn negative_witnesses_do_not_turn_a_positive_saturated_channel_negative() {
                 if index != center {
                     assert_eq!(*pixel, witness);
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn unsupported_partial_clips_retain_the_brightest_known_neutral_fallback() {
+    for center in [[1.0, 0.99, 0.11], [0.81, 1.0, 0.23], [0.2, 0.9, 1.0]] {
+        let mut image = Image::new(9, 9, ColorSpace::CameraNativeLinearRgb);
+        image.pixels.fill(center);
+        recover(&mut image, [1.0; 3], 0.0);
+        let expected = center
+            .into_iter()
+            .filter(|v| *v < 0.995)
+            .fold(0.0_f32, f32::max);
+        for pixel in image.pixels {
+            for c in 0..3 {
+                assert_eq!(
+                    pixel[c],
+                    if center[c] >= 0.995 {
+                        expected
+                    } else {
+                        center[c]
+                    }
+                );
             }
         }
     }
