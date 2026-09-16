@@ -1,3 +1,4 @@
+import { RESOLVED_PREVIEW_SELECTOR } from '../support/preview-surface';
 import type { Locator, Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -46,7 +47,7 @@ async function expectNonblankPixels(locator: Locator): Promise<void> {
 async function openPreview(page: Page, filename: string): Promise<Locator> {
   await page.getByRole('button', { name: filename, exact: true }).click();
   await expect(page).toHaveURL(/\/view\//);
-  const preview = page.locator('.preview-img--full');
+  const preview = page.locator(RESOLVED_PREVIEW_SELECTOR);
   await expectImageLoaded(preview);
   await expectNonblankPixels(preview);
   return preview;
@@ -60,7 +61,8 @@ async function openEditor(page: Page): Promise<Locator> {
   await expect(page.getByText('Decoding RAW...', { exact: true })).toHaveCount(0, {
     timeout: 90_000,
   });
-  const canvas = page.locator('editor-image-canvas canvas:visible').last();
+  // Descendant canvases also include the transparent mask tint overlay.
+  const canvas = page.locator('editor-image-canvas .canvas-wrap > canvas:visible').last();
   await expectNonblankPixels(canvas);
   return canvas;
 }
@@ -145,12 +147,16 @@ test('Self Hosted reopens RAF pixels and recovers a named one-shot byte failure'
 
   await page.getByRole('button', { name: `Retry loading ${RAF}` }).click();
   await expect(error).toHaveCount(0, { timeout: 90_000 });
-  await expectNonblankPixels(page.locator('editor-image-canvas canvas:visible').last());
+  await expectNonblankPixels(
+    page.locator('editor-image-canvas .canvas-wrap > canvas:visible').last(),
+  );
 
   const editorUrl = page.url();
   await page.reload();
   await expect(page).toHaveURL(editorUrl);
   await expect(page.getByText(RAF, { exact: true }).first()).toBeVisible({ timeout: 90_000 });
-  await expectNonblankPixels(page.locator('editor-image-canvas canvas:visible').last());
+  await expectNonblankPixels(
+    page.locator('editor-image-canvas .canvas-wrap > canvas:visible').last(),
+  );
   await verifyStagedRawHashes(manifest);
 });

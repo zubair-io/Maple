@@ -1,3 +1,4 @@
+import { RESOLVED_PREVIEW_SELECTOR, PREVIEW_IMAGE_SELECTOR } from '../support/preview-surface';
 import {
   chromium,
   type Browser,
@@ -81,30 +82,56 @@ async function inPagePreviewPhases(button: Locator): Promise<{
   readonly fastMs: number;
   readonly refineMs: number;
 }> {
-  return button.evaluate(async (element) => {
-    const started = performance.now();
-    (element as HTMLButtonElement).click();
-    const waitForImage = (selector: string, timeoutMs: number) =>
-      new Promise<number>((resolve, reject) => {
-        const deadline = performance.now() + timeoutMs;
-        const inspect = () => {
-          const image = document.querySelector<HTMLImageElement>(selector);
-          if (image?.complete && image.naturalWidth > 0) {
-            requestAnimationFrame(() => resolve(performance.now() - started));
-            return;
-          }
-          if (performance.now() >= deadline) {
+  return button.evaluate(
+    async (element, { previewSelector, readySelector }) => {
+      const started = performance.now();
+      const waitForImage = (selector: string, timeoutMs: number) =>
+        new Promise<number>((resolve, reject) => {
+          let observed = false;
+          const observer = new MutationObserver(inspect);
+          const timeout = setTimeout(() => {
+            cleanup();
             reject(new Error(`${selector} pixels did not paint within ${timeoutMs}ms`));
-            return;
+          }, timeoutMs);
+          function cleanup() {
+            observer.disconnect();
+            document.removeEventListener('load', inspect, true);
+            clearTimeout(timeout);
           }
-          requestAnimationFrame(inspect);
-        };
-        inspect();
-      });
-    const fastMs = await waitForImage('.preview-img', 10_000);
-    const refinedAtMs = await waitForImage('.preview-img--full', 90_000);
-    return { fastMs, refineMs: refinedAtMs - fastMs };
-  });
+          function inspect() {
+            if (observed) return;
+            const ready = Array.from(document.querySelectorAll<HTMLImageElement>(selector)).some(
+              (image) =>
+                image.complete && image.naturalWidth > 0 && image.getClientRects().length > 0,
+            );
+            if (!ready) return;
+            observed = true;
+            cleanup();
+            // Observe readiness immediately, then cross a frame boundary for
+            // paint. Polling only on rAF adds a frame before this paint wait.
+            requestAnimationFrame(() => resolve(performance.now() - started));
+          }
+          observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+          });
+          document.addEventListener('load', inspect, true);
+          inspect();
+        });
+      // Observe both phases from the same click. Starting the ready observer
+      // after fastMs resolves charges an extra animation frame even when a
+      // warm preview was already painted in the first frame (#3709).
+      const phases = Promise.all([
+        waitForImage(previewSelector, 10_000),
+        waitForImage(readySelector, 90_000),
+      ]);
+      (element as HTMLButtonElement).click();
+      const [fastMs, refinedAtMs] = await phases;
+      return { fastMs, refineMs: refinedAtMs - fastMs };
+    },
+    { previewSelector: PREVIEW_IMAGE_SELECTOR, readySelector: RESOLVED_PREVIEW_SELECTOR },
+  );
 }
 
 test('Hosted cold embedded preview and warm .maple preview meet the open budgets', async ({
@@ -158,7 +185,6 @@ test('Hosted cold embedded preview and warm .maple preview meet the open budgets
   expect(warmSamples).toHaveLength(MEASURED_OPENS);
   const sortedWarm = [...warmSamples].sort((a, b) => a - b);
   const warmMedianMs = percentile(sortedWarm, 0.5);
-  expect(warmMedianMs).toBeLessThanOrEqual(WARM_PREVIEW_MEDIAN_BUDGET_MS);
   // eslint-disable-next-line no-console
   console.info(
     `[raw-open-performance] ${JSON.stringify({ coldPreview, warmSamples, warmMedianMs })}`,
@@ -168,6 +194,7 @@ test('Hosted cold embedded preview and warm .maple preview meet the open budgets
     body: Buffer.from(JSON.stringify({ coldPreview, warmSamples, warmMedianMs }, null, 2)),
     contentType: 'application/json',
   });
+  expect(warmMedianMs).toBeLessThanOrEqual(WARM_PREVIEW_MEDIAN_BUDGET_MS);
 });
 
 test('Hosted restores threaded Chromium CPU work and renders live WebGPU slider ticks inside hard budgets', async ({
