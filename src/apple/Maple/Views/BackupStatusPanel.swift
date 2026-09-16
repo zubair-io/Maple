@@ -240,12 +240,12 @@ struct BackupStatusPanel: View {
   private var statusRow: some View {
     HStack(spacing: 8) {
       Image(
-        EngineHost.shared.usesLocalAddress ? "MaterialLan" : "MaterialPublic"
+        systemName: EngineHost.shared.usesLocalAddress
+          ? "point.3.connected.trianglepath.dotted" : "network"
       )
-      .resizable()
-      .scaledToFit()
+      .font(.headline)
       .foregroundStyle(statusColor)
-      .frame(width: 20, height: 20)
+      .frame(width: 20)
       .accessibilityHidden(true)
       Text(progress.phase.label)
         .font(.headline)
