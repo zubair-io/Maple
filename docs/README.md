@@ -7,6 +7,8 @@ Every document in this directory describes the code as it is in the tree today. 
 The [engineering map](engineering-map.md) and [engineering quality assessment](engineering-quality.md)
 record the 2026-09-15 KTLO audit at an explicit source revision, with reproducible
 file/module inventories, verified findings, scan candidates, and coverage limits.
+The [API candidate triage](engineering-audit/api-triage.md) records confirmed findings,
+intentional repetitions and unresolved runtime-evidence requirements from the static scan.
 
 | Doc                                              | Read it to…                                                                                                                                                 |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
