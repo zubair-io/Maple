@@ -62,25 +62,9 @@ namespace Maple.WinUI
             ViewModel.Renderer.FrameReady += OnFrameReady;
             ViewModel.Renderer.GpuFrameReady += OnGpuFrameReady;
             ViewModel.Renderer.ClipSourceReady += OnClipSourceReady;
-            ViewModel.Renderer.HistogramReady += bins =>
-                App.MainDispatcherQueue?.TryEnqueue(() =>
-                {
-                    _lastHistogramBins = bins;
-                    HistogramView.Draw(HistogramCanvas, bins);
-                    UpdateCurveHistogram();
-                    UpdateClipIndicators();
-                });
-            ViewModel.Renderer.GpuUnavailable += reason =>
-            {
-                System.Diagnostics.Debug.WriteLine($"[Gpu] downgraded to CPU path: {reason}");
-                App.MainDispatcherQueue?.TryEnqueue(() =>
-                {
-                    ViewportSwapChainPanel.Visibility = Visibility.Collapsed;
-                    ViewportImage.Visibility = Visibility.Visible;
-                });
-            };
-            ViewModel.Renderer.RenderFailed += message =>
-                App.MainDispatcherQueue?.TryEnqueue(() => RenderStatsText.Text = $"render error: {message}");
+            ViewModel.Renderer.HistogramReady += OnHistogramReady;
+            ViewModel.Renderer.GpuUnavailable += OnGpuUnavailable;
+            ViewModel.Renderer.RenderFailed += OnRenderFailed;
 
             // Hand the DX12 present target to the render loop. QI once; the
             // panel outlives the scheduler (window lifetime).
@@ -94,6 +78,7 @@ namespace Maple.WinUI
                 ViewModel.Renderer.BumpSurfaceGeneration();
             ViewModel.PropertyChanged += (_, e) =>
             {
+                if (_closing) return;
                 if (e.PropertyName == nameof(ViewModel.SelectedPhoto))
                     OnSelectedPhotoChanged();
                 else if (e.PropertyName == nameof(ViewModel.SelectionSummary))
@@ -115,6 +100,7 @@ namespace Maple.WinUI
             ViewModel.BrowseFolders.CollectionChanged += (_, _) => UpdateEmptyState();
             ViewModel.PropertyChanged += (_, e) =>
             {
+                if (_closing) return;
                 if (e.PropertyName is nameof(ViewModel.IsLibraryLoading) or nameof(ViewModel.LibraryLoadStatus))
                     UpdateEmptyState();
             };
@@ -153,6 +139,7 @@ namespace Maple.WinUI
             CurvePlot.PointsChanged += OnCurvePointsChanged;
             ViewModel.ModelSynced += () =>
             {
+                if (_closing) return;
                 SyncProfilePanel();
                 SyncLensPanel();
                 SyncGradeWheels();
@@ -182,11 +169,12 @@ namespace Maple.WinUI
             RetargetGridSource();
             ViewModel.PropertyChanged += (_, e) =>
             {
+                if (_closing) return;
                 if (e.PropertyName == nameof(ViewModel.IsDateGrouped))
                     RetargetGridSource();
             };
             SetMode(ShellMode.Browse);
-            this.Closed += (_, _) => ViewModel.Dispose();
+            this.Closed += OnWindowClosed;
         }
 
         // --- Mode state machine ---

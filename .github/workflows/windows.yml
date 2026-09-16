@@ -59,3 +59,15 @@ jobs:
           MAPLE_RAW_FFI_DLL: ${{ github.workspace }}\src\raw-pipeline\target\x86_64-pc-windows-msvc\release\raw_ffi.dll
         run: |
           dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
+
+      - name: Real WinUI open-render-close lifecycle smoke
+        shell: pwsh
+        run: ./src/windows/scripts/test-window-lifecycle.ps1
+
+      - name: Upload WinUI lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winui-lifecycle
+          path: ${{ runner.temp }}/maple-window-lifecycle
+          if-no-files-found: error

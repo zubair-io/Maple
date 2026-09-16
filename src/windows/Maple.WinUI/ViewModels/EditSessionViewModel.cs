@@ -227,6 +227,7 @@ namespace Maple.WinUI.ViewModels
         /// embedded-JPEG preview stays on screen until the first chain frame.</summary>
         public void EnsureDecoded()
         {
+            if (_disposed) return;
             var photo = SelectedPhoto;
             if (photo == null || ReferenceEquals(_decodedPhoto, photo))
                 return;
@@ -246,6 +247,7 @@ namespace Maple.WinUI.ViewModels
         /// AMaZE decode (#3417 review).</summary>
         private void DecodeCurrent(PhotoItem photo)
         {
+            if (_disposed) return;
             ResetLensProfileState();   // #3480 — EditSessionViewModel.LensProfile.cs
             RefreshLensProfileChoices(photo);   // #3568 — the profile dropdown's option list
             var generation = Interlocked.Increment(ref _decodeGeneration);
@@ -277,6 +279,7 @@ namespace Maple.WinUI.ViewModels
                     if (generation == _decodeGeneration)
                         OnUi(() =>
                         {
+                            if (_disposed || generation != _decodeGeneration) return;
                             IsDecoding = false;
                             DecodeStatus = $"Decode failed: {ex.Message}";
                             ReportLensProfileFailure(ex);
@@ -555,14 +558,5 @@ namespace Maple.WinUI.ViewModels
                 queue.TryEnqueue(() => action());
         }
 
-        public void Dispose()
-        {
-            CancelActiveDecode();
-            _sidecarTimer?.Dispose();
-            _undoTimer?.Dispose();
-            _sidecarWatcher.Dispose();
-            _libraryWatcher?.Dispose();
-            Renderer.Dispose();
-        }
     }
 }

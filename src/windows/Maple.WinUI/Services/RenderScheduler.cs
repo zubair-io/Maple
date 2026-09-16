@@ -21,7 +21,7 @@ namespace Maple.WinUI.Services
     ///   pass, debounced full-res refine). Any GPU failure downgrades to this
     ///   path for the rest of the process.
     /// </summary>
-    public sealed class RenderScheduler : IDisposable
+    public sealed partial class RenderScheduler : IDisposable
     {
         private const int RefineDebounceMs = 150;
 
@@ -76,7 +76,7 @@ namespace Maple.WinUI.Services
 
         public RenderScheduler()
         {
-            _ = Task.Run(LoopAsync);
+            _loopTask = Task.Run(LoopAsync);
         }
 
         /// <summary>The QI'd ISwapChainPanelNative* for the canvas panel. Set
@@ -93,6 +93,7 @@ namespace Maple.WinUI.Services
             }
             lock (_gate)
             {
+                if (_stopping) return;
                 _panelNative = panelNative;
             }
         }
@@ -103,6 +104,7 @@ namespace Maple.WinUI.Services
         {
             lock (_gate)
             {
+                if (_stopping) return;
                 _surfaceGeneration++;
             }
         }
@@ -112,6 +114,7 @@ namespace Maple.WinUI.Services
             var half = image == null ? null : RenderEngine.DownsampleHalf(image);
             lock (_gate)
             {
+                if (_stopping) return;
                 _image = image;
                 _halfImage = half;
                 _lastRendered = null;
@@ -137,6 +140,7 @@ namespace Maple.WinUI.Services
         {
             lock (_gate)
             {
+                if (_stopping) return;
                 _pending = snapshot;
             }
             try { _signal.Release(); } catch (SemaphoreFullException) { }
@@ -265,6 +269,7 @@ namespace Maple.WinUI.Services
             ulong generation;
             lock (_gate)
             {
+                if (_stopping) return false;
                 image = _image;
                 halfImage = _halfImage;
                 state = _pending ?? (fastPass ? null : _lastRendered);
@@ -331,19 +336,8 @@ namespace Maple.WinUI.Services
             }
 
             var started = Environment.TickCount64;
-            var completion = new TaskCompletionSource<int>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!queue.TryEnqueue(() => completion.TrySetResult(
-                    GpuPresentOnUiThread(image, state, panel, generation, useHalf,
-                        targetWidth, targetHeight))))
-            {
-                lock (_gate)
-                {
-                    DisableGpuLocked("dispatcher enqueue failed");
-                }
-                return CpuRender(_halfImage ?? image, state, emitFrame: true);
-            }
-            var rc = completion.Task.GetAwaiter().GetResult();
+            var rc = DispatchPresent(queue,
+                image, state, panel, generation, useHalf, targetWidth, targetHeight);
             if (rc == int.MinValue)
                 return true;  // superseded by a newer SetImage — dropped
             if (rc == 0)
@@ -396,7 +390,7 @@ namespace Maple.WinUI.Services
                 var sessionValid = useHalf
                     ? _gpuSessionHalfOpen && ReferenceEquals(_gpuHalfImage, image)
                     : _gpuSessionOpen && ReferenceEquals(_gpuImage, image);
-                if (!sessionValid)
+                if (_stopping || !sessionValid)
                     return int.MinValue;
                 int rc;
                 fixed (float* noisePtr = image.NoiseProfile)
@@ -557,14 +551,5 @@ namespace Maple.WinUI.Services
             return bins;
         }
 
-        public void Dispose()
-        {
-            _cts.Cancel();
-            try { _signal.Release(); } catch (SemaphoreFullException) { }
-            lock (_gate)
-            {
-                CloseGpuSessionLocked();
-            }
-        }
     }
 }
