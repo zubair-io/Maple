@@ -203,7 +203,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             }
         });
     }
-    dump_after("01_baseline_exposure", &camera_rgb);
+    dump_after("00a_baseline_exposure", &camera_rgb);
 
     // WB pre-gain (mirrors the unsized variant — see comment there).
     let skip_pre_gain =
@@ -228,7 +228,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             crate::pipeline::develop::highlight_active_area(raw, crop_divisor),
         )
     });
-    dump_after("02_highlight_recovery", &camera_rgb);
+    dump_after("00b_highlight_recovery", &camera_rgb);
 
     // Stage 2a (#1695): OpcodeList3 still precedes DefaultCrop, so its
     // coordinates remain relative to the original ActiveArea.
@@ -248,7 +248,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
                 crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(model),
             );
         });
-        dump_after("00a_opcode_list3", &camera_rgb);
+        dump_after("01a_opcode_list3", &camera_rgb);
     } else if crate::lens_profile::applies(raw, model) {
         let scale = camera_rgb.width as f32 / raw.width as f32;
         stage("sized_lcp_correction", || {
@@ -271,7 +271,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         // No-op: keep camera_rgb as-is; crop_to_default returns None
         // instead of cloning the buffer.
     }
-    dump_after("00b_crop_to_default", &camera_rgb);
+    dump_after("01b_crop_to_default", &camera_rgb);
 
     // Early downsample — the heart of this milestone. After this call
     // every later stage runs on the viewport-sized buffer instead of
