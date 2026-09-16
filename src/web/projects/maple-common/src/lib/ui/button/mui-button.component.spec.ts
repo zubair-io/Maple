@@ -16,6 +16,23 @@ function button(fixture: ComponentFixture<MuiButtonComponent>): HTMLButtonElemen
 }
 
 describe('MuiButtonComponent', () => {
+  it('forwards descriptions and tooltip to the native control and removes them when cleared', () => {
+    const fixture = render();
+    const btn = button(fixture);
+    expect(btn.hasAttribute('aria-describedby')).toBe(false);
+    expect(btn.hasAttribute('title')).toBe(false);
+    fixture.componentRef.setInput('ariaDescribedby', 'reason detail');
+    fixture.componentRef.setInput('title', 'Cannot restore yet');
+    fixture.detectChanges();
+    expect(btn.getAttribute('aria-describedby')).toBe('reason detail');
+    expect(btn.title).toBe('Cannot restore yet');
+    fixture.componentRef.setInput('ariaDescribedby', null);
+    fixture.componentRef.setInput('title', null);
+    fixture.detectChanges();
+    expect(btn.hasAttribute('aria-describedby')).toBe(false);
+    expect(btn.hasAttribute('title')).toBe(false);
+  });
+
   it('renders a button with the default secondary/md variant classes', () => {
     const fixture = render();
     const btn = button(fixture);

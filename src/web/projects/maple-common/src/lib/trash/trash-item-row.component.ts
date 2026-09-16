@@ -3,6 +3,7 @@
 // flagged 76-line combined templates before; a full list-row markup inline
 // in the panel would have pushed well past that).
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import type { TrashItem } from './trash.types';
@@ -10,7 +11,7 @@ import type { TrashItem } from './trash.types';
 @Component({
   selector: 'app-trash-item-row',
   standalone: true,
-  imports: [DecimalPipe],
+  imports: [MuiButtonComponent, DecimalPipe],
   templateUrl: './trash-item-row.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

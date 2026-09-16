@@ -20,6 +20,7 @@
 // from shared code), this panel is ONLY ever instantiated from the
 // Self-Hosted-only host above, so there's no NOOP case to support.
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -46,7 +47,12 @@ type ConfirmTarget = { kind: 'item'; item: TrashItem } | { kind: 'all' };
 @Component({
   selector: 'app-trash-panel',
   standalone: true,
-  imports: [TrashListComponent, TrashToolbarComponent, TrashDeleteConfirmDialogComponent],
+  imports: [
+    MuiButtonComponent,
+    TrashListComponent,
+    TrashToolbarComponent,
+    TrashDeleteConfirmDialogComponent,
+  ],
   templateUrl: './trash-panel.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

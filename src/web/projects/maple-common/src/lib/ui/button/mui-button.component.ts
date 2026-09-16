@@ -58,6 +58,9 @@ export class MuiButtonComponent {
    * button with no accessible name" rule. */
   readonly iconOnly = input<boolean>(false);
   readonly ariaLabel = input<string | null>(null);
+  /** Native descriptions and tooltips, used by disabled Trash actions (#3698). */
+  readonly ariaDescribedby = input<string | null>(null);
+  readonly title = input<string | null>(null);
   /** For a button that discloses/toggles a region it controls (e.g. "Compare
    * faces" ↔ "Hide faces") — forwarded to the native button's
    * `aria-expanded`. `[attr.aria-expanded]` written directly on `<mui-button>`

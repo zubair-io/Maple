@@ -53,6 +53,10 @@ story; Apple and Windows have no reusable button at all).
 - `label`: string — the visible and accessible text.
 - `icon`: optional leading icon (see the Icon atom contract).
 - `disabled`: boolean.
+- Web `ariaDescribedby`: optional space-separated description element IDs, forwarded to the
+  native button as `aria-describedby` (not the Angular host). Omitted when unset.
+- Web `title`: optional native-button tooltip. Use `ariaDescribedby` as well when an explanatory
+  disabled reason must be available to assistive technology; a tooltip alone is insufficient.
 - `onPress` / `action`: the platform's native action callback (`() -> Void` in SwiftUI,
   `@Output() pressed` in Angular, `Click` event in WinUI).
 

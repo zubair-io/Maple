@@ -106,6 +106,11 @@ const MIGRATED_FILES = [
   '../projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.html', // #3697
   '../projects/maple-common/src/lib/batch-rename/batch-rename-form.component.html', // #3697
   '../projects/maple-common/src/lib/batch-rename/batch-rename-results.component.html', // #3697
+  '../projects/maple-common/src/lib/trash/trash-item-row.component.html', // #3698
+  '../projects/maple-common/src/lib/trash/trash-list.component.html', // #3698
+  '../projects/maple-common/src/lib/trash/trash-panel.component.html', // #3698
+  '../projects/maple-common/src/lib/trash/trash-status-banner.component.html', // #3698
+  '../projects/maple-common/src/lib/trash/trash-toolbar.component.html', // #3698
 
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-node.component.html',
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-smart-row.component.html',

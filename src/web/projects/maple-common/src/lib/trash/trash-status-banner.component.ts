@@ -5,11 +5,13 @@
 // template with 6 conditional constructs was still just over it). Plain
 // presentational component, no service imports.
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 @Component({
   selector: 'app-trash-status-banner',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './trash-status-banner.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
