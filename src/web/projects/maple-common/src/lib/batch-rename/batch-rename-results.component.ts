@@ -3,6 +3,7 @@
 // list. Split out of `BatchRenameDialogComponent` for the same reason as
 // `BatchRenameFormComponent` — see that component's module doc.
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { BatchRenamePreviewListComponent } from './batch-rename-preview-list.component';
 import { applyResultToRow } from './batch-rename-preview-row';
@@ -11,7 +12,7 @@ import type { BatchRenameApplyResult } from './batch-rename.types';
 @Component({
   selector: 'app-batch-rename-results',
   standalone: true,
-  imports: [BatchRenamePreviewListComponent],
+  imports: [MuiButtonComponent, BatchRenamePreviewListComponent],
   templateUrl: './batch-rename-results.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
