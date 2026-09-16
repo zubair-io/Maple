@@ -56,7 +56,8 @@ namespace Maple.WinUI
             renderer.GpuUnavailable -= OnGpuUnavailable;
             renderer.RenderFailed -= OnRenderFailed;
             ViewModel.Dispose();
-            _cloudFiles.Dispose(); // disconnect only; keep persistent registration
+            // CfDisconnect may wait for callbacks; leave the UI dispatcher live.
+            await Task.Run(_cloudFiles.Dispose); // keep persistent registration
             try { await renderer.StopAsync(); }
             finally
             {
@@ -71,7 +72,7 @@ namespace Maple.WinUI
             }
         }
 
-        private void OnHistogramReady(uint[] bins) => DispatcherQueue.TryEnqueue(() =>
+        private void OnHistogramReady(uint[] bins) => App.MainDispatcherQueue?.TryEnqueue(() =>
         {
             if (_closing) return;
             _lastHistogramBins = bins;
@@ -80,7 +81,7 @@ namespace Maple.WinUI
             UpdateClipIndicators();
         });
 
-        private void OnGpuUnavailable(string reason) => DispatcherQueue.TryEnqueue(() =>
+        private void OnGpuUnavailable(string reason) => App.MainDispatcherQueue?.TryEnqueue(() =>
         {
             if (_closing) return;
             DiagLog.Write($"[Gpu] downgraded to CPU path: {reason}");
@@ -88,7 +89,7 @@ namespace Maple.WinUI
             ViewportImage.Visibility = Visibility.Visible;
         });
 
-        private void OnRenderFailed(string message) => DispatcherQueue.TryEnqueue(() =>
+        private void OnRenderFailed(string message) => App.MainDispatcherQueue?.TryEnqueue(() =>
         {
             if (!_closing) RenderStatsText.Text = $"render error: {message}";
         });
