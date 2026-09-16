@@ -462,3 +462,52 @@ Production candidate edits remain uncommitted while the canonical protocol
 and remaining reference-target failure are unresolved. Output version bump,
 code generation, native binding checks and uncontended performance validation
 are still required before a ready implementation PR.
+
+## Comparison guards and corpus provisioning audit
+
+The proposed matched-reduction comparator now rejects non-native candidate
+sizes, a native reference smaller than the comparison image, incompatible
+aspect ratios (allowing one pixel of resize rounding), missing Camera Raw
+metadata and differing full/down Camera Raw settings, including nested curves
+and local edits. Where the manifest explicitly supplies `acr_xmp`, it also
+uses the existing authoring-sidecar verifier. Canonical Maple `xmp` is not
+substituted: Adobe reference controls have different lens/default semantics.
+Seven synthetic comparator tests pass, with a new CI step and path filter.
+These implementation edits remain uncommitted pending protocol scope review.
+
+A read-only header/settings audit of the original workspace's 777-case
+manifest found **20 valid baseline pairs**, **576 installed down references
+without a native full reference**, **10 NR/sharpen pairs missing Camera Raw
+metadata**, and **171 missing down references**. Individual results are in
+`color-baseline-3633-pair-audit.json`. All 20 baseline candidate dimensions
+exactly equal their native ACR reference dimensions, and their full/down CRS
+maps agree. This audit is reference provisioning evidence, not a full 777-case
+pixel qualification. The repaired baseline captures used in the 20-case
+comparison manifest are separately hashed in the existing evidence JSON.
+
+A global protocol migration would break existing nonbaseline comparisons
+because required inputs do not exist. It must not silently choose the old
+protocol based on file presence. An explicitly scoped baseline protocol is
+under review; the nonbaseline migration requires capture provisioning.
+
+### CPU warp cost and bounded optimization
+
+On Apple M5 Max (128 GiB, 18 logical CPUs), with four Rayon threads and no
+concurrent build/render work, three serial 100 MP runs gave median CPU
+OpcodeList3 time **162.79 ms** for original bilinear, **717.31 ms** for generic
+f64 cubic, **689.21 ms** for separable f32 cubic, and **494.87 ms** after
+inlining the sampler. This is a material preparation cost, not a qualified
+slider-tick or cold-open measurement. No new per-slider allocation is added.
+The f32 sampler differs from f64 by at most one encoded byte in 4,018 of
+301,989,888 channels for the 0000 Neutral output.
+
+The Adobe SDK's lens-warp path actually uses **32 fractional phases**
+(`kResampleSubsampleCount2D`), truncating the positive fractional coordinate;
+its separate one-dimensional resampler uses 128 phases. A compile-time
+32-phase table diagnostic gives **378.11 ms** median (364.35/378.11/386.69).
+This diagnostic still preserves negative and above-one radiance; it does not
+copy the SDK's final clamp. It has not yet replaced the analytical production
+candidate or received broad/parity qualification. Source provenance is the
+same Adobe-authored SDK revision, `dng_resample.h` and
+`dng_lens_correction.cpp`; `ConvertDoubleToInt32` explicitly uses truncating
+`static_cast<int32>` in `dng_safe_arithmetic.cpp`.

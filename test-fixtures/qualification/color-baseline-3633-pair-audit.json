@@ -1,0 +1,3203 @@
+{
+  "manifest": "/Users/riabuz/Projects/_Maple/test-fixtures/references/manifest.json",
+  "cases": [
+    {
+      "case": "test_0000/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [12288, 8192],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0000/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0000/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0000/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [4224, 2376],
+      "down": [4000, 2250],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0001/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0001/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0001/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [7216, 5412],
+      "down": [4000, 3000],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0002/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/nr_color_max",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/nr_color_max.png"
+    },
+    {
+      "case": "test_0002/nr_color_min",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/nr_color_min.png"
+    },
+    {
+      "case": "test_0002/nr_luminance_max",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/nr_luminance_max.png"
+    },
+    {
+      "case": "test_0002/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/sharpen_amount_max",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_amount_max.png"
+    },
+    {
+      "case": "test_0002/sharpen_amount_min",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_amount_min.png"
+    },
+    {
+      "case": "test_0002/sharpen_detail_max",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_detail_max.png"
+    },
+    {
+      "case": "test_0002/sharpen_detail_min",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_detail_min.png"
+    },
+    {
+      "case": "test_0002/sharpen_masking_max",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_masking_max.png"
+    },
+    {
+      "case": "test_0002/sharpen_radius_max",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_radius_max.png"
+    },
+    {
+      "case": "test_0002/sharpen_radius_min",
+      "status": "error",
+      "error": "reference has no Camera Raw XMP: /Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_radius_min.png"
+    },
+    {
+      "case": "test_0002/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0002/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [5792, 8688],
+      "down": [2667, 4000],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0003/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0003/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0003/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [7304, 5478],
+      "down": [4000, 3000],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0004/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0004/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0004/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [8256, 6192],
+      "down": [4000, 3000],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0005/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0005/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0005/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [5760, 3840],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0006/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0006/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0006/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [5760, 3840],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0007/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0007/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0007/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [6240, 4160],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0008/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0008/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0008/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [6720, 4480],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0009/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0009/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0009/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [5040, 3360],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0010/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0010/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0010/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [9504, 6336],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0011/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0011/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0011/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [8256, 6192],
+      "down": [4000, 3000],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0012/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0012/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0012/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [3024, 4032],
+      "down": [3000, 4000],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0013/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0013/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0013/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [8256, 5504],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0014/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0014/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0014/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [4064, 3056],
+      "down": [4000, 3008],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0015/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0015/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0015/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [5976, 3984],
+      "down": [4000, 2667],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0017/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0017/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0017/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [848, 560],
+      "down": [848, 560],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0018/blacks_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/blacks_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/clarity_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/clarity_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/contrast_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/contrast_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/dehaze_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/dehaze_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/exposure_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/exposure_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/highlights_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/highlights_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/nr_color_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/nr_color_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/nr_luminance_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/saturation_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/saturation_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/shadows_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/shadows_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/sharpen_amount_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/sharpen_amount_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/sharpen_detail_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/sharpen_detail_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/sharpen_masking_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/sharpen_radius_max",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/sharpen_radius_min",
+      "status": "missing-down"
+    },
+    {
+      "case": "test_0018/temperature_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/temperature_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/texture_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/texture_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/tint_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/tint_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/vibrance_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/vibrance_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/wb_auto",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/wb_cloudy",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/wb_daylight",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/wb_flash",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/wb_shade",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/wb_tungsten",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/whites_max",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0018/whites_min",
+      "status": "missing-full"
+    },
+    {
+      "case": "test_0019/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [848, 560],
+      "down": [848, 560],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0020/baseline",
+      "status": "pass",
+      "problems": [],
+      "full": [3584, 2688],
+      "down": [3584, 2688],
+      "setting_differences": []
+    },
+    {
+      "case": "test_0006/local_gradient_radial",
+      "status": "missing-down"
+    }
+  ]
+}
