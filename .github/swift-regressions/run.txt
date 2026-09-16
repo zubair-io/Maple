@@ -1,7 +1,8 @@
 # Test classes `swift-regressions` (.github/workflows/apple.yml) executes,
 # one per line. Every class here must pass with no skips on macos-latest
 # against the staged host archive and the committed synthetic DNG — no
-# gitignored RAW fixtures, no Metal device, no keychain or FileProvider.
+# gitignored RAW fixtures, no required Metal device, no keychain access
+# or registered FileProvider domain.
 # Everything else is in excluded.txt with a reason;
 # tools/check-swift-regressions-coverage.py keeps the two lists complete.
 #
@@ -54,3 +55,37 @@ LensProfileXMPTests
 LensProfileChoiceTests
 
 WhitesAnchorHostTests
+
+# KTLO qualification batch 1 (#3654): pure models, generated metadata,
+# temporary sidecars/files and stubbed HTTP. APNs handler seams use an
+# unregistered domain; no live APNs delivery or mounted provider needed.
+AdjustmentClipboardTests
+AdjustmentGroupMergeTests
+AdjustmentModelTests
+AdjustmentPasteApplierTests
+AdjustmentTransferTests
+AllSourcesTimelineViewModelTests
+ApnsDeviceRegistrationClientTests
+ApnsPushRegistrarTests
+AssetChangeRelativePathTests
+AssetDropCollisionResolverTests
+AssetRefCatalogTests
+AssetRefStableIDTests
+AssetRefStubAudioTests
+AssetRefVideoTests
+AssetRenameFilenameTests
+BatchAdjustmentSessionTests
+BatchAdjustmentTransferTests
+BatchMetadataViewModelTests
+BatchRenameViewModelTests
+BoundedAsyncSemaphoreTests
+CameraSupportRegistryTests
+CanvasColorSpaceTests
+CanvasZoomControllerTests
+CanvasZoomModelTests
+CapabilityRegistryTests
+ChangeCursorStoreTests
+ChangeFeedClientBackoffTests
+ChangeFeedClientDateDecodingTests
+CollisionResolverTests
+ColorGradingXMPTests
