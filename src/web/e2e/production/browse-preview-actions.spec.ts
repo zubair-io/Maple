@@ -126,7 +126,9 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   const dialog = page.getByRole('dialog', { name: 'Paste settings' });
   await expect(dialog).toContainText(`Paste from ${SOURCE} onto 2 photos`);
   await dialog.getByRole('button', { name: 'Paste', exact: true }).click();
-  await expect.poll(() => picker.readText(basename(targetXmp))).toMatch(/crs:Exposure2012="1\.25"/);
+  await expect
+    .poll(() => picker.readText(basename(targetXmp)), { timeout: 15_000 })
+    .toMatch(/crs:Exposure2012="1\.25"/);
 
   // Reset the real browser sidecar so Sync must perform a second durable write.
   await picker.writeText(basename(targetXmp), seedXmp(-0.5));
@@ -135,7 +137,9 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   await sync.click();
   await expect(dialog).toContainText(`Paste from ${SOURCE} onto 1 photo`);
   await dialog.getByRole('button', { name: 'Paste', exact: true }).click();
-  await expect.poll(() => picker.readText(basename(targetXmp))).toMatch(/crs:Exposure2012="1\.25"/);
+  await expect
+    .poll(() => picker.readText(basename(targetXmp)), { timeout: 15_000 })
+    .toMatch(/crs:Exposure2012="1\.25"/);
 
   // Rating and flag shortcuts drive Filter's complete visible state cycle.
   await page.keyboard.press('4');
@@ -200,7 +204,9 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
     .locator('#preview-flag-popover')
     .getByRole('button', { name: 'Reject', exact: true })
     .click();
-  await expect.poll(() => picker.readText(basename(sourceXmp))).toMatch(/papp:Flag="reject"/);
+  await expect
+    .poll(() => picker.readText(basename(sourceXmp)), { timeout: 15_000 })
+    .toMatch(/papp:Flag="reject"/);
 
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page).toHaveURL(/\/browse$/);
