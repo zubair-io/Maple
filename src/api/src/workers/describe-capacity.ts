@@ -1,3 +1,4 @@
+import { assignedAi } from '../enrichment/ai-connections.ts';
 /**
  * Keep the describe stage's dispatch fan-out equal to the total capacity of
  * its configured servers.
@@ -83,6 +84,12 @@ export async function describeServersForRuntime(
   // callers never pass this.
   readConcurrency: () => Promise<number | null> = readDescribeStageConcurrency,
 ): Promise<DescribeServerConfig[]> {
+  const assigned = assignedAi(cfg.ai_connections, 'describe');
+  if (assigned)
+    return assigned.connections.map((c) => ({
+      url: c.provider === 'ollama' ? c.url : c.id,
+      concurrency: c.concurrency,
+    }));
   if (cfg.source.describe_servers === 'db') return cfg.describe_servers;
   const saved = await readConcurrency();
   return [

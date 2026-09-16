@@ -437,34 +437,7 @@
                     </div>
                   }
                   @case ('describe') {
-                    <div class="grid-2col grid grid-cols-2 gap-4 gap-x-6 max-[767px]:grid-cols-1">
-                      <maple-describe-servers
-                        class="field-wide"
-                        [servers]="enrichmentValue(s, 'describe_servers')"
-                        (serversChange)="setEnrichment(s, 'describe_servers', $event)"
-                      />
-                      <div class="field set-field">
-                        <div class="field-label">Assigned AI Model</div>
-                        <div class="flex items-center gap-2 pt-1">
-                          <span
-                            class="px-2 py-1 rounded text-[11px] font-mono bg-[var(--s-surface2)] border border-[var(--s-border)] text-[var(--s-text)]"
-                          >
-                            {{ s.config?.ai_provider || 'ollama' }}:
-                            {{ s.config?.ai_model || fixedDescribeModel }}
-                          </span>
-                          <a
-                            routerLink="/settings/ai"
-                            class="text-[12px] text-[var(--s-accent,#3b82f6)] hover:underline inline-flex items-center gap-1"
-                          >
-                            Change in AI Settings →
-                          </a>
-                        </div>
-                        <div class="field-hint">
-                          Providers, keys, and model discovery are configured on the dedicated AI
-                          Settings page.
-                        </div>
-                      </div>
-                    </div>
+                    <maple-ai-worker-summary worker="describe" />
                   }
 
                   @case ('geocode') {
@@ -774,40 +747,7 @@
                           migration to become searchable by meaning.
                         </div>
                       </div>
-                      <div class="field field-wide set-field">
-                        <div class="field-label">Ollama URL (from Describe)</div>
-                        <div class="text-input set-text-input mono readonly">
-                          <mui-input
-                            [readOnly]="true"
-                            [value]="
-                              enrichmentValue(s, 'describe_provider_url') ||
-                              'http://localhost:11434'
-                            "
-                            ariaLabel="Ollama URL (from Describe)"
-                            data-testid="meilisearch-embedder-url"
-                          />
-                        </div>
-                        <div class="field-hint">
-                          Shared with the Describe worker. Change this endpoint under Describe;
-                          Meilisearch must be able to reach it from its own host or container.
-                        </div>
-                      </div>
-                      <div class="field set-field">
-                        <div class="field-label">Embedding model</div>
-                        <div class="text-input set-text-input mono">
-                          <mui-input
-                            [value]="enrichmentValue(s, 'meilisearch_embedder_model')"
-                            (valueChange)="setEnrichment(s, 'meilisearch_embedder_model', $event)"
-                            placeholder="bge-m3"
-                            ariaLabel="Embedding model"
-                            data-testid="meilisearch-embedder-model"
-                          />
-                        </div>
-                        <div class="field-hint">
-                          Ollama model used for both document and query vectors. Default:
-                          <span class="mono set-mono">bge-m3</span>.
-                        </div>
-                      </div>
+                      <maple-ai-worker-summary worker="semantic-search" />
                       <div class="field set-field">
                         <div class="field-label">Semantic blend</div>
                         <div class="num-input set-num-input">
@@ -896,8 +836,8 @@
                   </div>
                   @if (meta(s).enrichment === 'describe') {
                     <div class="field-hint">
-                      Derived: the sum of every describe server's concurrency above. Tune it per
-                      server so a fast box takes more work than a slow one.
+                      Derived from assigned connections in AI Settings. Tune concurrency per server
+                      so a fast box takes more work than a slow one.
                     </div>
                   } @else {
                     <div class="field-hint">1 – 100</div>
@@ -946,27 +886,7 @@
                 </div>
 
                 @if (s.name === 'video-describe') {
-                  <div class="field set-field">
-                    <div class="field-label">Assigned AI Model</div>
-                    <div class="flex items-center gap-2 pt-1">
-                      <span
-                        class="px-2 py-1 rounded text-[11px] font-mono bg-[var(--s-surface2)] border border-[var(--s-border)] text-[var(--s-text)]"
-                      >
-                        {{ s.config?.ai_provider || 'ollama' }}:
-                        {{ s.config?.ai_model || 'default' }}
-                      </span>
-                      <a
-                        routerLink="/settings/ai"
-                        class="text-[12px] text-[var(--s-accent,#3b82f6)] hover:underline inline-flex items-center gap-1"
-                      >
-                        Change in AI Settings →
-                      </a>
-                    </div>
-                    <div class="field-hint">
-                      Providers, keys, and model discovery are configured on the dedicated AI
-                      Settings page.
-                    </div>
-                  </div>
+                  <maple-ai-worker-summary worker="video-describe" />
                 }
 
                 @if (s.name === 'describe' || s.name === 'video-describe') {

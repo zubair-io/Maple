@@ -282,3 +282,25 @@ describe('DescribeServerPool — circuit breaker', () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(25);
   });
 });
+
+it('round-robin pools skip saturated connections and retain retry failover', async () => {
+  const pool = new DescribeServerPool(servers, fakeProvider, {}, true);
+  const gate = deferred();
+  const picked: string[] = [];
+  const calls = [0, 1, 2].map(() =>
+    pool.run(async (_p, server) => {
+      picked.push(server.url);
+      await gate.promise;
+    }),
+  );
+  await Bun.sleep(5);
+  expect(picked).toEqual(['http://a:11434', 'http://b:11434', 'http://a:11434']);
+  gate.release();
+  await Promise.all(calls);
+  const tried: string[] = [];
+  await pool.run(async (_p, server) => {
+    tried.push(server.url);
+    if (tried.length === 1) throw new RemoteError('unavailable', true);
+  });
+  expect(new Set(tried).size).toBe(2);
+});

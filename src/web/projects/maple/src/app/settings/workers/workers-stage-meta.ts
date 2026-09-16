@@ -57,7 +57,7 @@ export const STAGE_META: Record<string, StageMeta> = {
     icon: 'sparkle',
     enrichment: 'describe',
     description:
-      'Local vision-LLM via Ollama. Runs a multimodal model against the preview cache and produces a structured caption plus OCR text.',
+      'Vision AI using the assigned provider connections. Runs a multimodal model against the preview cache and produces a structured caption plus OCR text.',
   },
   transcribe: {
     id: 'transcribe',

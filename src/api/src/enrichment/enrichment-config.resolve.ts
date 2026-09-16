@@ -1,3 +1,4 @@
+import { assignedAi, type AiConnectionsConfig } from './ai-connections.ts';
 /**
  * Pure resolver for the enrichment runtime config. Split out of
  * `enrichment-config.repo.ts` (which owns load/save + the shared types and
@@ -51,6 +52,7 @@ import {
  * enabled defaults true). Pure function — no side effects, easy to test.
  */
 export interface ResolvedEnrichmentConfig {
+  ai_connections?: AiConnectionsConfig;
   nominatim_url: string | null;
   geocode_worker_enabled: boolean;
   nominatim_rate_limit_per_sec: number;
@@ -435,7 +437,9 @@ export function resolveEnrichmentConfig(
   const serviceSearchRateLimit = resolveServiceSearchRateLimit(db);
   const meilisearchTaskTimeout = resolveMeilisearchTaskTimeout(db);
 
+  const semantic = assignedAi(db?.ai_connections, 'semantic-search');
   return {
+    ai_connections: db?.ai_connections,
     nominatim_url: url,
     geocode_worker_enabled: enabled,
     nominatim_rate_limit_per_sec: rateLimit,
@@ -461,8 +465,8 @@ export function resolveEnrichmentConfig(
     meilisearch_api_key: meilisearchApiKey.value,
     meilisearch_task_timeout_seconds: meilisearchTaskTimeout.value,
     meilisearch_semantic_enabled: meilisearchSemanticEnabled.value,
-    meilisearch_embedder_url: meilisearchEmbedderUrl.value,
-    meilisearch_embedder_model: meilisearchEmbedderModel.value,
+    meilisearch_embedder_url: semantic?.primary.url ?? meilisearchEmbedderUrl.value,
+    meilisearch_embedder_model: semantic?.model ?? meilisearchEmbedderModel.value,
     meilisearch_semantic_ratio: meilisearchSemanticRatio.value,
     service_search_rate_limit_per_minute: serviceSearchRateLimit.value,
     source: {

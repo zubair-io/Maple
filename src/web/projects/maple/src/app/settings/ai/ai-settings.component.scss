@@ -1,21 +1,152 @@
-// AiSettingsComponent SCSS
-
-:host {
-  display: block;
+.ai-page {
+  max-width: 1180px;
+}
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+h2 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+}
+h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+p {
+  color: var(--s-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+section {
+  margin-bottom: 32px;
+}
+.section-heading,
+.card-heading,
+.card-actions,
+.save-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.card-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.wide {
+  grid-column: 1 / -1;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--s-text-muted);
+}
+.connection-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0;
+}
+.hint {
+  font-size: 11px;
+}
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  padding: 16px 0;
+  background: var(--s-surface);
+  border-top: 1px solid var(--s-border);
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .section-heading {
+    align-items: flex-start;
+  }
 }
 
-.ai-body {
-  max-width: 760px;
+.set-record-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+h1 {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+.section-heading {
+  margin-bottom: 16px;
 }
 
-.provider-card {
-  outline: none;
+.connections,
+.assignments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.connection-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-width: 0;
+  padding-left: 8px;
+}
+.connection-summary span {
+  color: var(--s-text-muted);
+  font-size: 12px;
+}
+.connection-usage {
+  overflow-wrap: anywhere;
+}
 
-  &:hover {
-    border-color: var(--s-border-hover, #475569);
-  }
+.assignment-connection {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(160px, 1.5fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--s-border);
+}
 
-  &.is-active {
-    box-shadow: 0 0 0 1px var(--s-accent, #3b82f6);
+.assignment-model {
+  min-width: 0;
+}
+.assignment-status {
+  grid-column: 2 / -1;
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .assignment-connection {
+    grid-template-columns: minmax(100px, 1fr) minmax(120px, 1.5fr);
   }
+  .assignment-connection > mui-button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+.custom-model {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.custom-model mui-input {
+  flex: 1;
+  min-width: 0;
 }

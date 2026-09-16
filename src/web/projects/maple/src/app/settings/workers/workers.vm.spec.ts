@@ -10,8 +10,6 @@ import { describe, it, expect } from 'vitest';
 import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
 import {
   CONCURRENCY_MAX,
-  describeCapacity,
-  describeFormToPatch,
   DEFAULT_RUNTIME,
   ERROR_POLL_MS,
   POLL_MS,
@@ -193,6 +191,7 @@ describe('blankEnrichment', () => {
       describe_provider: 'ollama',
       describe_provider_url: 'http://ollama.local',
       describe_servers: [{ url: 'http://ollama.local', concurrency: 2 }],
+      meilisearch_embedder_model: 'custom-embedder',
       describe_model: 'gemma4:12b',
       describe_system_prompt: '',
       describe_daily_cap_usd: 0,
@@ -209,7 +208,6 @@ describe('blankEnrichment', () => {
       meilisearch_task_timeout_seconds: 900,
       meilisearch_semantic_enabled: true,
       meilisearch_embedder_url: 'http://ollama.local:11434',
-      meilisearch_embedder_model: 'custom-embedder',
       meilisearch_semantic_ratio: 0.7,
       source: {} as EnrichmentConfigResponse['source'],
     };
@@ -217,15 +215,13 @@ describe('blankEnrichment', () => {
     expect(form.nominatim_url).toBe('http://nom.local');
     expect(form.transcribe_model_tier).toBe('small.en');
     expect(form.nominatim_rate_limit_per_sec).toBe('4');
-    // describe_model is intentionally absent — the runtime pins the model
-    // via FIXED_DESCRIBE_MODEL.
+    // Provider and model controls are configured independently in AI Settings.
     expect('describe_model' in form).toBe(false);
     expect(form.face_model_dir).toBe('/tmp/models');
     expect(form.face_min_detection_size).toBe('0.08');
     expect(form.meilisearch_url).toBe('http://meili.local:7700');
     expect(form.meilisearch_task_timeout_seconds).toBe('900');
     expect(form.meilisearch_semantic_enabled).toBe(true);
-    expect(form.meilisearch_embedder_model).toBe('custom-embedder');
     expect(form.meilisearch_semantic_ratio).toBe('0.7');
     // API key is write-only — never seeded from the response, even when set.
     expect(form.meilisearch_api_key).toBe('');
@@ -240,7 +236,6 @@ describe('blankEnrichment', () => {
     expect(form.meilisearch_api_key).toBe('');
     expect(form.meilisearch_task_timeout_seconds).toBe('600');
     expect(form.meilisearch_semantic_enabled).toBe(false);
-    expect(form.meilisearch_embedder_model).toBe('bge-m3');
     expect(form.meilisearch_semantic_ratio).toBe('0.5');
   });
 });
@@ -250,13 +245,12 @@ describe('meilisearchFormToPatch', () => {
     const form = blankEnrichment(null);
     form.meilisearch_url = ' http://meili.local:7700 ';
     form.meilisearch_semantic_enabled = true;
-    form.meilisearch_embedder_model = ' custom-embedder ';
     form.meilisearch_semantic_ratio = '0.65';
 
+    expect(meilisearchFormToPatch(form)).not.toHaveProperty('meilisearch_embedder_model');
     expect(meilisearchFormToPatch(form)).toMatchObject({
       meilisearch_url: 'http://meili.local:7700',
       meilisearch_semantic_enabled: true,
-      meilisearch_embedder_model: 'custom-embedder',
       meilisearch_semantic_ratio: 0.65,
     });
     expect(meilisearchFormToPatch(form)).not.toHaveProperty('meilisearch_api_key');
@@ -397,71 +391,6 @@ describe('formatDate', () => {
     const out = formatDate(iso);
     expect(out).not.toBe('');
     expect(new Date(out).getTime()).toBe(new Date(iso).getTime());
-  });
-});
-
-describe('describe servers', () => {
-  const form = (servers: Array<{ url: string; concurrency: string }>) =>
-    ({ ...blankEnrichment(null), describe_servers: servers }) as never;
-
-  it('seeds rows from the resolved server list', () => {
-    const seeded = blankEnrichment({
-      describe_servers: [
-        { url: 'http://gpu-a:11434', concurrency: 4 },
-        { url: 'http://gpu-b:11434', concurrency: 1 },
-      ],
-    } as EnrichmentConfigResponse);
-    expect(seeded.describe_servers).toEqual([
-      { url: 'http://gpu-a:11434', concurrency: '4' },
-      { url: 'http://gpu-b:11434', concurrency: '1' },
-    ]);
-  });
-
-  it('falls back to one row built from the single URL', () => {
-    const seeded = blankEnrichment({
-      describe_provider_url: 'http://only:11434',
-    } as EnrichmentConfigResponse);
-    expect(seeded.describe_servers).toEqual([{ url: 'http://only:11434', concurrency: '2' }]);
-    expect(blankEnrichment(null).describe_servers).toEqual([{ url: '', concurrency: '2' }]);
-  });
-
-  it('sums per-server concurrency, skipping blank rows and counting invalid text as 1', () => {
-    const servers = [
-      { url: 'http://a:11434', concurrency: '4' },
-      { url: 'http://b:11434', concurrency: '3' },
-      { url: '', concurrency: '9' },
-      // Unparseable text saves as concurrency 1, so the label counts it as
-      // 1 — the number on screen has to match what gets persisted.
-      { url: 'http://c:11434', concurrency: 'abc' },
-    ];
-    expect(describeCapacity(servers)).toBe(8);
-    const patch = describeFormToPatch({ ...blankEnrichment(null), describe_servers: servers });
-    expect(patch.describe_servers?.reduce((sum, s) => sum + s.concurrency, 0)).toBe(8);
-  });
-
-  it('drops blank rows and mirrors the first server onto the single URL', () => {
-    expect(
-      describeFormToPatch(
-        form([
-          { url: ' http://gpu-a:11434 ', concurrency: '4' },
-          { url: '', concurrency: '2' },
-          { url: 'http://gpu-b:11434', concurrency: '1' },
-        ]),
-      ),
-    ).toEqual({
-      describe_servers: [
-        { url: 'http://gpu-a:11434', concurrency: 4 },
-        { url: 'http://gpu-b:11434', concurrency: 1 },
-      ],
-      describe_provider_url: 'http://gpu-a:11434',
-    });
-  });
-
-  it('clears back to the single-server fallback when every row is blank', () => {
-    expect(describeFormToPatch(form([{ url: '  ', concurrency: '2' }]))).toEqual({
-      describe_servers: null,
-      describe_provider_url: null,
-    });
   });
 });
 

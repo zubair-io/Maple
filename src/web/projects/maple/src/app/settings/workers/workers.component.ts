@@ -57,9 +57,8 @@ import { GpuLiveRenderSettingsComponent } from './gpu-live-render-settings.compo
 import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings.component';
 import { FacePurgePanelComponent } from './face-purge-panel.component';
 import { ServiceApiKeysComponent } from './service-api-keys.component';
-import { DescribeServersComponent } from './describe-servers.component';
+import { AiWorkerSummaryComponent } from '../ai/ai-worker-summary.component';
 import {
-  FIXED_DESCRIBE_MODEL,
   groupStagesByPipeline,
   summarizeStages,
   stageMeta,
@@ -72,8 +71,6 @@ import {
   formatDate,
   countsAsOfLabel,
   runtimeFormToPatch,
-  describeCapacity,
-  describeFormToPatch,
   meilisearchFormToPatch,
   blankRuntime,
   blankEnrichment,
@@ -107,7 +104,7 @@ import {
     CanvasColorSpaceSettingsComponent,
     FacePurgePanelComponent,
     ServiceApiKeysComponent,
-    DescribeServersComponent,
+    AiWorkerSummaryComponent,
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
@@ -122,7 +119,6 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkersComponent implements OnInit, OnDestroy {
-  protected readonly fixedDescribeModel = FIXED_DESCRIBE_MODEL;
   protected readonly damaged = inject(DamagedPanelService);
   protected readonly migration = inject(MigrationPanelService);
   protected readonly imports = inject(ImportsPanelService);
@@ -416,9 +412,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
       nominatim_url: current.nominatim_url,
       geocode_worker_enabled: current.geocode_worker_enabled,
     };
-    if (kind === 'describe') {
-      Object.assign(body, describeFormToPatch(form));
-    } else if (kind === 'transcribe') {
+    if (kind === 'transcribe') {
       if (!isWhisperModelTier(form.transcribe_model_tier)) {
         onErr(new Error(`Invalid Whisper model tier: ${form.transcribe_model_tier}`));
         return;
@@ -468,8 +462,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
    * sum). Shown read-only so the number is visible where every other stage
    * shows its concurrency. The server derives the same value on save. */
   describeCapacityLabel(stage: StageStatus): string {
-    const form = this.enrichmentForms()[stage.name] ?? blankEnrichment(this.enrichmentConfig());
-    return String(describeCapacity(form.describe_servers));
+    return String(stage.config?.concurrency ?? 2);
   }
 
   runtimeValue(stage: StageStatus, field: keyof RuntimeForm): string {

@@ -1,3 +1,4 @@
+import { rejectLegacyAiWrite } from '../routes/ai-legacy-write.ts';
 /**
  * Worker management API routes — main handlers.
  *
@@ -491,6 +492,7 @@ export function workerRoutes() {
           }
         },
         {
+          beforeHandle: rejectLegacyAiWrite,
           body: WorkerConfigBody,
         },
       )
