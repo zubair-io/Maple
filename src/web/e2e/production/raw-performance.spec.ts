@@ -288,12 +288,11 @@ test('Hosted restores threaded Chromium CPU work and renders live WebGPU slider 
 /// frame (8896×5920). Its full-native-res develop peaks at 4.31 GB (native
 /// probe, single-threaded) — over the 4 GiB wasm heap ceiling, the pre-fix OOM
 /// trap — while the memory-clamped develop (`min(sensor/2, 4096)` = 4096) peaks
-/// at 2.77 GB. The 100 MP reference fixture reproduces the same abort but its
-/// 129 MB payload crashes the renderer inside the folder-picker shim's base64
-/// CDP bridge, so the e2e uses the largest canonical fixture the bridge can
-/// carry. Not part of `REQUIRED_RAW_FIXTURES` — the test skip-passes without
-/// it, mirroring the fixture-gated Rust tests — and staged into its own temp
-/// folder so the shared writable folder's staged-hash contract stays untouched.
+/// at 2.77 GB. Retained as the Canon/CPU-fallback regression; the canonical
+/// 100 MP reference now has separate bounded-intake/WebGPU coverage in
+/// raw-100mp.spec.ts (#3669). This CR2 is not part of REQUIRED_RAW_FIXTURES,
+/// so its absence is an explicit fixture skip. It uses its own staged temp
+/// folder, preserving the shared writable folder's staged-hash contract.
 const OVER_BUDGET_RAW = 'test_0003.CR2';
 
 /** Sized-develop measure caps recorded by the render worker (`maple:wasm-sized:<cap>`). */

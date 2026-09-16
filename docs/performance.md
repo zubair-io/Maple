@@ -125,15 +125,14 @@ Simulator,name=...'` invocation — recording a row is a matter of running it
 - **Windows.** No WinUI tick-qualification harness (#2587) writes this JSON
   row shape yet. `docs/windows.md` documents the existing Windows test setup;
   wiring its output into this format is separate follow-up work.
-- **Web (Chrome), on the 100 MP reference specifically.** The production
-  Chrome audit harness (`src/web/e2e/production/raw-performance.spec.ts`,
-  from #2457) measures real slider-tick and cold-open numbers, but not
-  against `dji-mavic3pro-100mp.dng`: its own comment on `OVER_BUDGET_RAW`
-  records why — "The 100 MP reference fixture reproduces the same abort but
-  its 129 MB payload crashes the renderer inside the folder-picker shim's
-  base64 CDP bridge, so the e2e uses the largest canonical fixture the
-  bridge can carry" (`test_0003.CR2`, 52.7 MP). The harness's own slider-tick
-  budget test (`raw-gpu-performance`) runs against the smaller `test_0006.DNG`
-  fixture instead. A web row on the 100 MP reference needs either a bridge
-  fix for the picker shim's base64 payload size or a non-picker file-intake
-  path for the e2e harness — tracked as follow-up, not fabricated here.
+- **Web (Chrome), on the 100 MP reference specifically.** The bounded folder-picker
+  bridge and `src/web/e2e/production/raw-100mp.spec.ts` now exercise the exact
+  `dji-mavic3pro-100mp.dng` through the production editor (#3669), validating its
+  complete byte count and SHA-256 before opening. The smaller DNG slider and
+  Canon CPU-fallback tests remain intact. The test attaches intake, host/browser/GPU,
+  editor-open and worker-render evidence, including the failure stage if it fails;
+  a missing canonical fixture is an explicit skip, never a smaller-file substitution.
+  See [the recorded qualification](../test-fixtures/qualification/browser-100mp-3669.md).
+  This is not a committed quiet-machine performance row: the initial recording had
+  background sync activity, and worker `maple:session-render` intervals on a viewport
+  are distinct from input-to-display latency or a full-resolution 100 MP frame.

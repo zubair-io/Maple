@@ -1,6 +1,10 @@
-import { readFile, readdir, mkdir, stat, writeFile } from 'node:fs/promises';
+import { open, readdir, mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 import type { Page } from '@playwright/test';
+
+// Bound every CDP message: a single base64 string for the 129 MB reference
+// duplicates the payload across V8 isolates and can crash the renderer (#3669).
+const READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
 interface DirectoryEntry {
   readonly name: string;
@@ -50,10 +54,29 @@ export async function installProductionFolderPicker(
         kind: entry.isDirectory() ? 'directory' : 'file',
       }));
   });
-  await page.exposeBinding('__mapleE2eReadFile', async (_source, requested: string) => {
-    operations.push({ kind: 'read', path: requested, at: Date.now() });
-    return (await readFile(fixturePath(root, requested))).toString('base64');
-  });
+  await page.exposeBinding(
+    '__mapleE2eReadFileChunk',
+    async (_source, requested: string, offset: number, length: number) => {
+      if (
+        !Number.isSafeInteger(offset) ||
+        offset < 0 ||
+        !Number.isSafeInteger(length) ||
+        length < 1 ||
+        length > READ_CHUNK_BYTES
+      ) {
+        throw new Error('Invalid production fixture read range');
+      }
+      if (offset === 0) operations.push({ kind: 'read', path: requested, at: Date.now() });
+      const file = await open(fixturePath(root, requested), 'r');
+      try {
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await file.read(buffer, 0, length, offset);
+        return buffer.subarray(0, bytesRead).toString('base64');
+      } finally {
+        await file.close();
+      }
+    },
+  );
   await page.exposeBinding('__mapleE2eFileMetadata', async (_source, requested: string) => {
     const metadata = await stat(fixturePath(root, requested));
     return { size: metadata.size, lastModified: metadata.mtimeMs };
@@ -79,10 +102,10 @@ export async function installProductionFolderPicker(
   await page.exposeBinding('__mapleE2eWritePermission', async () => writePermission);
 
   await page.addInitScript(
-    ({ folderName }) => {
+    ({ folderName, readChunkBytes }) => {
       const bindings = window as typeof window & {
         __mapleE2eListDirectory(path: string): Promise<DirectoryEntry[]>;
-        __mapleE2eReadFile(path: string): Promise<string>;
+        __mapleE2eReadFileChunk(path: string, offset: number, length: number): Promise<string>;
         __mapleE2eFileMetadata(path: string): Promise<{ size: number; lastModified: number }>;
         __mapleE2eWriteFile(path: string, base64: string): Promise<void>;
         __mapleE2eEnsureDirectory(path: string): Promise<void>;
@@ -119,7 +142,19 @@ export async function installProductionFolderPicker(
             size: metadata.size,
             lastModified: metadata.lastModified,
             async arrayBuffer() {
-              const bytes = base64ToBytes(await bindings.__mapleE2eReadFile(path));
+              const bytes = new Uint8Array(metadata.size);
+              for (let offset = 0; offset < bytes.length; ) {
+                const chunk = base64ToBytes(
+                  await bindings.__mapleE2eReadFileChunk(
+                    path,
+                    offset,
+                    Math.min(readChunkBytes, bytes.length - offset),
+                  ),
+                );
+                if (chunk.length === 0) throw new Error(`Fixture truncated during read: ${path}`);
+                bytes.set(chunk, offset);
+                offset += chunk.length;
+              }
               return bytes.buffer;
             },
           } as File;
@@ -176,7 +211,10 @@ export async function installProductionFolderPicker(
         value: async () => directoryHandle('', folderName),
       });
     },
-    { folderName: root.split('/').filter(Boolean).pop() ?? 'folder' },
+    {
+      folderName: root.split('/').filter(Boolean).pop() ?? 'folder',
+      readChunkBytes: READ_CHUNK_BYTES,
+    },
   );
 
   return {

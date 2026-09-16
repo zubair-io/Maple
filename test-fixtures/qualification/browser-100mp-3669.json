@@ -1,0 +1,62 @@
+{
+  "recordedAt": "2026-09-16T17:44:17.310Z",
+  "sourceRevision": "9169b88bd73ff14324a9a7712c98992db7275864",
+  "fixture": "dji-mavic3pro-100mp.dng",
+  "sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+  "bytes": 129467390,
+  "host": {
+    "platform": "darwin",
+    "release": "25.6.0",
+    "cpu": "Apple M5 Max",
+    "memoryBytes": 137438953472
+  },
+  "browser": "152.0.7977.84",
+  "outcome": "passed",
+  "gpu": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": "",
+    "isFallbackAdapter": false
+  },
+  "intake": {
+    "bytes": 129467390,
+    "milliseconds": 1947.0099999904633,
+    "sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5"
+  },
+  "openMs": 13712,
+  "sessionOpenMs": 1603.9950000047684,
+  "worker": {
+    "threaded": true,
+    "threads": 8
+  },
+  "pixels": {
+    "width": 1080,
+    "height": 720,
+    "range": 254.66666666666666,
+    "nonDarkFraction": 0.9996553497942386
+  },
+  "slider": {
+    "samples": [
+      0.625,
+      0.574999988079071,
+      0.6100000143051147,
+      0.5899999737739563,
+      0.6050000190734863,
+      0.7699999809265137,
+      0.5899999737739563,
+      0.7300000190734863,
+      0.5899999737739563,
+      0.5949999690055847,
+      0.6000000238418579,
+      0.5899999737739563,
+      0.5999999642372131,
+      0.5849999785423279,
+      0.5950000286102295,
+      0.5849999785423279
+    ],
+    "meanMs": 0.6146874912083149,
+    "p95Ms": 0.7699999809265137,
+    "maxMs": 0.7699999809265137
+  }
+}
