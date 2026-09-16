@@ -511,3 +511,74 @@ candidate or received broad/parity qualification. Source provenance is the
 same Adobe-authored SDK revision, `dng_resample.h` and
 `dng_lens_correction.cpp`; `ConvertDoubleToInt32` explicitly uses truncating
 `static_cast<int32>` in `dng_safe_arithmetic.cpp`.
+
+## Scoped implementation checkpoint (pipeline version 6)
+
+Source commit `6004b3a48` implements the pre-opcode sensor recovery, known-green
+anchor and SDK 32-phase cubic warp, and bumps the shared output version to 6
+with generated mirrors. Exact `baseline` and `baseline_auto` comparisons now
+use the explicitly reported matched-native protocol. Other labels retain the
+legacy direct-reference comparison, including full-resolution detail; protocol
+selection never depends on file existence. Broader reference provisioning and
+migration is tracked by [#3678](https://github.com/zubair-io/Maple/issues/3678).
+Eight comparator tests cover the guards, both baseline profiles, authored
+sidecars and a metadata-free, down-only nonbaseline legacy comparison.
+
+The 32-phase sampler passes **27 focused opcode tests** and **2,391 core tests
+(92 existing ignored)**. Its six original baseline outputs pass the guarded
+native-pair comparison with the same budgets:
+
+| Fixture | Neutral max ΔE | Auto max ΔE |
+| ------- | -------------: | ----------: |
+| 0000    |      36.566240 |   34.114136 |
+| 0007    |      41.709402 |   35.850281 |
+| 0017    |      34.926883 |   33.174935 |
+
+All mean, p95 and bias limits also pass. These first six were directly
+recompared after an in-progress shell script edit invalidated the initial
+harness run's exit status; that interrupted invocation is **not** counted as
+a successful harness qualification. A separate immutable-script 40-comparison
+run is underway. The diagnostic binary predates only the version/qualification
+metadata bump, not a pixel-stage change; the current-version native bindings
+are being rebuilt separately. Native Metal and Apple/API record refreshes
+remain in progress. The Sony 0011 Neutral reference-target discrepancy remains
+unresolved and is not hidden by the baseline protocol correction.
+
+
+## Symmetric estimator falsification and sized-path cost (September 15)
+
+The mask-aware known-channel mean was retested with the same 32-phase cubic
+warp and guarded baseline-native-pair protocol, without changing budgets or
+reference files. All six original cases pass, but the full 40 comparisons
+produce **three failures, zero skips**: unchanged Sony 0011 Neutral bias,
+and new 0020 Neutral/Auto p95 **23.96 > 23.40** (known-G candidate: 23.13).
+Rejecting negative/nonfinite witnesses and rerunning both 0020 profiles
+retains those failures. The symmetric estimator is therefore **rejected for
+production**, despite its appealing permutation symmetry and passing core
+invariants. This checkpoint preserves its source/tests for reproducibility;
+the next source change returns to the narrower guarded known-G correction.
+
+The mask-aware source passes 2,398 core tests with 92 existing ignored tests.
+Its new tests cover six partial masks, all channel permutations, baseline
+gain scaling, nonpositive/cancelling known energy, and negative witnesses.
+Original six-case maxima (Neutral/Auto): 0000 34.89/33.56; 0007 43.25/38.26;
+0017 30.41/33.17. These successes do not override the broad regression.
+
+Actual 100MP Bayer sized preparation uses the existing half-resolution
+demosaic first, so moving HR before downsample operates on 25MP at viewport
+sizes, not 100MP. Three serial alternating runs, four Rayon threads, M5 Max:
+Preview 1600 preparation median 483.966 ms on main versus 579.027 ms with
+pre-opcode HR/cubic; requested Amaze 2048 is 669.595 versus 754.292 ms. Peak
+process RSS is 2.837/2.846 GB and 2.956/2.957 GB respectively. This is a
+material preparation cost, not a slider-tick measurement or proof of the
+whole uncached-open target. Results do not generalize to LinearRaw/X-Trans.
+
+Removing the HR RGB snapshot is exact because a frozen clipping mask excludes
+every modified pixel from witness reads and each target is read before its
+sole write. Complete f32 scene fingerprints match with/without snapshot at
+1600, 2048 and full 12288×8192. HR-stage median drops 35.40 to 17.23 ms for
+Preview and 73.21 to 54.53 ms full-size; complete-open measurements are noisy
+and process peak memory is dominated by other stages. No whole-open speedup
+is claimed. A regression test ensures newly reconstructed sub-threshold
+pixels cannot become witnesses. The committed sized-open probe reproduces
+this measurement separately from display and encoding.

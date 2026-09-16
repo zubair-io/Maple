@@ -1,0 +1,12 @@
+{"variant": "guard", "quality": "preview", "repeat": 0, "status": 0, "preparation_ms": 614.647, "peak_rss_bytes": 2850701312, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-guard-preview-0.log"}
+{"variant": "no-copy", "quality": "preview", "repeat": 0, "status": 0, "preparation_ms": 569.067, "peak_rss_bytes": 2842083328, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-no-copy-preview-0.log"}
+{"variant": "guard", "quality": "preview", "repeat": 1, "status": 0, "preparation_ms": 579.412, "peak_rss_bytes": 2841985024, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-guard-preview-1.log"}
+{"variant": "no-copy", "quality": "preview", "repeat": 1, "status": 0, "preparation_ms": 587.027, "peak_rss_bytes": 2841985024, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-no-copy-preview-1.log"}
+{"variant": "guard", "quality": "preview", "repeat": 2, "status": 0, "preparation_ms": 581.752, "peak_rss_bytes": 2841870336, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-guard-preview-2.log"}
+{"variant": "no-copy", "quality": "preview", "repeat": 2, "status": 0, "preparation_ms": 568.272, "peak_rss_bytes": 2841853952, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-no-copy-preview-2.log"}
+{"variant": "guard", "quality": "amaze", "repeat": 0, "status": 0, "preparation_ms": 776.831, "peak_rss_bytes": 2957328384, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-guard-amaze-0.log"}
+{"variant": "no-copy", "quality": "amaze", "repeat": 0, "status": 0, "preparation_ms": 762.787, "peak_rss_bytes": 2957312000, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-no-copy-amaze-0.log"}
+{"variant": "guard", "quality": "amaze", "repeat": 1, "status": 0, "preparation_ms": 758.53, "peak_rss_bytes": 2957164544, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-guard-amaze-1.log"}
+{"variant": "no-copy", "quality": "amaze", "repeat": 1, "status": 0, "preparation_ms": 785.852, "peak_rss_bytes": 2957344768, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-no-copy-amaze-1.log"}
+{"variant": "guard", "quality": "amaze", "repeat": 2, "status": 0, "preparation_ms": 753.938, "peak_rss_bytes": 2968403968, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-guard-amaze-2.log"}
+{"variant": "no-copy", "quality": "amaze", "repeat": 2, "status": 0, "preparation_ms": 755.202, "peak_rss_bytes": 2968698880, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-no-copy-amaze-2.log"}
