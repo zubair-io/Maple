@@ -1,0 +1,3603 @@
+{
+  "issue": 3667,
+  "original_commit": "1f233acb91dd97c2103a6903279be4dee5329192",
+  "reviewed_commit": "9e601f937683a7260a7f16d57aee050b0424b25b",
+  "date": "2026-09-16",
+  "version": "2.103.0",
+  "scope": "Whole-project configured static scan; no automatic deletion, suppression or runtime qualification. Original and fresh candidate inventories match 1:1, including original fields and clone fingerprints.",
+  "commands": [
+    "cd src/web && bun install --frozen-lockfile",
+    "cd src/web && ./node_modules/.bin/fallow --format json --no-cache"
+  ],
+  "scan_exit_code": 1,
+  "scan_exit_meaning": "Findings reported, not a tool crash. Separate dupes/health commands also inspected.",
+  "lock_sha256": "f117ae07eaaace3016a7a3287f2b9232813957633113d5ba55a0cbd2fd318595",
+  "entry_points": {
+    "total": 638,
+    "sources": {
+      "manual_entry": 2,
+      "package.json": 16,
+      "plugin": 620
+    }
+  },
+  "fresh_summary": {
+    "total_issues": 99,
+    "unused_files": 0,
+    "unused_exports": 8,
+    "unused_types": 1,
+    "private_type_leaks": 0,
+    "unused_dependencies": 0,
+    "unused_enum_members": 0,
+    "unused_class_members": 61,
+    "unused_store_members": 0,
+    "unprovided_injects": 0,
+    "unrendered_components": 0,
+    "unused_component_props": 0,
+    "unused_component_emits": 0,
+    "unused_component_inputs": 8,
+    "unused_component_outputs": 4,
+    "unused_svelte_events": 0,
+    "unused_server_actions": 0,
+    "unused_load_data_keys": 0,
+    "unresolved_imports": 0,
+    "unlisted_dependencies": 12,
+    "duplicate_exports": 1,
+    "type_only_dependencies": 0,
+    "test_only_dependencies": 0,
+    "circular_dependencies": 0,
+    "re_export_cycles": 0,
+    "boundary_violations": 0,
+    "boundary_coverage_violations": 0,
+    "boundary_call_violations": 0,
+    "policy_violations": 0,
+    "stale_suppressions": 4,
+    "unused_catalog_entries": 0,
+    "empty_catalog_groups": 0,
+    "unresolved_catalog_references": 0,
+    "unused_dependency_overrides": 0,
+    "misconfigured_dependency_overrides": 0,
+    "invalid_client_exports": 0,
+    "mixed_client_server_barrels": 0,
+    "misplaced_directives": 0,
+    "route_collisions": 0,
+    "dynamic_segment_name_conflicts": 0
+  },
+  "fresh_duplication_stats": {
+    "total_files": 737,
+    "files_with_clones": 32,
+    "total_lines": 97284,
+    "duplicated_lines": 597,
+    "total_tokens": 383763,
+    "duplicated_tokens": 1861,
+    "clone_groups": 25,
+    "clone_instances": 53,
+    "duplication_percentage": 0.6136672011841618
+  },
+  "fresh_health_summary": {
+    "files_analyzed": 1365,
+    "functions_analyzed": 15383,
+    "functions_above_threshold": 14,
+    "max_cyclomatic_threshold": 20,
+    "max_cognitive_threshold": 15,
+    "max_crap_threshold": 30.0,
+    "files_scored": 1187,
+    "average_maintainability": 91.2,
+    "coverage_model": "static_estimated",
+    "coverage_source_consistency": "uniform",
+    "severity_critical_count": 3,
+    "severity_high_count": 3,
+    "severity_moderate_count": 8
+  },
+  "coverage_notice": "All coverage_source fields retained verbatim. Estimated is not measured execution coverage. No browser, WASM build, Angular suite or perceptual harness run for this documentation-only triage.",
+  "configuration": {
+    "path": "src/web/.fallowrc.json",
+    "contents": "{\n  \"$schema\": \"https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json\",\n  \"entry\": [\"scripts/serve-production-e2e.ts\", \"scripts/export-recipe-storage.entry.ts\"],\n  // Generated mirrors (tools/codegen.sh, #2683) are drift-gated against\n  // their Rust source by the codegen-drift CI job, not usage-gated \u2014 a\n  // generated file with no web consumer yet (e.g. a catalog whose picker\n  // UI lands in a later stacked PR) is not dead code, it's staged output.\n  // Auditing them for unused-file/unused-export dead code is a category\n  // error, so they're excluded here the same way _design-reference/** is.\n  \"ignorePatterns\": [\n    \"_design-reference/**\",\n    \"projects/**/*.generated.ts\",\n    \"projects/**/generated/**\"\n  ],\n  // #2149: fallow's complexity metric is calibrated for functions \u2014 every\n  // `@if`/`@for` block in an Angular container template counts as a branch,\n  // so template CRAP/cyclomatic/cognitive scores run 40-100x the function\n  // thresholds regardless of decomposition (measured on people.component.html:\n  // CRAP 4422 vs. threshold 30, even after extracting the entire list view).\n  // Templates get no realistic ceiling under this metric, so they're excluded\n  // from complexity analysis only \u2014 dead-code and duplicate-detection still\n  // run over .html files, since both have caught real issues on this repo.\n  \"health\": {\n    \"ignore\": [\"**/*.html\"]\n  },\n  // @opentelemetry/core is a pre-existing package.json hygiene finding\n  // (never imported) reported alongside the four #3002 findings but NOT\n  // currently gating \u2014 left suppressed here until it's picked up.\n  \"ignoreDependencies\": [\n    \"@socketsecurity/bun-security-scanner\",\n    \"fallow\",\n    \"@opentelemetry/core\",\n    // Pre-existing on main (verified against the toast-sweep branch's\n    // merge-base, fdf1b267c \u2014 `app-update.service.ts` imports it at the\n    // same line there too) despite being listed in package.json's\n    // dependencies. fallow's `--gate all` still flags it because this\n    // finding's own file (app-update.service.ts) is touched by the toast\n    // sweep (ticket #3043) \u2014 not because the dependency itself changed.\n    \"@angular/service-worker\"\n  ],\n  // Maple UI atoms (#3000) live two levels below `lib/` (`lib/ui/<name>/`)\n  // and `@use '../../generated/ui-tokens' as tok;` per the wave brief.\n  // fallow's Sass import resolver doesn't walk multi-segment `../../`\n  // traversals \u2014 the single-segment sibling import in tokens.scss/\n  // motion.scss already resolves fine \u2014 but the real Sass compiler (and the\n  // actual `ng build`/`ng test` runs) resolve it correctly, confirmed by a\n  // clean maple-syrup production build. False positive, not a real gap.\n  \"ignoreUnresolvedImports\": [\n    \"**/pkg/raw_wasm\",\n    \"tailwindcss\",\n    \"**/tailwindcss\",\n    \"**/generated/ui-tokens\"\n  ]\n}\n",
+    "inline_suppressions": [
+      {
+        "path": "src/web/projects/maple/src/app/settings/workers/mirror-settings.component.ts",
+        "line": 134,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple/src/app/settings/workers/workers.component.ts",
+        "line": 289,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple/src/app/settings/workers/workers.component.ts",
+        "line": 396,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/addressing/fs-access-library-source.ts",
+        "line": 138,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/addressing/maple-id-fallback.worker.ts",
+        "line": 31,
+        "text": "// fallow-ignore-next-line unresolved-import"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/asset-grid/asset-grid.component.ts",
+        "line": 279,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/asset-grid/row-heights-virtual-scroll.ts",
+        "line": 49,
+        "text": "// fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/asset-grid/row-heights-virtual-scroll.ts",
+        "line": 65,
+        "text": "// fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/asset-grid/row-heights-virtual-scroll.ts",
+        "line": 70,
+        "text": "// fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/asset-grid/row-heights-virtual-scroll.ts",
+        "line": 76,
+        "text": "// fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/asset-grid/row-heights-virtual-scroll.ts",
+        "line": 79,
+        "text": "// fallow-ignore-next-line unused-class-member -- `VirtualScrollStrategy` contract: invoked by `CdkVirtualScrollViewport`, never by our own code."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/develop/color-wheel.component.ts",
+        "line": 50,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/develop/wb-pad.component.ts",
+        "line": 208,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.component.ts",
+        "line": 99,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.test-helpers.ts",
+        "line": 52,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.test-helpers.ts",
+        "line": 58,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/editor/copy-paste/batch-preview.service.ts",
+        "line": 13,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/editor/copy-paste/batch-sync-asset-io.service.ts",
+        "line": 71,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/editor/copy-paste/testing/batch-test-files.ts",
+        "line": 15,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/editor/copy-paste/testing/batch-test-files.ts",
+        "line": 22,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/editor/copy-paste/testing/batch-test-files.ts",
+        "line": 27,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/editor/copy-paste/testing/batch-test-files.ts",
+        "line": 77,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/editor/copy-paste/testing/batch-test-files.ts",
+        "line": 89,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/editor/copy-paste/testing/batch-test-files.ts",
+        "line": 109,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/export/self-hosted-export-recipe.service.ts",
+        "line": 13,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/export/self-hosted-export-recipe.service.ts",
+        "line": 31,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/export/self-hosted-export-recipe.service.ts",
+        "line": 36,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/export/self-hosted-export-recipe.service.ts",
+        "line": 41,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/lens/lens-profile-server.service.ts",
+        "line": 19,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/lens/lens-profile-server.service.ts",
+        "line": 27,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/embedded-preview.worker.ts",
+        "line": 33,
+        "text": "// fallow-ignore-next-line unresolved-import"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/image-utils.ts",
+        "line": 78,
+        "text": "// fallow-ignore-next-line code-duplication"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.test-helpers.ts",
+        "line": 24,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.test-helpers.ts",
+        "line": 31,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.test-helpers.ts",
+        "line": 36,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.test-helpers.ts",
+        "line": 41,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 184,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 301,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 328,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 345,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 358,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 378,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 391,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 453,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 464,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker.ts",
+        "line": 94,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker.ts",
+        "line": 441,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/shells/browse-shell/browse-shell.component.ts",
+        "line": 363,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/shells/preview-shell/preview-shell.component.ts",
+        "line": 231,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/shells/preview-shell/preview-shell.component.ts",
+        "line": 313,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/state/library-fetch.service.ts",
+        "line": 161,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/state/library-fetch.service.ts",
+        "line": 1284,
+        "text": "// fallow-ignore-next-line complexity"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/state/library-state.service.ts",
+        "line": 263,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/state/library-state.service.ts",
+        "line": 283,
+        "text": "// fallow-ignore-next-line unused-class-member"
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/ui/color-wheel/mui-color-wheel.component.ts",
+        "line": 57,
+        "text": "// fallow-ignore-next-line unused-class-member -- read from the templateUrl view (`puckPos().left/top`); fallow's member-usage scan doesn't follow external Angular templates."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/ui/drag-bar/mui-drag-bar.component.ts",
+        "line": 131,
+        "text": "// fallow-ignore-next-line unused-class-member -- read from the templateUrl view (`markerPct()`); fallow's member-usage scan doesn't follow external Angular templates."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/ui/living-slider/mui-living-slider.component.ts",
+        "line": 84,
+        "text": "// fallow-ignore-next-line unused-class-member -- read from the templateUrl view (`thumbPct()`); fallow's member-usage scan doesn't follow external Angular templates."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/ui/pad-2d/mui-pad-2d.component.ts",
+        "line": 83,
+        "text": "// fallow-ignore-next-line unused-class-member -- read from the templateUrl view (`puckPos().left/top`); fallow's member-usage scan doesn't follow external Angular templates."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/ui/setup-wizard/mui-wizard-step.directive.ts",
+        "line": 21,
+        "text": "// fallow-ignore-next-line unused-class-member -- read via `contentChildren(MuiWizardStepDirective)` results in mui-setup-wizard.component.ts (`this.stepTemplates()[this.stepIndex()]?.templateRef`); fallow's member-usage scan doesn't follow property access on signal-query result elements."
+      },
+      {
+        "path": "src/web/projects/maple-common/src/lib/ui/slider/mui-slider.component.ts",
+        "line": 28,
+        "text": "// fallow-ignore-next-line unused-class-member -- read from the templateUrl view (`trackPct()`); fallow's member-usage scan doesn't follow external Angular templates."
+      }
+    ]
+  },
+  "counts": {
+    "requiring runtime evidence": 68,
+    "confirmed": 4,
+    "false positive": 45,
+    "intentional checked duplicate": 19,
+    "already tracked": 1
+  },
+  "candidates": [
+    {
+      "id": "web:unused_exports:001",
+      "category": "unused_exports",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/folder-listing-cache.ts",
+        "export_name": "FolderListingIdbCache",
+        "is_type_only": false,
+        "line": 60,
+        "col": 13,
+        "span_start": 2743,
+        "is_re_export": false
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Symbol has same-module runtime consumers (DI factory, fallback read/write, or worker canvas snapshot). Unused external export is not dead implementation; public boundary intent remains unqualified.",
+      "evidence": ["src/web/projects/maple-common/src/lib/api/folder-listing-cache.ts"],
+      "required_evidence": "Check library public entry/transitive exports and generated build consumers before changing visibility; preserve local calls."
+    },
+    {
+      "id": "web:unused_exports:002",
+      "category": "unused_exports",
+      "original_index": 1,
+      "fresh_index": 1,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/image-canvas/image-canvas.zoom-gestures.ts",
+        "export_name": "FIT_SNAP_FACTOR",
+        "is_type_only": false,
+        "line": 24,
+        "col": 13,
+        "span_start": 1379,
+        "is_re_export": false
+      },
+      "disposition": "confirmed",
+      "rationale": "Export modifier has no external importing/re-exporting consumer in tracked source, templates, tooling or public-api.ts. Helper remains live inside its module; remove only export, never its implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.zoom-gestures.ts"
+      ],
+      "issue": 3712
+    },
+    {
+      "id": "web:unused_exports:003",
+      "category": "unused_exports",
+      "original_index": 2,
+      "fresh_index": 2,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/image-canvas/image-canvas.zoom-gestures.ts",
+        "export_name": "FIT_UNDERSHOOT",
+        "is_type_only": false,
+        "line": 26,
+        "col": 13,
+        "span_start": 1494,
+        "is_re_export": false
+      },
+      "disposition": "confirmed",
+      "rationale": "Export modifier has no external importing/re-exporting consumer in tracked source, templates, tooling or public-api.ts. Helper remains live inside its module; remove only export, never its implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.zoom-gestures.ts"
+      ],
+      "issue": 3712
+    },
+    {
+      "id": "web:unused_exports:004",
+      "category": "unused_exports",
+      "original_index": 3,
+      "fresh_index": 3,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/editor/parity/editor-parity-manifest.builders.ts",
+        "export_name": "SLIDER_INTERACTION",
+        "is_type_only": false,
+        "line": 25,
+        "col": 13,
+        "span_start": 968,
+        "is_re_export": false
+      },
+      "disposition": "confirmed",
+      "rationale": "Export modifier has no external importing/re-exporting consumer in tracked source, templates, tooling or public-api.ts. Helper remains live inside its module; remove only export, never its implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/editor/parity/editor-parity-manifest.builders.ts"
+      ],
+      "issue": 3712
+    },
+    {
+      "id": "web:unused_exports:005",
+      "category": "unused_exports",
+      "original_index": 4,
+      "fresh_index": 4,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/editor/parity/editor-parity-manifest.builders.ts",
+        "export_name": "SLIDER_A11Y",
+        "is_type_only": false,
+        "line": 35,
+        "col": 13,
+        "span_start": 1619,
+        "is_re_export": false
+      },
+      "disposition": "confirmed",
+      "rationale": "Export modifier has no external importing/re-exporting consumer in tracked source, templates, tooling or public-api.ts. Helper remains live inside its module; remove only export, never its implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/editor/parity/editor-parity-manifest.builders.ts"
+      ],
+      "issue": 3712
+    },
+    {
+      "id": "web:unused_exports:006",
+      "category": "unused_exports",
+      "original_index": 5,
+      "fresh_index": 5,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/folder-access/fallback-backend.ts",
+        "export_name": "fallbackWriteBlob",
+        "is_type_only": false,
+        "line": 44,
+        "col": 22,
+        "span_start": 1726,
+        "is_re_export": false
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Symbol has same-module runtime consumers (DI factory, fallback read/write, or worker canvas snapshot). Unused external export is not dead implementation; public boundary intent remains unqualified.",
+      "evidence": ["src/web/projects/maple-common/src/lib/folder-access/fallback-backend.ts"],
+      "required_evidence": "Check library public entry/transitive exports and generated build consumers before changing visibility; preserve local calls."
+    },
+    {
+      "id": "web:unused_exports:007",
+      "category": "unused_exports",
+      "original_index": 6,
+      "fresh_index": 6,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/folder-access/fallback-backend.ts",
+        "export_name": "fallbackReadBlob",
+        "is_type_only": false,
+        "line": 57,
+        "col": 22,
+        "span_start": 2125,
+        "is_re_export": false
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Symbol has same-module runtime consumers (DI factory, fallback read/write, or worker canvas snapshot). Unused external export is not dead implementation; public boundary intent remains unqualified.",
+      "evidence": ["src/web/projects/maple-common/src/lib/folder-access/fallback-backend.ts"],
+      "required_evidence": "Check library public entry/transitive exports and generated build consumers before changing visibility; preserve local calls."
+    },
+    {
+      "id": "web:unused_exports:008",
+      "category": "unused_exports",
+      "original_index": 7,
+      "fresh_index": 7,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker-handlers.ts",
+        "export_name": "liveCanvas",
+        "is_type_only": false,
+        "line": 138,
+        "col": 11,
+        "span_start": 6663,
+        "is_re_export": false
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Symbol has same-module runtime consumers (DI factory, fallback read/write, or worker canvas snapshot). Unused external export is not dead implementation; public boundary intent remains unqualified.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker-handlers.ts"
+      ],
+      "required_evidence": "Check library public entry/transitive exports and generated build consumers before changing visibility; preserve local calls."
+    },
+    {
+      "id": "web:unused_types:001",
+      "category": "unused_types",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/folder-listing-cache.ts",
+        "export_name": "FolderListingRecord",
+        "is_type_only": true,
+        "line": 35,
+        "col": 17,
+        "span_start": 1767,
+        "is_re_export": false
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "FolderListingRecord is used locally for persisted IDB records; absence of external type references proves neither dead record schema nor removal safety.",
+      "evidence": ["src/web/projects/maple-common/src/lib/api/folder-listing-cache.ts"],
+      "required_evidence": "Verify public barrel/build declaration consumers before making the record interface private."
+    },
+    {
+      "id": "web:unused_class_members:001",
+      "category": "unused_class_members",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "parent_name": "PeopleBulkController",
+        "member_name": "mergeTargetsList",
+        "kind": "class_property",
+        "line": 39,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Angular template invokes bulk() controller member.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-list.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:002",
+      "category": "unused_class_members",
+      "original_index": 1,
+      "fresh_index": 1,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "parent_name": "PeopleBulkController",
+        "member_name": "enterSelectMode",
+        "kind": "class_method",
+        "line": 52,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Angular template invokes bulk() controller member.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-list.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:003",
+      "category": "unused_class_members",
+      "original_index": 2,
+      "fresh_index": 2,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "parent_name": "PeopleBulkController",
+        "member_name": "exitSelectMode",
+        "kind": "class_method",
+        "line": 56,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Angular template invokes bulk() controller member.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-list.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:004",
+      "category": "unused_class_members",
+      "original_index": 3,
+      "fresh_index": 3,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "parent_name": "PeopleBulkController",
+        "member_name": "isPersonSelected",
+        "kind": "class_method",
+        "line": 61,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Angular template invokes bulk() controller member.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-list.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:005",
+      "category": "unused_class_members",
+      "original_index": 4,
+      "fresh_index": 4,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "parent_name": "PeopleBulkController",
+        "member_name": "togglePersonSelection",
+        "kind": "class_method",
+        "line": 65,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Angular template invokes bulk() controller member.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-list.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:006",
+      "category": "unused_class_members",
+      "original_index": 5,
+      "fresh_index": 5,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "parent_name": "PeopleBulkController",
+        "member_name": "mergeSelectedInto",
+        "kind": "class_method",
+        "line": 96,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Angular template invokes bulk() controller member.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-list.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:007",
+      "category": "unused_class_members",
+      "original_index": 6,
+      "fresh_index": 6,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "parent_name": "PeopleBulkController",
+        "member_name": "hideSelectedPeople",
+        "kind": "class_method",
+        "line": 103,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Angular template invokes bulk() controller member.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-list.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:008",
+      "category": "unused_class_members",
+      "original_index": 7,
+      "fresh_index": 7,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/people/thumb-blob-cache.ts",
+        "parent_name": "ThumbBlobCache",
+        "member_name": "blobs",
+        "kind": "class_method",
+        "line": 52,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for ThumbBlobCache.blobs does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple/src/app/settings/people/thumb-blob-cache.ts"],
+      "required_evidence": "Exercise ThumbBlobCache consumers in both workspace modes and trace receiver-specific blobs calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:009",
+      "category": "unused_class_members",
+      "original_index": 8,
+      "fresh_index": 8,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/addressing/fs-access-library-source.ts",
+        "parent_name": "FsAccessLibrarySource",
+        "member_name": "imageBlob",
+        "kind": "class_method",
+        "line": 118,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "LIBRARY_SOURCE selects FsAccessLibrarySource in hosted-workspace.providers.ts; imageBlob dispatches through LibrarySource.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/addressing/fs-access-library-source.ts",
+        "src/web/projects/maple-common/src/lib/state/library-cache.byte-source.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:010",
+      "category": "unused_class_members",
+      "original_index": 9,
+      "fresh_index": 9,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/addressing/fs-access-library-source.ts",
+        "parent_name": "FsAccessLibrarySource",
+        "member_name": "previewBlob",
+        "kind": "class_method",
+        "line": 184,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "LIBRARY_SOURCE selects FsAccessLibrarySource; previewBlob is called through the interface.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/addressing/fs-access-library-source.ts",
+        "src/web/projects/maple-common/src/lib/state/library-cache.preview-loader.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:011",
+      "category": "unused_class_members",
+      "original_index": 10,
+      "fresh_index": 10,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "registerFolder",
+        "kind": "class_method",
+        "line": 489,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "registerFolder called through SERVER_LIBRARY_IO, bound to BunApiBackendService in self-hosted-workspace.providers.ts.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "src/web/projects/maple-common/src/lib/state/library-fetch.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:012",
+      "category": "unused_class_members",
+      "original_index": 11,
+      "fresh_index": 11,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "listAssets",
+        "kind": "class_method",
+        "line": 636,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for BunApiBackendService.listAssets does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts"],
+      "required_evidence": "Exercise BunApiBackendService consumers in both workspace modes and trace receiver-specific listAssets calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:013",
+      "category": "unused_class_members",
+      "original_index": 12,
+      "fresh_index": 12,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "getAsset",
+        "kind": "class_method",
+        "line": 643,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for BunApiBackendService.getAsset does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts"],
+      "required_evidence": "Exercise BunApiBackendService consumers in both workspace modes and trace receiver-specific getAsset calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:014",
+      "category": "unused_class_members",
+      "original_index": 13,
+      "fresh_index": 13,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "acknowledgeHidden",
+        "kind": "class_method",
+        "line": 710,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for BunApiBackendService.acknowledgeHidden does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts"],
+      "required_evidence": "Exercise BunApiBackendService consumers in both workspace modes and trace receiver-specific acknowledgeHidden calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:015",
+      "category": "unused_class_members",
+      "original_index": 14,
+      "fresh_index": 14,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "getHiddenPhotos",
+        "kind": "class_method",
+        "line": 714,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for BunApiBackendService.getHiddenPhotos does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts"],
+      "required_evidence": "Exercise BunApiBackendService consumers in both workspace modes and trace receiver-specific getHiddenPhotos calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:016",
+      "category": "unused_class_members",
+      "original_index": 15,
+      "fresh_index": 15,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "getXmp",
+        "kind": "class_method",
+        "line": 910,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "serverPersistenceFactory calls api.getXmp.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "src/web/projects/maple-common/src/lib/workspace/self-hosted-workspace.providers.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:017",
+      "category": "unused_class_members",
+      "original_index": 16,
+      "fresh_index": 16,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "deleteXmp",
+        "kind": "class_method",
+        "line": 936,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for BunApiBackendService.deleteXmp does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts"],
+      "required_evidence": "Exercise BunApiBackendService consumers in both workspace modes and trace receiver-specific deleteXmp calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:018",
+      "category": "unused_class_members",
+      "original_index": 17,
+      "fresh_index": 17,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "putPreview",
+        "kind": "class_method",
+        "line": 951,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "serverPersistenceFactory calls api.putPreview.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "src/web/projects/maple-common/src/lib/workspace/self-hosted-workspace.providers.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:019",
+      "category": "unused_class_members",
+      "original_index": 18,
+      "fresh_index": 18,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "rescanFolder",
+        "kind": "class_method",
+        "line": 960,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "rescanFolder is invoked through SERVER_LIBRARY_IO.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "src/web/projects/maple-common/src/lib/state/library-fetch.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:020",
+      "category": "unused_class_members",
+      "original_index": 19,
+      "fresh_index": 19,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "scanFolder",
+        "kind": "class_method",
+        "line": 973,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "scanFolder is invoked through SERVER_LIBRARY_IO.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "src/web/projects/maple-common/src/lib/state/library-fetch.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:021",
+      "category": "unused_class_members",
+      "original_index": 20,
+      "fresh_index": 20,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "createPerson",
+        "kind": "class_method",
+        "line": 1221,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for BunApiBackendService.createPerson does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts"],
+      "required_evidence": "Exercise BunApiBackendService consumers in both workspace modes and trace receiver-specific createPerson calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:022",
+      "category": "unused_class_members",
+      "original_index": 21,
+      "fresh_index": 21,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "assignFaceToPerson",
+        "kind": "class_method",
+        "line": 1255,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Controller invokes api.assignFaceToPerson through injected dependencies.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "src/web/projects/maple/src/app/settings/people/people-face-bulk.controller.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:023",
+      "category": "unused_class_members",
+      "original_index": 22,
+      "fresh_index": 22,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "parent_name": "BunApiBackendService",
+        "member_name": "hideFace",
+        "kind": "class_method",
+        "line": 1270,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Controller invokes api.hideFace through injected dependencies.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts",
+        "src/web/projects/maple/src/app/settings/people/people-face-bulk.controller.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:024",
+      "category": "unused_class_members",
+      "original_index": 23,
+      "fresh_index": 23,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/people.store.ts",
+        "parent_name": "PeopleStore",
+        "member_name": "mergePeople",
+        "kind": "class_method",
+        "line": 482,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Controller invokes deps.store.mergePeople.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/people.store.ts",
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:025",
+      "category": "unused_class_members",
+      "original_index": 24,
+      "fresh_index": 24,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/api/people.store.ts",
+        "parent_name": "PeopleStore",
+        "member_name": "setPersonCover",
+        "kind": "class_method",
+        "line": 547,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Controller invokes deps.store.setPersonCover.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/people.store.ts",
+        "src/web/projects/maple/src/app/settings/people/people-detail.controller.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:026",
+      "category": "unused_class_members",
+      "original_index": 25,
+      "fresh_index": 25,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/auth/auth.service.ts",
+        "parent_name": "AuthService",
+        "member_name": "isOwner",
+        "kind": "class_method",
+        "line": 165,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for AuthService.isOwner does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/auth/auth.service.ts"],
+      "required_evidence": "Exercise AuthService consumers in both workspace modes and trace receiver-specific isOwner calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:027",
+      "category": "unused_class_members",
+      "original_index": 26,
+      "fresh_index": 26,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/auth/auth.service.ts",
+        "parent_name": "AuthService",
+        "member_name": "loadMe",
+        "kind": "class_method",
+        "line": 350,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Auth bootstrap explicitly invokes auth.loadMe; auth.guard.ts also invokes it.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/auth/auth.service.ts",
+        "src/web/projects/maple-common/src/lib/auth/auth-bootstrap.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:028",
+      "category": "unused_class_members",
+      "original_index": 27,
+      "fresh_index": 27,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/asset-grid/asset-grid.component.ts",
+        "parent_name": "AssetGridComponent",
+        "member_name": "trackRow",
+        "kind": "class_property",
+        "line": 87,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "cdkVirtualFor binds trackBy: trackRow.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/asset-grid/asset-grid.component.ts",
+        "src/web/projects/maple-common/src/lib/components/asset-grid/asset-grid.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:029",
+      "category": "unused_class_members",
+      "original_index": 28,
+      "fresh_index": 28,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/asset-grid/asset-grid.component.ts",
+        "parent_name": "AssetGridComponent",
+        "member_name": "STAR_INDICES",
+        "kind": "class_property",
+        "line": 106,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for AssetGridComponent.STAR_INDICES does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/asset-grid/asset-grid.component.ts"
+      ],
+      "required_evidence": "Exercise AssetGridComponent consumers in both workspace modes and trace receiver-specific STAR_INDICES calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:030",
+      "category": "unused_class_members",
+      "original_index": 29,
+      "fresh_index": 29,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "parent_name": "InMemoryUserPresetStore",
+        "member_name": "list",
+        "kind": "class_method",
+        "line": 38,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "hostedStore().list/put/delete dispatch through UserPresetStore; createHostedUserPresetStore selects IDB or in-memory implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "src/web/projects/maple-common/src/lib/editor/presets/presets.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:031",
+      "category": "unused_class_members",
+      "original_index": 30,
+      "fresh_index": 30,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "parent_name": "InMemoryUserPresetStore",
+        "member_name": "put",
+        "kind": "class_method",
+        "line": 42,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "hostedStore().list/put/delete dispatch through UserPresetStore; createHostedUserPresetStore selects IDB or in-memory implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "src/web/projects/maple-common/src/lib/editor/presets/presets.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:032",
+      "category": "unused_class_members",
+      "original_index": 31,
+      "fresh_index": 31,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "parent_name": "InMemoryUserPresetStore",
+        "member_name": "delete",
+        "kind": "class_method",
+        "line": 46,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "hostedStore().list/put/delete dispatch through UserPresetStore; createHostedUserPresetStore selects IDB or in-memory implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "src/web/projects/maple-common/src/lib/editor/presets/presets.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:033",
+      "category": "unused_class_members",
+      "original_index": 32,
+      "fresh_index": 32,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "parent_name": "IdbUserPresetStore",
+        "member_name": "list",
+        "kind": "class_method",
+        "line": 66,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "hostedStore().list/put/delete dispatch through UserPresetStore; createHostedUserPresetStore selects IDB or in-memory implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "src/web/projects/maple-common/src/lib/editor/presets/presets.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:034",
+      "category": "unused_class_members",
+      "original_index": 33,
+      "fresh_index": 33,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "parent_name": "IdbUserPresetStore",
+        "member_name": "put",
+        "kind": "class_method",
+        "line": 76,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "hostedStore().list/put/delete dispatch through UserPresetStore; createHostedUserPresetStore selects IDB or in-memory implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "src/web/projects/maple-common/src/lib/editor/presets/presets.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:035",
+      "category": "unused_class_members",
+      "original_index": 34,
+      "fresh_index": 34,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "parent_name": "IdbUserPresetStore",
+        "member_name": "delete",
+        "kind": "class_method",
+        "line": 87,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "hostedStore().list/put/delete dispatch through UserPresetStore; createHostedUserPresetStore selects IDB or in-memory implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/editor/presets/user-preset-store.ts",
+        "src/web/projects/maple-common/src/lib/editor/presets/presets.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:036",
+      "category": "unused_class_members",
+      "original_index": 35,
+      "fresh_index": 35,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/folder-access/folder-access.service.ts",
+        "parent_name": "FolderAccessService",
+        "member_name": "reopenPersistedHandle",
+        "kind": "class_method",
+        "line": 337,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for FolderAccessService.reopenPersistedHandle does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/folder-access/folder-access.service.ts"],
+      "required_evidence": "Exercise FolderAccessService consumers in both workspace modes and trace receiver-specific reopenPersistedHandle calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:037",
+      "category": "unused_class_members",
+      "original_index": 36,
+      "fresh_index": 36,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/folder-access/folder-access.service.ts",
+        "parent_name": "FolderAccessService",
+        "member_name": "removePersistedHandle",
+        "kind": "class_method",
+        "line": 342,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for FolderAccessService.removePersistedHandle does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/folder-access/folder-access.service.ts"],
+      "required_evidence": "Exercise FolderAccessService consumers in both workspace modes and trace receiver-specific removePersistedHandle calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:038",
+      "category": "unused_class_members",
+      "original_index": 37,
+      "fresh_index": 37,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/observability/maple-error-handler.ts",
+        "parent_name": "MapleErrorHandler",
+        "member_name": "handleError",
+        "kind": "class_method",
+        "line": 19,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "Angular ErrorHandler provider binds MapleErrorHandler; framework dispatch owns handleError.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/observability/maple-error-handler.ts",
+        "src/web/projects/maple/src/app/app.config.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:039",
+      "category": "unused_class_members",
+      "original_index": 38,
+      "fresh_index": 38,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+        "parent_name": "ObservabilityConfigIdbCache",
+        "member_name": "get",
+        "kind": "class_method",
+        "line": 43,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "OBSERVABILITY_CONFIG_CACHE factory injects IDB implementation; startup calls cache.get.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/observability/observability-config-cache.ts",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:040",
+      "category": "unused_class_members",
+      "original_index": 39,
+      "fresh_index": 39,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+        "parent_name": "ObservabilityConfigIdbCache",
+        "member_name": "put",
+        "kind": "class_method",
+        "line": 52,
+        "col": 2
+      },
+      "disposition": "false positive",
+      "rationale": "OBSERVABILITY_CONFIG_CACHE factory injects IDB implementation; refresh calls cache.put.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/observability/observability-config-cache.ts",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ]
+    },
+    {
+      "id": "web:unused_class_members:041",
+      "category": "unused_class_members",
+      "original_index": 40,
+      "fresh_index": 40,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+        "parent_name": "ObservabilityConfigIdbCache",
+        "member_name": "clear",
+        "kind": "class_method",
+        "line": 64,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for ObservabilityConfigIdbCache.clear does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/observability/observability-config-cache.ts"
+      ],
+      "required_evidence": "Exercise ObservabilityConfigIdbCache consumers in both workspace modes and trace receiver-specific clear calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:042",
+      "category": "unused_class_members",
+      "original_index": 41,
+      "fresh_index": 41,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+        "parent_name": "InMemoryObservabilityConfigCache",
+        "member_name": "clear",
+        "kind": "class_method",
+        "line": 95,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for InMemoryObservabilityConfigCache.clear does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/observability/observability-config-cache.ts"
+      ],
+      "required_evidence": "Exercise InMemoryObservabilityConfigCache consumers in both workspace modes and trace receiver-specific clear calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:043",
+      "category": "unused_class_members",
+      "original_index": 42,
+      "fresh_index": 42,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "adminVisible",
+        "kind": "class_property",
+        "line": 73,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.adminVisible does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific adminVisible calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:044",
+      "category": "unused_class_members",
+      "original_index": 43,
+      "fresh_index": 43,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "openIndexerAdmin",
+        "kind": "class_method",
+        "line": 74,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.openIndexerAdmin does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific openIndexerAdmin calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:045",
+      "category": "unused_class_members",
+      "original_index": 44,
+      "fresh_index": 44,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "closeIndexerAdmin",
+        "kind": "class_method",
+        "line": 77,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.closeIndexerAdmin does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific closeIndexerAdmin calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:046",
+      "category": "unused_class_members",
+      "original_index": 45,
+      "fresh_index": 45,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "inspectorVisible",
+        "kind": "class_property",
+        "line": 122,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.inspectorVisible does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific inspectorVisible calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:047",
+      "category": "unused_class_members",
+      "original_index": 46,
+      "fresh_index": 46,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "activeTab",
+        "kind": "class_property",
+        "line": 125,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.activeTab does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific activeTab calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:048",
+      "category": "unused_class_members",
+      "original_index": 47,
+      "fresh_index": 47,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "thumbnailUrls",
+        "kind": "class_property",
+        "line": 134,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.thumbnailUrls does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific thumbnailUrls calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:049",
+      "category": "unused_class_members",
+      "original_index": 48,
+      "fresh_index": 48,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "openSelfHostedFolder",
+        "kind": "class_method",
+        "line": 176,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.openSelfHostedFolder does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific openSelfHostedFolder calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:050",
+      "category": "unused_class_members",
+      "original_index": 49,
+      "fresh_index": 49,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "updateAssetDimensions",
+        "kind": "class_method",
+        "line": 243,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.updateAssetDimensions does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific updateAssetDimensions calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:051",
+      "category": "unused_class_members",
+      "original_index": 50,
+      "fresh_index": 50,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "seedAsShotWhiteBalance",
+        "kind": "class_method",
+        "line": 247,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.seedAsShotWhiteBalance does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific seedAsShotWhiteBalance calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:052",
+      "category": "unused_class_members",
+      "original_index": 51,
+      "fresh_index": 51,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "cacheThumbnailUrl",
+        "kind": "class_method",
+        "line": 295,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.cacheThumbnailUrl does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific cacheThumbnailUrl calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:053",
+      "category": "unused_class_members",
+      "original_index": 52,
+      "fresh_index": 52,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "thumbnailUrlFor",
+        "kind": "class_method",
+        "line": 299,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.thumbnailUrlFor does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific thumbnailUrlFor calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:054",
+      "category": "unused_class_members",
+      "original_index": 53,
+      "fresh_index": 53,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "cancelQueuedThumbnail",
+        "kind": "class_method",
+        "line": 318,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.cancelQueuedThumbnail does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific cancelQueuedThumbnail calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:055",
+      "category": "unused_class_members",
+      "original_index": 54,
+      "fresh_index": 54,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "isEdited",
+        "kind": "class_method",
+        "line": 338,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.isEdited does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific isEdited calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:056",
+      "category": "unused_class_members",
+      "original_index": 55,
+      "fresh_index": 55,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "setColorLabel",
+        "kind": "class_method",
+        "line": 363,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.setColorLabel does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific setColorLabel calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:057",
+      "category": "unused_class_members",
+      "original_index": 56,
+      "fresh_index": 56,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-state.service.ts",
+        "parent_name": "LibraryStateService",
+        "member_name": "updateIndexThumb",
+        "kind": "class_method",
+        "line": 423,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStateService.updateIndexThumb does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-state.service.ts"],
+      "required_evidence": "Exercise LibraryStateService consumers in both workspace modes and trace receiver-specific updateIndexThumb calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:058",
+      "category": "unused_class_members",
+      "original_index": 57,
+      "fresh_index": 57,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-status.service.ts",
+        "parent_name": "LibraryStatusService",
+        "member_name": "status",
+        "kind": "class_property",
+        "line": 57,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStatusService.status does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-status.service.ts"],
+      "required_evidence": "Exercise LibraryStatusService consumers in both workspace modes and trace receiver-specific status calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:059",
+      "category": "unused_class_members",
+      "original_index": 58,
+      "fresh_index": 58,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-store.service.ts",
+        "parent_name": "LibraryStore",
+        "member_name": "librariesById",
+        "kind": "class_property",
+        "line": 142,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStore.librariesById does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-store.service.ts"],
+      "required_evidence": "Exercise LibraryStore consumers in both workspace modes and trace receiver-specific librariesById calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:060",
+      "category": "unused_class_members",
+      "original_index": 59,
+      "fresh_index": 59,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-store.service.ts",
+        "parent_name": "LibraryStore",
+        "member_name": "sourceIdForFsPath",
+        "kind": "class_method",
+        "line": 504,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for LibraryStore.sourceIdForFsPath does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-store.service.ts"],
+      "required_evidence": "Exercise LibraryStore consumers in both workspace modes and trace receiver-specific sourceIdForFsPath calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unused_class_members:061",
+      "category": "unused_class_members",
+      "original_index": 60,
+      "fresh_index": 60,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/xmp/sidecar-idb-cache.ts",
+        "parent_name": "SidecarIdbCache",
+        "member_name": "clear",
+        "kind": "class_method",
+        "line": 76,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Static search for SidecarIdbCache.clear does not establish a receiver-specific live call across facade, interface, test and template boundaries. No dead-code conclusion.",
+      "evidence": ["src/web/projects/maple-common/src/lib/xmp/sidecar-idb-cache.ts"],
+      "required_evidence": "Exercise SidecarIdbCache consumers in both workspace modes and trace receiver-specific clear calls (including tests, injected implementations and public library consumers) before removal."
+    },
+    {
+      "id": "web:unlisted_dependencies:001",
+      "category": "unlisted_dependencies",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "package_name": "@angular/forms",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.ts",
+            "line": 18,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@angular/forms is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:002",
+      "category": "unlisted_dependencies",
+      "original_index": 1,
+      "fresh_index": 1,
+      "candidate": {
+        "package_name": "@opentelemetry/api",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 30,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/api is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:003",
+      "category": "unlisted_dependencies",
+      "original_index": 2,
+      "fresh_index": 2,
+      "candidate": {
+        "package_name": "@opentelemetry/api-logs",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 31,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/api-logs is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:004",
+      "category": "unlisted_dependencies",
+      "original_index": 3,
+      "fresh_index": 3,
+      "candidate": {
+        "package_name": "@opentelemetry/exporter-logs-otlp-http",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 46,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/exporter-logs-otlp-http is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:005",
+      "category": "unlisted_dependencies",
+      "original_index": 4,
+      "fresh_index": 4,
+      "candidate": {
+        "package_name": "@opentelemetry/exporter-trace-otlp-http",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 44,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/exporter-trace-otlp-http is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:006",
+      "category": "unlisted_dependencies",
+      "original_index": 5,
+      "fresh_index": 5,
+      "candidate": {
+        "package_name": "@opentelemetry/instrumentation",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 47,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/instrumentation is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:007",
+      "category": "unlisted_dependencies",
+      "original_index": 6,
+      "fresh_index": 6,
+      "candidate": {
+        "package_name": "@opentelemetry/instrumentation-fetch",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 48,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/instrumentation-fetch is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:008",
+      "category": "unlisted_dependencies",
+      "original_index": 7,
+      "fresh_index": 7,
+      "candidate": {
+        "package_name": "@opentelemetry/resources",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 32,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/resources is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:009",
+      "category": "unlisted_dependencies",
+      "original_index": 8,
+      "fresh_index": 8,
+      "candidate": {
+        "package_name": "@opentelemetry/sdk-logs",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 45,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/sdk-logs is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:010",
+      "category": "unlisted_dependencies",
+      "original_index": 9,
+      "fresh_index": 9,
+      "candidate": {
+        "package_name": "@opentelemetry/sdk-trace-web",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 39,
+            "col": 2
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/sdk-trace-web is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:011",
+      "category": "unlisted_dependencies",
+      "original_index": 10,
+      "fresh_index": 10,
+      "candidate": {
+        "package_name": "@opentelemetry/semantic-conventions",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/observability/observability.service.ts",
+            "line": 34,
+            "col": 2
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@opentelemetry/semantic-conventions is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/observability/observability.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:unlisted_dependencies:012",
+      "category": "unlisted_dependencies",
+      "original_index": 11,
+      "fresh_index": 11,
+      "candidate": {
+        "package_name": "@simplewebauthn/browser",
+        "imported_from": [
+          {
+            "path": "projects/maple-common/src/lib/auth/auth.service.ts",
+            "line": 4,
+            "col": 9
+          }
+        ]
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "@simplewebauthn/browser is installed/declared at workspace root, but absent from maple-common package manifest. Source alias builds and independently packaged library resolution are different contracts; this is not a missing runtime installation.",
+      "evidence": [
+        "src/web/package.json",
+        "src/web/projects/maple-common/package.json",
+        "src/web/projects/maple-common/ng-package.json",
+        "src/web/tsconfig.json",
+        "src/web/projects/maple-common/src/lib/auth/auth.service.ts"
+      ],
+      "required_evidence": "Validate ng-packagr public export closure and isolated consumer installation before deciding peer/dependency declaration; do not suppress workspace/package boundary warning."
+    },
+    {
+      "id": "web:duplicate_exports:001",
+      "category": "duplicate_exports",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "export_name": "appConfig",
+        "locations": [
+          {
+            "path": "projects/maple/src/app/app.config.ts",
+            "line": 38,
+            "col": 13
+          },
+          {
+            "path": "projects/maple-syrup/src/app/app.config.ts",
+            "line": 15,
+            "col": 13
+          }
+        ]
+      },
+      "disposition": "false positive",
+      "rationale": "Each independently bootstrapped Angular application imports its own appConfig. Equal export names in distinct modules do not collide.",
+      "evidence": [
+        "src/web/projects/maple/src/main.ts",
+        "src/web/projects/maple-syrup/src/main.ts",
+        "src/web/projects/maple/src/app/app.config.ts",
+        "src/web/projects/maple-syrup/src/app/app.config.ts"
+      ]
+    },
+    {
+      "id": "web:stale_suppressions:001",
+      "category": "stale_suppressions",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/addressing/maple-id-fallback.worker.ts",
+        "line": 31,
+        "col": 0,
+        "origin": {
+          "type": "comment",
+          "issue_kind": "unresolved-import",
+          "is_file_level": false
+        }
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Current configured scan reports a stale inline suppression. Generated WASM import patterns and structural Worker/sampler dispatch influence this result; configuration overlap alone does not justify deleting the declaration or all suppressions.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/addressing/maple-id-fallback.worker.ts",
+        "src/web/.fallowrc.json"
+      ],
+      "required_evidence": "Run a targeted suppression-removal comparison in a separate change, including generated-WASM-present and absent states for worker imports, and structural consumer checks for class members."
+    },
+    {
+      "id": "web:stale_suppressions:002",
+      "category": "stale_suppressions",
+      "original_index": 1,
+      "fresh_index": 1,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/raw-pipeline/embedded-preview.worker.ts",
+        "line": 33,
+        "col": 0,
+        "origin": {
+          "type": "comment",
+          "issue_kind": "unresolved-import",
+          "is_file_level": false
+        }
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Current configured scan reports a stale inline suppression. Generated WASM import patterns and structural Worker/sampler dispatch influence this result; configuration overlap alone does not justify deleting the declaration or all suppressions.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/raw-pipeline/embedded-preview.worker.ts",
+        "src/web/.fallowrc.json"
+      ],
+      "required_evidence": "Run a targeted suppression-removal comparison in a separate change, including generated-WASM-present and absent states for worker imports, and structural consumer checks for class members."
+    },
+    {
+      "id": "web:stale_suppressions:003",
+      "category": "stale_suppressions",
+      "original_index": 2,
+      "fresh_index": 2,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.test-helpers.ts",
+        "line": 24,
+        "col": 0,
+        "origin": {
+          "type": "comment",
+          "issue_kind": "unused-class-member",
+          "is_file_level": false
+        }
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Current configured scan reports a stale inline suppression. Generated WASM import patterns and structural Worker/sampler dispatch influence this result; configuration overlap alone does not justify deleting the declaration or all suppressions.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.test-helpers.ts",
+        "src/web/.fallowrc.json"
+      ],
+      "required_evidence": "Run a targeted suppression-removal comparison in a separate change, including generated-WASM-present and absent states for worker imports, and structural consumer checks for class members."
+    },
+    {
+      "id": "web:stale_suppressions:004",
+      "category": "stale_suppressions",
+      "original_index": 3,
+      "fresh_index": 3,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "line": 464,
+        "col": 0,
+        "origin": {
+          "type": "comment",
+          "issue_kind": "unused-class-member",
+          "is_file_level": false
+        }
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Current configured scan reports a stale inline suppression. Generated WASM import patterns and structural Worker/sampler dispatch influence this result; configuration overlap alone does not justify deleting the declaration or all suppressions.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service.ts",
+        "src/web/.fallowrc.json"
+      ],
+      "required_evidence": "Run a targeted suppression-removal comparison in a separate change, including generated-WASM-present and absent states for worker imports, and structural consumer checks for class members."
+    },
+    {
+      "id": "web:unused_component_inputs:001",
+      "category": "unused_component_inputs",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "input_name": "variant",
+        "line": 14,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_inputs:002",
+      "category": "unused_component_inputs",
+      "original_index": 1,
+      "fresh_index": 1,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "input_name": "message",
+        "line": 15,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_inputs:003",
+      "category": "unused_component_inputs",
+      "original_index": 2,
+      "fresh_index": 2,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "input_name": "actionLabel",
+        "line": 16,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_inputs:004",
+      "category": "unused_component_inputs",
+      "original_index": 3,
+      "fresh_index": 3,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "input_name": "visible",
+        "line": 31,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_inputs:005",
+      "category": "unused_component_inputs",
+      "original_index": 4,
+      "fresh_index": 4,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "input_name": "assetIds",
+        "line": 32,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_inputs:006",
+      "category": "unused_component_inputs",
+      "original_index": 5,
+      "fresh_index": 5,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "input_name": "visible",
+        "line": 37,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_inputs:007",
+      "category": "unused_component_inputs",
+      "original_index": 6,
+      "fresh_index": 6,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "input_name": "assetSnapshots",
+        "line": 38,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_inputs:008",
+      "category": "unused_component_inputs",
+      "original_index": 7,
+      "fresh_index": 7,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/editor/value-hud.component.ts",
+        "component_name": "value-hud.component",
+        "input_name": "progress",
+        "line": 43,
+        "col": 2
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Value HUD template reads progress(), so the value is live internally; external binding/intent of default 0.5 remains unqualified.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/editor/value-hud.component.ts"
+      ],
+      "required_evidence": "Trace scrub-to-HUD progress wiring in a running editor and assess expected rail behavior before removing the input or changing its contract."
+    },
+    {
+      "id": "web:unused_component_outputs:001",
+      "category": "unused_component_outputs",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "output_name": "actionPressed",
+        "line": 17,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_outputs:002",
+      "category": "unused_component_outputs",
+      "original_index": 1,
+      "fresh_index": 1,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "output_name": "pick",
+        "line": 21,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_outputs:003",
+      "category": "unused_component_outputs",
+      "original_index": 2,
+      "fresh_index": 2,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "output_name": "dismiss",
+        "line": 33,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:unused_component_outputs:004",
+      "category": "unused_component_outputs",
+      "original_index": 3,
+      "fresh_index": 3,
+      "candidate": {
+        "path": "projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "component_name": "self-hosted-browse-content.component.spec",
+        "output_name": "dismiss",
+        "line": 39,
+        "col": 11
+      },
+      "disposition": "false positive",
+      "rationale": "TestBed.overrideComponent replaces imports with selector-compatible stubs while retaining the real template. Its bindings consume these input/output contracts.",
+      "evidence": [
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.spec.ts",
+        "src/web/projects/maple/src/app/self-hosted-browse-content/self-hosted-browse-content.component.html"
+      ]
+    },
+    {
+      "id": "web:duplication:001",
+      "category": "duplication",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/app.ts",
+            "start_line": 28,
+            "end_line": 44,
+            "start_col": 2,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple-syrup/src/app/app.ts",
+            "start_line": 30,
+            "end_line": 43,
+            "start_col": 2,
+            "end_col": 5
+          }
+        ],
+        "token_count": 53,
+        "line_count": 17,
+        "fingerprint": "dup:574d4c17"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Two application composition roots perform the same short cold-boot dispatch and delegate decoding/navigation to the shared DeepLinkService. No independent parser policy was found.",
+      "evidence": [
+        "src/web/projects/maple/src/app/app.ts",
+        "src/web/projects/maple-syrup/src/app/app.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:002",
+      "category": "duplication",
+      "original_index": 1,
+      "fresh_index": 1,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/ai/ai-settings.component.ts",
+            "start_line": 219,
+            "end_line": 229,
+            "start_col": 20,
+            "end_col": 27
+          },
+          {
+            "file": "projects/maple/src/app/settings/ai/ai-settings.component.ts",
+            "start_line": 261,
+            "end_line": 271,
+            "start_col": 19,
+            "end_col": 27
+          }
+        ],
+        "token_count": 59,
+        "line_count": 11,
+        "fingerprint": "dup:0ad44e5b",
+        "suggested_name": "provider"
+      },
+      "disposition": "already tracked",
+      "rationale": "Provider request payload duplication belongs to AI connection/settings work in #3635 (PR #3699); retain original candidate until that work lands and is rescanned.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/ai/ai-settings.component.ts",
+        "src/web/projects/maple/src/app/settings/ai/ai-settings.component.ts"
+      ],
+      "issue": 3635,
+      "pull_request": 3699
+    },
+    {
+      "id": "web:duplication:003",
+      "category": "duplication",
+      "original_index": 2,
+      "fresh_index": 2,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/cloudflare/cloudflare.component.ts",
+            "start_line": 79,
+            "end_line": 94,
+            "start_col": 40,
+            "end_col": 9
+          },
+          {
+            "file": "projects/maple/src/app/settings/pano/pano-settings.component.ts",
+            "start_line": 64,
+            "end_line": 79,
+            "start_col": 37,
+            "end_col": 9
+          }
+        ],
+        "token_count": 60,
+        "line_count": 16,
+        "fingerprint": "dup:8ec8c2ea",
+        "suggested_name": "formSeeded"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Independent settings forms seed editable values once to avoid clobbering edits. Shared control flow uses distinct service/config types; no divergent seed policy found.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/cloudflare/cloudflare.component.ts",
+        "src/web/projects/maple/src/app/settings/pano/pano-settings.component.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:004",
+      "category": "duplication",
+      "original_index": 3,
+      "fresh_index": 3,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/cloudflare/cloudflare.component.ts",
+            "start_line": 79,
+            "end_line": 90,
+            "start_col": 40,
+            "end_col": 7
+          },
+          {
+            "file": "projects/maple/src/app/settings/network/network-settings.component.ts",
+            "start_line": 73,
+            "end_line": 84,
+            "start_col": 37,
+            "end_col": 7
+          },
+          {
+            "file": "projects/maple/src/app/settings/pano/pano-settings.component.ts",
+            "start_line": 64,
+            "end_line": 75,
+            "start_col": 37,
+            "end_col": 7
+          }
+        ],
+        "token_count": 52,
+        "line_count": 12,
+        "fingerprint": "dup:7b4090b9",
+        "suggested_name": "formSeeded"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Overlapping clone of the same once-only form seeding across Cloudflare, Network and Pano; independent component lifetime is intentional.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/cloudflare/cloudflare.component.ts",
+        "src/web/projects/maple/src/app/settings/network/network-settings.component.ts",
+        "src/web/projects/maple/src/app/settings/pano/pano-settings.component.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:005",
+      "category": "duplication",
+      "original_index": 4,
+      "fresh_index": 4,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/imports/imports.component.ts",
+            "start_line": 206,
+            "end_line": 221,
+            "start_col": 17,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/settings/imports/imports.component.ts",
+            "start_line": 272,
+            "end_line": 287,
+            "start_col": 3,
+            "end_col": 5
+          }
+        ],
+        "token_count": 52,
+        "line_count": 16,
+        "fingerprint": "dup:0dcd11da"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Scan and enqueue-import operations share busy/error setup but differ in API, zero-file handling and destination state (review versus pick). Keep operations explicit.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/imports/imports.component.ts",
+        "src/web/projects/maple/src/app/settings/imports/imports.component.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:006",
+      "category": "duplication",
+      "original_index": 5,
+      "fresh_index": 5,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/network/network-settings.component.ts",
+            "start_line": 149,
+            "end_line": 156,
+            "start_col": 6,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/settings/observability/observability.component.ts",
+            "start_line": 218,
+            "end_line": 228,
+            "start_col": 6,
+            "end_col": 5
+          }
+        ],
+        "token_count": 76,
+        "line_count": 11,
+        "fingerprint": "dup:95a4f86f"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Both save flows expire saved status after two seconds. Source similarity does not settle overlapping-save or destroyed-component behavior; exercise successive saves/navigation before claiming a defect.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/network/network-settings.component.ts",
+        "src/web/projects/maple/src/app/settings/observability/observability.component.ts"
+      ],
+      "required_evidence": "Both save flows expire saved status after two seconds. Source similarity does not settle overlapping-save or destroyed-component behavior; exercise successive saves/navigation before claiming a defect."
+    },
+    {
+      "id": "web:duplication:007",
+      "category": "duplication",
+      "original_index": 6,
+      "fresh_index": 6,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "start_line": 88,
+            "end_line": 93,
+            "start_col": 11,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "start_line": 111,
+            "end_line": 116,
+            "start_col": 31,
+            "end_col": 5
+          }
+        ],
+        "token_count": 53,
+        "line_count": 6,
+        "fingerprint": "dup:840be1ce"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Merge/hide operations share catch/finally toast and busy decrement. Operation bodies and successful follow-up differ; counter cleanup is explicit.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:008",
+      "category": "duplication",
+      "original_index": 7,
+      "fresh_index": 7,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "start_line": 88,
+            "end_line": 93,
+            "start_col": 12,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "start_line": 111,
+            "end_line": 116,
+            "start_col": 32,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/settings/people/people-bulk.controller.ts",
+            "start_line": 161,
+            "end_line": 166,
+            "start_col": 81,
+            "end_col": 5
+          }
+        ],
+        "token_count": 52,
+        "line_count": 6,
+        "fingerprint": "dup:ea8e4e94"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Overlapping catch/finally clone including dismissMergeSuggestion; same bounded decrement ensures each operation releases its own busy count.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts",
+        "src/web/projects/maple/src/app/settings/people/people-bulk.controller.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:009",
+      "category": "duplication",
+      "original_index": 8,
+      "fresh_index": 8,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/people/people-list.component.scss",
+            "start_line": 19,
+            "end_line": 70,
+            "start_col": 0,
+            "end_col": 1
+          },
+          {
+            "file": "projects/maple/src/app/settings/people/people.component.scss",
+            "start_line": 154,
+            "end_line": 207,
+            "start_col": 0,
+            "end_col": 1
+          }
+        ],
+        "token_count": 175,
+        "line_count": 54,
+        "fingerprint": "dup:d0c0f3da",
+        "suggested_name": "the"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Both SCSS blocks explicitly document component style encapsulation and matching label/button toolbar appearance. Source declarations were checked; no visual regression test was run here.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/people/people-list.component.scss",
+        "src/web/projects/maple/src/app/settings/people/people.component.scss"
+      ]
+    },
+    {
+      "id": "web:duplication:010",
+      "category": "duplication",
+      "original_index": 9,
+      "fresh_index": 9,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/users/users.component.ts",
+            "start_line": 95,
+            "end_line": 101,
+            "start_col": 77,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/settings/users/users.component.ts",
+            "start_line": 108,
+            "end_line": 114,
+            "start_col": 86,
+            "end_col": 5
+          }
+        ],
+        "token_count": 78,
+        "line_count": 7,
+        "fingerprint": "dup:72200754"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Role and file-access mutations update the returned user and clear busy state identically; endpoint and argument differ, while errorMessage is already shared.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/users/users.component.ts",
+        "src/web/projects/maple/src/app/settings/users/users.component.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:011",
+      "category": "duplication",
+      "original_index": 10,
+      "fresh_index": 10,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/workers/derivative-audit-settings.component.ts",
+            "start_line": 55,
+            "end_line": 69,
+            "start_col": 77,
+            "end_col": 36
+          },
+          {
+            "file": "projects/maple/src/app/settings/workers/generated-search-settings.component.ts",
+            "start_line": 59,
+            "end_line": 71,
+            "start_col": 61,
+            "end_col": 36
+          }
+        ],
+        "token_count": 68,
+        "line_count": 15,
+        "fingerprint": "dup:3541f6ec",
+        "suggested_name": "signal"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Distinct worker settings panels declare common loading/saving signals but use distinct progress/draft data models; declarations alone are not duplicated policy.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/workers/derivative-audit-settings.component.ts",
+        "src/web/projects/maple/src/app/settings/workers/generated-search-settings.component.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:012",
+      "category": "duplication",
+      "original_index": 11,
+      "fresh_index": 11,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/workers/derivative-audit-settings.component.ts",
+            "start_line": 209,
+            "end_line": 220,
+            "start_col": 10,
+            "end_col": 11
+          },
+          {
+            "file": "projects/maple/src/app/settings/workers/mirror-settings.component.ts",
+            "start_line": 288,
+            "end_line": 301,
+            "start_col": 10,
+            "end_col": 11
+          }
+        ],
+        "token_count": 50,
+        "line_count": 14,
+        "fingerprint": "dup:ab812313",
+        "suggested_name": "stopPolling"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Audit and mirror polling share an in-flight guard but use distinct terminal predicates (running versus reconcile phase). Test stop/unmount/in-flight completion before proposing a shared poller.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/workers/derivative-audit-settings.component.ts",
+        "src/web/projects/maple/src/app/settings/workers/mirror-settings.component.ts"
+      ],
+      "required_evidence": "Audit and mirror polling share an in-flight guard but use distinct terminal predicates (running versus reconcile phase). Test stop/unmount/in-flight completion before proposing a shared poller."
+    },
+    {
+      "id": "web:duplication:013",
+      "category": "duplication",
+      "original_index": 12,
+      "fresh_index": 12,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/settings/workers/imports-panel.service.ts",
+            "start_line": 56,
+            "end_line": 62,
+            "start_col": 4,
+            "end_col": 22
+          },
+          {
+            "file": "projects/maple/src/app/settings/workers/migration-panel.service.ts",
+            "start_line": 31,
+            "end_line": 37,
+            "start_col": 4,
+            "end_col": 22
+          }
+        ],
+        "token_count": 52,
+        "line_count": 7,
+        "fingerprint": "dup:23ba5b4c",
+        "suggested_name": "timer"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Imports and migration timers have matching start/stop skeletons. Need slow-response/unmount evidence before inferring overlap or lifecycle defects.",
+      "evidence": [
+        "src/web/projects/maple/src/app/settings/workers/imports-panel.service.ts",
+        "src/web/projects/maple/src/app/settings/workers/migration-panel.service.ts"
+      ],
+      "required_evidence": "Imports and migration timers have matching start/stop skeletons. Need slow-response/unmount evidence before inferring overlap or lifecycle defects."
+    },
+    {
+      "id": "web:duplication:014",
+      "category": "duplication",
+      "original_index": 13,
+      "fresh_index": 13,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+            "start_line": 62,
+            "end_line": 75,
+            "start_col": 45,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+            "start_line": 87,
+            "end_line": 95,
+            "start_col": 29,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+            "start_line": 102,
+            "end_line": 110,
+            "start_col": 32,
+            "end_col": 5
+          }
+        ],
+        "token_count": 61,
+        "line_count": 14,
+        "fingerprint": "dup:8237889f",
+        "suggested_name": "the"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Claim, passkey and development login independently skip navigation in the native shell; shared auth service owns authentication. Same finally busy reset is explicit.",
+      "evidence": [
+        "src/web/projects/maple/src/app/sign-in/sign-in.component.ts",
+        "src/web/projects/maple/src/app/sign-in/sign-in.component.ts",
+        "src/web/projects/maple/src/app/sign-in/sign-in.component.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:015",
+      "category": "duplication",
+      "original_index": 14,
+      "fresh_index": 14,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+            "start_line": 87,
+            "end_line": 95,
+            "start_col": 28,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple/src/app/sign-in/sign-in.component.ts",
+            "start_line": 102,
+            "end_line": 110,
+            "start_col": 31,
+            "end_col": 5
+          }
+        ],
+        "token_count": 62,
+        "line_count": 9,
+        "fingerprint": "dup:f5328dde"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Overlapping login clone; distinct signIn/devSignIn calls intentionally converge on the same native-shell navigation condition.",
+      "evidence": [
+        "src/web/projects/maple/src/app/sign-in/sign-in.component.ts",
+        "src/web/projects/maple/src/app/sign-in/sign-in.component.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:016",
+      "category": "duplication",
+      "original_index": 15,
+      "fresh_index": 15,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/addressing/http-library-source.ts",
+            "start_line": 69,
+            "end_line": 79,
+            "start_col": 17,
+            "end_col": 47
+          },
+          {
+            "file": "projects/maple-common/src/lib/addressing/http-library-source.ts",
+            "start_line": 82,
+            "end_line": 89,
+            "start_col": 19,
+            "end_col": 47
+          }
+        ],
+        "token_count": 58,
+        "line_count": 11,
+        "fingerprint": "dup:85ccf5ab"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Thumb and preview endpoints independently return a blob only for HTTP 200. They share toApiPath and firstValueFrom already; endpoint semantics stay explicit.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/addressing/http-library-source.ts",
+        "src/web/projects/maple-common/src/lib/addressing/http-library-source.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:017",
+      "category": "duplication",
+      "original_index": 16,
+      "fresh_index": 16,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/api/filesystem-browse.service.ts",
+            "start_line": 156,
+            "end_line": 163,
+            "start_col": 17,
+            "end_col": 0
+          },
+          {
+            "file": "projects/maple-common/src/lib/xmp/xmp-adjustment-restore.service.ts",
+            "start_line": 169,
+            "end_line": 176,
+            "start_col": 26,
+            "end_col": 0
+          }
+        ],
+        "token_count": 51,
+        "line_count": 8,
+        "fingerprint": "dup:8a50130e",
+        "suggested_name": "registeredFolders"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Filesystem browse and XMP restoration both seed registered folders only if empty, but keep separate in-flight promise/error ownership. Concurrent-load evidence is needed before consolidation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/filesystem-browse.service.ts",
+        "src/web/projects/maple-common/src/lib/xmp/xmp-adjustment-restore.service.ts"
+      ],
+      "required_evidence": "Filesystem browse and XMP restoration both seed registered folders only if empty, but keep separate in-flight promise/error ownership. Concurrent-load evidence is needed before consolidation."
+    },
+    {
+      "id": "web:duplication:018",
+      "category": "duplication",
+      "original_index": 17,
+      "fresh_index": 17,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/api/folder-listing-cache.ts",
+            "start_line": 106,
+            "end_line": 114,
+            "start_col": 60,
+            "end_col": 49
+          },
+          {
+            "file": "projects/maple-common/src/lib/film/film-lut-idb-cache.ts",
+            "start_line": 53,
+            "end_line": 61,
+            "start_col": 52,
+            "end_col": 49
+          }
+        ],
+        "token_count": 85,
+        "line_count": 9,
+        "fingerprint": "dup:b8edb3a5"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "IDB caches already share openDb and txDone. Distinct database/record key schemas (address versus id) intentionally own their store creation and writes.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/api/folder-listing-cache.ts",
+        "src/web/projects/maple-common/src/lib/film/film-lut-idb-cache.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:019",
+      "category": "duplication",
+      "original_index": 18,
+      "fresh_index": 18,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/auth/auth.service.ts",
+            "start_line": 385,
+            "end_line": 391,
+            "start_col": 24,
+            "end_col": 6
+          },
+          {
+            "file": "projects/maple-common/src/lib/auth/auth.service.ts",
+            "start_line": 401,
+            "end_line": 407,
+            "start_col": 27,
+            "end_col": 6
+          }
+        ],
+        "token_count": 50,
+        "line_count": 7,
+        "fingerprint": "dup:c2547d89",
+        "suggested_name": "stepUp"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Credential deletion and device-session revocation use the existing shared stepUp method, then distinct authenticated DELETE endpoints. No second challenge implementation.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/auth/auth.service.ts",
+        "src/web/projects/maple-common/src/lib/auth/auth.service.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:020",
+      "category": "duplication",
+      "original_index": 19,
+      "fresh_index": 19,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/components/folder-tree/folder-tree-crud.component.ts",
+            "start_line": 175,
+            "end_line": 184,
+            "start_col": 31,
+            "end_col": 5
+          },
+          {
+            "file": "projects/maple-common/src/lib/components/folder-tree/folder-tree-crud.component.ts",
+            "start_line": 222,
+            "end_line": 231,
+            "start_col": 18,
+            "end_col": 5
+          }
+        ],
+        "token_count": 74,
+        "line_count": 10,
+        "fingerprint": "dup:bc4af446",
+        "suggested_name": "libraryId"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Rename and trash use shared resolveLibraryId/parseAddress/parentAddress guards; independent mutations both require a parent. Short validation prefix does not justify a generic operation framework.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/folder-tree/folder-tree-crud.component.ts",
+        "src/web/projects/maple-common/src/lib/components/folder-tree/folder-tree-crud.component.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:021",
+      "category": "duplication",
+      "original_index": 20,
+      "fresh_index": 20,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/observability/observability-config-cache.ts",
+            "start_line": 60,
+            "end_line": 75,
+            "start_col": 40,
+            "end_col": 7
+          },
+          {
+            "file": "projects/maple-common/src/lib/xmp/sidecar-idb-cache.ts",
+            "start_line": 72,
+            "end_line": 90,
+            "start_col": 41,
+            "end_col": 7
+          }
+        ],
+        "token_count": 110,
+        "line_count": 19,
+        "fingerprint": "dup:89d42691",
+        "suggested_name": "db"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Both caches share IDB helpers. Sidecar migration drops a legacy store while observability creates its own key-based store; separate schema/lifetime ownership remains necessary.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/observability/observability-config-cache.ts",
+        "src/web/projects/maple-common/src/lib/xmp/sidecar-idb-cache.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:022",
+      "category": "duplication",
+      "original_index": 21,
+      "fresh_index": 21,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.sample-range.types.ts",
+            "start_line": 53,
+            "end_line": 72,
+            "start_col": 2,
+            "end_col": 1
+          },
+          {
+            "file": "projects/maple-common/src/lib/raw-pipeline/raw-pipeline.sample-wb.types.ts",
+            "start_line": 57,
+            "end_line": 74,
+            "start_col": 51,
+            "end_col": 1
+          }
+        ],
+        "token_count": 81,
+        "line_count": 20,
+        "fingerprint": "dup:75a8813b"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Range and WB parsers use distinct error-kind sets and Error classes. Common delimiter/fallback shape preserves separate typed worker protocols; no mismatch found.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.sample-range.types.ts",
+        "src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.sample-wb.types.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:023",
+      "category": "duplication",
+      "original_index": 22,
+      "fresh_index": 22,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/xmp/wb-dng-temperature.ts",
+            "start_line": 164,
+            "end_line": 172,
+            "start_col": 49,
+            "end_col": 54
+          },
+          {
+            "file": "projects/maple-common/src/lib/xmp/wb-dng-temperature.ts",
+            "start_line": 214,
+            "end_line": 222,
+            "start_col": 49,
+            "end_col": 47
+          }
+        ],
+        "token_count": 61,
+        "line_count": 9,
+        "fingerprint": "dup:c9702e85"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "Forward/inverse temperature-tint transforms normalize interpolated isotherm direction in both directions. Surrounding index and projection operations differ; do not refactor color math from clone score.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/xmp/wb-dng-temperature.ts",
+        "src/web/projects/maple-common/src/lib/xmp/wb-dng-temperature.ts"
+      ]
+    },
+    {
+      "id": "web:duplication:024",
+      "category": "duplication",
+      "original_index": 23,
+      "fresh_index": 23,
+      "candidate": {
+        "instances": [
+          {
+            "file": "projects/maple-common/src/lib/xmp/xmp-enum-attrs.ts",
+            "start_line": 99,
+            "end_line": 107,
+            "start_col": 27,
+            "end_col": 63
+          },
+          {
+            "file": "projects/maple-common/src/lib/xmp/xmp-enum-attrs.ts",
+            "start_line": 114,
+            "end_line": 122,
+            "start_col": 23,
+            "end_col": 59
+          }
+        ],
+        "token_count": 54,
+        "line_count": 9,
+        "fingerprint": "dup:418a7166",
+        "suggested_name": "lower"
+      },
+      "disposition": "intentional checked duplicate",
+      "rationale": "LensProfileEnable and AutoLateralCA accept the same boolean spellings but produce distinct typed XMP fields. Matching acceptance policy was checked; no divergence found.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/xmp/xmp-enum-attrs.ts",
+        "src/web/projects/maple-common/src/lib/xmp/xmp-enum-attrs.ts"
+      ]
+    },
+    {
+      "id": "web:complexity:001",
+      "category": "complexity",
+      "original_index": 0,
+      "fresh_index": 0,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.form-mapping.ts",
+        "name": "buildBatchApplyMetadata",
+        "line": 48,
+        "col": 7,
+        "cyclomatic": 52,
+        "cognitive": 76,
+        "line_count": 102,
+        "param_count": 2,
+        "exceeded": "all",
+        "severity": "critical",
+        "crap": 61.1,
+        "coverage_tier": "high",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Batch metadata mapping enumerates sparse set/clear choices. Score does not establish incorrect mapping; run mixed-value and explicit-clear cases before claiming a policy defect.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.form-mapping.ts"
+      ],
+      "required_evidence": "Batch metadata mapping enumerates sparse set/clear choices. Score does not establish incorrect mapping; run mixed-value and explicit-clear cases before claiming a policy defect."
+    },
+    {
+      "id": "web:complexity:002",
+      "category": "complexity",
+      "original_index": 1,
+      "fresh_index": 1,
+      "candidate": {
+        "path": "projects/maple/src/app/settings/settings-icon.component.ts",
+        "name": "<template>",
+        "line": 42,
+        "col": 0,
+        "cyclomatic": 32,
+        "cognitive": 1,
+        "line_count": 474,
+        "param_count": 0,
+        "exceeded": "cyclomatic_crap",
+        "severity": "critical",
+        "crap": 253.2,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "false positive",
+      "rationale": "Inline Angular SVG template branches inflate a function-oriented score; external HTML health exclusion does not exclude this inline template. No defect follows from icon branch count.",
+      "evidence": ["src/web/projects/maple/src/app/settings/settings-icon.component.ts"]
+    },
+    {
+      "id": "web:complexity:003",
+      "category": "complexity",
+      "original_index": 2,
+      "fresh_index": 2,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/image-canvas/image-canvas.gpu-present.ts",
+        "name": "testGpuPresent",
+        "line": 163,
+        "col": 29,
+        "cyclomatic": 22,
+        "cognitive": 23,
+        "line_count": 87,
+        "param_count": 0,
+        "exceeded": "all",
+        "severity": "critical",
+        "crap": 126.5,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "GPU capability/presentation probe must be exercised across native WebGPU, fallback and device failure paths; static branches are not measured execution coverage.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.gpu-present.ts"
+      ],
+      "required_evidence": "GPU capability/presentation probe must be exercised across native WebGPU, fallback and device failure paths; static branches are not measured execution coverage."
+    },
+    {
+      "id": "web:complexity:004",
+      "category": "complexity",
+      "original_index": 3,
+      "fresh_index": 3,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/crop-overlay/crop-geometry.ts",
+        "name": "hitTestHandle",
+        "line": 83,
+        "col": 7,
+        "cyclomatic": 21,
+        "cognitive": 20,
+        "line_count": 29,
+        "param_count": 4,
+        "exceeded": "both",
+        "severity": "moderate"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Crop hit testing branches select geometry handles. Validate corners/edges/rotation rather than treating branch count as a bug.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/crop-overlay/crop-geometry.ts"
+      ],
+      "required_evidence": "Crop hit testing branches select geometry handles. Validate corners/edges/rotation rather than treating branch count as a bug."
+    },
+    {
+      "id": "web:complexity:005",
+      "category": "complexity",
+      "original_index": 4,
+      "fresh_index": 4,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/crop-overlay/crop-geometry.ts",
+        "name": "applyAspect",
+        "line": 161,
+        "col": 0,
+        "cyclomatic": 19,
+        "cognitive": 23,
+        "line_count": 61,
+        "param_count": 4,
+        "exceeded": "cognitive_crap",
+        "severity": "high",
+        "crap": 97.0,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Aspect constraint math requires corner/edge drags and boundary tests; score alone does not prove wrong geometry.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/crop-overlay/crop-geometry.ts"
+      ],
+      "required_evidence": "Aspect constraint math requires corner/edge drags and boundary tests; score alone does not prove wrong geometry."
+    },
+    {
+      "id": "web:complexity:006",
+      "category": "complexity",
+      "original_index": 5,
+      "fresh_index": 5,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-store.service.ts",
+        "name": "currentRegisteredFolder",
+        "line": 428,
+        "col": 25,
+        "cyclomatic": 14,
+        "cognitive": 21,
+        "line_count": 30,
+        "param_count": 1,
+        "exceeded": "cognitive_crap",
+        "severity": "high",
+        "crap": 56.3,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Registered-folder resolution spans address forms and prefix selection. Validate ambiguous/nested library registrations before changing policy.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-store.service.ts"],
+      "required_evidence": "Registered-folder resolution spans address forms and prefix selection. Validate ambiguous/nested library registrations before changing policy."
+    },
+    {
+      "id": "web:complexity:007",
+      "category": "complexity",
+      "original_index": 6,
+      "fresh_index": 6,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/image-canvas/image-canvas.gpu-present.ts",
+        "name": "open",
+        "line": 268,
+        "col": 12,
+        "cyclomatic": 14,
+        "cognitive": 14,
+        "line_count": 122,
+        "param_count": 3,
+        "exceeded": "crap",
+        "severity": "high",
+        "crap": 56.3,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "GPU presenter open handles backend/session setup and failure paths; runtime backend/failure evidence is required before changing lifecycle.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.gpu-present.ts"
+      ],
+      "required_evidence": "GPU presenter open handles backend/session setup and failure paths; runtime backend/failure evidence is required before changing lifecycle."
+    },
+    {
+      "id": "web:complexity:008",
+      "category": "complexity",
+      "original_index": 7,
+      "fresh_index": 7,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-fetch.service.spec.ts",
+        "name": "findByAddress",
+        "line": 163,
+        "col": 2,
+        "cyclomatic": 11,
+        "cognitive": 16,
+        "line_count": 21,
+        "param_count": 2,
+        "exceeded": "cognitive_crap",
+        "severity": "moderate",
+        "crap": 37.1,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "false positive",
+      "rationale": "Test helper implements address lookup in a fake; score does not describe production complexity or measured test coverage.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-fetch.service.spec.ts"]
+    },
+    {
+      "id": "web:complexity:009",
+      "category": "complexity",
+      "original_index": 8,
+      "fresh_index": 9,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/pano/pano-dialog.component.ts",
+        "name": "onSubmit",
+        "line": 145,
+        "col": 10,
+        "cyclomatic": 11,
+        "cognitive": 13,
+        "line_count": 110,
+        "param_count": 0,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 37.1,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Pano submission validates inputs and asynchronous job/result paths. Exercise cancellation, rejection and accepted jobs before altering responsibilities.",
+      "evidence": ["src/web/projects/maple-common/src/lib/pano/pano-dialog.component.ts"],
+      "required_evidence": "Pano submission validates inputs and asynchronous job/result paths. Exercise cancellation, rejection and accepted jobs before altering responsibilities."
+    },
+    {
+      "id": "web:complexity:010",
+      "category": "complexity",
+      "original_index": 9,
+      "fresh_index": 8,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.ts",
+        "name": "_resetToMixed",
+        "line": 479,
+        "col": 23,
+        "cyclomatic": 11,
+        "cognitive": 10,
+        "line_count": 51,
+        "param_count": 0,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 37.1,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Mixed-value reset intentionally maps independent metadata fields. Verify omission/set/clear cases; score alone cannot identify a defect.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.ts"
+      ],
+      "required_evidence": "Mixed-value reset intentionally maps independent metadata fields. Verify omission/set/clear cases; score alone cannot identify a defect."
+    },
+    {
+      "id": "web:complexity:011",
+      "category": "complexity",
+      "original_index": 10,
+      "fresh_index": 13,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/pano/pano-dialog.component.ts",
+        "name": "error",
+        "line": 239,
+        "col": 15,
+        "cyclomatic": 10,
+        "cognitive": 8,
+        "line_count": 14,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 31.6,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Pano error callback selects actionable messages; error fixtures must establish any missing/wrong mapping.",
+      "evidence": ["src/web/projects/maple-common/src/lib/pano/pano-dialog.component.ts"],
+      "required_evidence": "Pano error callback selects actionable messages; error fixtures must establish any missing/wrong mapping."
+    },
+    {
+      "id": "web:complexity:012",
+      "category": "complexity",
+      "original_index": 11,
+      "fresh_index": 10,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/components/crop-overlay/crop-overlay.component.ts",
+        "name": "cursorFor",
+        "line": 210,
+        "col": 0,
+        "cyclomatic": 10,
+        "cognitive": 1,
+        "line_count": 20,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 31.6,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "false positive",
+      "rationale": "Cursor mapping is an explicit handle-to-cursor switch. Branch count alone is not a maintainability or behavior defect.",
+      "evidence": [
+        "src/web/projects/maple-common/src/lib/components/crop-overlay/crop-overlay.component.ts"
+      ]
+    },
+    {
+      "id": "web:complexity:013",
+      "category": "complexity",
+      "original_index": 12,
+      "fresh_index": 11,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/deep-link/deep-link.service.ts",
+        "name": "resolve",
+        "line": 39,
+        "col": 9,
+        "cyclomatic": 10,
+        "cognitive": 10,
+        "line_count": 41,
+        "param_count": 1,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 31.6,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "requiring runtime evidence",
+      "rationale": "Deep-link resolver accepts distinct address shapes; validate boot navigation and invalid inputs before changing dispatch.",
+      "evidence": ["src/web/projects/maple-common/src/lib/deep-link/deep-link.service.ts"],
+      "required_evidence": "Deep-link resolver accepts distinct address shapes; validate boot navigation and invalid inputs before changing dispatch."
+    },
+    {
+      "id": "web:complexity:014",
+      "category": "complexity",
+      "original_index": 13,
+      "fresh_index": 12,
+      "candidate": {
+        "path": "projects/maple-common/src/lib/state/library-fetch.service.spec.ts",
+        "name": "selectInitialFolder",
+        "line": 241,
+        "col": 2,
+        "cyclomatic": 10,
+        "cognitive": 10,
+        "line_count": 25,
+        "param_count": 2,
+        "exceeded": "crap",
+        "severity": "moderate",
+        "crap": 31.6,
+        "coverage_tier": "partial",
+        "coverage_source": "estimated"
+      },
+      "disposition": "false positive",
+      "rationale": "Test fake selects an initial folder. Estimated coverage metadata is not a production failure or measured coverage result.",
+      "evidence": ["src/web/projects/maple-common/src/lib/state/library-fetch.service.spec.ts"]
+    }
+  ]
+}
