@@ -608,3 +608,38 @@ unchanged. Broad 40-case rerun is pending. Comparator unit tests pass (8);
 format/lint and 570-line headroom checks pass. Prior binding qualification
 records still truthfully identify source 6004b3a48 and must be refreshed
 before qualifying this estimator as the final v6 candidate.
+
+## Final staged scope and performance correction (#3680)
+
+Candidate d9e570ace completes the installed 40 baseline comparisons with
+**39 passing, one failing, zero skipped**. All twenty Auto cases and the six
+original photo comparisons pass. The remaining Sony 0011 Neutral bias is
+also present on unchanged main and remains tracked by parent #3633.
+Implementation slice #3680 does not close or waive it; #3678 tracks the
+explicitly deferred nonbaseline native-reference migration.
+
+Final source review passes 2,399 core tests (92 existing ignored), 18 native
+Metal cases, 59 synthetic color cases, 12 freshly relinked Apple host sidecar
+cases and 3 API sidecar cases. Those records identify exact d9e570ace source.
+Apple/API sidecar evidence does not qualify UI pixels, iOS or browser hardware.
+The isolated Sony HSM experiment is rejected: its control PNG is byte-identical
+to the canonical candidate and the exact HSM worsens mean error and the dark
+neutral residual. See the adjacent Sony calibration/HSM evidence.
+
+A final serial performance check caught a compiler-layout regression: despite
+unchanged cubic arithmetic, d9e570ace retained four non-inlined array try_map
+calls per output pixel and doubled the opcode stage from about 104 to 208 ms.
+Making the table static did not help and was reverted. Replacing only the
+nested channel map with an explicit fixed-size loop restores about 103–107 ms,
+with identical complete f32 scene fingerprints at 1600, 2048 and native
+12288×8192 (full fingerprint 340ca62e5834a47b). Core tests
+remain 2,399 passing. This is a loop optimization, not new math.
+
+Three serial alternating main/fixed-loop preparation medians (four Rayon
+threads, same 100MP Bayer): Preview 1600 **480.397→548.658 ms**; requested
+Amaze 2048 **668.299→754.243 ms**. Process peak RSS stays about 2.84/2.97 GB.
+This records the remaining preparation cost of correct cubic resampling and
+pre-reduction reconstruction; it is neither whole uncached-open nor 16 ms
+slider qualification. Desktop background services remained active; no agent
+compile or competing render job ran during these pairs. Full stage data and
+binary hashes are in color-baseline-3633-final-performance.json.
