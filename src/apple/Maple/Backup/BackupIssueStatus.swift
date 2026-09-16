@@ -7,6 +7,9 @@ import Observation
 @MainActor
 @Observable
 final class BackupIssueStatus {
+  private static let logger = Logger(
+    subsystem: "app.justmaple.aperture", category: "Backup.Diagnostics")
+
   enum Severity: Equatable { case info, warning, error }
   private var retrying: Set<BackupTaskID> = []
   private var waitingForNetwork: Set<BackupTaskID> = []
@@ -36,7 +39,7 @@ final class BackupIssueStatus {
     switch event {
     case .failed(let id, let error, let willRetry):
       // Peer coordination is routine, not an upload failure.
-      if willRetry && error == "busy elsewhere" {
+      if willRetry && error == BackupQueueEvent.Coordination.anotherDevice {
         retrying.remove(id)
         waitingForNetwork.remove(id)
         report(.info, "Backup deferred: another device is uploading this photo.")
@@ -49,7 +52,7 @@ final class BackupIssueStatus {
       )
       if willRetry {
         retrying.insert(id)
-        if error == "Waiting for Wi-Fi or Ethernet" { waitingForNetwork.insert(id) }
+        if error == BackupQueueEvent.Coordination.waitingForNetwork { waitingForNetwork.insert(id) }
       } else {
         retrying.remove(id)
         failed.insert(id)
@@ -74,7 +77,6 @@ final class BackupIssueStatus {
   }
 
   static func log(_ severity: Severity, _ details: String) {
-    let logger = Logger(subsystem: "app.justmaple.aperture", category: "Backup.Diagnostics")
     switch severity {
     case .info: logger.info("\(details, privacy: .public)")
     case .warning: logger.warning("\(details, privacy: .public)")

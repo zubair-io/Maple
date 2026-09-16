@@ -94,6 +94,13 @@ public struct BackupTask: Sendable, Hashable, Codable {
 /// Events emitted by `BackupQueue.observe()` so the UI can render live
 /// progress without polling.
 public enum BackupQueueEvent: Sendable {
+  /// Shared coordination messages for the engine and event consumers.
+  /// Keep these independent of localized user-facing status text.
+  public enum Coordination {
+    public static let anotherDevice = "busy elsewhere"
+    public static let waitingForNetwork = "Waiting for Wi-Fi or Ethernet"
+  }
+
   /// All queued work and scheduled retries have drained.
   case drained
   case enqueued(BackupTask)

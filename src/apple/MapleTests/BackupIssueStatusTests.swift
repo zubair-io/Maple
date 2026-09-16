@@ -39,7 +39,7 @@ final class BackupIssueStatusTests: XCTestCase {
       _ = $1
     }
     status.apply(.failed(id, error: "temporary network failure", willRetry: true))
-    status.apply(.failed(id, error: "busy elsewhere", willRetry: true))
+    status.apply(.failed(id, error: BackupQueueEvent.Coordination.anotherDevice, willRetry: true))
     XCTAssertEqual(severity, .info)
     XCTAssertNil(status.message)
   }
@@ -74,7 +74,8 @@ final class BackupIssueStatusTests: XCTestCase {
 
   func testNetworkWaitExplainsConstraint() {
     let status = BackupIssueStatus { _, _ in }
-    status.apply(.failed(id, error: "Waiting for Wi-Fi or Ethernet", willRetry: true))
+    status.apply(
+      .failed(id, error: BackupQueueEvent.Coordination.waitingForNetwork, willRetry: true))
     XCTAssertEqual(status.message, "Backup is waiting for Wi-Fi or Ethernet.")
     XCTAssertFalse(status.isFailure)
     status.apply(.started(id))
