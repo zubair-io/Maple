@@ -27,7 +27,7 @@ done
 RUST_VERSION="$(rustc -vV)"
 RUST_HOST=""
 while read -r key value; do
-  if [[ "$key" == host: ]]; then RUST_HOST="$value"; fi
+  if [[ "$key" == host: ]]; then RUST_HOST="${value%$'\r'}"; fi
 done <<< "$RUST_VERSION"
 [[ "$RUST_HOST" == "$TARGET" ]] || fail "native Windows builds only: Rust host '$RUST_HOST' does not match '$TARGET'; cross-compilation is not supported"
 
