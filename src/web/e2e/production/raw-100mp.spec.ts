@@ -1,12 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { access, copyFile, mkdtemp, rm, stat } from 'node:fs/promises';
+import { access, copyFile, mkdtemp, rm } from 'node:fs/promises';
 import { cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Worker } from '@playwright/test';
 import { test, expect } from '../support/production-test';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
+import { canonical100mpIdentity } from '../support/canonical-100mp';
 import {
   captureWorkerStatus,
   percentile,
@@ -39,10 +38,7 @@ test('Hosted canonical 100MP intake reaches the real editor and records open and
     () => false,
   );
   test.skip(!present, `${FIXTURE} is absent; no 100MP qualification was executed`);
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(source)) hash.update(chunk);
-  const sha256 = hash.digest('hex');
-  const bytes = (await stat(source)).size;
+  const { bytes, sha256 } = await canonical100mpIdentity(source);
   const folder = await mkdtemp(join(tmpdir(), 'maple-100mp-'));
   const report: Record<string, unknown> = {
     recordedAt: new Date().toISOString(),
