@@ -144,6 +144,19 @@ exit 0""",
                     result.stdout,
                 )
 
+    def test_crlf_rust_host_is_accepted_without_relaxing_target_match(self):
+        self.write_tool(
+            "rustc",
+            'printf "rustc 1.90.0\\r\\nhost: %s\\r\\nrelease: 1.90.0\\r\\n" "$FAKE_HOST"',
+        )
+        result, calls = self.run_wrapper()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"|--target|{X64}|", calls[1])
+        (self.root / "calls.log").unlink()
+        result, calls = self.run_wrapper(FAKE_HOST=ARM64)
+        self.assert_failed(result, "cross-compilation is not supported")
+        self.assertEqual(calls, [])
+
     def test_default_is_x64(self):
         result, calls = self.run_wrapper()
         self.assertEqual(result.returncode, 0, result.stderr)
