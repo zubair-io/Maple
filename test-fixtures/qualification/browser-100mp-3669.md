@@ -45,3 +45,9 @@ MAPLE_E2E_CONFIG_ONLY=1 MAPLE_E2E_ARTIFACT_ONLY=1 MAPLE_E2E_HOSTED_PORT=4769 \
   ./node_modules/.bin/playwright test raw-100mp.spec.ts \
   --config playwright.production.config.ts --project=chrome-hosted
 ```
+
+### Canonical identity guard (review follow-up)
+
+The source now must match the existing committed size and SHA-256 in `browser-100mp-3669.json` before it is copied or opened. The browser subsequently checks the transported bytes against that verified identity. The same canonical hash is independently recorded for test_0000 in `color-baseline-3633-inputs.json`; no new expected hash was invented from a local filename.
+
+Focused checks accepted the actual 129,467,390-byte canonical fixture, rejected a disposable copy of the valid 34,209,792-byte test_0017.dng renamed to the canonical filename, and rejected a same-size sparse payload with a different SHA-256. Originals were read-only and disposable negatives were removed. This adds an identity prerequisite to the already-recorded successful browser run; it does not replace that run, relax any ceiling, or remove its background-load caveat.
