@@ -77,6 +77,37 @@ export const uploadSessions = {
   }): Promise<OpenOrResumeResult> {
     const coll = await uploadSessionsCollection();
 
+    // Completed-content changes and abandoned retries share exactly this
+    // in-place reset. Their guards stay at the call sites below.
+    const reopenClosedSession = async (existing: UploadSessionDoc): Promise<OpenOrResumeResult> => {
+      const unsetFields: Record<string, ''> = {
+        maple_id: '',
+        resolved_rel_path: '',
+        ...(args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined
+          ? { phasset_cloud_id: '' }
+          : {}),
+      };
+      const now = new Date();
+      await coll.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            state: 'open',
+            total_bytes: args.totalBytes,
+            target_rel_path: args.targetRelPath,
+            chunk_size: args.chunkSize,
+            received_bytes: 0,
+            created_at: now,
+            updated_at: now,
+            ...(args.phassetCloudId !== undefined ? { phasset_cloud_id: args.phassetCloudId } : {}),
+          },
+          $unset: unsetFields,
+        },
+      );
+      const refreshed = (await coll.findOne({ _id: existing._id }))!;
+      return { session: refreshed, reset: true, alreadyComplete: false };
+    };
+
     // Cross-device check: another device on this library actively uploading
     // the same iCloud photo? Only meaningful when both sides have a cloud id.
     //
@@ -258,32 +289,7 @@ export const uploadSessions = {
       if (!totalChanged && !pathChanged && existing.maple_id) {
         return { session: existing, reset: false, alreadyComplete: true };
       }
-      const unsetFields: Record<string, ''> = {
-        maple_id: '',
-        resolved_rel_path: '',
-      };
-      if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
-        unsetFields.phasset_cloud_id = '';
-      }
-      const now = new Date();
-      await coll.updateOne(
-        { _id: existing._id },
-        {
-          $set: {
-            state: 'open',
-            total_bytes: args.totalBytes,
-            target_rel_path: args.targetRelPath,
-            chunk_size: args.chunkSize,
-            received_bytes: 0,
-            created_at: now,
-            updated_at: now,
-            ...(args.phassetCloudId !== undefined ? { phasset_cloud_id: args.phassetCloudId } : {}),
-          },
-          $unset: unsetFields,
-        },
-      );
-      const refreshed = (await coll.findOne({ _id: existing._id }))!;
-      return { session: refreshed, reset: true, alreadyComplete: false };
+      return reopenClosedSession(existing);
     }
 
     if (existing?.state === 'abandoned') {
@@ -291,32 +297,7 @@ export const uploadSessions = {
       // Reopen in place — inserting a new row would collide with the unique
       // resume-key index. The route treats reset:true as "clear stale tmp
       // bytes" so the next chunk starts at offset 0 cleanly.
-      const unsetFields: Record<string, ''> = {
-        maple_id: '',
-        resolved_rel_path: '',
-      };
-      if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
-        unsetFields.phasset_cloud_id = '';
-      }
-      const now = new Date();
-      await coll.updateOne(
-        { _id: existing._id },
-        {
-          $set: {
-            state: 'open',
-            total_bytes: args.totalBytes,
-            target_rel_path: args.targetRelPath,
-            chunk_size: args.chunkSize,
-            received_bytes: 0,
-            created_at: now,
-            updated_at: now,
-            ...(args.phassetCloudId !== undefined ? { phasset_cloud_id: args.phassetCloudId } : {}),
-          },
-          $unset: unsetFields,
-        },
-      );
-      const refreshed = (await coll.findOne({ _id: existing._id }))!;
-      return { session: refreshed, reset: true, alreadyComplete: false };
+      return reopenClosedSession(existing);
     }
 
     const now = new Date();
