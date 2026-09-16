@@ -89,3 +89,36 @@ ChangeFeedClientBackoffTests
 ChangeFeedClientDateDecodingTests
 CollisionResolverTests
 ColorGradingXMPTests
+
+# KTLO qualification batch 2 (#3655): generated/temporary inputs, stubbed
+# HTTP and the committed synthetic RAW; no private fixtures or UI auth.
+ColorLabelSidecarTests
+ColorWheelGeometryTests
+ComposedSourceTests
+CreateXMPPreconditionTests
+CropGeometryTests
+DeepLinkParserSearchTests
+DeepLinkParserTests
+DeepLinkSearchParamsTests
+DeferredFolderEnumeratorChangesTests
+DerivativeAuditConfigClientTests
+DescribeSettingsFormTests
+DisplayToneCurveXMPTests
+DownloadProgressTests
+DragBarMathTests
+DraggedAssetPayloadTests
+DropMountPlannerTests
+EditSessionFilmLutSyncTests
+EditSessionMemoryReleaseTests
+EditSessionRefineCoalesceTests
+EditSessionSeedTests
+EditTransactionTests
+EditorComparisonTests
+EditorLayoutTests
+EditorSubParamCatalogTests
+ExifCaptureDateTests
+ExternalRenameMatcherTests
+ExternalRenameReconcilerTests
+FaceDetectSettingsFormTests
+FaceEmbedSettingsFormTests
+FacePurgeClientTests
