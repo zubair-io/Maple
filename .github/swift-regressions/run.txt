@@ -122,3 +122,37 @@ ExternalRenameReconcilerTests
 FaceDetectSettingsFormTests
 FaceEmbedSettingsFormTests
 FacePurgeClientTests
+
+# KTLO qualification batch 3 (#3656): generated data, temporary local
+# filesystem/SQLite, stubbed HTTP and bundled LUT; OS Trash test cleans
+# only its own disposable generated files. No private RAW fixtures.
+FileOperationErrorTests
+FilesystemSourceCaptureDateTests
+FilesystemSourceExternalRenameTests
+FilesystemSourceMapleIdTests
+FilmLookCubeTests
+FilmLookXMPTests
+FilmLutStoreTests
+FolderChangeMatchingTests
+FolderChangeWatcherTests
+FolderCreateCollisionTests
+FolderEnumeratorErrorTests
+FolderEnumeratorPagingTests
+FolderMergeAdapterTests
+FolderMoveDestinationsTests
+FolderMoveEnumeratorSignalTests
+ForeignWhiteBalanceSourceTests
+GeneratedSearchClientTests
+GeocodeSettingsFormTests
+GeometryToolCatalogTests
+GradientCatalogTests
+HashingTests
+LibraryIndexFingerprintTests
+LibraryIndexStoreSingleWriterTests
+LightTablePoolTests
+LivingSliderMathTests
+LocalAdjustmentFlatTests
+LocalFileOperationsExternalRenameTests
+LocalFileOperationsFolderTests
+LocalFileOperationsRelocateTests
+LocalFileOperationsTrashTests
