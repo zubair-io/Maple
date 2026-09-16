@@ -65,15 +65,18 @@ namespace Maple.WinUI
 
                 // Real queued UI present, held solely by this smoke's UI turn.
                 // The production close path must pump it while awaiting the loop.
-                using var queued = new ManualResetEventSlim();
-                void Queued() => queued.Set();
+                var queued = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                void Queued() => queued.TrySetResult(true);
                 if (expectedPath == "gpu")
                 {
                     renderer.PresentQueued += Queued;
-                    renderer.RequestRender(ViewModel.Adjustments.Clone());
-                    if (!renderer.HasPendingPresent && !queued.Wait(TimeSpan.FromSeconds(5)))
-                        throw new TimeoutException("No real GPU present queued before close");
-                    renderer.PresentQueued -= Queued;
+                    try
+                    {
+                        renderer.RequestRender(ViewModel.Adjustments.Clone());
+                        if (!renderer.HasPendingPresent && !queued.Task.Wait(TimeSpan.FromSeconds(5)))
+                            throw new TimeoutException("No real GPU present queued before close");
+                    }
+                    finally { renderer.PresentQueued -= Queued; }
                 }
                 Close();
                 Close(); // repeated request before the dispatcher starts its drain
