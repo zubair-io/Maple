@@ -4,14 +4,14 @@
     role="status"
   >
     <span>{{ message }}</span>
-    <button
-      type="button"
-      class="dlg-toast-dismiss"
-      (click)="dismissToast.emit()"
-      aria-label="Dismiss"
-    >
-      ✕
-    </button>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      (pressed)="dismissToast.emit()"
+      ariaLabel="Dismiss"
+      [iconOnly]="true"
+      iconLeading="x"
+    ></mui-button>
   </div>
 }
 

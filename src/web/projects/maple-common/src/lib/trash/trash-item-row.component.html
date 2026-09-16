@@ -23,24 +23,24 @@
     </span>
   } @else {
     <div class="flex shrink-0 gap-1.5">
-      <button
-        type="button"
-        class="h-[26px] cursor-pointer rounded-[5px] border-[0.5px] border-border bg-transparent px-2.5 text-[11px] font-medium text-text-main transition-colors duration-[120ms] enabled:hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+      <mui-button
+        variant="secondary"
+        size="sm"
         [disabled]="busy()"
-        [attr.aria-label]="'Restore ' + item().filename"
-        (click)="restore.emit()"
+        [ariaLabel]="'Restore ' + item().filename"
+        (pressed)="restore.emit()"
       >
         Restore
-      </button>
-      <button
-        type="button"
-        class="h-[26px] cursor-pointer rounded-[5px] border-[0.5px] border-border bg-transparent px-2.5 text-[11px] font-medium text-error-text transition-colors duration-[120ms] enabled:hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+      </mui-button>
+      <mui-button
+        variant="destructive"
+        size="sm"
         [disabled]="busy()"
-        [attr.aria-label]="'Delete ' + item().filename + ' permanently'"
-        (click)="deletePermanently.emit()"
+        [ariaLabel]="'Delete ' + item().filename + ' permanently'"
+        (pressed)="deletePermanently.emit()"
       >
         Delete Permanently
-      </button>
+      </mui-button>
     </div>
   }
 </div>

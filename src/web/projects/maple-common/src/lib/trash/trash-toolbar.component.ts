@@ -4,11 +4,13 @@
 // the disabled-reason `aria-describedby` wiring (#2749 review) was added —
 // a plain presentational component, no service/HTTP imports of its own.
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 @Component({
   selector: 'app-trash-toolbar',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './trash-toolbar.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

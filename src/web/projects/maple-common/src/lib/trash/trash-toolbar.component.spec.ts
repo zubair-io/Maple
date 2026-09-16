@@ -33,6 +33,25 @@ describe('TrashToolbarComponent', () => {
     expect(reasonEl?.textContent).toBe('Trash is empty.');
   });
 
+  it('suppresses destructive and restore outputs while disabled, then clears descriptions', () => {
+    const fixture = setup('Trash is empty.');
+    let calls = 0;
+    fixture.componentInstance.restoreAll.subscribe(() => calls++);
+    fixture.componentInstance.emptyTrash.subscribe(() => calls++);
+    const buttons = Array.from(
+      fixture.nativeElement.querySelectorAll('button'),
+    ) as HTMLButtonElement[];
+    buttons.forEach((button) => button.click());
+    expect(calls).toBe(0);
+    fixture.componentRef.setInput('disabledReason', null);
+    fixture.detectChanges();
+    for (const button of buttons) {
+      expect(button.hasAttribute('aria-describedby')).toBe(false);
+      expect(button.hasAttribute('title')).toBe(false);
+      expect(button.disabled).toBe(false);
+    }
+  });
+
   it('emits restoreAll and emptyTrash on click', () => {
     const fixture = setup(null);
     let restoreCalled = false;

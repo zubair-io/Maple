@@ -101,6 +101,12 @@ const MIGRATED_DIRECTORIES = [
 // Individual files ratcheted on their own because a sibling in the same
 // directory is deliberately NOT migrated (see the module doc above).
 const MIGRATED_FILES = [
+  '../projects/maple-common/src/lib/trash/trash-item-row.component.html', // #3698
+  '../projects/maple-common/src/lib/trash/trash-list.component.html', // #3698
+  '../projects/maple-common/src/lib/trash/trash-panel.component.html', // #3698
+  '../projects/maple-common/src/lib/trash/trash-status-banner.component.html', // #3698
+  '../projects/maple-common/src/lib/trash/trash-toolbar.component.html', // #3698
+
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-node.component.html',
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-smart-row.component.html',
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-footer.component.html',
@@ -217,4 +223,6 @@ if (allViolations.length > 0) {
   process.exit(1);
 }
 
-console.log(`Maple UI adoption check passed (${scopeCount} migrated director(y/ies)/file(s) clean).`);
+console.log(
+  `Maple UI adoption check passed (${scopeCount} migrated director(y/ies)/file(s) clean).`,
+);
