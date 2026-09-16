@@ -1,0 +1,220 @@
+test_color_pipeline: using caller-provided MAPLE_CLI=/tmp/maple-3633-cubic-phase32-cli (no rebuild)
+test_color_pipeline: KEEP_TMP set — candidates in /var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.ZNVajk3BCC
+test_color_pipeline: manifest=/tmp/maple-3633-all-baselines.json
+test_color_pipeline: preferred_resolution=down
+test_color_pipeline: reference protocols: baseline = matched native Lanczos; other cases = legacy (#3678)
+test_color_pipeline: filter=baseline
+
+test_color_pipeline: rendering candidates (neutral) ...
+  ok  test_0000/baseline
+  ok  test_0001/baseline
+  ok  test_0002/baseline
+  ok  test_0003/baseline
+  [raw-core] dcp::profile_for: generic D65→Rec.2020 fallback for UCM="Hasselblad H5D-40" make="Hasselblad" model="H5D-40" — neither bundled profile nor embedded ColorMatrix available; image will render with approximate color. Track coverage in src/raw-pipeline/raw-core/src/color/profiles/COVERAGE.md.
+  ok  test_0004/baseline
+  ok  test_0005/baseline
+  ok  test_0006/baseline
+  ok  test_0007/baseline
+  ok  test_0008/baseline
+  ok  test_0009/baseline
+  ok  test_0010/baseline
+  ok  test_0011/baseline
+  ok  test_0012/baseline
+  ok  test_0013/baseline
+  ok  test_0014/baseline
+  ok  test_0015/baseline
+  ok  test_0017/baseline
+  ok  test_0018/baseline
+  ok  test_0019/baseline
+  ok  test_0020/baseline
+  batch complete: 20 ok, 0 failed
+
+test_color_pipeline: rendering candidates (auto) ...
+  ok  test_0000/baseline
+  ok  test_0001/baseline
+  ok  test_0002/baseline
+  ok  test_0003/baseline
+  [raw-core] dcp::profile_for: generic D65→Rec.2020 fallback for UCM="Hasselblad H5D-40" make="Hasselblad" model="H5D-40" — neither bundled profile nor embedded ColorMatrix available; image will render with approximate color. Track coverage in src/raw-pipeline/raw-core/src/color/profiles/COVERAGE.md.
+  ok  test_0004/baseline
+  ok  test_0005/baseline
+  ok  test_0006/baseline
+  ok  test_0007/baseline
+  ok  test_0008/baseline
+  ok  test_0009/baseline
+  ok  test_0010/baseline
+  ok  test_0011/baseline
+  ok  test_0012/baseline
+  ok  test_0013/baseline
+  ok  test_0014/baseline
+  ok  test_0015/baseline
+  ok  test_0017/baseline
+  ok  test_0018/baseline
+  ok  test_0019/baseline
+  ok  test_0020/baseline
+  batch complete: 20 ok, 0 failed
+
+test_color_pipeline: diffing neutral candidates vs ACR ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+# reference protocol test_0000/baseline: baseline-native-pair-lanczos
+PASS test_0000    baseline                  10.67M    5.75   9.42  36.57   +0.0127  +0.0148  +0.0170
+# reference protocol test_0001/baseline: baseline-native-pair-lanczos
+PASS test_0001    baseline                   9.00M   18.57  30.45  63.13   +0.1567  +0.1465  +0.1551
+# reference protocol test_0002/baseline: baseline-native-pair-lanczos
+PASS test_0002    baseline                  12.00M   12.31  13.44  36.79   -0.2082  -0.1753  -0.1479
+# reference protocol test_0003/baseline: baseline-native-pair-lanczos
+PASS test_0003    baseline                  10.67M    6.60  10.91  16.37   +0.0364  +0.0275  +0.0248
+# reference protocol test_0004/baseline: baseline-native-pair-lanczos
+PASS test_0004    baseline                  12.00M    5.03   8.55  23.78   -0.0222  -0.0223  -0.0192
+# reference protocol test_0005/baseline: baseline-native-pair-lanczos
+PASS test_0005    baseline                  12.00M   10.60  19.65  81.00   +0.1118  +0.0944  +0.0864
+# reference protocol test_0006/baseline: baseline-native-pair-lanczos
+PASS test_0006    baseline                  10.67M    7.95  12.69  41.65   +0.0141  +0.0224  -0.0269
+# reference protocol test_0007/baseline: baseline-native-pair-lanczos
+PASS test_0007    baseline                  10.67M    4.84   8.08  41.71   +0.0114  +0.0164  +0.0251
+# reference protocol test_0008/baseline: baseline-native-pair-lanczos
+PASS test_0008    baseline                  10.67M   10.78  19.89  88.94   -0.0752  -0.0922  -0.0765
+# reference protocol test_0009/baseline: baseline-native-pair-lanczos
+PASS test_0009    baseline                  10.67M    7.83  15.32  30.38   +0.0858  +0.0686  +0.0573
+# reference protocol test_0010/baseline: baseline-native-pair-lanczos
+PASS test_0010    baseline                  10.67M    9.25  15.13  32.79   +0.0008  +0.0264  -0.0052
+# reference protocol test_0011/baseline: baseline-native-pair-lanczos
+FAIL test_0011    baseline                  10.67M    5.64  19.56  34.81   +0.0378  +0.0315  +0.0312  bias_R +0.0378>0.0113, bias_G +0.0315>0.0113, bias_B +0.0312>0.0113
+# reference protocol test_0012/baseline: baseline-native-pair-lanczos
+PASS test_0012    baseline                  12.00M   11.25  24.54  97.15   +0.1423  +0.0690  +0.0337
+# reference protocol test_0013/baseline: baseline-native-pair-lanczos
+PASS test_0013    baseline                  12.00M    5.86   8.81  22.35   -0.0290  -0.0428  -0.0465
+# reference protocol test_0014/baseline: baseline-native-pair-lanczos
+PASS test_0014    baseline                  10.67M   15.66  26.60  33.56   +0.1893  +0.1749  +0.1781
+# reference protocol test_0015/baseline: baseline-native-pair-lanczos
+PASS test_0015    baseline                  12.03M   11.51  19.49  38.53   -0.1178  -0.1332  -0.1107
+# reference protocol test_0017/baseline: baseline-native-pair-lanczos
+PASS test_0017    baseline                  10.67M    5.96  10.65  34.93   -0.0345  -0.0051  +0.0261
+# reference protocol test_0018/baseline: baseline-native-pair-lanczos
+PASS test_0018    baseline                  474880   13.33  16.96  37.87   -0.1516  -0.1565  -0.1560
+# reference protocol test_0019/baseline: baseline-native-pair-lanczos
+PASS test_0019    baseline                  474880   13.70  16.46  46.73   -0.1721  -0.1712  -0.1750
+# reference protocol test_0020/baseline: baseline-native-pair-lanczos
+PASS test_0020    baseline                   9.63M   14.22  23.13 100.07   -0.1647  -0.1467  -0.1419
+----------------------------------------------------------------------------------------------------
+     test_0000    (1 cases)                      -    5.75      -      -   +0.0127  +0.0148  +0.0170
+     test_0001    (1 cases)                      -   18.57      -      -   +0.1567  +0.1465  +0.1551
+     test_0002    (1 cases)                      -   12.31      -      -   -0.2082  -0.1753  -0.1479
+     test_0003    (1 cases)                      -    6.60      -      -   +0.0364  +0.0275  +0.0248
+     test_0004    (1 cases)                      -    5.03      -      -   -0.0222  -0.0223  -0.0192
+     test_0005    (1 cases)                      -   10.60      -      -   +0.1118  +0.0944  +0.0864
+     test_0006    (1 cases)                      -    7.95      -      -   +0.0141  +0.0224  -0.0269
+     test_0007    (1 cases)                      -    4.84      -      -   +0.0114  +0.0164  +0.0251
+     test_0008    (1 cases)                      -   10.78      -      -   -0.0752  -0.0922  -0.0765
+     test_0009    (1 cases)                      -    7.83      -      -   +0.0858  +0.0686  +0.0573
+     test_0010    (1 cases)                      -    9.25      -      -   +0.0008  +0.0264  -0.0052
+     test_0011    (1 cases)                      -    5.64      -      -   +0.0378  +0.0315  +0.0312
+     test_0012    (1 cases)                      -   11.25      -      -   +0.1423  +0.0690  +0.0337
+     test_0013    (1 cases)                      -    5.86      -      -   -0.0290  -0.0428  -0.0465
+     test_0014    (1 cases)                      -   15.66      -      -   +0.1893  +0.1749  +0.1781
+     test_0015    (1 cases)                      -   11.51      -      -   -0.1178  -0.1332  -0.1107
+     test_0017    (1 cases)                      -    5.96      -      -   -0.0345  -0.0051  +0.0261
+     test_0018    (1 cases)                      -   13.33      -      -   -0.1516  -0.1565  -0.1560
+     test_0019    (1 cases)                      -   13.70      -      -   -0.1721  -0.1712  -0.1750
+     test_0020    (1 cases)                      -   14.22      -      -   -0.1647  -0.1467  -0.1419
+====================================================================================================
+     GRAND        (20 cases)                     -    9.83      -      -   -0.0088  -0.0126  -0.0136
+
+# Reading the bias columns:
+#   bR/bG/bB are mean (candidate - reference) per channel in [0,1] sRGB-encoded units.
+#   Positive = Maple has too much of that channel. Negative = too little.
+#   Systematic bias (same sign across all fixtures) -> a calibration target.
+#   Cast that grows with exposure_max -> AgX gain. Only on wb_* -> WB delta logic.
+#   Cast on baseline only -> DCP / forward-matrix.
+# stats: 20 compared, 1 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+{"compared": 20, "breaches": 1, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": 9.832883401249282, "grand_bias_r": -0.008815737866098062, "grand_bias_g": -0.012642180500552058, "grand_bias_b": -0.013557752058841289}
+
+test_color_pipeline: diffing auto candidates vs ACR ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+# reference protocol test_0000/baseline: baseline-native-pair-lanczos
+PASS test_0000    baseline_auto             10.67M    2.93   5.63  34.11   +0.0044  +0.0109  +0.0116
+# reference protocol test_0001/baseline: baseline-native-pair-lanczos
+PASS test_0001    baseline_auto              9.00M   18.57  30.45  63.13   +0.1567  +0.1465  +0.1551
+# reference protocol test_0002/baseline: baseline-native-pair-lanczos
+PASS test_0002    baseline_auto             12.00M    3.34   5.32  33.28   -0.0003  +0.0266  +0.0314
+# reference protocol test_0003/baseline: baseline-native-pair-lanczos
+PASS test_0003    baseline_auto             10.67M    2.89   4.97  18.46   -0.0190  -0.0226  -0.0236
+# reference protocol test_0004/baseline: baseline-native-pair-lanczos
+PASS test_0004    baseline_auto             12.00M    5.30   8.16  29.77   +0.0100  -0.0056  -0.0341
+# reference protocol test_0005/baseline: baseline-native-pair-lanczos
+PASS test_0005    baseline_auto             12.00M    5.14  13.75  80.91   -0.0037  -0.0161  -0.0183
+# reference protocol test_0006/baseline: baseline-native-pair-lanczos
+PASS test_0006    baseline_auto             10.67M    3.68   5.90  36.32   +0.0115  +0.0087  -0.0035
+# reference protocol test_0007/baseline: baseline-native-pair-lanczos
+PASS test_0007    baseline_auto             10.67M    1.61   3.42  35.85   -0.0109  -0.0092  -0.0051
+# reference protocol test_0008/baseline: baseline-native-pair-lanczos
+PASS test_0008    baseline_auto             10.67M    7.01  19.17  88.27   -0.0241  -0.0246  -0.0174
+# reference protocol test_0009/baseline: baseline-native-pair-lanczos
+PASS test_0009    baseline_auto             10.67M    6.96  15.59  24.75   +0.0738  +0.0791  +0.0856
+# reference protocol test_0010/baseline: baseline-native-pair-lanczos
+PASS test_0010    baseline_auto             10.67M    8.64  15.43  32.41   +0.0458  +0.0610  +0.0642
+# reference protocol test_0011/baseline: baseline-native-pair-lanczos
+PASS test_0011    baseline_auto             10.67M    2.91   5.65  34.28   +0.0170  +0.0047  +0.0117
+# reference protocol test_0012/baseline: baseline-native-pair-lanczos
+PASS test_0012    baseline_auto             12.00M    7.76  19.02  96.19   +0.0822  +0.0177  +0.0141
+# reference protocol test_0013/baseline: baseline-native-pair-lanczos
+PASS test_0013    baseline_auto             12.00M    5.18  12.32  31.79   +0.0036  +0.0146  +0.0280
+# reference protocol test_0014/baseline: baseline-native-pair-lanczos
+PASS test_0014    baseline_auto             10.67M    3.28   4.81  15.72   -0.0028  -0.0148  +0.0006
+# reference protocol test_0015/baseline: baseline-native-pair-lanczos
+PASS test_0015    baseline_auto             12.03M   10.66  22.40  36.74   -0.1340  -0.0956  -0.0462
+# reference protocol test_0017/baseline: baseline-native-pair-lanczos
+PASS test_0017    baseline_auto             10.67M    4.98   8.32  33.17   +0.0201  +0.0218  -0.0017
+# reference protocol test_0018/baseline: baseline-native-pair-lanczos
+PASS test_0018    baseline_auto             474880   13.33  16.96  37.87   -0.1516  -0.1565  -0.1560
+# reference protocol test_0019/baseline: baseline-native-pair-lanczos
+PASS test_0019    baseline_auto             474880   13.70  16.46  46.73   -0.1721  -0.1712  -0.1750
+# reference protocol test_0020/baseline: baseline-native-pair-lanczos
+PASS test_0020    baseline_auto              9.63M   14.22  23.13 100.07   -0.1647  -0.1467  -0.1419
+----------------------------------------------------------------------------------------------------
+     test_0000    (1 cases)                      -    2.93      -      -   +0.0044  +0.0109  +0.0116
+     test_0001    (1 cases)                      -   18.57      -      -   +0.1567  +0.1465  +0.1551
+     test_0002    (1 cases)                      -    3.34      -      -   -0.0003  +0.0266  +0.0314
+     test_0003    (1 cases)                      -    2.89      -      -   -0.0190  -0.0226  -0.0236
+     test_0004    (1 cases)                      -    5.30      -      -   +0.0100  -0.0056  -0.0341
+     test_0005    (1 cases)                      -    5.14      -      -   -0.0037  -0.0161  -0.0183
+     test_0006    (1 cases)                      -    3.68      -      -   +0.0115  +0.0087  -0.0035
+     test_0007    (1 cases)                      -    1.61      -      -   -0.0109  -0.0092  -0.0051
+     test_0008    (1 cases)                      -    7.01      -      -   -0.0241  -0.0246  -0.0174
+     test_0009    (1 cases)                      -    6.96      -      -   +0.0738  +0.0791  +0.0856
+     test_0010    (1 cases)                      -    8.64      -      -   +0.0458  +0.0610  +0.0642
+     test_0011    (1 cases)                      -    2.91      -      -   +0.0170  +0.0047  +0.0117
+     test_0012    (1 cases)                      -    7.76      -      -   +0.0822  +0.0177  +0.0141
+     test_0013    (1 cases)                      -    5.18      -      -   +0.0036  +0.0146  +0.0280
+     test_0014    (1 cases)                      -    3.28      -      -   -0.0028  -0.0148  +0.0006
+     test_0015    (1 cases)                      -   10.66      -      -   -0.1340  -0.0956  -0.0462
+     test_0017    (1 cases)                      -    4.98      -      -   +0.0201  +0.0218  -0.0017
+     test_0018    (1 cases)                      -   13.33      -      -   -0.1516  -0.1565  -0.1560
+     test_0019    (1 cases)                      -   13.70      -      -   -0.1721  -0.1712  -0.1750
+     test_0020    (1 cases)                      -   14.22      -      -   -0.1647  -0.1467  -0.1419
+====================================================================================================
+     GRAND        (20 cases)                     -    7.10      -      -   -0.0129  -0.0136  -0.0110
+
+# stats: 20 compared, 0 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+{"profile": "auto", "compared": 20, "breaches": 0, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": 7.104336980237759}
+
+test_color_pipeline: diffing sharpen/NR candidates vs ACR (full-res, #1936) ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
+# stats: 0 compared, 0 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+# note: no sharpen/nr manifest cases match the filter — detail pass is vacuous (case-level FILTER); the neutral pass above is the gate.
+{"profile": "detail-fullres", "compared": 0, "breaches": 0, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": null}
+
+test_color_pipeline: batch exits: neutral=0 auto=0; diff passes: neutral=1 auto=0 detail=0
+qualification: executed=40 failed=1 skipped=0

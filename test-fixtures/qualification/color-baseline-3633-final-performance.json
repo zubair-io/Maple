@@ -404,5 +404,8 @@
       "log": "/tmp/maple-3633-sized-full-loop-loop-amaze-0.log"
     }
   ],
-  "full_scene_note": "One full-size pair establishes matching complete scene fingerprints, not a timing qualification."
+  "full_scene_note": "One full-size pair establishes matching complete scene fingerprints, not a timing qualification.",
+  "optimized_source_revision": "ac1431903278619507a6342e293feb4e7095c2ae",
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "disassembly": "Original d9 sampler contains four hot core::array::try_map calls per pixel. Optimized sampler has zero hot calls/try_map references; remaining calls are cold bounds-panic paths."
 }
