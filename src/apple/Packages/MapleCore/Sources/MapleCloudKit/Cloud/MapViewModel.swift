@@ -57,10 +57,15 @@ public final class MapViewModel {
   private var debounceTask: Task<Void, Never>?
   private var lastRegion: MapViewportRegion?
 
-  public init(server: URL,
-              client: MapClustersClient,
-              filter: SearchParams = SearchParams(),
-              debounceDelay: Duration = .milliseconds(300)) {
+  /// Await the actual debounce work in tests instead of assuming scheduler timing.
+  internal var _testPendingDebounceTask: Task<Void, Never>? { debounceTask }
+
+  public init(
+    server: URL,
+    client: MapClustersClient,
+    filter: SearchParams = SearchParams(),
+    debounceDelay: Duration = .milliseconds(300)
+  ) {
     self.server = server
     self.client = client
     self.filter = filter
