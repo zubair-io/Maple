@@ -534,8 +534,8 @@ export interface AssetDoc {
   /** Why `hidden` is currently true. `'manual'` when the user explicitly
    * hid it (an XMP override is present); `'nudity'` when the describe
    * stage's own vision verdict set it; `'nudity-burst'` when it was
-   * propagated from a sibling asset in the same burst (see
-   * `enrichment/burst-siblings.ts`); `'folder'` when a folder-level
+   * historically propagated from a sibling asset in the same burst;
+   * `'folder'` when a folder-level
    * `.hidden` marker file covers the asset's directory (see
    * `workers/discover/folder-hidden.ts` — removed again when the marker
    * disappears). Absent or `null` when not hidden — un-hide paths (the
