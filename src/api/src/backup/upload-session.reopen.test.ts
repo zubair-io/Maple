@@ -46,17 +46,19 @@ describe('closed upload-session reset contract (#3707)', () => {
         expect(result.session._id.equals(sessionId)).toBe(true);
         expect(await coll.countDocuments({ library_id: libraryId })).toBe(1);
         const persisted = await coll.findOne({ _id: sessionId });
+        expect(persisted).not.toBeNull();
+        if (persisted === null) throw new Error('Reset session was not persisted');
         expect(persisted).toEqual(result.session);
-        expect(persisted?.state).toBe('open');
-        expect(persisted?.total_bytes).toBe(80);
-        expect(persisted?.chunk_size).toBe(20);
-        expect(persisted?.target_rel_path).toBe('new/photo.dng');
-        expect(persisted?.received_bytes).toBe(0);
-        expect(persisted?.maple_id).toBeUndefined();
-        expect(persisted?.resolved_rel_path).toBeUndefined();
-        expect(persisted?.phasset_cloud_id).toBe(phassetCloudId);
-        expect(persisted?.created_at.getTime()).toBeGreaterThan(oldDate.getTime());
-        expect(persisted?.updated_at).toEqual(persisted?.created_at);
+        expect(persisted.state).toBe('open');
+        expect(persisted.total_bytes).toBe(80);
+        expect(persisted.chunk_size).toBe(20);
+        expect(persisted.target_rel_path).toBe('new/photo.dng');
+        expect(persisted.received_bytes).toBe(0);
+        expect(persisted.maple_id).toBeUndefined();
+        expect(persisted.resolved_rel_path).toBeUndefined();
+        expect(persisted.phasset_cloud_id).toBe(phassetCloudId);
+        expect(persisted.created_at.getTime()).toBeGreaterThan(oldDate.getTime());
+        expect(persisted.updated_at).toEqual(persisted.created_at);
       });
     }
   }
