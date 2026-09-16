@@ -29,16 +29,19 @@ namespace Maple.WinUI
                 try
                 {
                     await ShutdownAsync();
-                    if (!_lifecycleSmokeActive)
-                    {
-                        _closeReady = true;
-                        Close();
-                    }
                 }
                 catch (Exception error)
                 {
                     DiagLog.Write($"[lifetime] shutdown failed: {error}");
                     Environment.ExitCode = 1;
+                }
+                finally
+                {
+                    if (!_lifecycleSmokeActive && ViewModel.Renderer.IsStopped && _panelNative == IntPtr.Zero)
+                    {
+                        _closeReady = true;
+                        Close();
+                    }
                 }
             });
         }
@@ -56,19 +59,25 @@ namespace Maple.WinUI
             renderer.GpuUnavailable -= OnGpuUnavailable;
             renderer.RenderFailed -= OnRenderFailed;
             ViewModel.Dispose();
-            // CfDisconnect may wait for callbacks; leave the UI dispatcher live.
-            await Task.Run(_cloudFiles.Dispose); // keep persistent registration
-            try { await renderer.StopAsync(); }
+            try
+            {
+                // CfDisconnect may wait for callbacks; leave the dispatcher live.
+                await Task.Run(_cloudFiles.Dispose); // keep persistent registration
+            }
             finally
             {
-              if (_panelNative != IntPtr.Zero)
-              {
-                var panel = _panelNative;
-                _panelNative = IntPtr.Zero;
-                Marshal.Release(panel);
-                _panelReleaseCount++;
-                DiagLog.Write("[lifetime] window panel reference released");
-              }
+                try { await renderer.StopAsync(); }
+                finally
+                {
+                    if (_panelNative != IntPtr.Zero)
+                    {
+                        var panel = _panelNative;
+                        _panelNative = IntPtr.Zero;
+                        Marshal.Release(panel);
+                        _panelReleaseCount++;
+                        DiagLog.Write("[lifetime] window panel reference released");
+                    }
+                }
             }
         }
 
