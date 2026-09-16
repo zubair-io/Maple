@@ -54,3 +54,37 @@ LensProfileXMPTests
 LensProfileChoiceTests
 
 WhitesAnchorHostTests
+
+# KTLO qualification batch 6 (#3659): WB sampling on committed synthetic
+# RAW, generated curves, temporary XMP files and stubbed HTTP/provider
+# observers; no private fixtures or registered provider domain.
+ToneCurveMathTests
+ToneCurveTests
+ToneCurveXMPTests
+TranscribeSettingsFormTests
+TrashEnumeratorTests
+URLPathHierarchyTests
+UploadRetryIdempotencyTests
+WbDngTemperatureTests
+WbProvenanceXMPTests
+WbScaleVersionTests
+WbSliderFrameTests
+WhiteBalancePickGeometryTests
+WhiteBalancePickerTests
+WhiteBalanceSamplerIntegrationTests
+WhiteBalanceTransferProvenanceTests
+WorkingSetEnumeratorBatchResolutionTests
+WorkingSetEnumeratorChangesTests
+WorkingSetEnumeratorFileChangesTests
+WorkingSetEnumeratorTests
+WorkingSetTests
+XMPCanonicalFormatTests
+XMPCullFlagTests
+XMPLocalAdjustmentsTests
+XMPMetadataTests
+XMPPassthroughTests
+XMPSerializationAutoExposureTests
+XMPSerializationBlackWhiteTests
+XMPSerializationStageKnobTests
+XMPSerializationTests
+XMPSerializationWbMethodToneCurveModeTests

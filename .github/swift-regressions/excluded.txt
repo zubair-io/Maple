@@ -345,24 +345,9 @@ ThumbnailLoaderWriteBackTests slow render or decode workload that costs minutes 
 TileManagerByteBudgetTests slow render or decode workload that costs minutes on the runner
 TokenStoreTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 ToneCurveFlattenTests untriaged not yet reviewed for the runner; place deliberately when next touched
-ToneCurveMathTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ToneCurvePerfTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-ToneCurveTests untriaged not yet reviewed for the runner; place deliberately when next touched
-ToneCurveXMPTests untriaged not yet reviewed for the runner; place deliberately when next touched
-TranscribeSettingsFormTests untriaged not yet reviewed for the runner; place deliberately when next touched
-TrashEnumeratorTests untriaged not yet reviewed for the runner; place deliberately when next touched
-URLPathHierarchyTests untriaged not yet reviewed for the runner; place deliberately when next touched
-UploadRetryIdempotencyTests untriaged not yet reviewed for the runner; place deliberately when next touched
 VideoThumbnailTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-WbDngTemperatureTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WbProvenanceXMPTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WbScaleVersionTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WbSliderFrameTests untriaged not yet reviewed for the runner; place deliberately when next touched
 WhiteBalanceAuthoringParityTests gpu needs a real Metal device
-WhiteBalancePickGeometryTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WhiteBalancePickerTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WhiteBalanceSamplerIntegrationTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WhiteBalanceTransferProvenanceTests untriaged not yet reviewed for the runner; place deliberately when next touched
 WorkerEventsClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 WorkerRuntimeClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 WorkerRuntimeDecodingTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -371,19 +356,4 @@ WorkerTriageClientTests host talks to a host service (keychain, FileProvider, ne
 WorkerTriageDecodingTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 WorkersAdminClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 WorkersFeedTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-WorkingSetEnumeratorBatchResolutionTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WorkingSetEnumeratorChangesTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WorkingSetEnumeratorFileChangesTests untriaged not yet reviewed for the runner; place deliberately when next touched
-WorkingSetEnumeratorTests untriaged not yet reviewed for the runner; place deliberately when next touched
 WorkingSetListCacheTests slow render or decode workload that costs minutes on the runner
-WorkingSetTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPCanonicalFormatTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPCullFlagTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPLocalAdjustmentsTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPMetadataTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPPassthroughTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPSerializationAutoExposureTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPSerializationBlackWhiteTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPSerializationStageKnobTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPSerializationTests untriaged not yet reviewed for the runner; place deliberately when next touched
-XMPSerializationWbMethodToneCurveModeTests untriaged not yet reviewed for the runner; place deliberately when next touched
