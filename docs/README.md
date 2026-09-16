@@ -9,6 +9,8 @@ record the 2026-09-15 KTLO audit at an explicit source revision, with reproducib
 file/module inventories, verified findings, scan candidates, and coverage limits.
 The [API candidate triage](engineering-audit/api-triage.md) records confirmed findings,
 intentional repetitions and unresolved runtime-evidence requirements from the static scan.
+The [editor state ownership audit](state-ownership-audit.md) maps Windows MainWindow
+and Apple EditSession lifecycle, shared state and existing test boundaries.
 
 | Doc                                              | Read it to…                                                                                                                                                 |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
