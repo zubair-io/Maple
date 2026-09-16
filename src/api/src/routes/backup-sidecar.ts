@@ -26,6 +26,7 @@
  *   413 — body exceeds 256 KB
  */
 import { backupId } from './backup-id.ts';
+import { atomicMove } from '../backup/fs-util.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
@@ -38,20 +39,6 @@ import { randomBytes } from 'node:crypto';
 
 const log = childLogger('backup-sidecar');
 const MAX_SIDECAR_BYTES = 256 * 1024; // 256 KB
-
-/** Move src to dst atomically. Falls back to copy+unlink on EXDEV (cross-device). */
-async function atomicMove(src: string, dst: string): Promise<void> {
-  try {
-    await fs.rename(src, dst);
-  } catch (e: any) {
-    if (e?.code === 'EXDEV') {
-      await fs.copyFile(src, dst);
-      await fs.unlink(src);
-    } else {
-      throw e;
-    }
-  }
-}
 
 /**
  * Validate that a relative path is safe: no ".." segments, no leading slash,
