@@ -14,6 +14,7 @@
 // "Switch". A confirmed managed HTTPS hostname is preferred automatically.
 
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { AuthService } from '../auth/auth.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { LanSwitchCandidate, LanSwitchService } from './lan-switch.service';
@@ -23,6 +24,7 @@ type Phase = 'hidden' | 'offering' | 'switching';
 @Component({
   selector: 'maple-lan-switch-banner',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './lan-switch-banner.component.html',
   host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
