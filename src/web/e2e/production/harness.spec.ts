@@ -1,3 +1,4 @@
+import { RESOLVED_PREVIEW_SELECTOR } from '../support/preview-surface';
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { test, expect } from '../support/production-test';
@@ -131,7 +132,7 @@ test('Hosted uses an existing .maple preview before reading the RAW', async ({
   picker.clear();
   const previewStarted = Date.now();
   await page.getByRole('button', { name: 'test_0017.dng', exact: true }).click();
-  const fullPreview = page.locator('.preview-img--full');
+  const fullPreview = page.locator(RESOLVED_PREVIEW_SELECTOR);
   await expect(fullPreview).toBeVisible({ timeout: 15_000 });
   await expect
     .poll(() => fullPreview.evaluate((image: HTMLImageElement) => image.naturalWidth))
@@ -165,7 +166,7 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
   await openHostedFolder(page, 'test_0006.DNG');
   picker.clear();
   await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
-  const fullPreview = page.locator('.preview-img--full');
+  const fullPreview = page.locator(RESOLVED_PREVIEW_SELECTOR);
   await expect(fullPreview).toBeVisible({ timeout: 60_000 });
   await expect
     .poll(() => fullPreview.evaluate((image: HTMLImageElement) => image.naturalWidth))
@@ -204,7 +205,7 @@ test("Hosted records Chrome's actual preview format and reuses it without readin
   await openHostedFolder(page, 'test_0006.DNG');
   picker.clear();
   await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
-  await expect(page.locator('.preview-img--full')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(RESOLVED_PREVIEW_SELECTOR)).toBeVisible({ timeout: 15_000 });
   await expect
     .poll(() =>
       picker.operations.some(
@@ -400,7 +401,7 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   await openHostedFolder(page, 'test_0006.DNG');
   picker.clear();
   await page.getByRole('button', { name: 'test_0006.DNG', exact: true }).click();
-  const fullPreview = page.locator('.preview-img--full');
+  const fullPreview = page.locator(RESOLVED_PREVIEW_SELECTOR);
   await expect(fullPreview).toBeVisible({ timeout: 15_000 });
   await expect
     .poll(() => fullPreview.evaluate((image: HTMLImageElement) => image.naturalWidth))
