@@ -235,7 +235,7 @@ public actor BackupEngine {
       await queue.emit(
         .failed(
           task.id,
-          error: "Waiting for Wi-Fi or Ethernet", willRetry: true))
+          error: BackupQueueEvent.Coordination.waitingForNetwork, willRetry: true))
       while await reachability.status() != .wifi {
         try await Task.sleep(for: .seconds(1))
       }
@@ -319,7 +319,8 @@ public actor BackupEngine {
         await self?.finishRetry(token)  // retire, THEN wake run() (#1026)
       }
       retryTasks[token] = deferTask
-      await queue.emit(.failed(task.id, error: "busy elsewhere", willRetry: true))
+      await queue.emit(
+        .failed(task.id, error: BackupQueueEvent.Coordination.anotherDevice, willRetry: true))
       throw UploadClient.UploadError.busyElsewhere(
         retryAfterSeconds: retryAfterSeconds)
     } catch {
