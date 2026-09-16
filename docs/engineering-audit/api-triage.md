@@ -2,7 +2,7 @@
 
 Whole-project follow-up to #3666, refreshed against `9e601f937683a7260a7f16d57aee050b0424b25b`. The source audit baseline remains in [scan-candidates.json](scan-candidates.json); the complete disposition ledger is [api-candidate-dispositions.json](api-candidate-dispositions.json).
 
-This is a triage result. **253 records still require runtime or consumer-contract evidence before a code change is justified.** They are not confirmed defects, completed fixes or deletion instructions. Complexity scores are not observed latency. No production files, suppressions or dependencies changed.
+This is a triage result. **254 records still require runtime or consumer-contract evidence before a code change is justified.** They are not confirmed defects, completed fixes or deletion instructions. Complexity scores are not observed latency. No production files, suppressions or dependencies changed.
 
 ## Refresh and coverage
 
@@ -15,10 +15,10 @@ This is a triage result. **253 records still require runtime or consumer-contrac
 | Disposition                   | Records | Meaning                                                                                             |
 | ----------------------------- | ------: | --------------------------------------------------------------------------------------------------- |
 | Confirmed                     |       2 | Narrow cleanup with source evidence and a bounded issue                                             |
-| False positive                |       6 | Existing interface dispatch, test import or separate state invalidates the removal inference        |
+| False positive                |       5 | Existing interface dispatch or separate state invalidates the removal inference                     |
 | Intentional checked duplicate |      30 | Inspected syntax shares a shape while the operation/lifecycle remains deliberately distinct         |
 | Already tracked               |      10 | Linked landed or queued work covers the candidate                                                   |
-| Requiring runtime evidence    |     253 | No sufficient basis to remove, unify or split; preserve code until the recorded contract is checked |
+| Requiring runtime evidence    |     254 | No sufficient basis to remove, unify or split; preserve code until the recorded contract is checked |
 
 “Intentional checked duplicate” is the ledger's shared allowed label for deliberate repetition, including one lazily initialized import cycle; the per-record reason states the actual construct. It does not mean a new runtime test was executed.
 
@@ -35,7 +35,7 @@ The backup move clone is already removed by #3687/#3644. Location naming remains
 - **Same exported name, different state:** the two `setMeilisearchClientForTests` functions replace different variables: the shared singleton and the stage-local override. Combining them would change test isolation.
 - **Atomic sidecar I/O:** overwrite uses rename; create-if-absent uses link with EEXIST semantics. Shared temp-write text does not make these the same operation. Existing wrappers already share the lower-level sidecar writer.
 - **Versioned migrations:** similar query/update loops can intentionally preserve the rule that applied at a particular migration version. Live-policy extraction could alter historical replay semantics. This is especially relevant to stage rearming and face-count aggregation.
-- **Test imports and public exports:** `normalizeExif` has a real named import in `rename-reconcile.test.ts`. Other word matches are often comments, local helpers with the same name or namespace imports that do not use the flagged member. The ledger retains exact import syntax and tool traces rather than declaring those matches callers. An unused export modifier is not proof its function body is unused internally.
+- **Test imports and public exports:** `rename-reconcile.test.ts` imports the EXIF module namespace but only spies on `readExif`; this does not establish a caller of `normalizeExif`, which remains unresolved. Other word matches are often comments, local helpers with the same name or unused namespace members. The ledger retains exact import syntax and tool traces rather than declaring those matches callers. An unused export modifier is not proof its function body is unused internally.
 - **Package alias:** source imports use `maple`; `@justmaple/maple` points to the same local package and has no traced source import. Docker/Bun/native package installation behavior still needs verification before deleting that declaration.
 - **Lazy face-pool cycle:** `face-detector` uses a type-only top-level import and a documented lazy `require` inside the factory. This differs from the repaired DB bootstrap cycle. No initialization failure was demonstrated here.
 - **Suppression:** the `duplicates` comment in search buckets is reported as an unknown/stale kind. Its rationale is retained and the current buckets/facets clone still exists; blindly removing or widening it would not establish the intended gate behavior.
