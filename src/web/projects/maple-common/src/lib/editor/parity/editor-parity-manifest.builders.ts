@@ -22,7 +22,7 @@ const CARD: ParityPresentation = {
   wide: 'Row in the 300px control card beside the vertical tool dock',
 };
 
-export const SLIDER_INTERACTION: ParityInteraction = {
+const SLIDER_INTERACTION: ParityInteraction = {
   keyboard:
     'Arrow ±step on the focused slider (Home/End to the range ends); Shift+←/→ ±10 internal on the armed tool from anywhere in the shell',
   pointer:
@@ -32,7 +32,7 @@ export const SLIDER_INTERACTION: ParityInteraction = {
     'A focused slider consumes its own bare arrow / Home / End keys; every other shortcut still reaches the shell',
 };
 
-export const SLIDER_A11Y = (name: string, units: string): ParityAccessibility => ({
+const SLIDER_A11Y = (name: string, units: string): ParityAccessibility => ({
   role: 'slider',
   name,
   value: `aria-valuenow / aria-valuemin / aria-valuemax in ${units}`,
