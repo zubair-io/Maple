@@ -194,7 +194,7 @@ bash src/windows/scripts/build-windows.sh
 cd src/cloudflare && npm test
 ```
 
-CI mirrors these in `.github/workflows/`: `raw-pipeline.yml` (`build-raw-ffi`, `raw-gpu`, `rust-tests`, `color-pipeline`, `pano-pipeline`), `web.yml`, `api.yml`, `apple.yml` (a `MapleCore` compile gate only), `windows.yml`, `cloudflare.yml`, `face-clustering.yml`, and `cross.yml` for the repo-wide gates — Prettier, oxlint, the 400-soft / 600-hard line budget, `codegen-drift`, and the one-way budget ratchets. `deploy-hosted.yml` publishes `maple-syrup` on every push to `main` that touches `src/web/` or `src/raw-pipeline/`. Full detail in [testing](testing.md).
+CI mirrors these in `.github/workflows/`: `raw-pipeline.yml` (`build-raw-ffi`, `raw-gpu`, `rust-tests`, `color-pipeline`, `pano-pipeline`), `web.yml`, `api.yml`, `apple.yml` (MapleCore compile, selected executable regressions linked to a real release Rust archive, and test-class inventory gates), `windows.yml`, `cloudflare.yml`, `face-clustering.yml`, and `cross.yml` for the repo-wide gates — Prettier, oxlint, the 400-soft / 600-hard line budget, `codegen-drift`, and the one-way budget ratchets. `deploy-hosted.yml` publishes `maple-syrup` on every push to `main` that touches `src/web/` or `src/raw-pipeline/`. Full detail in [testing](testing.md).
 
 ## Where things run at runtime
 
