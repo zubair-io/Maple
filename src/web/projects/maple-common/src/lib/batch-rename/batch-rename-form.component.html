@@ -15,15 +15,14 @@
 
   <div class="flex flex-wrap gap-1.5">
     @for (help of tokenHelp(); track help.token) {
-      <button
-        type="button"
-        class="h-6 cursor-pointer rounded-sm border-[0.5px] border-border bg-input-bg px-2 font-mono text-[11px] text-text-main enabled:hover:border-primary disabled:cursor-default disabled:opacity-50"
+      <mui-button
+        variant="secondary"
+        size="sm"
         [disabled]="busy()"
         [title]="help.label"
-        (click)="insertToken.emit(help.token)"
+        (pressed)="insertToken.emit(help.token)"
+        ><span class="font-mono">{{ help.token }}</span></mui-button
       >
-        {{ help.token }}
-      </button>
     }
   </div>
 
@@ -96,20 +95,22 @@
 </div>
 
 <div class="flex shrink-0 justify-end gap-2 border-t-[0.5px] border-border px-4 py-3">
-  <button
-    type="button"
-    class="dlg-button dlg-button-ghost brn-btn brn-btn-ghost"
+  <mui-button
+    variant="secondary"
+    size="sm"
     [disabled]="busy()"
-    (click)="cancel.emit()"
+    (pressed)="cancel.emit()"
+    testId="batch-rename-cancel"
   >
     Cancel
-  </button>
-  <button
-    type="button"
-    class="dlg-button dlg-button-primary brn-btn brn-btn-primary"
+  </mui-button>
+  <mui-button
+    variant="primary"
+    size="sm"
     [disabled]="!canApply()"
-    (click)="apply.emit()"
+    (pressed)="apply.emit()"
+    testId="batch-rename-apply"
   >
     {{ busy() ? 'Renaming…' : 'Apply' }}
-  </button>
+  </mui-button>
 </div>

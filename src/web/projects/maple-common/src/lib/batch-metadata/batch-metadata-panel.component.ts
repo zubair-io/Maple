@@ -3,6 +3,7 @@
 // debounce lives here via toObservable + switchMap.
 // Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -78,7 +79,7 @@ const FIELD_LABELS: Partial<Record<keyof MixedValueMap, string>> = {
 @Component({
   selector: 'app-batch-metadata-panel',
   standalone: true,
-  imports: [FormsModule, BatchMetadataConfirmDialogComponent],
+  imports: [MuiButtonComponent, FormsModule, BatchMetadataConfirmDialogComponent],
   templateUrl: './batch-metadata-panel.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

@@ -7,6 +7,7 @@
 // Presentational only: every value in is an input, every action out is an
 // output: the parent still owns all the state.
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { BatchRenamePreviewListComponent } from './batch-rename-preview-list.component';
 import { previewItemToRow } from './batch-rename-preview-row';
@@ -24,7 +25,7 @@ export interface BatchRenameCollisionOption {
 @Component({
   selector: 'app-batch-rename-form',
   standalone: true,
-  imports: [BatchRenamePreviewListComponent],
+  imports: [MuiButtonComponent, BatchRenamePreviewListComponent],
   templateUrl: './batch-rename-form.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
