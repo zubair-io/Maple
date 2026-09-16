@@ -2,7 +2,38 @@
 
 Tracking issue: https://github.com/zubair-io/Maple/issues/3633
 
-Status: investigation; candidate changes remain unqualified and are not ready for review. Measurements recorded September 15, 2026.
+## Current result: implementation slice #3680
+
+The implementation corrects highlight ordering/reconstruction and DNG cubic
+sampling, and explicitly changes baseline comparison to equal native-image
+reduction. Original RAWs, XMPs, reference PNGs and numeric budgets are unchanged.
+Baseline native-reference guards fail on missing or inconsistent pairs;
+nonbaseline comparisons retain their prior protocol pending #3678.
+
+- The original six photo comparisons pass. The full installed baseline set
+  finishes **39 passed, one failed, zero skipped**, including all twenty Auto
+  cases. Parent #3633 remains open for the pre-existing Sony 0011 Neutral bias.
+- Perceptual run source: d9e570ace. The final production source ac1431903 changes
+  only the sampler's loop implementation afterward; identical f32 scene
+  fingerprints are verified at 1600, 2048 and native 12288×8192. All 2,399 core
+  tests pass, with 92 existing ignored tests.
+- Final Metal, synthetic and host sidecar evidence is recorded alongside this
+  report. These checks do not qualify iOS UI, browser hardware or slider timing.
+- Measured sized preparation cost remains +68–86 ms versus main on the 100MP
+  Bayer fixture after eliminating the compiler's extra per-pixel calls.
+  See color-baseline-3633-final-performance.json for paired runs and limitations.
+
+The remaining Sony investigation has ruled out WB/matrix/BE metadata mismatch
+and missing HSM as a sufficient fix. Its repaired lens-off reference exposes a
+broad tonal difference; changing AgX or widening the bias ceiling is unsupported.
+The adjacent Sony reports preserve provenance and the rejected controlled
+experiment. An independently calibrated sensor-normalization control is still
+needed before attributing this difference to decode or changing pixel math.
+
+The sections below retain the chronological investigation, including rejected
+experiments. They are historical evidence, not competing production proposals.
+
+## Initial control (September 15, 2026)
 
 Base: 1f233acb91dd97c2103a6903279be4dee5329192, clean isolated checkout Maple-color-baselines. No original or budget changes. Fresh release CLI, Rayon 4, installed read-only corpus; no performance claims.
 
