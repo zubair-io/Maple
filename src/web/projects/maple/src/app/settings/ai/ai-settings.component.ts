@@ -217,13 +217,15 @@ export class AiSettingsComponent implements OnInit {
   }
   setWorkerOpen(worker: string, open: boolean): void {
     this.expandedWorker.set(open ? worker : null);
-    if (!open) return;
     const c = this.config();
-    const ids = c?.assignments[worker]?.connection_ids ?? [];
-    for (const connection of c?.connections ?? []) {
-      if (ids.includes(connection.id) && !this.busy()[connection.id]) this.probe(connection, true);
-    }
+    if (!open || !c) return;
+    const ids = c.assignments[worker]?.connection_ids ?? [];
+    c.connections
+      .filter((connection) => ids.includes(connection.id))
+      .filter((connection) => !this.busy()[connection.id])
+      .forEach((connection) => this.probe(connection, true));
   }
+
   connectionModel(worker: string, id: string): string {
     const a = this.config()?.assignments[worker];
     return a?.connection_models ? (a.connection_models[id] ?? '') : (a?.model ?? '');
