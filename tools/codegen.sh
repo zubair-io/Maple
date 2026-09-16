@@ -5,6 +5,7 @@
 # (job `codegen-drift`).
 #
 # Schemas emitted:
+#   - color-labels (raw_core::color_labels::COLOR_LABELS) → Swift + API/Web TS + C#
 #   - adjustment (raw_core::types::ADJUSTMENT_SCHEMA) → Swift + TS + TS tables
 #                                            (the ts-tables target is #2683 —
 #                                            see the Outputs list below)
@@ -87,6 +88,15 @@ BIN="src/raw-pipeline/target/release/codegen"
 if [ -f "${BIN}.exe" ]; then
   BIN="${BIN}.exe"
 fi
+
+# --- Culling metadata vocabulary (#3662) ----------------------------------
+for color_label_out in \
+  "swift:src/apple/Packages/MapleCore/Sources/MapleCore/Generated/ColorLabel+Generated.swift" \
+  "ts:src/web/projects/maple-common/src/lib/generated/color-labels.generated.ts" \
+  "ts:src/api/src/generated/color-labels.generated.ts" \
+  "cs:src/windows/Maple.WinUI/Generated/ColorLabelVocabulary.g.cs"; do
+  "$BIN" --schema color-labels --target "${color_label_out%%:*}" --out "${color_label_out#*:}"
+done
 
 # --- Adjustment schema ----------------------------------------------------
 

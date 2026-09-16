@@ -362,6 +362,6 @@ namespace Maple.WinUI.Services.Xmp
 
         /// <summary>The six-color label vocabulary (#1657).</summary>
         public static readonly IReadOnlyList<string> ColorLabels =
-            new[] { "red", "orange", "yellow", "green", "blue", "purple" };
+            Maple.WinUI.Generated.ColorLabelVocabulary.Values;
     }
 }
