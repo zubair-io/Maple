@@ -1,21 +1,6 @@
-// Canonical color-label vocabulary — single source of truth for the web
-// side (XMP parser/serializer, batch-metadata panel, timeline filter row,
-// search page color filter).
-//
-// #1657: the XMP/batch path and the search/timeline filters had drifted
-// onto two different five-color subsets of this six-color set (`orange`
-// was writable but unfilterable; `purple` was filterable but unreachable
-// from the writers). Every consumer of the vocabulary must import it from
-// here rather than re-declaring its own literal union/array, so the two
-// directions can't drift apart again.
-//
-// Not codegen-sourced: `tools/codegen.sh` (driven by `raw-core`) doesn't
-// model color *labels* (a culling/organization concept, not a color-pipeline
-// constant). The API side single-sources the same six colors independently
-// from `src/api/src/xmp/color-label.ts`; keep the two lists in sync by hand
-// if the vocabulary ever changes again.
-
-export const COLOR_LABEL_VALUES = ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] as const;
+// Wire values are generated from raw-core. UI wording and swatches stay here.
+import { COLOR_LABEL_VALUES } from '../generated/color-labels.generated';
+export { COLOR_LABEL_VALUES } from '../generated/color-labels.generated';
 
 export type ColorLabelValue = (typeof COLOR_LABEL_VALUES)[number];
 

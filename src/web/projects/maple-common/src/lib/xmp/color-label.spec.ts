@@ -19,7 +19,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpSerializerService } from './xmp-serializer.service';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
-import { COLOR_LABEL_VALUES, isColorLabelValue } from '../models/color-label';
+import { COLOR_LABEL_OPTIONS, COLOR_LABEL_VALUES, isColorLabelValue } from '../models/color-label';
 import type { XmpCulling } from './xmp.types';
 
 function defaultCulling(): XmpCulling {
@@ -33,12 +33,18 @@ describe('COLOR_LABEL_VALUES (#1657)', () => {
     );
   });
 
+  it('presentation options cover the generated vocabulary in order', () => {
+    expect(COLOR_LABEL_OPTIONS.map((option) => option.value)).toEqual([...COLOR_LABEL_VALUES]);
+  });
+
   it('isColorLabelValue accepts every canonical value and rejects anything else', () => {
     for (const v of COLOR_LABEL_VALUES) {
       expect(isColorLabelValue(v)).toBe(true);
     }
     expect(isColorLabelValue('magenta')).toBe(false);
     expect(isColorLabelValue('')).toBe(false);
+    expect(isColorLabelValue('Red')).toBe(false);
+    expect(isColorLabelValue('RED')).toBe(false);
   });
 });
 
