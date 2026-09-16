@@ -20,4 +20,8 @@ The existing host-filesystem bridge remains for cache timing, read auditing and 
 - Browse single-file import → Preview → Edit also passed 3.6s with the new helper present; that test still uses the actual file input.
 - Focused TypeScript compilation and changed-file fallow audit pass.
 
-No sidecar mock, worker bypass, original modification, relaxed threshold or disabled assertion was introduced. The #3720 report's Browse Copy/Paste fixture limitation is resolved by this change; its separate Self Hosted runtime qualification gap is unchanged.
+No sidecar mock, worker bypass, original modification, relaxed threshold or disabled assertion was introduced. The #3720 report's Browse Copy/Paste fixture limitation is resolved by this change; its separate Self Hosted runtime qualification gap was subsequently closed by the run below.
+
+## Follow-up Self Hosted runtime qualification
+
+The #3720 branch was also built as the Self Hosted production app, with a freshly compiled release raw-ffi (`gpu,pano`), a disposable MongoMemoryServer database and an isolated API on port 4775. Installed Chrome passed the real RAW reliability flow in 6.5s: X3F thumbnail/preview/editor, RAF preview, named one-shot HTTP 403 byte failure, visible retry, restored nonblank pixels and pixels after reload. Original/staged hashes passed; no existing database or user assets were used. This closes the initial #3720 report's locally unexecuted Self Hosted qualification gap.
