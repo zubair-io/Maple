@@ -1,3 +1,4 @@
+import { assignedAi } from '../../enrichment/ai-connections.ts';
 /**
  * Generated-search maintenance job: one pass per library per day, plus the
  * interval wrapper that schedules it.
@@ -118,14 +119,17 @@ export async function runGeneratedSearchOnce(
     return { libraries: 0, saved: 0, pruned, skipped: true };
   }
 
-  // The model and Ollama endpoint come from the describe stage's enrichment
-  // config, so an operator configures Ollama once rather than twice. A
-  // per-job `model` override exists because the best model for curating text
-  // is not necessarily the vision model that captions photos.
+  // A saved AI assignment is independent; legacy deployments retain their
+  // existing endpoint/model until the unified settings are first saved.
   const enrichment = resolveEnrichmentConfig(await loadEnrichmentConfig());
-  const model = config.model.length > 0 ? config.model : enrichment.describe_model;
+  const assigned = assignedAi(enrichment.ai_connections, 'generated-search');
+  const model =
+    assigned?.model ?? (config.model.length > 0 ? config.model : enrichment.describe_model);
   const ctx = {
-    client: createOllamaJsonClient(enrichment.describe_provider_url, model),
+    client: createOllamaJsonClient(
+      assigned?.primary.url ?? enrichment.describe_provider_url,
+      model,
+    ),
     config,
     model,
     generatedFor: dayKey(now),

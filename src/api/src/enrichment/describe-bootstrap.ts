@@ -1,3 +1,4 @@
+import { assignedAiPool } from './ai-assigned-pool.ts';
 /**
  * Describe bootstrap — provider health-check and config relay.
  *
@@ -61,6 +62,11 @@ export async function applyDescribeConfig(resolved: ResolvedEnrichmentConfig): P
   resetDescribeDeps();
   resetVideoDescribeDeps();
 
+  const assigned = assignedAiPool(resolved.ai_connections, 'describe');
+  if (assigned) {
+    await syncDescribeStageCapacity(assigned.pool.capacity);
+    return;
+  }
   if (!resolved.describe_worker_enabled) {
     log.info('describe worker disabled (describe_worker_enabled=false)');
     return;

@@ -795,3 +795,26 @@
     font-size: 12.5px;
   }
 }
+
+// Worker stages and nested maintenance panels share the same expanded surface.
+// Scope at the page host so component encapsulation cannot exclude child panels.
+maple-workers-settings mui-settings-row,
+maple-ai-settings mui-settings-row.connection-card,
+maple-ai-settings mui-settings-row.assignment-card {
+  display: block;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition:
+    background 150ms ease,
+    box-shadow 150ms ease,
+    border-color 150ms ease;
+
+  &:has(button[aria-expanded='true']) {
+    background: var(--s-surface2);
+    border-color: color-mix(in srgb, var(--s-text-muted) 40%, var(--s-border));
+    margin: 10px 0;
+    padding: 12px;
+    box-shadow: 0 6px 20px rgb(0 0 0 / 24%);
+    overflow: hidden;
+  }
+}

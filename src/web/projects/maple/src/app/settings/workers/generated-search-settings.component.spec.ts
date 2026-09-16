@@ -39,6 +39,8 @@ describe('GeneratedSearchSettingsComponent', () => {
   });
 
   afterEach(() => {
+    for (const request of http.match('/api/ai/connections/'))
+      request.flush({ connections: [], assignments: {}, available_workers: [] });
     http.verify();
   });
 
@@ -138,7 +140,11 @@ describe('GeneratedSearchSettingsComponent — Run now', () => {
     fixture.detectChanges();
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    for (const request of http.match('/api/ai/connections/'))
+      request.flush({ connections: [], assignments: {}, available_workers: [] });
+    http.verify();
+  });
 
   it('POSTs the run endpoint and disables the button while in flight', async () => {
     http.expectOne(CONFIG_URL).flush(paused);

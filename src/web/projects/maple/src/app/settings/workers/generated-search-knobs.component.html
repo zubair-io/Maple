@@ -43,15 +43,7 @@
       (committed)="patchNumber('retention_days', $event)"
     />
   </label>
-  <label class="flex flex-col gap-1 text-[0.85rem] col-span-full">
-    Model
-    <mui-input
-      placeholder="inherit from describe stage"
-      [value]="draft().model"
-      ariaLabel="Model"
-      (committed)="patch('model', $event)"
-    />
-  </label>
+  <maple-ai-worker-summary class="col-span-full" worker="generated-search" />
   <div class="flex flex-row items-center gap-2 col-span-full">
     <mui-checkbox
       label="Dry run — log what it would save, write nothing"

@@ -1,3 +1,4 @@
+import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
 /**
  * Video-describe (multi-frame visual description) stage — #2158.
  *
@@ -25,9 +26,9 @@
  * competing with the still-image queue, and the still prompt/parser stay
  * untouched.
  *
- * Reuses the SAME locked model/provider pool as `describe` — provider,
- * model, and prompt are not operator-configurable (see
- * `docs/indexer-enrichment.md` §describe); only the server URL list is.
+ * Uses its own AI Settings assignment, with the legacy Describe pool as
+ * the pre-migration fallback. JSON schema is locked; prompt guidance is
+ * editable on the worker card.
  *
  * Degradation ladder, on a provider rejection (terminal error — too many
  * images, unsupported request shape): retry with every other selected
@@ -76,7 +77,7 @@ import { sampleVideoFrames, type SampledFrame } from '../../video/sample-frames.
 
 interface DescribeCallResult {
   result: DescribeResult;
-  server: { url: string };
+  server: { url: string; model?: string; provider?: DescribeProviderName };
 }
 
 interface VideoDescribeDeps {
@@ -127,8 +128,11 @@ async function getDeps(): Promise<VideoDescribeDeps> {
   const cfg = resolveEnrichmentConfig(await loadEnrichmentConfig());
   const workerConfig = await loadWorkerConfigSafe('video-describe');
 
-  const provider = resolveVideoProvider(workerConfig?.ai_provider, cfg.describe_provider);
-  const model = resolveVideoModel(workerConfig?.ai_model, cfg.describe_model, provider);
+  const assigned = assignedAiPool(cfg.ai_connections, 'video-describe');
+  const provider =
+    assigned?.provider ?? resolveVideoProvider(workerConfig?.ai_provider, cfg.describe_provider);
+  const model =
+    assigned?.model ?? resolveVideoModel(workerConfig?.ai_model, cfg.describe_model, provider);
   const systemPrompt = composeVideoDescribePrompt(workerConfig?.prompt_text);
   const apiKey =
     provider === 'openai'
@@ -138,12 +142,9 @@ async function getDeps(): Promise<VideoDescribeDeps> {
         : provider === 'gemini'
           ? cfg.gemini_api_key
           : null;
-  const pool = createVideoDescribePool(
-    provider,
-    cfg.describe_servers,
-    workerConfig?.concurrency ?? 1,
-    apiKey,
-  );
+  const pool =
+    assigned?.pool ??
+    createVideoDescribePool(provider, cfg.describe_servers, workerConfig?.concurrency ?? 1, apiKey);
 
   _deps = {
     sampleFrames: sampleVideoFrames,
@@ -151,8 +152,8 @@ async function getDeps(): Promise<VideoDescribeDeps> {
       pool.run(async (p, server) => ({
         result: await p.describe(frames, {
           systemPrompt,
-          model,
-          format: provider === 'ollama' ? VIDEO_DESCRIPTION_JSON_SCHEMA : undefined,
+          model: server.model ?? model,
+          format: p.name === 'ollama' ? VIDEO_DESCRIPTION_JSON_SCHEMA : undefined,
         }),
         server,
       })),
@@ -257,9 +258,9 @@ export async function videoDescribeHandler(
 
   const now = new Date().toISOString();
   const meta: VideoDescriptionMeta = {
-    provider: deps.provider ?? 'ollama',
+    provider: call.server.provider ?? deps.provider ?? 'ollama',
     server_url: call.server.url,
-    model: deps.model,
+    model: call.server.model ?? deps.model,
     prompt_version: VIDEO_DESCRIBE_PROMPT_VERSION,
     generated_at: now,
     candidate_count: sampled.candidateCount,
