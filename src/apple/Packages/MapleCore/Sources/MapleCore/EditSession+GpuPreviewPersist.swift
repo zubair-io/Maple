@@ -21,7 +21,7 @@ extension EditSession {
   ///
   /// The thumbnail refresh needs a local URL and is skipped for cloud assets
   /// (their grid thumbs are server-rendered); the preview persist runs for
-  /// both — a local file write or an `/api/preview` upload via `previewSink`.
+  /// both — a local file write or an `/api/preview` upload via the persistence owner.
   ///
   /// `async` + strong `self`, and it AWAITS the off-actor encode/write: this
   /// is the teardown path, so the caller must be able to keep the session (and
@@ -76,7 +76,6 @@ extension EditSession {
     guard model == capturedModel, driver === gpuLiveDriver,
       liveSession === driver.session, !gpuPresentFailed
     else { return }
-    let sink = previewSink
     let stillCurrent: @MainActor @Sendable () -> Bool = {
       self.model == capturedModel && driver === self.gpuLiveDriver
         && liveSession === driver.session && !self.gpuPresentFailed
@@ -97,7 +96,7 @@ extension EditSession {
       let accepted = await MainActor.run {
         guard stillCurrent() else { return false }
         // Conversion succeeded; keep the CPU fallback until this point.
-        self.pendingPreviewImage = nil
+        self.previewPersistence.discardPendingImage()
         return true
       }
       guard accepted else { return }
@@ -109,10 +108,7 @@ extension EditSession {
         guard await stillCurrent() else { return }
         await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: thumbnailURL)
       }
-      if let sink, let data = ThumbnailLoader.encodeDisplayPreview(from: image) {
-        guard await stillCurrent() else { return }
-        await sink.write(data)
-      }
+      await self.previewPersistence.persistFinal(image, while: stillCurrent)
     }.value
   }
 

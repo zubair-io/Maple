@@ -153,7 +153,6 @@ public final class EditSession {
   /// Distortion counterpart of `lensCorrectionCaInert` (#3189): no `WarpRectilinear` opcode at all.
   public internal(set) var lensCorrectionDistortionInert: Bool = true
 
-
   // MARK: Render output
 
   public let histogramState = LiveHistogramState()
@@ -389,22 +388,8 @@ public final class EditSession {
   /// Tail of the existing sidecar forwarding tasks, joined by an exit flush.
   @ObservationIgnored var sidecarUpdateTask: Task<Void, Never>?
 
-  /// Where the editor persists the developed display preview (#2009) — the
-  /// canonical `<filename>.avif`. Local file for URL-backed assets, an
-  /// `/api/preview` upload for cloud assets, `nil` for sourceless assets with
-  /// no destination. Written on an idle debounce + on exit, never per tick
-  /// (`EditSession+DisplayPreviewPersist`).
-  @ObservationIgnored let previewSink: (any DisplayPreviewSink)?
-
-  /// Latest full-render frame awaiting persist to `previewSink`. Captured by
-  /// the render-publish path; encoded + written once the idle debounce fires
-  /// or the editor exits. `@ObservationIgnored` — persist bookkeeping, not
-  /// view state.
-  @ObservationIgnored var pendingPreviewImage: CIImage?
-
-  /// The in-flight idle-debounce persist. Cancelled + rescheduled on each new
-  /// captured frame; cancelled + flushed on exit.
-  @ObservationIgnored var previewPersistTask: Task<Void, Never>?
+  /// Owns pending preview/debounce/write lifetime; session guards remain here.
+  @ObservationIgnored let previewPersistence: DisplayPreviewPersistence
 
   @ObservationIgnored private var sidecarErrorTask: Task<Void, Never>?
 
@@ -538,10 +523,10 @@ public final class EditSession {
     // to the RAW for URL-backed assets, else the injected cloud uploader,
     // else no destination.
     if let url = asset.primaryURL {
-      self.previewSink = LocalDisplayPreviewSink(
-        previewURL: MapleSidecarPaths.previewURL(for: url))
+      self.previewPersistence = DisplayPreviewPersistence(
+        sink: LocalDisplayPreviewSink(previewURL: MapleSidecarPaths.previewURL(for: url)))
     } else {
-      self.previewSink = remotePreviewSink
+      self.previewPersistence = DisplayPreviewPersistence(sink: remotePreviewSink)
     }
 
     if let store = self.sidecarStore {
@@ -563,7 +548,6 @@ public final class EditSession {
 
   deinit {
     sidecarErrorTask?.cancel()
-    previewPersistTask?.cancel()
   }
 
 }

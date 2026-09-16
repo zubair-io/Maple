@@ -256,3 +256,5 @@ XMPSerializationBlackWhiteTests
 XMPSerializationStageKnobTests
 XMPSerializationTests
 XMPSerializationWbMethodToneCurveModeTests
+DisplayPreviewPersistTests
+GpuPreviewPersistTests
