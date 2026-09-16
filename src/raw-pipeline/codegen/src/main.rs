@@ -29,6 +29,7 @@
 //! --exit-code` so hand-edits to `Generated/` files fail fast.
 
 mod adjustment;
+mod adjustment_api;
 mod adjustment_groups;
 mod adjustment_tables;
 mod adjustment_transfer;
@@ -97,6 +98,8 @@ enum Schema {
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
     /// TS interface + default factory.
     Adjustment,
+    /// API preset scalar validation tables (#3663).
+    AdjustmentApi,
     /// Per-field batch transfer decisions (#3311).
     AdjustmentTransfer,
     /// Durable batch progress and outcome DTOs (#3311).
@@ -200,6 +203,11 @@ fn main() {
             eprintln!(
                 "codegen: --schema white-balance-presets supports only swift / ts / cs targets"
             );
+            std::process::exit(2);
+        }
+        (Schema::AdjustmentApi, Target::Ts) => adjustment_api::emit_ts(ADJUSTMENT_SCHEMA),
+        (Schema::AdjustmentApi, _) => {
+            eprintln!("adjustment-api supports ts");
             std::process::exit(2);
         }
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),
