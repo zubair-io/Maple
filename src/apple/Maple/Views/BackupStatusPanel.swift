@@ -20,8 +20,8 @@ struct BackupStatusPanel: View {
   // presenting this panel multiple times always shows the same running totals.
   var progress: BackupProgressViewModel = EngineHost.shared.progress
 
-  @State private var issueSheet: IssueSheet?
-  private enum IssueSheet: String, Identifiable {
+  @State private var issuePopover: IssuePopover?
+  private enum IssuePopover: String, Identifiable {
     case warnings, errors
     var id: String { rawValue }
   }
@@ -132,18 +132,14 @@ struct BackupStatusPanel: View {
       .font(.caption)
     }
     .padding(.vertical, 4)
-    .sheet(item: $issueSheet) { selection in
-      BackupIssueDetails(
-        progress: progress, failures: selection == .errors,
-        startError: EngineHost.shared.lastStartError)
-    }
+
   }
 
-  private func issueButton(_ kind: IssueSheet, count: Int, symbol: String, color: Color)
+  private func issueButton(_ kind: IssuePopover, count: Int, symbol: String, color: Color)
     -> some View
   {
     Button {
-      issueSheet = kind
+      issuePopover = kind
     } label: {
       Label(count.formatted(), systemImage: symbol)
         .monospacedDigit()
@@ -155,6 +151,18 @@ struct BackupStatusPanel: View {
     .accessibilityLabel("\(count) backup \(kind.rawValue). Show details")
     .accessibilityIdentifier("backup.status.\(kind.rawValue)")
     .help("Show backup \(kind.rawValue)")
+    .popover(
+      isPresented: Binding(
+        get: { issuePopover == kind },
+        set: { if !$0 && issuePopover == kind { issuePopover = nil } }),
+      attachmentAnchor: .rect(.bounds)
+    ) {
+      BackupIssueDetails(
+        progress: progress, failures: kind == .errors,
+        startError: EngineHost.shared.lastStartError
+      )
+      .presentationCompactAdaptation(.popover)
+    }
   }
 
   // MARK: - Status row
