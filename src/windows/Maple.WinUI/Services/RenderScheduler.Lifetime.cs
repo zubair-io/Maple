@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using System.Threading;
 using Maple.WinUI.Models;
 
 namespace Maple.WinUI.Services
@@ -9,6 +10,8 @@ namespace Maple.WinUI.Services
         private readonly Task _loopTask;
         private bool _stopping;
         private Task? _stopTask;
+        private int _presentPending;
+        internal bool HasPendingPresent => Volatile.Read(ref _presentPending) != 0;
         internal event Action? PresentQueued;
         internal int DroppedClosingPresents { get; private set; }
 
@@ -16,6 +19,7 @@ namespace Maple.WinUI.Services
             AdjustmentState state, IntPtr panel, ulong generation, bool useHalf, int width, int height)
         {
             var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref _presentPending, 1);
             if (!queue.TryEnqueue(() =>
             {
                 try
@@ -32,9 +36,14 @@ namespace Maple.WinUI.Services
                     completion.TrySetResult(GpuPresentOnUiThread(image, state, panel, generation, useHalf, width, height));
                 }
                 catch (Exception error) { completion.TrySetException(error); }
-            })) return -1;
+            }))
+            {
+                Volatile.Write(ref _presentPending, 0);
+                return -1;
+            }
             PresentQueued?.Invoke();
-            return completion.Task.GetAwaiter().GetResult();
+            try { return completion.Task.GetAwaiter().GetResult(); }
+            finally { Volatile.Write(ref _presentPending, 0); }
         }
 
 

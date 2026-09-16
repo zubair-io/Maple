@@ -71,7 +71,7 @@ namespace Maple.WinUI
                 {
                     renderer.PresentQueued += Queued;
                     renderer.RequestRender(ViewModel.Adjustments.Clone());
-                    if (!queued.Wait(TimeSpan.FromSeconds(5)))
+                    if (!renderer.HasPendingPresent && !queued.Wait(TimeSpan.FromSeconds(5)))
                         throw new TimeoutException("No real GPU present queued before close");
                     renderer.PresentQueued -= Queued;
                 }
