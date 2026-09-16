@@ -189,3 +189,36 @@ MaskRemapTests
 MeilisearchSettingsFormTests
 MergedTimelineSourceTests
 MirrorConfigClientTests
+
+# KTLO qualification batch 5 (#3658): generated scene-linear FFI inputs,
+# isolated defaults/files, pure catalogs and stubbed HTTP clients.
+NativeDetailLODTests
+PerspectiveXMPTests
+PhotoGridItemTests
+PhotosAccessMemoryTests
+PresetStoreTests
+PresetTests
+ProcessSceneLinearTargetPrimariesOverrideTests
+QuickLookResolverTests
+RawCoreBridgeTests
+ResolveAbsolutePathTests
+RetouchGeometryTests
+RetouchXMPTests
+RevealInFileManagerSelectionTests
+RevealTargetTests
+SavedFolderStoreTests
+SceneLinearChainF32BandingTests
+SearchAssetAddressTests
+SearchCursorPaginationTests
+SearchParamsTests
+SearchViewModelTests
+SessionPruningTests
+SidecarModifyIdempotencyTests
+SidecarPathTests
+StageCatalogTests
+StageRuntimeFormTests
+StageRuntimePatchTests
+TVMapFocusOrderTests
+TVMapHeatmapTuningTests
+TVTimelineViewModelTests
+ToneCurveFlattenTests
