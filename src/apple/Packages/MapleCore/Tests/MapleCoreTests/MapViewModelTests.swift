@@ -7,15 +7,17 @@
 // stale-response race deterministic.
 
 import XCTest
-@testable import MapleCore
+
 @testable import MapleCloudKit
+@testable import MapleCore
 
 @MainActor
 final class MapViewModelTests: XCTestCase {
 
   private func region(lat: Double = 0, lng: Double = 0) -> MapViewportRegion {
-    MapViewportRegion(centerLatitude: lat, centerLongitude: lng,
-                      latitudeDelta: 1, longitudeDelta: 1)
+    MapViewportRegion(
+      centerLatitude: lat, centerLongitude: lng,
+      latitudeDelta: 1, longitudeDelta: 1)
   }
 
   // MARK: - fetch(region:)
@@ -23,8 +25,8 @@ final class MapViewModelTests: XCTestCase {
   func test_fetch_success_populatesCellsAndClearsIsEmpty() async throws {
     let server = URL(string: "https://example.test")!
     let json = """
-    {"cells":[{"lat":1,"lng":2,"count":1,"representativeAssetId":"a","thumbKey":"/a.jpg"}]}
-    """
+      {"cells":[{"lat":1,"lng":2,"count":1,"representativeAssetId":"a","thumbKey":"/a.jpg"}]}
+      """
     let session = URLSession.stubbed(response: json)
     let client = MapClustersClient(
       server: server,
@@ -60,18 +62,20 @@ final class MapViewModelTests: XCTestCase {
   func test_fetch_failure_keepsPreviousCellsAndSetsLoadError() async throws {
     let server = URL(string: "https://example.test")!
     let goodJSON = """
-    {"cells":[{"lat":1,"lng":2,"count":1,"representativeAssetId":"a","thumbKey":"/a.jpg"}]}
-    """
+      {"cells":[{"lat":1,"lng":2,"count":1,"representativeAssetId":"a","thumbKey":"/a.jpg"}]}
+      """
     nonisolated(unsafe) var requestCount = 0
     let session = URLSession.stubbedSequence { req in
       requestCount += 1
       if requestCount == 1 {
-        let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
-                                   headerFields: ["Content-Type": "application/json"])!
+        let resp = HTTPURLResponse(
+          url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+          headerFields: ["Content-Type": "application/json"])!
         return (Data(goodJSON.utf8), resp)
       }
-      let resp = HTTPURLResponse(url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1",
-                                 headerFields: ["Content-Type": "text/plain"])!
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "text/plain"])!
       return (Data("server error".utf8), resp)
     }
     let client = MapClustersClient(
@@ -98,9 +102,9 @@ final class MapViewModelTests: XCTestCase {
   func test_fetch_derivesHeatmapPointsFromCells() async throws {
     let server = URL(string: "https://example.test")!
     let json = """
-    {"cells":[{"lat":1,"lng":2,"count":5,"representativeAssetId":"a"},
-              {"lat":3,"lng":4,"count":25,"representativeAssetId":"b"}]}
-    """
+      {"cells":[{"lat":1,"lng":2,"count":5,"representativeAssetId":"a"},
+                {"lat":3,"lng":4,"count":25,"representativeAssetId":"b"}]}
+      """
     let session = URLSession.stubbed(response: json)
     let client = MapClustersClient(
       server: server,
@@ -122,11 +126,13 @@ final class MapViewModelTests: XCTestCase {
     nonisolated(unsafe) var requestCount = 0
     let session = URLSession.stubbedSequence { req in
       requestCount += 1
-      let json = requestCount == 1
+      let json =
+        requestCount == 1
         ? #"{"cells":[{"lat":1,"lng":2,"count":3,"representativeAssetId":"a"}]}"#
         : #"{"cells":[]}"#
-      let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
-                                 headerFields: ["Content-Type": "application/json"])!
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "application/json"])!
       return (Data(json.utf8), resp)
     }
     let client = MapClustersClient(
@@ -152,12 +158,14 @@ final class MapViewModelTests: XCTestCase {
       requestCount += 1
       if requestCount == 1 {
         let json = #"{"cells":[{"lat":1,"lng":2,"count":4,"representativeAssetId":"a"}]}"#
-        let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
-                                   headerFields: ["Content-Type": "application/json"])!
+        let resp = HTTPURLResponse(
+          url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+          headerFields: ["Content-Type": "application/json"])!
         return (Data(json.utf8), resp)
       }
-      let resp = HTTPURLResponse(url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1",
-                                 headerFields: ["Content-Type": "text/plain"])!
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "text/plain"])!
       return (Data("server error".utf8), resp)
     }
     let client = MapClustersClient(
@@ -169,7 +177,8 @@ final class MapViewModelTests: XCTestCase {
     await vm.fetch(region: region(lat: 5))
 
     XCTAssertEqual(vm.cells.count, 1)
-    XCTAssertEqual(vm.heatmapPoints.count, vm.cells.count,
+    XCTAssertEqual(
+      vm.heatmapPoints.count, vm.cells.count,
       "heatmapPoints must track cells exactly, including across a failed fetch")
   }
 
@@ -197,9 +206,11 @@ final class MapViewModelTests: XCTestCase {
       // (center lng 20) produces a positive one — distinguish on that
       // sign rather than on arrival order.
       let assetID = bbox.hasPrefix("-") ? "region-a-cell" : "region-b-cell"
-      let json = #"{"cells":[{"lat":0,"lng":0,"count":1,"representativeAssetId":"\#(assetID)","thumbKey":"/x.jpg"}]}"#
-      let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
-                                 headerFields: ["Content-Type": "application/json"])!
+      let json =
+        #"{"cells":[{"lat":0,"lng":0,"count":1,"representativeAssetId":"\#(assetID)","thumbKey":"/x.jpg"}]}"#
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "application/json"])!
       return (Data(json.utf8), resp)
     }
     let client = MapClustersClient(
@@ -207,8 +218,8 @@ final class MapViewModelTests: XCTestCase {
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
     let vm = MapViewModel(server: server, client: client)
 
-    let regionA = region(lat: 0, lng: 0)   // bbox west == -0.5 (negative)
-    let regionB = region(lat: 20, lng: 20) // bbox west == 19.5 (positive)
+    let regionA = region(lat: 0, lng: 0)  // bbox west == -0.5 (negative)
+    let regionB = region(lat: 20, lng: 20)  // bbox west == 19.5 (positive)
 
     // regionA's fetch starts first (slow: 80ms from t=0 → lands ~t=80ms).
     async let slow: Void = vm.fetch(region: regionA)
@@ -220,7 +231,8 @@ final class MapViewModelTests: XCTestCase {
     _ = await slow
 
     // Only regionB's (later-generation) response should have landed.
-    XCTAssertEqual(vm.cells.map(\.representativeAssetId), ["region-b-cell"],
+    XCTAssertEqual(
+      vm.cells.map(\.representativeAssetId), ["region-b-cell"],
       "a stale response from a superseded region must not overwrite newer cells")
   }
 
@@ -242,13 +254,22 @@ final class MapViewModelTests: XCTestCase {
     let vm = MapViewModel(server: server, client: client, debounceDelay: .milliseconds(30))
 
     vm.regionChanged(region(lat: 0))
+    let first = try XCTUnwrap(vm._testPendingDebounceTask)
     vm.regionChanged(region(lat: 1))
+    let second = try XCTUnwrap(vm._testPendingDebounceTask)
     vm.regionChanged(region(lat: 2))
+    let last = try XCTUnwrap(vm._testPendingDebounceTask)
 
-    try await Task.sleep(for: .milliseconds(150))
+    XCTAssertTrue(first.isCancelled)
+    XCTAssertTrue(second.isCancelled)
+    XCTAssertFalse(last.isCancelled)
+    await first.value
+    await second.value
+    await last.value
 
     let starts = await counter.starts
-    XCTAssertEqual(starts, 1,
+    XCTAssertEqual(
+      starts, 1,
       "only the last regionChanged call within the debounce window should fire a request")
   }
 }
