@@ -47,9 +47,7 @@ final class EditorWorkflowPerfTests: XCTestCase {
       // earlier directory-removal block, including when a measurement throws.
       _ = await session.latestRenderSchedule?.value
       await session.renderActor.finishBenchmarkWork()
-      let persist = session.previewPersistTask
-      persist?.cancel()
-      await persist?.value
+      await session.cancelAndJoinDisplayPreviewPersist()
       await session.flushPendingSidecarWrite()
       await session.gpuLiveDriver?.closeSession()
       #if os(macOS)
@@ -228,9 +226,7 @@ final class EditorWorkflowPerfTests: XCTestCase {
     XCTAssertGreaterThan(exportedData.count, 0, "Full-resolution export must produce bytes")
 
     await session2.renderActor.finishBenchmarkWork()
-    let persist2 = session2.previewPersistTask
-    persist2?.cancel()
-    await persist2?.value
+    await session2.cancelAndJoinDisplayPreviewPersist()
     await session2.flushPendingSidecarWrite()
     await session2.gpuLiveDriver?.closeSession()
 

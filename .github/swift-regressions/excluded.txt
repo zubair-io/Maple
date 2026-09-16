@@ -50,7 +50,6 @@ DecodeTargetTests slow render or decode workload that costs minutes on the runne
 DecodedCacheReplacementTests slow render or decode workload that costs minutes on the runner
 DeepZoomTileRenderingTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 DisplayEncodeZeroDimensionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-DisplayPreviewPersistTests slow render or decode workload that costs minutes on the runner
 DisplayedHistogramTests slow render or decode workload that costs minutes on the runner
 EditSessionDecodedCacheAutoExposureTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 EditSessionDecodedCacheTests slow render or decode workload that costs minutes on the runner
@@ -86,7 +85,6 @@ GpuLiveDriverReuseTests gpu needs a real Metal device
 GpuLiveMemoryGateTests gpu needs a real Metal device
 GpuLiveNoiseProfileTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 GpuLiveSessionTests gpu needs a real Metal device
-GpuPreviewPersistTests gpu needs a real Metal device
 GpuUploadIdentityTests gpu needs a real Metal device
 ImageEditPipelineTests slow render or decode workload that costs minutes on the runner
 ImageMetadataReaderTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
