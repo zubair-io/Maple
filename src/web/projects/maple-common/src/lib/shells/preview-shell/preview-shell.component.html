@@ -12,6 +12,7 @@
         <maple-icon name="back" [size]="14" color="var(--pro-text-muted)" />
       </button>
       <span
+        data-testid="preview-filename"
         class="max-w-[min(200px,40vw)] shrink overflow-hidden text-[12px] text-ellipsis whitespace-nowrap text-[color:var(--pro-text)]"
         >{{ assetName() }}</span
       >
@@ -19,6 +20,7 @@
 
     <div
       class="absolute inset-0 grid place-items-center"
+      data-testid="preview-surface"
       (pointerdown)="onImagePointerDown($event)"
       (pointerup)="onImagePointerUp($event)"
     >
@@ -36,7 +38,13 @@
         ></video>
       } @else {
         @if (thumbUrl(); as t) {
-          <img class="absolute max-h-full max-w-full object-contain" [src]="t" alt="" />
+          <img
+            class="absolute max-h-full max-w-full object-contain"
+            [src]="t"
+            alt=""
+            data-preview-stage="thumbnail"
+            [attr.data-preview-resolved]="previewUrl() === t ? 'true' : null"
+          />
         }
         @if (previewUrl(); as p) {
           <!-- subscribePreviewUrl() may fall through to the thumbnail URL (a
@@ -49,6 +57,8 @@
           @if (p !== thumbUrl()) {
             <img
               class="absolute max-h-full max-w-full animate-[preview-fade_160ms_ease-out] object-contain"
+              data-preview-stage="preview"
+              data-preview-resolved="true"
               [src]="p"
               alt=""
             />

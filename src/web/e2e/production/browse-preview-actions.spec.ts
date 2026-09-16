@@ -1,3 +1,4 @@
+import { PREVIEW_IMAGE_SELECTOR } from '../support/preview-surface';
 import { basename, join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
@@ -64,12 +65,9 @@ async function waitForXmpWrite(page: Page, path: string, value: RegExp): Promise
 }
 
 async function gridNames(page: Page): Promise<string[]> {
-  // Every tile also renders the inline-rename trigger (#2706) as a sibling
-  // `> button` labelled "Rename <filename>". Exclude it: this helper reads the
-  // grid's asset names, and counting the rename affordance as an asset made
-  // the ordering assertions below read two entries per photo (#2849).
+  // Read the actual media-cell action, excluding its projected rename footer.
   return page
-    .locator('app-asset-grid maple-asset-thumb > button:not(.filename-bar)')
+    .locator('app-asset-grid maple-asset-tile mui-media-cell > button[aria-pressed]')
     .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label') ?? ''));
 }
 
@@ -143,7 +141,7 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   await paste.click();
   const dialog = page.getByRole('dialog', { name: 'Paste settings' });
   await expect(dialog).toContainText(`Paste from ${SOURCE} onto 2 photos`);
-  await dialog.getByRole('button', { name: 'Paste (2)' }).click();
+  await dialog.getByRole('button', { name: 'Paste', exact: true }).click();
   await waitForXmpWrite(page, targetXmp, /crs:Exposure2012="1\.25"/);
 
   picker.clear();
@@ -186,18 +184,18 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   await page.getByRole('button', { name: SOURCE, exact: true }).click();
   await expect(page).toHaveURL(/\/view\//);
-  await expect(page.locator('.top-name')).toHaveText(SOURCE);
-  await expectPreviewPixels(page.locator('.preview-img').last());
+  await expect(page.getByTestId('preview-filename')).toHaveText(SOURCE);
+  await expectPreviewPixels(page.locator(PREVIEW_IMAGE_SELECTOR).last());
 
   const filmstrip = page.locator('editor-filmstrip');
   const sourceThumb = filmstrip.getByRole('button', { name: SOURCE, exact: true });
   const targetThumb = filmstrip.getByRole('button', { name: TARGET, exact: true });
   await expect(sourceThumb).toHaveAttribute('aria-current', 'true');
   await targetThumb.click();
-  await expect(page.locator('.top-name')).toHaveText(TARGET);
+  await expect(page.getByTestId('preview-filename')).toHaveText(TARGET);
   await expect(targetThumb).toHaveAttribute('aria-current', 'true');
   await page.keyboard.press('ArrowLeft');
-  await expect(page.locator('.top-name')).toHaveText(SOURCE);
+  await expect(page.getByTestId('preview-filename')).toHaveText(SOURCE);
 
   const filmstripToggle = page.getByRole('button', { name: 'Hide filmstrip' });
   await filmstripToggle.click();
@@ -229,7 +227,7 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   await verifyStagedRawHashes(manifest);
 });
 
-test('Hosted Browse one-RAW import enters the editor without a filmstrip', async ({
+test('Hosted Browse one-RAW import previews before editing without an editor filmstrip', async ({
   page,
 }, testInfo) => {
   hostedOnly(testInfo.project.name);
@@ -243,8 +241,11 @@ test('Hosted Browse one-RAW import enters the editor without a filmstrip', async
   await page.getByRole('button', { name: 'Import RAW files' }).click();
   await (await chooser).setFiles(raw!.path);
 
+  await expect(page).toHaveURL(/\/view\//);
+  await expect(page.getByTestId('preview-filename')).toHaveText('test_0004.fff');
+  await expectPreviewPixels(page.locator(PREVIEW_IMAGE_SELECTOR).last());
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page).toHaveURL(/\/edit\//);
-  await expect(page.locator('.top-name')).toHaveText('test_0004.fff');
   await expect(page.locator('editor-filmstrip')).toHaveCount(0);
   await expect(page.getByText(/Download XMP/i)).toBeVisible();
   await verifyOriginalRawHashes(manifest);
