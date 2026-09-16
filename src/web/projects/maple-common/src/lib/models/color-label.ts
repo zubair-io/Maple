@@ -1,6 +1,6 @@
 // Wire values are generated from raw-core. UI wording and swatches stay here.
 import { COLOR_LABEL_VALUES } from '../generated/color-labels.generated';
-export { COLOR_LABEL_VALUES } from '../generated/color-labels.generated';
+export { COLOR_LABEL_VALUES };
 
 export type ColorLabelValue = (typeof COLOR_LABEL_VALUES)[number];
 
