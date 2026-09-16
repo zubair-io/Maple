@@ -12,6 +12,24 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
+/// Physical sensor bounds in the pre-crop demosaic buffer. DefaultCrop is
+/// deliberately not used: valid scene samples outside it remain witnesses.
+/// Round inward so half-resolution cells straddling masked borders cannot
+/// supply highlight chromaticity evidence (#3680).
+pub(in crate::pipeline) fn highlight_active_area(raw: &RawImage, divisor: u32) -> Option<CropRect> {
+    raw.lens_metadata.active_area.map(|aa| {
+        let divisor = divisor.max(1);
+        let x = aa.left.div_ceil(divisor);
+        let y = aa.top.div_ceil(divisor);
+        CropRect {
+            x,
+            y,
+            w: (aa.left.saturating_add(aa.width).min(raw.width) / divisor).saturating_sub(x),
+            h: (aa.top.saturating_add(aa.height).min(raw.height) / divisor).saturating_sub(y),
+        }
+    })
+}
+
 /// Crop the camera-RGB image to the DNG-recommended render rectangle.
 ///
 /// `crop` is in raw-sensor pixel coordinates; for half-res Preview we scale

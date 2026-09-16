@@ -298,11 +298,15 @@ fn develop_scene_linear_for_pano(
         raw.as_shot_neutral
     };
     stage("pano_highlight_recovery", || {
-        highlight_recovery::apply(
+        highlight_recovery::apply_in_region(
             &mut camera_rgb,
             HighlightRecoveryMode::default(),
             hr_neutral,
             raw.baseline_exposure,
+            crate::pipeline::develop::highlight_active_area(
+                raw,
+                effective_quality_divisor(quality, raw.cfa),
+            ),
         )
     });
     dump_after("pano_02_highlight_recovery", &camera_rgb);

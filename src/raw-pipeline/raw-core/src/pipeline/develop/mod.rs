@@ -47,7 +47,7 @@ use super::{
 
 mod geometry;
 
-pub(super) use geometry::{crop_to_default, effective_quality_divisor};
+pub(super) use geometry::{crop_to_default, effective_quality_divisor, highlight_active_area};
 
 // The three forwarding entries live in a sibling for the file-size budget
 // (#3409); the chain itself, and the `_with_gain` entry they all forward
@@ -191,11 +191,15 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         raw.as_shot_neutral
     };
     stage("highlight_recovery", || {
-        highlight_recovery::apply(
+        highlight_recovery::apply_in_region(
             &mut camera_rgb,
             model.highlight_recovery,
             hr_neutral,
             raw.baseline_exposure,
+            crate::pipeline::develop::highlight_active_area(
+                raw,
+                effective_quality_divisor(quality, raw.cfa),
+            ),
         )
     });
     dump_after("02_highlight_recovery", &camera_rgb);
@@ -533,3 +537,6 @@ mod tests;
 #[cfg(test)]
 #[path = "tests_vignette_opcode.rs"]
 mod tests_vignette_opcode;
+
+#[cfg(test)]
+mod tests_highlight_bounds;

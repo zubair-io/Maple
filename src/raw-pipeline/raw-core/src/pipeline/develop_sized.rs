@@ -220,11 +220,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         raw.as_shot_neutral
     };
     stage("sized_highlight_recovery", || {
-        highlight_recovery::apply(
+        highlight_recovery::apply_in_region(
             &mut camera_rgb,
             model.highlight_recovery,
             hr_neutral,
             raw.baseline_exposure,
+            crate::pipeline::develop::highlight_active_area(raw, crop_divisor),
         )
     });
     dump_after("02_highlight_recovery", &camera_rgb);
