@@ -544,7 +544,6 @@ are being rebuilt separately. Native Metal and Apple/API record refreshes
 remain in progress. The Sony 0011 Neutral reference-target discrepancy remains
 unresolved and is not hidden by the baseline protocol correction.
 
-
 ## Symmetric estimator falsification and sized-path cost (September 15)
 
 The mask-aware known-channel mean was retested with the same 32-phase cubic
@@ -582,3 +581,30 @@ and process peak memory is dominated by other stages. No whole-open speedup
 is claimed. A regression test ensures newly reconstructed sub-threshold
 pixels cannot become witnesses. The committed sized-open probe reproduces
 this measurement separately from display and encoding.
+
+### Why the mean prior failed; separated fallback experiment
+
+Read-only independent inspection identifies 0020 as the committed synthetic
+sweep-chart generator, not a camera scene. Broad differences occur inside
+flat clipped patches with no usable witnesses. At patch (47,14), observed
+sensor RGB is [1, .990219, .11281]: using the surviving mean as the neutral
+prior reduces saturated red to roughly .552 despite zero supporting evidence.
+The existing brightest-known neutral fallback is approximately .990. This
+attribution isolates an unnecessary fallback change from the supported local
+chromaticity estimator. It does not establish unique truth at demosaic edges.
+
+A second bounded experiment therefore keeps the **existing brightest-known
+neutral prior**, and blends the supported known-mean ratio estimate with that
+prior using the unchanged count/49 confidence and four-witness minimum.
+0020 now passes both profiles: mean 14.12, p95 22.20, max 99.03, against the
+same budgets (p95 ceiling 23.40). Core tests: 2,399 passed, 92 existing ignored.
+Original photo six-case and broad qualification remain pending at this
+checkpoint; the earlier symmetric mean-prior rejection remains recorded.
+
+The separated-fallback candidate also passes **all six original photo
+comparisons, zero skips**, with maxima Neutral/Auto: 0000 35.62/31.28;
+0007 43.73/38.55; 0017 30.81/33.17. All mean, p95 and bias ceilings pass
+unchanged. Broad 40-case rerun is pending. Comparator unit tests pass (8);
+format/lint and 570-line headroom checks pass. Prior binding qualification
+records still truthfully identify source 6004b3a48 and must be refreshed
+before qualifying this estimator as the final v6 candidate.

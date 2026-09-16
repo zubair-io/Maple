@@ -29,76 +29,76 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/raw-pipeline/**"
-      - "test-fixtures/budgets.json"
-      - "test-fixtures/pano-budgets.json"
-      - "src/scripts/test_color_pipeline.sh"
-      - "src/scripts/test_lensfun_vs_lcp.sh"
-      - "src/scripts/lens_warp_diff.py"
-      - "test-fixtures/qualification/lensfun-vs-lcp.json"
-      - "src/scripts/check_wgsl.sh"
-      - "src/scripts/compare_images.py"
-      - "src/scripts/compare_images_test.py"
-      - "src/scripts/test_pano_pipeline.sh"
-      - "src/scripts/pano_metrics.py"
-      - "src/scripts/test_synthetic_grey.sh"
-      - "src/scripts/test_synthetic_color_chart.sh"
-      - "src/scripts/test_grey_adjustments.sh"
-      - "src/scripts/test_tone_exposure.sh"
-      - "src/scripts/test_tone_whites.sh"
-      - "tools/tone_whites_gate.py"
-      - "tools/test_tone_whites_gate.py"
-      - "test-fixtures/tone-whites/**"
-      - "src/scripts/acr-reference/**"
-      - "tools/tone_exposure_gate.py"
-      - "tools/tone_sprint_report.py"
-      - "test-fixtures/tone-exposure/**"
-      - "src/scripts/test_grey_dcp.sh"
-      - "src/scripts/test_banding.sh"
-      - "src/scripts/banding_check.py"
-      - "src/scripts/banding_check_test.py"
-      - "src/scripts/stage_stats*.py"
-      - "src/scripts/stage_diff*.py"
-      - "test-fixtures/banding_budgets.json"
-      - "test-fixtures/qualification/**"
-      - "tools/qualification/**"
-      - ".github/workflows/raw-pipeline.yml"
+      - 'src/raw-pipeline/**'
+      - 'test-fixtures/budgets.json'
+      - 'test-fixtures/pano-budgets.json'
+      - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/test_lensfun_vs_lcp.sh'
+      - 'src/scripts/lens_warp_diff.py'
+      - 'test-fixtures/qualification/lensfun-vs-lcp.json'
+      - 'src/scripts/check_wgsl.sh'
+      - 'src/scripts/compare_images.py'
+      - 'src/scripts/compare_images_test.py'
+      - 'src/scripts/test_pano_pipeline.sh'
+      - 'src/scripts/pano_metrics.py'
+      - 'src/scripts/test_synthetic_grey.sh'
+      - 'src/scripts/test_synthetic_color_chart.sh'
+      - 'src/scripts/test_grey_adjustments.sh'
+      - 'src/scripts/test_tone_exposure.sh'
+      - 'src/scripts/test_tone_whites.sh'
+      - 'tools/tone_whites_gate.py'
+      - 'tools/test_tone_whites_gate.py'
+      - 'test-fixtures/tone-whites/**'
+      - 'src/scripts/acr-reference/**'
+      - 'tools/tone_exposure_gate.py'
+      - 'tools/tone_sprint_report.py'
+      - 'test-fixtures/tone-exposure/**'
+      - 'src/scripts/test_grey_dcp.sh'
+      - 'src/scripts/test_banding.sh'
+      - 'src/scripts/banding_check.py'
+      - 'src/scripts/banding_check_test.py'
+      - 'src/scripts/stage_stats*.py'
+      - 'src/scripts/stage_diff*.py'
+      - 'test-fixtures/banding_budgets.json'
+      - 'test-fixtures/qualification/**'
+      - 'tools/qualification/**'
+      - '.github/workflows/raw-pipeline.yml'
   pull_request:
     paths:
-      - "src/raw-pipeline/**"
-      - "test-fixtures/budgets.json"
-      - "test-fixtures/pano-budgets.json"
-      - "src/scripts/test_color_pipeline.sh"
-      - "src/scripts/test_lensfun_vs_lcp.sh"
-      - "src/scripts/lens_warp_diff.py"
-      - "test-fixtures/qualification/lensfun-vs-lcp.json"
-      - "src/scripts/check_wgsl.sh"
-      - "src/scripts/compare_images.py"
-      - "src/scripts/compare_images_test.py"
-      - "src/scripts/test_pano_pipeline.sh"
-      - "src/scripts/pano_metrics.py"
-      - "src/scripts/test_synthetic_grey.sh"
-      - "src/scripts/test_synthetic_color_chart.sh"
-      - "src/scripts/test_grey_adjustments.sh"
-      - "src/scripts/test_tone_exposure.sh"
-      - "src/scripts/test_tone_whites.sh"
-      - "tools/tone_whites_gate.py"
-      - "tools/test_tone_whites_gate.py"
-      - "test-fixtures/tone-whites/**"
-      - "src/scripts/acr-reference/**"
-      - "tools/tone_exposure_gate.py"
-      - "tools/tone_sprint_report.py"
-      - "test-fixtures/tone-exposure/**"
-      - "src/scripts/test_grey_dcp.sh"
-      - "src/scripts/test_banding.sh"
-      - "src/scripts/banding_check.py"
-      - "src/scripts/banding_check_test.py"
-      - "src/scripts/stage_stats*.py"
-      - "src/scripts/stage_diff*.py"
-      - "test-fixtures/banding_budgets.json"
-      - "test-fixtures/qualification/**"
-      - "tools/qualification/**"
-      - ".github/workflows/raw-pipeline.yml"
+      - 'src/raw-pipeline/**'
+      - 'test-fixtures/budgets.json'
+      - 'test-fixtures/pano-budgets.json'
+      - 'src/scripts/test_color_pipeline.sh'
+      - 'src/scripts/test_lensfun_vs_lcp.sh'
+      - 'src/scripts/lens_warp_diff.py'
+      - 'test-fixtures/qualification/lensfun-vs-lcp.json'
+      - 'src/scripts/check_wgsl.sh'
+      - 'src/scripts/compare_images.py'
+      - 'src/scripts/compare_images_test.py'
+      - 'src/scripts/test_pano_pipeline.sh'
+      - 'src/scripts/pano_metrics.py'
+      - 'src/scripts/test_synthetic_grey.sh'
+      - 'src/scripts/test_synthetic_color_chart.sh'
+      - 'src/scripts/test_grey_adjustments.sh'
+      - 'src/scripts/test_tone_exposure.sh'
+      - 'src/scripts/test_tone_whites.sh'
+      - 'tools/tone_whites_gate.py'
+      - 'tools/test_tone_whites_gate.py'
+      - 'test-fixtures/tone-whites/**'
+      - 'src/scripts/acr-reference/**'
+      - 'tools/tone_exposure_gate.py'
+      - 'tools/tone_sprint_report.py'
+      - 'test-fixtures/tone-exposure/**'
+      - 'src/scripts/test_grey_dcp.sh'
+      - 'src/scripts/test_banding.sh'
+      - 'src/scripts/banding_check.py'
+      - 'src/scripts/banding_check_test.py'
+      - 'src/scripts/stage_stats*.py'
+      - 'src/scripts/stage_diff*.py'
+      - 'test-fixtures/banding_budgets.json'
+      - 'test-fixtures/qualification/**'
+      - 'tools/qualification/**'
+      - '.github/workflows/raw-pipeline.yml'
 
 concurrency:
   group: raw-pipeline-${{ github.workflow }}-${{ github.ref }}
@@ -300,8 +300,8 @@ jobs:
       # Turns the raw-wasm gpu_render `gpu_available()` soft-pass into a hard
       # failure (#1973): on a runner we have deliberately provisioned with an
       # adapter, "no adapter, skipping" is a broken gate, not a valid outcome.
-      MAPLE_REQUIRE_GPU: "1"
-      RUST_BACKTRACE: "1"
+      MAPLE_REQUIRE_GPU: '1'
+      RUST_BACKTRACE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -427,7 +427,7 @@ jobs:
     runs-on: macos-latest
     continue-on-error: true
     env:
-      RUST_BACKTRACE: "1"
+      RUST_BACKTRACE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -478,7 +478,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
       # banding_check.py (#1627) needs numpy + an EXR reader (OpenEXR
       # preferred, imageio fallback) — installed here rather than the full
       # src/scripts/requirements.txt so this job doesn't pick up
@@ -509,7 +509,7 @@ jobs:
       #
       # Quoted: an unquoted YAML scalar treats ` #` as the start of a comment,
       # which would silently truncate this name at the ticket reference.
-      - name: "cargo test -p raw-core --features avif (AVIF panic barrier, #3517)"
+      - name: 'cargo test -p raw-core --features avif (AVIF panic barrier, #3517)'
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features avif --test avif_corruption
       # Each synthetic gate runs through tools/qualification/record.sh --check
@@ -573,7 +573,7 @@ jobs:
       - uses: actions/setup-python@v5
         if: steps.probe.outputs.have_fixtures == 'true'
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       - name: Install Python diff deps
         if: steps.probe.outputs.have_fixtures == 'true'
@@ -652,7 +652,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       # The pano metric tool deliberately needs only numpy + Pillow (a
       # subset of src/scripts/requirements.txt) — keep this install tight

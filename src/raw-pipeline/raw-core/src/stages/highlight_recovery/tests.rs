@@ -55,7 +55,8 @@ fn negative_baseline_exposure_recovers_sensor_clipped_green() {
     assert_eq!(recovered[0], original[0]);
     assert_eq!(recovered[2], original[2]);
     assert!(recovered[1] > original[1]);
-    assert!((recovered[1] / gain - 1.3).abs() < 1e-6);
+    let expected = 1.6 + 48.0 / 49.0 * (1.3 - 1.6);
+    assert!((recovered[1] / gain - expected).abs() < 1e-6);
 }
 
 #[test]
@@ -233,9 +234,9 @@ fn g_clipped_pixel_loses_magenta_under_daylight_wb() {
     //   - G gets lifted above its clip threshold.
     //   - No magenta: the recovered pixel's R/G is at most the input R/G
     //     (better, equal or lower; we never go more magenta).
-    //   - With no witnesses, use the neutral missing/known-mean ratio.
+    //   - With no witnesses, retain the brightest-known neutral fallback.
     //     Holding R=1.6 and B=1 fixed makes simultaneous R/G=B/G=1
-    //     impossible; G=1.3 treats the two known observations equally.
+    //     impossible; the existing fallback uses G=1.6.
     //
     // We test on a single-pixel image so there are no neighbors → the
     // stage falls back to the WB-implied neutral target (confidence 0).
@@ -270,7 +271,7 @@ fn g_clipped_pixel_loses_magenta_under_daylight_wb() {
 fn g_clipped_with_neutral_neighbors_uses_both_known_channels() {
     // A neutral witness has missing-G / mean(known R,B) = 1. Both known
     // channels must contribute: R=1.6 and B=1.0 cannot simultaneously match
-    // R/G=B/G=1 while remaining fixed. The neutral estimate is their mean.
+    // R/G=B/G=1 while remaining fixed. The supported estimate uses their mean, blended with the prior.
     let mut img = Image::new(11, 11, ColorSpace::CameraNativeLinearRgb);
     for p in &mut img.pixels {
         *p = [0.9, 0.9, 0.9];
@@ -288,7 +289,8 @@ fn g_clipped_with_neutral_neighbors_uses_both_known_channels() {
     );
     let p = img.pixels[cy * 11 + cx];
     let out_rg = p[0] / p[1];
-    assert!((p[1] - 1.3).abs() < 1e-6, "expected G=mean(R,B), got {p:?}");
+    let expected = 1.6 + 48.0 / 49.0 * (1.3 - 1.6);
+    assert!((p[1] - expected).abs() < 1e-6, "got {p:?}");
     assert_eq!(p[0], 1.6);
     assert_eq!(p[2], 1.0);
     // G must have been lifted above its post-WB ceiling.
@@ -465,7 +467,7 @@ fn conflicting_known_channel_edges_are_combined_without_privileging_green() {
             0.0,
         );
         let output = img.pixels[index];
-        let expected = 1.3 * (1.0 + 48.0 / 49.0 * (2.4 - 1.0));
+        let expected = 1.8 + 48.0 / 49.0 * (1.3 * 2.4 - 1.8);
         assert!((output[clipped] - expected).abs() < 1e-5, "{output:?}");
         for c in 0..3 {
             if c != clipped {
@@ -491,7 +493,7 @@ fn recovered_neighbors_never_become_chromaticity_witnesses() {
     );
     // All three windows contain the same 46 original witnesses. The first
     // reconstructed red falls below threshold, but must not join later windows.
-    let expected = 0.375 * (1.0 + 46.0 / 49.0 * (0.25 - 1.0));
+    let expected = 0.5 + 46.0 / 49.0 * (0.375 * 0.25 - 0.5);
     for index in targets {
         assert!((img.pixels[index][0] - expected).abs() < 1e-6);
         assert_eq!(img.pixels[index], img.pixels[targets[0]]);

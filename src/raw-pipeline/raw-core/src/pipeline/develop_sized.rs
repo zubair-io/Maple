@@ -36,11 +36,10 @@ use super::{
 
 /// Sized variant of `develop_scene_linear_from_raw_with_quality` that
 /// runs `linearize` + `demosaic` (or `linearraw_to_camera_rgb` for
-/// LinearRaw fixtures), then immediately downsamples the camera-RGB
-/// buffer to fit within `max_long_edge`, then runs the rest of the
-/// development chain on the smaller buffer. Saves ~8× on every
-/// post-demosaic stage when the source is 100 MP and the viewport is
-/// ~3 MP. See ticket 06 § Recommended Milestones / Milestone 3 and
+/// LinearRaw fixtures), then sensor highlight recovery and lens opcodes,
+/// before downsampling camera RGB to `max_long_edge`. User WB, DCP and
+/// subsequent stages run on the smaller buffer. Sensor recovery precedes
+/// interpolation so mixed samples do not masquerade as sensor saturation. See ticket 06 § Recommended Milestones / Milestone 3 and
 /// .archived-plans/specs/2026-04-25-ticket-06-m3-earlier-downsample-brief.md.
 ///
 /// Per-stage profile labels are prefixed `sized_` so MAPLE_PROFILE=1

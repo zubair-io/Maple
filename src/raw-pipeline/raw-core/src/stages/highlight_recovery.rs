@@ -7,9 +7,9 @@
 //! For each partial clip, normalize each fully known 7×7 witness by the mean
 //! of the target's surviving channels, using the SAME channel mask throughout.
 //! Reject negative or non-finite witnesses without changing their pixels.
-//! Average the missing-channel ratios, blend with neutral at the existing
-//! count/49 confidence (<4 witnesses means zero confidence), and multiply by
-//! the target's known-channel mean. This treats channel permutations equally
+//! Average the missing-channel ratios and multiply by the target's known
+//! mean. Blend this estimate with the existing brightest-known neutral fallback
+//! at count/49 confidence (<4 witnesses means zero confidence). This treats channel permutations equally
 //! and avoids both a preferred green denominator and ratios of averaged ratios.
 //! Fully clipped pixels retain the existing neutral saturation-white fallback.
 //!
@@ -181,6 +181,10 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
             if known_level <= denominator_floor {
                 continue;
             }
+            let neutral_level = (0..3)
+                .filter(|c| (m >> c) & 1 == 0)
+                .map(|c| p_in[c])
+                .fold(f32::NEG_INFINITY, f32::max);
             let mut sum_ratio = [0.0f32; 3];
             let mut count = 0u32;
             for dy in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
@@ -228,7 +232,7 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
                     } else {
                         1.0
                     };
-                    p_out[c] = known_level * (1.0 + confidence * (ratio - 1.0));
+                    p_out[c] = neutral_level + confidence * (known_level * ratio - neutral_level);
                 }
             }
             img.pixels[idx] = p_out;
