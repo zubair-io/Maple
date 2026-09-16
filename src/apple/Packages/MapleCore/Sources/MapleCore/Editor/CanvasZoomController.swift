@@ -323,6 +323,12 @@ public final class CanvasZoomController {
   /// a coalescing test needs.
   internal private(set) var _testWheelPanCommitFireCount = 0
 
+  /// Captures the scheduled task so tests can observe cancellation and await
+  /// completion without assuming when a loaded runner resumes a fixed sleep.
+  internal var _testPendingWheelPanCommitTask: Task<Void, Never>? {
+    wheelPanCommitTask
+  }
+
   // MARK: - Session commit
 
   /// Push the resolved zoom + visible source rect into the session.
