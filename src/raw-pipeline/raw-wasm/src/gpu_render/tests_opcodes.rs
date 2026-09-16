@@ -64,4 +64,37 @@ fn highlight_recovery_and_unbounded_cubic_opcodes_match_cpu() {
         };
         assert_gpu_matches_cpu(&format!("opcodes-{mode:?}"), &raw, &bytes, "dng", &model);
     }
+    // The same shared preparation must respect physical sensor bounds on
+    // both bindings, even when DefaultCrop is smaller than ActiveArea.
+    let mut active = raw.opcode_list3.as_ref().unwrap().1;
+    active.left = 8;
+    active.top = 8;
+    active.width = 48;
+    active.height = 48;
+    raw.lens_metadata.active_area = Some(active);
+    raw.opcode_list3.as_mut().unwrap().1 = active;
+    raw.crop_rect = Some(raw_core::image::CropRect {
+        x: 10,
+        y: 10,
+        w: 44,
+        h: 44,
+    });
+    for mode in [
+        HighlightRecoveryMode::Off,
+        HighlightRecoveryMode::ChromaticAdaptation,
+    ] {
+        let model = AdjustmentModel {
+            auto_exposure: AutoExposureMode::Off,
+            profile: Profile::Neutral,
+            highlight_recovery: mode,
+            ..Default::default()
+        };
+        assert_gpu_matches_cpu(
+            &format!("active-area-opcodes-{mode:?}"),
+            &raw,
+            &bytes,
+            "dng",
+            &model,
+        );
+    }
 }
