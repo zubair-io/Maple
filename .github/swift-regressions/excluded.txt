@@ -11,23 +11,8 @@
 # tools/check-swift-regressions-coverage.py's initial sweep (#3460); a
 # note that turns out wrong is a one-line fix, not a gate failure.
 AddMapleCloudViewModelTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-AdjustmentClipboardTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AdjustmentGroupMergeTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AdjustmentModelTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AdjustmentPasteApplierTests untriaged not yet reviewed for the runner; place deliberately when next touched
 AdjustmentTransferRenderTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-AdjustmentTransferTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AllSourcesTimelineViewModelTests untriaged not yet reviewed for the runner; place deliberately when next touched
-ApnsDeviceRegistrationClientTests untriaged not yet reviewed for the runner; place deliberately when next touched
-ApnsPushRegistrarTests untriaged not yet reviewed for the runner; place deliberately when next touched
 AppleRenderHarnessTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-AssetChangeRelativePathTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AssetDropCollisionResolverTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AssetRefCatalogTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AssetRefStableIDTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AssetRefStubAudioTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AssetRefVideoTests untriaged not yet reviewed for the runner; place deliberately when next touched
-AssetRenameFilenameTests untriaged not yet reviewed for the runner; place deliberately when next touched
 AuthClientMintDeviceSessionTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 AuthContractTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 AuthSessionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
@@ -38,19 +23,6 @@ AutoCubeEncodeErrorPathTests fixture needs the gitignored RAW fixtures (skip-pas
 AutoProfileCanvasParityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 BackupSettingsTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 BatchAdjustmentPerformanceTests slow render or decode workload that costs minutes on the runner
-BatchAdjustmentSessionTests untriaged not yet reviewed for the runner; place deliberately when next touched
-BatchAdjustmentTransferTests untriaged not yet reviewed for the runner; place deliberately when next touched
-BatchMetadataViewModelTests untriaged not yet reviewed for the runner; place deliberately when next touched
-BatchRenameViewModelTests untriaged not yet reviewed for the runner; place deliberately when next touched
-BoundedAsyncSemaphoreTests untriaged not yet reviewed for the runner; place deliberately when next touched
-CameraSupportRegistryTests untriaged not yet reviewed for the runner; place deliberately when next touched
-CanvasColorSpaceTests untriaged not yet reviewed for the runner; place deliberately when next touched
-CanvasZoomControllerTests untriaged not yet reviewed for the runner; place deliberately when next touched
-CanvasZoomModelTests untriaged not yet reviewed for the runner; place deliberately when next touched
-CapabilityRegistryTests untriaged not yet reviewed for the runner; place deliberately when next touched
-ChangeCursorStoreTests untriaged not yet reviewed for the runner; place deliberately when next touched
-ChangeFeedClientBackoffTests untriaged not yet reviewed for the runner; place deliberately when next touched
-ChangeFeedClientDateDecodingTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ChangeFeedClientServerMigrationTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudAddressResolverTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudAssetDetailClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -72,8 +44,6 @@ CloudTimelineViewModelTests host talks to a host service (keychain, FileProvider
 CloudflareConfigClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudflareConfigTypesTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudflareSettingsFormTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-CollisionResolverTests untriaged not yet reviewed for the runner; place deliberately when next touched
-ColorGradingXMPTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ColorLabelSidecarTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ColorWheelGeometryTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ComposedSourceTests untriaged not yet reviewed for the runner; place deliberately when next touched
