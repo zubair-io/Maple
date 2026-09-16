@@ -1,9 +1,9 @@
 import { PREVIEW_IMAGE_SELECTOR } from '../support/preview-surface';
 import { basename, join } from 'node:path';
-import { readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '../support/production-test';
-import { installProductionFolderPicker } from '../support/production-folder-picker';
+import { installNativeProductionFolderPicker } from '../support/native-production-folder-picker';
 import {
   readProductionFixtureManifest,
   resetWritableFixtureFolder,
@@ -48,22 +48,6 @@ async function openBrowseFolder(page: Page): Promise<void> {
   await expectAssets(page);
 }
 
-async function waitForXmpWrite(page: Page, path: string, value: RegExp): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        await page.waitForTimeout(50);
-        try {
-          return await readFile(path, 'utf8');
-        } catch {
-          return '';
-        }
-      },
-      { timeout: 15_000 },
-    )
-    .toMatch(value);
-}
-
 async function gridNames(page: Page): Promise<string[]> {
   // Read the actual media-cell action, excluding its projected rename footer.
   return page
@@ -94,7 +78,7 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   // (#2805).
   await resetWritableFixtureFolder(manifest.writableFolder);
   await Promise.all([writeFile(sourceXmp, seedXmp(1.25)), writeFile(targetXmp, seedXmp(-0.5))]);
-  const picker = await installProductionFolderPicker(page, manifest.writableFolder);
+  const picker = await installNativeProductionFolderPicker(page, manifest.writableFolder);
 
   const apiRequests: string[] = [];
   page.on('request', (request) => {
@@ -142,17 +126,16 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   const dialog = page.getByRole('dialog', { name: 'Paste settings' });
   await expect(dialog).toContainText(`Paste from ${SOURCE} onto 2 photos`);
   await dialog.getByRole('button', { name: 'Paste', exact: true }).click();
-  await waitForXmpWrite(page, targetXmp, /crs:Exposure2012="1\.25"/);
+  await expect.poll(() => picker.readText(basename(targetXmp))).toMatch(/crs:Exposure2012="1\.25"/);
 
-  picker.clear();
+  // Reset the real browser sidecar so Sync must perform a second durable write.
+  await picker.writeText(basename(targetXmp), seedXmp(-0.5));
   const sync = page.getByRole('button', { name: 'Sync settings' });
   await expect(sync).toBeEnabled();
   await sync.click();
-  await expect
-    .poll(() =>
-      picker.operations.some(({ kind, path }) => kind === 'write' && path === 'test_0008.xmp'),
-    )
-    .toBe(true);
+  await expect(dialog).toContainText(`Paste from ${SOURCE} onto 1 photo`);
+  await dialog.getByRole('button', { name: 'Paste', exact: true }).click();
+  await expect.poll(() => picker.readText(basename(targetXmp))).toMatch(/crs:Exposure2012="1\.25"/);
 
   // Rating and flag shortcuts drive Filter's complete visible state cycle.
   await page.keyboard.press('4');
@@ -217,12 +200,13 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
     .locator('#preview-flag-popover')
     .getByRole('button', { name: 'Reject', exact: true })
     .click();
-  await waitForXmpWrite(page, sourceXmp, /papp:Flag="reject"/);
+  await expect.poll(() => picker.readText(basename(sourceXmp))).toMatch(/papp:Flag="reject"/);
 
   await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(page).toHaveURL(/\/browse$/);
   await expectAssets(page);
   expect(apiRequests).toEqual([]);
+  await picker.verifyRawHashes();
   await verifyOriginalRawHashes(manifest);
   await verifyStagedRawHashes(manifest);
 });
