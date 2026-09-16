@@ -1,0 +1,408 @@
+{
+  "source_revision": "d9e570acef21260565e62be91ca083af67f6a455",
+  "loop_change": "Replace nested channels.map with fixed-N for loop; identical expression and order",
+  "raw_source": "color-baseline-3633-inputs.json test_0000",
+  "host": "Apple M5 Max, 128 GiB, 18 logical CPUs",
+  "rayon_threads": 4,
+  "method": "Fresh-process serial alternating pairs; three repeats; no agent builds or other render jobs during measurements. Background desktop services remain; this is a preparation comparison, not slider/cold-open qualification.",
+  "runs": {
+    "final_unoptimized": [
+      {
+        "variant": "main",
+        "quality": "preview",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 512.382,
+        "peak_rss_bytes": 2840428544,
+        "hash": "4ca2251364457d1d",
+        "log": "/tmp/maple-3633-sized-final-pair-main-preview-0.log"
+      },
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 665.973,
+        "peak_rss_bytes": 2841788416,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-final-pair-final-preview-0.log"
+      },
+      {
+        "variant": "main",
+        "quality": "preview",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 512.662,
+        "peak_rss_bytes": 2840707072,
+        "hash": "4ca2251364457d1d",
+        "log": "/tmp/maple-3633-sized-final-pair-main-preview-1.log"
+      },
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 713.859,
+        "peak_rss_bytes": 2856992768,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-final-pair-final-preview-1.log"
+      },
+      {
+        "variant": "main",
+        "quality": "preview",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 489.911,
+        "peak_rss_bytes": 2837315584,
+        "hash": "4ca2251364457d1d",
+        "log": "/tmp/maple-3633-sized-final-pair-main-preview-2.log"
+      },
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 705.953,
+        "peak_rss_bytes": 2855256064,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-final-pair-final-preview-2.log"
+      },
+      {
+        "variant": "main",
+        "quality": "amaze",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 681.899,
+        "peak_rss_bytes": 2954395648,
+        "hash": "35f59e5e34e4fc6a",
+        "log": "/tmp/maple-3633-sized-final-pair-main-amaze-0.log"
+      },
+      {
+        "variant": "final",
+        "quality": "amaze",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 855.063,
+        "peak_rss_bytes": 2968485888,
+        "hash": "783de9dea075ce1f",
+        "log": "/tmp/maple-3633-sized-final-pair-final-amaze-0.log"
+      },
+      {
+        "variant": "main",
+        "quality": "amaze",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 683.979,
+        "peak_rss_bytes": 2954559488,
+        "hash": "35f59e5e34e4fc6a",
+        "log": "/tmp/maple-3633-sized-final-pair-main-amaze-1.log"
+      },
+      {
+        "variant": "final",
+        "quality": "amaze",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 895.579,
+        "peak_rss_bytes": 2957361152,
+        "hash": "783de9dea075ce1f",
+        "log": "/tmp/maple-3633-sized-final-pair-final-amaze-1.log"
+      },
+      {
+        "variant": "main",
+        "quality": "amaze",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 688.726,
+        "peak_rss_bytes": 2965782528,
+        "hash": "35f59e5e34e4fc6a",
+        "log": "/tmp/maple-3633-sized-final-pair-main-amaze-2.log"
+      },
+      {
+        "variant": "final",
+        "quality": "amaze",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 866.976,
+        "peak_rss_bytes": 2957312000,
+        "hash": "783de9dea075ce1f",
+        "log": "/tmp/maple-3633-sized-final-pair-final-amaze-2.log"
+      }
+    ],
+    "old_vs_final": [
+      {
+        "variant": "no-copy",
+        "quality": "preview",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 559.748,
+        "peak_rss_bytes": 2850488320,
+        "hash": "565ee12d7a18dc32",
+        "log": "/tmp/maple-3633-sized-cubic-investigate-no-copy-preview-0.log"
+      },
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 662.015,
+        "peak_rss_bytes": 2841870336,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-investigate-final-preview-0.log"
+      },
+      {
+        "variant": "no-copy",
+        "quality": "preview",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 567.297,
+        "peak_rss_bytes": 2848817152,
+        "hash": "565ee12d7a18dc32",
+        "log": "/tmp/maple-3633-sized-cubic-investigate-no-copy-preview-1.log"
+      },
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 665.196,
+        "peak_rss_bytes": 2841788416,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-investigate-final-preview-1.log"
+      },
+      {
+        "variant": "no-copy",
+        "quality": "preview",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 573.904,
+        "peak_rss_bytes": 2848784384,
+        "hash": "565ee12d7a18dc32",
+        "log": "/tmp/maple-3633-sized-cubic-investigate-no-copy-preview-2.log"
+      },
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 666.79,
+        "peak_rss_bytes": 2841968640,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-investigate-final-preview-2.log"
+      }
+    ],
+    "static_rejected": [
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 666.366,
+        "peak_rss_bytes": 2842001408,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-static-final-preview-0.log"
+      },
+      {
+        "variant": "static",
+        "quality": "preview",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 658.3,
+        "peak_rss_bytes": 2848849920,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-static-static-preview-0.log"
+      },
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 687.977,
+        "peak_rss_bytes": 2850209792,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-static-final-preview-1.log"
+      },
+      {
+        "variant": "static",
+        "quality": "preview",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 667.305,
+        "peak_rss_bytes": 2842017792,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-static-static-preview-1.log"
+      },
+      {
+        "variant": "final",
+        "quality": "preview",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 667.692,
+        "peak_rss_bytes": 2842083328,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-static-final-preview-2.log"
+      },
+      {
+        "variant": "static",
+        "quality": "preview",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 695.136,
+        "peak_rss_bytes": 2862235648,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-cubic-static-static-preview-2.log"
+      }
+    ],
+    "fixed_loop": [
+      {
+        "variant": "main",
+        "quality": "preview",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 480.397,
+        "peak_rss_bytes": 2839756800,
+        "hash": "4ca2251364457d1d",
+        "log": "/tmp/maple-3633-sized-loop-pair-main-preview-0.log"
+      },
+      {
+        "variant": "loop",
+        "quality": "preview",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 548.764,
+        "peak_rss_bytes": 2841870336,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-loop-pair-loop-preview-0.log"
+      },
+      {
+        "variant": "main",
+        "quality": "preview",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 494.257,
+        "peak_rss_bytes": 2847375360,
+        "hash": "4ca2251364457d1d",
+        "log": "/tmp/maple-3633-sized-loop-pair-main-preview-1.log"
+      },
+      {
+        "variant": "loop",
+        "quality": "preview",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 548.658,
+        "peak_rss_bytes": 2841788416,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-loop-pair-loop-preview-1.log"
+      },
+      {
+        "variant": "main",
+        "quality": "preview",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 478.607,
+        "peak_rss_bytes": 2837069824,
+        "hash": "4ca2251364457d1d",
+        "log": "/tmp/maple-3633-sized-loop-pair-main-preview-2.log"
+      },
+      {
+        "variant": "loop",
+        "quality": "preview",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 545.582,
+        "peak_rss_bytes": 2843508736,
+        "hash": "6a8dcce61ead58ce",
+        "log": "/tmp/maple-3633-sized-loop-pair-loop-preview-2.log"
+      },
+      {
+        "variant": "main",
+        "quality": "amaze",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 668.299,
+        "peak_rss_bytes": 2954461184,
+        "hash": "35f59e5e34e4fc6a",
+        "log": "/tmp/maple-3633-sized-loop-pair-main-amaze-0.log"
+      },
+      {
+        "variant": "loop",
+        "quality": "amaze",
+        "repeat": 0,
+        "status": 0,
+        "preparation_ms": 761.492,
+        "peak_rss_bytes": 2969174016,
+        "hash": "783de9dea075ce1f",
+        "log": "/tmp/maple-3633-sized-loop-pair-loop-amaze-0.log"
+      },
+      {
+        "variant": "main",
+        "quality": "amaze",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 666.9,
+        "peak_rss_bytes": 2965716992,
+        "hash": "35f59e5e34e4fc6a",
+        "log": "/tmp/maple-3633-sized-loop-pair-main-amaze-1.log"
+      },
+      {
+        "variant": "loop",
+        "quality": "amaze",
+        "repeat": 1,
+        "status": 0,
+        "preparation_ms": 751.657,
+        "peak_rss_bytes": 2958131200,
+        "hash": "783de9dea075ce1f",
+        "log": "/tmp/maple-3633-sized-loop-pair-loop-amaze-1.log"
+      },
+      {
+        "variant": "main",
+        "quality": "amaze",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 682.921,
+        "peak_rss_bytes": 2965782528,
+        "hash": "35f59e5e34e4fc6a",
+        "log": "/tmp/maple-3633-sized-loop-pair-main-amaze-2.log"
+      },
+      {
+        "variant": "loop",
+        "quality": "amaze",
+        "repeat": 2,
+        "status": 0,
+        "preparation_ms": 754.243,
+        "peak_rss_bytes": 2957262848,
+        "hash": "783de9dea075ce1f",
+        "log": "/tmp/maple-3633-sized-loop-pair-loop-amaze-2.log"
+      }
+    ]
+  },
+  "binaries": {
+    "main": "eeb929102d32e8ab07ed9aefcb3b3b62a6f13d3f9b1c193b61e90bc1f4e19470",
+    "final": "503e7cf85afa1926d1d979d21c278975a0e33f3603e888551f678df8d06aef07",
+    "static": "6f1d1eae1751b080f17c6b45ef7381c41a504b0e38a973643a7b1d8cca9e511c",
+    "loop": "d032fd270cfc00583a0ee48feca8f5e473731c7b8c4fdbfcb5759f02d3d3a1da",
+    "no-copy": "50f99892d3d6580ae577e54bd94cef043f0166985bda346500cac418fdb2ecb3"
+  },
+  "full_scene_equivalence": [
+    {
+      "variant": "final",
+      "quality": "amaze",
+      "repeat": 0,
+      "status": 0,
+      "preparation_ms": 16527.26,
+      "peak_rss_bytes": 11763105792,
+      "hash": "340ca62e5834a47b",
+      "log": "/tmp/maple-3633-sized-full-loop-final-amaze-0.log"
+    },
+    {
+      "variant": "loop",
+      "quality": "amaze",
+      "repeat": 0,
+      "status": 0,
+      "preparation_ms": 17036.649,
+      "peak_rss_bytes": 11763171328,
+      "hash": "340ca62e5834a47b",
+      "log": "/tmp/maple-3633-sized-full-loop-loop-amaze-0.log"
+    }
+  ],
+  "full_scene_note": "One full-size pair establishes matching complete scene fingerprints, not a timing qualification."
+}
