@@ -7,23 +7,23 @@
     <span class="flex-1 whitespace-nowrap overflow-hidden text-ellipsis"
       >Faster on this network — switch to a local connection?</span
     >
-    <button
-      type="button"
-      class="appearance-none border-0 bg-primary text-bg font-medium text-[13px] px-3 py-[5px] rounded cursor-pointer hover:opacity-90 disabled:opacity-60"
+    <mui-button
+      variant="primary"
+      size="sm"
       [disabled]="phase() === 'switching'"
-      (click)="switchNow()"
-      aria-label="Switch to a local connection"
+      (pressed)="switchNow()"
+      ariaLabel="Switch to a local connection"
     >
       {{ phase() === 'switching' ? 'Switching…' : 'Switch' }}
-    </button>
-    <button
-      type="button"
-      class="appearance-none border border-border bg-transparent text-text-muted text-[13px] px-2.5 py-[5px] rounded cursor-pointer hover:bg-white/[0.06] disabled:opacity-60"
+    </mui-button>
+    <mui-button
+      variant="secondary"
+      size="sm"
       [disabled]="phase() === 'switching'"
-      (click)="dismiss()"
-      aria-label="Dismiss"
+      (pressed)="dismiss()"
+      ariaLabel="Dismiss"
     >
       Not now
-    </button>
+    </mui-button>
   </div>
 }
