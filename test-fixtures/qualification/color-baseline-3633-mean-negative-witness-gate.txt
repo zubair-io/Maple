@@ -1,0 +1,66 @@
+test_color_pipeline: using caller-provided MAPLE_CLI=/tmp/maple-3633-final-mean-cli (no rebuild)
+test_color_pipeline: KEEP_TMP set — candidates in /var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.SmIgPp40kJ
+test_color_pipeline: manifest=/tmp/maple-3633-0020-manifest.json
+test_color_pipeline: preferred_resolution=down
+test_color_pipeline: reference protocols: baseline = matched native Lanczos; other cases = legacy (#3678)
+test_color_pipeline: filter=baseline
+
+test_color_pipeline: rendering candidates (neutral) ...
+  ok  test_0020/baseline
+  batch complete: 1 ok, 0 failed
+
+test_color_pipeline: rendering candidates (auto) ...
+  ok  test_0020/baseline
+  batch complete: 1 ok, 0 failed
+
+test_color_pipeline: diffing neutral candidates vs ACR ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+# reference protocol test_0020/baseline: baseline-native-pair-lanczos
+FAIL test_0020    baseline                   9.63M   14.55  23.96  98.97   -0.1663  -0.1469  -0.1425  p95 23.96>23.40
+----------------------------------------------------------------------------------------------------
+     test_0020    (1 cases)                      -   14.55      -      -   -0.1663  -0.1469  -0.1425
+====================================================================================================
+     GRAND        (1 cases)                      -   14.55      -      -   -0.1663  -0.1469  -0.1425
+
+# Reading the bias columns:
+#   bR/bG/bB are mean (candidate - reference) per channel in [0,1] sRGB-encoded units.
+#   Positive = Maple has too much of that channel. Negative = too little.
+#   Systematic bias (same sign across all fixtures) -> a calibration target.
+#   Cast that grows with exposure_max -> AgX gain. Only on wb_* -> WB delta logic.
+#   Cast on baseline only -> DCP / forward-matrix.
+# stats: 1 compared, 1 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+{"compared": 1, "breaches": 1, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": 14.546426544653443, "grand_bias_r": -0.16632315516471863, "grand_bias_g": -0.14691893756389618, "grand_bias_b": -0.14248061180114746}
+
+test_color_pipeline: diffing auto candidates vs ACR ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+# reference protocol test_0020/baseline: baseline-native-pair-lanczos
+FAIL test_0020    baseline_auto              9.63M   14.55  23.96  98.97   -0.1663  -0.1469  -0.1425  p95 23.96>23.40
+----------------------------------------------------------------------------------------------------
+     test_0020    (1 cases)                      -   14.55      -      -   -0.1663  -0.1469  -0.1425
+====================================================================================================
+     GRAND        (1 cases)                      -   14.55      -      -   -0.1663  -0.1469  -0.1425
+
+# stats: 1 compared, 1 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+{"profile": "auto", "compared": 1, "breaches": 1, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": 14.546426544653443}
+
+test_color_pipeline: diffing sharpen/NR candidates vs ACR (full-res, #1936) ...
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+verd fixture      case                       n_pix    mean    p95    max        bR       bG       bB
+----------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------
+# stats: 0 compared, 0 budget breach(es), 0 skipped(no-raw), 0 skipped(no-candidate), 0 skipped(no-reference), 0 errors
+# note: no sharpen/nr manifest cases match the filter — detail pass is vacuous (case-level FILTER); the neutral pass above is the gate.
+{"profile": "detail-fullres", "compared": 0, "breaches": 0, "skipped_no_raw": 0, "skipped_no_candidate": 0, "skipped_no_reference": 0, "errors": 0, "grand_mean_deltaE": null}
+
+test_color_pipeline: batch exits: neutral=0 auto=0; diff passes: neutral=1 auto=1 detail=0
+qualification: executed=2 failed=2 skipped=0

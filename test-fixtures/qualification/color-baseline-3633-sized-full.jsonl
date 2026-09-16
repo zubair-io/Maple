@@ -1,0 +1,2 @@
+{"variant": "guard", "quality": "amaze", "repeat": 0, "status": 0, "preparation_ms": 16175.365, "peak_rss_bytes": 11763056640, "hash": "4ea684dd08323474", "log": "/tmp/maple-3633-sized-full-guard-amaze-0.log"}
+{"variant": "no-copy", "quality": "amaze", "repeat": 0, "status": 0, "preparation_ms": 16714.872, "peak_rss_bytes": 11763482624, "hash": "4ea684dd08323474", "log": "/tmp/maple-3633-sized-full-no-copy-amaze-0.log"}

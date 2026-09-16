@@ -55,7 +55,7 @@ fn negative_baseline_exposure_recovers_sensor_clipped_green() {
     assert_eq!(recovered[0], original[0]);
     assert_eq!(recovered[2], original[2]);
     assert!(recovered[1] > original[1]);
-    assert!((recovered[0] / recovered[1] - 1.0).abs() < 0.05);
+    assert!((recovered[1] / gain - 1.3).abs() < 1e-6);
 }
 
 #[test]
@@ -233,10 +233,9 @@ fn g_clipped_pixel_loses_magenta_under_daylight_wb() {
     //   - G gets lifted above its clip threshold.
     //   - No magenta: the recovered pixel's R/G is at most the input R/G
     //     (better, equal or lower; we never go more magenta).
-    //   - With no unclipped neighbors the result is the neutral-target
-    //     extrapolation: G is lifted so R/G == 1.0 and B/G == 1.0 (the
-    //     post-WB neutral chromaticity), which is the maximum lift we
-    //     can produce with R held fixed.
+    //   - With no witnesses, use the neutral missing/known-mean ratio.
+    //     Holding R=1.6 and B=1 fixed makes simultaneous R/G=B/G=1
+    //     impossible; G=1.3 treats the two known observations equally.
     //
     // We test on a single-pixel image so there are no neighbors → the
     // stage falls back to the WB-implied neutral target (confidence 0).
@@ -268,17 +267,10 @@ fn g_clipped_pixel_loses_magenta_under_daylight_wb() {
 }
 
 #[test]
-fn g_clipped_with_neutral_neighbors_lifts_g_to_match_local_chromaticity() {
-    // 11×11 image. Outer ring is a neutral grey well below clip. The
-    // center pixel is G-clipped post-WB. Only G is mutated (R and B
-    // are below their per-channel ceilings); the recovered G must be
-    // lifted so that R/G matches the neighborhood's R/G (= 1.0).
-    //
-    // B is unclipped (1.0 < ceiling 1.428), so the algorithm leaves it
-    // alone — the chromaticity guarantee in the acceptance criterion
-    // applies along the clipped axis (R/G here). B/G post-recovery is
-    // a *consequence* of the (R, B) anchors plus the new G, not a
-    // direct target.
+fn g_clipped_with_neutral_neighbors_uses_both_known_channels() {
+    // A neutral witness has missing-G / mean(known R,B) = 1. Both known
+    // channels must contribute: R=1.6 and B=1.0 cannot simultaneously match
+    // R/G=B/G=1 while remaining fixed. The neutral estimate is their mean.
     let mut img = Image::new(11, 11, ColorSpace::CameraNativeLinearRgb);
     for p in &mut img.pixels {
         *p = [0.9, 0.9, 0.9];
@@ -296,13 +288,9 @@ fn g_clipped_with_neutral_neighbors_lifts_g_to_match_local_chromaticity() {
     );
     let p = img.pixels[cy * 11 + cx];
     let out_rg = p[0] / p[1];
-    // 5% tolerance around the neighborhood's R/G = 1.0 — the chromaticity
-    // axis the algorithm is responsible for.
-    assert!(
-        (out_rg - 1.0).abs() < 0.05,
-        "expected R/G ≈ 1.0 ± 5%, got {}",
-        out_rg
-    );
+    assert!((p[1] - 1.3).abs() < 1e-6, "expected G=mean(R,B), got {p:?}");
+    assert_eq!(p[0], 1.6);
+    assert_eq!(p[2], 1.0);
     // G must have been lifted above its post-WB ceiling.
     assert!(p[1] > 1.0 - EPSILON, "G should be lifted, got {}", p[1]);
     // The original magenta cast must be gone: R/G strictly less than the
@@ -458,10 +446,10 @@ fn legacy_blend_mode_upgrades_to_chromatic_adaptation() {
 }
 
 #[test]
-fn a_known_red_or_blue_edge_does_not_change_recovered_chroma_to_green_ratio() {
-    // The clipped channel follows green with a constant 3:1 ratio, while
-    // the other known channel changes across an edge. Transferring that
-    // unrelated edge into the missing channel creates false color.
+fn conflicting_known_channel_edges_are_combined_without_privileging_green() {
+    // These known channels conflict with the neighborhood's chromaticity.
+    // There is no unique missing-channel truth: the symmetric estimator uses
+    // both known observations and deliberately does not force the G ratio.
     for (neutral, neighbor, center, clipped) in [
         ([0.4, 1.0, 0.5], [0.45, 0.3, 0.9], [1.8, 0.8, 2.0], 2),
         ([0.5, 1.0, 0.4], [0.9, 0.3, 0.45], [2.0, 0.8, 1.8], 0),
@@ -477,14 +465,36 @@ fn a_known_red_or_blue_edge_does_not_change_recovered_chroma_to_green_ratio() {
             0.0,
         );
         let output = img.pixels[index];
-        assert!(
-            (output[clipped] / output[1] - 3.0).abs() < 0.1,
-            "{output:?}"
-        );
+        let expected = 1.3 * (1.0 + 48.0 / 49.0 * (2.4 - 1.0));
+        assert!((output[clipped] - expected).abs() < 1e-5, "{output:?}");
         for c in 0..3 {
             if c != clipped {
                 assert_eq!(output[c].to_bits(), center[c].to_bits());
             }
         }
+    }
+}
+
+#[test]
+fn recovered_neighbors_never_become_chromaticity_witnesses() {
+    let mut img = Image::new(9, 9, ColorSpace::CameraNativeLinearRgb);
+    img.pixels.fill([0.1, 0.5, 0.3]);
+    let targets = [4 * 9 + 3, 4 * 9 + 4, 4 * 9 + 5];
+    for index in targets {
+        img.pixels[index] = [1.0, 0.25, 0.5];
+    }
+    apply(
+        &mut img,
+        HighlightRecoveryMode::ChromaticAdaptation,
+        NEUTRAL_IDENTITY,
+        0.0,
+    );
+    // All three windows contain the same 46 original witnesses. The first
+    // reconstructed red falls below threshold, but must not join later windows.
+    let expected = 0.375 * (1.0 + 46.0 / 49.0 * (0.25 - 1.0));
+    for index in targets {
+        assert!((img.pixels[index][0] - expected).abs() < 1e-6);
+        assert_eq!(img.pixels[index], img.pixels[targets[0]]);
+        assert_eq!(img.pixels[index][1..], [0.25, 0.5]);
     }
 }

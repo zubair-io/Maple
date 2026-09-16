@@ -1,61 +1,28 @@
-//! Highlight reconstruction per spec § 3.3a — Path C (chromatic-adaptation).
+//! Sensor-highlight chromaticity reconstruction (#3633).
 //!
-//! Operates on camera-native linear RGB **after** the DNG WB pre-gain has run
-//! (see `pipeline::develop`). At that point the per-channel ceiling is not 1.0
-//! but `2^BaselineExposure / AsShotNeutral[c]`: sensor saturation lives at
-//! the raw white level (1.0 in normalized camera RGB). Develop applies the
-//! baseline exposure gain, then `apply_pre_gain` multiplies each channel by
-//! `1.0 / neutral[c]`. The examples below assume BaselineExposure is zero.
+//! Runs in post-as-shot-WB camera RGB before lens gain, warp or reduction.
+//! Sensor ceilings include BaselineExposure and AsShotNeutral. Fully known
+//! pixels and every known channel of a partially clipped pixel stay unchanged.
 //!
-//! ### What the magenta cast looked like
+//! For each partial clip, normalize each fully known 7×7 witness by the mean
+//! of the target's surviving channels, using the SAME channel mask throughout.
+//! Reject negative or non-finite witnesses without changing their pixels.
+//! Average the missing-channel ratios, blend with neutral at the existing
+//! count/49 confidence (<4 witnesses means zero confidence), and multiply by
+//! the target's known-channel mean. This treats channel permutations equally
+//! and avoids both a preferred green denominator and ratios of averaged ratios.
+//! Fully clipped pixels retain the existing neutral saturation-white fallback.
 //!
-//! Sensor `(R=0.8, G=1.0_clipped, B=0.7)` → post-WB with neutral
-//! `(0.5, 1.0, 0.7)` → `(1.6, 1.0, 1.0)`. The clipped pixel reads as
-//! R-heavy + B-rich vs. G stuck at 1.0 — magenta. The legacy `Blend` mode
-//! pulled the clipped channels DOWN toward `max_unclipped ≤ 1.0`, which
-//! made the situation worse.
+//! This is a local chromaticity estimate, not recovery of unknowable scene
+//! detail: an unrelated edge in either known channel can affect the estimate.
+//! Nonpositive or numerically unusable known energy provides no estimate; leave
+//! that target untouched. No stage output is clamped to display range.
 //!
-//! ### What Path C does (`ChromaticAdaptation`, DEFAULT since #335)
-//!
-//! The variant was originally landed in #334 as opt-in because the PR body
-//! read the unchanged main-bias numbers as a regression. A per-case Off-vs-CA
-//! diff in #335 showed the algorithm is a near-noop on the budget-gated
-//! baseline fixtures (ΔΔE ≤ 0.001, bias deltas in the 5th decimal): the
-//! pixels post-WB rarely cross their per-channel ceilings on these scenes,
-//! so the `!any_clipped` early-out fires and the stage is effectively a
-//! pass-through. The flip was parity-safe.
-//!
-//! For each pixel where one or two channels exceed the per-channel ceiling:
-//!
-//! 1. Sample unclipped neighbors in a 7×7 window.
-//! 2. Compute their average chromaticity in `(R/G, B/G)` space, but only count
-//!    neighbors with NO clipped channels. With <4 unclipped neighbors the
-//!    sample is unreliable; the per-pixel confidence collapses to zero and we
-//!    fall back to the WB-implied neutral chromaticity `(1, 1)`.
-//! 3. Blend the local chromaticity with the WB-implied neutral chromaticity
-//!    `(1, 1)` (post-WB neutral white is `(1, 1, 1)` — that's the point of WB
-//!    pre-gain) using a confidence weight `w = unclipped_count / 49` clamped
-//!    to `[0, 1]`. `w == 1` means trust the local neighborhood completely;
-//!    `w == 0` means assume the highlight is neutral.
-//! 4. Extrapolate the clipped channel(s) so the pixel's chromaticity matches
-//!    the blended target. We keep the unclipped channels fixed and solve for
-//!    the clipped channel(s) given a reference channel (the brightest of the
-//!    three).
-//! 5. For fully-clipped pixels (all 3 channels at or past their ceilings),
-//!    leave them as neutral `(X, X, X)` at the largest per-channel ceiling
-//!    seen across the three channels — that's the saturation white at the
-//!    post-WB-implied neutral chromaticity.
-//! 6. Soft-feather the boundary by writing the reconstructed value back as a
-//!    blend with the original at small clip excess (the per-channel headroom
-//!    above the ceiling gives a natural ramp).
-//!
-//! ### Performance
-//!
-//! Two-pass: build a per-pixel `u8` clip mask first, then iterate only over
-//! pixels with `clipped_count >= 1`. The 7×7 neighbor scan only fires on the
-//! clipped subset — in scenes without blown highlights the stage is a
-//! mask-build + early-out, ~one allocation. The clip-pixel inner loop is
-//! still O(R²) per clipped pixel; that's the budget the brief calls out.
+//! A frozen clipping mask excludes every modified pixel from witness reads.
+//! Thus reconstruction needs no full RGB snapshot: known witnesses never change
+//! and each clipped target reads its original value before its sole write.
+//! The neighborhood scan runs only on clipped pixels; a scene without clips
+//! returns before allocating the mask.
 
 use crate::{
     image::{ColorSpace, Image},
@@ -139,7 +106,9 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
         return;
     }
     let ceil = ceilings(neutral, baseline_exposure);
-    let margin = EPSILON * baseline_gain(baseline_exposure);
+    let gain = baseline_gain(baseline_exposure);
+    let margin = EPSILON * gain;
+    let denominator_floor = 1e-4 * gain;
     let thresholds = ceil.map(|ceiling| ceiling - margin);
 
     // Cheap pre-scan: most scenes have no clipping post-WB (the common case
@@ -174,9 +143,8 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
         clip_mask[i] = m;
     }
 
-    // Snapshot of inputs so the inner loop reads consistent values even as we
-    // write the reconstructed outputs back to `img.pixels`.
-    let pixels_in = img.pixels.clone();
+    // Keep this mask frozen: even a reconstructed value below threshold must
+    // remain excluded. Every accepted witness is therefore still original.
 
     // Pass 2: reconstruct each clipped pixel.
     for y in 0..h {
@@ -186,7 +154,7 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
             if m == 0 {
                 continue;
             }
-            let p_in = pixels_in[idx];
+            let p_in = img.pixels[idx];
             let clipped_count = m.count_ones();
 
             // Fully clipped → assume saturation neutral white at the
@@ -201,10 +169,20 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
                 continue;
             }
 
-            // 1+2-channel clip — gather (R/G, B/G) from unclipped neighbors.
-            let mut sum_rg = 0.0f32;
-            let mut sum_bg = 0.0f32;
-            let mut count: u32 = 0;
+            let known_count = (3 - clipped_count) as f32;
+            let known_mean = |p: [f32; 3]| {
+                (0..3)
+                    .filter(|c| (m >> c) & 1 == 0)
+                    .map(|c| p[c])
+                    .sum::<f32>()
+                    / known_count
+            };
+            let known_level = known_mean(p_in);
+            if known_level <= denominator_floor {
+                continue;
+            }
+            let mut sum_ratio = [0.0f32; 3];
+            let mut count = 0u32;
             for dy in -NEIGHBOR_RADIUS..=NEIGHBOR_RADIUS {
                 let ny = y + dy;
                 if ny < 0 || ny >= h {
@@ -217,108 +195,40 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
                     }
                     let n_idx = (ny * w + nx) as usize;
                     if clip_mask[n_idx] != 0 {
-                        continue; // Only fully-unclipped neighbors contribute.
+                        continue;
                     }
-                    let np = pixels_in[n_idx];
-                    if np[1] > 1e-4 {
-                        sum_rg += np[0] / np[1];
-                        sum_bg += np[2] / np[1];
+                    let np = img.pixels[n_idx];
+                    // Negative demosaic undershoot is valid scene data, but
+                    // cannot be evidence for extrapolating positive saturation.
+                    // Reject the witness; never clamp or modify its channels.
+                    if np.iter().any(|v| !v.is_finite() || *v < 0.0) {
+                        continue;
+                    }
+                    let witness_level = known_mean(np);
+                    if witness_level > denominator_floor {
+                        for c in 0..3 {
+                            if (m >> c) & 1 == 1 {
+                                sum_ratio[c] += np[c] / witness_level;
+                            }
+                        }
                         count += 1;
                     }
                 }
             }
-
-            // Confidence: fraction of the 7×7 window that contributed.
-            // < 4 contributing neighbors is unstable — collapse confidence
-            // to zero and rely on the WB-implied neutral target.
-            let mut conf = (count as f32) / NEIGHBOR_WINDOW_AREA;
-            if count < 4 {
-                conf = 0.0;
-            }
-            conf = conf.clamp(0.0, 1.0);
-
-            let local_rg = if count > 0 {
-                sum_rg / count as f32
+            let confidence = if count < 4 {
+                0.0
             } else {
-                1.0
+                count as f32 / NEIGHBOR_WINDOW_AREA
             };
-            let local_bg = if count > 0 {
-                sum_bg / count as f32
-            } else {
-                1.0
-            };
-
-            // Target chromaticity = blend(local, neutral). Post-WB neutral
-            // white is (1,1,1), so the neutral chromaticity is (1, 1).
-            let target_rg = local_rg * conf + 1.0 * (1.0 - conf);
-            let target_bg = local_bg * conf + 1.0 * (1.0 - conf);
-
-            // Extrapolate to maintain chromaticity. Strategy:
-            //   - Use the brightest **unclipped** channel as the reference.
-            //   - Solve for the clipped channel(s) from the target ratios.
-            //   - If no unclipped channel exists (shouldn't happen here because
-            //     `clipped_count < 3`), fall through to leaving the pixel.
             let mut p_out = p_in;
-            // Find the brightest unclipped channel (this is our anchor).
-            let mut anchor_c: Option<usize> = None;
-            let mut anchor_val = f32::MIN;
             for c in 0..3 {
-                if (m >> c) & 1 == 0 && p_in[c] > anchor_val {
-                    anchor_val = p_in[c];
-                    anchor_c = Some(c);
-                }
-            }
-            // Our chromaticity witnesses use green as their denominator.
-            // When green is known, preserve that observation: inferring a
-            // different green from a red/blue edge would transfer that edge
-            // into the reconstructed channel while leaving actual G fixed.
-            if m & 0b010 == 0 {
-                anchor_c = Some(1);
-            }
-            if let Some(ac) = anchor_c {
-                // Derive G implied by the anchor + target chromaticity.
-                let g_implied = match ac {
-                    0 => {
-                        // anchor is R; target_rg = R/G  → G = R/target_rg
-                        if target_rg.abs() > 1e-6 {
-                            p_in[0] / target_rg
-                        } else {
-                            p_in[1]
-                        }
-                    }
-                    1 => p_in[1], // anchor is G; G is fixed.
-                    2 => {
-                        // anchor is B; target_bg = B/G → G = B/target_bg
-                        if target_bg.abs() > 1e-6 {
-                            p_in[2] / target_bg
-                        } else {
-                            p_in[1]
-                        }
-                    }
-                    _ => unreachable!(),
-                };
-                let r_implied = g_implied * target_rg;
-                let b_implied = g_implied * target_bg;
-                let implied = [r_implied, g_implied, b_implied];
-
-                // Replace each clipped channel with the implied value. The
-                // spatial "feather" the brief calls for emerges naturally from
-                // the neighborhood averaging: adjacent clipped pixels see
-                // overlapping windows so their reconstructed chromaticities
-                // vary smoothly, and the unclipped channels (held fixed) tie
-                // the result to the local color.
-                //
-                // We do NOT clamp `implied[c] >= p_in[c]`. Path C derives
-                // `implied` from a stable anchor + local chromaticity, so
-                // letting it fall below the (numerical) input is legitimate
-                // when the input was magenta-shifted — the whole point is to
-                // pull the chromaticity back toward neutral. The legacy
-                // `Blend` magenta-pull came from anchoring to
-                // `max_unclipped ≤ 1.0`, not from the direction of motion.
-                for c in 0..3 {
-                    if (m >> c) & 1 == 1 {
-                        p_out[c] = implied[c];
-                    }
+                if (m >> c) & 1 == 1 {
+                    let ratio = if count > 0 {
+                        sum_ratio[c] / count as f32
+                    } else {
+                        1.0
+                    };
+                    p_out[c] = known_level * (1.0 + confidence * (ratio - 1.0));
                 }
             }
             img.pixels[idx] = p_out;
@@ -329,3 +239,7 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
 #[cfg(test)]
 #[path = "highlight_recovery/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "highlight_recovery/tests_mask_aware.rs"]
+mod tests_mask_aware;

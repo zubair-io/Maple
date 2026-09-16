@@ -1,0 +1,12 @@
+{"variant": "main", "quality": "preview", "repeat": 0, "status": 0, "preparation_ms": 483.966, "peak_rss_bytes": 2837299200, "hash": "4ca2251364457d1d", "log": "/tmp/maple-3633-sized-main-preview-0.log"}
+{"variant": "candidate", "quality": "preview", "repeat": 0, "status": 0, "preparation_ms": 579.027, "peak_rss_bytes": 2841903104, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-candidate-preview-0.log"}
+{"variant": "main", "quality": "preview", "repeat": 1, "status": 0, "preparation_ms": 482.104, "peak_rss_bytes": 2837102592, "hash": "4ca2251364457d1d", "log": "/tmp/maple-3633-sized-main-preview-1.log"}
+{"variant": "candidate", "quality": "preview", "repeat": 1, "status": 0, "preparation_ms": 583.058, "peak_rss_bytes": 2850258944, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-candidate-preview-1.log"}
+{"variant": "main", "quality": "preview", "repeat": 2, "status": 0, "preparation_ms": 490.243, "peak_rss_bytes": 2837053440, "hash": "4ca2251364457d1d", "log": "/tmp/maple-3633-sized-main-preview-2.log"}
+{"variant": "candidate", "quality": "preview", "repeat": 2, "status": 0, "preparation_ms": 569.083, "peak_rss_bytes": 2845540352, "hash": "565ee12d7a18dc32", "log": "/tmp/maple-3633-sized-candidate-preview-2.log"}
+{"variant": "main", "quality": "amaze", "repeat": 0, "status": 0, "preparation_ms": 685.02, "peak_rss_bytes": 2965520384, "hash": "35f59e5e34e4fc6a", "log": "/tmp/maple-3633-sized-main-amaze-0.log"}
+{"variant": "candidate", "quality": "amaze", "repeat": 0, "status": 0, "preparation_ms": 743.021, "peak_rss_bytes": 2957246464, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-candidate-amaze-0.log"}
+{"variant": "main", "quality": "amaze", "repeat": 1, "status": 0, "preparation_ms": 658.067, "peak_rss_bytes": 2954493952, "hash": "35f59e5e34e4fc6a", "log": "/tmp/maple-3633-sized-main-amaze-1.log"}
+{"variant": "candidate", "quality": "amaze", "repeat": 1, "status": 0, "preparation_ms": 754.292, "peak_rss_bytes": 2957279232, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-candidate-amaze-1.log"}
+{"variant": "main", "quality": "amaze", "repeat": 2, "status": 0, "preparation_ms": 669.595, "peak_rss_bytes": 2955689984, "hash": "35f59e5e34e4fc6a", "log": "/tmp/maple-3633-sized-main-amaze-2.log"}
+{"variant": "candidate", "quality": "amaze", "repeat": 2, "status": 0, "preparation_ms": 767.862, "peak_rss_bytes": 2957459456, "hash": "cfda0977cc387893", "log": "/tmp/maple-3633-sized-candidate-amaze-2.log"}
