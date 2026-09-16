@@ -52,12 +52,14 @@ class ControlledWorker extends EventTarget {
   }
 }
 
-const originalWorker = globalThis.Worker;
-const originalNapi = process.env.MAPLE_NAPI;
+let originalWorker: typeof Worker;
+let originalNapi: string | undefined;
 const filename = () => callNative('validateFilename', ['image.jpg']);
 const outcome = <T>(promise: Promise<T>) => promise.catch((error: unknown) => error);
 
 beforeEach(() => {
+  originalWorker = globalThis.Worker;
+  originalNapi = process.env.MAPLE_NAPI;
   shutdownMaplePool();
   _resetMaplePoolForTests();
   ControlledWorker.instances = [];
