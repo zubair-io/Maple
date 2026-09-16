@@ -1,3 +1,4 @@
+import { rejectLegacyAiWrite } from '../../routes/ai-legacy-write.ts';
 /**
  * `/api/workers/generated-search/config` — the daily run's operator knobs.
  *
@@ -43,6 +44,7 @@ export const generatedSearchConfigRoutes = new Elysia({ prefix: '/api/workers' }
       }
     },
     {
+      beforeHandle: rejectLegacyAiWrite,
       // Bounds mirror `config.repo.ts`'s clamps so an out-of-range value is
       // rejected at the edge rather than silently squashed.
       body: t.Object({

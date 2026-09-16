@@ -69,28 +69,6 @@
   }
 }
 
-// Desktop and shared expanded card styling:
-// When a worker row is expanded, lift it into a distinct card with background,
-// border, rounded corners, and elevation so it clearly separates from surrounding workers.
-mui-settings-row {
-  display: block;
-  border: 0.5px solid transparent;
-  border-radius: 8px;
-  transition:
-    background 0.15s ease,
-    box-shadow 0.15s ease,
-    margin 0.15s ease,
-    border-color 0.15s ease;
-
-  &.is-expanded {
-    background: var(--s-surface2);
-    border-color: var(--s-border);
-    margin: 8px 0;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
-    overflow: hidden;
-  }
-}
-
 // ── Tablet card reflow (≤1023px) ─────────────────────────────────────────
 // Genuine residue: the worker/stage table stops being a table and each row
 // becomes a self-contained card whose ~9 summary children get reassigned to
@@ -113,8 +91,9 @@ mui-settings-row {
     background: var(--s-surface);
     --srow-border: none;
 
-    &.is-expanded {
-      background: var(--s-surface2);
+    &.is-expanded,
+    &:has(button[aria-expanded='true']) {
+      background: var(--s-surface3);
       border-color: var(--s-border-hi);
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     }

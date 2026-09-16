@@ -1,3 +1,4 @@
+import { aiConnectionRoutes } from './ai-connections.ts';
 /**
  * /api/ai/* — operator-facing routes for managing AI providers, model listings,
  * and mapping providers/models to workers.
@@ -168,6 +169,7 @@ async function updateWorkerAssignments(
 
 export const aiRoutes = new Elysia({ prefix: '/api/ai' })
   .use(requireAuth)
+  .use(aiConnectionRoutes)
 
   // GET /api/ai/config — Return configured AI providers status & worker assignments
   .get('/config', async () => {
@@ -221,6 +223,10 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
       const db = await getDb();
       const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
       const currentEnrichment = await loadEnrichmentConfig();
+      if (currentEnrichment?.ai_connections) {
+        set.status = 409;
+        return { error: 'AI connections are managed at /api/ai/connections/. Reload AI Settings.' };
+      }
 
       // Validate the entire request before changing any persisted settings.
       const assignments: Assignments = body.workers ?? {};

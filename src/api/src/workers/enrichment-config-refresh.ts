@@ -28,6 +28,7 @@ let readyVectorFingerprint: string | null = null;
 
 export function workerEnrichmentFingerprint(config: ResolvedEnrichmentConfig): string {
   return JSON.stringify({
+    aiConnections: config.ai_connections,
     describeWorkerEnabled: config.describe_worker_enabled,
     describeProvider: config.describe_provider,
     describeModel: config.describe_model,

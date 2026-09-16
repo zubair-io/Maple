@@ -1,0 +1,9 @@
+<div class="summary">
+  <strong>AI assignment</strong>
+  @if (config(); as c) {
+    <span>{{ names() }}</span>
+  } @else {
+    <span>View provider and model in AI Settings.</span>
+  }
+  <a routerLink="/settings/ai" [fragment]="worker()">Configure in AI Settings →</a>
+</div>

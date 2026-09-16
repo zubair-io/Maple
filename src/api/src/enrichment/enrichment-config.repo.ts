@@ -1,3 +1,4 @@
+import type { AiConnectionsConfig } from './ai-connections.ts';
 /**
  * Persisted enrichment runtime config. Mirrors the `indexer-config` shape:
  * a single document in `app_settings` keyed by `_id: "enrichment"`.
@@ -186,6 +187,7 @@ export function asDescribeProvider(raw: unknown): DescribeProviderName | null {
 }
 
 export interface EnrichmentConfig {
+  ai_connections?: AiConnectionsConfig;
   nominatim_url: string | null;
   geocode_worker_enabled: boolean;
   /** Sustained Nominatim throttle (token-bucket refill rate). Per-process.
@@ -359,6 +361,7 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
     }
   }
 
+  if (remapped.ai_connections !== undefined) set['config.ai_connections'] = remapped.ai_connections;
   if (remapped.nominatim_url !== undefined) {
     set['config.nominatim_url'] = remapped.nominatim_url;
   }

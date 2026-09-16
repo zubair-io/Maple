@@ -1,3 +1,4 @@
+import { AiWorkerSummaryComponent } from '../ai/ai-worker-summary.component';
 // GeneratedSearchKnobsComponent — the editable settings form inside the
 // Generated Searches panel.
 //
@@ -19,14 +20,13 @@ export interface GeneratedSearchDraft {
   min_results: number;
   max_rounds: number;
   retention_days: number;
-  model: string;
   dry_run: boolean;
 }
 
 @Component({
   selector: 'maple-generated-search-knobs',
   standalone: true,
-  imports: [MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent],
+  imports: [AiWorkerSummaryComponent, MuiButtonComponent, MuiCheckboxComponent, MuiInputComponent],
   templateUrl: './generated-search-knobs.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

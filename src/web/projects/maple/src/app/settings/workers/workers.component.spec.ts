@@ -57,6 +57,8 @@ describe('WorkersComponent', () => {
         paused: true,
         dry_run: false,
       });
+    for (const request of http.match('/api/ai/connections/'))
+      request.flush({ connections: [], assignments: {}, available_workers: [] });
     http.verify();
   });
 

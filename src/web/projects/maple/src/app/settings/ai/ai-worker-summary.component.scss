@@ -1,0 +1,14 @@
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  font-size: 13px;
+}
+span {
+  color: var(--s-text-muted);
+}
+a {
+  color: var(--s-accent);
+  text-decoration: underline;
+}

@@ -6,8 +6,14 @@ import { describeServersForRuntime } from '../workers/describe-capacity.ts';
  * raw key is never echoed to clients; `source.meilisearch_api_key` (db/env/
  * unset) is safe to keep so the UI can show provenance. */
 export async function toPublicConfig(resolved: ResolvedEnrichmentConfig) {
-  const { meilisearch_api_key, openai_api_key, anthropic_api_key, gemini_api_key, ...safe } =
-    resolved;
+  const {
+    ai_connections: _aiConnections,
+    meilisearch_api_key,
+    openai_api_key,
+    anthropic_api_key,
+    gemini_api_key,
+    ...safe
+  } = resolved;
   return {
     ...safe,
     openai_api_key_set: Boolean(openai_api_key),

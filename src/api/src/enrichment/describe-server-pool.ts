@@ -87,6 +87,7 @@ export type DescribeBreakerOptions = Pick<
 
 export class DescribeServerPool {
   private readonly slots: PoolSlot[];
+  private nextSlot = 0;
   private readonly openDurationMs: number;
   private readonly now: () => number;
   /** Callers parked because every server they may use was saturated or
@@ -101,6 +102,7 @@ export class DescribeServerPool {
     makeProvider: (url: string) => DescribeProvider = (url) =>
       getDescribeProvider('ollama', { url }),
     breaker: DescribeBreakerOptions = {},
+    private readonly roundRobin = false,
   ) {
     if (servers.length === 0) {
       throw new Error('DescribeServerPool requires at least one server');
@@ -169,9 +171,13 @@ export class DescribeServerPool {
       // while it has a free slot and the later servers absorb the overflow.
       // Sorting by headroom instead would silently prefer a big secondary
       // box over the default one, which is not what the list means.
-      const candidates = this.slots.filter((slot) => !exclude.has(slot.server.url));
+      const ordered = this.roundRobin
+        ? [...this.slots.slice(this.nextSlot), ...this.slots.slice(0, this.nextSlot)]
+        : this.slots;
+      const candidates = ordered.filter((slot) => !exclude.has(slot.server.url));
       const pick = candidates.find((slot) => hasCapacity(slot) && this.admits(slot));
       if (pick) {
+        this.nextSlot = (this.slots.indexOf(pick) + 1) % this.slots.length;
         pick.inFlight += 1;
         return pick;
       }

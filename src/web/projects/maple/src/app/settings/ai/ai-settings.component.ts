@@ -1,87 +1,33 @@
-// AiSettingsComponent — Dedicated AI settings surface at /settings/ai.
-//
-// Operator configuration for AI vision providers (Ollama, OpenAI, Anthropic, Gemini),
-// testing connections, discovering available models via provider APIs, and
-// mapping providers and models to workers (e.g. describe, video-describe).
-
 import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
   OnInit,
-  computed,
   inject,
   signal,
 } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { HttpErrorResponse } from '@angular/common/http';
 import {
   AiApiService,
-  type AiConfigResponse,
-  type AvailableWorker,
-  type MuiSelectOption,
   MuiButtonComponent,
   MuiInputComponent,
+  MuiCheckboxComponent,
+  MuiSettingsRowComponent,
   MuiSelectComponent,
 } from '@maple-common';
+import type { AiConnection, AiConnectionsResponse } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
-import { SettingsIconComponent } from '../settings-icon.component';
-
-export type AiProviderId = 'ollama' | 'openai' | 'anthropic' | 'gemini';
-
-export interface ProviderMeta {
-  readonly id: AiProviderId;
-  readonly name: string;
-  readonly badge: string;
-  readonly description: string;
-  readonly defaultModel: string;
-}
-
-export const PROVIDERS: readonly ProviderMeta[] = [
-  {
-    id: 'ollama',
-    name: 'Ollama',
-    badge: 'Local / Self-Hosted',
-    description: 'Local or networked Ollama instance running open vision models.',
-    defaultModel: 'gemma4:12b',
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    badge: 'Cloud API',
-    description: 'OpenAI GPT-4o and GPT-4o-mini multimodal vision models.',
-    defaultModel: 'gpt-4o-mini',
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic',
-    badge: 'Cloud API',
-    description: 'Claude 3.5 and Claude 3.7 multimodal vision models.',
-    defaultModel: 'claude-3-5-haiku-20241022',
-  },
-  {
-    id: 'gemini',
-    name: 'Google Gemini',
-    badge: 'Cloud API',
-    description: 'Gemini 2.0 and Gemini 1.5 multimodal vision models.',
-    defaultModel: 'gemini-2.0-flash',
-  },
-];
-
-type SaveState =
-  | { kind: 'idle' }
-  | { kind: 'saving' }
-  | { kind: 'saved' }
-  | { kind: 'error'; message: string };
 
 @Component({
   selector: 'maple-ai-settings',
   standalone: true,
   imports: [
     SettingsShellComponent,
-    SettingsIconComponent,
     MuiButtonComponent,
     MuiInputComponent,
+    MuiCheckboxComponent,
+    MuiSettingsRowComponent,
     MuiSelectComponent,
   ],
   templateUrl: './ai-settings.component.html',
@@ -90,306 +36,282 @@ type SaveState =
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AiSettingsComponent implements OnInit {
-  private readonly aiApi = inject(AiApiService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly api = inject(AiApiService);
   private readonly destroyRef = inject(DestroyRef);
-  private modelRequest = 0;
-  private connectionRequest = 0;
-
-  readonly providers = PROVIDERS;
+  readonly config = signal<AiConnectionsResponse | null>(null);
   readonly loading = signal(true);
-  readonly loadError = signal<string | null>(null);
-  readonly saveState = signal<SaveState>({ kind: 'idle' });
-
-  readonly activeProvider = signal<AiProviderId>('ollama');
-
-  // Provider credentials & endpoint inputs
-  protected readonly fOllamaUrl = signal('http://localhost:11434');
-  protected readonly fOpenAiKey = signal('');
-  protected readonly hasOpenAiKey = signal(false);
-  protected readonly fAnthropicKey = signal('');
-  protected readonly hasAnthropicKey = signal(false);
-  protected readonly fGeminiKey = signal('');
-  protected readonly hasGeminiKey = signal(false);
-
-  // Model discovery
-  protected readonly modelsLoading = signal(false);
-  protected readonly modelsError = signal<string | null>(null);
-  protected readonly modelsByProvider = signal<Record<AiProviderId, string[]>>({
-    ollama: ['gemma4:12b', 'qwen2.5-vl:7b', 'llava:latest'],
-    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'],
-    anthropic: [
-      'claude-3-5-haiku-20241022',
-      'claude-3-5-sonnet-20241022',
-      'claude-3-7-sonnet-20250219',
-    ],
-    gemini: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
-  });
-  readonly selectedModel = signal<string>('gemma4:12b');
-
-  // Connection testing
-  protected readonly testLoading = signal(false);
-  protected readonly testResult = signal<{ ok: boolean; message: string } | null>(null);
-
-  // Worker assignments
-  protected readonly availableWorkers = signal<AvailableWorker[]>([
-    { id: 'describe', name: 'Describe (Image Captioning & OCR)' },
-    { id: 'video-describe', name: 'Video Describe (Video Summarization)' },
-  ]);
-  readonly workerAssignments = signal<Record<string, { provider: string; model: string }>>({
-    describe: { provider: 'ollama', model: 'gemma4:12b' },
-    'video-describe': { provider: 'ollama', model: 'gemma4:12b' },
-  });
-
-  protected readonly activeMeta = computed<ProviderMeta>(() => {
-    return PROVIDERS.find((p) => p.id === this.activeProvider()) ?? PROVIDERS[0]!;
-  });
-
-  protected readonly currentModelOptions = computed<readonly MuiSelectOption[]>(() => {
-    const list = this.modelsByProvider()[this.activeProvider()] ?? [];
-    return list.map((m) => ({ value: m, label: m }));
-  });
+  readonly saving = signal(false);
+  readonly dirty = signal(false);
+  readonly message = signal('');
+  readonly error = signal('');
+  readonly models = signal<Record<string, string[]>>({});
+  readonly probes = signal<Record<string, string>>({});
+  readonly busy = signal<Record<string, boolean>>({});
+  readonly expandedWorker = signal<string | null>(null);
+  readonly expandedConnection = signal<string | null>(null);
+  readonly providerOptions = [
+    { value: 'ollama', label: 'Ollama' },
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'anthropic', label: 'Anthropic' },
+    { value: 'gemini', label: 'Gemini' },
+  ];
+  readonly customModels = signal<Record<string, boolean>>({});
+  readonly customModelOption = '__custom_model__';
+  modelChoices(worker: string, connection: AiConnection) {
+    const current = this.connectionModel(worker, connection.id);
+    const models = [
+      ...new Set([...(current ? [current] : []), ...(this.models()[connection.id] ?? [])]),
+    ];
+    return [
+      { value: '', label: 'Select a model' },
+      ...models.map((model) => ({ value: model, label: model })),
+      ...(connection.provider === 'ollama'
+        ? [{ value: this.customModelOption, label: 'Enter model ID…' }]
+        : []),
+    ];
+  }
+  chooseModel(worker: string, id: string, model: string): void {
+    if (model === this.customModelOption) {
+      this.customModels.update((v) => ({ ...v, [worker + ':' + id]: true }));
+      return;
+    }
+    this.setModel(worker, model, id);
+  }
+  closeCustomModel(worker: string, id: string): void {
+    this.customModels.update((v) => ({ ...v, [worker + ':' + id]: false }));
+  }
+  private readonly revisions = new Map<string, number>();
 
   ngOnInit(): void {
-    this.loadConfig();
+    this.load();
   }
-
-  private applyLoadedProviders(providers: AiConfigResponse['providers']): void {
-    const ollamaUrl = providers.ollama?.url;
-    if (ollamaUrl) {
-      this.fOllamaUrl.set(ollamaUrl);
-    }
-    this.hasOpenAiKey.set(Boolean(providers.openai?.has_key));
-    this.hasAnthropicKey.set(Boolean(providers.anthropic?.has_key));
-    this.hasGeminiKey.set(Boolean(providers.gemini?.has_key));
-  }
-
-  private applyLoadedWorkers(cfg: AiConfigResponse): void {
-    const workers = cfg.workers;
-    if (workers) {
-      this.workerAssignments.set({ ...workers });
-    }
-    const avail = cfg.available_workers;
-    if (avail && avail.length > 0) {
-      this.availableWorkers.set(avail);
-    }
-    const assignment = workers?.['describe'];
-    const provider = PROVIDERS.find((p) => p.id === assignment?.provider);
-    if (provider) this.activeProvider.set(provider.id);
-    this.selectedModel.set(assignment?.model ?? this.activeMeta().defaultModel);
-  }
-
-  loadConfig(): void {
+  load(): void {
     this.loading.set(true);
-    this.loadError.set(null);
-    this.aiApi
-      .getConfig()
+    this.error.set('');
+    this.api
+      .getConnections()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (cfg: AiConfigResponse) => {
-          this.applyLoadedProviders(cfg.providers);
-          this.applyLoadedWorkers(cfg);
+        next: (config) => {
+          this.config.set(config);
           this.loading.set(false);
-          this.fetchModels(this.activeProvider());
+          const worker = this.expandedWorker() ?? this.route.snapshot.fragment;
+          if (worker) this.setWorkerOpen(worker, true);
+          this.dirty.set(Boolean(config.needs_save));
+          this.message.set(
+            config.needs_save
+              ? 'Existing settings imported. Review and save to make worker assignments independent.'
+              : '',
+          );
         },
-        error: (err: HttpErrorResponse) => {
-          this.loadError.set(err.error?.message ?? 'Failed to load AI configuration.');
+        error: () => {
+          this.error.set('Could not load AI settings. Retry to continue.');
           this.loading.set(false);
         },
       });
   }
-
-  selectProvider(id: AiProviderId): void {
-    this.activeProvider.set(id);
-    this.connectionRequest++;
-    this.testLoading.set(false);
-    this.testResult.set(null);
-    this.modelsError.set(null);
-    const existing = this.modelsByProvider()[id];
-    if (existing && existing.length > 0) {
-      this.selectedModel.set(existing[0]!);
-    } else {
-      const meta = PROVIDERS.find((p) => p.id === id);
-      this.selectedModel.set(meta?.defaultModel ?? '');
-    }
-    this.fetchModels(id);
+  addConnection(): void {
+    const id = crypto.randomUUID();
+    this.expandedConnection.set(id);
+    this.config.update(
+      (c) =>
+        c && {
+          ...c,
+          connections: [
+            ...c.connections,
+            {
+              id,
+              name: 'New connection',
+              provider: 'ollama',
+              url: '',
+              concurrency: 2,
+            },
+          ],
+        },
+    );
+    this.changed();
   }
-
-  fetchModels(provider: AiProviderId): void {
-    this.modelsLoading.set(true);
-    this.modelsError.set(null);
-
-    const payload = {
-      provider,
-      url: provider === 'ollama' ? this.fOllamaUrl().trim() : null,
-      ...(this.getApiKeyForProvider(provider)
-        ? { api_key: this.getApiKeyForProvider(provider) }
-        : {}),
-    };
-
-    const request = ++this.modelRequest;
-    this.aiApi
-      .listModels(payload)
+  updateConnection(id: string, patch: Partial<AiConnection>): void {
+    this.revisions.set(id, (this.revisions.get(id) ?? 0) + 1);
+    this.config.update(
+      (c) =>
+        c && {
+          ...c,
+          connections: c.connections.map((v) => (v.id === id ? { ...v, ...patch } : v)),
+        },
+    );
+    this.models.update((v) => ({ ...v, [id]: [] }));
+    this.probes.update((v) => ({ ...v, [id]: '' }));
+    this.busy.update((v) => ({ ...v, [id]: false }));
+    this.changed();
+  }
+  providerChanged(id: string, provider: string): void {
+    this.updateConnection(id, { provider, url: '', api_key: null, has_key: false });
+    this.config.update(
+      (c) =>
+        c && {
+          ...c,
+          assignments: Object.fromEntries(
+            Object.entries(c.assignments).map(([worker, a]) => [
+              worker,
+              a.connection_ids.includes(id)
+                ? {
+                    ...a,
+                    model: a.connection_ids.filter((key) => key !== id).length ? a.model : '',
+                    connection_models: Object.fromEntries(
+                      a.connection_ids
+                        .filter((key) => key !== id)
+                        .map((key) => [key, a.connection_models?.[key] ?? a.model]),
+                    ),
+                    connection_ids: a.connection_ids.filter((key) => key !== id),
+                  }
+                : a,
+            ]),
+          ),
+        },
+    );
+  }
+  removeConnection(id: string): void {
+    if (this.usedBy(id).length) return;
+    this.config.update((c) => c && { ...c, connections: c.connections.filter((v) => v.id !== id) });
+    this.changed();
+  }
+  usedBy(id: string): string[] {
+    const c = this.config();
+    return (
+      c?.available_workers
+        .filter((w) => c.assignments[w.id]?.connection_ids.includes(id))
+        .map((w) => w.name) ?? []
+    );
+  }
+  toggleConnection(worker: string, id: string, checked: boolean): void {
+    this.config.update((c) => {
+      if (!c) return c;
+      const a = c.assignments[worker]!;
+      const multiple = c.available_workers.find((w) => w.id === worker)?.multiple;
+      const ids = checked
+        ? [...new Set([...(multiple ? a.connection_ids : []), id])]
+        : a.connection_ids.filter((key) => key !== id);
+      const connection_models = Object.fromEntries(
+        ids.map((key) => [
+          key,
+          a.connection_ids.includes(key) ? (a.connection_models?.[key] ?? a.model) : '',
+        ]),
+      );
+      return {
+        ...c,
+        assignments: {
+          ...c.assignments,
+          [worker]: {
+            model: connection_models[ids[0]!] ?? '',
+            connection_ids: ids,
+            connection_models,
+          },
+        },
+      };
+    });
+    this.changed();
+    const selected = this.config()?.connections.find((c) => c.id === id);
+    if (checked && selected) this.probe(selected, true);
+  }
+  setWorkerOpen(worker: string, open: boolean): void {
+    this.expandedWorker.set(open ? worker : null);
+    if (!open) return;
+    const c = this.config();
+    const ids = c?.assignments[worker]?.connection_ids ?? [];
+    for (const connection of c?.connections ?? []) {
+      if (ids.includes(connection.id) && !this.busy()[connection.id]) this.probe(connection, true);
+    }
+  }
+  connectionModel(worker: string, id: string): string {
+    const a = this.config()?.assignments[worker];
+    return a?.connection_models ? (a.connection_models[id] ?? '') : (a?.model ?? '');
+  }
+  setModel(worker: string, model: string, id?: string): void {
+    this.config.update((c) => {
+      if (!c) return c;
+      const a = c.assignments[worker]!;
+      const key = id ?? a.connection_ids[0]!;
+      const connection_models = Object.fromEntries(
+        a.connection_ids.map((connectionId) => [
+          connectionId,
+          connectionId === key ? model : this.connectionModel(worker, connectionId),
+        ]),
+      );
+      return {
+        ...c,
+        assignments: {
+          ...c.assignments,
+          [worker]: {
+            ...a,
+            model: connection_models[a.connection_ids[0]!] ?? '',
+            connection_models,
+          },
+        },
+      };
+    });
+    this.changed();
+  }
+  probe(connection: AiConnection, models: boolean): void {
+    const revision = (this.revisions.get(connection.id) ?? 0) + 1;
+    this.revisions.set(connection.id, revision);
+    this.busy.update((v) => ({ ...v, [connection.id]: true }));
+    this.api
+      .probeConnection(connection, models)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => {
-          if (request !== this.modelRequest || provider !== this.activeProvider()) return;
-          if (res.models && res.models.length > 0) {
-            this.modelsByProvider.update((cur) => ({
-              ...cur,
-              [provider]: res.models,
+        next: (result) => {
+          if (this.revisions.get(connection.id) !== revision) return;
+          this.busy.update((v) => ({ ...v, [connection.id]: false }));
+          if (result.models)
+            this.models.update((v) => ({
+              ...v,
+              [connection.id]: result.error ? [] : result.models!,
             }));
-            if (!res.models.includes(this.selectedModel())) {
-              this.selectedModel.set(res.models[0]!);
-            }
-          }
-          if (res.error) {
-            this.modelsError.set(res.error);
-          }
-          this.modelsLoading.set(false);
+          this.probes.update((v) => ({
+            ...v,
+            [connection.id]:
+              result.error ??
+              (models
+                ? `${result.models?.length ?? 0} models available.`
+                : 'Connection successful.'),
+          }));
         },
-        error: (err: HttpErrorResponse) => {
-          if (request !== this.modelRequest || provider !== this.activeProvider()) return;
-          this.modelsError.set(err.error?.error ?? 'Failed to fetch models from provider.');
-          this.modelsLoading.set(false);
-        },
-      });
-  }
-
-  testConnection(): void {
-    const provider = this.activeProvider();
-    this.testLoading.set(true);
-    this.testResult.set(null);
-
-    const payload = {
-      provider,
-      url: provider === 'ollama' ? this.fOllamaUrl().trim() : null,
-      ...(this.getApiKeyForProvider(provider)
-        ? { api_key: this.getApiKeyForProvider(provider) }
-        : {}),
-    };
-
-    const request = ++this.connectionRequest;
-    this.aiApi
-      .testConnection(payload)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (res) => {
-          if (request !== this.connectionRequest) return;
-          this.testLoading.set(false);
-          if (res.ok) {
-            this.testResult.set({ ok: true, message: 'Connection successful!' });
-          } else {
-            this.testResult.set({ ok: false, message: res.error ?? 'Connection failed' });
-          }
-        },
-        error: (err: HttpErrorResponse) => {
-          if (request !== this.connectionRequest) return;
-          this.testLoading.set(false);
-          this.testResult.set({
-            ok: false,
-            message: err.error?.error ?? err.message ?? 'Connection failed',
-          });
+        error: (err) => {
+          if (this.revisions.get(connection.id) !== revision) return;
+          this.busy.update((v) => ({ ...v, [connection.id]: false }));
+          this.probes.update((v) => ({
+            ...v,
+            [connection.id]: err.error?.error ?? 'Connection failed.',
+          }));
         },
       });
   }
-
-  onModelChange(model: string): void {
-    this.selectedModel.set(model);
-  }
-
-  isAssigned(workerId: string): boolean {
-    const a = this.workerAssignments()[workerId];
-    return a?.provider === this.activeProvider() && a?.model === this.selectedModel();
-  }
-
-  toggleWorkerAssignment(workerId: string, checked: boolean): void {
-    if (checked) {
-      this.assignActiveToWorker(workerId);
-    }
-  }
-
-  assignActiveToWorker(workerId: string): void {
-    const provider = this.activeProvider();
-    const model = this.selectedModel();
-    this.workerAssignments.update((cur) => ({
-      ...cur,
-      [workerId]: { provider, model },
-    }));
-  }
-
   save(): void {
-    this.saveState.set({ kind: 'saving' });
-
-    const patch: Parameters<AiApiService['updateConfig']>[0] = {
-      providers: {
-        ollama: {
-          url: this.fOllamaUrl().trim() || null,
-        },
-      },
-      workers: this.workerAssignments(),
-    };
-
-    const openAiKey = this.fOpenAiKey().trim();
-    if (openAiKey) {
-      patch.providers!.openai = { api_key: openAiKey };
-    }
-    const anthropicKey = this.fAnthropicKey().trim();
-    if (anthropicKey) {
-      patch.providers!.anthropic = { api_key: anthropicKey };
-    }
-    const geminiKey = this.fGeminiKey().trim();
-    if (geminiKey) {
-      patch.providers!.gemini = { api_key: geminiKey };
-    }
-
-    this.aiApi
-      .updateConfig(patch)
+    const c = this.config();
+    if (!c || this.saving()) return;
+    this.saving.set(true);
+    this.error.set('');
+    this.api
+      .saveConnections({ connections: c.connections, assignments: c.assignments })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
-          this.saveState.set({ kind: 'saved' });
-          if (openAiKey) this.hasOpenAiKey.set(true);
-          if (anthropicKey) this.hasAnthropicKey.set(true);
-          if (geminiKey) this.hasGeminiKey.set(true);
-          this.fOpenAiKey.set('');
-          this.fAnthropicKey.set('');
-          this.fGeminiKey.set('');
-          setTimeout(() => {
-            this.saveState.update((s) => (s.kind === 'saved' ? { kind: 'idle' } : s));
-          }, 2000);
+        next: (config) => {
+          this.config.set(config);
+          this.saving.set(false);
+          this.dirty.set(false);
+          this.message.set('AI settings saved. Workers will pick up the changes automatically.');
         },
-        error: (err: HttpErrorResponse) => {
-          this.saveState.set({
-            kind: 'error',
-            message: err.error?.error ?? err.error?.message ?? 'Failed to save configuration.',
-          });
+        error: (err) => {
+          this.saving.set(false);
+          this.error.set(err.error?.error ?? 'Could not save AI settings.');
         },
       });
   }
-
-  getApiKeyForProvider(provider: AiProviderId): string {
-    switch (provider) {
-      case 'openai':
-        return this.fOpenAiKey().trim();
-      case 'anthropic':
-        return this.fAnthropicKey().trim();
-      case 'gemini':
-        return this.fGeminiKey().trim();
-      default:
-        return '';
-    }
-  }
-
-  isProviderConfigured(id: AiProviderId): boolean {
-    switch (id) {
-      case 'ollama':
-        return Boolean(this.fOllamaUrl().trim());
-      case 'openai':
-        return this.hasOpenAiKey() || Boolean(this.fOpenAiKey().trim());
-      case 'anthropic':
-        return this.hasAnthropicKey() || Boolean(this.fAnthropicKey().trim());
-      case 'gemini':
-        return this.hasGeminiKey() || Boolean(this.fGeminiKey().trim());
-    }
+  private changed(): void {
+    this.dirty.set(true);
+    this.message.set('');
+    this.error.set('');
   }
 }

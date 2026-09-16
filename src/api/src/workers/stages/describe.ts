@@ -1,3 +1,4 @@
+import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
 /**
  * Describe (caption + structured vision) stage.
  *
@@ -122,16 +123,28 @@ async function createDescribePool(
   );
 }
 
+async function legacySelection(
+  cfg: ReturnType<typeof resolveEnrichmentConfig>,
+  worker: Awaited<ReturnType<typeof loadWorkerConfigSafe>>,
+) {
+  const provider = resolveDescribeProvider(worker?.ai_provider, cfg.describe_provider);
+  const model = resolveDescribeModel(worker?.ai_model, cfg.describe_model, provider);
+  return {
+    provider,
+    model,
+    pool: await createDescribePool(provider, cfg, worker?.concurrency ?? 2),
+  };
+}
+
 async function getDeps(): Promise<DescribeDeps> {
   if (_deps) return _deps;
   const dbConfig = await loadEnrichmentConfig();
   const cfg = resolveEnrichmentConfig(dbConfig);
   const workerConfig = await loadWorkerConfigSafe('describe');
 
-  const provider = resolveDescribeProvider(workerConfig?.ai_provider, cfg.describe_provider);
-  const model = resolveDescribeModel(workerConfig?.ai_model, cfg.describe_model, provider);
+  const { provider, model, pool } =
+    assignedAiPool(cfg.ai_connections, 'describe') ?? (await legacySelection(cfg, workerConfig));
   const systemPrompt = composeDescribePrompt(workerConfig?.prompt_text);
-  const pool = await createDescribePool(provider, cfg, workerConfig?.concurrency ?? 2);
 
   _deps = {
     pool,
@@ -252,13 +265,13 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   const { result, server } = await pool.run(async (provider, pickedServer) => ({
     result: await provider.describe([jpegBytes], {
       systemPrompt,
-      model,
+      model: pickedServer.model ?? model,
       // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
       // enforces this at decode time, so the model cannot emit out-of-enum
       // values, drop required fields, or produce malformed JSON. The
       // parse-vision-json synonym maps stay as defense in depth for older
       // Ollama versions and edge cases.
-      format: providerName === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
+      format: provider.name === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
     }),
     server: pickedServer,
   }));
@@ -278,11 +291,11 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     // Free-text caption mirror — legacy clients still read `description`.
     description: vision.caption,
     description_meta: {
-      provider: providerName,
+      provider: server.provider ?? providerName,
       // Which box answered. Without it a slow or subtly-broken server in a
       // multi-server pool is invisible in triage.
       server_url: server.url,
-      model,
+      model: server.model ?? model,
       prompt_version: DESCRIBE_PROMPT_VERSION,
       generated_at: now,
       cost_usd: result.cost_usd,
@@ -295,9 +308,9 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     // reappear on the next sidecar re-index.
     vision: { ...vision, is_screenshot: isScreenshot },
     vision_meta: {
-      provider: providerName,
+      provider: server.provider ?? providerName,
       server_url: server.url,
-      model,
+      model: server.model ?? model,
       prompt_version: DESCRIBE_PROMPT_VERSION,
       generated_at: now,
       raw_response_size: rawResponseSize,
@@ -316,7 +329,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   patch.ocr_text = vision.text_visible ?? '';
   patch.ocr_meta = {
     engine: 'qwen2.5-vl',
-    engine_version: model,
+    engine_version: server.model ?? model,
     generated_at: now,
     // qwen2.5-vl has no per-token confidence the way a classic OCR engine does.
     mean_confidence: null,

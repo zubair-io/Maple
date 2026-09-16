@@ -22,6 +22,7 @@
  * budget stays comfortable on both.
  */
 
+import type { DescribeProviderName } from './describe-providers/index.ts';
 import { validateHttpUrl } from '../observability/observability-config.repo.ts';
 
 export interface DescribeServerConfig {
@@ -29,6 +30,8 @@ export interface DescribeServerConfig {
   url: string;
   /** Maximum in-flight describe requests against this server. */
   concurrency: number;
+  model?: string;
+  provider?: DescribeProviderName;
 }
 
 /** Per-server default when the operator adds a row without touching the

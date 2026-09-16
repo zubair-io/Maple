@@ -106,7 +106,6 @@ export class GeneratedSearchSettingsComponent implements OnInit {
         min_results: config.min_results,
         max_rounds: config.max_rounds,
         retention_days: config.retention_days,
-        model: config.model,
         dry_run: config.dry_run,
       });
       await this.resolveLibrary();
@@ -204,7 +203,6 @@ export class GeneratedSearchSettingsComponent implements OnInit {
         min_results: response.config.min_results,
         max_rounds: response.config.max_rounds,
         retention_days: response.config.retention_days,
-        model: response.config.model,
         dry_run: response.config.dry_run,
       });
       this.saved.set(true);

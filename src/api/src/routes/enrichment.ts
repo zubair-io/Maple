@@ -1,23 +1,7 @@
-/**
- * /api/enrichment/* — operator-facing routes for the slow-tier enrichment
- * workers. Today only the geocode worker has settings (Nominatim URL +
- * enabled flag); the face/describe workers will slot into this surface
- * when they ship.
- *
- *   GET  /api/enrichment/config        — current effective config + sources
- *   PUT  /api/enrichment/config        — save new config; runs health-check
- *   POST /api/enrichment/test          — health-check an arbitrary Nominatim
- *                                        URL without saving (UI "Test" button)
- *   POST /api/enrichment/test-meili    — health-check an arbitrary
- *                                        Meilisearch URL without saving
- *   POST /api/enrichment/test-describe — health-check a describe provider
- *
- * All routes are mounted behind `requireAuth` — see `src/index.ts`. PUT
- * /config additionally requires `owner` (#2353): it can repoint
- * `meilisearch_url` at an attacker-controlled host, so a member mustn't be
- * able to redirect search traffic + the stored API key bearer. GET/test stay
- * member-readable — read-only, and the response never echoes secrets.
- */
+import { rejectLegacyAiWrite } from './ai-legacy-write.ts';
+/** Enrichment runtime controls. AI provider connections and model assignments
+ * are owned by /api/ai/connections once an operator saves the unified page.
+ * Writes require owner access; public responses never contain credentials. */
 
 import { Elysia, t } from 'elysia';
 import { toPublicConfig } from './enrichment-public-config.ts';
@@ -493,7 +477,10 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       return await toPublicConfig(resolved);
     },
     // #2353 — owner-only; scoped to just this handler so GET/test stay member-accessible.
-    { body: ConfigBody, beforeHandle: requireOwnerBeforeHandle },
+    {
+      body: ConfigBody,
+      beforeHandle: [requireOwnerBeforeHandle, rejectLegacyAiWrite],
+    },
   )
 
   .post(

@@ -3,6 +3,27 @@ import { describe, expect, it, vi } from 'vitest';
 import { MuiSelectComponent } from './mui-select.component';
 
 describe('MuiSelect native semantics', () => {
+  it('selects a non-first saved value when options arrive or refresh', () => {
+    const fixture = TestBed.createComponent(MuiSelectComponent);
+    fixture.componentRef.setInput('value', 'saved');
+    fixture.componentRef.setInput('ariaLabel', 'Model');
+    fixture.componentRef.setInput('options', []);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('options', [
+      { value: '', label: 'Choose' },
+      { value: 'saved', label: 'Saved' },
+    ]);
+    fixture.detectChanges();
+    const select: HTMLSelectElement = fixture.nativeElement.querySelector('select');
+    expect(select.value).toBe('saved');
+    fixture.componentRef.setInput('options', [
+      { value: '', label: 'Choose' },
+      { value: 'new', label: 'New' },
+      { value: 'saved', label: 'Saved' },
+    ]);
+    fixture.detectChanges();
+    expect(select.value).toBe('saved');
+  });
   it('exposes the selected value and accessible name; emits only available choices', () => {
     const fixture = TestBed.createComponent(MuiSelectComponent);
     fixture.componentRef.setInput('value', 'daylight');

@@ -4,6 +4,34 @@ Everything Maple knows about a photo beyond its bytes is produced by a backgroun
 
 The whole tier runs in a separate, `nice`d child process spawned by the HTTP server, so indexing load can never starve or crash the API.
 
+## AI provider connections and worker assignments
+
+Settings → AI is the single editor for named provider connections (Ollama servers,
+OpenAI, Anthropic, Gemini accounts), connection testing/model discovery, and worker
+assignments. `GET/PUT /api/ai/connections/` reads/saves the connection list and
+assignments together in `app_settings.enrichment.config.ai_connections`. API keys
+are write-only; omitting a key preserves it only for the same connection ID and
+provider. `POST /api/ai/connections/probe` tests/discovers using that connection's
+saved key or the unsaved key supplied by the owner. All three routes require owner access.
+
+Describe and Video Describe can mix Ollama and cloud connections, each with its
+own model. Requests rotate round-robin through healthy connections with capacity.
+Connection concurrency caps each worker's pool; Describe's stage
+concurrency is derived from its assigned pool. Generated search chooses its own
+Ollama text-generation connection/model. Semantic search chooses its own Ollama
+embedding connection/model, reachable from the Meilisearch host. Those two workers
+currently support Ollama only. Their settings no longer follow Describe after the
+first unified save. Whisper and face-model controls remain on their worker cards.
+
+Before that first save, the API imports the effective legacy configuration for
+review, preserving all Describe servers, capacity, worker model overrides, and the
+generated-search model override. Reading does not rewrite existing settings. Saving
+snapshots independent assignments atomically. Legacy AI/enrichment writes that
+would compete with the registry return 409 after migration. Worker processes pick
+up connection, credential and assignment changes through the existing two-second
+config refresh; the API also refreshes its search client after a save. Assignments
+do not bump stage versions or reprocess existing assets automatically.
+
 ## Where it runs
 
 `src/api/src/index.ts` spawns `src/api/src/workers/worker-main.ts` as a child process (`ChildProcessWorker`, niced) and auto-respawns it on death with exponential backoff (1 s → 30 s, reset once a worker has lived 60 s). Setting `MAPLE_INDEXER_AUTOSTART=0` suppresses the spawn entirely — useful for running an API-only replica.
@@ -158,7 +186,7 @@ Two details worth internalising:
 
 The manual worker SemVer field is an operator label: it neither changes the code-defined stage target version nor requeues existing assets. Prompt/model edits do not automatically bump that label.
 
-Ollama servers remain pooled by `enrichment/describe-server-pool.ts`, with per-server concurrency, failover, and circuit breakers. Saving the default URL also updates the first saved server entry; server lists retain their existing validation. Paid providers use worker concurrency rather than deriving it from the Ollama list. Description and OCR remain derived database fields; no XMP sidecars are written. Because the preview is AVIF and provider inputs are JPEG, handlers re-encode in memory.
+Ollama servers remain pooled by `enrichment/describe-server-pool.ts`, with per-server concurrency, failover, and circuit breakers. Saving the default URL also updates the first saved server entry; server lists retain their existing validation. Legacy paid-provider settings use worker concurrency; centralized assignments derive Describe capacity from every selected connection. Description and OCR remain derived database fields; no XMP sidecars are written. Because the preview is AVIF and provider inputs are JPEG, handlers re-encode in memory.
 
 **`meili` depends only on the always-on stages,** so search is available early. Every optional producer of searchable text — describe, geocode, transcribe, sidecar metadata, people renames — explicitly re-arms `meili` when its output changes.
 
@@ -294,3 +322,10 @@ bash src/scripts/test_face_clustering.sh
 ```
 
 `.github/workflows/api.yml` runs `bun test` against a MongoDB 7 service container plus a real Meilisearch container for the transport integration test. `.github/workflows/face-clustering.yml` runs the clustering ratchet on changes under `src/api/src/people/`. See [testing](testing.md) for the full gate list, [api](api.md) for the server's own architecture, and [caching](caching.md) for how the derivatives these stages write are keyed and invalidated.
+
+AI worker assignments can store `connection_models`, keyed by selected connection ID.
+Describe and Video Describe accept mixed local/cloud connections, rotate requests round-robin
+among healthy connections with capacity, and retain per-connection concurrency and retry failover.
+Each request uses the selected connection's model and records its provider/model in result metadata.
+Older assignments without `connection_models` retain their shared model until edited.
+Generated search and semantic search remain single-connection Ollama workers.

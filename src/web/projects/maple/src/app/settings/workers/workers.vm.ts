@@ -40,24 +40,8 @@ export interface RuntimeForm {
   prompt_text?: string;
 }
 
-/** One editable describe-server row. Numbers are strings because they are
- * bound straight to an input; parsing happens on save. */
-export interface DescribeServerForm {
-  url: string;
-  concurrency: string;
-}
-
-/** Per-stage form state for the enrichment domain config. */
+/** Per-stage form state for non-AI enrichment controls. */
 export interface EnrichmentForm {
-  // Describe — `describe_model` is intentionally absent: the runtime pins
-  // one vision model (see FIXED_DESCRIBE_MODEL below), so the UI displays
-  // it read-only and never sends it.
-  describe_provider_url: string;
-  /** Ordered describe servers. Row 0 is the default: its URL is what every
-   * other Ollama consumer (semantic search) uses, which is why "make
-   * default" is a move-to-front rather than a separate flag. Never empty —
-   * the UI keeps one blank row so there is always something to type into. */
-  describe_servers: DescribeServerForm[];
   transcribe_model_tier: string;
   // Geocode
   nominatim_url: string;
@@ -78,19 +62,9 @@ export interface EnrichmentForm {
   meilisearch_api_key: string;
   meilisearch_task_timeout_seconds: string;
   meilisearch_semantic_enabled: boolean;
-  meilisearch_embedder_model: string;
   meilisearch_semantic_ratio: string;
   service_search_rate_limit_per_minute: string;
 }
-
-/** Ollama tag the describe stage is locked to at runtime. The structured
- * JSON parser only accepts this model's output shape, so the operator's
- * DB-backed `describe_model` is ignored server-side and the UI surface
- * matches by treating the field as read-only. Mirrors
- * `DESCRIBE_VISION_OLLAMA_TAG`
- * + `FIXED_DESCRIBE_MODEL` in `src/api/src/enrichment/enrichment-config.repo.ts`
- * and `src/api/src/workers/stages/describe.ts`. */
-export const FIXED_DESCRIBE_MODEL = 'gemma4:12b';
 
 export type SaveState = 'idle' | 'saving' | 'success' | 'error';
 
@@ -141,18 +115,13 @@ function blankFace(ec: EnrichmentConfigResponse | null) {
 function blankMeilisearchSemantic(ec: EnrichmentConfigResponse | null) {
   return {
     meilisearch_semantic_enabled: ec?.meilisearch_semantic_enabled ?? false,
-    meilisearch_embedder_model: ec?.meilisearch_embedder_model ?? 'bge-m3',
     meilisearch_semantic_ratio: String(ec?.meilisearch_semantic_ratio ?? 0.5),
   };
 }
 
-/** Seed enrichment-form values from the latest server config snapshot.
- * `describe_model` is not seeded — the runtime hardcodes the model so the
- * UI shows `FIXED_DESCRIBE_MODEL` as a read-only label. */
+/** Seed the worker controls; AI assignments live on the AI page. */
 export function blankEnrichment(ec: EnrichmentConfigResponse | null): EnrichmentForm {
   return {
-    describe_provider_url: ec?.describe_provider_url ?? '',
-    describe_servers: blankDescribeServers(ec),
     transcribe_model_tier: ec?.transcribe_model_tier ?? 'medium.en',
     nominatim_url: ec?.nominatim_url ?? '',
     nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
@@ -163,66 +132,6 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     meilisearch_task_timeout_seconds: String(ec?.meilisearch_task_timeout_seconds ?? 600),
     ...blankMeilisearchSemantic(ec),
     service_search_rate_limit_per_minute: String(ec?.service_search_rate_limit_per_minute ?? 60),
-  };
-}
-
-/** Default per-server concurrency for a freshly added row. Mirrors
- * `DEFAULT_DESCRIBE_SERVER_CONCURRENCY` in
- * `src/api/src/enrichment/describe-servers.ts`. */
-export const DEFAULT_DESCRIBE_SERVER_CONCURRENCY = 2;
-export const MAX_DESCRIBE_SERVERS = 8;
-export const MAX_DESCRIBE_SERVER_CONCURRENCY = 32;
-
-/** Seed the server rows from the resolved config. The server always sends a
- * non-empty list (it derives one from the single URL when nothing is
- * saved), but an older API build might not, so fall back to the single URL
- * and finally to one blank row. */
-function blankDescribeServers(ec: EnrichmentConfigResponse | null): DescribeServerForm[] {
-  const saved = ec?.describe_servers ?? [];
-  if (saved.length > 0) {
-    return saved.map((server) => ({
-      url: server.url,
-      concurrency: String(server.concurrency),
-    }));
-  }
-  return [
-    {
-      url: ec?.describe_provider_url ?? '',
-      concurrency: String(DEFAULT_DESCRIBE_SERVER_CONCURRENCY),
-    },
-  ];
-}
-
-/** Read one row's concurrency the way the save path will. Unparseable text
- * saves as 1 rather than dropping the server, so the capacity label must
- * count it as 1 too — otherwise the number on screen disagrees with what
- * the server persists and dispatches. */
-function rowConcurrency(server: DescribeServerForm): number {
-  const parsed = Number(server.concurrency.trim());
-  return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
-}
-
-/** Total in-flight describe requests the configured servers allow. This is
- * the describe stage's concurrency — the server derives it on save, and the
- * Stage runtime block shows it read-only. */
-export function describeCapacity(servers: readonly DescribeServerForm[]): number {
-  return servers
-    .filter((server) => server.url.trim().length > 0)
-    .reduce((sum, server) => sum + rowConcurrency(server), 0);
-}
-
-/** Build the describe slice of the PUT body. Blank rows are dropped (the UI
- * always keeps one for typing into); `null` for an empty list clears back to
- * the single-server fallback rather than persisting nothing. */
-export function describeFormToPatch(form: EnrichmentForm) {
-  const servers = form.describe_servers
-    .filter((server) => server.url.trim().length > 0)
-    .map((server) => ({ url: server.url.trim(), concurrency: rowConcurrency(server) }));
-  return {
-    describe_servers: servers.length > 0 ? servers : null,
-    // Entry 0 is the default endpoint; sending it keeps older API builds
-    // (which ignore `describe_servers`) pointed at the same server.
-    describe_provider_url: servers[0]?.url ?? null,
   };
 }
 
@@ -240,7 +149,6 @@ export function meilisearchFormToPatch(form: EnrichmentForm) {
         ? taskTimeout
         : null,
     meilisearch_semantic_enabled: form.meilisearch_semantic_enabled,
-    meilisearch_embedder_model: form.meilisearch_embedder_model.trim() || null,
     meilisearch_semantic_ratio:
       Number.isFinite(semanticRatio) && semanticRatio >= 0 && semanticRatio <= 1
         ? semanticRatio

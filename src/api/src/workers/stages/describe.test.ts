@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import { ObjectId } from 'mongodb';
 import type { ImageDoc } from '../run-stage.ts';
 import {
@@ -487,4 +488,44 @@ describe('describeHandler — provider_info extras', () => {
     expect(meta.output_tokens).toBe('20');
     expect(meta.cost_usd).toBe(0.04);
   });
+});
+
+it('mixed pools use and record the model and provider of the selected connection', async () => {
+  const doc = await stageDoc(join(tmpRoot, 'mixed.dng'));
+  const servers = [
+    { url: 'http://local:11434', concurrency: 1, provider: 'ollama' as const, model: 'gemma4' },
+    { url: 'cloud', concurrency: 1, provider: 'openai' as const, model: 'gpt-4o' },
+  ];
+  const observed: Array<[string, string, boolean]> = [];
+  const pool = new DescribeServerPool(
+    servers,
+    (url) => {
+      const server = servers.find((s) => s.url === url)!;
+      return {
+        name: server.provider,
+        health: async () => {},
+        describe: async (_frames, opts) => {
+          observed.push([server.provider, opts.model, Boolean(opts.format)]);
+          return { text: JSON.stringify(VALID_VISION), cost_usd: 0, provider_info: {} };
+        },
+      };
+    },
+    {},
+    true,
+  );
+  setDescribeDepsForTests({ pool, model: 'legacy-model', provider: 'ollama', systemPrompt: 'p' });
+  for (const server of servers) {
+    const result = await describeHandler(doc, fakeCtx);
+    const patch = (result as { patch: Record<string, unknown> }).patch;
+    expect(patch.vision_meta).toMatchObject({ provider: server.provider, model: server.model });
+    expect(patch.description_meta).toMatchObject({
+      provider: server.provider,
+      model: server.model,
+    });
+    expect(patch.ocr_meta).toMatchObject({ engine_version: server.model });
+  }
+  expect(observed).toEqual([
+    ['ollama', 'gemma4', true],
+    ['openai', 'gpt-4o', false],
+  ]);
 });
