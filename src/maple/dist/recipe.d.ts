@@ -71,7 +71,10 @@ export interface Recipe {
  */
 export declare class AuxBlob {
     private readonly parts;
+    private resolving;
     add(bytes: Uint8Array): AuxRef;
+    /** Drop superseded metadata before its pending file is opened. */
+    discard(ref: AuxRef | undefined): void;
     /** Reserve a segment whose bytes are read lazily, once, inside `resolve()`. */
     addPending(loader: () => Promise<Uint8Array>): AuxRef;
     /**
@@ -81,5 +84,6 @@ export declare class AuxBlob {
      * that already ran is not re-run.
      */
     resolve(): Promise<void>;
+    private resolveParts;
     bytes(): Uint8Array;
 }

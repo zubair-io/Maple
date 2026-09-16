@@ -1181,20 +1181,32 @@ async function renderPreview(options) {
 // src/recipe.ts
 class AuxBlob {
   parts = [];
+  resolving = null;
   add(bytes) {
     const ref = { off: 0, len: 0 };
     this.parts.push({ bytes, loader: null, ref });
     return ref;
+  }
+  discard(ref) {
+    const index = this.parts.findIndex((part) => part.ref === ref);
+    if (index !== -1)
+      this.parts.splice(index, 1);
   }
   addPending(loader) {
     const ref = { off: 0, len: 0 };
     this.parts.push({ bytes: null, loader, ref });
     return ref;
   }
-  async resolve() {
+  resolve() {
+    return this.resolving ??= this.resolveParts().finally(() => {
+      this.resolving = null;
+    });
+  }
+  async resolveParts() {
     for (const part of this.parts) {
       if (part.bytes === null && part.loader) {
         part.bytes = await part.loader();
+        part.loader = null;
       }
     }
     let offset = 0;
@@ -2209,6 +2221,7 @@ function applyWithExif(state, exif) {
 var NAMED_ICC_PROFILES = new Set(["srgb", "p3"]);
 function applyWithIccProfile(state, icc) {
   if (icc instanceof Uint8Array) {
+    state.aux.discard(state.metadata.icc);
     state.metadata.icc = state.aux.add(icc);
     state.metadata.iccName = undefined;
     track(state, "withIccProfile");
@@ -2221,11 +2234,13 @@ function applyWithIccProfile(state, icc) {
     throw new Error("withIccProfile('cmyk'): Maple has no CMYK ICC profile support — sharp accepts " + "'cmyk', Maple does not.");
   }
   if (NAMED_ICC_PROFILES.has(icc)) {
+    state.aux.discard(state.metadata.icc);
     state.metadata.iccName = icc;
     state.metadata.icc = undefined;
     track(state, "withIccProfile");
     return;
   }
+  state.aux.discard(state.metadata.icc);
   state.metadata.icc = state.aux.addPending(async () => {
     try {
       return await fs7.readFile(icc);
