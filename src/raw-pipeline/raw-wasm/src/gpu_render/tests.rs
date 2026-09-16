@@ -101,7 +101,9 @@ pub(super) fn cpu_reference(
     render_from_raw_with_quality_and_source(
         raw_img,
         model,
-        RenderQuality::Full,
+        // Match render_bytes_sized and the GPU prefix. Full selects RCD
+        // since #3412; a flat fixture concealed this oracle mismatch.
+        RenderQuality::Amaze,
         Some(RawInput::Bytes { bytes, ext }),
     )
     .expect("CPU reference render failed")
@@ -537,3 +539,6 @@ fn stripped_prefix_changes_on_genuine_prefix_edits() {
         assert_ne!(base, prof, "profile change must re-develop the prefix");
     }
 }
+
+#[path = "tests_opcodes.rs"]
+mod opcodes;

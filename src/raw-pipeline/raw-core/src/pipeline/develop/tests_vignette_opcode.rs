@@ -123,3 +123,62 @@ fn fix_vignette_radial_opcode_parses_and_applies_end_to_end() {
         );
     }
 }
+
+#[test]
+fn lens_gain_does_not_turn_unsaturated_sensor_samples_into_clipped_highlights() {
+    use crate::xmp::{AutoExposureMode, HighlightRecoveryMode};
+
+    // Every sensor channel is below its white level. Lens shading may raise
+    // the derived radiance above one; it cannot retroactively clip the sensor.
+    let dng = SyntheticGreyDng {
+        linear_value: 0.8,
+        width: DIM,
+        height: DIM,
+        as_shot_neutral_override: Some([1.0; 3]),
+        opcode_list3: Some(fix_vignette_radial_opcode_list3(
+            [1.0, 0.0, 0.0, 0.0, 0.0],
+            CENTER.0,
+            CENTER.1,
+        )),
+        ..Default::default()
+    };
+    let raw = crate::decode::decode_bytes(&dng.write_to_bytes(), "dng").unwrap();
+    for quality in [
+        RenderQuality::Full,
+        RenderQuality::Amaze,
+        RenderQuality::Preview,
+    ] {
+        for max_edge in [None, Some(32)] {
+            let render = |mode| {
+                let model = AdjustmentModel {
+                    auto_exposure: AutoExposureMode::Off,
+                    highlight_recovery: mode,
+                    ..Default::default()
+                };
+                match max_edge {
+                    Some(edge) => {
+                        crate::pipeline::develop_scene_linear_sized_from_raw_with_quality(
+                            &raw, &model, quality, edge,
+                        )
+                        .unwrap()
+                    }
+                    None => {
+                        develop_scene_linear_from_raw_with_quality(&raw, &model, quality).unwrap()
+                    }
+                }
+            };
+            let off = render(HighlightRecoveryMode::Off);
+            let recovered = render(HighlightRecoveryMode::ChromaticAdaptation);
+            assert_eq!((off.width, off.height), (recovered.width, recovered.height));
+            for (index, (expected, actual)) in off.pixels.iter().zip(&recovered.pixels).enumerate()
+            {
+                for channel in 0..3 {
+                    assert!(
+                        (expected[channel] - actual[channel]).abs() < 1e-5,
+                        "unsaturated input changed at {index}, channel {channel}, quality {quality:?}, cap {max_edge:?}: {expected:?} vs {actual:?}"
+                    );
+                }
+            }
+        }
+    }
+}

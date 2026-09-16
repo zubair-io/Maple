@@ -142,6 +142,64 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         return Err(Error::Cancelled);
     }
 
+    // Reconstruct from sensor-relative values before lens gain or geometric
+    // resampling changes the evidence of saturation (#3633). Exposure and
+    // WB gains commute with these opcodes; highlight reconstruction does not.
+    // DNG § C.1.2: BaselineExposure is applied as a gain in a scene-linear
+    // color space prior to the color-space transform. Mathematically
+    // commutative with the linear CM that follows, so we apply in the
+    // camera-native space for clarity — one multiply per channel.
+    if raw.baseline_exposure.abs() > 1e-4 {
+        stage("baseline_exposure", || {
+            let be_gain = raw.baseline_exposure.exp2();
+            for p in &mut camera_rgb.pixels {
+                p[0] *= be_gain;
+                p[1] *= be_gain;
+                p[2] *= be_gain;
+            }
+        });
+    }
+    dump_after("01_baseline_exposure", &camera_rgb);
+
+    // DNG WB pre-gain per spec § 1.4.4.5 step 4: divide camera RGB by
+    // AsShotNeutral so a neutral scene patch reads as (1, 1, 1) going into
+    // DCP. Enabled unconditionally now that the BaselineExposure compose
+    // chain is sourced from DNG tags + bundled-DCP `BaselineExposureOffset`
+    // only — the historical Phase-1.1 per-body BE lookup that previously
+    // gated this step was removed in #370. (The follow-up global Look LUT
+    // #371 was retired in #443.) See
+    // .archived-plans/specs/2026-04-30-color-convergence-design.md.
+    //
+    // Skipped for 8-bit lossy LinearRaw DNGs (DNG Converter's
+    // perceptually-encoded output) where WB stays baked through the linearize
+    // step and DCP must derive scene_white_xyz from `inv(CM) · AsShotNeutral`
+    // as the empirical (legacy) path. See linearize::linearraw_to_camera_rgb
+    // and dcp::profile_for for the matching wb_already_baked decision.
+    let skip_pre_gain =
+        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    if !skip_pre_gain {
+        stage("white_balance::apply_pre_gain", || {
+            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+        });
+    }
+    // After WB pre-gain, highlight ceilings are 2^BE / AsShotNeutral.
+    // Use identity neutral (1,1,1) when pre-gain was skipped (8-bit lossy
+    // LinearRaw); otherwise the detector misses R/B clips and trips on G.
+    let hr_neutral = if skip_pre_gain {
+        [1.0; 3]
+    } else {
+        raw.as_shot_neutral
+    };
+    stage("highlight_recovery", || {
+        highlight_recovery::apply(
+            &mut camera_rgb,
+            model.highlight_recovery,
+            hr_neutral,
+            raw.baseline_exposure,
+        )
+    });
+    dump_after("02_highlight_recovery", &camera_rgb);
+
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
     // `aa` is in raw-sensor coordinates; Preview quality's half-res Bayer
@@ -199,60 +257,6 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     }
     dump_after("00b_crop_to_default", &camera_rgb);
 
-    // DNG § C.1.2: BaselineExposure is applied as a gain in a scene-linear
-    // color space prior to the color-space transform. Mathematically
-    // commutative with the linear CM that follows, so we apply in the
-    // camera-native space for clarity — one multiply per channel.
-    if raw.baseline_exposure.abs() > 1e-4 {
-        stage("baseline_exposure", || {
-            let be_gain = raw.baseline_exposure.exp2();
-            for p in &mut camera_rgb.pixels {
-                p[0] *= be_gain;
-                p[1] *= be_gain;
-                p[2] *= be_gain;
-            }
-        });
-    }
-    dump_after("01_baseline_exposure", &camera_rgb);
-
-    // DNG WB pre-gain per spec § 1.4.4.5 step 4: divide camera RGB by
-    // AsShotNeutral so a neutral scene patch reads as (1, 1, 1) going into
-    // DCP. Enabled unconditionally now that the BaselineExposure compose
-    // chain is sourced from DNG tags + bundled-DCP `BaselineExposureOffset`
-    // only — the historical Phase-1.1 per-body BE lookup that previously
-    // gated this step was removed in #370. (The follow-up global Look LUT
-    // #371 was retired in #443.) See
-    // .archived-plans/specs/2026-04-30-color-convergence-design.md.
-    //
-    // Skipped for 8-bit lossy LinearRaw DNGs (DNG Converter's
-    // perceptually-encoded output) where WB stays baked through the linearize
-    // step and DCP must derive scene_white_xyz from `inv(CM) · AsShotNeutral`
-    // as the empirical (legacy) path. See linearize::linearraw_to_camera_rgb
-    // and dcp::profile_for for the matching wb_already_baked decision.
-    let skip_pre_gain =
-        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
-    if !skip_pre_gain {
-        stage("white_balance::apply_pre_gain", || {
-            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
-        });
-    }
-    // After WB pre-gain, highlight ceilings are 2^BE / AsShotNeutral.
-    // Use identity neutral (1,1,1) when pre-gain was skipped (8-bit lossy
-    // LinearRaw); otherwise the detector misses R/B clips and trips on G.
-    let hr_neutral = if skip_pre_gain {
-        [1.0; 3]
-    } else {
-        raw.as_shot_neutral
-    };
-    stage("highlight_recovery", || {
-        highlight_recovery::apply(
-            &mut camera_rgb,
-            model.highlight_recovery,
-            hr_neutral,
-            raw.baseline_exposure,
-        )
-    });
-    dump_after("02_highlight_recovery", &camera_rgb);
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;

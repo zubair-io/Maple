@@ -268,6 +268,13 @@ fn apply_chromatic_adaptation(img: &mut Image, neutral: [f32; 3], baseline_expos
                     anchor_c = Some(c);
                 }
             }
+            // Our chromaticity witnesses use green as their denominator.
+            // When green is known, preserve that observation: inferring a
+            // different green from a red/blue edge would transfer that edge
+            // into the reconstructed channel while leaving actual G fixed.
+            if m & 0b010 == 0 {
+                anchor_c = Some(1);
+            }
             if let Some(ac) = anchor_c {
                 // Derive G implied by the anchor + target chromaticity.
                 let g_implied = match ac {
