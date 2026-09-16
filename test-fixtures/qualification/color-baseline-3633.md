@@ -340,3 +340,91 @@ work without a bounded implementation and qualification. The experiment
 establishes that restoring sensor information before interpolation can improve
 the reported regression; it does not establish safe, fast support for an
 unbounded reconstructed mosaic. Log: `/tmp/maple-3633-redemosaic-run.log`.
+
+## Symmetric sensor replay and reference reduction attribution
+
+Using the previously rejected symmetric known-channel mean estimator only as
+input to the sensor-replay counterfactual restores 548 photosites on 0000,
+1,873 on 0007, and 947,144 on 0017. Canonical maxima are 0000 **38.25/37.89**,
+0007 **41.49/36.64**, and 0017 **29.38/34.08** (Neutral/Auto). The remaining
+0000 Auto maximum still fails, and 0017 Neutral now fails its red-bias ceiling:
+−0.0362 against 0.0352. Six comparisons execute, two fail, none skip. This is
+not an acceptable production change. A follow-up diagnostic restricts replay
+to non-fully-clipped pixels with at least four valid local witnesses, to test
+whether unsupported neutral extrapolation drives the new broad bias. It does
+not splice outputs or invent an interpolation-support mask.
+
+There is also a measurable reference-protocol difference. The ACR generator
+saves native resolution and creates its 4000-pixel reference with Photoshop
+BICUBICSHARPER; the comparison harness reduces Maple's native output with
+Lanczos. Reducing the original full-resolution 0000 ACR reference with the
+same Lanczos kernel gives mean/p95/max ΔE of **1.02328/2.83045/13.88816**
+against the committed downsampled reference, despite RGB biases below 0.00002.
+Full reference SHA-256:
+`22475e8d4f13972b779f137df4d2c37906e8e089f46d6f0ac84fc96235c9879a`.
+
+An all-pixel attribution comparison (10,668,000 pixels per result), reducing
+both full-resolution outputs with the same kernel, produces:
+
+| Candidate                      | Neutral mean/p95/max         | Auto mean/p95/max            | Worst coordinate |
+| ------------------------------ | ---------------------------- | ---------------------------- | ---------------- |
+| Unchanged main                 | 5.77884 / 9.53317 / 43.86215 | 2.91909 / 5.65618 / 43.48758 | (59,2063)        |
+| Pre-opcode HR + known G anchor | 5.77884 / 9.53317 / 36.65638 | 2.91947 / 5.65814 / 37.38412 | (2811,329)       |
+| Symmetric sensor replay        | 5.77883 / 9.53340 / 32.68564 | 2.92263 / 5.66651 / 31.40784 | (2820,318)       |
+
+The unchanged candidate still fails the original numerical maximum ceilings.
+The replay counterfactual falls below them only in this noncanonical protocol;
+that does **not** make the canonical gate pass or qualify the estimator. The
+worst location moves, and all pixels were included rather than only the old
+failure coordinates. No reference, manifest, harness or budget is changed.
+For a broader attribution, all 20 full/down baseline pairs were checked with
+ExifTool: their complete XMP-crs settings match within each pair. Temporary
+same-kernel references and full/down/derived hashes are recorded in
+`/tmp/maple-3633-common-reference-provenance.json`; numeric results are in
+`/tmp/maple-3633-common-kernel-results.jsonl`.
+
+### Supported replay and channel-sweep falsification
+
+Restricting replay to at least four valid witnesses and excluding fully clipped
+first-pass RGB pixels changes 523/1,084/29,711 actual photosites on
+0000/0007/0017. The original six canonical comparisons now have one failure,
+0000 Auto maximum 37.89 (Neutral 38.25); none skip. However 0017 Neutral
+mean/p95 worsens from 6.09/10.87 to 6.82/16.42, and Auto from 5.16/8.71 to
+5.94/10.77. Its Neutral red bias −0.0345 passes the unchanged 0.0352 ceiling.
+Restoring the original fallback only where the frozen first-pass interpolated
+RGB mask was fully clipped does not change these printed results. This
+ablation is output mixing, not proof of actual sensor saturation or a proposed
+algorithm.
+
+The synthetic edge probe now includes saturated red, green, and blue: 72
+combinations across four CFA patterns, three edge directions, and two phases.
+The diagnostic second demosaic preserves every measured unclipped photosite,
+but it does **not** consistently improve missing-channel estimates. Green
+stripe maximum neighbor error falls from 0.563271 to 0.2; blue diagonal error
+increases from 0.151924 to 0.336695. Eight of 24 red cases and all 24 blue
+cases worsen by more than 1e-5 (some blue axis differences are small). The
+original green-only experiment cannot justify a general replay algorithm.
+Results: `/tmp/maple-3633-edge-channel-sweep.log`.
+
+### Grounded warp interpolation under equal reduction
+
+The earlier no-clamp Adobe-SDK-kernel cubic warp diagnostic, with pre-opcode
+HR and known-green anchoring but **without sensor replay**, yields 0000
+Neutral mean/p95/max **5.745411/9.420420/36.566240** and Auto
+**2.930606/5.631973/34.114136** against the equally Lanczos-reduced native ACR
+reference. Both maxima are below the unchanged numerical ceilings; the
+canonical down-reference maxima remain 39.22/38.94 and fail. This identifies
+a narrower, physically grounded combination of interpolation and measurement
+protocol to investigate before any sensor-replay proposal. It is still
+noncanonical attribution: no harness/reference change or passing qualification
+is claimed. Results: `/tmp/maple-3633-cubic-common-results.jsonl`.
+
+The broader equal-reduction attribution completed **80 comparisons**: 40 for
+unchanged main and 40 for pre-opcode HR plus known-green anchoring, with no
+missing inputs. Main exceeds the same five numerical ceilings as canonically
+(0000 and 0007 maxima in both profiles, 0011 Neutral bias). The candidate
+exceeds two (0000 Auto maximum and unchanged 0011 Neutral bias), with no new
+failures. Complete metrics and full/down/derived reference hashes are retained
+in `color-baseline-3633-resampling.json`. These are explicitly noncanonical
+results and do not replace the gate. The cubic candidate is now being rendered
+against all 20 baselines to qualify its effect beyond the original three.
