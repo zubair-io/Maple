@@ -18,7 +18,13 @@ struct BackupStatusPanel: View {
   // Use the engine-hosted VM so progress survives navigation.
   // The instance lives on EngineHost.shared for the lifetime of the process;
   // presenting this panel multiple times always shows the same running totals.
-  private var progress: BackupProgressViewModel { EngineHost.shared.progress }
+  var progress: BackupProgressViewModel = EngineHost.shared.progress
+
+  @State private var issueSheet: IssueSheet?
+  private enum IssueSheet: String, Identifiable {
+    case warnings, errors
+    var id: String { rawValue }
+  }
 
   // MARK: - #711 fixed-height thumbnail strips
   //
@@ -49,72 +55,17 @@ struct BackupStatusPanel: View {
       // One row communicates both run state and connection route.
       statusRow
 
-      // Surface engine-startup failures right at the top. Without this,
-      // a failed `EngineHost.start` left the user staring at a
-      // "No photos queued" panel with no idea why nothing was happening.
-      if let startErr = EngineHost.shared.lastStartError {
-        Label(startErr, systemImage: "exclamationmark.triangle.fill")
-          .font(.callout)
-          .foregroundStyle(.red)
-          .padding(8)
-          .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
-          .accessibilityIdentifier("backup.status.startError")
-      }
-
       ProgressView(value: progress.fractionDone) {
         Text(progress.progressLabel)
           .font(.headline)
       }
       .progressViewStyle(.linear)
 
-      // Library-scan row (#3386): the PhotoKit walk that seeds the queue
-      // runs for minutes on a large library while `totalEnqueued` is still
-      // 0, so without this the panel read "Running · No photos queued" for
-      // the whole scan and looked wedged. A walk that bails reports why.
-      if let walkLabel = progress.walkPhaseLabel {
-        walkRow(label: walkLabel)
-      }
+      BackupActivityLine(progress: progress)
 
-      // Completion caption (#3097): when the last walk confirmed everything
-      // is backed up, say when it checked and surface any terminal failures
-      // (photos that ran out of retries — e.g. deleted from Photos before
-      // their upload finished). Session-scoped failures stay on the
-      // "Failed:" row below; this is the persisted, cross-session figure.
-      if let summary = progress.lastWalkSummary {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Library checked \(summary.finishedAt.formatted(.relative(presentation: .named))).")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .accessibilityIdentifier("backup.status.allBackedUp")
-          if summary.failedPermanently > 0 {
-            Label(
-              "\(summary.failedPermanently.formatted()) photos need attention. Stop and start backup to retry.",
-              systemImage: "exclamationmark.triangle"
-            )
-            .font(.caption)
-            .foregroundStyle(.orange)
-            .accessibilityIdentifier("backup.status.failedPermanently")
-          }
-        }
-      }
-
-      // Live throughput (#702) — rolling-window bytes/sec + photos/min from the
-      // same .progress/.completed events the counters use. Hidden when idle.
-      if let throughput = progress.throughputLabel {
-        Label("Backup speed: \(throughput)", systemImage: "gauge.with.dots.needle.67percent")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .monospacedDigit()
-          .accessibilityIdentifier("backup.status.throughput")
-          .help("Estimated from upload progress across active photos; excludes iCloud downloads.")
-      }
-
-      // Show work only when present; each tile distinguishes Photos reads from uploads.
-      if !progress.inFlight.isEmpty {
+      // Reserve both strips throughout a run so worker churn cannot move the controls.
+      if isBackupActive || !progress.inFlight.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
-          Text("Backing up now")
-            .font(.caption)
-            .foregroundStyle(.secondary)
           ScrollView(.horizontal) {
             HStack(spacing: 8) {
               ForEach(progress.inFlight) { item in
@@ -123,25 +74,30 @@ struct BackupStatusPanel: View {
                   // `uploadRowHeight` so the tile and the reserved row height
                   // can't drift apart (review on #711).
                   ThumbnailTile(localIdentifier: item.id.phassetLocalId, size: Self.uploadTileSize)
-                  // Always reserve the label line so a tile's height is stable
-                  // whether or not a fraction has arrived yet. The placeholder
-                  // is hidden from VoiceOver so the blank line isn't an empty
-                  // accessibility element (review on #711).
-                  Text(item.fractionDone.map { "\(Int($0 * 100))%" } ?? item.preparation)
-                    .font(.system(size: Self.uploadLabelFontSize))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                  let state = BackupStatusPresentation.tile(item)
+                  HStack(spacing: 3) {
+                    Image(systemName: state.symbol)
+                    if !state.text.isEmpty { Text(state.text) }
+                  }
+                  .font(.system(size: Self.uploadLabelFontSize))
+                  .foregroundStyle(.secondary)
+                  .monospacedDigit()
+                  .lineLimit(1)
+                  .frame(width: Self.uploadTileSize, height: 12)
+                  .accessibilityElement(children: .ignore)
+                  .accessibilityLabel(BackupStatusPresentation.tileLabel(item))
+                  .help(BackupStatusPresentation.tileLabel(item))
 
                 }
               }
               Spacer()
             }
           }
-          .frame(minHeight: Self.uploadRowHeight, alignment: .top)
+          .frame(height: Self.uploadRowHeight, alignment: .top)
         }
       }
 
-      if !progress.recentCompleted.isEmpty {
+      if isBackupActive || !progress.recentCompleted.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
           Text("Recently completed")
             .font(.caption)
@@ -163,73 +119,42 @@ struct BackupStatusPanel: View {
         Label("This run: \(progress.totalCompleted.formatted())", systemImage: "checkmark.circle")
           .foregroundStyle(.secondary)
           .accessibilityIdentifier("backup.status.done")
-        if progress.uploadedCompanionsPendingCount > 0 {
-          Label(
-            "Extra files: \(progress.uploadedCompanionsPendingCount.formatted())",
-            systemImage: "arrow.triangle.2.circlepath"
-          )
-          .foregroundStyle(.secondary)
-          .accessibilityIdentifier("backup.status.companionsPending")
-          .help("Originals saved; related files are still uploading or retrying.")
-        }
-        Label(
-          "Failed: \(progress.totalFailed.formatted())", systemImage: "exclamationmark.triangle"
-        )
-        .foregroundStyle(progress.totalFailed > 0 ? .red : .secondary)
-        .accessibilityIdentifier("backup.status.failed")
+        Spacer(minLength: 0)
+        issueButton(
+          .warnings, count: progress.issues.warningCount,
+          symbol: "exclamationmark.triangle", color: .orange)
+        issueButton(
+          .errors,
+          count: BackupStatusPresentation.failureCount(
+            progress, startError: EngineHost.shared.lastStartError),
+          symbol: "exclamationmark.circle", color: .red)
       }
       .font(.caption)
-
-      if progress.uploadedCompanionsPendingCount > 0 {
-        Text("Originals saved; uploading metadata, edits, or Live Photo videos.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      if let message = progress.issues.message {
-        Label(message, systemImage: "exclamationmark.triangle")
-          .font(.caption)
-          .foregroundStyle(progress.issues.isFailure ? .red : .orange)
-          .fixedSize(horizontal: false, vertical: true)
-          .accessibilityIdentifier("backup.status.issue")
-      }
-
     }
     .padding(.vertical, 4)
-    // No .task / .onDisappear here: the progress VM is now hoisted onto
-    // `EngineHost.shared.progress` (main, PR #49 follow-up) so its
-    // observer lifecycle is tied to the engine's start/stop, not to the
-    // panel's appearance. Running totals therefore survive navigating
-    // away from Settings and back. The `lastStartError` banner above
-    // covers the "engine didn't actually start" diagnostic that the old
-    // .task path used to surface implicitly.
+    .sheet(item: $issueSheet) { selection in
+      BackupIssueDetails(
+        progress: progress, failures: selection == .errors,
+        startError: EngineHost.shared.lastStartError)
+    }
   }
 
-  // MARK: - Library-scan row (#3386)
-
-  @ViewBuilder
-  private func walkRow(label: String) -> some View {
-    if case .failed = progress.walkPhase {
-      Label(label, systemImage: "exclamationmark.triangle.fill")
-        .font(.caption)
-        .foregroundStyle(.red)
-        .accessibilityIdentifier("backup.status.walkFailed")
-    } else {
-      HStack(spacing: 8) {
-        if let fraction = progress.walkFraction {
-          ProgressView(value: fraction)
-            .progressViewStyle(.linear)
-            .frame(maxWidth: 120)
-        } else {
-          ProgressView()
-            .controlSize(.small)
-        }
-        Text(label)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .monospacedDigit()
-      }
-      .accessibilityIdentifier("backup.status.walkPhase")
+  private func issueButton(_ kind: IssueSheet, count: Int, symbol: String, color: Color)
+    -> some View
+  {
+    Button {
+      issueSheet = kind
+    } label: {
+      Label(count.formatted(), systemImage: symbol)
+        .monospacedDigit()
+        .foregroundStyle(count > 0 ? color : .secondary)
+        .frame(minWidth: 44, minHeight: 44)
+        .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+    .accessibilityLabel("\(count) backup \(kind.rawValue). Show details")
+    .accessibilityIdentifier("backup.status.\(kind.rawValue)")
+    .help("Show backup \(kind.rawValue)")
   }
 
   // MARK: - Status row
