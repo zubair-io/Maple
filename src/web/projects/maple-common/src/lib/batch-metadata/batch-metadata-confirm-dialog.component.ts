@@ -1,11 +1,13 @@
 // batch-metadata-confirm-dialog.component.ts — confirm/preview step (#1606).
 // Shows a summary of what will change before committing the batch write.
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 @Component({
   selector: 'app-batch-metadata-confirm-dialog',
   standalone: true,
+  imports: [MuiButtonComponent],
   templateUrl: './batch-metadata-confirm-dialog.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

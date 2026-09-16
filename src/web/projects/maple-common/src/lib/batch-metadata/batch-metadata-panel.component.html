@@ -21,9 +21,14 @@
           }
         </span>
         @if (phase() !== 'applying') {
-          <button type="button" class="dlg-close-button" aria-label="Close" (click)="onClose()">
-            ✕
-          </button>
+          <mui-button
+            variant="ghost"
+            size="sm"
+            ariaLabel="Close"
+            (pressed)="onClose()"
+            [iconOnly]="true"
+            iconLeading="x"
+          ></mui-button>
         }
       </div>
 
@@ -36,9 +41,7 @@
           <div
             class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
           >
-            <button type="button" class="dlg-button dlg-button-ghost" (click)="onClose()">
-              Close
-            </button>
+            <mui-button variant="secondary" size="sm" (pressed)="onClose()"> Close </mui-button>
           </div>
         </div>
       }
@@ -69,20 +72,14 @@
             class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
           >
             @if (!refileApplying() && refileErrors().length === 0) {
-              <button type="button" class="dlg-button dlg-button-ghost" (click)="onRefileSkip()">
+              <mui-button variant="secondary" size="sm" (pressed)="onRefileSkip()">
                 Skip
-              </button>
-              <button
-                type="button"
-                class="dlg-button dlg-button-primary"
-                (click)="onRefileAccept()"
-              >
+              </mui-button>
+              <mui-button variant="primary" size="sm" (pressed)="onRefileAccept()">
                 Move
-              </button>
+              </mui-button>
             } @else {
-              <button type="button" class="dlg-button dlg-button-ghost" (click)="onClose()">
-                Close
-              </button>
+              <mui-button variant="secondary" size="sm" (pressed)="onClose()"> Close </mui-button>
             }
           </div>
         </div>
@@ -759,17 +756,15 @@
         <div
           class="flex shrink-0 items-center justify-end gap-2 border-t-[0.5px] border-border px-4 py-3"
         >
-          <button type="button" class="dlg-button dlg-button-ghost" (click)="onReset()">
-            Reset
-          </button>
-          <button
-            type="button"
-            class="dlg-button dlg-button-primary"
+          <mui-button variant="secondary" size="sm" (pressed)="onReset()"> Reset </mui-button>
+          <mui-button
+            variant="primary"
+            size="sm"
             [disabled]="touched().size === 0"
-            (click)="onApply()"
+            (pressed)="onApply()"
           >
             Apply…
-          </button>
+          </mui-button>
         </div>
       }
     </div>

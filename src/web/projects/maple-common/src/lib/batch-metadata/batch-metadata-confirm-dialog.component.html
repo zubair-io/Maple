@@ -28,26 +28,14 @@
 
     <div class="flex justify-end gap-2 pt-1">
       @if (errors().length === 0) {
-        <button
-          type="button"
-          class="dlg-button dlg-button-ghost"
-          [disabled]="applying()"
-          (click)="onCancel()"
-        >
+        <mui-button variant="secondary" size="sm" [disabled]="applying()" (pressed)="onCancel()">
           Cancel
-        </button>
-        <button
-          type="button"
-          class="dlg-button dlg-button-primary"
-          [disabled]="applying()"
-          (click)="onConfirm()"
-        >
+        </mui-button>
+        <mui-button variant="primary" size="sm" [disabled]="applying()" (pressed)="onConfirm()">
           {{ applying() ? 'Applying…' : 'Apply' }}
-        </button>
+        </mui-button>
       } @else {
-        <button type="button" class="dlg-button dlg-button-ghost" (click)="onCancel()">
-          Close
-        </button>
+        <mui-button variant="secondary" size="sm" (pressed)="onCancel()"> Close </mui-button>
       }
     </div>
   </div>

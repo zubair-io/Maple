@@ -6,7 +6,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { of, throwError } from 'rxjs';
+import { of, throwError, Subject } from 'rxjs';
 import { BatchRenameDialogComponent } from './batch-rename-dialog.component';
 import { BatchRenameService } from './batch-rename.service';
 import type {
@@ -171,7 +171,12 @@ describe('BatchRenameDialogComponent (#2640)', () => {
     service.preview.mockClear();
 
     const d = dialog(fixture);
-    d.insertToken('{n}');
+    const tokenButton = Array.from(
+      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    ).find((button) => button.textContent?.trim() === '{n}')!;
+    tokenButton.focus();
+    expect(document.activeElement).toBe(tokenButton);
+    tokenButton.click();
     drainDebounce(fixture);
 
     expect(d.template()).toBe('{original}{n}');
@@ -185,7 +190,9 @@ describe('BatchRenameDialogComponent (#2640)', () => {
     const { fixture, service } = setup();
     drainDebounce(fixture);
 
-    const applyBtn = fixture.nativeElement.querySelector('.brn-btn-primary') as HTMLButtonElement;
+    const applyBtn = fixture.nativeElement.querySelector(
+      '[data-testid="batch-rename-apply"]',
+    ) as HTMLButtonElement;
     expect(applyBtn.disabled).toBe(false);
     applyBtn.click();
     fixture.detectChanges();
@@ -222,7 +229,9 @@ describe('BatchRenameDialogComponent (#2640)', () => {
     });
     drainDebounce(fixture);
 
-    (fixture.nativeElement.querySelector('.brn-btn-primary') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector('[data-testid="batch-rename-apply"]') as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.brn-summary').textContent).toContain(
@@ -236,7 +245,9 @@ describe('BatchRenameDialogComponent (#2640)', () => {
     });
     drainDebounce(fixture);
 
-    (fixture.nativeElement.querySelector('.brn-btn-primary') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector('[data-testid="batch-rename-apply"]') as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.brn-error')?.textContent).toContain(
@@ -245,12 +256,38 @@ describe('BatchRenameDialogComponent (#2640)', () => {
     expect(dialog(fixture).phase()).toBe('edit');
   });
 
+  it('disables all rename actions while a request is pending', () => {
+    const pending = new Subject<BatchRenameApplyResult>();
+    const { fixture, service } = setup({ apply: vi.fn(() => pending) });
+    drainDebounce(fixture);
+    const apply = fixture.nativeElement.querySelector(
+      '[data-testid="batch-rename-apply"]',
+    ) as HTMLButtonElement;
+    apply.click();
+    fixture.detectChanges();
+    const actions = fixture.nativeElement.querySelectorAll(
+      'app-batch-rename-form button',
+    ) as NodeListOf<HTMLButtonElement>;
+    expect(actions.length).toBeGreaterThan(2);
+    for (const action of actions) {
+      expect(action.disabled).toBe(true);
+      action.click();
+    }
+    expect(service.apply).toHaveBeenCalledTimes(1);
+    expect(fixture.componentInstance.dismissCount).toBe(0);
+    pending.complete();
+  });
+
   it('Cancel while idle emits dismiss without calling apply', () => {
     const { fixture, service } = setup();
     drainDebounce(fixture);
     const host = fixture.componentInstance;
 
-    (fixture.nativeElement.querySelector('.brn-btn-ghost') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="batch-rename-cancel"]',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
     expect(service.apply).not.toHaveBeenCalled();

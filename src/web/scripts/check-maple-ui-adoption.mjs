@@ -102,6 +102,11 @@ const MIGRATED_DIRECTORIES = [
 // directory is deliberately NOT migrated (see the module doc above).
 const MIGRATED_FILES = [
   '../projects/maple-common/src/lib/network/lan-switch-banner.component.html', // #3664
+  '../projects/maple-common/src/lib/batch-metadata/batch-metadata-confirm-dialog.component.html', // #3697
+  '../projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.html', // #3697
+  '../projects/maple-common/src/lib/batch-rename/batch-rename-form.component.html', // #3697
+  '../projects/maple-common/src/lib/batch-rename/batch-rename-results.component.html', // #3697
+
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-node.component.html',
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-smart-row.component.html',
   '../projects/maple-common/src/lib/components/folder-tree/folder-tree-footer.component.html',
