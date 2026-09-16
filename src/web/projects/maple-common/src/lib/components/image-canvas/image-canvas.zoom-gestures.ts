@@ -21,9 +21,9 @@
 
 export const MAX_PIXEL_SCALE = 8;
 /** Releasing a pinch at or below `fit × SNAP_FACTOR` snaps back to fit. */
-export const FIT_SNAP_FACTOR = 1.02;
+const FIT_SNAP_FACTOR = 1.02;
 /** Mid-gesture zoom-out floor: `fit × 0.5` (rubber-band room below fit). */
-export const FIT_UNDERSHOOT = 0.5;
+const FIT_UNDERSHOOT = 0.5;
 
 /** Fit pixelScale: real px per image px when the image exactly fits the wrap. */
 export function fitPixelScale(
