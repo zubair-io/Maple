@@ -147,6 +147,7 @@ namespace Maple.WinUI
             MainDispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _window = new MainWindow();
             _window.Activate();
+            ((MainWindow)_window).MaybeStartLifecycleSmoke();
             // Cold-start activations latched before the window existed (#2797):
             // a sign-in callback that launched the app, and/or an Explorer
             // file open.

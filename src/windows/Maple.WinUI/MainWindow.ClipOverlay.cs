@@ -93,6 +93,7 @@ namespace Maple.WinUI
         {
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
+                if (_closing) return;
                 if (!ViewModel.Renderer.ClipOverlayEnabled)
                     return;
                 if (_clipOverlayBitmap == null || _clipOverlayBitmap.PixelWidth != width
