@@ -54,3 +54,36 @@ LensProfileXMPTests
 LensProfileChoiceTests
 
 WhitesAnchorHostTests
+
+# KTLO qualification batch 4 (#3657): map geometry and offscreen bitmaps,
+# stubbed HTTP, generated masks and temporary XMP/cache files.
+MapAnnotationItemTests
+MapAvailabilityTests
+MapCameraPolicyTests
+MapCameraTrackerTests
+MapClusterTypesTests
+MapClustersClientTests
+MapHeatmapAnnotationProjectionConsistencyTests
+MapHeatmapOverlayTests
+MapHeatmapPainterTests
+MapHeatmapPointTests
+MapHeatmapZoomCrossfadeTests
+MapViewModelTests
+MapViewportRegionMapKitTests
+MapViewportTests
+MapleEnumeratorMapleDirTests
+MapleIdDerivationTests
+MapleItemCapabilitiesTests
+MapleItemTests
+MapleSidecarPathsTests
+MaskOverlayGeometryTests
+MaskOverlayVisibilityTests
+MaskRangePickerTests
+MaskRangeXMPTests
+MaskRasterAlphaTests
+MaskRasterStoreTests
+MaskRemapRasterTests
+MaskRemapTests
+MeilisearchSettingsFormTests
+MergedTimelineSourceTests
+MirrorConfigClientTests
