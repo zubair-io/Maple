@@ -1,24 +1,24 @@
 <div class="flex gap-2 border-b-[0.5px] border-border px-4 py-2.5">
-  <button
-    type="button"
-    class="dlg-button h-7 border-border bg-transparent text-text-main enabled:hover:bg-surface-hover"
+  <mui-button
+    variant="secondary"
+    size="sm"
     [disabled]="disabledReason() !== null"
-    [attr.title]="disabledReason()"
-    [attr.aria-describedby]="disabledReason() ? 'tt-disabled-reason' : null"
-    (click)="restoreAll.emit()"
+    [title]="disabledReason()"
+    [ariaDescribedby]="disabledReason() ? 'tt-disabled-reason' : null"
+    (pressed)="restoreAll.emit()"
   >
     Restore All
-  </button>
-  <button
-    type="button"
-    class="dlg-button h-7 border-border bg-transparent text-error-text enabled:hover:bg-surface-hover"
+  </mui-button>
+  <mui-button
+    variant="destructive"
+    size="sm"
     [disabled]="disabledReason() !== null"
-    [attr.title]="disabledReason()"
-    [attr.aria-describedby]="disabledReason() ? 'tt-disabled-reason' : null"
-    (click)="emptyTrash.emit()"
+    [title]="disabledReason()"
+    [ariaDescribedby]="disabledReason() ? 'tt-disabled-reason' : null"
+    (pressed)="emptyTrash.emit()"
   >
     Empty Trash
-  </button>
+  </mui-button>
   @if (disabledReason(); as reason) {
     <span id="tt-disabled-reason" class="sr-only">{{ reason }}</span>
   }

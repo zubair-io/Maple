@@ -7,6 +7,7 @@
 // data fetching/mutation calls and just passes state down / receives
 // intent back up.
 
+import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { TrashItemRowComponent } from './trash-item-row.component';
 import { TrashStatusBannerComponent } from './trash-status-banner.component';
@@ -16,7 +17,7 @@ import type { TrashItem } from './trash.types';
 @Component({
   selector: 'app-trash-list',
   standalone: true,
-  imports: [TrashItemRowComponent, TrashStatusBannerComponent],
+  imports: [MuiButtonComponent, TrashItemRowComponent, TrashStatusBannerComponent],
   templateUrl: './trash-list.component.html',
   host: { class: 'flex flex-col min-h-0 flex-1' },
   changeDetection: ChangeDetectionStrategy.OnPush,
