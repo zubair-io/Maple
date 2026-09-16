@@ -1,8 +1,8 @@
-//! Sized variant of the develop chain — runs `linearize` + `demosaic` (or
-//! `linearraw_to_camera_rgb` for LinearRaw), then immediately downsamples
-//! the camera-RGB buffer to fit within `max_long_edge`, then runs the rest
-//! of the development chain on the smaller buffer. Saves ~8× on every
-//! post-demosaic stage when the source is 100 MP and the viewport is ~3 MP.
+//! Sized variant of the develop chain. Sensor linearization and demosaic
+//! are followed by baseline exposure, as-shot WB, highlight recovery,
+//! OpcodeList3 and DefaultCrop before downsampling to `max_long_edge`.
+//! This preserves sensor-clipping evidence before lens gain and interpolation
+//! change it (#3633). User WB, DCP and later stages use the smaller buffer.
 //!
 //! Per-stage profile labels are prefixed `sized_` so `MAPLE_PROFILE=1`
 //! traces don't collide with the full-res `develop_*` labels — same
@@ -192,8 +192,46 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         return Err(Error::Cancelled);
     }
 
-    // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
-    // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
+    // Match full develop: reconstruct sensor clipping before lens gain,
+    // warp, or downsampling mixes the clipped channels (#3633).
+    if raw.baseline_exposure.abs() > 1e-4 {
+        stage("sized_baseline_exposure", || {
+            let be_gain = raw.baseline_exposure.exp2();
+            for p in &mut camera_rgb.pixels {
+                p[0] *= be_gain;
+                p[1] *= be_gain;
+                p[2] *= be_gain;
+            }
+        });
+    }
+    dump_after("01_baseline_exposure", &camera_rgb);
+
+    // WB pre-gain (mirrors the unsized variant — see comment there).
+    let skip_pre_gain =
+        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    if !skip_pre_gain {
+        stage("sized_white_balance::apply_pre_gain", || {
+            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
+        });
+    }
+    // See unsized variant (ticket #325, skip_pre_gain identity branch).
+    let hr_neutral = if skip_pre_gain {
+        [1.0; 3]
+    } else {
+        raw.as_shot_neutral
+    };
+    stage("sized_highlight_recovery", || {
+        highlight_recovery::apply(
+            &mut camera_rgb,
+            model.highlight_recovery,
+            hr_neutral,
+            raw.baseline_exposure,
+        )
+    });
+    dump_after("02_highlight_recovery", &camera_rgb);
+
+    // Stage 2a (#1695): OpcodeList3 still precedes DefaultCrop, so its
+    // coordinates remain relative to the original ActiveArea.
     if let Some((list, aa)) = raw.opcode_list3.as_ref() {
         stage("sized_opcode_list3", || {
             let scale = camera_rgb.width as f32 / raw.width as f32;
@@ -243,41 +281,6 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         downsample_image_area(&mut camera_rgb, max_long_edge)
     });
 
-    if raw.baseline_exposure.abs() > 1e-4 {
-        stage("sized_baseline_exposure", || {
-            let be_gain = raw.baseline_exposure.exp2();
-            for p in &mut camera_rgb.pixels {
-                p[0] *= be_gain;
-                p[1] *= be_gain;
-                p[2] *= be_gain;
-            }
-        });
-    }
-    dump_after("01_baseline_exposure", &camera_rgb);
-
-    // WB pre-gain (mirrors the unsized variant — see comment there).
-    let skip_pre_gain =
-        matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
-    if !skip_pre_gain {
-        stage("sized_white_balance::apply_pre_gain", || {
-            white_balance::apply_pre_gain(&mut camera_rgb, raw.as_shot_neutral)
-        });
-    }
-    // See unsized variant (ticket #325, skip_pre_gain identity branch).
-    let hr_neutral = if skip_pre_gain {
-        [1.0; 3]
-    } else {
-        raw.as_shot_neutral
-    };
-    stage("sized_highlight_recovery", || {
-        highlight_recovery::apply(
-            &mut camera_rgb,
-            model.highlight_recovery,
-            hr_neutral,
-            raw.baseline_exposure,
-        )
-    });
-    dump_after("02_highlight_recovery", &camera_rgb);
     let (profile, profile_source) = stage("sized_dcp_profile_for", || {
         dcp::profile_for_with_source(raw)
     })?;

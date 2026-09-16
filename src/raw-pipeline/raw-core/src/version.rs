@@ -102,7 +102,9 @@
 ///   so every stored non-zero Highlights value renders differently.
 /// - 5 — whites moved from a scene-linear gain to the AgX white-point remap
 ///   (#3601), so every stored non-zero Whites value renders differently.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 5;
+/// - 6 — recover sensor highlights before lens gains/warps, anchor known green
+///   consistently, and use the SDK cubic lens-warp kernel (#3633).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 6;
 
 #[cfg(test)]
 mod tests {

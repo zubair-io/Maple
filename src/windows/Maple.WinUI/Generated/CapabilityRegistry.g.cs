@@ -38,7 +38,7 @@ namespace Maple.WinUI.Generated
     /// <summary>The registry plus the build the states were computed for.</summary>
     public static class CapabilityRegistry
     {
-        public const uint PipelineOutputVersion = 5;
+        public const uint PipelineOutputVersion = 6;
         public const uint SchemaVersion = 5;
 
         public static readonly IReadOnlyList<CapabilityRecord> All = new CapabilityRecord[]

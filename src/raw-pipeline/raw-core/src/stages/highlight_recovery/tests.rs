@@ -456,3 +456,35 @@ fn legacy_blend_mode_upgrades_to_chromatic_adaptation() {
     );
     assert_eq!(img_blend.pixels, img_ca.pixels);
 }
+
+#[test]
+fn a_known_red_or_blue_edge_does_not_change_recovered_chroma_to_green_ratio() {
+    // The clipped channel follows green with a constant 3:1 ratio, while
+    // the other known channel changes across an edge. Transferring that
+    // unrelated edge into the missing channel creates false color.
+    for (neutral, neighbor, center, clipped) in [
+        ([0.4, 1.0, 0.5], [0.45, 0.3, 0.9], [1.8, 0.8, 2.0], 2),
+        ([0.5, 1.0, 0.4], [0.9, 0.3, 0.45], [2.0, 0.8, 1.8], 0),
+    ] {
+        let mut img = Image::new(11, 11, ColorSpace::CameraNativeLinearRgb);
+        img.pixels.fill(neighbor);
+        let index = 5 * 11 + 5;
+        img.pixels[index] = center;
+        apply(
+            &mut img,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            neutral,
+            0.0,
+        );
+        let output = img.pixels[index];
+        assert!(
+            (output[clipped] / output[1] - 3.0).abs() < 0.1,
+            "{output:?}"
+        );
+        for c in 0..3 {
+            if c != clipped {
+                assert_eq!(output[c].to_bits(), center[c].to_bits());
+            }
+        }
+    }
+}

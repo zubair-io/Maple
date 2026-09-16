@@ -37,9 +37,11 @@
 //! * Source positions outside the active area **clamp to the edge**
 //!   (sticky-edge, exactly dng_sdk's behavior — no black fill; the DNG
 //!   spec leaves it to the reader and the reference clamps). dng_sdk
-//!   resamples bicubic; we bilinear-sample — identical geometry, only a
-//!   marginal sharpness difference, irrelevant to descriptors at proxy
-//!   scale.
+//!   resamples with the A=-0.75 cubic kernel; we use the same kernel,
+//!   with its 32-phase lens-warp table. Values
+//!   remain unbounded, including the kernel’s negative lobes (#3633).
+
+mod cubic;
 
 use rayon::prelude::*;
 
@@ -308,7 +310,7 @@ fn blend_warp_toward_identity(
 
 /// Resample the active area through the rectilinear warp model:
 /// for each output pixel, evaluate the corrected→uncorrected mapping
-/// per plane and bilinear-sample the input. Pixels outside the active
+/// per plane and cubic-sample the input. Pixels outside the active
 /// area pass through unchanged.
 ///
 /// `distortion` and `ca` are `0..=1` strengths (see
@@ -371,12 +373,23 @@ pub fn apply_warp_rectilinear(
                 let out = &mut row_px[aa_left + col];
                 if all_same {
                     let (sx, sy) = warp_source(&plane_sets[0], dx, dy, cx, cy, inv_r, norm_radius);
-                    *out = bilinear_aa(&src, width, aa_top, aa_left, aa_wu, aa_hu, sx, sy);
+                    *out = cubic::sample(
+                        &src,
+                        width,
+                        aa_top,
+                        aa_left,
+                        aa_wu,
+                        aa_hu,
+                        sx,
+                        sy,
+                        [0, 1, 2],
+                    );
                 } else {
                     for (p, set) in plane_sets.iter().enumerate() {
                         let (sx, sy) = warp_source(set, dx, dy, cx, cy, inv_r, norm_radius);
                         out[p] =
-                            bilinear_aa_ch(&src, width, aa_top, aa_left, aa_wu, aa_hu, sx, sy, p);
+                            cubic::sample(&src, width, aa_top, aa_left, aa_wu, aa_hu, sx, sy, [p])
+                                [0];
                     }
                 }
             }

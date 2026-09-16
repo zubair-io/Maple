@@ -268,42 +268,6 @@ fn develop_scene_linear_for_pano(
         }
     };
 
-    // Stage 2a (#1159): DNG OpcodeList3 on the demosaiced linear data, in
-    // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
-    // The pano-only divergence from the canonical chain (module docs).
-    let mut applied_opcodes = Vec::new();
-    if let Some((list, aa)) = list3 {
-        stage("pano_opcode_list3", || {
-            // Pano ingest always wants the vendor's corrections at full
-            // strength: the stitcher's reprojection residuals and seam
-            // matching are specified against geometrically-corrected,
-            // vignette-flattened frames (#1159), so the per-image user
-            // scales (#376) deliberately do not reach this path.
-            applied_opcodes = opcode_apply::apply_opcode_list3(
-                &mut camera_rgb,
-                list,
-                *aa,
-                opcode_apply::LensCorrectionScales::FULL,
-            );
-        });
-        dump_after("pano_00a_opcode_list3", &camera_rgb);
-    }
-
-    // DNG § 6.3 DefaultCrop — same call as develop; divisor is 1 at Full
-    // for every CFA but we mirror the canonical call shape exactly.
-    if let Some(crop) = raw.crop_rect {
-        if let Some(cropped) = stage("pano_crop_to_default", || {
-            crop_to_default(
-                &camera_rgb,
-                crop,
-                effective_quality_divisor(quality, raw.cfa),
-            )
-        }) {
-            camera_rgb = cropped;
-        }
-    }
-    dump_after("pano_00b_crop_to_default", &camera_rgb);
-
     // DNG § C.1.2 BaselineExposure — scene-linear gain prior to the color
     // transform. Mirrors develop's inline multiply verbatim.
     if raw.baseline_exposure.abs() > 1e-4 {
@@ -342,6 +306,42 @@ fn develop_scene_linear_for_pano(
         )
     });
     dump_after("pano_02_highlight_recovery", &camera_rgb);
+
+    // Stage 2a (#1159): DNG OpcodeList3 on the demosaiced linear data, in
+    // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
+    // The pano-only divergence from the canonical chain (module docs).
+    let mut applied_opcodes = Vec::new();
+    if let Some((list, aa)) = list3 {
+        stage("pano_opcode_list3", || {
+            // Pano ingest always wants the vendor's corrections at full
+            // strength: the stitcher's reprojection residuals and seam
+            // matching are specified against geometrically-corrected,
+            // vignette-flattened frames (#1159), so the per-image user
+            // scales (#376) deliberately do not reach this path.
+            applied_opcodes = opcode_apply::apply_opcode_list3(
+                &mut camera_rgb,
+                list,
+                *aa,
+                opcode_apply::LensCorrectionScales::FULL,
+            );
+        });
+        dump_after("pano_00a_opcode_list3", &camera_rgb);
+    }
+
+    // DNG § 6.3 DefaultCrop — same call as develop; divisor is 1 at Full
+    // for every CFA but we mirror the canonical call shape exactly.
+    if let Some(crop) = raw.crop_rect {
+        if let Some(cropped) = stage("pano_crop_to_default", || {
+            crop_to_default(
+                &camera_rgb,
+                crop,
+                effective_quality_divisor(quality, raw.cfa),
+            )
+        }) {
+            camera_rgb = cropped;
+        }
+    }
+    dump_after("pano_00b_crop_to_default", &camera_rgb);
 
     // DCP colorimetry: camera RGB → scene-linear Rec.2020 D65. CM/FM + HSM
     // only (the Adobe aesthetic layers PTC/PLT don't run — #425).

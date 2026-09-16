@@ -135,6 +135,7 @@ mkdir -p "$CANDIDATES_DIR" "$AUTO_CANDIDATES_DIR"
 
 echo "test_color_pipeline: manifest=$MANIFEST"
 echo "test_color_pipeline: preferred_resolution=$PREFERRED_RES"
+echo "test_color_pipeline: reference protocols: baseline = matched native Lanczos; other cases = legacy (#3678)"
 [[ -n "$FILTER" ]] && echo "test_color_pipeline: filter=$FILTER"
 echo ""
 
@@ -239,9 +240,9 @@ print(f"{'verd':<4} {'fixture':<12} {'case':<22} {'n_pix':>9}  "
 print("-" * 100)
 
 def pick_reference(outputs: list[dict]) -> Optional[dict]:
-    """Strict: only use PREFERRED_RES. Falling back to `full` (typically
-    12288x8192) blows the per-case diff time from ~50ms to ~10s. Cases
-    that lack the preferred resolution are skipped."""
+    """Select only the requested comparison dimensions. The native counterpart
+    is required separately by diff_manifest_case; it is not a fallback.
+    Cases lacking the requested resolution remain visible in skip counts."""
     by_res = {o["resolution"]: o for o in outputs}
     if preferred_res in by_res and os.path.exists(by_res[preferred_res]["png"]):
         return by_res[preferred_res]
@@ -278,11 +279,11 @@ for case in sorted(cases, key=lambda c: c["name"]):
     if ref is None:
         skipped_no_ref += 1
         continue
-    ref_path = ref["png"]
-
     try:
-        metrics = compare_images.diff(cand_path, ref_path,
-                                      zones=zones_on, hue_bins=hue_bins)
+        metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
+                                                    case_label=case_label, reference_xmp=case.get("acr_xmp"),
+                                                    zones=zones_on, hue_bins=hue_bins)
+        print(f"# reference protocol {name}: {metrics['reference_protocol']}")
     except Exception as e:
         print(f"{fixture:<12} {case_label:<22} {'DIFF':>9}  diff failed: {e}",
               file=sys.stderr)
@@ -511,11 +512,11 @@ for case in sorted(cases, key=lambda c: c["name"]):
     if ref is None:
         skipped_no_ref += 1
         continue
-    ref_path = ref["png"]
-
     try:
-        metrics = compare_images.diff(cand_path, ref_path,
-                                      zones=zones_on, hue_bins=hue_bins)
+        metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
+                                                    case_label=case_label, reference_xmp=case.get("acr_xmp"),
+                                                    zones=zones_on, hue_bins=hue_bins)
+        print(f"# reference protocol {name}: {metrics['reference_protocol']}")
     except Exception as e:
         print(f"{fixture:<12} {case_label:<22} {'DIFF':>9}  diff failed: {e}",
               file=sys.stderr)
@@ -721,11 +722,11 @@ for case in sorted(cases, key=lambda c: c["name"]):
     if ref is None:
         skipped_no_ref += 1
         continue
-    ref_path = ref["png"]
-
     try:
-        metrics = compare_images.diff(cand_path, ref_path,
-                                      zones=zones_on, hue_bins=hue_bins)
+        metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
+                                                    case_label=case_label, reference_xmp=case.get("acr_xmp"),
+                                                    zones=zones_on, hue_bins=hue_bins)
+        print(f"# reference protocol {name}: {metrics['reference_protocol']}")
     except Exception as e:
         print(f"{fixture:<12} {case_label:<22} {'DIFF':>9}  diff failed: {e}",
               file=sys.stderr)

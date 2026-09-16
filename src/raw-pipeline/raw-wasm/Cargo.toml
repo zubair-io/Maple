@@ -80,6 +80,7 @@ gpu = ["dep:raw-gpu", "dep:wasm-bindgen-futures", "dep:web-sys"]
 # wasm test target awaits the browser and never block_ons. These are dev-only, so
 # they don't affect the shipped wasm bundle or the default (gpu-off) build.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+raw-core = { path = "../raw-core", features = ["test-support"] }
 pollster = "0.4"
 wgpu = "23"
 # Decodes the files `export_bytes` produces so the export-vs-canvas parity gate
