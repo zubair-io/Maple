@@ -428,3 +428,37 @@ failures. Complete metrics and full/down/derived reference hashes are retained
 in `color-baseline-3633-resampling.json`. These are explicitly noncanonical
 results and do not replace the gate. The cubic candidate is now being rendered
 against all 20 baselines to qualify its effect beyond the original three.
+
+## Cubic candidate qualification checkpoint
+
+The broad cubic run executed all 40 canonical baseline comparisons, with three
+failures and zero skips: 0000 Neutral/Auto maxima 39.22/38.94 and the unchanged
+0011 Neutral bias. The same 40 rendered outputs under equal Lanczos reduction
+have just the unchanged 0011 Neutral bias breach; all original six comparisons
+are below their existing numerical ceilings. The resampling JSON now includes
+all **120** broad attribution rows (main, pre-opcode/known-G, and cubic), with
+full/down/derived reference provenance. No canonical protocol change is made.
+
+The candidate checkout was rebased to current `origin/main` **9faf74f71**;
+the intervening raw-core changes are ID tests, not color math or budgets.
+Current-base core validation: **2,390 passed, 92 pre-existing ignored**.
+Synthetic grey, adjustment and DCP gates: **52 passed**. Opcode-specific
+validation: **26 passed**, including analytical cubic weights, identity,
+sticky active-area borders and preservation of negative and >1 radiance.
+
+A new non-flat GPU parity test uses a generated DNG with positive lens gain,
+a cubic warp, a diagonal chromatic edge and actual clipped green photosites.
+It exposed an old test-oracle mismatch: `cpu_reference` selected `Full` (RCD
+since #3412), while shipping Web CPU and GPU preparation both select `Amaze`.
+The flat fixture had hidden that difference. Correcting the oracle to the
+shipping CPU demosaic, without changing numeric parity limits, gives exact
+byte equality for this new case with HR Off and ChromaticAdaptation.
+`MAPLE_REQUIRE_GPU=1` qualification runs **18 tests, all passing**, with no
+ignored tests; required fixtures/hardware cannot silently skip. This establishes
+the shared CPU preparation + GPU-chain path on the native adapter, not browser
+WebGPU or a freshly rebuilt Apple binding qualification.
+
+Production candidate edits remain uncommitted while the canonical protocol
+and remaining reference-target failure are unresolved. Output version bump,
+code generation, native binding checks and uncontended performance validation
+are still required before a ready implementation PR.
