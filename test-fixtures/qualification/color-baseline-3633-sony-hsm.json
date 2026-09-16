@@ -1,0 +1,32 @@
+{
+  "control": {
+    "mean_deltaE": 5.637901119792309,
+    "p95_deltaE": 19.56266022120253,
+    "max_deltaE": 34.81104600031448,
+    "bias_r": 0.03782998397946358,
+    "bias_g": 0.03153589740395546,
+    "bias_b": 0.03117937035858631,
+    "n_pixels": 10668000,
+    "reference_protocol": "baseline-native-pair-lanczos",
+    "neutral_mask_fraction": 0.048643232095988004,
+    "neutral_mask_bias": [0.1340301224349392, 0.13448072131187264, 0.1336267628587848],
+    "png_sha256": "4b58a8340728f0e16101c88130bce4b54ac0473ff2ed25115f1a87becabf3173"
+  },
+  "hsm": {
+    "mean_deltaE": 7.672866042618563,
+    "p95_deltaE": 19.557972248685765,
+    "max_deltaE": 46.10496659758092,
+    "bias_r": 0.016720561310648918,
+    "bias_g": 0.018501607701182365,
+    "bias_b": 0.03889116644859314,
+    "n_pixels": 10668000,
+    "reference_protocol": "baseline-native-pair-lanczos",
+    "neutral_mask_fraction": 0.048643232095988004,
+    "neutral_mask_bias": [0.13633183709810556, 0.13794665064229938, 0.13674158981306545],
+    "png_sha256": "3fa1a0a016217933160c62f39240e1d1dfe599504de2400d1c8a0a380711556f"
+  },
+  "source_revision": "d9e570acef21260565e62be91ca083af67f6a455",
+  "dcp_sha256": "a35223d09219f5b90d077babe897b6a05eb611bf7d4deb28f7b763b127e1b121",
+  "canonical_cli_byte_equivalence_checked": true,
+  "canonical_cli_control_path": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.RERPlLRXpG/candidates/test_0011_baseline.png"
+}
