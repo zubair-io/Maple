@@ -177,12 +177,12 @@ struct BackupStatusPanel: View {
           .accessibilityIdentifier("backup.status.done")
         if progress.uploadedCompanionsPendingCount > 0 {
           Label(
-            "Finishing: \(progress.uploadedCompanionsPendingCount.formatted())",
+            "Extra files: \(progress.uploadedCompanionsPendingCount.formatted())",
             systemImage: "arrow.triangle.2.circlepath"
           )
           .foregroundStyle(.secondary)
           .accessibilityIdentifier("backup.status.companionsPending")
-          .help("Uploaded — sidecar/rendered companions still finishing in the background.")
+          .help("Originals saved; related files are still uploading or retrying.")
         }
         Label(
           "Failed: \(progress.totalFailed.formatted())", systemImage: "exclamationmark.triangle"
@@ -192,11 +192,17 @@ struct BackupStatusPanel: View {
       }
       .font(.caption)
 
-      if let err = progress.lastError {
-        Text("Last error: \(err)")
-          .font(.caption2)
+      if progress.uploadedCompanionsPendingCount > 0 {
+        Text("Originals saved; uploading metadata, edits, or Live Photo videos.")
+          .font(.caption)
           .foregroundStyle(.secondary)
+      }
+      if let message = progress.issues.message {
+        Label(message, systemImage: "exclamationmark.triangle")
+          .font(.caption)
+          .foregroundStyle(progress.issues.isFailure ? .red : .orange)
           .fixedSize(horizontal: false, vertical: true)
+          .accessibilityIdentifier("backup.status.issue")
       }
 
     }

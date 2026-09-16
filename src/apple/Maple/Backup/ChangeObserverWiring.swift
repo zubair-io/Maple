@@ -202,7 +202,7 @@ enum ChangeObserverWiring {
     // scan on a large library reads as progress, not a wedged engine.
     EngineHost.shared.progress.setWalkPhase(.enumerating)
     guard let state = EngineHost.shared.state else {
-      log.error("walk bail: EngineHost.shared.state is nil — backup engine never finished starting")
+      BackupIssueStatus.log(.error, "Backup scan stopped: engine state is unavailable")
       EngineHost.shared.progress.setWalkPhase(.failed("the backup engine never finished starting"))
       return
     }
@@ -248,9 +248,9 @@ enum ChangeObserverWiring {
         allTasks.map { ($0.id.phassetLocalId, $0.state) },
         uniquingKeysWith: { _, latest in latest })
     } catch {
-      log.error("walk bail: allTasks() failed: \(String(describing: error), privacy: .public)")
+      BackupIssueStatus.log(.error, "Backup state read failed: \(error)")
       EngineHost.shared.progress.setWalkPhase(
-        .failed("couldn't read the local backup state (\(error.localizedDescription))"))
+        .failed("couldn't read local backup records. Details are in the logs."))
       return
     }
 
@@ -280,9 +280,10 @@ enum ChangeObserverWiring {
         "walk server-state reconciliation: server knows \(serverKnownPhids.count) phids for this device"
       )
     } catch {
-      log.error(
-        "walk server-state reconciliation skipped (network): \(String(describing: error), privacy: .public)"
-      )
+      if !Task.isCancelled {
+        BackupIssueStatus.log(
+          .warning, "Backup server check unavailable; using local records: \(error)")
+      }
     }
 
     guard !Task.isCancelled else { return }
@@ -318,7 +319,9 @@ enum ChangeObserverWiring {
         try await state.upsert(
           Array(reconciledTasks[offset..<min(offset + 256, reconciledTasks.count)]))
       } catch {
-        EngineHost.shared.progress.setWalkPhase(.failed(error.localizedDescription))
+        BackupIssueStatus.log(.error, "Backup state write failed: \(error)")
+        EngineHost.shared.progress.setWalkPhase(
+          .failed("couldn't save local backup records. Details are in the logs."))
         return
       }
     }
@@ -329,7 +332,9 @@ enum ChangeObserverWiring {
         await queue.enqueue(task, priority: task.priority)
       }
     } catch {
-      EngineHost.shared.progress.setWalkPhase(.failed(error.localizedDescription))
+      BackupIssueStatus.log(.error, "Backup state write failed: \(error)")
+      EngineHost.shared.progress.setWalkPhase(
+        .failed("couldn't save local backup records. Details are in the logs."))
       return
     }
     let retriedCount = retryTasks.count
@@ -358,7 +363,9 @@ enum ChangeObserverWiring {
         EngineHost.shared.progress.setWalkPhase(
           .reconciling(checked: end, total: phidsToEnqueue.count))
       } catch {
-        EngineHost.shared.progress.setWalkPhase(.failed(error.localizedDescription))
+        BackupIssueStatus.log(.error, "Backup state write failed: \(error)")
+        EngineHost.shared.progress.setWalkPhase(
+          .failed("couldn't save local backup records. Details are in the logs."))
         return
       }
     }

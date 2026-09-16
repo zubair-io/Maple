@@ -177,6 +177,7 @@ public final class BackupProgressViewModel {
 
   /// Most recent failure message; nil if no failure has been observed yet.
   public private(set) var lastError: String?
+  let issues = BackupIssueStatus()
 
   /// True between `.start()` and `.stop()`. The panel uses this to render
   /// "engine paused" vs "engine running" affordance.
@@ -223,6 +224,7 @@ public final class BackupProgressViewModel {
     inFlight.removeAll()
     recentCompleted.removeAll()
     lastError = nil
+    issues.reset()
     lastWalkSummary = nil
     let stream = await queue.observe()
     // start/stop can run while subscription suspends. Only its current
@@ -243,6 +245,7 @@ public final class BackupProgressViewModel {
   }
 
   public func stop() {
+    issues.clearRetries()
     observerGeneration = UUID()
     observerTask?.cancel()
     observerTask = nil
@@ -360,6 +363,7 @@ public final class BackupProgressViewModel {
   // Internal (not private) so `@testable import Maple` can drive the reducer
   // directly in MapleTests without standing up the async event stream (#723).
   func apply(_ event: BackupQueueEvent) {
+    issues.apply(event)
     switch event {
     case .drained: break
     case .enqueued(let task):
