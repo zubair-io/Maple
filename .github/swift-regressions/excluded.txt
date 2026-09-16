@@ -235,7 +235,6 @@ MetalKernelParityTests fixture needs the gitignored RAW fixtures (skip-passes wi
 MirrorConfigClientTests untriaged not yet reviewed for the runner; place deliberately when next touched
 NativeDetailAEGainTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 NativeDetailExitForcesFreshRenderTests slow render or decode workload that costs minutes on the runner
-NativeDetailLODTests untriaged not yet reviewed for the runner; place deliberately when next touched
 NativeDetailPerfTests slow render or decode workload that costs minutes on the runner
 NetworkConfigClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 NetworkConfigTypesTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -245,24 +244,16 @@ NonRawSupportTests fixture needs the gitignored RAW fixtures (skip-passes withou
 PairingProtocolTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PairingTransportTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PersonSkinMaskServiceTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-PerspectiveXMPTests untriaged not yet reviewed for the runner; place deliberately when next touched
-PhotoGridItemTests untriaged not yet reviewed for the runner; place deliberately when next touched
 PhotoKitCatalogTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitChangeObserverTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitInputShapeTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitMergeAdapterTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitSidecarStoreTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitSourceXMPTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-PhotosAccessMemoryTests untriaged not yet reviewed for the runner; place deliberately when next touched
-PresetStoreTests untriaged not yet reviewed for the runner; place deliberately when next touched
-PresetTests untriaged not yet reviewed for the runner; place deliberately when next touched
 PreviewPathContractTests slow render or decode workload that costs minutes on the runner
 ProTokensAccentTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-ProcessSceneLinearTargetPrimariesOverrideTests untriaged not yet reviewed for the runner; place deliberately when next touched
-QuickLookResolverTests untriaged not yet reviewed for the runner; place deliberately when next touched
 QuickLookThumbDiskCacheTests slow render or decode workload that costs minutes on the runner
 RawCameraSupportTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-RawCoreBridgeTests untriaged not yet reviewed for the runner; place deliberately when next touched
 RawDecodeCancellationTests slow render or decode workload that costs minutes on the runner
 RawImageCacheConcurrencyTests slow render or decode workload that costs minutes on the runner
 ReauthDecisionTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -287,12 +278,7 @@ RenderConfigClientTests slow render or decode workload that costs minutes on the
 RenderedPreviewCacheTests slow render or decode workload that costs minutes on the runner
 RenderedPreviewCacheUpgradeTests slow render or decode workload that costs minutes on the runner
 ReportedExportParityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-ResolveAbsolutePathTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ResolveThumbParentTests slow render or decode workload that costs minutes on the runner
-RetouchGeometryTests untriaged not yet reviewed for the runner; place deliberately when next touched
-RetouchXMPTests untriaged not yet reviewed for the runner; place deliberately when next touched
-RevealInFileManagerSelectionTests untriaged not yet reviewed for the runner; place deliberately when next touched
-RevealTargetTests untriaged not yet reviewed for the runner; place deliberately when next touched
 SMBCredentialStoreTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 SMBFileOperationsCacheInvalidationTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SMBFileOperationsFolderTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -301,9 +287,7 @@ SMBFileOperationsRelocateTests host talks to a host service (keychain, FileProvi
 SMBSidecarStoreTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SMBSourceSidecarTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SMBThumbCacheTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-SavedFolderStoreTests untriaged not yet reviewed for the runner; place deliberately when next touched
 SceneLinearChainCacheTests slow render or decode workload that costs minutes on the runner
-SceneLinearChainF32BandingTests untriaged not yet reviewed for the runner; place deliberately when next touched
 SceneLinearVisualRegressionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 ScopeCpuProducerTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 ScopeLayerSelectionTests gpu needs a real Metal device
@@ -311,26 +295,13 @@ ScopePanelSampleTests gpu needs a real Metal device
 ScopeSampleCentroidTests gpu needs a real Metal device
 ScopeSampleTests gpu needs a real Metal device
 ScopeTickDecisionTests gpu needs a real Metal device
-SearchAssetAddressTests untriaged not yet reviewed for the runner; place deliberately when next touched
-SearchCursorPaginationTests untriaged not yet reviewed for the runner; place deliberately when next touched
-SearchParamsTests untriaged not yet reviewed for the runner; place deliberately when next touched
-SearchViewModelTests untriaged not yet reviewed for the runner; place deliberately when next touched
-SessionPruningTests untriaged not yet reviewed for the runner; place deliberately when next touched
 SharpenSliderTickPerfTests slow render or decode workload that costs minutes on the runner
-SidecarModifyIdempotencyTests untriaged not yet reviewed for the runner; place deliberately when next touched
-SidecarPathTests untriaged not yet reviewed for the runner; place deliberately when next touched
 SidecarTransactionContractCloudTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SidecarTransactionContractFilesystemTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 SidecarTransactionContractPhotoKitTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SidecarTransactionContractSMBTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SliderTickPerfTests slow render or decode workload that costs minutes on the runner
 SourceSelectionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-StageCatalogTests untriaged not yet reviewed for the runner; place deliberately when next touched
-StageRuntimeFormTests untriaged not yet reviewed for the runner; place deliberately when next touched
-StageRuntimePatchTests untriaged not yet reviewed for the runner; place deliberately when next touched
-TVMapFocusOrderTests untriaged not yet reviewed for the runner; place deliberately when next touched
-TVMapHeatmapTuningTests untriaged not yet reviewed for the runner; place deliberately when next touched
-TVTimelineViewModelTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ThumbnailDecoderTests slow render or decode workload that costs minutes on the runner
 ThumbnailDiskCacheKeyTests slow render or decode workload that costs minutes on the runner
 ThumbnailDiskCacheSourcelessScopeTests gpu needs a real Metal device
@@ -344,7 +315,6 @@ ThumbnailLoaderTests slow render or decode workload that costs minutes on the ru
 ThumbnailLoaderWriteBackTests slow render or decode workload that costs minutes on the runner
 TileManagerByteBudgetTests slow render or decode workload that costs minutes on the runner
 TokenStoreTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
-ToneCurveFlattenTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ToneCurveMathTests untriaged not yet reviewed for the runner; place deliberately when next touched
 ToneCurvePerfTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 ToneCurveTests untriaged not yet reviewed for the runner; place deliberately when next touched
