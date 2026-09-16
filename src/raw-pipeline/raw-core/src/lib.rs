@@ -16,6 +16,7 @@ pub mod math;
 pub mod camera_calibration;
 
 pub mod color;
+pub mod color_labels;
 
 pub mod image;
 pub use image::{CfaPattern, ColorSpace, ExifOrientation, Image, RawImage};
