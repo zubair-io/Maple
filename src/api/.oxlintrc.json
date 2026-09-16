@@ -51,6 +51,7 @@
   "overrides": [
     {
       "files": [
+        "scripts/ffi-contention.ts",
         "src/audio/extract-audio.ts",
         "src/audio/extract-audio.test.ts",
         "src/audio/whisper-cli.ts",
