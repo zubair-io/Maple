@@ -3,7 +3,7 @@ import Observation
 import SwiftUI
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 @MainActor
 final class EditorObservationTests: XCTestCase {

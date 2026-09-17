@@ -14,7 +14,7 @@
 import Foundation
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 final class LibrarySidebarVMTests: XCTestCase {
 

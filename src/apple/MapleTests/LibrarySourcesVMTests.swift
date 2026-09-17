@@ -5,7 +5,7 @@ import Foundation
 import MapleCore
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 final class LibrarySourcesVMTests: XCTestCase {
 

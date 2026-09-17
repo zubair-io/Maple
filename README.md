@@ -4,7 +4,7 @@ A professional, non-destructive RAW photo editor and library by Just Maple. One 
 
 | Surface                                                 | Where it lives       | How it reaches the core                        |
 | ------------------------------------------------------- | -------------------- | ---------------------------------------------- |
-| **Maple Exposure** — macOS, iPadOS, iOS (Swift/SwiftUI) | `src/apple/`         | `RawPipeline.xcframework` built from `raw-ffi` |
+| **Maple** — macOS, iPadOS, iOS (Swift/SwiftUI) | `src/apple/`         | `RawPipeline.xcframework` built from `raw-ffi` |
 | **Maple TV** — tvOS light-table viewer                  | `src/apple/Maple TV` | Same xcframework                               |
 | **Web app `maple`** — served by the API (Self Hosted)   | `src/web/`           | `raw-wasm` (WebAssembly + WebGPU)              |
 | **Web app `maple-syrup`** — Maple Hosted, browser-only  | `src/web/`           | `raw-wasm`                                     |
@@ -49,7 +49,7 @@ cd src/raw-pipeline && cargo build --release -p maple-cli
 ```
 
 ```bash
-cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" -destination 'platform=macOS' build
+cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple" -destination 'platform=macOS' build
 ```
 
 **Web** (Bun or npm; the `prestart` hook builds and syncs the WASM package):

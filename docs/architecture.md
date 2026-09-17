@@ -8,7 +8,7 @@ Each row is something you build and ship separately.
 
 | Unit                                             | Where                            | Built from                                          | Talks to                                                                           |
 | ------------------------------------------------ | -------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **Maple Exposure** (macOS / iOS / iPadOS)        | `src/apple/Maple/` + `Packages/` | Xcode target, bundle id `app.justmaple.aperture`    | Local files, SMB, PhotoKit, a Maple server                                         |
+| **Maple** (macOS / iOS / iPadOS)        | `src/apple/Maple/` + `Packages/` | Xcode target, bundle id `app.justmaple.aperture`    | Local files, SMB, PhotoKit, a Maple server                                         |
 | **Maple TV** (tvOS)                              | `src/apple/Maple TV/`            | Xcode target, `…aperture.tv`                        | A Maple server only (links `MapleCloudKit`, never the RAW pipeline)                |
 | **MapleFileProvider** / **MapleFileProviderIOS** | `src/apple/MapleFileProvider*/`  | Xcode app extensions, `…aperture.FileProvider(IOS)` | Surfaces a server library in Finder / Files                                        |
 | **MapleQuickLook** (macOS)                       | `src/apple/MapleQuickLook/`      | Xcode extension, `…aperture.QuickLook`              | Renders previews for Finder                                                        |
@@ -120,7 +120,7 @@ src/
     vendor/                     vendored crates (offline Apple/Windows builds)
   apple/
     Maple.xcodeproj             all Apple targets
-    Maple/                      "Maple Exposure" app target (SwiftUI shell, Views/, Auth/, Backup/)
+    Maple/                      "Maple" app target (SwiftUI shell, Views/, Auth/, Backup/)
     Maple TV/                   tvOS app target
     MapleFileProvider/  MapleFileProviderIOS/  MapleQuickLook/  MapleWidget/
     MapleBackupAgent/           macOS LaunchAgent
@@ -170,7 +170,7 @@ FILTER=baseline src/scripts/test_color_pipeline.sh
 
 # Apple — build the xcframework once per clone/worktree, then Xcode
 ./src/apple/scripts/build-xcframework.sh
-cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" \
+cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple" \
   -destination 'platform=macOS' build
 cd src/apple/Packages/MapleCore && swift test
 

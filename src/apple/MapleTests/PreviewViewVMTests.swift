@@ -5,8 +5,8 @@
 // Lives in the MapleTests Xcode target (not MapleCore) because `PreviewViewVM`
 // is declared in the app target — that's where the view + its VM sibling live
 // (per the `+VM.swift` co-location pattern, same as FullImageViewVMTests /
-// InfoPanelVMTests). MapleTests is host-targeted on Maple Exposure.app, so
-// `@testable import Maple_Exposure` reaches app-target types (the module name
+// InfoPanelVMTests). MapleTests is host-targeted on Maple.app, so
+// `@testable import Maple` reaches app-target types (the module name
 // replaces the space with an underscore).
 //
 // Focus: prev/next selection (wrap + clamp edge cases), swipe classification
@@ -17,7 +17,7 @@ import Foundation
 import MapleCore
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 final class PreviewViewVMTests: XCTestCase {
 

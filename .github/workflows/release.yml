@@ -332,7 +332,7 @@ jobs:
 
           set +e
           xcodebuild -project src/apple/Maple.xcodeproj \
-            -scheme "Maple Exposure" \
+            -scheme "Maple" \
             -destination 'generic/platform=macOS' \
             -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
             archive \

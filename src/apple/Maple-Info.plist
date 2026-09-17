@@ -8,7 +8,7 @@
   `INFOPLIST_KEY_CFBundleURLTypes`, so the equivalent
   INFOPLIST_KEY_* build setting is silently dropped (same pattern as
   `UIAppFonts`, `NSBonjourServices`, `NSHighResolutionCapable` —
-  verified empirically against a built `Maple Exposure.app/Contents/Info.plist`).
+  verified empirically against a built `Maple.app/Contents/Info.plist`).
   URL schemes have no runtime registration API (unlike fonts, which
   use `CTFontManagerRegisterFontsForURL` from `MapleApp.init`), so the
   scheme MUST land in the built plist for LaunchServices to associate

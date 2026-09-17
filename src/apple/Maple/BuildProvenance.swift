@@ -9,7 +9,7 @@
 // SHA, a build timestamp) are only known at build time anyway — a static
 // `INFOPLIST_KEY_*` build setting can't express them. Instead the "Stamp
 // build provenance" Run Script build phase (`project.pbxproj`, last phase on
-// the "Maple Exposure" target so it runs after Info.plist has already been
+// the "Maple" target so it runs after Info.plist has already been
 // generated and copied into the bundle being signed) shells out to
 // `/usr/libexec/PlistBuddy` and writes `MapleBuildGitSHA` / `MapleBuildDate`
 // directly into the built Info.plist. Xcode Cloud sets `CI_COMMIT` to the
