@@ -128,6 +128,19 @@ final class BackupIssueStatusTests: XCTestCase {
     XCTAssertNil(BackupStatusPresentation.next(after: scan.id, in: []))
   }
 
+  func testActivityTextUpdatesDynamicallyForActiveCategory() {
+    let vm = BackupProgressViewModel()
+    vm.setWalkPhase(.reconciling(checked: 10, total: 100))
+    let activities1 = BackupStatusPresentation.activities(vm)
+    let scan1 = activities1.first(where: { $0.id == "scan" })
+    XCTAssertEqual(scan1?.text, "Checking 10 of 100 photos…")
+
+    vm.setWalkPhase(.reconciling(checked: 25, total: 100))
+    let activities2 = BackupStatusPresentation.activities(vm)
+    let scan2 = activities2.first(where: { $0.id == "scan" })
+    XCTAssertEqual(scan2?.text, "Checking 25 of 100 photos…")
+  }
+
   func testPhotoStateIconsSeparateReadingDownloadingAndUploading() {
     let vm = BackupProgressViewModel()
     vm.apply(.started(id))
