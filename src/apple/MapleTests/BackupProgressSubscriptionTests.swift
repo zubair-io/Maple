@@ -1,7 +1,7 @@
 import MapleBackup
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 @MainActor
 final class BackupProgressSubscriptionTests: XCTestCase {

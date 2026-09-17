@@ -2,7 +2,7 @@ import MapleBackup
 import SwiftUI
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 #if canImport(UIKit)
   import UIKit
