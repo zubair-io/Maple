@@ -21,6 +21,7 @@ import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { STORAGE_KEYS } from '../util/typed-storage';
 import { provideSelfHostedWorkspace } from '../workspace/self-hosted-workspace.providers';
+import type { AssetId } from '../models/asset';
 
 // This spec constructs the real BrowsePreferencesService (via
 // LibraryStateService); its persistence effects write `cm.*` keys into the
@@ -200,6 +201,27 @@ describe('LibraryStateService — Self-Hosted picker + addLibraryFolder', () => 
       expect(svc.sidebarTree()).toEqual([]);
       expect(svc.backendEmpty()).toBe(false);
       expect(svc.backendError()).toContain('unreachable');
+    });
+  });
+
+  describe('hydrateSelfHostedFsAsset', () => {
+    it('populates asset absPath and store assetAbsPaths mapping for fs: id', () => {
+      const id = 'fs:/srv/photos/2014/Lawrence/test.jpg' as AssetId;
+      const asset = svc.hydrateSelfHostedFsAsset(id);
+
+      expect(asset).not.toBeNull();
+      expect(asset?.id).toBe(id);
+      expect(asset?.absPath).toBe('/srv/photos/2014/Lawrence/test.jpg');
+      expect(svc.absPathFor(id)).toBe('/srv/photos/2014/Lawrence/test.jpg');
+    });
+
+    it('merges patch into hydrated asset and preserves absPath', () => {
+      const id = 'fs:/srv/photos/test.jpg' as AssetId;
+      const asset = svc.hydrateSelfHostedFsAsset(id, { filename: 'custom.jpg' });
+
+      expect(asset?.filename).toBe('custom.jpg');
+      expect(asset?.absPath).toBe('/srv/photos/test.jpg');
+      expect(svc.absPathFor(id)).toBe('/srv/photos/test.jpg');
     });
   });
 });

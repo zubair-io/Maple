@@ -182,6 +182,7 @@ export class LibraryCache {
       fileHandles: this.fileHandles,
       bytesForAsset: (assetId) => this.bytesForAsset(assetId),
       hostedBytesSnapshotFor: (assetId) => this.hostedBytes.snapshotFor(assetId),
+      fsBrowse: this.fsBrowse,
     });
     if (!loader) return this.subscribeThumbUrl(id, cb);
     const unsubscribe = this.previewChannel.subscribe(id, cb);
@@ -486,6 +487,7 @@ export class LibraryCache {
     return this.thumbQueue.enqueue(asset.id, () => this._loadThumbInternal(asset, onThumbWritten));
   }
 
+  // fallow-ignore-next-line complexity
   private async _loadSelfHostedThumb(asset: Asset): Promise<void> {
     // 0. Self-Hosted M2 slug:relPath asset → /api/thumb via the authed
     //    LibrarySource (HttpClient attaches the bearer).
@@ -498,10 +500,19 @@ export class LibraryCache {
     }
 
     // 1. Self-Hosted FS-walk: server renders + caches the JPEG.
-    if (asset.absPath) {
-      const url = await this.fsBrowse.getThumbBlobUrl(asset.absPath);
-      this.cacheThumbnailUrl(asset.id, url);
-      return;
+    const absPath = asset.absPath ?? this.store.absPathFor(asset.id);
+    if (absPath) {
+      try {
+        const url = await this.fsBrowse.getThumbBlobUrl(absPath);
+        this.cacheThumbnailUrl(asset.id, url);
+        return;
+      } catch {
+        const blob = await this.fsBrowse.getThumbBlob?.(absPath);
+        if (blob) {
+          this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
+          return;
+        }
+      }
     }
 
     // 2. Self-Hosted Mongo asset (older grid mounts that resolved an apiId).
