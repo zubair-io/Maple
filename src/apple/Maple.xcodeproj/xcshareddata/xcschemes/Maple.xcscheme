@@ -16,8 +16,8 @@
                   <BuildableReference
                      BuildableIdentifier = "primary"
                      BlueprintIdentifier = "A1F0001000000000000000A1"
-                     BuildableName = "Maple Exposure.app"
-                     BlueprintName = "Maple Exposure"
+                     BuildableName = "Maple.app"
+                     BlueprintName = "Maple"
                      ReferencedContainer = "container:Maple.xcodeproj">
                   </BuildableReference>
                </EnvironmentBuildable>
@@ -34,8 +34,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A1F0001000000000000000A1"
-               BuildableName = "Maple Exposure.app"
-               BlueprintName = "Maple Exposure"
+               BuildableName = "Maple.app"
+               BlueprintName = "Maple"
                ReferencedContainer = "container:Maple.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -114,8 +114,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A1F0001000000000000000A1"
-            BuildableName = "Maple Exposure.app"
-            BlueprintName = "Maple Exposure"
+            BuildableName = "Maple.app"
+            BlueprintName = "Maple"
             ReferencedContainer = "container:Maple.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -138,8 +138,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A1F0001000000000000000A1"
-            BuildableName = "Maple Exposure.app"
-            BlueprintName = "Maple Exposure"
+            BuildableName = "Maple.app"
+            BlueprintName = "Maple"
             ReferencedContainer = "container:Maple.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

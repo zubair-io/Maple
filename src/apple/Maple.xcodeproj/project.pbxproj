@@ -123,7 +123,7 @@
 		9CA678A9D2E0D47F2A861CC6 /* FileProviderExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
 		A11A00020000000000000905 /* Maple/Backup/PhotoKitAssetReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Maple/Backup/PhotoKitAssetReader.swift; sourceTree = SOURCE_ROOT; };
 		A1F0000400000000000000A1 /* RawPipeline.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RawPipeline.xcframework; path = Frameworks/RawPipeline.xcframework; sourceTree = "<group>"; };
-		A1F0000700000000000000A1 /* Maple Exposure.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Maple Exposure.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1F0000700000000000000A1 /* Maple.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Maple.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1F0000800000000000000A1 /* MapleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1F0002300000000000000A1 /* film-luts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "film-luts"; path = "../../resources/film-luts"; sourceTree = "<group>"; };
 		A1F0006000000000000000A1 /* MapleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -335,7 +335,7 @@
 		A1F0000F00000000000000A1 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A1F0000700000000000000A1 /* Maple Exposure.app */,
+				A1F0000700000000000000A1 /* Maple.app */,
 				A1F0000800000000000000A1 /* MapleTests.xctest */,
 				A1F0006000000000000000A1 /* MapleUITests.xctest */,
 				E3DD94832FB50E55009392B4 /* MapleBackupAgent */,
@@ -425,9 +425,9 @@
 			productReference = 443236A672080511BD1FC170 /* MapleQuickLook.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		A1F0001000000000000000A1 /* Maple Exposure */ = {
+		A1F0001000000000000000A1 /* Maple */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A1F0001100000000000000A1 /* Build configuration list for PBXNativeTarget "Maple Exposure" */;
+			buildConfigurationList = A1F0001100000000000000A1 /* Build configuration list for PBXNativeTarget "Maple" */;
 			buildPhases = (
 				A1F0005100000000000000A1 /* Build Rust xcframework */,
 				A1F0005000000000000000A1 /* Clean test fixtures */,
@@ -448,14 +448,14 @@
 			fileSystemSynchronizedGroups = (
 				A1F0000900000000000000A1 /* Maple */,
 			);
-			name = "Maple Exposure";
+			name = Maple;
 			packageProductDependencies = (
 				A1F0000200000000000000A1 /* MapleCore */,
 				E3DD948F2FB55723009392B4 /* MapleBackup */,
 				E3DD94A12FB56002009392B4 /* MapleUI */,
 			);
-			productName = "Maple Exposure";
-			productReference = A1F0000700000000000000A1 /* Maple Exposure.app */;
+			productName = Maple;
+			productReference = A1F0000700000000000000A1 /* Maple.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A1F0001400000000000000A1 /* MapleTests */ = {
@@ -635,7 +635,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A1F0001000000000000000A1 /* Maple Exposure */,
+				A1F0001000000000000000A1 /* Maple */,
 				A1F0001400000000000000A1 /* MapleTests */,
 				A1F0006500000000000000A1 /* MapleUITests */,
 				E3DD94822FB50E55009392B4 /* MapleBackupAgent */,
@@ -856,12 +856,12 @@
 		};
 		A1F0001800000000000000A1 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A1F0001000000000000000A1 /* Maple Exposure */;
+			target = A1F0001000000000000000A1 /* Maple */;
 			targetProxy = E378533E2F9AC54F00BDF307 /* PBXContainerItemProxy */;
 		};
 		A1F0006A00000000000000A1 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A1F0001000000000000000A1 /* Maple Exposure */;
+			target = A1F0001000000000000000A1 /* Maple */;
 			targetProxy = A1F0006900000000000000A1 /* PBXContainerItemProxy */;
 		};
 		A94BA048F0AF3949586FB40E /* PBXTargetDependency */ = {
@@ -901,7 +901,7 @@
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleFileProviderIOS/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Exposure";
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -932,7 +932,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleFileProvider/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Exposure";
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../../../../Frameworks",
@@ -959,7 +959,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleQuickLook/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Exposure";
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../../../../Frameworks",
@@ -986,7 +986,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleQuickLook/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Exposure";
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../../../../Frameworks",
@@ -1015,7 +1015,7 @@
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleFileProviderIOS/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Exposure";
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1192,7 +1192,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Maple-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Exposure";
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
@@ -1224,7 +1224,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
-				PRODUCT_NAME = "Maple Exposure";
+				PRODUCT_NAME = Maple;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -1271,7 +1271,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Maple-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Exposure";
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
@@ -1303,7 +1303,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
-				PRODUCT_NAME = "Maple Exposure";
+				PRODUCT_NAME = Maple;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -1339,7 +1339,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Maple Exposure.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Maple Exposure";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Maple.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Maple";
 			};
 			name = Debug;
 		};
@@ -1362,7 +1362,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Maple Exposure.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Maple Exposure";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Maple.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Maple";
 			};
 			name = Release;
 		};
@@ -1385,7 +1385,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = "Maple Exposure";
+				TEST_TARGET_NAME = Maple;
 			};
 			name = Debug;
 		};
@@ -1408,7 +1408,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.10;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = "Maple Exposure";
+				TEST_TARGET_NAME = Maple;
 			};
 			name = Release;
 		};
@@ -1480,7 +1480,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleFileProvider/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Maple Exposure";
+				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../../../../Frameworks",
@@ -1628,7 +1628,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A1F0001100000000000000A1 /* Build configuration list for PBXNativeTarget "Maple Exposure" */ = {
+		A1F0001100000000000000A1 /* Build configuration list for PBXNativeTarget "Maple" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A1F0001F00000000000000A1 /* Debug */,

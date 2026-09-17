@@ -10,7 +10,7 @@ import MapleCore
 import MapleUI
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 final class RatingFlagsRowTests: XCTestCase {
   func testMuiFlagMapsEachCullFlagCaseDirectly() {

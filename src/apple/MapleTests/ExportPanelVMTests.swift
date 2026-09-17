@@ -10,7 +10,7 @@ import Foundation
 import MapleCore
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 /// Lets a test hold the encoder inside the panel's encode step and inspect
 /// where it ran. `enterAndWait` is called from whatever thread the VM put
