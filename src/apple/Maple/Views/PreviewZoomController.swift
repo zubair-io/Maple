@@ -36,15 +36,30 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
     private var loadedMaxDimension: CGFloat = 256
     private var requestedMaxDimension: CGFloat = 0
     private var refinementGeneration: UInt64 = 0
+    /// See `PreviewView.transitionProgress`. Below 1 the still is drawn
+    /// between its tile crop (0: aspect-FILL of the page, exactly what the
+    /// square grid tile shows) and its final aspect-FIT (1), so the system
+    /// zoom — which lays this page out at every size on the way — uncrops
+    /// the photo continuously instead of snapping from tile to letterbox.
+    private var transitionProgress: CGFloat = 1
+    /// A display-tier request that arrived mid-zoom; served once the zoom
+    /// settles so the sharper image never pops in halfway through it.
+    private var refinementDeferredByTransition = false
+    /// The grid tile's already-decoded bitmap, if the cell cached one.
+    private let seedImage: UIImage?
+    /// The crop scale `applyTransitionCrop` last put on the image view (1 =
+    /// none), so it is only ever undone when it is still ours.
+    private var transitionCropScale: CGFloat = 1
 
     var isAtFitZoom: Bool {
         abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.01
     }
 
-    init(assetID: AssetRef.ID, source: ThumbnailSource, provider: ThumbnailProvider) {
+    init(assetID: AssetRef.ID, seedKey: String, source: ThumbnailSource, provider: ThumbnailProvider) {
         self.assetID = assetID
         self.source = source
         self.provider = provider
+        self.seedImage = ThumbnailDecoder.cachedImage(forKey: seedKey).map { UIImage(cgImage: $0) }
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -67,6 +82,7 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
 
         imageView.contentMode = .scaleAspectFit
         imageView.clipsToBounds = true
+        imageView.image = seedImage
         scrollView.addSubview(imageView)
 
         // Both status views sit on the controller's view, not inside the
@@ -110,7 +126,47 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
             scrollView.maximumZoomScale = 6
             scrollView.zoomScale = max(1, scrollView.zoomScale)
             centerImage()
+            applyTransitionCrop()
         }
+    }
+
+    func setTransitionProgress(_ progress: CGFloat) {
+        let clamped = min(1, max(0, progress))
+        guard clamped != transitionProgress else { return }
+        transitionProgress = clamped
+        applyTransitionCrop()
+        if clamped >= 1, refinementDeferredByTransition {
+            refinementDeferredByTransition = false
+            requestRefinement(maxDimension: screenPreviewDimension)
+        }
+    }
+
+    /// Scale the fit still up toward its fill size as the zoom approaches
+    /// the tile. The image view is the page's full bounds with an aspect-fit
+    /// image centred in it, so scaling the whole view about its centre by
+    /// `fill / fit` fills the page with the same centre crop the tile shows;
+    /// the scroll view clips the overflow. Only touched while a zoom is
+    /// running — at rest the transform belongs to `UIScrollView`'s own
+    /// zooming, which sets it directly.
+    private func applyTransitionCrop() {
+        guard transitionProgress < 1 else {
+            // Undo our crop, and only ours — a pinch that began mid-zoom
+            // owns the transform now.
+            if transitionCropScale != 1, imageView.transform.a == transitionCropScale {
+                imageView.transform = .identity
+            }
+            transitionCropScale = 1
+            return
+        }
+        guard let image = imageView.image else { return }
+        let bounds = scrollView.bounds.size
+        guard bounds.width > 0, bounds.height > 0,
+              image.size.width > 0, image.size.height > 0 else { return }
+        let fit = min(bounds.width / image.size.width, bounds.height / image.size.height)
+        let fill = max(bounds.width / image.size.width, bounds.height / image.size.height)
+        let scale = 1 + (fill / fit - 1) * (1 - transitionProgress)
+        transitionCropScale = scale
+        imageView.transform = CGAffineTransform(scaleX: scale, y: scale)
     }
 
     func setRefinementActive(_ active: Bool) {
@@ -164,6 +220,7 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
             imageView.image = image
             hideStatusViews()
             view.setNeedsLayout()
+            applyTransitionCrop()
             if refinementActive {
                 requestRefinement(maxDimension: screenPreviewDimension)
             }
@@ -173,6 +230,8 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
     /// Reveal the spinner only if the first bytes are still outstanding once
     /// the delay elapses.
     private func startSpinnerDelay() {
+        // A seeded tile is already on screen; no spinner over it.
+        guard seedImage == nil else { return }
         spinnerDelayTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.spinnerDelayNanoseconds)
             guard let self, !Task.isCancelled, imageView.image == nil,
@@ -199,6 +258,10 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
     }
 
     private func requestRefinement(maxDimension: CGFloat) {
+        guard transitionProgress >= 1 else {
+            refinementDeferredByTransition = true
+            return
+        }
         let target = max(2_048, maxDimension.rounded(.up))
         guard refinementActive,
               target > loadedMaxDimension * 1.2,

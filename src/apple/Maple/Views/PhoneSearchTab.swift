@@ -96,7 +96,7 @@ struct PhoneSearchTab: View {
                                 assets: previewAssets.contains(ref) ? previewAssets : [ref],
                                 source: previewSource,
                                 sessions: $sessions,
-                                onClose: popWithoutAnimation,
+                                onClose: popPreview,
                                 onEdit: { path.append(.edit($0)) },
                                 // A sibling became the shown asset: give it a
                                 // real session so Edit on it persists to the
@@ -224,19 +224,11 @@ struct PhoneSearchTab: View {
         }
     }
 
-    /// Pop the top destination without the stack's own slide. `PreviewDestination`
-    /// runs its own scale/fade close and calls back when it's finished, so a
-    /// second animation here would play on top of one that has already ended.
-    /// Same helper as `PhoneLibraryView.popPreviewWithoutAnimation`.
-    private func popWithoutAnimation() {
-        guard !path.isEmpty else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        UIView.performWithoutAnimation {
-            withTransaction(transaction) {
-                _ = path.removeLast()
-            }
-        }
+    /// Pop Preview with the stack's own transition (Preview no longer fakes
+    /// its own close animation). Same helper as `PhoneLibraryView.popPreview`.
+    private func popPreview() {
+        guard case .preview? = path.last else { return }
+        _ = path.removeLast()
     }
 }
 
