@@ -24,7 +24,6 @@
 
 import SwiftUI
 import MapleCore
-import UIKit
 
 struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     @Namespace private var previewTransition
@@ -91,6 +90,11 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     /// through to BrowseGrid via AppShellIPhoneShell.
     var clipboard: AdjustmentClipboard? = nil
 
+    /// The Library tab's full frame (safe areas ignored) — the size a pushed
+    /// Preview settles at, handed to `PreviewDestination` so it can read the
+    /// zoom transition's progress off its own live frame.
+    @State private var fullSize: CGSize = .zero
+
     var body: some View {
         AppShellIPhoneShell(
             isDrawerOpen: $isDrawerOpen,
@@ -125,6 +129,11 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             onTrashAssets: onTrashAssets,
             clipboard: clipboard
         )
+        .background {
+            Color.clear
+                .ignoresSafeArea()
+                .onGeometryChange(for: CGSize.self, of: { $0.size }) { fullSize = $0 }
+        }
         // Tab-bar hide-on-push contract for the phone shell (#625/#791).
         // Fast Preview epic §1: a grid / cloud-result tap pushes `.preview`
         // (the fast static surface); Preview's Edit pushes `.edit` onto the
@@ -151,7 +160,7 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
                             : timelinePreviewSiblingAssets(ref),
                         source: browseVM.currentSource ?? cloudPreviewSource,
                         sessions: $sessions,
-                        onClose: popPreviewWithoutAnimation,
+                        onClose: popPreview,
                         onEdit: { asset in libraryPath.append(.edit(asset)) },
                         onSelectionChanged: { asset in
                             browseVM.selectedID = asset.id
@@ -165,7 +174,9 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
                             // session already exists (idempotent, matches
                             // `onPrimeSession`'s existing BrowseGrid contract).
                             onPrimeSession(asset)
-                        }
+                        },
+                        transitionNamespace: previewTransition,
+                        fullSize: fullSize
                     )
                 case .edit(let ref):
                     EditorDestination(asset: ref, sessions: $sessions)
@@ -176,15 +187,11 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
         }
     }
 
-    private func popPreviewWithoutAnimation() {
-        guard !libraryPath.isEmpty else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        UIView.performWithoutAnimation {
-            withTransaction(transaction) {
-                _ = libraryPath.removeLast()
-            }
-        }
+    /// Pop Preview with the stack's own (zoom) transition — the system
+    /// animates the still back into its grid tile.
+    private func popPreview() {
+        guard case .preview? = libraryPath.last else { return }
+        _ = libraryPath.removeLast()
     }
 }
 

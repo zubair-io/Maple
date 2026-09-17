@@ -277,6 +277,54 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertLessThanOrEqual(PreviewViewVM.filenameMaxWidth(isCompact: false), 200)
     XCTAssertLessThanOrEqual(PreviewViewVM.filenameMaxWidth(isCompact: true), 200)
   }
+
+  // MARK: - Zoom transition progress
+
+  func testZoomProgressRunsFromSquareTileToFullFrame() {
+    let full = CGSize(width: 402, height: 874)
+    // No layout yet → treat as the very start (chrome hidden, photo cropped).
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: nil, fullSize: full), 0)
+    // A square tile of any size is the start of the zoom.
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 130, height: 130), fullSize: full), 0)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 78, height: 78), fullSize: full), 0)
+    // The full frame is the end.
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: full, fullSize: full), 1)
+    // Halfway between a 130pt tile and the full frame (UIKit interpolates the
+    // frame linearly) reads as 0.5 — independent of the tile's size.
+    let mid = CGSize(width: (130 + 402) / 2, height: (130 + 874) / 2)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: mid, fullSize: full), 0.5, accuracy: 1e-6)
+    // Overshoot / rounding clamps.
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 402, height: 900), fullSize: full), 1)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 140, height: 120), fullSize: full), 0)
+  }
+
+  func testZoomProgressSquareContainerFallsBackToWidthRatio() {
+    let full = CGSize(width: 800, height: 800)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 400, height: 400), fullSize: full), 0.5, accuracy: 1e-6)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: full, fullSize: full), 1)
+  }
+
+  func testZoomChromeFadesInOverTheLastQuarterOfTheOpen() {
+    XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 0), 0)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 0.75), 0)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 0.875), 0.5, accuracy: 1e-6)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 1), 1)
+  }
+
+  // MARK: - Pull-down dismissal
+
+  func testDismissDragBeginsOnlyForDownwardVerticalPans() {
+    XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 2, height: 12)))
+    XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: -6, height: 10)))
+    // Page swipe (horizontal-dominant) — leave it to the pager.
+    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 12, height: 4)))
+    // Diagonal that is not clearly vertical — leave it to the pager.
+    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 10, height: 11)))
+    // Upward — nothing to dismiss into.
+    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 0, height: -12)))
+    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: .zero))
+  }
+
 }
 
 // MARK: - Test fixtures
