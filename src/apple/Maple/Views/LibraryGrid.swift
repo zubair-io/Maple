@@ -2,6 +2,24 @@
 // grid for the Library tab.
 //
 // Spec: docs/design/responsive-program/s2-library-grid.md.
+//
+// Pinch-to-resize (Photos-style): the grid sits in one of a few column
+// tiers (`LibraryGridZoom.columnTiers`, persisted under
+// `cm.library.gridColumns`). A pinch moves continuously between tiers — the
+// cells grow or shrink and re-flow under the fingers, the photo under the
+// pinch stays put, a tick fires as the nearest tier changes, and release
+// springs to the nearest tier. A `LazyVGrid` cannot be re-laid out
+// continuously, so for the duration of a pinch the lazy grid is hidden and
+// the visible slice of cells is drawn by `InterpolatedGridLayout`, whose
+// per-cell frames blend between the two tiers the pinch is between. When
+// the spring settles, the lazy grid switches to that tier and the scroll
+// offset is shifted by exactly what the focal photo moved, so swapping the
+// overlay out is invisible.
+//
+// Preview hand-off: a tap zooms the tile open (system zoom transition, see
+// `PreviewDestination`); paging in Preview moves `vm.selectedID`, and the
+// grid scrolls that photo's tile into view while it is covered, so the
+// pop always has a live tile to shrink back into.
 
 #if os(iOS)
 
@@ -32,6 +50,28 @@ struct LibraryGrid: View {
     /// Local-only thumbnail provider.
     @State private var provider = ThumbnailProvider.local()
 
+    /// Persisted column tier. Read through `columns` so a stale value from
+    /// an older tier list can never produce an unknown layout.
+    @AppStorage("cm.library.gridColumns") private var storedColumns = LibraryGridZoom.defaultColumns
+    private var columns: Int { LibraryGridZoom.validatedColumns(storedColumns) }
+
+    /// The live pinch, if one is in progress (or springing to rest).
+    @State private var pinch: PinchSession?
+    /// Flips back to false when the magnify gesture ends OR is cancelled by
+    /// the system — `onEnded` alone never fires for a cancellation, which
+    /// would leave the overlay up for good.
+    @GestureState private var isMagnifying = false
+    @State private var scrollPosition = ScrollPosition()
+    /// Scroll geometry the pinch reads on demand. A reference type on
+    /// purpose: it is written every scroll frame, and a value in `@State`
+    /// would re-render the whole grid on each one.
+    @State private var scroll = ScrollGeometryBox()
+    /// The id the grid itself just tapped, so the selection change that tap
+    /// produces is not mistaken for Preview paging (which scrolls the grid).
+    @State private var lastTappedID: AssetRef.ID?
+
+    private static let scrollSpace = "library-grid-scroll"
+
     /// Mirrors `BrowseGrid.isEmpty` — the empty state takes over only when
     /// the source yields neither images nor sub-folders.
     private var isEmpty: Bool {
@@ -58,44 +98,257 @@ struct LibraryGrid: View {
     }
 
     private var grid: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Sub-folders first (Finder-style) in their own tile section
-                // above the images (#3099) — the same `FolderTile` the desktop
-                // BrowseGrid renders. Order stays reversed per #782 so the
-                // first-level folders read newest/last-first on the phone.
-                if !vm.subfolders.isEmpty {
-                    FolderTileSection {
-                        ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
-                            FolderTile(url: url) { onNavigateFolder(url) }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Sub-folders first (Finder-style) in their own tile section
+                    // above the images (#3099) — the same `FolderTile` the desktop
+                    // BrowseGrid renders. Order stays reversed per #782 so the
+                    // first-level folders read newest/last-first on the phone.
+                    if !vm.subfolders.isEmpty {
+                        FolderTileSection {
+                            ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
+                                FolderTile(url: url) { onNavigateFolder(url) }
+                            }
                         }
                     }
+                    PhotoGrid(
+                        data: vm.assets,
+                        columns: .fixed(columns, spacing: LibraryGridZoom.spacing),
+                        provider: provider,
+                        displayMode: displayMode,
+                        selection: vm.selectedID.map { Set([$0]) } ?? [],
+                        transitionNamespace: transitionNamespace,
+                        onAppearItem: { asset in
+                            onPrimeSession(asset)
+                            Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
+                        },
+                        onTap: { asset in
+                            lastTappedID = asset.id
+                            vm.selectedID = asset.id
+                            #if canImport(UIKit)
+                            UISelectionFeedbackGenerator().selectionChanged()
+                            #endif
+                            onOpenEditor(asset)
+                        },
+                        makeItem: makeItem
+                    )
+                    // While a pinch is live the lazy grid keeps the scroll
+                    // content's size but the overlay does the drawing.
+                    .opacity(pinch == nil ? 1 : 0)
+                    .overlay(alignment: .topLeading) {
+                        if let pinch {
+                            pinchOverlay(pinch)
+                        }
+                    }
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.scrollSpace)) }) {
+                        scroll.gridFrame = $0
+                    }
                 }
-                PhotoGrid(
-                    data: vm.assets,
-                    columns: .responsiveBySizeClass,
+                .padding(2)
+            }
+            .coordinateSpace(.named(Self.scrollSpace))
+            .scrollPosition($scrollPosition)
+            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { _, geometry in
+                scroll.geometry = geometry
+            }
+            .simultaneousGesture(magnifyGesture)
+            .onChange(of: isMagnifying) { _, active in
+                // The system cancelled the pinch (a phone call, a system
+                // gesture): settle from the last value we saw.
+                if !active, let pinch, !pinch.isSettling {
+                    settlePinch(magnification: pinch.lastMagnification)
+                }
+            }
+            .onChange(of: vm.selectedID) { _, newID in
+                guard let newID else { return }
+                if newID == lastTappedID {
+                    // Our own tap — the tile is under the finger; moving it now
+                    // would move the zoom's source mid-open.
+                    lastTappedID = nil
+                    return
+                }
+                lastTappedID = nil
+                // Preview paged to a sibling: bring its tile into view (the
+                // grid is covered, so this is invisible) so the pop's zoom
+                // has a live tile to land on. Minimal scroll, no animation.
+                proxy.scrollTo(newID, anchor: nil)
+            }
+        }
+    }
+
+    private func makeItem(_ asset: AssetRef) -> PhotoGridItem {
+        PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
+    }
+
+    // MARK: - Pinch-to-resize
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture(minimumScaleDelta: 0.01)
+            .updating($isMagnifying) { _, state, _ in state = true }
+            .onChanged { value in
+                if pinch == nil || pinch?.isSettling == true {
+                    beginPinch(at: value.startLocation)
+                }
+                updatePinch(magnification: value.magnification)
+            }
+            .onEnded { value in
+                settlePinch(magnification: value.magnification)
+            }
+    }
+
+    private func beginPinch(at startLocation: CGPoint) {
+        let frame = scroll.gridFrame
+        let count = vm.assets.count
+        guard frame.width > 0, count > 0 else { return }
+        // The finger's point in grid coordinates, and the photo under it.
+        let focal = CGPoint(x: startLocation.x - frame.minX, y: startLocation.y - frame.minY)
+        guard let cell = LibraryGridZoom.focalCell(at: focal, columns: columns, width: frame.width, count: count)
+        else { return }
+        // Draw every cell any tier lays out within a viewport above and below
+        // the visible window — the overlay must stay populated when a sparser
+        // tier's rows scroll through, and when the fingers pan a little.
+        let top = -frame.minY - scroll.geometry.containerSize.height
+        let bottom = -frame.minY + 2 * scroll.geometry.containerSize.height
+        let slice = LibraryGridZoom.columnTiers.reduce(into: Range<Int>?.none) { union, tier in
+            let range = LibraryGridZoom.indices(
+                intersecting: top...bottom, columns: tier, width: frame.width, count: count)
+            guard !range.isEmpty else { return }
+            union = union.map { min($0.lowerBound, range.lowerBound)..<max($0.upperBound, range.upperBound) } ?? range
+        }
+        guard let slice else { return }
+        pinch = PinchSession(
+            baseColumns: columns,
+            width: frame.width,
+            count: count,
+            focalIndex: cell.index,
+            focalFraction: cell.fraction,
+            focalPoint: focal,
+            slice: slice,
+            interpolation: LibraryGridZoom.interpolation(baseColumns: columns, magnification: 1, width: frame.width),
+            nearestColumns: columns,
+            lastMagnification: 1,
+            isSettling: false,
+            scrollRoom: scroll.room
+        )
+    }
+
+    private func updatePinch(magnification: CGFloat) {
+        guard var session = pinch, !session.isSettling else { return }
+        session.lastMagnification = magnification
+        session.scrollRoom = scroll.room
+        session.interpolation = LibraryGridZoom.interpolation(
+            baseColumns: session.baseColumns, magnification: magnification, width: session.width)
+        let nearest = LibraryGridZoom.nearestColumns(
+            cellWidth: LibraryGridZoom.cellSize(columns: session.baseColumns, width: session.width) * magnification,
+            width: session.width)
+        if nearest != session.nearestColumns {
+            session.nearestColumns = nearest
+            #if canImport(UIKit)
+            UISelectionFeedbackGenerator().selectionChanged()
+            #endif
+        }
+        // Gesture-driven: no implicit animation, the fingers are the clock.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { pinch = session }
+    }
+
+    private func settlePinch(magnification: CGFloat) {
+        guard var session = pinch, !session.isSettling else { return }
+        session.lastMagnification = magnification
+        let live = LibraryGridZoom.interpolation(
+            baseColumns: session.baseColumns, magnification: magnification, width: session.width)
+        let target = live.settledColumns
+        session.isSettling = true
+        // Spring the blend to the chosen tier (and any rubber-band back to
+        // rest). `Interpolation` keeps `from`/`to` fixed for the spring;
+        // only `progress`/`overscale` move — `InterpolatedGridLayout` and the
+        // overlay's offset both animate from those.
+        let rest = LibraryGridZoom.Interpolation(
+            from: live.from, to: live.to, progress: target == live.to && live.to != live.from ? 1 : 0, overscale: 1)
+        var start = session
+        start.interpolation = live
+        var end = session
+        end.interpolation = rest
+        var snap = Transaction()
+        snap.disablesAnimations = true
+        withTransaction(snap) { pinch = start }
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86), completionCriteria: .logicallyComplete) {
+            pinch = end
+        } completion: {
+            swapPinchOut(end, columns: target)
+        }
+        #if canImport(UIKit)
+        if target != session.baseColumns {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        #endif
+    }
+
+    /// Hand drawing back to the lazy grid at the settled tier. The grid's
+    /// focal photo moves to its place in the new tier; shifting the scroll
+    /// offset by that same amount puts it exactly where the overlay was
+    /// showing it, so the swap is invisible. All in one non-animated
+    /// transaction so the relayout and the scroll land on the same frame.
+    private func swapPinchOut(_ session: PinchSession, columns target: Int) {
+        guard pinch?.isSettling == true else { return }
+        // The overlay is showing the focal photo `shift` points below where
+        // the lazy grid will lay it out; scrolling up by that much puts the
+        // real tile exactly there. (`shift` is already clamped to the room
+        // the scroll view has, so this never asks for an offset it cannot
+        // reach and then jumps.)
+        let shift = session.overlayShift(at: session.interpolation)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            storedColumns = target
+            if abs(shift) > 0.5 {
+                scrollPosition.scrollTo(y: scroll.geometry.contentOffset.y - shift)
+            }
+            pinch = nil
+        }
+    }
+
+    @ViewBuilder
+    private func pinchOverlay(_ session: PinchSession) -> some View {
+        let interpolation = session.interpolation
+        let focalNow = session.focalPoint(at: interpolation)
+        InterpolatedGridLayout(
+            from: interpolation.from,
+            to: interpolation.to,
+            progress: interpolation.progress,
+            firstIndex: session.slice.lowerBound
+        ) {
+            // Clamped: a PhotoKit page can land (or a folder reload shrink the
+            // list) while the pinch is live.
+            ForEach(Array(vm.assets[session.slice.clamped(to: vm.assets.indices)])) { asset in
+                PhotoThumbnailCell(
+                    item: makeItem(asset),
                     provider: provider,
                     displayMode: displayMode,
-                    selection: vm.selectedID.map { Set([$0]) } ?? [],
-                    transitionNamespace: transitionNamespace,
-                    onAppearItem: { asset in
-                        onPrimeSession(asset)
-                        Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
-                    },
-                    onTap: { asset in
-                        vm.selectedID = asset.id
-                        #if canImport(UIKit)
-                        UISelectionFeedbackGenerator().selectionChanged()
-                        #endif
-                        onOpenEditor(asset)
-                    },
-                    makeItem: { asset in
-                        PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
-                    }
+                    isSelected: vm.selectedID == asset.id,
+                    onTap: {}
                 )
             }
-            .padding(2)
         }
+        .frame(width: session.width, height: LibraryGridZoom.gridHeight(
+            count: session.count, columns: session.baseColumns, width: session.width), alignment: .topLeading)
+        // Rubber-band past the end tiers: scale about the focal photo.
+        .scaleEffect(
+            interpolation.overscale,
+            anchor: UnitPoint(
+                x: focalNow.x / session.width,
+                y: focalNow.y / max(1, LibraryGridZoom.gridHeight(
+                    count: session.count, columns: session.baseColumns, width: session.width)))
+        )
+        // Keep the focal photo under the fingers as the tiers re-flow: the
+        // overlay slides by exactly what that photo moved — within the room
+        // the scroll view has, so the hand-back to the lazy grid can always
+        // reproduce it (at the very top of the grid the photo drifts instead,
+        // as it does in Photos).
+        .offset(y: session.overlayShift(at: interpolation))
+        .allowsHitTesting(false)
     }
 
     // MARK: - Overlay derivation
@@ -111,6 +364,108 @@ struct LibraryGrid: View {
             style: .phone,
             hidden: session?.culling.hidden ?? false
         )
+    }
+}
+
+// MARK: - PinchSession
+
+/// Everything a live pinch needs, captured when it begins.
+private struct PinchSession {
+    let baseColumns: Int
+    let width: CGFloat
+    let count: Int
+    /// The photo under the fingers, and where inside it they landed.
+    let focalIndex: Int
+    let focalFraction: CGPoint
+    /// That point in grid coordinates at the start — the point the overlay
+    /// keeps under the fingers.
+    let focalPoint: CGPoint
+    /// Indices the overlay draws.
+    let slice: Range<Int>
+    var interpolation: LibraryGridZoom.Interpolation
+    var nearestColumns: Int
+    var lastMagnification: CGFloat
+    var isSettling: Bool
+    /// How far the scroll view can still move toward its top and bottom.
+    var scrollRoom: ScrollRoom
+
+    /// Where the focal point sits in the blended layout.
+    func focalPoint(at interpolation: LibraryGridZoom.Interpolation) -> CGPoint {
+        let rect = LibraryGridZoom.interpolatedRect(
+            index: focalIndex, from: interpolation.from, to: interpolation.to,
+            progress: interpolation.progress, width: width)
+        return CGPoint(x: rect.minX + focalFraction.x * rect.width, y: rect.minY + focalFraction.y * rect.height)
+    }
+
+    /// How far down the overlay is slid so the focal photo stays put,
+    /// clamped to what a real scroll could later absorb.
+    func overlayShift(at interpolation: LibraryGridZoom.Interpolation) -> CGFloat {
+        let wanted = focalPoint.y - focalPoint(at: interpolation).y
+        return min(scrollRoom.up, max(-scrollRoom.down, wanted))
+    }
+}
+
+/// Distance the scroll view can still travel toward each end, in points.
+private struct ScrollRoom {
+    let up: CGFloat
+    let down: CGFloat
+}
+
+// MARK: - ScrollGeometryBox
+
+/// Scroll geometry written every frame, read only when a pinch begins or
+/// settles. A class so those writes never invalidate the grid's body.
+private final class ScrollGeometryBox {
+    var gridFrame: CGRect = .zero
+    var geometry = ScrollGeometry(
+        contentOffset: .zero, contentSize: .zero, contentInsets: EdgeInsets(), containerSize: .zero)
+
+    /// Room left toward the top (the offset can drop this far) and the
+    /// bottom (rise this far) — the two amounts a pinch's compensation can
+    /// be. `contentOffset` counts from the inset content origin, so the
+    /// resting top is `-top inset`.
+    var room: ScrollRoom {
+        let g = geometry
+        let minOffset = -g.contentInsets.top
+        let maxOffset = max(minOffset, g.contentSize.height + g.contentInsets.bottom - g.containerSize.height)
+        return ScrollRoom(
+            up: max(0, g.contentOffset.y - minOffset),
+            down: max(0, maxOffset - g.contentOffset.y)
+        )
+    }
+}
+
+// MARK: - InterpolatedGridLayout
+
+/// Lays a run of cells (`firstIndex...`) out with each frame blended
+/// between two column tiers. `progress` is animatable, so a spring on it
+/// re-flows every cell along the straight line between its two homes —
+/// the same motion `UICollectionViewTransitionLayout` gives Photos.
+private struct InterpolatedGridLayout: Layout {
+    let from: Int
+    let to: Int
+    var progress: CGFloat
+    let firstIndex: Int
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (offset, subview) in subviews.enumerated() {
+            let rect = LibraryGridZoom.interpolatedRect(
+                index: firstIndex + offset, from: from, to: to, progress: progress, width: bounds.width)
+            subview.place(
+                at: CGPoint(x: bounds.minX + rect.minX, y: bounds.minY + rect.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: rect.width, height: rect.height)
+            )
+        }
     }
 }
 
