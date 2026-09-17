@@ -35,6 +35,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   OnInit,
   ViewChild,
   computed,
@@ -208,6 +209,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
   );
 
   @ViewChild(SearchBarComponent) private searchBar?: SearchBarComponent;
+  @ViewChild('mainScroll') private mainScrollRef?: ElementRef<HTMLElement>;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private facetsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -259,6 +261,11 @@ export class SearchComponent implements OnInit, AfterViewInit {
             this.total.set(seekExhausted(res) ? res.results.length : res.total);
             this.isStale.set(false);
             this.queueThumbs(res.results);
+            const scrollEl = this.mainScrollRef?.nativeElement;
+            if (scrollEl) {
+              scrollEl.scrollTop = 0;
+              scrollEl.scrollTo?.({ top: 0 });
+            }
           },
           error: () => {
             // Non-fatal — stop dimming but leave existing results so a
@@ -482,7 +489,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
         const merged = [...this.results(), ...res.results];
         this.results.set(merged);
         this.nextCursor.set(res.nextCursor ?? null);
-        this.total.set(seekExhausted(res) ? merged.length : res.total);
+        this.total.set(seekExhausted(res) || res.results.length === 0 ? merged.length : res.total);
         // `page` is the skip-mode fallback counter — a seek request leaves
         // it alone rather than adopting the server's echoed `page: 0`.
         if (cursor === null) this.page.set(nextPage);

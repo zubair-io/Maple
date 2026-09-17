@@ -13,14 +13,13 @@
 // continuity instead of a spinner.
 
 import {
-  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  OnDestroy,
-  ViewChild,
+  effect,
   input,
   output,
+  viewChild,
 } from '@angular/core';
 import { SearchResult } from '../api/search.service';
 import { MapleIconComponent } from '../icons/maple-icon.component';
@@ -33,7 +32,7 @@ import { MapleIconComponent } from '../icons/maple-icon.component';
   host: { class: 'block' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PhotoResultsSectionComponent implements AfterViewInit, OnDestroy {
+export class PhotoResultsSectionComponent {
   /** Full result list — rendered in their entirety (no slice cap). */
   readonly results = input<readonly SearchResult[]>([]);
   /** Result-id → blob URL. Tiles without an entry keep the placeholder. */
@@ -49,35 +48,38 @@ export class PhotoResultsSectionComponent implements AfterViewInit, OnDestroy {
   readonly query = input<string>('');
   /** When true, renders a loading indicator below the grid. */
   readonly isLoadingMore = input<boolean>(false);
+  /** When true, server has more results to load; renders the scroll sentinel. */
+  readonly canLoadMore = input<boolean>(true);
 
   /** Tile-click emits the underlying result so the host can navigate. */
   readonly resultTap = output<SearchResult>();
   /** Emitted when the infinite-scroll sentinel intersects the viewport. */
   readonly loadMore = output<void>();
 
-  @ViewChild('loadMoreSentinel') private sentinelRef?: ElementRef<HTMLElement>;
+  readonly sentinelRef = viewChild<ElementRef<HTMLElement>>('loadMoreSentinel');
 
-  private observer: IntersectionObserver | null = null;
+  constructor() {
+    effect((onCleanup) => {
+      const el = this.sentinelRef()?.nativeElement;
+      const count = this.results().length;
+      const canMore = this.canLoadMore();
+      if (!el || count === 0 || !canMore || typeof IntersectionObserver === 'undefined') return;
 
-  ngAfterViewInit(): void {
-    // Guard for SSR / vitest jsdom (IntersectionObserver is not available there).
-    if (typeof IntersectionObserver === 'undefined') return;
-    const el = this.sentinelRef?.nativeElement;
-    if (!el) return;
-    this.observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          this.loadMore.emit();
-        }
-      },
-      { rootMargin: '200px' },
-    );
-    this.observer.observe(el);
-  }
+      const root = el.closest('.overflow-y-auto') ?? null;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries[0]?.isIntersecting && !this.isLoadingMore()) {
+            this.loadMore.emit();
+          }
+        },
+        { root, rootMargin: '200px' },
+      );
+      observer.observe(el);
 
-  ngOnDestroy(): void {
-    this.observer?.disconnect();
-    this.observer = null;
+      onCleanup(() => {
+        observer.disconnect();
+      });
+    });
   }
 
   protected onTileClick(r: SearchResult): void {

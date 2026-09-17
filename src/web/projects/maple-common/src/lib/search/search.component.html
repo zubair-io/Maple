@@ -1,6 +1,7 @@
 <div class="flex h-full min-h-0" data-testid="search-root">
   <div
-    class="mx-auto flex min-w-0 max-w-none flex-1 flex-col gap-3 overflow-y-auto p-3 md:max-w-[1100px]"
+    #mainScroll
+    class="mx-auto flex w-full min-w-0 min-h-0 max-w-none flex-1 flex-col gap-3 overflow-y-auto p-3 md:max-w-[1100px]"
   >
     <div class="relative">
       <app-search-bar
@@ -70,6 +71,7 @@
         [hasQuery]="!isStale()"
         [query]="effectiveText()"
         [isLoadingMore]="isLoadingMore()"
+        [canLoadMore]="canLoadMore()"
         (resultTap)="onPhotoTap($event)"
         (loadMore)="onLoadMore()"
       />
