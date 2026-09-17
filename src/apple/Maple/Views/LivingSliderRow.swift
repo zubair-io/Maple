@@ -90,9 +90,11 @@ struct LivingSliderRow: View {
   }
 
   var slider: LivingSlider {
-    let stops =
-      armedSub.flatMap { GradientCatalog.stops(for: tool, subParamId: $0.id) }
-      ?? GradientCatalog.stops(for: tool)
+    let stops: [GradientStop]? =
+      (tool.group == .light || tool.group == .color)
+      ? (armedSub.flatMap { GradientCatalog.stops(for: tool, subParamId: $0.id) }
+        ?? GradientCatalog.stops(for: tool))
+      : nil
     return LivingSlider(
       label: armedSub.map { "\(tool.displayName) · \($0.label)" } ?? tool.displayName,
       value: valueBinding,

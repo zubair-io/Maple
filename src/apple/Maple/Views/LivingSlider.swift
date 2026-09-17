@@ -110,14 +110,11 @@ public struct LivingSlider: View {
 
         case .dragBar:
           ZStack(alignment: .leading) {
-            Capsule().fill(gradient).frame(height: 8)
-              .overlay(Capsule().strokeBorder(ProTokens.borderHi.opacity(0.5), lineWidth: 0.5))
-              .frame(maxHeight: .infinity, alignment: .center)
-
-            Rectangle()
-              .fill(MapleTokens.border)
-              .frame(height: 1)
-              .frame(maxHeight: .infinity, alignment: .center)
+            if let gradientStops, !gradientStops.isEmpty {
+              Capsule().fill(gradient).frame(height: 8)
+                .overlay(Capsule().strokeBorder(ProTokens.borderHi.opacity(0.5), lineWidth: 0.5))
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
 
             ForEach(0..<Self.tickCount, id: \.self) { i in
               let x = width * CGFloat(i) / CGFloat(Self.tickCount - 1)

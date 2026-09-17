@@ -58,11 +58,6 @@ public struct MuiDragBar: View {
               .frame(maxHeight: .infinity, alignment: .center)
           }
 
-          Rectangle()
-            .fill(MuiTokens.border)
-            .frame(height: 1)
-            .frame(maxHeight: .infinity, alignment: .center)
-
           ForEach(0..<Self.tickCount, id: \.self) { i in
             let x = barWidth * CGFloat(i) / CGFloat(Self.tickCount - 1)
             let emphasized = i == Self.centerTickIndex

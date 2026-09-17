@@ -8,7 +8,6 @@ struct DragBar: View {
 
   var body: some View {
     LivingSliderRow(state: state, tool: state.armedTool, style: .dragBar)
-      .padding(.horizontal, 24)
       .disabled(!state.armedToolAcceptsValueEdits)
       .accessibilityIdentifier("editor-drag-bar")
   }
