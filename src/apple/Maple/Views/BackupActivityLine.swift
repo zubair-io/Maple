@@ -5,17 +5,20 @@ struct BackupActivityLine: View {
   let progress: BackupProgressViewModel
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @ScaledMetric(relativeTo: .caption) private var lineHeight = 20.0
-  @State private var displayed: BackupStatusPresentation.Activity?
+  @State private var displayedId: String?
 
   var body: some View {
+    let activities = BackupStatusPresentation.activities(progress)
+    let current = activities.first(where: { $0.id == displayedId }) ?? activities.first
+
     ZStack(alignment: .leading) {
-      if let displayed = displayed ?? BackupStatusPresentation.activities(progress).first {
-        Label(displayed.text, systemImage: displayed.symbol)
-          .id(displayed)
+      if let current {
+        Label(current.text, systemImage: current.symbol)
+          .id(current.id)
           .transition(.opacity)
           .lineLimit(1)
           .truncationMode(.tail)
-          .help(displayed.text)
+          .help(current.text)
       } else {
         Text(" ").accessibilityHidden(true)
       }
@@ -28,14 +31,14 @@ struct BackupActivityLine: View {
     .clipped()
     .accessibilityIdentifier("backup.status.activity")
     .task {
-      displayed = BackupStatusPresentation.activities(progress).first
+      displayedId = BackupStatusPresentation.activities(progress).first?.id
       while !Task.isCancelled {
         do { try await Task.sleep(for: .seconds(5)) } catch { return }
         guard !Task.isCancelled else { return }
         let next = BackupStatusPresentation.next(
-          after: displayed?.id, in: BackupStatusPresentation.activities(progress))
+          after: displayedId, in: BackupStatusPresentation.activities(progress))
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
-          displayed = next
+          displayedId = next?.id
         }
       }
     }
