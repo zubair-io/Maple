@@ -8,7 +8,7 @@ Each row is something you build and ship separately.
 
 | Unit                                             | Where                            | Built from                                          | Talks to                                                                           |
 | ------------------------------------------------ | -------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| **Maple** (macOS / iOS / iPadOS)        | `src/apple/Maple/` + `Packages/` | Xcode target, bundle id `app.justmaple.aperture`    | Local files, SMB, PhotoKit, a Maple server                                         |
+| **Maple** (macOS / iOS / iPadOS)                 | `src/apple/Maple/` + `Packages/` | Xcode target, bundle id `app.justmaple.aperture`    | Local files, SMB, PhotoKit, a Maple server                                         |
 | **Maple TV** (tvOS)                              | `src/apple/Maple TV/`            | Xcode target, `…aperture.tv`                        | A Maple server only (links `MapleCloudKit`, never the RAW pipeline)                |
 | **MapleFileProvider** / **MapleFileProviderIOS** | `src/apple/MapleFileProvider*/`  | Xcode app extensions, `…aperture.FileProvider(IOS)` | Surfaces a server library in Finder / Files                                        |
 | **MapleQuickLook** (macOS)                       | `src/apple/MapleQuickLook/`      | Xcode extension, `…aperture.QuickLook`              | Renders previews for Finder                                                        |
