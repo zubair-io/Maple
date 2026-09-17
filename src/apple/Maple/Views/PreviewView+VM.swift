@@ -162,4 +162,44 @@ enum PreviewViewVM {
     static func needsSessionPriming(isPaneOpen: Bool, hasSession: Bool) -> Bool {
         isPaneOpen && !hasSession
     }
+
+    // MARK: - Zoom transition progress (iPhone push)
+
+    /// Where the system zoom transition is between the grid tile (0) and the
+    /// fullscreen Preview (1), derived from the destination's live frame.
+    /// UIKit lays the destination out at every intermediate size, and it
+    /// interpolates that frame linearly from the (square) tile rect to the
+    /// full rect, so `width - height` grows linearly from 0 to
+    /// `fullWidth - fullHeight`. That ratio is the progress, and it needs no
+    /// knowledge of the tile's size or position. `nil` (no layout yet) reads
+    /// as 0 so the first frames of a push never flash the fullscreen chrome.
+    /// A near-square container (no usable difference) falls back to the
+    /// width ratio.
+    static func zoomTransitionProgress(size: CGSize?, fullSize: CGSize) -> CGFloat {
+        guard let size, fullSize.width > 0, fullSize.height > 0 else { return 0 }
+        let fullDelta = fullSize.width - fullSize.height
+        let raw = abs(fullDelta) >= 40
+            ? (size.width - size.height) / fullDelta
+            : size.width / fullSize.width
+        return min(1, max(0, raw))
+    }
+
+    /// Header / filmstrip / action-bar opacity during the zoom: hidden while
+    /// the still is tile-sized, fading in over the last quarter of the open
+    /// (and out over the first quarter of the close) so the chrome never
+    /// shrinks into the tile with the photo.
+    static func zoomTransitionChromeOpacity(progress: CGFloat) -> Double {
+        Double(min(1, max(0, (progress - 0.75) / 0.25)))
+    }
+
+    // MARK: - Pull-down dismissal (iPhone)
+
+    /// Whether a pan that has just been recognised is a pull-down (leave it
+    /// to the zoom transition's interactive dismissal) rather than a page
+    /// swipe or an upward flick (let the pager have it). Decided once, on the
+    /// first ~10pt of travel, and locked for the rest of the touch — a
+    /// vertical pull never becomes a page turn halfway through.
+    static func shouldBeginDismissDrag(translation: CGSize) -> Bool {
+        translation.height > 0 && translation.height > abs(translation.width) * 1.2
+    }
 }

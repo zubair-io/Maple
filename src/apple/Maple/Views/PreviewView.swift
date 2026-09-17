@@ -68,6 +68,14 @@ struct PreviewView: View {
     /// parent updates its selection + navigation state and re-renders Preview
     /// with the new `asset`.
     let onSelectAsset: (AssetRef) -> Void
+    /// Where the iPhone zoom push/pop is between the grid tile (0) and
+    /// fullscreen (1) — `PreviewDestination` derives it from this view's live
+    /// frame (`PreviewViewVM.zoomTransitionProgress`). 1 whenever no zoom is
+    /// running (Mac / iPad pane shell, the Search tab's plain push). Drives
+    /// the tile-crop → full-aspect "uncrop" of the still and the chrome fade,
+    /// so the zoom reads as one photo growing out of its tile rather than a
+    /// whole screen — bars and all — scaling up from a point.
+    var transitionProgress: CGFloat = 1
 
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
@@ -88,56 +96,78 @@ struct PreviewView: View {
     /// `body`, so opening Preview to look at a photo costs nothing when the
     /// pane is closed.
     @State private var flagInfoSession: EditSession?
-    /// Positive vertical travel for the interactive pull-down dismissal.
-    @State private var dismissTranslation: CGFloat = 0
-    @State private var isDismissing = false
+    /// A pull-down is in hand: the system dismissal is dragging this view
+    /// around as a card (iPhone). The chrome hides for the duration.
+    @State private var isPulling = false
+    /// Measured height of the bottom chrome (filmstrip + action bar). The
+    /// still is inset by it at full size so the layout is unchanged from the
+    /// stacked one it replaces, but the inset collapses with
+    /// `transitionProgress` so a tile-sized destination is all photo.
+    @State private var bottomChromeHeight: CGFloat = 0
     private var isRegular: Bool { hSizeClass == .regular }
 
     private var orderedIDs: [AssetRef.ID] { assets.map(\.id) }
 
+    /// Chrome (header, strips, action bar) visibility: hidden while the
+    /// zoom — including its interactive pull-down / pinch dismissal, which
+    /// resizes this view live just like the push — is tile-sized.
+    private var chromeOpacity: Double {
+        isPulling ? 0 : PreviewViewVM.zoomTransitionChromeOpacity(progress: transitionProgress)
+    }
+
     var body: some View {
         ZStack {
             MapleTokens.bg
-                .opacity(dismissBackgroundOpacity)
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Body: fit-to-screen still. On regular (iPad/Mac) the SAME
-                // vertical `FilmstripRail` the editor mounts on its leading
-                // edge floats over the image here too (#3402) — one rail
-                // component, one placement, so tapping Edit doesn't move the
-                // strip and a sibling tap on either surface stays on that
-                // surface. On compact (iPhone) the horizontal `FilmstripView`
-                // stays as a band above the action bar.
-                //
-                // The prev/next swipe is scoped to the IMAGE area only — NOT
-                // the whole container — so it doesn't compete with either
-                // strip's own `ScrollView` (a container-wide DragGesture
-                // would swallow the strip's drags and make it un-scrollable).
-                // Copilot review #1810. The rail is a ZStack sibling sized to
-                // its own glass panel: the `.frame(maxWidth:maxHeight:)`
-                // wrapper carries no background or content shape, so hits
-                // outside the panel fall straight through to the image body's
-                // swipe / pager.
-                ZStack {
-                    imageBody
-                        .padding(.horizontal, isRegular ? 16 : 8)
-                        .offset(y: dismissTranslation)
-                        .scaleEffect(dismissScale)
+            // Body: fit-to-screen still. On regular (iPad/Mac) the SAME
+            // vertical `FilmstripRail` the editor mounts on its leading
+            // edge floats over the image here too (#3402) — one rail
+            // component, one placement, so tapping Edit doesn't move the
+            // strip and a sibling tap on either surface stays on that
+            // surface. On compact (iPhone) the horizontal `FilmstripView`
+            // is a band above the action bar.
+            //
+            // The strips and the bar are OVERLAYS on the still, not stacked
+            // siblings, and the still is inset by their measured height
+            // instead. At full size that is the same layout; during the
+            // iPhone zoom push/pop — where UIKit lays this view out at every
+            // size from the grid tile up — the inset collapses with
+            // `transitionProgress`, so the tile-sized destination is nothing
+            // but the photo (cropped exactly like its tile, see
+            // `PreviewZoomController.setTransitionProgress`) and the chrome
+            // fades in only once there is room for it.
+            //
+            // The prev/next swipe is scoped to the IMAGE area only — NOT
+            // the whole container — so it doesn't compete with either
+            // strip's own `ScrollView` (a container-wide DragGesture
+            // would swallow the strip's drags and make it un-scrollable).
+            // Copilot review #1810. The rail is a ZStack sibling sized to
+            // its own glass panel: the `.frame(maxWidth:maxHeight:)`
+            // wrapper carries no background or content shape, so hits
+            // outside the panel fall straight through to the image body's
+            // swipe / pager.
+            ZStack {
+                imageBody
+                    .padding(.horizontal, isRegular ? 16 : 8)
 
-                    if isRegular {
-                        FilmstripRail(
-                            assets: assets,
-                            activeID: asset.id,
-                            source: source,
-                            identifierPrefix: "preview",
-                            onSelect: onSelectAsset
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                        .padding(.leading, 12)
-                    }
+                if isRegular {
+                    FilmstripRail(
+                        assets: assets,
+                        activeID: asset.id,
+                        source: source,
+                        identifierPrefix: "preview",
+                        onSelect: onSelectAsset
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .padding(.leading, 12)
+                    .opacity(chromeOpacity)
                 }
-
+            }
+            .padding(.bottom, bottomChromeHeight * transitionProgress)
+        }
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 0) {
                 if !isRegular {
                     FilmstripView(
                         assets: assets,
@@ -159,6 +189,8 @@ struct PreviewView: View {
                     isInfoOn: isInfoPresented.wrappedValue
                 )
             }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { bottomChromeHeight = $0 }
+            .opacity(chromeOpacity)
         }
         .overlay(alignment: .top) {
             FloatingImageHeader(
@@ -167,6 +199,7 @@ struct PreviewView: View {
                 onBack: onDismiss
             ) { EmptyView() }
             .padding(.top, 8)
+            .opacity(chromeOpacity)
         }
         // Keyboard prev/next (desktop). `.focusable()` makes the surface a key
         // target; the arrow handlers move selection through the folder. (The
@@ -260,9 +293,11 @@ struct PreviewView: View {
             assets: assets,
             source: source,
             provider: provider,
+            transitionProgress: transitionProgress,
             onSelectAsset: onSelectAsset,
-            onDismissDragChanged: updateDismissDrag,
-            onDismissDragEnded: finishDismissDrag
+            onPullActiveChanged: { active in
+                withAnimation(MapleTokens.Motion.chromeHide) { isPulling = active }
+            }
         )
         .accessibilityIdentifier("preview-image")
         #else
@@ -320,43 +355,6 @@ struct PreviewView: View {
               let prev = assets.first(where: { $0.id == id })
         else { return }
         onSelectAsset(prev)
-    }
-
-    // MARK: - Pull-down dismissal
-
-    private var dismissScale: CGFloat {
-        max(0.88, 1 - dismissTranslation / 1_200)
-    }
-
-    private var dismissBackgroundOpacity: Double {
-        max(0.35, 1 - Double(dismissTranslation / 500))
-    }
-
-    private func updateDismissDrag(_ translation: CGSize) {
-        guard !isDismissing,
-              translation.height > 0,
-              translation.height > abs(translation.width) else { return }
-        dismissTranslation = translation.height
-    }
-
-    private func finishDismissDrag(_ translation: CGSize, _ velocity: CGSize) {
-        guard !isDismissing else {
-            dismissTranslation = 0
-            return
-        }
-        let wasVertical = translation.height > 0
-            && translation.height > abs(translation.width)
-        let shouldDismiss = wasVertical
-            && (translation.height > 120 || velocity.height > 700)
-
-        if shouldDismiss {
-            isDismissing = true
-            onDismiss()
-        } else {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                dismissTranslation = 0
-            }
-        }
     }
 
 }
