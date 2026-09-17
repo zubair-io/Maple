@@ -4,7 +4,7 @@ import type { FolderEntry } from '../folder-access/folder-access.types';
 import type { AssetId } from '../models/asset';
 import type { HostedPreviewResolver } from './hosted-preview-resolver.service';
 
-interface PreviewLoaderDeps {
+export interface PreviewLoaderDeps {
   backend: 'hosted' | 'self-hosted';
   librarySource: Pick<LibrarySource, 'previewBlob'>;
   hostedPreview: Pick<HostedPreviewResolver, 'resolve'>;
@@ -13,6 +13,7 @@ interface PreviewLoaderDeps {
   hostedBytesSnapshotFor: (
     id: AssetId,
   ) => Promise<{ bytes: Uint8Array; source: { size: number; lastModified: number } }>;
+  fsBrowse?: { getPreviewBlob: (absPath: string) => Promise<Blob | null> };
 }
 
 export function previewLoader(
@@ -21,7 +22,13 @@ export function previewLoader(
 ): ((id: AssetId) => Promise<Blob | null>) | null {
   const isAddress = id.includes(':') && !id.startsWith('fs:');
   if (deps.backend === 'self-hosted') {
-    return isAddress ? (assetId) => deps.librarySource.previewBlob(parseAddress(assetId)) : null;
+    if (isAddress) {
+      return (assetId) => deps.librarySource.previewBlob(parseAddress(assetId));
+    }
+    if (id.startsWith('fs:') && typeof deps.fsBrowse?.getPreviewBlob === 'function') {
+      return (assetId) => deps.fsBrowse!.getPreviewBlob(assetId.slice(3));
+    }
+    return null;
   }
   return (assetId) =>
     deps.hostedPreview.resolve(

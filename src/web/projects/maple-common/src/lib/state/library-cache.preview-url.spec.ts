@@ -32,6 +32,7 @@ function setup(
   libSource: Record<string, unknown>,
   store: Record<string, unknown> = { backend: 'self-hosted' },
   hostedPreview: { resolve: ReturnType<typeof vi.fn> } = { resolve: vi.fn(async () => null) },
+  fsBrowse: Record<string, unknown> = {},
 ) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -39,7 +40,7 @@ function setup(
       LibraryCache,
       { provide: LibraryStore, useValue: store },
       { provide: BunApiBackendService, useValue: {} },
-      { provide: FilesystemBrowseService, useValue: {} },
+      { provide: FilesystemBrowseService, useValue: fsBrowse },
       { provide: MapleCacheService, useValue: {} },
       { provide: RawPipelineService, useValue: {} },
       { provide: HostedPreviewResolver, useValue: hostedPreview },
@@ -147,5 +148,28 @@ describe('LibraryCache.subscribePreviewUrl', () => {
     expect(previewBlob).not.toHaveBeenCalled();
     expect(resolve).not.toHaveBeenCalled();
     expect(seen).toEqual(['blob:thumb-url']);
+  });
+
+  it('Self-Hosted fs: id resolves via FilesystemBrowseService.getPreviewBlob when provided', async () => {
+    const getPreviewBlob = vi.fn(async () => new Blob(['preview'], { type: 'image/jpeg' }));
+    const { svc } = setup(
+      { previewBlob: vi.fn(), thumbBlob: vi.fn() },
+      { backend: 'self-hosted' },
+      { resolve: vi.fn() },
+      { getPreviewBlob },
+    );
+
+    const originalCreate = URL.createObjectURL;
+    URL.createObjectURL = vi.fn(() => 'blob:fs-preview-url');
+    try {
+      const seen: (string | undefined)[] = [];
+      svc.subscribePreviewUrl('fs:/abs/path/a.jpg' as AssetId, (url) => seen.push(url));
+      await settle();
+
+      expect(getPreviewBlob).toHaveBeenCalledWith('/abs/path/a.jpg');
+      expect(seen[seen.length - 1]).toBe('blob:fs-preview-url');
+    } finally {
+      URL.createObjectURL = originalCreate;
+    }
   });
 });

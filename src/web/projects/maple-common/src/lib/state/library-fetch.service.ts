@@ -969,6 +969,7 @@ export class LibraryFetch {
    * Caller should follow up with `openSelfHostedSubfolder(parentRelPath,
    * folderId, id)` to populate the filmstrip with siblings.
    */
+  // fallow-ignore-next-line complexity
   hydrateSelfHostedFsAsset(id: AssetId, patch?: Partial<Asset>): Asset | null {
     if (this.store.backend !== 'self-hosted') return null;
 
@@ -976,6 +977,12 @@ export class LibraryFetch {
     // The legacy fs:<absPath> scheme is retired; callers that previously
     // passed fs: ids should use the new slug:relPath form.
     if (!id.includes(':')) return null;
+
+    const isFs = id.startsWith('fs:');
+    const absPath = isFs ? id.slice(3) : patch?.absPath;
+    if (isFs && absPath) {
+      this.store.assetAbsPaths.set(id, absPath);
+    }
 
     const addr = parseAddress(id);
     const relPath = addr.relPath;
@@ -998,10 +1005,13 @@ export class LibraryFetch {
     void _ignoreAbsPath;
     void _ignoreFolderId;
 
+    const resolvedAbsPath = absPath ?? patch?.absPath;
+
     const baseAsset: Asset = {
       id,
       filename,
       folderId,
+      ...(resolvedAbsPath ? { absPath: resolvedAbsPath } : {}),
       rating: 0,
       flag: 'unflagged',
       colorLabel: null,
@@ -1016,7 +1026,11 @@ export class LibraryFetch {
       // Already present (e.g. listed via _applyFolderListing) — merge in any
       // richer metadata from the patch without clobbering existing fields.
       const existing = list[idx]!;
-      const merged: Asset = { ...existing, ...safePatch };
+      const merged: Asset = {
+        ...existing,
+        ...(resolvedAbsPath ? { absPath: resolvedAbsPath } : {}),
+        ...safePatch,
+      };
       const next = list.slice();
       next[idx] = merged;
       return next;

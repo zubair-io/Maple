@@ -88,10 +88,8 @@ export class SearchPageComponent implements AfterViewInit {
 
   protected onPhotoTap(r: SearchResult): void {
     // Web Preview Surface Task 6c: route results to the fast Preview surface
-    // at /view/:slug/**. Self-Hosted search returns `fs:<absPath>` ids;
-    // viewRouteCommands() passes those through as a single :slug segment and
-    // PreviewShellComponent resolves them via the self-hosted-synth path.
-    void this.router.navigate(viewRouteCommands(r.id));
+    // at /view/:slug/**. Prefer canonical address if present, otherwise r.id.
+    void this.router.navigate(viewRouteCommands(r.address ?? r.id));
   }
 
   protected onQueryChange(q: string): void {

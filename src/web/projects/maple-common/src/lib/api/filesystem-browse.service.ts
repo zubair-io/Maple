@@ -132,12 +132,81 @@ export class FilesystemBrowseService {
     return promise;
   }
 
+  /** Cache of `absPath → Promise<blob:url>` for 1280px display previews. */
+  private readonly previewBlobCache = new Map<string, Promise<string>>();
+
+  /**
+   * Fetch a display-resolution (1280px) preview blob for an absolute path.
+   * Resolves via registered library if available (GET /api/preview/:slug/*),
+   * falling back to GET /api/fs/preview?path=<absPath>.
+   */
+  getPreviewBlob(absPath: string): Promise<Blob | null> {
+    return this.fetchFsBlob(absPath, 'preview');
+  }
+
+  /**
+   * Fetch a thumbnail blob for an absolute path. Resolves via registered
+   * library if available (GET /api/thumb/:slug/*), falling back to
+   * GET /api/fs/thumb?path=<absPath>.
+   */
+  getThumbBlob(absPath: string): Promise<Blob | null> {
+    return this.fetchFsBlob(absPath, 'thumb');
+  }
+
+  private async fetchFsBlob(absPath: string, endpoint: 'preview' | 'thumb'): Promise<Blob | null> {
+    try {
+      await this.ensureRegisteredFolders();
+      const address = addressForAbsPath(absPath, this.store.registeredFolders());
+      if (address) {
+        const blob =
+          endpoint === 'preview'
+            ? await this.librarySource.previewBlob(address)
+            : await this.librarySource.thumbBlob(address);
+        if (blob) return blob;
+      }
+    } catch {
+      // Not under registered library or source failed; fall back to /api/fs/<endpoint>
+    }
+    try {
+      return await firstValueFrom(
+        this.http.get(`${this.base}/fs/${endpoint}?path=${encodeURIComponent(absPath)}`, {
+          responseType: 'blob',
+        }),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Returns a cached `blob:` URL for the display preview of an absolute path.
+   */
+  getPreviewBlobUrl(absPath: string): Promise<string> {
+    const cached = this.previewBlobCache.get(absPath);
+    if (cached) return cached;
+
+    const promise = this.getPreviewBlob(absPath).then((blob) => {
+      if (!blob) throw new Error(`getPreviewBlobUrl: preview not ready for ${absPath}`);
+      return URL.createObjectURL(blob);
+    });
+
+    this.previewBlobCache.set(absPath, promise);
+    promise.catch(() => {
+      if (this.previewBlobCache.get(absPath) === promise) this.previewBlobCache.delete(absPath);
+    });
+    return promise;
+  }
+
   /** Drop every cached blob URL (e.g. on sign-out or a folder switch). */
   clearThumbCache(): void {
     for (const p of this.thumbBlobCache.values()) {
       p.then((url) => URL.revokeObjectURL(url)).catch(() => {});
     }
     this.thumbBlobCache.clear();
+    for (const p of this.previewBlobCache.values()) {
+      p.then((url) => URL.revokeObjectURL(url)).catch(() => {});
+    }
+    this.previewBlobCache.clear();
   }
 
   private async resolveAddress(absPath: string): Promise<MapleAddress> {

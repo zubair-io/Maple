@@ -244,4 +244,66 @@ describe('FilesystemBrowseService', () => {
     http.expectOne('/api/thumb/library/e.dng').flush(new Blob(['x']));
     expect(await again).toBe('blob:thumb-2');
   });
+
+  it('getPreviewBlob fetches /api/preview/:slug/* for a path under a registered library', async () => {
+    store.registeredFolders.set([MAIN]);
+    const promise = service.getPreviewBlob('/photos/library/2025/photo.jpg');
+    await settle();
+
+    const req = http.expectOne('/api/preview/library/2025/photo.jpg');
+    expect(req.request.method).toBe('GET');
+    expect(req.request.responseType).toBe('blob');
+    req.flush(new Blob(['preview-data'], { type: 'image/jpeg' }));
+
+    const blob = await promise;
+    expect(blob).toBeTruthy();
+  });
+
+  it('getPreviewBlob falls back to /api/fs/preview?path= when not under a registered library', async () => {
+    store.registeredFolders.set([MAIN]);
+    const promise = service.getPreviewBlob('/unregistered/photo.jpg');
+    await settle();
+
+    http.expectNone((r) => r.url.startsWith('/api/preview'));
+    const req = http.expectOne('/api/fs/preview?path=%2Funregistered%2Fphoto.jpg');
+    expect(req.request.method).toBe('GET');
+    req.flush(new Blob(['fs-preview-data'], { type: 'image/jpeg' }));
+
+    const blob = await promise;
+    expect(blob).toBeTruthy();
+  });
+
+  it('getThumbBlob falls back to /api/fs/thumb?path= when not under a registered library', async () => {
+    store.registeredFolders.set([MAIN]);
+    const promise = service.getThumbBlob('/unregistered/photo.jpg');
+    await settle();
+
+    http.expectNone((r) => r.url.startsWith('/api/thumb'));
+    const req = http.expectOne('/api/fs/thumb?path=%2Funregistered%2Fphoto.jpg');
+    expect(req.request.method).toBe('GET');
+    req.flush(new Blob(['fs-thumb-data'], { type: 'image/jpeg' }));
+
+    const blob = await promise;
+    expect(blob).toBeTruthy();
+  });
+
+  it('getPreviewBlobUrl caches and revokes on clearThumbCache', async () => {
+    store.registeredFolders.set([MAIN]);
+    const revoked: string[] = [];
+    URL.revokeObjectURL = (u: string) => {
+      revoked.push(u);
+    };
+
+    const first = service.getPreviewBlobUrl('/photos/library/p.jpg');
+    const second = service.getPreviewBlobUrl('/photos/library/p.jpg');
+    expect(second).toBe(first);
+    await settle();
+
+    http.expectOne('/api/preview/library/p.jpg').flush(new Blob(['preview']));
+    expect(await first).toBe('blob:thumb-1');
+
+    service.clearThumbCache();
+    await Promise.resolve();
+    expect(revoked).toContain('blob:thumb-1');
+  });
 });

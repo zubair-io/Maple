@@ -126,6 +126,26 @@ describe('EditorShellComponent.applyRouteAddress', () => {
     expect(openSelfHostedSubfolder).not.toHaveBeenCalled();
   });
 
+  it('hydrates an fs: id with decoded slash segments into fullId', () => {
+    const { selectAsset, openSelfHostedSubfolder, hydrateSelfHostedFsAsset } = setup({
+      slug: 'fs:',
+      segments: ['srv', 'photos', '2014', 'Lawrence', 'WP_20140910_10_25_58_Pro.jpg'],
+      backend: 'self-hosted',
+      hydrate: (id) => ({
+        id,
+        absPath: id.slice(3),
+        folderId: 'unknown:/srv/photos',
+      }),
+    });
+    expect(hydrateSelfHostedFsAsset).toHaveBeenCalledWith(
+      'fs:/srv/photos/2014/Lawrence/WP_20140910_10_25_58_Pro.jpg',
+    );
+    expect(selectAsset).toHaveBeenCalledWith(
+      'fs:/srv/photos/2014/Lawrence/WP_20140910_10_25_58_Pro.jpg',
+    );
+    expect(openSelfHostedSubfolder).not.toHaveBeenCalled();
+  });
+
   it('opens the parent folder for a slug:relPath deep-link not yet in memory', () => {
     const { selectAsset, openSelfHostedSubfolder } = setup({
       slug: 'library',

@@ -38,6 +38,7 @@ function setup(opts: {
   focusedAssetId?: string | null;
   backend?: string;
   hydrate?: (id: string) => Synth | null;
+  registeredFolders?: any[];
 }) {
   const selectAsset = vi.fn();
   const openSelfHostedSubfolder = vi.fn();
@@ -65,6 +66,8 @@ function setup(opts: {
     assetsInSelectedFolder: () => [],
     focusedAsset: () => opts.focusedAsset ?? null,
     focusedAssetId: () => opts.focusedAssetId ?? null,
+    registeredFolders: () => opts.registeredFolders ?? [],
+    loadFolderTree: vi.fn(),
     selectAsset,
     openSelfHostedSubfolder,
     hydrateSelfHostedFsAsset,
@@ -187,6 +190,54 @@ describe('PreviewShellComponent', () => {
     expect(hydrateSelfHostedFsAsset).toHaveBeenCalledWith('fs:/srv/photos/x.jpg');
     expect(selectAsset).toHaveBeenCalledWith('fs:/srv/photos/x.jpg');
     expect(openSelfHostedSubfolder).not.toHaveBeenCalled();
+  });
+
+  it('hydrates an fs: id with decoded slash segments into fullId', () => {
+    const { selectAsset, hydrateSelfHostedFsAsset } = setup({
+      slug: 'fs:',
+      segments: ['srv', 'photos', '2014', 'Lawrence', 'WP_20140910_10_25_58_Pro.jpg'],
+      backend: 'self-hosted',
+      hydrate: (id) => ({
+        id,
+        absPath: id.slice(3),
+        folderId: 'unknown:/srv/photos',
+      }),
+    });
+    expect(hydrateSelfHostedFsAsset).toHaveBeenCalledWith(
+      'fs:/srv/photos/2014/Lawrence/WP_20140910_10_25_58_Pro.jpg',
+    );
+    expect(selectAsset).toHaveBeenCalledWith(
+      'fs:/srv/photos/2014/Lawrence/WP_20140910_10_25_58_Pro.jpg',
+    );
+  });
+
+  it('canonicalises an fs: route to slug:relPath when registeredFolders matches', () => {
+    const { navigate } = setup({
+      slug: 'fs:/srv/photos/2014/Lawrence/WP_20140910_10_25_58_Pro.jpg',
+      segments: [],
+      backend: 'self-hosted',
+      focusedAssetId: 'fs:/srv/photos/2014/Lawrence/WP_20140910_10_25_58_Pro.jpg',
+      hydrate: (id) => ({
+        id,
+        absPath: id.slice(3),
+        folderId: 'unknown:/srv/photos',
+      }),
+      registeredFolders: [
+        {
+          id: 'lawrence-lib',
+          slug: 'lawrence',
+          path: '/srv/photos',
+          label: 'Photos',
+          last_scan: null,
+          file_count: 1,
+          created_at: '2026-01-01',
+        },
+      ],
+    });
+    expect(navigate).toHaveBeenCalledWith(
+      viewRouteCommands('lawrence:2014/Lawrence/WP_20140910_10_25_58_Pro.jpg'),
+      { replaceUrl: true },
+    );
   });
 
   // ── Flag/Edit/Info bottom bar (#Web Preview Surface Task 4) ─────────────
