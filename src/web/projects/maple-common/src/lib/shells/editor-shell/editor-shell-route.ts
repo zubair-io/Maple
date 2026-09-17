@@ -49,7 +49,7 @@ function resolveSlugRoute(
   state: LibraryStateService,
   router: Router,
 ): void {
-  if (tryOpenFsSchemeAsset(slug, state)) return;
+  if (tryOpenFsSchemeAsset(slug, route, state)) return;
   const addr = routeSegmentsToAddress(
     slug,
     route.snapshot.url.map((s) => s.path),
@@ -69,9 +69,20 @@ function resolveSlugRoute(
  * whether it handled the route (Self-Hosted backend, `fs:` slug, and the synth
  * resolved to an absPath); a no-match leaves the route for the address path.
  */
-function tryOpenFsSchemeAsset(slug: string, state: LibraryStateService): boolean {
+function tryOpenFsSchemeAsset(
+  slug: string,
+  route: ActivatedRoute,
+  state: LibraryStateService,
+): boolean {
   if (state.backend !== 'self-hosted' || !slug.startsWith('fs:')) return false;
-  const synth = state.hydrateSelfHostedFsAsset(slug as AssetId);
+  const segments = route.snapshot.url.map((s) => s.path);
+  const fullId =
+    slug === 'fs:'
+      ? `fs:/${segments.join('/')}`
+      : segments.length > 0
+        ? `${slug}/${segments.join('/')}`
+        : slug;
+  const synth = state.hydrateSelfHostedFsAsset(fullId as AssetId);
   if (!synth?.absPath) return false;
   state.selectAsset(synth.id);
   openHydratedFsParent(state, synth);

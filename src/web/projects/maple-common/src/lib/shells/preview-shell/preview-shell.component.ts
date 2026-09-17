@@ -49,6 +49,7 @@ import { previewKeyAction } from './preview-shell-keyboard';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { PREVIEW_VIDEO_ACCESS } from './preview-video-access';
+import { addressForAbsPath } from '../../api/filesystem-browse.service';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
  * `.preview-image-wrap` counts as a prev/next gesture rather than a tap. */
@@ -157,6 +158,20 @@ export class PreviewShellComponent implements OnDestroy {
     // storage: crossing a breakpoint is not the user expressing a preference.
     effect(() => {
       this.infoOpen.set(this.isTabletPlus() ? this.persistedInfoOpen() : false);
+    });
+    // If focused on an fs: asset, canonicalise the route to its slug:relPath address
+    // as soon as registeredFolders are available.
+    effect(() => {
+      const id = this.state.focusedAssetId();
+      if (!id || !id.startsWith('fs:')) return;
+      const folders = this.state.registeredFolders?.() ?? [];
+      if (folders.length === 0) return;
+      const absPath = id.slice(3);
+      const address = addressForAbsPath(absPath, folders);
+      if (address) {
+        const canonicalId = formatAddress(address);
+        void this.router.navigate(viewRouteCommands(canonicalId), { replaceUrl: true });
+      }
     });
     this.applyRouteAddress();
   }
@@ -314,15 +329,24 @@ export class PreviewShellComponent implements OnDestroy {
   private applyRouteAddress(): void {
     const slug = this.route.snapshot.paramMap.get('slug');
     if (slug) {
+      const segments = this.route.snapshot.url.map((s) => s.path);
       if (this.state.backend === 'self-hosted' && slug.startsWith('fs:')) {
-        const synth = this.state.hydrateSelfHostedFsAsset(slug as AssetId);
+        const fullId =
+          slug === 'fs:'
+            ? `fs:/${segments.join('/')}`
+            : segments.length > 0
+              ? `${slug}/${segments.join('/')}`
+              : slug;
+        const synth = this.state.hydrateSelfHostedFsAsset(fullId as AssetId);
         if (synth?.absPath) {
           this.state.selectAsset(synth.id);
           openHydratedFsParent(this.state, synth);
+          if ((this.state.registeredFolders?.() ?? []).length === 0) {
+            this.state.loadFolderTree?.();
+          }
           return;
         }
       }
-      const segments = this.route.snapshot.url.map((s) => s.path);
       const addr = routeSegmentsToAddress(slug, segments);
       const addrStr = formatAddress(addr);
       const assets = this.state.assets();

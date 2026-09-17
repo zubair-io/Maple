@@ -122,4 +122,38 @@ describe('SearchPageComponent (Self-Hosted) ?q wiring', () => {
       replaceUrl: true,
     });
   });
+
+  it('navigates via viewRouteCommands preferring address over id on onPhotoTap', () => {
+    const { fixture } = setup();
+    fixture.detectChanges();
+    const router = TestBed.inject(Router);
+
+    const hit = {
+      id: 'fs:/srv/photos/a.jpg',
+      address: 'photos:a.jpg',
+      _id: 'mongo1',
+      folder_id: 'f1',
+      abs_path: '/srv/photos/a.jpg',
+      filename: 'a.jpg',
+      size: 100,
+      mtime: 123,
+      captured_at: null,
+      camera: null,
+      lens: null,
+      iso: null,
+      aperture: null,
+      shutter: null,
+      focal_length: null,
+      rating: 0,
+      flag: 0 as const,
+      color_label: '',
+    };
+
+    fixture.componentInstance['onPhotoTap'](hit);
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'photos', 'a.jpg']);
+
+    const hitNoAddress = { ...hit, address: null };
+    fixture.componentInstance['onPhotoTap'](hitNoAddress);
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'fs:/srv/photos/a.jpg']);
+  });
 });
