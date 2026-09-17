@@ -95,7 +95,8 @@ struct PreviewDestination: View {
                 shownID = next.id
                 onSelectionChanged(next)
             },
-            transitionProgress: transitionProgress
+            transitionProgress: transitionProgress,
+            isZoomDismissable: transitionNamespace != nil
         )
         .background {
             // Measured with the safe areas ignored so it matches `fullSize`

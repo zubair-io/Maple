@@ -298,17 +298,45 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 140, height: 120), fullSize: full), 0)
   }
 
+  func testZoomProgressTreatsANearlyFullFrameAsSettled() {
+    // The two frames come from different views; a point off must not leave
+    // the chrome at 96% and the display tier deferred forever.
+    let full = CGSize(width: 402, height: 874)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 402, height: 873.5), fullSize: full), 1)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 401, height: 874), fullSize: full), 1)
+    // A hair short in progress terms is also the end.
+    let nearly = CGSize(width: 402 - 0.01 * 272, height: 874 - 0.01 * 744)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: nearly, fullSize: full), 1)
+    // But a clearly partial frame is not.
+    XCTAssertLessThan(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 380, height: 800), fullSize: full), 1)
+  }
+
   func testZoomProgressSquareContainerFallsBackToWidthRatio() {
     let full = CGSize(width: 800, height: 800)
     XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: CGSize(width: 400, height: 400), fullSize: full), 0.5, accuracy: 1e-6)
     XCTAssertEqual(PreviewViewVM.zoomTransitionProgress(size: full, fullSize: full), 1)
   }
 
-  func testZoomChromeFadesInOverTheLastQuarterOfTheOpen() {
+  func testZoomChromeIsHiddenWhileTileSizedAndFadesInMonotonically() {
     XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 0), 0)
-    XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 0.75), 0)
-    XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 0.875), 0.5, accuracy: 1e-6)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 0.5), 0)
+    XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: PreviewViewVM.zoomChromeFadeStart), 0)
+    let a = PreviewViewVM.zoomTransitionChromeOpacity(progress: PreviewViewVM.zoomChromeFadeStart + 0.1)
+    let b = PreviewViewVM.zoomTransitionChromeOpacity(progress: PreviewViewVM.zoomChromeFadeStart + 0.2)
+    XCTAssertGreaterThan(a, 0)
+    XCTAssertGreaterThan(b, a)
     XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 1), 1)
+  }
+
+  func testPlainPullShrinksWithTravelAndCommitsOnDistanceOrFlick() {
+    XCTAssertEqual(PreviewViewVM.plainPullScale(translationY: 0), 1)
+    XCTAssertLessThan(PreviewViewVM.plainPullScale(translationY: 100), 1)
+    XCTAssertGreaterThan(PreviewViewVM.plainPullScale(translationY: 100), PreviewViewVM.plainPullScale(translationY: 200))
+    XCTAssertEqual(PreviewViewVM.plainPullScale(translationY: 10_000), PreviewViewVM.plainPullMinScale, accuracy: 1e-9)
+    XCTAssertTrue(PreviewViewVM.shouldCommitPlainPull(translationY: 150, velocityY: 0))
+    XCTAssertTrue(PreviewViewVM.shouldCommitPlainPull(translationY: 30, velocityY: 1_200))
+    XCTAssertFalse(PreviewViewVM.shouldCommitPlainPull(translationY: 60, velocityY: 200))
+    XCTAssertFalse(PreviewViewVM.shouldCommitPlainPull(translationY: 100, velocityY: -900))
   }
 
   // MARK: - Pull-down dismissal

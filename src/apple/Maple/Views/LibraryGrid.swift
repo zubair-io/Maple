@@ -71,6 +71,11 @@ struct LibraryGrid: View {
     @State private var lastTappedID: AssetRef.ID?
 
     private static let scrollSpace = "library-grid-scroll"
+    /// Release spring: quick enough to read as a snap, soft enough that a
+    /// re-flow of every visible cell never overshoots into the next tier.
+    private static let settleSpring = Animation.spring(response: 0.42, dampingFraction: 0.86)
+    /// A hand-back shift smaller than this is sub-pixel: not worth a scroll.
+    private static let minimumShift: CGFloat = 0.5
 
     /// Mirrors `BrowseGrid.isEmpty` — the empty state takes over only when
     /// the source yields neither images nor sub-folders.
@@ -134,18 +139,29 @@ struct LibraryGrid: View {
                         makeItem: makeItem
                     )
                     // While a pinch is live the lazy grid keeps the scroll
-                    // content's size but the overlay does the drawing.
+                    // content's size but the overlay does the drawing — and
+                    // it must neither take taps (its cells sit at the old
+                    // tier's positions) nor speak to VoiceOver twice.
                     .opacity(pinch == nil ? 1 : 0)
+                    .allowsHitTesting(pinch == nil)
+                    .accessibilityHidden(pinch != nil)
                     .overlay(alignment: .topLeading) {
                         if let pinch {
                             pinchOverlay(pinch)
                         }
                     }
-                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.scrollSpace)) }) {
-                        scroll.gridFrame = $0
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.scrollSpace)) }) { frame in
+                        scroll.gridFrame = frame
+                        // A rotation or split-view resize mid-pinch: the
+                        // overlay's geometry is for the old width, so hand
+                        // straight back to the lazy grid at the tier the
+                        // pinch was heading for.
+                        if let pinch, abs(frame.width - pinch.width) > 0.5 {
+                            abandonPinch(pinch)
+                        }
                     }
                 }
-                .padding(2)
+                .padding(LibraryGridZoom.spacing)
             }
             .coordinateSpace(.named(Self.scrollSpace))
             .scrollPosition($scrollPosition)
@@ -187,7 +203,17 @@ struct LibraryGrid: View {
         MagnifyGesture(minimumScaleDelta: 0.01)
             .updating($isMagnifying) { _, state, _ in state = true }
             .onChanged { value in
-                if pinch == nil || pinch?.isSettling == true {
+                // A new pinch while the last one is still springing: hand
+                // the settled tier to the lazy grid now (a small jump to
+                // where the spring was heading, never back to the old tier)
+                // and start fresh on the next tick, once the grid has laid
+                // out at that tier so the focal photo is read from live
+                // geometry.
+                if let settling = pinch, settling.isSettling {
+                    swapPinchOut(settling, columns: settling.interpolation.settledColumns)
+                    return
+                }
+                if pinch == nil {
                     beginPinch(at: value.startLocation)
                 }
                 updatePinch(magnification: value.magnification)
@@ -205,18 +231,15 @@ struct LibraryGrid: View {
         let focal = CGPoint(x: startLocation.x - frame.minX, y: startLocation.y - frame.minY)
         guard let cell = LibraryGridZoom.focalCell(at: focal, columns: columns, width: frame.width, count: count)
         else { return }
-        // Draw every cell any tier lays out within a viewport above and below
-        // the visible window — the overlay must stay populated when a sparser
-        // tier's rows scroll through, and when the fingers pan a little.
-        let top = -frame.minY - scroll.geometry.containerSize.height
-        let bottom = -frame.minY + 2 * scroll.geometry.containerSize.height
-        let slice = LibraryGridZoom.columnTiers.reduce(into: Range<Int>?.none) { union, tier in
-            let range = LibraryGridZoom.indices(
-                intersecting: top...bottom, columns: tier, width: frame.width, count: count)
-            guard !range.isEmpty else { return }
-            union = union.map { min($0.lowerBound, range.lowerBound)..<max($0.upperBound, range.upperBound) } ?? range
-        }
-        guard let slice else { return }
+        // Draw, for every tier, the cells within two viewports of where that
+        // tier puts the focal photo — the overlay keeps it under the fingers,
+        // so nothing further away can come on screen, and the fingers may
+        // pan a little.
+        guard let slice = LibraryGridZoom.overlaySlice(
+            focalIndex: cell.index, focalFraction: cell.fraction,
+            reach: 2 * scroll.geometry.containerSize.height, width: frame.width, count: count)
+        else { return }
+        let interpolation = LibraryGridZoom.interpolation(baseColumns: columns, magnification: 1, width: frame.width)
         pinch = PinchSession(
             baseColumns: columns,
             width: frame.width,
@@ -225,20 +248,22 @@ struct LibraryGrid: View {
             focalFraction: cell.fraction,
             focalPoint: focal,
             slice: slice,
-            interpolation: LibraryGridZoom.interpolation(baseColumns: columns, magnification: 1, width: frame.width),
+            interpolation: interpolation,
             nearestColumns: columns,
             lastMagnification: 1,
             isSettling: false,
-            scrollRoom: scroll.room
+            scrollRoom: scroll.room(baseColumns: columns, targetColumns: interpolation.to, count: count, width: frame.width)
         )
     }
 
     private func updatePinch(magnification: CGFloat) {
         guard var session = pinch, !session.isSettling else { return }
         session.lastMagnification = magnification
-        session.scrollRoom = scroll.room
         session.interpolation = LibraryGridZoom.interpolation(
             baseColumns: session.baseColumns, magnification: magnification, width: session.width)
+        session.scrollRoom = scroll.room(
+            baseColumns: session.baseColumns, targetColumns: session.interpolation.to,
+            count: session.count, width: session.width)
         let nearest = LibraryGridZoom.nearestColumns(
             cellWidth: LibraryGridZoom.cellSize(columns: session.baseColumns, width: session.width) * magnification,
             width: session.width)
@@ -274,7 +299,7 @@ struct LibraryGrid: View {
         var snap = Transaction()
         snap.disablesAnimations = true
         withTransaction(snap) { pinch = start }
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86), completionCriteria: .logicallyComplete) {
+        withAnimation(Self.settleSpring, completionCriteria: .logicallyComplete) {
             pinch = end
         } completion: {
             swapPinchOut(end, columns: target)
@@ -303,9 +328,21 @@ struct LibraryGrid: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             storedColumns = target
-            if abs(shift) > 0.5 {
+            if abs(shift) > Self.minimumShift {
                 scrollPosition.scrollTo(y: scroll.geometry.contentOffset.y - shift)
             }
+            pinch = nil
+        }
+    }
+
+    /// Drop the overlay without a hand-back shift (the geometry it was
+    /// computed against is gone): the lazy grid lays out at the tier the
+    /// pinch was heading for.
+    private func abandonPinch(_ session: PinchSession) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            storedColumns = session.interpolation.settledColumns
             pinch = nil
         }
     }
@@ -314,6 +351,8 @@ struct LibraryGrid: View {
     private func pinchOverlay(_ session: PinchSession) -> some View {
         let interpolation = session.interpolation
         let focalNow = session.focalPoint(at: interpolation)
+        let baseHeight = LibraryGridZoom.gridHeight(
+            count: session.count, columns: session.baseColumns, width: session.width)
         InterpolatedGridLayout(
             from: interpolation.from,
             to: interpolation.to,
@@ -332,23 +371,20 @@ struct LibraryGrid: View {
                 )
             }
         }
-        .frame(width: session.width, height: LibraryGridZoom.gridHeight(
-            count: session.count, columns: session.baseColumns, width: session.width), alignment: .topLeading)
+        .frame(width: session.width, height: baseHeight, alignment: .topLeading)
         // Rubber-band past the end tiers: scale about the focal photo.
         .scaleEffect(
             interpolation.overscale,
-            anchor: UnitPoint(
-                x: focalNow.x / session.width,
-                y: focalNow.y / max(1, LibraryGridZoom.gridHeight(
-                    count: session.count, columns: session.baseColumns, width: session.width)))
+            anchor: UnitPoint(x: focalNow.x / session.width, y: focalNow.y / max(1, baseHeight))
         )
         // Keep the focal photo under the fingers as the tiers re-flow: the
         // overlay slides by exactly what that photo moved — within the room
-        // the scroll view has, so the hand-back to the lazy grid can always
-        // reproduce it (at the very top of the grid the photo drifts instead,
-        // as it does in Photos).
+        // the scroll view will have at the target tier, so the hand-back to
+        // the lazy grid can always reproduce it (at the very top of the grid
+        // the photo drifts instead, as it does in Photos).
         .offset(y: session.overlayShift(at: interpolation))
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Overlay derivation
@@ -391,10 +427,11 @@ private struct PinchSession {
 
     /// Where the focal point sits in the blended layout.
     func focalPoint(at interpolation: LibraryGridZoom.Interpolation) -> CGPoint {
-        let rect = LibraryGridZoom.interpolatedRect(
-            index: focalIndex, from: interpolation.from, to: interpolation.to,
-            progress: interpolation.progress, width: width)
-        return CGPoint(x: rect.minX + focalFraction.x * rect.width, y: rect.minY + focalFraction.y * rect.height)
+        LibraryGridZoom.point(
+            in: LibraryGridZoom.interpolatedRect(
+                index: focalIndex, from: interpolation.from, to: interpolation.to,
+                progress: interpolation.progress, width: width),
+            fraction: focalFraction)
     }
 
     /// How far down the overlay is slid so the focal photo stays put,
@@ -423,11 +460,16 @@ private final class ScrollGeometryBox {
     /// Room left toward the top (the offset can drop this far) and the
     /// bottom (rise this far) — the two amounts a pinch's compensation can
     /// be. `contentOffset` counts from the inset content origin, so the
-    /// resting top is `-top inset`.
-    var room: ScrollRoom {
+    /// resting top is `-top inset`. The bottom is measured against the
+    /// content height the grid will have at the pinch's TARGET tier (the
+    /// live content is still laid out at the base tier): a pinch out lower
+    /// in a dense grid needs room the sparser tier brings with it.
+    func room(baseColumns: Int, targetColumns: Int, count: Int, width: CGFloat) -> ScrollRoom {
         let g = geometry
         let minOffset = -g.contentInsets.top
-        let maxOffset = max(minOffset, g.contentSize.height + g.contentInsets.bottom - g.containerSize.height)
+        let targetContentHeight = g.contentSize.height
+            + LibraryGridZoom.heightDelta(count: count, from: baseColumns, to: targetColumns, width: width)
+        let maxOffset = max(minOffset, targetContentHeight + g.contentInsets.bottom - g.containerSize.height)
         return ScrollRoom(
             up: max(0, g.contentOffset.y - minOffset),
             down: max(0, maxOffset - g.contentOffset.y)

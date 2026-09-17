@@ -38,6 +38,10 @@ struct PreviewPager: UIViewControllerRepresentable {
     /// See `PreviewView.transitionProgress` — forwarded to every page so the
     /// still is cropped like its tile while the zoom is tile-sized.
     let transitionProgress: CGFloat
+    /// See `PreviewView.isZoomDismissable`: with a zoom, a recognised pull
+    /// is left to the system dismissal; without one, its translation is
+    /// reported so Preview can dismiss itself.
+    let isZoomDismissable: Bool
     let onSelectAsset: (AssetRef) -> Void
     /// Fires with `true` the moment a pull-down is recognised (the system
     /// dismissal is now dragging the whole view as a card) and `false` when
@@ -45,6 +49,10 @@ struct PreviewPager: UIViewControllerRepresentable {
     /// back. UIKit scales the card rather than resizing it, so this is the
     /// only signal `PreviewView` has to fade its chrome during the drag.
     let onPullActiveChanged: (Bool) -> Void
+    /// Plain pushes only: the pull's live translation, then its final
+    /// translation + velocity on release.
+    let onPlainPullChanged: (CGSize) -> Void
+    let onPlainPullEnded: (CGSize, CGSize) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -58,8 +66,11 @@ struct PreviewPager: UIViewControllerRepresentable {
             assets: assets,
             source: source,
             provider: provider,
+            isZoomDismissable: isZoomDismissable,
             onSelectAsset: onSelectAsset,
-            onPullActiveChanged: onPullActiveChanged
+            onPullActiveChanged: onPullActiveChanged,
+            onPlainPullChanged: onPlainPullChanged,
+            onPlainPullEnded: onPlainPullEnded
         )
         let pullGate = PullDownGateRecognizer(target: context.coordinator, action: #selector(Coordinator.pullChanged(_:)))
         pullGate.maximumNumberOfTouches = 1
@@ -70,10 +81,9 @@ struct PreviewPager: UIViewControllerRepresentable {
         pager.view.addGestureRecognizer(pullGate)
         context.coordinator.pullGate = pullGate
         // The page scroll waits for the pull-down to be ruled out. A
-        // horizontal-dominant start fails the gate immediately (see
-        // `gestureRecognizerShouldBegin`), so paging is not perceptibly
-        // delayed; a downward start wins the touch and leaves it to the
-        // system dismissal.
+        // horizontal-dominant start fails the gate within its first few
+        // points (`PullDownGateRecognizer`), so paging is not perceptibly
+        // delayed; a downward start wins the touch.
         for scrollView in pager.view.subviews.compactMap({ $0 as? UIScrollView }) {
             scrollView.panGestureRecognizer.require(toFail: pullGate)
         }
@@ -94,8 +104,11 @@ struct PreviewPager: UIViewControllerRepresentable {
             assets: assets,
             source: source,
             provider: provider,
+            isZoomDismissable: isZoomDismissable,
             onSelectAsset: onSelectAsset,
-            onPullActiveChanged: onPullActiveChanged
+            onPullActiveChanged: onPullActiveChanged,
+            onPlainPullChanged: onPlainPullChanged,
+            onPlainPullEnded: onPlainPullEnded
         )
         context.coordinator.setTransitionProgress(transitionProgress)
         guard let target = context.coordinator.controller(for: asset.id),
@@ -118,6 +131,9 @@ struct PreviewPager: UIViewControllerRepresentable {
         private var provider: ThumbnailProvider?
         private var onSelectAsset: ((AssetRef) -> Void)?
         private var onPullActiveChanged: ((Bool) -> Void)?
+        private var onPlainPullChanged: ((CGSize) -> Void)?
+        private var onPlainPullEnded: ((CGSize, CGSize) -> Void)?
+        private var isZoomDismissable = false
         private var transitionProgress: CGFloat = 1
         weak var pager: UIPageViewController?
         weak var pullGate: UIPanGestureRecognizer?
@@ -146,11 +162,17 @@ struct PreviewPager: UIViewControllerRepresentable {
             assets: [AssetRef],
             source: (any ImageSource)?,
             provider: ThumbnailProvider,
+            isZoomDismissable: Bool,
             onSelectAsset: @escaping (AssetRef) -> Void,
-            onPullActiveChanged: @escaping (Bool) -> Void
+            onPullActiveChanged: @escaping (Bool) -> Void,
+            onPlainPullChanged: @escaping (CGSize) -> Void,
+            onPlainPullEnded: @escaping (CGSize, CGSize) -> Void
         ) {
+            self.isZoomDismissable = isZoomDismissable
             self.onSelectAsset = onSelectAsset
             self.onPullActiveChanged = onPullActiveChanged
+            self.onPlainPullChanged = onPlainPullChanged
+            self.onPlainPullEnded = onPlainPullEnded
             // A page captures its `ThumbnailSource` (and so the ambient
             // `ImageSource`) when it is built. A source that arrives AFTER the
             // first page was built — the Search tab sets it in the same tap
@@ -186,20 +208,30 @@ struct PreviewPager: UIViewControllerRepresentable {
 
         // MARK: Pull-down arbitration
 
-        /// The gate recognises a pull only to keep the page scroll out of
-        /// its way and to report that a pull is in hand; the system
-        /// dismissal reads the touch itself.
         /// Zoomed in, a vertical pan is the image pan — never a pull.
         var visibleIsAtFitZoom: Bool {
             (pager?.viewControllers?.first as? PreviewZoomController)?.isAtFitZoom ?? false
         }
 
+        /// With a zoom, the gate recognises a pull only to keep the page
+        /// scroll out of its way and to report that a pull is in hand — the
+        /// system dismissal reads the touch itself. Without one, the pull is
+        /// Preview's own: its translation drives the still.
         @objc func pullChanged(_ recognizer: UIPanGestureRecognizer) {
+            let point = recognizer.translation(in: recognizer.view)
+            let translation = CGSize(width: point.x, height: point.y)
             switch recognizer.state {
             case .began:
-                onPullActiveChanged?(true)
+                if isZoomDismissable { onPullActiveChanged?(true) }
+            case .changed:
+                if !isZoomDismissable { onPlainPullChanged?(translation) }
             case .ended, .cancelled, .failed:
-                onPullActiveChanged?(false)
+                if isZoomDismissable {
+                    onPullActiveChanged?(false)
+                } else {
+                    let velocityPoint = recognizer.velocity(in: recognizer.view)
+                    onPlainPullEnded?(translation, CGSize(width: velocityPoint.x, height: velocityPoint.y))
+                }
             default:
                 break
             }
@@ -304,13 +336,14 @@ struct PreviewPager: UIViewControllerRepresentable {
 }
 // MARK: - PullDownGateRecognizer
 
-/// A pan that decides, once, on the first 10pt of travel whether the touch
-/// is a pull-down — and FAILS outright when it is not, so the page scroll
-/// that waits on it (`require(toFail:)`) proceeds with no perceptible delay.
-/// Deciding in the recognizer's own touch handling (rather than in
-/// `gestureRecognizerShouldBegin`) is what makes the decision robust: UIKit
-/// may ask a delegate to begin a pan after only a point or two of movement,
-/// which is not enough to tell a pull from a page swipe.
+/// A pan that decides, once, after `PreviewViewVM.pullDecisionDistance` of
+/// travel whether the touch is a pull-down — and FAILS outright when it is
+/// not, so the page scroll that waits on it (`require(toFail:)`) proceeds
+/// with no perceptible delay. Deciding in the recognizer's own touch
+/// handling (rather than in a `gestureRecognizerShouldBegin` delegate call)
+/// is what makes the decision robust: UIKit may ask a delegate to begin a
+/// pan after only a point or two of movement, which is not enough to tell a
+/// pull from a page swipe.
 private final class PullDownGateRecognizer: UIPanGestureRecognizer {
     /// Whether a pull may begin right now (false while the still is zoomed
     /// in — a vertical pan is then the image pan).
@@ -335,7 +368,7 @@ private final class PullDownGateRecognizer: UIPanGestureRecognizer {
         if !decided, state == .possible, let start, let touch = touches.first {
             let now = touch.location(in: view)
             let translation = CGSize(width: now.x - start.x, height: now.y - start.y)
-            if hypot(translation.width, translation.height) >= 10 {
+            if hypot(translation.width, translation.height) >= PreviewViewVM.pullDecisionDistance {
                 decided = true
                 let pull = isPullAllowed() && PreviewViewVM.shouldBeginDismissDrag(translation: translation)
                 if !pull {

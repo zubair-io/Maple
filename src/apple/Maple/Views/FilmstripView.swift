@@ -18,6 +18,9 @@ import SwiftUI
 import MapleCore
 
 struct FilmstripView: View {
+    /// The band's fixed height — Preview insets its still by it.
+    static let height: CGFloat = 48
+
     let assets: [AssetRef]
     let activeID: AssetRef.ID?
     /// Source the assets came from — forwarded to `ThumbnailLoader` so the
@@ -40,7 +43,7 @@ struct FilmstripView: View {
             }
             .padding(.horizontal, 12)
         }
-        .frame(height: 48)
+        .frame(height: Self.height)
         .background(MapleTokens.bg)
         .accessibilityIdentifier("editor-filmstrip")
     }

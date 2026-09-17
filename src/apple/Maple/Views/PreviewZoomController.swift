@@ -120,7 +120,11 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
         // frame here treated every pinch as a layout-size change and could
         // reset zoom state on the next layout pass.
         if imageView.bounds.size != scrollView.bounds.size {
-            imageView.frame = CGRect(origin: .zero, size: scrollView.bounds.size)
+            // Bounds + centre, not `frame`: the zoom's crop transform (and
+            // the scroll view's own zoom) may be on the view, and `frame`
+            // is undefined under a non-identity transform.
+            imageView.bounds = CGRect(origin: .zero, size: scrollView.bounds.size)
+            imageView.center = CGPoint(x: scrollView.bounds.width / 2, y: scrollView.bounds.height / 2)
             scrollView.contentSize = scrollView.bounds.size
             scrollView.minimumZoomScale = 1
             scrollView.maximumZoomScale = 6
