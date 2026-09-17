@@ -4,6 +4,11 @@ import SwiftUI
 /// One relative slider contract: a transaction per drag or held key, canonical
 /// reset, 0.25× fine drag and accessible value keys (#3250).
 public struct LivingSlider: View {
+  public enum Style: Sendable {
+    case living
+    case dragBar
+  }
+
   let label: String
   @Binding var value: Double
   let range: ClosedRange<Double>
@@ -11,6 +16,7 @@ public struct LivingSlider: View {
   let defaultValue: Double
   let gradientStops: [GradientStop]?
   let displayValue: String?
+  let style: Style
   let onEditingChanged: ((Bool) -> Void)?
   let onCommit: (() -> Void)?
 
@@ -24,10 +30,14 @@ public struct LivingSlider: View {
   @State private var fineMode = false
   @State private var hapticTick = 0
 
+  static let tickCount = 21
+  static let centerTickIndex = 10
+
   public init(
     label: String, value: Binding<Double>, range: ClosedRange<Double>,
     isBipolar: Bool = false, defaultValue: Double = 0,
     gradient: [GradientStop]? = nil, displayValue: String? = nil,
+    style: Style = .living,
     onCommit: (() -> Void)? = nil, onEditingChanged: ((Bool) -> Void)? = nil
   ) {
     self.label = label
@@ -37,6 +47,7 @@ public struct LivingSlider: View {
     self.defaultValue = defaultValue
     self.gradientStops = gradient
     self.displayValue = displayValue
+    self.style = style
     self.onEditingChanged = onEditingChanged
     self.onCommit = onCommit
   }
@@ -62,40 +73,78 @@ public struct LivingSlider: View {
 
   public var body: some View {
     VStack(spacing: 4) {
-      HStack {
-        Text(label).font(MapleTokens.Typography.toolLabel).foregroundStyle(ProTokens.textMuted)
-        Spacer()
-        Text(formattedValue).font(MapleTokens.Typography.valueChip).monospacedDigit()
-          .foregroundStyle(isModified ? ProTokens.accent : ProTokens.textDim)
+      if style == .living {
+        HStack {
+          Text(label).font(MapleTokens.Typography.toolLabel).foregroundStyle(ProTokens.textMuted)
+          Spacer()
+          Text(formattedValue).font(MapleTokens.Typography.valueChip).monospacedDigit()
+            .foregroundStyle(isModified ? ProTokens.accent : ProTokens.textDim)
+        }
+        .accessibilityHidden(true)
       }
-      .accessibilityHidden(true)
       GeometryReader { geometry in
         let width = geometry.size.width
         let pct = LivingSliderMath.pctUnipolar(value: value, range: range)
-        ZStack(alignment: .leading) {
-          Capsule().fill(gradient).frame(height: 8)
-            .overlay(Capsule().strokeBorder(ProTokens.borderHi, lineWidth: 0.5))
-          if isBipolar {
-            Rectangle().fill(.white.opacity(0.8)).frame(width: 1.5, height: 8)
-              .position(x: width / 2, y: 8)
+        switch style {
+        case .living:
+          ZStack(alignment: .leading) {
+            Capsule().fill(gradient).frame(height: 8)
+              .overlay(Capsule().strokeBorder(ProTokens.borderHi, lineWidth: 0.5))
+            if isBipolar {
+              Rectangle().fill(.white.opacity(0.8)).frame(width: 1.5, height: 8)
+                .position(x: width / 2, y: 8)
+            }
+            Circle().fill(.white).frame(width: 16, height: 16)
+              .shadow(color: .black.opacity(0.45), radius: 1, y: 0.5)
+              .overlay(
+                Circle().strokeBorder(
+                  focused || isModified ? ProTokens.accent : .clear, lineWidth: 2)
+              )
+              .position(x: 8 + pct * max(width - 16, 0), y: 8)
           }
-          Circle().fill(.white).frame(width: 16, height: 16)
-            .shadow(color: .black.opacity(0.45), radius: 1, y: 0.5)
-            .overlay(
-              Circle().strokeBorder(
-                focused || isModified ? ProTokens.accent : .clear, lineWidth: 2)
-            )
-            .position(x: 8 + pct * max(width - 16, 0), y: 8)
+          .frame(height: 16).frame(maxHeight: .infinity).contentShape(Rectangle())
+          .gesture(drag(width: max(width - 16, 1)))
+          .highPriorityGesture(TapGesture(count: 2).onEnded { reset() })
+          .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5).onEnded { _ in enableFineMode() })
+
+        case .dragBar:
+          ZStack(alignment: .leading) {
+            Capsule().fill(gradient).frame(height: 8)
+              .overlay(Capsule().strokeBorder(ProTokens.borderHi.opacity(0.5), lineWidth: 0.5))
+              .frame(maxHeight: .infinity, alignment: .center)
+
+            Rectangle()
+              .fill(MapleTokens.border)
+              .frame(height: 1)
+              .frame(maxHeight: .infinity, alignment: .center)
+
+            ForEach(0..<Self.tickCount, id: \.self) { i in
+              let x = width * CGFloat(i) / CGFloat(Self.tickCount - 1)
+              let emphasized = i == Self.centerTickIndex
+              Rectangle()
+                .fill(emphasized ? MapleTokens.borderHi : MapleTokens.border)
+                .frame(width: 1, height: emphasized ? 14 : 6)
+                .position(x: x, y: 15)
+            }
+
+            Rectangle()
+              .fill(MapleTokens.primary)
+              .frame(width: 2, height: 22)
+              .position(x: width * pct, y: 15)
+          }
+          .frame(height: 30).frame(maxHeight: .infinity).contentShape(Rectangle())
+          .gesture(drag(width: max(width, 1)))
+          .highPriorityGesture(TapGesture(count: 2).onEnded { reset() })
+          .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5).onEnded { _ in enableFineMode() })
         }
-        .frame(height: 16).frame(maxHeight: .infinity).contentShape(Rectangle())
-        .gesture(drag(width: max(width - 16, 1)))
-        .highPriorityGesture(TapGesture(count: 2).onEnded { reset() })
-        .simultaneousGesture(
-          LongPressGesture(minimumDuration: 0.5).onEnded { _ in enableFineMode() })
       }
-      .frame(height: 28).accessibilityHidden(true)
+      .frame(height: style == .dragBar ? 30 : 28).accessibilityHidden(true)
     }
-    .padding(.horizontal, 16).padding(.vertical, 6).frame(minHeight: 44)
+    .padding(.horizontal, style == .dragBar ? 0 : 16)
+    .padding(.vertical, style == .dragBar ? 0 : 6)
+    .frame(minHeight: 44)
     .contentShape(Rectangle())
     .focusable(isEnabled).focused($focused).focusEffectDisabled()
     .accessibilityElement(children: .ignore)

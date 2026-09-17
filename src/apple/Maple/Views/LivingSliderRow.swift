@@ -18,6 +18,7 @@ import SwiftUI
 struct LivingSliderRow: View {
   @Bindable var state: EditorState
   let tool: Tool
+  var style: LivingSlider.Style = .living
 
   /// The armed sub-param when it belongs to THIS row's tool (#1876).
   /// Selecting a pill in `SubParamRow` arms a (tool, subParam) pair on
@@ -89,14 +90,18 @@ struct LivingSliderRow: View {
   }
 
   var slider: LivingSlider {
-    LivingSlider(
+    let stops =
+      armedSub.flatMap { GradientCatalog.stops(for: tool, subParamId: $0.id) }
+      ?? GradientCatalog.stops(for: tool)
+    return LivingSlider(
       label: armedSub.map { "\(tool.displayName) · \($0.label)" } ?? tool.displayName,
       value: valueBinding,
       range: range,
       isBipolar: isBipolar,
       defaultValue: defaultValue,
-      gradient: GradientCatalog.stops(for: tool),
+      gradient: stops,
       displayValue: displayString,
+      style: style,
       // An unarmed row displays the primary field. Do not restore a
       // remembered secondary parameter underneath its first value write.
       onEditingChanged: { editing in
