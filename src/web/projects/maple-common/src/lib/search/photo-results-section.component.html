@@ -59,6 +59,8 @@
         Loading…
       </p>
     }
-    <div #loadMoreSentinel class="h-px" aria-hidden="true"></div>
+    @if (canLoadMore()) {
+      <div #loadMoreSentinel class="h-px" aria-hidden="true"></div>
+    }
   </section>
 }
