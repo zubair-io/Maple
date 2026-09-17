@@ -361,6 +361,29 @@ describe('SearchComponent (unified search)', () => {
     expect(stub.calls[stub.calls.length - 1].page).toBeUndefined();
   });
 
+  it('load-more clamps total when empty results are returned', () => {
+    click(fixture, 'filter-preset-thisYear');
+    vi.advanceTimersByTime(250);
+    stub.resolveLatest({
+      total: 60,
+      page: 0,
+      limit: 30,
+      results: Array.from({ length: 30 }, (_, i) => makeResult(`r${i}`, `r${i}.dng`)),
+    });
+    fixture.detectChanges();
+    (fixture.componentInstance as unknown as { onLoadMore(): void }).onLoadMore();
+    stub.resolveLatest({
+      total: 60,
+      page: 1,
+      limit: 30,
+      results: [],
+    });
+    fixture.detectChanges();
+    // Clamped to 30 so canLoadMore becomes false
+    const searchComp = fixture.componentInstance as unknown as { canLoadMore: () => boolean };
+    expect(searchComp.canLoadMore()).toBe(false);
+  });
+
   it('persists recents on submit and restores the query on recent tap', () => {
     typeInput(fixture, 'paris');
     const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
