@@ -88,8 +88,37 @@ enum LibraryGridZoom {
 
     /// Grid-coordinate point of `fraction` inside cell `index` in a tier.
     static func point(ofCell index: Int, fraction: CGPoint, columns: Int, width: CGFloat) -> CGPoint {
-        let rect = cellRect(index: index, columns: columns, width: width)
-        return CGPoint(x: rect.minX + fraction.x * rect.width, y: rect.minY + fraction.y * rect.height)
+        point(in: cellRect(index: index, columns: columns, width: width), fraction: fraction)
+    }
+
+    /// `fraction` (0…1 on each axis) resolved inside `rect`.
+    static func point(in rect: CGRect, fraction: CGPoint) -> CGPoint {
+        CGPoint(x: rect.minX + fraction.x * rect.width, y: rect.minY + fraction.y * rect.height)
+    }
+
+    /// The cells a pinch overlay must draw: for every tier, the rows within
+    /// `reach` points above and below where that tier lays the focal photo
+    /// out — the overlay keeps the focal photo under the fingers, so those
+    /// are the only cells that can ever be on screen while it is up. Keyed
+    /// on the focal photo (not on the base tier's scroll offset) so the
+    /// union stays a few screens of the densest tier however deep in the
+    /// library the pinch happens.
+    static func overlaySlice(
+        focalIndex: Int, focalFraction: CGPoint, reach: CGFloat, width: CGFloat, count: Int
+    ) -> Range<Int>? {
+        columnTiers.reduce(into: Range<Int>?.none) { union, tier in
+            let focalY = point(ofCell: focalIndex, fraction: focalFraction, columns: tier, width: width).y
+            let range = indices(
+                intersecting: (focalY - reach)...(focalY + reach), columns: tier, width: width, count: count)
+            guard !range.isEmpty else { return }
+            union = union.map { min($0.lowerBound, range.lowerBound)..<max($0.upperBound, range.upperBound) } ?? range
+        }
+    }
+
+    /// How much taller (or shorter, negative) the grid is at `to` columns
+    /// than at `from` — the extra scroll room a pinch's target tier brings.
+    static func heightDelta(count: Int, from: Int, to: Int, width: CGFloat) -> CGFloat {
+        gridHeight(count: count, columns: to, width: width) - gridHeight(count: count, columns: from, width: width)
     }
 
     /// Indices of the cells a tier lays out anywhere inside `yRange` (grid
@@ -158,11 +187,15 @@ enum LibraryGridZoom {
         }
     }
 
-    /// Damped growth past the end tiers: logarithmic and capped, so a pinch
-    /// that keeps going gives a little (a few percent per doubling, never
-    /// more than a fifth) and visibly resists rather than sailing on.
+    /// Most the grid gives past an end tier (as a scale factor above 1).
+    static let rubberBandCap: CGFloat = 0.2
+    /// Give per doubling of the excess — a few percent, so the grid visibly
+    /// resists rather than sailing on.
+    static let rubberBandGivePerDoubling: CGFloat = 0.08 * log(2)
+
+    /// Damped growth past the end tiers: logarithmic and capped.
     static func rubberBand(_ ratio: CGFloat) -> CGFloat {
-        1 + min(0.2, 0.08 * log(max(1, ratio)))
+        1 + min(rubberBandCap, rubberBandGivePerDoubling * log2(max(1, ratio)))
     }
 
     /// Linear blend of a cell's frame between two tiers.

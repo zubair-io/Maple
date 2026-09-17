@@ -76,6 +76,11 @@ struct PreviewView: View {
     /// so the zoom reads as one photo growing out of its tile rather than a
     /// whole screen — bars and all — scaling up from a point.
     var transitionProgress: CGFloat = 1
+    /// Whether a pull-down is handed to the zoom transition's own
+    /// interactive dismissal (a push with a live tile source). Without one
+    /// Preview dismisses itself: the still follows the finger and a release
+    /// past the threshold pops.
+    var isZoomDismissable: Bool = false
 
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
@@ -99,12 +104,20 @@ struct PreviewView: View {
     /// A pull-down is in hand: the system dismissal is dragging this view
     /// around as a card (iPhone). The chrome hides for the duration.
     @State private var isPulling = false
-    /// Measured height of the bottom chrome (filmstrip + action bar). The
-    /// still is inset by it at full size so the layout is unchanged from the
-    /// stacked one it replaces, but the inset collapses with
-    /// `transitionProgress` so a tile-sized destination is all photo.
-    @State private var bottomChromeHeight: CGFloat = 0
+    /// Finger travel of a pull-down on a plain (non-zoom) push — the still
+    /// follows it. Zero whenever a zoom owns the pull.
+    @State private var plainPullTranslation: CGSize = .zero
+    @State private var isPlainPullDismissing = false
     private var isRegular: Bool { hSizeClass == .regular }
+
+    /// Height of the bottom chrome (filmstrip + action bar). The still is
+    /// inset by it at full size so the layout is unchanged from the stacked
+    /// one it replaces, but the inset collapses with `transitionProgress` so
+    /// a tile-sized destination is all photo. Both parts are fixed-height,
+    /// so this is a constant and the first frame is already laid out right.
+    private var bottomChromeHeight: CGFloat {
+        PreviewActionBar.height + (isRegular ? 0 : FilmstripView.height)
+    }
 
     private var orderedIDs: [AssetRef.ID] { assets.map(\.id) }
 
@@ -150,6 +163,8 @@ struct PreviewView: View {
             ZStack {
                 imageBody
                     .padding(.horizontal, isRegular ? 16 : 8)
+                    .scaleEffect(PreviewViewVM.plainPullScale(translationY: plainPullTranslation.height))
+                    .offset(plainPullTranslation)
 
                 if isRegular {
                     FilmstripRail(
@@ -189,7 +204,6 @@ struct PreviewView: View {
                     isInfoOn: isInfoPresented.wrappedValue
                 )
             }
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { bottomChromeHeight = $0 }
             .opacity(chromeOpacity)
         }
         .overlay(alignment: .top) {
@@ -294,10 +308,13 @@ struct PreviewView: View {
             source: source,
             provider: provider,
             transitionProgress: transitionProgress,
+            isZoomDismissable: isZoomDismissable,
             onSelectAsset: onSelectAsset,
             onPullActiveChanged: { active in
                 withAnimation(MapleTokens.Motion.chromeHide) { isPulling = active }
-            }
+            },
+            onPlainPullChanged: updatePlainPull,
+            onPlainPullEnded: finishPlainPull
         )
         .accessibilityIdentifier("preview-image")
         #else
@@ -357,6 +374,25 @@ struct PreviewView: View {
         onSelectAsset(prev)
     }
 
+    // MARK: - Pull-down on a plain push (iPhone, no zoom source)
+
+    private func updatePlainPull(_ translation: CGSize) {
+        guard !isPlainPullDismissing else { return }
+        plainPullTranslation = translation
+    }
+
+    private func finishPlainPull(_ translation: CGSize, _ velocity: CGSize) {
+        guard !isPlainPullDismissing else { return }
+        if PreviewViewVM.shouldCommitPlainPull(translationY: translation.height, velocityY: velocity.height) {
+            isPlainPullDismissing = true
+            onDismiss()
+        } else {
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+                plainPullTranslation = .zero
+            }
+        }
+    }
+
 }
 
 // The UIKit pager lives in PreviewPager.swift so this screen remains focused
@@ -380,6 +416,9 @@ private struct InfoPrimeTrigger: Equatable {
 /// is a toggle — `isInfoOn` reflects the pane's live presented state as an
 /// active tint, mirroring `aria-pressed` on Web.
 private struct PreviewActionBar: View {
+    /// The bar's fixed height — Preview insets its still by it.
+    static let height: CGFloat = 56
+
     let onFlag: () -> Void
     let onEdit: () -> Void
     let onInfo: () -> Void
@@ -405,7 +444,7 @@ private struct PreviewActionBar: View {
         .padding(4)
         .modifier(PreviewActionGlass())
         .padding(.horizontal, 16)
-        .frame(height: 56)
+        .frame(height: Self.height)
         .frame(maxWidth: .infinity)
         .background(ProTokens.bg)
         .accessibilityIdentifier("preview-action-bar")

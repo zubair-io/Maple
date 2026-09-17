@@ -130,7 +130,8 @@ final class LibraryGridZoomTests: XCTestCase {
     XCTAssertEqual(i.from, 1)
     XCTAssertEqual(i.to, 1)
     XCTAssertEqual(i.progress, 0)
-    XCTAssertEqual(i.overscale, 1 + 0.08 * log(2), accuracy: 1e-6)
+    XCTAssertGreaterThan(i.overscale, 1)
+    XCTAssertLessThan(i.overscale, 1 + LibraryGridZoom.rubberBandCap)
     XCTAssertEqual(i.settledColumns, 1)
     // Pinching in past the densest tier: same tier, damped shrink below 1,
     // never past the cap however far the fingers go.
@@ -138,12 +139,21 @@ final class LibraryGridZoomTests: XCTestCase {
     XCTAssertEqual(j.from, 5)
     XCTAssertEqual(j.to, 5)
     XCTAssertLessThan(j.overscale, 1)
-    XCTAssertGreaterThan(j.overscale, 0.9)
+    XCTAssertGreaterThan(j.overscale, 1 / (1 + LibraryGridZoom.rubberBandCap))
     XCTAssertEqual(j.settledColumns, 5)
-    let far = LibraryGridZoom.interpolation(baseColumns: 5, magnification: 0.05, width: width)
-    XCTAssertEqual(far.overscale, 1 / 1.2, accuracy: 1e-6)
+    let far = LibraryGridZoom.interpolation(baseColumns: 5, magnification: 0.001, width: width)
+    XCTAssertEqual(far.overscale, 1 / (1 + LibraryGridZoom.rubberBandCap), accuracy: 1e-6)
+    // The band itself: identity at rest, monotonic, capped.
     XCTAssertEqual(LibraryGridZoom.rubberBand(1), 1)
-    XCTAssertEqual(LibraryGridZoom.rubberBand(1_000), 1.2, accuracy: 1e-6)
+    XCTAssertLessThan(LibraryGridZoom.rubberBand(1.5), LibraryGridZoom.rubberBand(2))
+    XCTAssertLessThan(LibraryGridZoom.rubberBand(2), LibraryGridZoom.rubberBand(4))
+    XCTAssertEqual(LibraryGridZoom.rubberBand(1_000_000), 1 + LibraryGridZoom.rubberBandCap, accuracy: 1e-6)
+    // A persisted count that is not a tier interpolates as the identity.
+    let odd = LibraryGridZoom.interpolation(baseColumns: 4, magnification: 1.7, width: width)
+    XCTAssertEqual(odd.from, 4)
+    XCTAssertEqual(odd.to, 4)
+    XCTAssertEqual(odd.progress, 0)
+    XCTAssertEqual(odd.overscale, 1)
     // Exactly at the widest tier from 3-up is 1-up, progress 1, no overscale.
     let one = LibraryGridZoom.cellSize(columns: 1, width: width)
     let three = LibraryGridZoom.cellSize(columns: 3, width: width)
@@ -160,6 +170,38 @@ final class LibraryGridZoomTests: XCTestCase {
     let mid = LibraryGridZoom.interpolatedRect(index: 7, from: 3, to: 5, progress: 0.5, width: width)
     XCTAssertEqual(mid.width, (start.width + end.width) / 2, accuracy: 1e-9)
     XCTAssertEqual(mid.minY, (start.minY + end.minY) / 2, accuracy: 1e-9)
+  }
+
+  func testOverlaySliceStaysBoundedHoweverDeepThePinch() {
+    // 5000 photos; the pinch is on photo 4000, far down the grid. Every
+    // tier's window is centred on THAT photo, so the union is a few screens
+    // of the densest tier, not everything between the sparse tier's row and
+    // the dense tier's row at the same y.
+    let reach: CGFloat = 2 * 874
+    let slice = LibraryGridZoom.overlaySlice(
+      focalIndex: 4000, focalFraction: CGPoint(x: 0.5, y: 0.5), reach: reach, width: width, count: 5000)!
+    XCTAssertTrue(slice.contains(4000))
+    let densestPerScreen = 5 * Int((reach / (LibraryGridZoom.cellSize(columns: 5, width: width) + 2)).rounded(.up))
+    XCTAssertLessThan(slice.count, 2 * densestPerScreen + 5 * 2)
+    // Every tier's own window around the focal photo is inside the slice.
+    for tier in LibraryGridZoom.columnTiers {
+      let y = LibraryGridZoom.point(ofCell: 4000, fraction: CGPoint(x: 0.5, y: 0.5), columns: tier, width: width).y
+      let own = LibraryGridZoom.indices(intersecting: (y - reach)...(y + reach), columns: tier, width: width, count: 5000)
+      XCTAssertTrue(slice.lowerBound <= own.lowerBound && own.upperBound <= slice.upperBound, "tier \(tier)")
+    }
+    XCTAssertNil(LibraryGridZoom.overlaySlice(
+      focalIndex: 0, focalFraction: .zero, reach: reach, width: width, count: 0))
+  }
+
+  func testHeightDeltaIsTheTargetTiersExtraRoom() {
+    let toSparser = LibraryGridZoom.heightDelta(count: 30, from: 5, to: 3, width: width)
+    XCTAssertEqual(
+      toSparser,
+      LibraryGridZoom.gridHeight(count: 30, columns: 3, width: width)
+        - LibraryGridZoom.gridHeight(count: 30, columns: 5, width: width), accuracy: 1e-9)
+    XCTAssertGreaterThan(toSparser, 0)
+    XCTAssertLessThan(LibraryGridZoom.heightDelta(count: 30, from: 3, to: 5, width: width), 0)
+    XCTAssertEqual(LibraryGridZoom.heightDelta(count: 30, from: 3, to: 3, width: width), 0)
   }
 
   func testNearestTierAndStoredValidation() {

@@ -52,7 +52,11 @@ enum ColumnStrategy {
         case .responsiveBySizeClass:
             switch layout {
             case .phone:
-                return Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+                // The phone tier + gap live with the pinch geometry so the
+                // two can never drift apart.
+                return Array(
+                    repeating: GridItem(.flexible(), spacing: LibraryGridZoom.spacing),
+                    count: LibraryGridZoom.defaultColumns)
             case .tablet:
                 return Array(repeating: GridItem(.flexible(), spacing: 4), count: 5)
             case .desktop:
@@ -68,7 +72,7 @@ enum ColumnStrategy {
         switch self {
         case .fixed(_, let spacing): return spacing
         case .adaptive(_, _, let spacing): return spacing
-        case .responsiveBySizeClass: return layout == .phone ? 2 : 4
+        case .responsiveBySizeClass: return layout == .phone ? LibraryGridZoom.spacing : 4
         }
     }
 }

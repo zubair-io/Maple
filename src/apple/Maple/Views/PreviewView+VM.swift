@@ -177,29 +177,78 @@ enum PreviewViewVM {
     /// width ratio.
     static func zoomTransitionProgress(size: CGSize?, fullSize: CGSize) -> CGFloat {
         guard let size, fullSize.width > 0, fullSize.height > 0 else { return 0 }
+        // The two frames are measured by different views; a point of
+        // disagreement at rest must still read as "settled", or the chrome
+        // would sit at 96% and the display tier would never be requested.
+        if abs(size.width - fullSize.width) <= zoomSettledTolerance,
+           abs(size.height - fullSize.height) <= zoomSettledTolerance {
+            return 1
+        }
         let fullDelta = fullSize.width - fullSize.height
-        let raw = abs(fullDelta) >= 40
+        let raw = abs(fullDelta) >= zoomNearSquareDelta
             ? (size.width - size.height) / fullDelta
             : size.width / fullSize.width
-        return min(1, max(0, raw))
+        return raw >= zoomSettledProgress ? 1 : min(1, max(0, raw))
     }
 
+    /// Frames this close to the full size are the settled full size.
+    static let zoomSettledTolerance: CGFloat = 1
+    /// Progress this close to the end is the end (rounding in the frame
+    /// interpolation can leave it a hair short).
+    static let zoomSettledProgress: CGFloat = 0.98
+    /// Below this width–height difference the container is too square for
+    /// the difference to carry the signal; the width ratio stands in.
+    static let zoomNearSquareDelta: CGFloat = 40
+
     /// Header / filmstrip / action-bar opacity during the zoom: hidden while
-    /// the still is tile-sized, fading in over the last quarter of the open
-    /// (and out over the first quarter of the close) so the chrome never
+    /// the still is tile-sized, fading in over the last part of the open
+    /// (and out over the first part of the close) so the chrome never
     /// shrinks into the tile with the photo.
     static func zoomTransitionChromeOpacity(progress: CGFloat) -> Double {
-        Double(min(1, max(0, (progress - 0.75) / 0.25)))
+        Double(min(1, max(0, (progress - zoomChromeFadeStart) / (1 - zoomChromeFadeStart))))
     }
+
+    /// The chrome fades in over the last quarter of the open.
+    static let zoomChromeFadeStart: CGFloat = 0.75
 
     // MARK: - Pull-down dismissal (iPhone)
 
-    /// Whether a pan that has just been recognised is a pull-down (leave it
-    /// to the zoom transition's interactive dismissal) rather than a page
-    /// swipe or an upward flick (let the pager have it). Decided once, on the
-    /// first ~10pt of travel, and locked for the rest of the touch — a
-    /// vertical pull never becomes a page turn halfway through.
+    /// Travel before a touch is classified as a pull or a page swipe. Long
+    /// enough to read a direction, short enough that paging never feels
+    /// delayed.
+    static let pullDecisionDistance: CGFloat = 10
+    /// How much more vertical than horizontal a pull must be.
+    static let pullVerticalDominance: CGFloat = 1.2
+
+    /// Whether a pan that has just been recognised is a pull-down rather
+    /// than a page swipe or an upward flick (let the pager have it). Decided
+    /// once, after `pullDecisionDistance` of travel, and locked for the rest
+    /// of the touch — a vertical pull never becomes a page turn halfway
+    /// through.
     static func shouldBeginDismissDrag(translation: CGSize) -> Bool {
-        translation.height > 0 && translation.height > abs(translation.width) * 1.2
+        translation.height > 0 && translation.height > abs(translation.width) * pullVerticalDominance
+    }
+
+    // MARK: - Pull-down without a zoom (plain pushes)
+
+    // A Preview pushed with no zoom source (the Search tab, a deep link)
+    // has no system dismissal to hand a pull to, so it dismisses itself:
+    // the still follows the finger and shrinks, and release past the
+    // threshold pops the stack.
+
+    /// Travel over which the still reaches `plainPullMinScale`.
+    static let plainPullDistance: CGFloat = 320
+    /// Smallest the still gets while pulled.
+    static let plainPullMinScale: CGFloat = 0.75
+
+    /// The still's scale for a given downward travel.
+    static func plainPullScale(translationY: CGFloat) -> CGFloat {
+        let progress = min(1, max(0, translationY / plainPullDistance))
+        return 1 - progress * (1 - plainPullMinScale)
+    }
+
+    /// Commit the dismiss on release: enough travel, or a downward flick.
+    static func shouldCommitPlainPull(translationY: CGFloat, velocityY: CGFloat) -> Bool {
+        translationY > 120 || (translationY > 0 && velocityY > 700)
     }
 }
