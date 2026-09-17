@@ -1,6 +1,6 @@
 # Apple platform
 
-Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`) that ships a single universal app — product name **Maple Exposure**, bundle id `app.justmaple.aperture`, running on macOS, iPhone and iPad from one target — plus a separate tvOS app, four extensions, a macOS LaunchAgent, and two test bundles. Almost none of the interesting code is in the Xcode targets: the domain lives in three local Swift packages under `src/apple/Packages/` (`MapleCore`, `MapleUI`, `MapleBackup`), and all the image math lives in Rust, linked as a static library through `Frameworks/RawPipeline.xcframework`. Those `.a` slices are gitignored (200–500 MB each), so a fresh clone must build them once with `scripts/build-xcframework.sh` before Xcode can link anything. The editor renders through the Rust FFI — either the wgpu GPU path presenting straight into a `CAMetalLayer`, or a CoreImage CPU fallback — never through hand-written Apple render kernels, which were all deleted once the Rust chain subsumed them.
+Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`) that ships a single universal app — product name **Maple**, bundle id `app.justmaple.aperture`, running on macOS, iPhone and iPad from one target — plus a separate tvOS app, four extensions, a macOS LaunchAgent, and two test bundles. Almost none of the interesting code is in the Xcode targets: the domain lives in three local Swift packages under `src/apple/Packages/` (`MapleCore`, `MapleUI`, `MapleBackup`), and all the image math lives in Rust, linked as a static library through `Frameworks/RawPipeline.xcframework`. Those `.a` slices are gitignored (200–500 MB each), so a fresh clone must build them once with `scripts/build-xcframework.sh` before Xcode can link anything. The editor renders through the Rust FFI — either the wgpu GPU path presenting straight into a `CAMetalLayer`, or a CoreImage CPU fallback — never through hand-written Apple render kernels, which were all deleted once the Rust chain subsumed them.
 
 ## The Xcode project
 
@@ -8,7 +8,7 @@ Nine native targets, two committed schemes.
 
 | Target               | Product           | Bundle id                   | Platforms          | Deployment            |
 | -------------------- | ----------------- | --------------------------- | ------------------ | --------------------- |
-| Maple Exposure       | app               | `app.justmaple.aperture`    | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
+| Maple                | app               | `app.justmaple.aperture`    | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
 | Maple TV             | app               | `app.justmaple.aperture.tv` | tvOS               | tvOS 17.0             |
 | MapleFileProvider    | app extension     | `…aperture.FileProvider`    | macOS              | macOS 14.0            |
 | MapleFileProviderIOS | app extension     | `…aperture.FileProviderIOS` | iOS                | iOS 26.0              |
@@ -22,17 +22,17 @@ Which package products each target links (from `Maple.xcodeproj/project.pbxproj`
 
 | Target                                                    | Links                                                          |
 | --------------------------------------------------------- | -------------------------------------------------------------- |
-| Maple Exposure                                            | MapleCore, MapleUI, MapleBackup                                |
+| Maple                                                     | MapleCore, MapleUI, MapleBackup                                |
 | Maple TV                                                  | MapleCloudKit only — deliberately no RawPipeline, no MapleCore |
 | MapleWidget                                               | MapleCloudKit                                                  |
 | MapleFileProvider / MapleFileProviderIOS / MapleQuickLook | MapleCore                                                      |
 | MapleBackupAgent                                          | MapleCore, MapleBackup                                         |
 
-Only two schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: **Maple Exposure** (which also owns the MapleTests + MapleUITests test action, neither skipped) and **MapleBackupAgent**. The Maple Exposure scheme's test action pre-sets `MAPLE_UITEST_FIXTURE_ROOT` to the repo's `test-fixtures/raws` and `MAPLE_UITEST_GOLDENS_ROOT` to `MapleUITests/Goldens`, so a test run from Xcode finds fixtures without extra arguments.
+Only two schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: **Maple** (which also owns the MapleTests + MapleUITests test action, neither skipped) and **MapleBackupAgent**. The Maple scheme's test action pre-sets `MAPLE_UITEST_FIXTURE_ROOT` to the repo's `test-fixtures/raws` and `MAPLE_UITEST_GOLDENS_ROOT` to `MapleUITests/Goldens`, so a test run from Xcode finds fixtures without extra arguments.
 
 ### Info.plist
 
-The app target sets `GENERATE_INFOPLIST_FILE = YES` **and** `INFOPLIST_FILE = Maple-Info.plist` — Xcode merges the two. The synthesized half comes from `INFOPLIST_KEY_*` build settings: display name "Maple Exposure", photography app category, camera / photo-library / local-network usage strings, `NSBonjourServices = _smb._tcp`, the three bundled font files (`Lato-Regular`, `Lato-Bold`, `Merriweather-Bold`, registered at runtime from `MapleApp.init`), and the supported orientations. `Maple-Info.plist` carries only the keys Xcode's synthesizer refuses to allowlist: the `maple://` URL scheme (`CFBundleURLTypes`), `NSAppTransportSecurity` → `NSAllowsLocalNetworking` (self-hosted servers on the LAN speak plain HTTP), the `CFBundleDocumentTypes` claims that put Maple in Finder's "Open With" (`public.camera-raw-image` plus JPEG/PNG/HEIC/HEIF/TIFF, both role `Viewer` / rank `Alternate`), and `LSSupportsOpeningDocumentsInPlace`. The four extension targets each own a hand-written `Info.plist` with `GENERATE_INFOPLIST_FILE = NO`.
+The app target sets `GENERATE_INFOPLIST_FILE = YES` **and** `INFOPLIST_FILE = Maple-Info.plist` — Xcode merges the two. The synthesized half comes from `INFOPLIST_KEY_*` build settings: display name "Maple", photography app category, camera / photo-library / local-network usage strings, `NSBonjourServices = _smb._tcp`, the three bundled font files (`Lato-Regular`, `Lato-Bold`, `Merriweather-Bold`, registered at runtime from `MapleApp.init`), and the supported orientations. `Maple-Info.plist` carries only the keys Xcode's synthesizer refuses to allowlist: the `maple://` URL scheme (`CFBundleURLTypes`), `NSAppTransportSecurity` → `NSAllowsLocalNetworking` (self-hosted servers on the LAN speak plain HTTP), the `CFBundleDocumentTypes` claims that put Maple in Finder's "Open With" (`public.camera-raw-image` plus JPEG/PNG/HEIC/HEIF/TIFF, both role `Viewer` / rank `Alternate`), and `LSSupportsOpeningDocumentsInPlace`. The four extension targets each own a hand-written `Info.plist` with `GENERATE_INFOPLIST_FILE = NO`.
 
 The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App Group `group.app.justmaple.aperture`, app-scope bookmarks, user-selected read/write, network client, the `…aperture.shared` keychain group, extended virtual addressing and increased memory limit (100 MP RAWs), and `com.apple.security.cs.disable-library-validation` — needed because panorama stitching `dlopen`s a Microsoft-signed ONNX Runtime dylib.
 
@@ -197,13 +197,13 @@ The macOS and iOS File Provider extensions are both three-line subclasses (`File
 ./src/apple/scripts/build-xcframework.sh
 
 # macOS app
-xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple" \
            -destination 'platform=macOS' build
 
 # iOS simulator — name a specific arm64 simulator. The xcframework's
 # simulator slice is arm64-only, so 'generic/platform=iOS Simulator'
 # fails on the x86_64 link step.
-xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple" \
            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
 # Package unit tests
@@ -227,7 +227,7 @@ All three live in `MapleUITests` and share `Helpers/MapleAppDriver.swift` (launc
 **Golden canvas** (`MapleUITests.testCanvasMatchesGolden`) launches with `test_0017.dng`, screenshots the canvas, and diffs against `MapleUITests/Goldens/test_0017-default.png` at mean ΔE ≤ 5, p95 ≤ 10, max ≤ 30, per-channel bias ≤ 0.05. Deleting the PNG re-records it; the run then fails with a "baseline written" message so a human eyeballs the new baseline before committing.
 
 ```bash
-xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
   -destination 'platform=macOS' -only-testing:MapleUITests
 ```
 
@@ -236,7 +236,7 @@ The runner finds `test-fixtures/raws/` on its own (`Helpers/UITestFixtureRoot.sw
 **Slider matrix** (`SliderMatrixUITests`) walks every committed slider XMP under `test-fixtures/references/test_NNNN/xmp/`, stages a temp directory with the RAW plus the XMP renamed to the canonical sidecar name, relaunches the app against it, screenshots, resizes both candidate and reference to a 1024 px long edge, and diffs. Budgets are loose on purpose — mean ≤ 25, p95 ≤ 50, max ≤ 100, bias ≤ 0.10 — because Maple's AgX view transform differs from the reference renderer's even when the color math is right. Failed cases attach both PNGs for triage.
 
 ```bash
-xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
   -destination 'platform=macOS' -only-testing:MapleUITests/SliderMatrixUITests
 ```
 

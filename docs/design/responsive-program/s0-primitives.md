@@ -356,7 +356,7 @@ S0a is non-behavioral on rendered UI. Skip preview-tool verification; unit tests
 ### 5.4 CI gates (all three sub-tickets)
 
 - `bun run format:check` + `bun run test` in `src/web/`
-- `xcodebuild build` for `Maple Exposure` scheme on `platform=macOS` and `platform=iOS Simulator,name=iPhone 17 Pro` (specific simulator, **not** `generic/platform=iOS Simulator` — the xcframework sim slice is arm64-only per CLAUDE.md)
+- `xcodebuild build` for `Maple` scheme on `platform=macOS` and `platform=iOS Simulator,name=iPhone 17 Pro` (specific simulator, **not** `generic/platform=iOS Simulator` — the xcframework sim slice is arm64-only per CLAUDE.md)
 - `swift test` in `src/apple/Packages/MapleCore`
 - Color pipeline harness (`src/scripts/test_color_pipeline.sh`) — skip-passes without fixtures; must not regress on the CI runner that has fixtures
 - File-size budget per `CONTRIBUTING.md` (per recent commits like #566 / #571)

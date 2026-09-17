@@ -241,12 +241,12 @@ cd src/apple/Packages/MapleCore && swift test
 cd src/apple/Packages/MapleUI   && swift test
 cd src/apple/Packages/MapleBackup && swift test
 
-# Xcode targets. The "Maple Exposure" scheme carries MapleTests and MapleUITests.
-xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+# Xcode targets. The "Maple" scheme carries MapleTests and MapleUITests.
+xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
   -destination 'platform=macOS' -only-testing:MapleUITests
 
 # iPhone-shell gates run the same way against a simulator.
-xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   -only-testing:MapleUITests/PhoneExportUITests
 ```
@@ -255,13 +255,13 @@ No fixture-root argument is needed or effective: a trailing `MAPLE_UITEST_FIXTUR
 
 ```bash
 TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT=/Volumes/Fixtures/raws \
-  xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
+  xcodebuild test -project src/apple/Maple.xcodeproj -scheme "Maple" \
   -destination 'platform=macOS' -only-testing:MapleUITests
 ```
 
 A fixture missing at the repo default skip-passes (the convention for absent gitignored RAWs); a fixture missing at a root named this way fails the test — an explicit root that doesn't resolve is misconfiguration, not "fixtures not provisioned".
 
-Three local packages hold most of the code: `MapleCore` (roughly 280 test files, covering the pipeline wrapper, sidecar store, sources, auth, and view models), `MapleUI` (the dependency-free design system — its component tests mirror the contracts in `docs/design/maple-ui/components/`), and `MapleBackup`. The Xcode project adds `MapleTests` (view-model unit tests) and `MapleUITests` (live-UI visual harnesses); both are in the shared `Maple Exposure` scheme.
+Three local packages hold most of the code: `MapleCore` (roughly 280 test files, covering the pipeline wrapper, sidecar store, sources, auth, and view models), `MapleUI` (the dependency-free design system — its component tests mirror the contracts in `docs/design/maple-ui/components/`), and `MapleBackup`. The Xcode project adds `MapleTests` (view-model unit tests) and `MapleUITests` (live-UI visual harnesses); both are in the shared `Maple` scheme.
 
 The visual harnesses in `src/apple/MapleUITests/` all follow one shape: stage a temp directory with a RAW plus a renamed `.xmp`, launch the app with `MAPLE_UITEST_FIXTURE` set, wait for the `canvas-render-ready` accessibility identifier to flip once the refine pass publishes, screenshot the canvas, and compare numerically.
 

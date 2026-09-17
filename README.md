@@ -2,15 +2,15 @@
 
 A professional, non-destructive RAW photo editor and library by Just Maple. One Rust image-processing core drives every surface:
 
-| Surface                                                 | Where it lives       | How it reaches the core                        |
-| ------------------------------------------------------- | -------------------- | ---------------------------------------------- |
-| **Maple Exposure** — macOS, iPadOS, iOS (Swift/SwiftUI) | `src/apple/`         | `RawPipeline.xcframework` built from `raw-ffi` |
-| **Maple TV** — tvOS light-table viewer                  | `src/apple/Maple TV` | Same xcframework                               |
-| **Web app `maple`** — served by the API (Self Hosted)   | `src/web/`           | `raw-wasm` (WebAssembly + WebGPU)              |
-| **Web app `maple-syrup`** — Maple Hosted, browser-only  | `src/web/`           | `raw-wasm`                                     |
-| **API + Indexer** — Bun, Elysia, MongoDB                | `src/api/`           | `libmaple_core` dylib via `bun:ffi`            |
-| **Windows shell** — Rust host + WinUI 3                 | `src/windows/`       | `raw-ffi` / `raw-gpu` linked directly          |
-| **Thumbnail edge cache** — Cloudflare Worker + R2       | `src/cloudflare/`    | Fronts the API's thumbnail route               |
+| Surface                                                | Where it lives       | How it reaches the core                        |
+| ------------------------------------------------------ | -------------------- | ---------------------------------------------- |
+| **Maple** — macOS, iPadOS, iOS (Swift/SwiftUI)         | `src/apple/`         | `RawPipeline.xcframework` built from `raw-ffi` |
+| **Maple TV** — tvOS light-table viewer                 | `src/apple/Maple TV` | Same xcframework                               |
+| **Web app `maple`** — served by the API (Self Hosted)  | `src/web/`           | `raw-wasm` (WebAssembly + WebGPU)              |
+| **Web app `maple-syrup`** — Maple Hosted, browser-only | `src/web/`           | `raw-wasm`                                     |
+| **API + Indexer** — Bun, Elysia, MongoDB               | `src/api/`           | `libmaple_core` dylib via `bun:ffi`            |
+| **Windows shell** — Rust host + WinUI 3                | `src/windows/`       | `raw-ffi` / `raw-gpu` linked directly          |
+| **Thumbnail edge cache** — Cloudflare Worker + R2      | `src/cloudflare/`    | Fronts the API's thumbnail route               |
 
 Every edit is non-destructive and lives in an `.xmp` sidecar next to the original; originals are never modified. The pipeline is scene-referred (linear Rec.2020 D65, f32) with a single view transform at the end of the chain. Colour correctness is gated in CI by a perceptual (CIEDE2000) harness against Adobe Camera Raw references, and slider response is budgeted at one 60 Hz frame on a 100 MP RAW.
 
@@ -49,7 +49,7 @@ cd src/raw-pipeline && cargo build --release -p maple-cli
 ```
 
 ```bash
-cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" -destination 'platform=macOS' build
+cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple" -destination 'platform=macOS' build
 ```
 
 **Web** (Bun or npm; the `prestart` hook builds and syncs the WASM package):

@@ -32,7 +32,7 @@
 
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 final class CanvasWheelExclusionTests: XCTestCase {
     private let panelFrame = CGRect(x: 12, y: 40, width: 300, height: 480)

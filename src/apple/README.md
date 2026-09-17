@@ -1,13 +1,13 @@
 # Maple — Apple platforms
 
-The Xcode project for Maple Exposure (macOS, iPadOS, iOS), Maple TV (tvOS), and the app extensions (File Provider, Quick Look, Widget, Backup agent). Swift + SwiftUI shell over the shared Rust core, which arrives as `Frameworks/RawPipeline.xcframework`.
+The Xcode project for Maple (macOS, iPadOS, iOS), Maple TV (tvOS), and the app extensions (File Provider, Quick Look, Widget, Backup agent). Swift + SwiftUI shell over the shared Rust core, which arrives as `Frameworks/RawPipeline.xcframework`.
 
 Architecture, targets, packages, render path, and test harnesses are documented in [`docs/apple.md`](../../docs/apple.md). This file is only the quick start.
 
 ## Layout
 
 ```
-Maple.xcodeproj/        Xcode project — shared schemes "Maple Exposure" and "MapleBackupAgent"
+Maple.xcodeproj/        Xcode project — shared schemes "Maple" and "MapleBackupAgent"
 Maple/                  App target sources (SwiftUI views, deep links, backup UI)
 Maple TV/               tvOS target
 MapleBackupAgent/       Background backup agent
@@ -35,11 +35,11 @@ The static libraries inside the xcframework are gitignored. Build them once, the
 ```
 
 ```bash
-cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" -destination 'platform=macOS' build
+cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple" -destination 'platform=macOS' build
 ```
 
 ```bash
-cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple" -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
 The script defaults to a release build of the Rust core. Use `--debug` only for fast iteration when panorama performance does not matter.

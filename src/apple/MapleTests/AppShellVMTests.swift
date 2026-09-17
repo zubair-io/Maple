@@ -3,7 +3,7 @@
 //
 // Lives in the MapleTests Xcode target (not MapleCore) because `AppShellVM`
 // and `AppShell.Mode` are declared in the app target — same host-targeted
-// `@testable import Maple_Exposure` arrangement as PreviewViewVMTests.
+// `@testable import Maple` arrangement as PreviewViewVMTests.
 //
 // Focus: a filmstrip tap lands on the surface that hosts the strip (the
 // editor's rail keeps `.editing`, Preview's rail keeps `.preview`), and the
@@ -16,7 +16,7 @@ import Foundation
 import MapleCore
 import XCTest
 
-@testable import Maple_Exposure
+@testable import Maple
 
 @MainActor
 final class AppShellVMTests: XCTestCase {
