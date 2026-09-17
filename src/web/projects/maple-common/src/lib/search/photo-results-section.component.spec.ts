@@ -211,4 +211,14 @@ describe('PhotoResultsSectionComponent', () => {
 
     expect(fixture.nativeElement.querySelector('[data-testid="search-loading-more"]')).toBeNull();
   });
+
+  it('uses explicit scrollRoot if provided', () => {
+    const customContainer = document.createElement('div');
+    fixture.componentRef.setInput('scrollRoot', customContainer);
+    fixture.componentRef.setInput('results', [makeResult('1')]);
+    fixture.detectChanges();
+
+    expect(observedElements.length).toBe(1);
+    expect(lastObserverOptions?.root).toBe(customContainer);
+  });
 });

@@ -263,7 +263,6 @@ export class SearchComponent implements OnInit, AfterViewInit {
             this.queueThumbs(res.results);
             const scrollEl = this.mainScrollRef?.nativeElement;
             if (scrollEl) {
-              scrollEl.scrollTop = 0;
               scrollEl.scrollTo?.({ top: 0 });
             }
           },

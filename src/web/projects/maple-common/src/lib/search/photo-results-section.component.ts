@@ -50,6 +50,8 @@ export class PhotoResultsSectionComponent {
   readonly isLoadingMore = input<boolean>(false);
   /** When true, server has more results to load; renders the scroll sentinel. */
   readonly canLoadMore = input<boolean>(true);
+  /** Optional scroll container element to serve as the IntersectionObserver root. If omitted, falls back to the nearest `.overflow-y-auto` ancestor or viewport. */
+  readonly scrollRoot = input<HTMLElement | null>(null);
 
   /** Tile-click emits the underlying result so the host can navigate. */
   readonly resultTap = output<SearchResult>();
@@ -65,7 +67,7 @@ export class PhotoResultsSectionComponent {
       const canMore = this.canLoadMore();
       if (!el || count === 0 || !canMore || typeof IntersectionObserver === 'undefined') return;
 
-      const root = el.closest('.overflow-y-auto') ?? null;
+      const root = this.scrollRoot() ?? el.closest('.overflow-y-auto') ?? null;
       const observer = new IntersectionObserver(
         (entries) => {
           if (entries[0]?.isIntersecting && !this.isLoadingMore()) {
