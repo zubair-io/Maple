@@ -391,6 +391,11 @@ const sizes = args
   .filter((n) => Number.isFinite(n) && n > 0);
 const targets = sizes.length > 0 ? sizes : DEFAULT_SIZES;
 const outDir = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
+// `new Database(path, { create: true })` creates the file and nothing above it,
+// so the directory has to exist first or the open fails with SQLITE_CANTOPEN on
+// a machine that has never run this. Bun.write creates the parents it needs,
+// which is mkdir -p without the restricted node:fs import.
+await Bun.write(`${outDir}/.keep`, '');
 
 // Create the output directory before anything opens a database inside it.
 // SQLite's `create: true` creates the database FILE, not its parent, so

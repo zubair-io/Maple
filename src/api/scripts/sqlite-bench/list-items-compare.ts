@@ -88,7 +88,21 @@ async function removeDatabase(): Promise<void> {
   }
 }
 
+/**
+ * Creates the scratch directory the database file goes in.
+ *
+ * `new Database(path, { create: true })` creates the *file* and nothing above
+ * it, so on a machine that has never run this script `SQLITE_BENCH_DIR` does
+ * not exist and the open fails with `SQLITE_CANTOPEN`. `Bun.write` creates the
+ * parents it needs, which is why a placeholder write stands in for `mkdir -p`
+ * here — `node:fs` is restricted in this workspace, same as above.
+ */
+async function ensureBenchDir(): Promise<void> {
+  await Bun.write(`${BENCH_DIR}/.keep`, '');
+}
+
 async function buildSqlite(assetCount: number): Promise<SqliteLibrary> {
+  await ensureBenchDir();
   await removeDatabase();
   const db = new Database(DB_PATH, { create: true });
   for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
