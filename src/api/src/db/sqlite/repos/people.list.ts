@@ -106,29 +106,42 @@ async function coverInfoByPerson(
   db: SqliteDb,
   people: readonly PersonWithId[],
 ): Promise<Map<string, CoverInfo>> {
-  const personByCover = new Map<string, string>();
-  for (const person of people) {
-    const cover = person.cover_asset_id;
-    if (!cover) continue;
-    // Mongo accepts mixed-case hex in a string field while `_id`s round-trip
-    // lowercase, so both sides of the join are normalised through the same
-    // lowercasing the ids already carry.
-    personByCover.set(cover.toLowerCase(), person._id.toHexString());
-  }
+  const personByCover = coverToPerson(people);
   if (personByCover.size === 0) return new Map();
 
   const coverIds = [...personByCover.keys()];
   const rows = await db.read<CoverRow>(primaryLocationsSql(coverIds.length), coverIds);
-  const out = new Map<string, CoverInfo>();
-  for (const row of rows) {
-    const personHex = personByCover.get(row.asset_id);
-    if (!personHex) continue;
-    const segments = row.path === '' ? [] : row.path.split('/');
-    const relPath = row.path === '' ? row.filename : `${row.path}/${row.filename}`;
-    out.set(personHex, {
-      absPath: row.root ? path.join(row.root, ...segments, row.filename) : null,
-      address: row.slug ? `${row.slug}:${relPath}` : null,
-    });
-  }
-  return out;
+  return new Map(
+    rows.flatMap((row) => {
+      const personHex = personByCover.get(row.asset_id);
+      return personHex === undefined ? [] : [[personHex, toCoverInfo(row)] as const];
+    }),
+  );
+}
+
+/**
+ * Cover asset id → person id, for the people that have one.
+ *
+ * Both sides are lowercase hex. Mongo accepts mixed case in a string field
+ * while `_id`s round-trip lowercase, so a cover written by hand could otherwise
+ * miss its own asset.
+ */
+function coverToPerson(people: readonly PersonWithId[]): Map<string, string> {
+  return new Map(
+    people.flatMap((person) =>
+      person.cover_asset_id
+        ? [[person.cover_asset_id.toLowerCase(), person._id.toHexString()] as const]
+        : [],
+    ),
+  );
+}
+
+/** One location row as the filesystem path and the public address of its asset. */
+function toCoverInfo(row: CoverRow): CoverInfo {
+  const segments = row.path === '' ? [] : row.path.split('/');
+  const relPath = row.path === '' ? row.filename : `${row.path}/${row.filename}`;
+  return {
+    absPath: row.root ? path.join(row.root, ...segments, row.filename) : null,
+    address: row.slug ? `${row.slug}:${relPath}` : null,
+  };
 }

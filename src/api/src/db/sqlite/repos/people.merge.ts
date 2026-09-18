@@ -26,7 +26,7 @@
  * `people.face-count.ts`.
  */
 
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { toPerson, type PersonRow } from './people.rows.ts';

@@ -247,30 +247,24 @@ async function readAssignedEmbeddings(
   return results.flat();
 }
 
-/**
- * Rebuild every dirty person's centroid as the L2-normalised mean of their
- * unhidden assigned embeddings, and write the changes back.
- *
- * Returns how many people were updated — the number the standalone
- * `recomputeCentroids` export has always yielded.
- *
- * Unchanged centroids are skipped, so a repeat pass over a settled library
- * writes nothing. "Unchanged" compares component-wise against a 1e-7 tolerance
- * rather than exactly, because the mean is accumulated in a different order
- * than last time whenever a face was added or removed.
- */
-export async function recomputeCentroids(dbOverride?: SqliteDb): Promise<number> {
-  const db = peopleDb(dbOverride);
-  const rows = await db.read<CentroidRow>(LIVE_CENTROIDS_SQL);
-  const dirty = rows.filter(isDirty);
-  if (dirty.length === 0) return 0;
+/** A person's running embedding sum, and how many embeddings went into it. */
+interface Accumulator {
+  count: number;
+  mean: Float32Array;
+}
 
-  const embeddings = await readAssignedEmbeddings(
-    db,
-    dirty.map((row) => row.id),
-  );
-  const wanted = new Set(dirty.map((row) => row.id));
-  const accumulators = new Map<string, { count: number; mean: Float32Array }>();
+/**
+ * Sum each wanted person's embeddings into one running vector.
+ *
+ * A row whose embedding is absent or the wrong length is skipped rather than
+ * failing the pass: one malformed vector should not stop every other person's
+ * centroid from being rebuilt.
+ */
+function accumulateMeans(
+  embeddings: readonly EmbeddingRow[],
+  wanted: ReadonlySet<string>,
+): Map<string, Accumulator> {
+  const accumulators = new Map<string, Accumulator>();
   for (const row of embeddings) {
     if (!wanted.has(row.person_id)) continue;
     const vector = decodeVector(row.embedding);
@@ -281,33 +275,73 @@ export async function recomputeCentroids(dbOverride?: SqliteDb): Promise<number>
     for (let i = 0; i < EMBEDDING_DIM; i += 1) accumulator.mean[i] += vector[i]!;
     accumulator.count += 1;
   }
+  return accumulators;
+}
 
-  const updates: SqlStatement[] = [];
-  for (const row of dirty) {
-    const accumulator = accumulators.get(row.id);
-    const stored = decodeVector(row.centroid);
+/**
+ * Whether the stored centroid already equals the one just computed.
+ *
+ * Compared component-wise against a 1e-7 tolerance rather than exactly: the
+ * mean is accumulated in a different order than last time whenever a face was
+ * added or removed, so bit equality would report a change on every pass and
+ * every person would be rewritten forever.
+ */
+function centroidUnchanged(
+  row: CentroidRow,
+  accumulator: Accumulator,
+  normalised: Float32Array,
+): boolean {
+  if (row.centroid_face_count !== accumulator.count) return false;
+  const stored = decodeVector(row.centroid);
+  if (stored === null) return false;
+  return !stored.some((value, i) => Math.abs(value - normalised[i]!) > 1e-7);
+}
 
-    if (!accumulator || accumulator.count === 0) {
-      // Nobody assigned, or only hidden faces. Clear to the canonical empty
-      // state — unless the row is already in it, in which case there is
-      // nothing to write and nothing left dirty.
-      if (row.centroid_face_count === 0 && isClearedCentroid(row.centroid)) continue;
-      updates.push({ sql: SET_CENTROID_SQL, params: ['[]', 0, row.id] });
-      continue;
-    }
-
-    for (let i = 0; i < EMBEDDING_DIM; i += 1) accumulator.mean[i] /= accumulator.count;
-    const normalised = l2Normalise(accumulator.mean);
-
-    if (row.centroid_face_count === accumulator.count && stored !== null) {
-      const drifted = stored.some((value, i) => Math.abs(value - normalised[i]!) > 1e-7);
-      if (!drifted) continue;
-    }
-    updates.push({
-      sql: SET_CENTROID_SQL,
-      params: [JSON.stringify(Array.from(normalised)), accumulator.count, row.id],
-    });
+/**
+ * The statement that brings one dirty person's centroid up to date, or null
+ * when it is already correct and nothing needs writing.
+ */
+function centroidUpdate(
+  row: CentroidRow,
+  accumulator: Accumulator | undefined,
+): SqlStatement | null {
+  if (!accumulator || accumulator.count === 0) {
+    // Nobody assigned, or only hidden faces. Clear to the canonical empty
+    // state — unless the row is already in it, in which case there is nothing
+    // to write and nothing left dirty.
+    if (row.centroid_face_count === 0 && isClearedCentroid(row.centroid)) return null;
+    return { sql: SET_CENTROID_SQL, params: ['[]', 0, row.id] };
   }
+  for (let i = 0; i < EMBEDDING_DIM; i += 1) accumulator.mean[i] /= accumulator.count;
+  const normalised = l2Normalise(accumulator.mean);
+  if (centroidUnchanged(row, accumulator, normalised)) return null;
+  return {
+    sql: SET_CENTROID_SQL,
+    params: [JSON.stringify(Array.from(normalised)), accumulator.count, row.id],
+  };
+}
+
+/**
+ * Rebuild every dirty person's centroid as the L2-normalised mean of their
+ * unhidden assigned embeddings, and write the changes back.
+ *
+ * Returns how many people were updated — the number the standalone
+ * `recomputeCentroids` export has always yielded. Unchanged centroids are
+ * skipped, so a repeat pass over a settled library writes nothing.
+ */
+export async function recomputeCentroids(dbOverride?: SqliteDb): Promise<number> {
+  const db = peopleDb(dbOverride);
+  const rows = await db.read<CentroidRow>(LIVE_CENTROIDS_SQL);
+  const dirty = rows.filter(isDirty);
+  if (dirty.length === 0) return 0;
+
+  const ids = dirty.map((row) => row.id);
+  const embeddings = await readAssignedEmbeddings(db, ids);
+  const accumulators = accumulateMeans(embeddings, new Set(ids));
+  const updates = dirty.flatMap((row) => {
+    const update = centroidUpdate(row, accumulators.get(row.id));
+    return update === null ? [] : [update];
+  });
 
   if (updates.length > 0) await db.transaction(updates);
   return updates.length;
