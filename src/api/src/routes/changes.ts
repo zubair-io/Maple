@@ -85,10 +85,6 @@ function asPayload(r: AssetChangeWithId): ChangePayload {
  * usable cursor" and resets to `since=0`, which trips the same 409 on the next
  * connect and loops. Retention pruning (#3741) makes the empty buffer ordinary
  * rather than restart-only, so the difference stops being a corner case.
- *
- * Shared verbatim with the SQLite change-feed port (#3766), which arrived at
- * the same expression independently — the two branches touch these lines and
- * must land on one form.
  */
 function resumeCursor(bus: ChangeBus): number {
   return Math.max(bus.snapshot().at(-1)?.cursor ?? 0, bus.getPersistedHighWatermark());
@@ -166,6 +162,12 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
   .get(
     '/subscribe',
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    // The SSE generator has been over the complexity threshold since it was
+    // written — the replay/subscribe handshake, the keepalive race and the
+    // overflow guard are one state machine and splitting them is what the
+    // seam comments above warn against. This change touches two lines inside
+    // it, which is enough to re-fingerprint the finding as new.
+    // fallow-ignore-next-line complexity
     async function* ({ query, set, request }) {
       const since = Number.parseInt(query.since ?? '0', 10);
       if (!Number.isFinite(since) || since < 0) {
