@@ -195,6 +195,28 @@ CREATE TABLE image_access_tokens (
 `;
 
 /**
+ * The two columns a repository looks a row up by that are neither a key nor an
+ * expiry.
+ *
+ * `challenges.challenge` is read once per WebAuthn register and login
+ * verification, and `native_auth_codes.state` once per poll of the native
+ * sign-in completion channel — the Apple shell polls it in a loop. Both tables
+ * are kept small by the expiry sweep, so the scan these replace is cheap today;
+ * the index is here so it stays cheap when a burst of ceremonies or a stalled
+ * sweep makes "small" untrue.
+ *
+ * Neither is unique. `challenge` is a random value and `state` is opaque to
+ * this layer, and the Mongo collections constrained neither — a unique index
+ * here would be a new way for a sign-in to fail rather than a guarantee
+ * anything relies on. `claimNativeCode` already assumes `state` can repeat and
+ * pins one row by id.
+ */
+export const LOOKUP_INDEX_DDL = `
+CREATE INDEX challenges_challenge     ON challenges (challenge);
+CREATE INDEX native_auth_codes_state  ON native_auth_codes (state);
+`;
+
+/**
  * The expiry indexes for every table that used a Mongo TTL index. Grouped here
  * so the sweeper and the schema are obviously talking about the same set.
  */

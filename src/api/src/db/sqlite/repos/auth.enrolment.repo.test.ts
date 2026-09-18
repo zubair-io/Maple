@@ -355,3 +355,18 @@ describe('the expiry sweep', () => {
     expect(result.removed.invites).toBe(1);
   });
 });
+
+describe('the challenge lookup is keyed', () => {
+  test('verifying a ceremony seeks the challenge index rather than scanning', async () => {
+    using handle = await createTestDatabase();
+    // `consumeChallenge` runs this predicate once per WebAuthn register and
+    // login verification. `challenge` is not the primary key, so without its
+    // own index every verification is a table scan.
+    const rows = handle.db
+      .query(`EXPLAIN QUERY PLAN SELECT id FROM challenges WHERE challenge = ?`)
+      .all('abc') as Array<{ detail: string }>;
+    const detail = rows.map((row) => row.detail).join('\n');
+    expect(detail).toContain('challenges_challenge');
+    expect(detail).not.toContain('SCAN');
+  });
+});
