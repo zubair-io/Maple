@@ -112,13 +112,14 @@ DerivedData/
 #                     maple_histogram_file, #886) and re-diffed across cbindgen
 #                     versions.
 #
-# Both must be rebuilt after a fresh clone anyway (see CLAUDE.md). Bare
-# filenames, not a `*.xcframework/**/…` glob (which didn't match on older git).
+# Both must be rebuilt after a fresh clone anyway (see CLAUDE.md). Scoped to
+# `src/apple/**/` so the rule covers both the xcframework slices and the
+# include/ directories without matching bare filenames anywhere else in the tree.
 # Info.plist + module.modulemap stay tracked: static/structural, carry no FFI
 # surface (so they don't drift), and keep the xcframework's slice directories
 # present at rest so SwiftPM can resolve the .binaryTarget.
-libraw_ffi.a
-RawPipeline.h
+src/apple/**/libraw_ffi.a
+src/apple/**/RawPipeline.h
 
 # Node / Bun
 node_modules/
