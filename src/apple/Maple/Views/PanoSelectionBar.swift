@@ -165,19 +165,21 @@ struct PanoSelectionBar: View {
           }
 
           // Right: merge CTA
-          MuiButton(
-            label: "Merge to Panorama\u{2026}",
-            variant: .primary,
-            size: .sm,
-            leadingIcon: "photo.stack",
-            disabled: !vm.canMergePanorama,
-            action: onMerge
-          )
-          .accessibilityLabel("Merge \(vm.selectedIDs.count) selected images into a panorama")
-          .accessibilityHint(
-            vm.canMergePanorama
-              ? "Double tap to open panorama merge view"
-              : "Select at least 2 images to enable")
+          if FeatureFlags.isPanoramaEnabled {
+            MuiButton(
+              label: "Merge to Panorama\u{2026}",
+              variant: .primary,
+              size: .sm,
+              leadingIcon: "photo.stack",
+              disabled: !vm.canMergePanorama,
+              action: onMerge
+            )
+            .accessibilityLabel("Merge \(vm.selectedIDs.count) selected images into a panorama")
+            .accessibilityHint(
+              vm.canMergePanorama
+                ? "Double tap to open panorama merge view"
+                : "Select at least 2 images to enable")
+          }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
