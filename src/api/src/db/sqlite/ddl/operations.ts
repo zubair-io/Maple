@@ -175,6 +175,74 @@ CREATE TABLE worker_config (
 ) WITHOUT ROWID;
 `;
 
+/**
+ * Rebuild of `worker_config` for the settings port (#3751). Two corrections,
+ * both taken from what the repository actually writes rather than from what
+ * the `WorkerConfig` type declares.
+ *
+ * **Every configurable field is nullable.** `WorkerConfigRepo.patch` upserts a
+ * *partial* config: `registerPausableWorker` (`workers/pause-control.ts`)
+ * persists `{ paused }` and nothing else, against a row that need not exist
+ * yet, so Mongo routinely holds a document carrying a name and one field. The
+ * four fields TypeScript marks required are required of a merged, loaded
+ * config — `bootConfig` substitutes the stage's own default for each one it
+ * does not find — not of the stored row, and `NOT NULL` columns turn that
+ * first partial write into a constraint failure.
+ *
+ * `paused INTEGER NOT NULL DEFAULT 0` is the subtler half of the same
+ * mistake. A defaulted `false` is indistinguishable from an operator resume,
+ * so a row created by a `{ concurrency }` patch would tell `bootConfig` the
+ * stage is running and suppress `pausedOnFirstBoot` — the flag `geocode` uses
+ * to stay parked until an operator has configured it. Absent has to stay
+ * distinguishable from false, which in SQL means NULL.
+ *
+ * **`sweep_dir_interval_ms` is the discover worker's own knob.** `discover` is
+ * not a stage; it shares this table under `name = 'discover'` and stores one
+ * field beside `paused` (`workers/discover/discover-config.repo.ts`). One
+ * nullable column rather than a JSON side-bag, because there is exactly one
+ * such field and a bag would be a schema built for a second caller that does
+ * not exist.
+ *
+ * Rebuilt rather than altered because SQLite cannot relax a column's NOT NULL
+ * in place. The copy is spelled out so the migration is correct whether the
+ * table is empty — which it is on every install today, Mongo still being the
+ * live database — or already carries rows.
+ */
+export const WORKER_CONFIG_REBUILD_DDL = `
+ALTER TABLE worker_config RENAME TO worker_config_old;
+
+CREATE TABLE worker_config (
+  name TEXT NOT NULL PRIMARY KEY,
+
+  -- NULL means "no operator or boot has set this", which is what an absent
+  -- field meant on the document. Every reader has a default to fall back to.
+  concurrency  INTEGER,
+  max_attempts INTEGER,
+  paused       INTEGER CHECK (paused IS NULL OR paused IN (0, 1)),
+  -- Why the stage paused ITSELF; NULL for an operator pause.
+  pause_reason TEXT,
+
+  last_seen_target_version INTEGER,
+
+  version     TEXT,
+  prompt_text TEXT,
+  ai_provider TEXT,
+  ai_model    TEXT,
+
+  -- The discover worker's row only: gap between directory visits in a sweep.
+  sweep_dir_interval_ms INTEGER
+) WITHOUT ROWID;
+
+INSERT INTO worker_config
+  (name, concurrency, max_attempts, paused, pause_reason,
+   last_seen_target_version, version, prompt_text, ai_provider, ai_model)
+SELECT name, concurrency, max_attempts, paused, pause_reason,
+       last_seen_target_version, version, prompt_text, ai_provider, ai_model
+FROM worker_config_old;
+
+DROP TABLE worker_config_old;
+`;
+
 /** Per-stage handler routing. Today only the `ai` stage is honoured. */
 export const STAGE_HANDLERS_TABLE_DDL = `
 CREATE TABLE stage_handlers (
