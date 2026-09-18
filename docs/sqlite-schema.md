@@ -445,6 +445,15 @@ column does not exist and neither do the adjust and heal helpers. The count is
 computed where it is read, in `repos/people.face-count.ts`, and the drift cannot
 be reintroduced by a write path forgetting to call something.
 
+Deriving it is not free, and two things keep the cost where it belongs. The
+liveness probe runs `INDEXED BY assets_live_id`, a partial index keyed on `id`
+that answers "is this asset live" without reading the asset row — 591 ms
+against 175 ms for the whole-library count on a generated 335,377-asset library,
+and the planner only picks it unaided once `ANALYZE` has run. And a caller that
+knows which people it needs names them, so the Hidden and Excluded listings seek
+a dozen people rather than walking every assigned face in the library; the grid,
+which asks for all of them, takes the grouped scan.
+
 **The clustering worker gets a path, not a connection** (#3749). The clustering
 pass runs on its own thread and writes — `recomputeCentroids` persists refreshed
 centroids before the seeds are read back. The Mongo worker opens its own database

@@ -32,23 +32,65 @@
  * `recomputePersonFaceCount` keeps its name and its signature because a route
  * still calls it, but it is now a read: it returns the count and writes
  * nothing.
+ *
+ * ## What deriving it costs, and where that cost is bounded
+ *
+ * Deriving is not free — it is one pass over the assigned faces, with a
+ * liveness probe per face. On a generated 335,377-asset library (335,028
+ * faces, ~251k of them assigned) the whole-library count measures 175 ms, and
+ * that is with `assets_live_id` answering the liveness probe from the index
+ * rather than from the asset row; without that index the same query takes
+ * 591 ms. The grid endpoint asks for every live person, so it pays that pass.
+ *
+ * The two recovery listings do not, and this is where the review of #3767 was
+ * right: Hidden and Excluded hold a handful of operator-marked people out of
+ * tens of thousands, and counting them by walking the entire face table is
+ * work with no reader. Passing the ids turns it into one seek per person.
  */
 
 import { peopleDb, type SqliteDb } from './db-handle.ts';
-import { FACE_COUNT_FOR_PERSON_SQL, FACE_COUNTS_BY_PERSON_SQL } from './people.sql.ts';
+import {
+  faceCountsForPeopleSql,
+  FACE_COUNT_FOR_PERSON_SQL,
+  FACE_COUNTS_BY_PERSON_SQL,
+} from './people.sql.ts';
 import { safeObjectId } from '../../safe-object-id.ts';
 
 /**
- * Live assigned face counts for every person that has at least one, keyed by
- * lowercase hex id.
+ * Above this many people, the keyed form stops being the cheaper plan.
+ *
+ * It would have to be chunked past SQLite's bound-parameter ceiling, and the
+ * chunks together read the same rows the grouped scan reads in one pass —
+ * paying a seek per person on top. Whole-library listings are far past this,
+ * so they take the scan; the recovery listings are far below it.
+ */
+const KEYED_COUNT_MAX = 500;
+
+/**
+ * Live assigned face counts, keyed by lowercase hex person id.
+ *
+ * `personHexes` names the people the caller actually needs. Pass them: a short
+ * list is answered by seeking each person in `faces_person` instead of walking
+ * every assigned face in the library. Omitting them (or passing more than
+ * `KEYED_COUNT_MAX`) falls back to the grouped scan, which is what the
+ * whole-library grid wants anyway.
  *
  * People with no live faces are absent from the map rather than present with a
  * zero, which is the same thing the Mongo aggregation does — every caller reads
  * it through a `?? 0`.
  */
-export async function faceCountByPerson(dbOverride?: SqliteDb): Promise<Map<string, number>> {
+export async function faceCountByPerson(
+  personHexes?: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<Map<string, number>> {
   const db = peopleDb(dbOverride);
-  const rows = await db.read<{ person_id: string; n: number }>(FACE_COUNTS_BY_PERSON_SQL);
+  const keyed = personHexes !== undefined && personHexes.length <= KEYED_COUNT_MAX;
+  if (keyed && personHexes.length === 0) return new Map();
+  const rows = keyed
+    ? await db.read<{ person_id: string; n: number }>(faceCountsForPeopleSql(personHexes.length), [
+        ...personHexes,
+      ])
+    : await db.read<{ person_id: string; n: number }>(FACE_COUNTS_BY_PERSON_SQL);
   return new Map(rows.map((row) => [row.person_id, row.n] as const));
 }
 
