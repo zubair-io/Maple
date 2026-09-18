@@ -18,9 +18,16 @@
  *
  * The exceptions are the three fields the Mongo repo writes as an explicit
  * `null`: `merged_into`, `suggested_merge_person_id` and `suggested_merge_score`
- * are always present, because `createPerson` sets `merged_into: null` on insert
- * and the clustering pass clears the suggestion head to `null` rather than
- * unsetting it.
+ * are present on every row this converts, because `createPerson` sets
+ * `merged_into: null` on insert and the clustering pass clears the suggestion
+ * head to `null` rather than unsetting it.
+ *
+ * "Every row this converts" is the limit of that claim, and it is why
+ * `createPerson` does not route its answer through here. A person that has just
+ * been inserted has never been through a clustering pass, so on Mongo its
+ * document carries four fields and no suggestion keys at all — and the
+ * presence-versus-absence distinction this module exists to preserve is exactly
+ * what would be lost by converting a synthetic row instead.
  *
  * ## There is no `face_count`
  *
