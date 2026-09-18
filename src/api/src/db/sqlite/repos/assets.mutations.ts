@@ -161,6 +161,16 @@ function blobFor(
 /**
  * Set the manual `place` override and recompute the search blob. `place ===
  * null` clears the override.
+ *
+ * `place.search_blob ?? null` rather than `place.search_blob`: the route's body
+ * schema is open (`t.Object({}, { additionalProperties: true })`), so an
+ * operator can hand-write a place with a display name and rollups but no
+ * internal denormalised blob. `undefined` is {@link blobFor}'s "this caller is
+ * not touching place" sentinel, so passing it through would rebuild the blob
+ * from the *previous* place and leave the old locality searchable on an asset
+ * that has just been re-placed. Collapsing to `null` is what the Mongo repo
+ * does (`place?.search_blob ?? null`) and means "this place contributes no
+ * tokens".
  */
 export async function setPlaceOverride(
   id: ObjectId,
@@ -173,7 +183,7 @@ export async function setPlaceOverride(
       sql: `UPDATE assets SET place = ? WHERE id = ?`,
       params: [place === null ? null : JSON.stringify(place), hex],
     },
-    blob: blobFor(inputs, { placeSearchBlob: place === null ? null : place.search_blob }),
+    blob: blobFor(inputs, { placeSearchBlob: place === null ? null : (place.search_blob ?? null) }),
   }));
 }
 
