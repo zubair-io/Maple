@@ -14,13 +14,14 @@ import {
   findLiveAssetIdByMapleId,
   findLiveAssetIdByPhassetLink,
 } from './assets.repo.ts';
-import { insertDetail, insertPhassetLink, testSqliteDb } from './assets.test-helpers.ts';
+import { insertDetail, insertPhassetLink } from './assets.test-helpers.ts';
 import {
   createTestDatabase,
   insertAsset,
   insertFolder,
   insertLocation,
   run,
+  testSqliteDb,
 } from '../test-sqlite.test-helpers.ts';
 
 const oid = (hex: string): ObjectId => new ObjectId(hex);

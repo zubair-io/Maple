@@ -41,7 +41,7 @@ import { composeSearchBlob } from '../../../enrichment/search-blob.ts';
 import type { Enrichment, Place } from '../../schema.ts';
 import { SEARCH_BLOB_INPUTS_SQL } from './assets.sql.ts';
 import { meiliRearmStatement } from './assets.stage-rearm.ts';
-import { assetsDb, updateOutcome, type SqliteDb, type UpdateOutcome } from './db-handle.ts';
+import { sqliteDb, updateOutcome, type SqliteDb, type UpdateOutcome } from './db-handle.ts';
 
 /** The sources the synthesised search blob is rebuilt from. */
 interface SearchBlobInputs {
@@ -91,7 +91,7 @@ export async function setHasXmp(
   value: boolean,
   dbOverride?: SqliteDb,
 ): Promise<UpdateOutcome> {
-  const db = assetsDb(dbOverride);
+  const db = sqliteDb(dbOverride);
   const result = await db.write(`UPDATE assets SET has_xmp = ? WHERE id = ?`, [
     value ? 1 : 0,
     id.toHexString(),
@@ -112,7 +112,7 @@ export async function recordSidecarEdit(
   id: ObjectId,
   dbOverride?: SqliteDb,
 ): Promise<UpdateOutcome> {
-  const db = assetsDb(dbOverride);
+  const db = sqliteDb(dbOverride);
   const result = await db.write(
     `UPDATE assets SET has_xmp = 1, sidecar_ver = sidecar_ver + 1 WHERE id = ?`,
     [id.toHexString()],
@@ -178,7 +178,7 @@ export async function setPlaceOverride(
   dbOverride?: SqliteDb,
 ): Promise<UpdateOutcome> {
   const hex = id.toHexString();
-  return applyOverride(assetsDb(dbOverride), hex, (inputs) => ({
+  return applyOverride(sqliteDb(dbOverride), hex, (inputs) => ({
     statement: {
       sql: `UPDATE assets SET place = ? WHERE id = ?`,
       params: [place === null ? null : JSON.stringify(place), hex],
@@ -197,7 +197,7 @@ export async function setDescriptionOverride(
   dbOverride?: SqliteDb,
 ): Promise<UpdateOutcome> {
   const hex = id.toHexString();
-  return applyOverride(assetsDb(dbOverride), hex, (inputs) => ({
+  return applyOverride(sqliteDb(dbOverride), hex, (inputs) => ({
     statement: { sql: DESCRIPTION_UPSERT_SQL, params: [hex, text] },
     blob: blobFor(inputs, { description: text }),
   }));
@@ -218,7 +218,7 @@ export async function requeueEnrichmentStage(
   stage: keyof Enrichment,
   dbOverride?: SqliteDb,
 ): Promise<{ version: number } | null> {
-  const db = assetsDb(dbOverride);
+  const db = sqliteDb(dbOverride);
   const hex = id.toHexString();
   const rows = await db.read<{ id: string; version: number | null }>(
     `SELECT a.id, e.version AS version

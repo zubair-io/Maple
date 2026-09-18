@@ -24,13 +24,14 @@ import type { AssetWithId } from '../../schema.ts';
 import type * as MongoRepo from '../../assets.repo.ts';
 import * as SqliteRepo from './assets.repo.ts';
 import { deleteOutcome, updateOutcome } from './db-handle.ts';
-import { insertDetail, insertFace, insertPerson, testSqliteDb } from './assets.test-helpers.ts';
+import { insertDetail, insertFace, insertPerson } from './assets.test-helpers.ts';
 import {
   createTestDatabase,
   insertAsset,
   insertFolder,
   insertLocation,
   run,
+  testSqliteDb,
 } from '../test-sqlite.test-helpers.ts';
 
 /** `true` only when the two types are mutually assignable. */

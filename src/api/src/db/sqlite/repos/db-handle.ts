@@ -7,7 +7,7 @@
  * **The handle.** {@link SqliteDb} is the three primitives the worker-backed
  * pool exposes — read, write, transaction — and nothing else. `SqlitePool`
  * satisfies it structurally, so production code passes no handle at all and
- * {@link assetsDb} reaches the process-wide pool, exactly the way the Mongo
+ * {@link sqliteDb} reaches the process-wide pool, exactly the way the Mongo
  * repo reaches `assetsCollection()` today. The optional override is what tests
  * use, and it is the same override parameter the Mongo repo already had; the
  * only difference is the type it accepts.

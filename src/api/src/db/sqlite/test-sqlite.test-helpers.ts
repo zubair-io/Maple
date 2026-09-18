@@ -36,6 +36,8 @@ import { SCHEMA_PRAGMAS } from './ddl/index.ts';
 import { fromBunSqlite, runMigrations, type MigrationDb, type SqlValue } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
 import { newObjectIdHex } from './object-id.ts';
+import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from './protocol.ts';
+import type { SqliteDb } from './repos/db-handle.ts';
 
 /**
  * Where a test database lives.
@@ -226,6 +228,58 @@ export async function createTestDatabase(storage: TestStorage = 'memory'): Promi
  */
 export function run(db: Database, sql: string, ...params: SqlValue[]): void {
   db.run(sql, params);
+}
+
+/** Normalise bound parameters to the varargs shape `bun:sqlite` expects. */
+function args(params: SqlParams | undefined): never[] {
+  if (params === undefined) return [];
+  return (Array.isArray(params) ? [...params] : [params]) as never[];
+}
+
+function exec(db: Database, statement: SqlStatement): SqlWriteResult {
+  const result = db.prepare(statement.sql).run(...args(statement.params));
+  return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) };
+}
+
+/**
+ * Adapts a synchronous `bun:sqlite` handle to the three primitives a repository
+ * uses, so a repository function can be driven against a test's own connection.
+ *
+ * `bun:sqlite` is used directly here for the same reason
+ * {@link createTestDatabase} does — a test owns its connection outright and has
+ * no event loop to protect. The worker-backed pool exists to keep the API
+ * process responsive and cannot back an in-memory database anyway, since each
+ * pool worker opens the file by path. Production code must never reach for this
+ * adapter; that is what `sqliteDb()` and the pool are for.
+ *
+ * The transaction wrapper mirrors the database worker's: `BEGIN IMMEDIATE`,
+ * then a rollback that never masks the original error. What it cannot mirror is
+ * interleaving — a synchronous connection runs each batch start to finish
+ * inside one microtask, so a test that needs two callers to genuinely race has
+ * to open the real pool against a file-backed database instead.
+ */
+export function testSqliteDb(db: Database): SqliteDb {
+  return {
+    read: async <T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> =>
+      db.query(sql).all(...args(params)) as T[],
+    write: async (sql: string, params?: SqlParams) => exec(db, { sql, params }),
+    transaction: async (statements: readonly SqlStatement[]) => {
+      db.run('BEGIN IMMEDIATE');
+      const results: SqlWriteResult[] = [];
+      try {
+        for (const statement of statements) results.push(exec(db, statement));
+        db.run('COMMIT');
+      } catch (e) {
+        try {
+          db.run('ROLLBACK');
+        } catch {
+          // Already unwound by SQLite; the caller's error is the one to report.
+        }
+        throw e;
+      }
+      return results;
+    },
+  };
 }
 
 /** Inserts a library root and returns its id. */

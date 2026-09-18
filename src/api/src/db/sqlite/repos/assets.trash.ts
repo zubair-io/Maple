@@ -37,7 +37,7 @@ import type { ObjectId } from 'mongodb';
 import type { SqlStatement } from '../protocol.ts';
 import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import {
-  assetsDb,
+  sqliteDb,
   changesAt,
   deleteOutcome,
   updateOutcome,
@@ -196,7 +196,7 @@ export async function markSoftDeleted(args: {
   source?: LocationSource;
   dbOverride?: SqliteDb;
 }): Promise<UpdateOutcome> {
-  const db = assetsDb(args.dbOverride);
+  const db = sqliteDb(args.dbOverride);
   const destination = resolveDestination('markSoftDeleted', args);
   const hex = args.id.toHexString();
   const results = await db.transaction([
@@ -225,7 +225,7 @@ export async function markSoftDeleted(args: {
  * one primary key, so the answer is one or nothing.
  */
 export async function hardDelete(id: ObjectId, dbOverride?: SqliteDb): Promise<DeleteOutcome> {
-  const db = assetsDb(dbOverride);
+  const db = sqliteDb(dbOverride);
   const result = await db.write(`DELETE FROM assets WHERE id = ?`, [id.toHexString()]);
   return deleteOutcome(result.changes > 0 ? 1 : 0);
 }
@@ -256,7 +256,7 @@ export async function restoreFromTrash(args: {
   source?: LocationSource;
   dbOverride?: SqliteDb;
 }): Promise<UpdateOutcome> {
-  const db = assetsDb(args.dbOverride);
+  const db = sqliteDb(args.dbOverride);
   const destination = resolveDestination('restoreFromTrash', args);
   const hex = args.id.toHexString();
   const results = await db.transaction([
