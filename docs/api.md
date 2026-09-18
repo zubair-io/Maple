@@ -83,7 +83,7 @@ One MongoDB database (`maple` by default). `db/schema.ts` declares every documen
 Operator configuration lives in Mongo, not the environment, so it can be changed from the Settings pages without a restart or shell access. Two collections carry it:
 
 - **`app_settings`** — one document per subsystem, each with a `_id` naming it: `cloudflare`, `display`, `enrichment`, `performance` (the FFI pool size), `map`, `network`, `observability`, `pano`, `render`, `deduplicate`, `derivative-audit`, `generated_search`, `migration`, `missing-reaper`. Each has a repo module (e.g. `render/render-config.repo.ts`) that loads the stored document and a resolver that fills in built-in defaults, reporting per-field whether the value came from `db` or `default` so the UI can say so.
-- **`worker_config`** — per-stage pause flags, concurrency, and batch sizing, read by the worker tier on every poll tick.
+- **`worker_config`** — per-stage pause flags, concurrency, and batch sizing, read by the worker tier on every poll tick. The `change-log-gc` document also carries that sweep's retention window and its last-pass summary (`workers/change-log-gc-config.repo.ts`).
 
 Environment variables are limited to things that must be known before the database is reachable, or that are pure deploy topology. These are the ones actually read by the code today:
 
