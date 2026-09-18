@@ -33,8 +33,8 @@ import { SqlitePool } from '../../src/db/sqlite/pool.ts';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
 import { claimStageBatch } from '../../src/db/sqlite/repos/stage-claim.ts';
 import {
-  STAGE_CLAIM_SQL,
   stageClaimCandidatesSql,
+  stageClaimSql,
 } from '../../src/db/sqlite/repos/stage-runtime.sql.ts';
 import { BENCH_DIR, median, openBenchDatabase, removeDatabase } from './compare-helpers.ts';
 import { generateLibrary } from './generate.ts';
@@ -55,11 +55,21 @@ async function build(assetCount: number): Promise<void> {
   db.close();
 }
 
-/** Median over `RUNS` samples, discarding the first as warm-up. */
-async function sample(fn: () => Promise<unknown>): Promise<number> {
+/**
+ * Median over `RUNS` samples, discarding the first as warm-up.
+ *
+ * `reset` runs untimed before every sample, and a measurement that changes
+ * rows needs one. Without it the warm-up claims the rows and stamps a
+ * fifteen-minute lease, and every timed sample then re-runs the same `UPDATE`s
+ * against rows that now fail the gate — five samples of a statement that
+ * matches nothing, reported as the cost of the compare-and-swap.
+ */
+async function sample(fn: () => Promise<unknown>, reset?: () => Promise<unknown>): Promise<number> {
   const samples: number[] = [];
+  await reset?.();
   await fn();
   for (let i = 0; i < RUNS; i += 1) {
+    await reset?.();
     const startedAt = performance.now();
     await fn();
     samples.push(performance.now() - startedAt);
@@ -75,6 +85,23 @@ async function rewind(pool: SqlitePool): Promise<void> {
     [STAGE],
   );
   await pool.write('PRAGMA wal_checkpoint(TRUNCATE)');
+}
+
+/**
+ * Release exactly the rows one swap sample consumes.
+ *
+ * Narrower than {@link rewind} because it runs before every sample: rewinding
+ * the whole stage would rewrite 60,000 rows forty-one times, and the
+ * checkpoint it needs afterwards costs more than the thing being measured.
+ */
+async function releaseLeases(pool: SqlitePool, ids: readonly string[]): Promise<void> {
+  await pool.transaction(
+    ids.map((assetId) => ({
+      sql: `UPDATE stage_state SET attempts = 0, next_attempt_at = NULL
+             WHERE asset_id = ? AND stage = ?`,
+      params: [assetId, STAGE],
+    })),
+  );
 }
 
 async function main(): Promise<void> {
@@ -101,19 +128,25 @@ async function main(): Promise<void> {
     );
 
     // Half two: the compare-and-swap batch, on candidates already in hand.
+    // Every sample is released first, so each one measures 20 UPDATEs that
+    // match a row rather than 20 that fail their own gate.
     const rows = (await pool.read<{ asset_id: string }>(candidateSql, [
       STAGE,
       TARGET_VERSION,
       nowIso,
       BATCH,
     ])) as Array<{ asset_id: string }>;
-    const swap = await sample(() =>
-      pool.transaction(
-        rows.map((row) => ({
-          sql: STAGE_CLAIM_SQL,
-          params: [leaseUntil, row.asset_id, STAGE, TARGET_VERSION, nowIso],
-        })),
-      ),
+    const ids = rows.map((row) => row.asset_id);
+    const claimSql = stageClaimSql(0);
+    const swap = await sample(
+      () =>
+        pool.transaction(
+          ids.map((assetId) => ({
+            sql: claimSql,
+            params: [leaseUntil, assetId, STAGE, TARGET_VERSION, nowIso],
+          })),
+        ),
+      () => releaseLeases(pool, ids),
     );
 
     // Both halves, as the runner performs them.

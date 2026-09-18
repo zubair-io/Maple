@@ -6,7 +6,8 @@
  * ## Everything is a statement, nothing is a write
  *
  * Each function here builds {@link SqlStatement}s rather than executing them.
- * That is what lets {@link StageWritebackBatch} put a whole tick's results
+ * That is what lets `StageWritebackBatch` (`stage-writeback.batch.ts`) put a
+ * whole tick's results
  * into one `BEGIN IMMEDIATE`, which is where the single-writer design pays
  * off: the Mongo runner issues one `updateOne` per asset per event — a batch
  * of 20 costs 20 round trips and 20 independent commits — and the same 20
@@ -33,6 +34,24 @@
  * the status endpoint stays off the database entirely, and re-deriving counts
  * on the request path is what made it an 8-second endpoint (#3491). See
  * `stage-state.repo.ts` for the count statements the worker's pass uses.
+ *
+ * ## Every writeback is fenced on the lease it was granted
+ *
+ * {@link StageTarget} carries the lease string the claim stamped, and each of
+ * the five statements that write the claimed row ends in `next_attempt_at = ?`
+ * against it. A handler that outran its lease has already lost the asset to a
+ * second claimer, so its writeback matches zero rows and leaves that claim
+ * alone, rather than clearing the lease and handing the asset to a third while
+ * two handlers are still running. A stage whose handler can legitimately run
+ * that long renews instead — `renewStageLease` in `stage-claim.ts`.
+ *
+ * What the fence does NOT cover is the handler's own `extra` statements and
+ * the `invalidates` upserts, which write the asset rather than the claim. A
+ * late handler's description or thumbnail path still lands, and the current
+ * claimer's will land after it — last writer wins, exactly as two Mongo
+ * workers on one asset behave today. The fence is about the bookkeeping row,
+ * which is the thing that must not be released by someone who no longer holds
+ * it.
  */
 
 import type { StageResult } from '../../../workers/stage-config.ts';
@@ -44,11 +63,9 @@ import {
   STAGE_INVALIDATE_SQL,
   STAGE_REARM_SELF_SQL,
   STAGE_SUCCESS_SQL,
-  STAGE_MARK_DEAD_SQL,
   TAG_DAMAGED_SQL,
   TAG_LOCATION_MISSING_SQL,
 } from './stage-runtime.sql.ts';
-import { assetsDb, type SqliteDb } from './db-handle.ts';
 
 /** A stage name is a compile-time constant; anything else is a typo. */
 const STAGE_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
@@ -88,11 +105,18 @@ export function invalidationStatements(
     .map((name) => ({ sql: STAGE_INVALIDATE_SQL, params: [name, assetId] }));
 }
 
-/** The shared shape of every writeback: which asset, which stage. */
+/** The shared shape of every writeback: which asset, which stage, which claim. */
 export interface StageTarget {
   assetId: string;
   stage: string;
   targetVersion: number;
+  /**
+   * The lease the claim stamped — `ClaimedStageRow.next_attempt_at`, or the
+   * value the last `renewStageLease` returned. Every statement that writes the
+   * claimed row is fenced on it, so a writeback from an attempt whose lease has
+   * already been taken over matches nothing.
+   */
+  lease: string;
 }
 
 /**
@@ -126,6 +150,7 @@ export function stageSuccessStatements(
         (options.processedAt ?? new Date()).toISOString(),
         target.assetId,
         target.stage,
+        target.lease,
       ],
     },
   ];
@@ -177,6 +202,7 @@ export function stageRearmStatements(
         dead ? 1 : 0,
         target.assetId,
         target.stage,
+        target.lease,
       ],
     },
   ];
@@ -195,7 +221,7 @@ export function stageDamagedStatements(
   at: Date = new Date(),
 ): SqlStatement[] {
   return [
-    { sql: STAGE_DAMAGED_SQL, params: [reason, target.assetId, target.stage] },
+    { sql: STAGE_DAMAGED_SQL, params: [reason, target.assetId, target.stage, target.lease] },
     tagDamagedStatement(target.assetId, target.stage, reason, at),
   ];
 }
@@ -237,7 +263,7 @@ export function tagLocationMissingStatement(
  * instead, and it was never genuinely attempted.
  */
 export function claimRollbackStatement(target: StageTarget): SqlStatement {
-  return { sql: STAGE_CLAIM_ROLLBACK_SQL, params: [target.assetId, target.stage] };
+  return { sql: STAGE_CLAIM_ROLLBACK_SQL, params: [target.assetId, target.stage, target.lease] };
 }
 
 /** What a failed attempt decided, before it is written. */
@@ -315,15 +341,11 @@ export function stageFailureStatements(input: {
           nextAttemptAt,
           target.assetId,
           target.stage,
+          target.lease,
         ],
       },
     ],
   };
-}
-
-/** Park one row the runner has decided is terminal, with its reason. */
-export function markDeadStatement(target: StageTarget, reason: string): SqlStatement {
-  return { sql: STAGE_MARK_DEAD_SQL, params: [reason, target.assetId, target.stage] };
 }
 
 /**
@@ -392,51 +414,4 @@ export function stageResultStatements(
     );
   }
   return stageDamagedStatements(target, result.damaged, at);
-}
-
-/**
- * A tick's worth of results, flushed as one transaction.
- *
- * Handlers complete at different moments inside a dispatch pool, so results
- * accumulate here and go to the writer together. {@link flush} is safe to call
- * more than once and on an empty batch, so the runner can flush at a size
- * threshold during a long tick and again at the end without special-casing
- * either.
- *
- * `maxStatements` bounds one transaction rather than one tick: a batch of 20
- * assets whose handlers each return a patch plus two invalidations is 80
- * statements, which is a perfectly ordinary transaction, but the bound keeps a
- * pathological tick from holding the write lock while it assembles.
- */
-export class StageWritebackBatch {
-  private pending: SqlStatement[] = [];
-
-  constructor(
-    private readonly db: SqliteDb = assetsDb(),
-    private readonly maxStatements = 256,
-  ) {}
-
-  /** Queue one result's statements, flushing first if the batch is full. */
-  async record(statements: readonly SqlStatement[]): Promise<void> {
-    if (this.pending.length + statements.length > this.maxStatements) await this.flush();
-    this.pending.push(...statements);
-  }
-
-  /** How many statements are waiting. Exposed for the runner's own logging. */
-  get size(): number {
-    return this.pending.length;
-  }
-
-  /**
-   * Commit everything queued. The buffer is cleared before the write so a
-   * rejection cannot leave statements queued for a retry that would apply some
-   * of them twice — the transaction is all-or-nothing, and a caller that wants
-   * to retry has the error.
-   */
-  async flush(): Promise<void> {
-    if (this.pending.length === 0) return;
-    const statements = this.pending;
-    this.pending = [];
-    await this.db.transaction(statements);
-  }
 }

@@ -88,6 +88,13 @@ export async function openBenchDatabase(path: string): Promise<Database> {
  * SQLite half is worth running on a machine that has already stopped running
  * the old one. The database is named per invocation and dropped afterwards, so
  * two scripts — or two agents — cannot collide.
+ *
+ * Only the CONNECT is optional. A wider catch would swallow whatever `measure`
+ * throws — a typo in a query, an index that fails to build on the scratch
+ * database — and print the same "skipped" line, which reads identically to
+ * running on a machine with no Mongo at all. A benchmark that silently reports
+ * the fallback row for a broken measurement is worse than one that does not
+ * run.
  */
 export async function withMongoDatabase<T>(
   namePrefix: string,
@@ -95,14 +102,15 @@ export async function withMongoDatabase<T>(
   fallback: T,
 ): Promise<T> {
   let client: MongoClient | null = null;
-  let db: Db | null = null;
   try {
     client = await MongoClient.connect(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
-    db = client.db(`${namePrefix}_${Date.now()}`);
-    return await measure(db);
   } catch (err) {
     console.log(`  (mongo half skipped: ${err instanceof Error ? err.message : String(err)})\n`);
     return fallback;
+  }
+  const db: Db = client.db(`${namePrefix}_${Date.now()}`);
+  try {
+    return await measure(db);
   } finally {
     // The drop belongs in `finally`, not on the success path: a measurement
     // that throws half way through has still created the database, and a
@@ -111,7 +119,7 @@ export async function withMongoDatabase<T>(
     // suites that were each individually expected to tidy up after themselves.
     // Best-effort, because a failed drop must not replace the caller's result
     // — or the error that caused it — with an error about cleanup.
-    await db?.dropDatabase().catch(() => {});
-    await client?.close();
+    await db.dropDatabase().catch(() => {});
+    await client.close();
   }
 }

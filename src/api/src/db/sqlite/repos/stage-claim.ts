@@ -38,15 +38,25 @@
  * attempt when the process died holding it, which is precisely when the row
  * should become claimable again. {@link CLAIM_LEASE_MS} is sized for that, not
  * for the fast path.
+ *
+ * A lease that can expire is only safe if the rest of the runtime respects it,
+ * and that is three things together rather than one. The claim grants it; every
+ * write to the claimed row is fenced on it, so a handler that finishes after
+ * its lease was taken updates nothing instead of releasing someone else's
+ * claim; and {@link renewStageLease} lets a handler that expects to be slow
+ * keep the claim alive, and tells it — by matching zero rows — when the claim
+ * is already gone and its work should be dropped rather than written.
  */
 
 import { child as childLogger } from '../../../log.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
 import {
-  STAGE_CLAIM_SQL,
-  STAGE_MARK_DEAD_SQL,
+  STAGE_PARK_EXHAUSTED_SQL,
+  STAGE_RENEW_LEASE_SQL,
+  TAG_DAMAGED_SQL,
   stageClaimCandidatesSql,
+  stageClaimSql,
 } from './stage-runtime.sql.ts';
 
 /**
@@ -89,17 +99,28 @@ export interface StageClaimResidual {
   params: readonly (string | number)[];
 }
 
-/** The bookkeeping row a claim hands back, as stored. */
-export interface ClaimedStageRow {
+/** One `stage_state` row as the candidate scan reads it. */
+export interface StageStateRow {
   asset_id: string;
   version: number;
-  /** Already incremented by this claim — the attempt about to be made. */
   attempts: number;
   last_error: string | null;
   processed_at: string | null;
   dead: number;
   failed_at: string | null;
   next_attempt_at: string | null;
+}
+
+/** The bookkeeping row a claim hands back, as the claim left it. */
+export interface ClaimedStageRow extends StageStateRow {
+  /** Already incremented by this claim — the attempt about to be made. */
+  attempts: number;
+  /**
+   * The lease this claim stamped, never null. Every writeback for the attempt
+   * is fenced on it, so the runner carries it from here into
+   * `StageTarget.lease`.
+   */
+  next_attempt_at: string;
 }
 
 /** Everything the claim needs to know about the stage asking. */
@@ -114,6 +135,12 @@ export interface StageClaimRequest {
   limit: number;
   /** Attempts at which a row is taken to have been killed mid-handler. */
   maxAttempts: number;
+  /**
+   * `StageConfig.tagsDamagedOnDeadLetter`. A file-reading stage that parks an
+   * asset as crash-exhausted tags the asset damaged in the same transaction,
+   * so one poison RAW stops killing the process for every other stage in turn.
+   */
+  tagsDamagedOnDeadLetter?: boolean;
   now?: Date;
   leaseMs?: number;
 }
@@ -125,8 +152,9 @@ export interface StageClaimOutcome {
   /**
    * Rows parked as dead because their attempt budget was spent without the
    * row ever completing — an uncatchable native death mid-handler (#897).
-   * Deliberately NOT dispatched; a stage that tags damaged on dead-letter
-   * should tag these, which is why they are reported rather than swallowed.
+   * Deliberately NOT dispatched, and already tagged damaged in the same
+   * transaction when the stage tags on dead-letter. Reported so the runner can
+   * log and count them, not as an obligation on the caller.
    */
   crashExhausted: Array<{ assetId: string; attempts: number; reason: string }>;
   /**
@@ -163,6 +191,30 @@ function candidateParams(request: StageClaimRequest, nowIso: string): Array<stri
 }
 
 /**
+ * The parameters one claim binds, in {@link stageClaimSql}'s order.
+ *
+ * The tail is the scan's own dependency and residual parameters, because the
+ * claim re-asks those gates too — the same list, minus the in-flight exclusion
+ * and the limit, which are not part of the question the row itself answers.
+ */
+function claimParams(
+  request: StageClaimRequest,
+  row: StageStateRow,
+  leaseUntil: string,
+  nowIso: string,
+): Array<string | number> {
+  return [
+    leaseUntil,
+    row.asset_id,
+    request.stage,
+    request.targetVersion,
+    nowIso,
+    ...request.dependsOn.flatMap((dep) => [dep.name, dep.minVersion]),
+    ...(request.residual?.params ?? []),
+  ];
+}
+
+/**
  * The reason string a crash-exhausted row carries. Kept identical to the
  * Mongo runner's so an operator triaging the Workers dead-letter list sees the
  * same sentence before and after the cutover.
@@ -185,9 +237,9 @@ function crashReason(attempts: number): string {
  * costs nothing: the candidates are in hand, with their attempt counts.
  */
 function partitionCandidates(
-  candidates: readonly ClaimedStageRow[],
+  candidates: readonly StageStateRow[],
   maxAttempts: number,
-): { claimable: ClaimedStageRow[]; exhausted: StageClaimOutcome['crashExhausted'] } {
+): { claimable: StageStateRow[]; exhausted: StageClaimOutcome['crashExhausted'] } {
   return {
     claimable: candidates.filter((row) => row.attempts < maxAttempts),
     exhausted: candidates
@@ -198,6 +250,64 @@ function partitionCandidates(
         reason: crashReason(row.attempts),
       })),
   };
+}
+
+/**
+ * Park one crash-exhausted row, and tag its asset damaged when the stage is a
+ * damage-tagging one.
+ *
+ * The tag is what `reconcileCrashExhausted` does on Mongo, and leaving it out
+ * would be the difference between a poison RAW that `abort()`s libraw being
+ * parked once and it being claimed and killing the process again for `exif`,
+ * `thumb`, `preview` and `describe` in turn. It goes in the claim's own
+ * transaction rather than in a follow-up write, so the park and the tag cannot
+ * come apart — which is better than the Mongo version, where they are two
+ * independent `updateOne`s.
+ */
+function parkExhaustedStatements(
+  request: StageClaimRequest,
+  row: StageClaimOutcome['crashExhausted'][number],
+  nowIso: string,
+): SqlStatement[] {
+  const park: SqlStatement = {
+    sql: STAGE_PARK_EXHAUSTED_SQL,
+    params: [row.reason, row.assetId, request.stage, request.maxAttempts, request.targetVersion],
+  };
+  if (request.tagsDamagedOnDeadLetter !== true) return [park];
+  return [park, { sql: TAG_DAMAGED_SQL, params: [nowIso, request.stage, row.reason, row.assetId] }];
+}
+
+/**
+ * Push a held claim's lease further out, for a handler that legitimately runs
+ * longer than one lease.
+ *
+ * Returns the new lease when the claim is still this caller's, and `null` when
+ * it is not — the row was re-claimed while the handler ran, and the work in
+ * progress should be abandoned rather than written, because every writeback
+ * for it is fenced on a lease that no longer exists.
+ *
+ * `lease` is the string the claim handed back in `next_attempt_at`, and the
+ * return value replaces it for the next renewal and for the writeback.
+ */
+export async function renewStageLease(
+  target: { assetId: string; stage: string; lease: string },
+  options: { now?: Date; leaseMs?: number } = {},
+  dbOverride?: SqliteDb,
+): Promise<string | null> {
+  const now = options.now ?? new Date();
+  const renewed = new Date(now.getTime() + (options.leaseMs ?? CLAIM_LEASE_MS)).toISOString();
+  const result = await assetsDb(dbOverride).write(STAGE_RENEW_LEASE_SQL, [
+    renewed,
+    target.assetId,
+    target.stage,
+    target.lease,
+  ]);
+  if (result.changes > 0) return renewed;
+  log.warn(
+    { stage: target.stage, assetId: target.assetId },
+    `${target.stage}: lease lost while the handler was still running`,
+  );
+  return null;
 }
 
 /**
@@ -239,31 +349,34 @@ export async function claimStageBatch(
     request.inFlight?.size ?? 0,
     request.residual?.sql,
   );
-  const candidates = await db.read<ClaimedStageRow>(sql, candidateParams(request, nowIso));
+  const candidates = await db.read<StageStateRow>(sql, candidateParams(request, nowIso));
   if (candidates.length === 0) return { claimed: [], crashExhausted: [], contended: 0 };
 
   const { claimable, exhausted } = partitionCandidates(candidates, request.maxAttempts);
   const leaseUntil = new Date(now.getTime() + (request.leaseMs ?? CLAIM_LEASE_MS)).toISOString();
+  const parkStatements = exhausted.flatMap((row) => parkExhaustedStatements(request, row, nowIso));
+  const claimSql = stageClaimSql(request.dependsOn.length, request.residual?.sql);
   const results = await db.transaction([
-    ...exhausted.map(
-      (row): SqlStatement => ({
-        sql: STAGE_MARK_DEAD_SQL,
-        params: [row.reason, row.assetId, request.stage],
-      }),
-    ),
+    ...parkStatements,
     ...claimable.map(
       (row): SqlStatement => ({
-        sql: STAGE_CLAIM_SQL,
-        params: [leaseUntil, row.asset_id, request.stage, request.targetVersion, nowIso],
+        sql: claimSql,
+        params: claimParams(request, row, leaseUntil, nowIso),
       }),
     ),
   ]);
 
   const claimed = claimable
-    // The claim statements start after the mark-dead ones in the same batch.
-    .filter((_, index) => (results[exhausted.length + index]?.changes ?? 0) > 0)
+    // The claim statements start after the crash-exhaustion parks in the batch.
+    .filter((_, index) => (results[parkStatements.length + index]?.changes ?? 0) > 0)
     // The row as the claim left it: the attempt is spent and the lease is on.
-    .map((row) => ({ ...row, attempts: row.attempts + 1, next_attempt_at: leaseUntil }));
+    .map(
+      (row): ClaimedStageRow => ({
+        ...row,
+        attempts: row.attempts + 1,
+        next_attempt_at: leaseUntil,
+      }),
+    );
   const contended = claimable.length - claimed.length;
   if (exhausted.length > 0) {
     log.warn(

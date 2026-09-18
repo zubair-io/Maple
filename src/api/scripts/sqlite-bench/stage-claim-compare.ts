@@ -45,7 +45,7 @@
 import type { Database } from 'bun:sqlite';
 import type { Collection, Document } from 'mongodb';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
-import { claimStageBatch } from '../../src/db/sqlite/repos/stage-claim.ts';
+import { claimStageBatch, type ClaimedStageRow } from '../../src/db/sqlite/repos/stage-claim.ts';
 import { stageResultStatements } from '../../src/db/sqlite/repos/stage-writeback.ts';
 import {
   STAGE_DEAD_COUNT_SQL,
@@ -136,9 +136,9 @@ const sqliteRequest = {
 };
 
 /** One claim tick: the indexed candidate scan plus the claiming transaction. */
-async function sqliteClaim(db: Database): Promise<string[]> {
+async function sqliteClaim(db: Database): Promise<ClaimedStageRow[]> {
   const outcome = await claimStageBatch(sqliteRequest, testSqliteDb(db));
-  return outcome.claimed.map((row) => row.asset_id);
+  return outcome.claimed;
 }
 
 /**
@@ -156,15 +156,26 @@ function sqliteCandidateScan(db: Database): unknown[] {
     .all(STAGE, TARGET_VERSION, new Date().toISOString(), BATCH);
 }
 
-/** One writeback tick: every result in the batch, in one transaction. */
-async function sqliteWriteback(db: Database, assetIds: readonly string[]): Promise<void> {
+/**
+ * One writeback tick: every result in the batch, in one transaction.
+ *
+ * The rows rather than their ids, because each writeback is fenced on the
+ * lease its own claim stamped — measuring it without the fence would measure a
+ * statement the runner never issues.
+ */
+async function sqliteWriteback(db: Database, claimed: readonly ClaimedStageRow[]): Promise<void> {
   const handle = testSqliteDb(db);
   await handle.transaction(
-    assetIds.flatMap((assetId) =>
+    claimed.flatMap((row) =>
       stageResultStatements(
         {
-          target: { assetId, stage: STAGE, targetVersion: TARGET_VERSION },
-          attemptNo: 1,
+          target: {
+            assetId: row.asset_id,
+            stage: STAGE,
+            targetVersion: TARGET_VERSION,
+            lease: row.next_attempt_at,
+          },
+          attemptNo: row.attempts,
           maxAttempts: 3,
           dependsOn: [],
         },

@@ -48,7 +48,7 @@
  * ## Counts stay persisted by the worker
  *
  * {@link countStageBacklog} is cheap: `stage_dead` answers the dead count from
- * the index alone, and pending is a range scan of `stage_claim`. It is still
+ * the index alone, and pending and ready are range scans of `stage_claim`. It is still
  * meant to be called from the worker's own refresh pass and written to
  * `worker_status`, never from `GET /api/workers/status`. The reason is the
  * contract rather than the cost — the demand flag (`counts_wanted_until`), the
@@ -60,12 +60,14 @@
 import type { SqlStatement } from '../protocol.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
 import type { StageClaimResidual } from './stage-claim.ts';
+import type { ResolvedStageDep } from './stage-claim.ts';
 import {
   REGISTER_STAGE_SQL,
   SEED_STAGE_ROW_SQL,
   STAGE_DEAD_COUNT_SQL,
   STAGE_VERSION_BUMP_RESET_SQL,
   stagePendingCountSql,
+  stageReadyCountSql,
 } from './stage-runtime.sql.ts';
 
 /**
@@ -121,6 +123,10 @@ export async function registerStages(
  *
  * Runs once per stage on boot when `targetVersion` exceeds the last the runner
  * saw. Rows already at or above the new target are untouched — they are done.
+ *
+ * It does not touch `next_attempt_at`, which is what keeps it from revoking a
+ * claim the outgoing process is still holding across a restart. See
+ * `STAGE_VERSION_BUMP_RESET_SQL` for why that costs nothing.
  */
 export async function versionBumpReset(
   stage: string,
@@ -140,32 +146,63 @@ export async function versionBumpReset(
 export interface StageBacklog {
   /** Assets still below target, not dead-lettered, with a live original. */
   pending: number;
+  /** How many of those could be claimed right now. */
+  ready: number;
   /** Assets parked at the attempt ceiling, awaiting operator triage. */
   dead: number;
+}
+
+/** What {@link countStageBacklog} needs to know to count one stage. */
+export interface StageBacklogQuery {
+  stage: string;
+  targetVersion: number;
+  /** The stage's resolved `dependsOn`. Only `ready` applies these. */
+  dependsOn?: readonly ResolvedStageDep[];
+  residual?: StageClaimResidual;
+  now?: Date;
 }
 
 /**
  * The backlog for one stage, for the worker's persisted-counts pass.
  *
- * `pending` deliberately ignores the retry gate and the dependency gates,
- * which is the same thing the Mongo `pending` count does: it answers "how much
- * work is left", where the claim answers "what can start right now". It does
- * apply the stage's `residual`, because a media-only stage that counted the
- * whole photo library as pending forever would defeat the diagnosis the
- * counter exists to give.
+ * Three numbers, and the split between the first two is the point. `pending`
+ * ignores the retry gate and the dependency gates — it answers "how much work
+ * is left" — while `ready` asks the claim's own question, "what could start
+ * right now". The Workers page renders the difference as "N ready · M blocked
+ * on an upstream stage", which is the one place an operator can see that a
+ * stage with a five-figure backlog is not stuck but parked behind something
+ * upstream. Counting only `pending` would show the backlog and hide the reason.
+ *
+ * Both apply the stage's `residual`, because a media-only stage that counted
+ * the whole photo library would defeat that diagnosis just as thoroughly.
  */
 export async function countStageBacklog(
-  stage: string,
-  targetVersion: number,
-  residual?: StageClaimResidual,
+  query: StageBacklogQuery,
   dbOverride?: SqliteDb,
 ): Promise<StageBacklog> {
   const db = assetsDb(dbOverride);
+  const { stage, targetVersion, residual } = query;
+  const dependsOn = query.dependsOn ?? [];
+  const residualParams = residual?.params ?? [];
   const pendingRows = await db.read<{ n: number }>(stagePendingCountSql(residual?.sql), [
     stage,
     targetVersion,
-    ...(residual?.params ?? []),
+    ...residualParams,
   ]);
+  const readyRows = await db.read<{ n: number }>(
+    stageReadyCountSql(dependsOn.length, residual?.sql),
+    [
+      stage,
+      targetVersion,
+      (query.now ?? new Date()).toISOString(),
+      ...dependsOn.flatMap((dep) => [dep.name, dep.minVersion]),
+      ...residualParams,
+    ],
+  );
   const deadRows = await db.read<{ n: number }>(STAGE_DEAD_COUNT_SQL, [stage]);
-  return { pending: pendingRows[0]?.n ?? 0, dead: deadRows[0]?.n ?? 0 };
+  return {
+    pending: pendingRows[0]?.n ?? 0,
+    ready: readyRows[0]?.n ?? 0,
+    dead: deadRows[0]?.n ?? 0,
+  };
 }
