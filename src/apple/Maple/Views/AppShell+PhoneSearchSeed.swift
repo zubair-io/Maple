@@ -30,6 +30,12 @@ extension AppShell {
     /// `@AppStorage("cm.tab.shell")` observes the write regardless of who
     /// made it.
     func switchToPhoneSearchTab(seeding params: SearchParams, libraryID: String?) {
+        // #3773: `PhoneTabShell.validTabs` drops "search" with Maple Cloud
+        // off; writing it anyway would select a `TabView` value with no
+        // matching `Tab` (nothing highlighted, drawer mode misfires) and
+        // only `onAppear` would repair it. The seed is dropped too — there
+        // is no search surface to apply it to.
+        guard FeatureFlags.isMapleCloudEnabled else { return }
         var resolvedParams = params
         resolvedParams.libraryID = libraryID
         pendingPhoneSearchSeed = resolvedParams

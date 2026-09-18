@@ -336,6 +336,7 @@ struct AppShell: View {
   /// Search is only available against a Maple Cloud library — local /
   /// PhotoKit / SMB sources have no server-side index to query.
   var searchAvailable: Bool {
+    guard FeatureFlags.isMapleCloudEnabled else { return false }
     if case .cloudLibrary = librarySelection { return true }
     return false
   }

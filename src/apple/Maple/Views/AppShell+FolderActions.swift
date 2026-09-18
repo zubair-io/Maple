@@ -371,6 +371,14 @@ extension AppShell {
         case .smb(let share):
             connectSavedSMB(share)
         case .cloudLibrary(let serverID, let folderID, let libraryPath):
+            // #3773: a selection saved by a build that had Maple Cloud on
+            // (TestFlight, an early build) must not land a release user
+            // inside a cloud grid the rest of the UI no longer shows.
+            guard FeatureFlags.isMapleCloudEnabled else {
+                SourceSelectionStore.clear()
+                await autoPickInitialSource()
+                return
+            }
             // Saved before the operator revoked file access (#2899)? The
             // browse grid would just 403 — fall back to the cross-source
             // Timeline instead. `sessionFor` restores from cache without a
@@ -412,7 +420,9 @@ extension AppShell {
         // fallback is exhausted the cross-source Timeline is their home,
         // matching the web app's restricted-member landing.
         var sawRestrictedServer = false
-        for serverURL in CloudServerRegistry.shared.servers {
+        // #3773: with Maple Cloud off, registered servers are not a source.
+        let candidateServers = FeatureFlags.isMapleCloudEnabled ? CloudServerRegistry.shared.servers : []
+        for serverURL in candidateServers {
             let session = sessionFor(serverURL)
             if !session.isSignedIn { await session.bootstrapAndRestore() }
             guard session.isSignedIn else { continue }

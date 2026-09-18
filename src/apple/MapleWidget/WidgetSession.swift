@@ -35,6 +35,12 @@ struct WidgetSession {
   /// the network work afterwards is off-actor inside the clients' actors.
   @MainActor
   static func current() -> WidgetSession? {
+    // #3773: the widget is Maple Cloud end to end (server registry, shared
+    // Keychain tokens, cloud fetches on every refresh), so it honours the
+    // same gate as the app. Belt and braces with the bundle-level check in
+    // `MapleWidgetBundle` — a timeline already placed on the Home Screen
+    // before a flag flip still refreshes through here.
+    guard FeatureFlags.isMapleCloudEnabled else { return nil }
     // The same App Group suite (and migration) the app's own singleton uses
     // — one factory, so app and extension can never read different domains.
     let registry = CloudServerRegistry(defaults: CloudServerRegistry.appGroupDefaults())

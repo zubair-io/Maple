@@ -31,6 +31,10 @@ struct MapleApp: App {
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
+    // #3773: hand the widget extension the same Cloud/Pano answer this
+    // process resolved — its Info.plist is never stamped and it can't see
+    // our launch arguments, so it reads the App Group instead.
+    FeatureFlags.publishResolvedFlags()
     Self.registerBundledFonts()
     Self.installMemoryPressureObserver()
     BGTaskRegistration.register()

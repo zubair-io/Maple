@@ -17,13 +17,21 @@ import MapleCore
 /// Namespace for pure `LibrarySidebar` derivations.
 enum LibrarySidebarVM {
 
+  /// The Maple Cloud gate (#3773), latched once per process. The flag
+  /// resolves through the process environment, `UserDefaults` and
+  /// `Bundle.main` — none of which change while the app runs — and the
+  /// sidebar body asks several times per pass, so re-reading it there
+  /// would allocate an environment dictionary on every render. Tests pass
+  /// the value explicitly and never touch this.
+  static let cloudFlag = FeatureFlags.isMapleCloudEnabled
+
   /// Whether the Map row is displayed in the sidebar (requires cloud backend).
-  static func showsMapRow(cloudEnabled: Bool = FeatureFlags.isMapleCloudEnabled) -> Bool {
+  static func showsMapRow(cloudEnabled: Bool = cloudFlag) -> Bool {
     cloudEnabled
   }
 
   /// Whether the Maple Cloud servers block is displayed in the sidebar.
-  static func showsCloudServers(cloudEnabled: Bool = FeatureFlags.isMapleCloudEnabled) -> Bool {
+  static func showsCloudServers(cloudEnabled: Bool = cloudFlag) -> Bool {
     cloudEnabled
   }
 
