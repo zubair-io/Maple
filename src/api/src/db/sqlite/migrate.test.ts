@@ -14,7 +14,7 @@ import {
   type Migration,
 } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
-import { openMigratedDatabase, openTestDatabase } from './test-sqlite.test-helpers.ts';
+import { createBlankTestDatabase, createTestDatabase } from './test-sqlite.test-helpers.ts';
 
 function tableExists(
   db: { query: (sql: string) => { get: (...a: string[]) => unknown } },
@@ -25,7 +25,8 @@ function tableExists(
 
 describe('runMigrations', () => {
   test('applies every pending migration and records it', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const migrationDb = handle.migrationDb;
     const result = await runMigrations(migrationDb, ALL_MIGRATIONS);
 
     expect(result.applied).toEqual(ALL_MIGRATIONS.map((m) => m.id));
@@ -37,11 +38,11 @@ describe('runMigrations', () => {
       expect(row.applied_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(row.duration_ms).toBeGreaterThanOrEqual(0);
     }
-    db.close();
   });
 
   test('is idempotent — a second run applies nothing', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const migrationDb = handle.migrationDb;
     await runMigrations(migrationDb, ALL_MIGRATIONS);
 
     const second = await runMigrations(migrationDb, ALL_MIGRATIONS);
@@ -51,19 +52,19 @@ describe('runMigrations', () => {
     // And exactly one sentinel row per migration, not two.
     const rows = await appliedMigrations(migrationDb);
     expect(rows.length).toBe(ALL_MIGRATIONS.length);
-    db.close();
   });
 
   test('creates the sentinel table on a database that has never been touched', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const { db, migrationDb } = handle;
     expect(tableExists(db, SCHEMA_MIGRATIONS_TABLE)).toBe(false);
     await runMigrations(migrationDb, []);
     expect(tableExists(db, SCHEMA_MIGRATIONS_TABLE)).toBe(true);
-    db.close();
   });
 
   test('applies only the migrations that are missing', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const { db, migrationDb } = handle;
     const first: Migration = {
       id: '0001-a',
       up: (m) => {
@@ -83,11 +84,11 @@ describe('runMigrations', () => {
     expect(result.applied).toEqual(['0002-b']);
     expect(result.skipped).toEqual(['0001-a']);
     expect(tableExists(db, 'b')).toBe(true);
-    db.close();
   });
 
   test('rolls a failing migration back, leaving nothing behind', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const { db, migrationDb } = handle;
     const good: Migration = {
       id: '0001-good',
       up: (m) => {
@@ -120,11 +121,11 @@ describe('runMigrations', () => {
 
     expect(await migrationApplied(migrationDb, '0001-good')).toBe(true);
     expect(await migrationApplied(migrationDb, '0002-bad')).toBe(false);
-    db.close();
   });
 
   test('a failed migration is retried on the next run', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const { db, migrationDb } = handle;
     let attempts = 0;
     const flaky: Migration = {
       id: '0001-flaky',
@@ -140,11 +141,11 @@ describe('runMigrations', () => {
 
     expect(retry.applied).toEqual(['0001-flaky']);
     expect(tableExists(db, 'eventually')).toBe(true);
-    db.close();
   });
 
   test('carries the original error as the cause', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const migrationDb = handle.migrationDb;
     const original = new Error('root cause');
     const bad: Migration = {
       id: '0001-bad',
@@ -155,13 +156,13 @@ describe('runMigrations', () => {
 
     const caught = await runMigrations(migrationDb, [bad]).catch((err: unknown) => err);
     expect((caught as Error).cause).toBe(original);
-    db.close();
   });
 });
 
 describe('pendingMigrations', () => {
   test('lists what has not been applied yet', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const migrationDb = handle.migrationDb;
     const first: Migration = { id: '0001-a', up: () => {} };
     const second: Migration = { id: '0002-b', up: () => {} };
 
@@ -173,7 +174,6 @@ describe('pendingMigrations', () => {
     expect((await pendingMigrations(migrationDb, [first, second])).map((m) => m.id)).toEqual([
       '0002-b',
     ]);
-    db.close();
   });
 });
 
@@ -217,7 +217,8 @@ describe('assertMigrationOrder', () => {
 
 describe('the migrated schema', () => {
   test('creates every table the API needs', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const names = (
       db
         .query(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`)
@@ -241,11 +242,11 @@ describe('the migrated schema', () => {
     ]) {
       expect(names).toContain(expected);
     }
-    db.close();
   });
 
   test('replaces the 24 per-stage indexes with 2', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const stageIndexes = (
       db
         .query(
@@ -255,6 +256,5 @@ describe('the migrated schema', () => {
     ).map((r) => r.name);
 
     expect(stageIndexes.sort()).toEqual(['stage_claim', 'stage_dead']);
-    db.close();
   });
 });
