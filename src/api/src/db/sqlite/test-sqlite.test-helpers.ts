@@ -382,6 +382,14 @@ export function liveLocationCount(db: Database, assetId: string): number {
  * installs it, and puts back whatever was there before on disposal, so nesting
  * and a suite that opens one per test both behave.
  *
+ * **Not safe under `test.concurrent`**, and that is the one way it differs from
+ * {@link createTestDatabase}. The handle it installs is process state, not a
+ * local binding, so two concurrent tests would each install one and the second
+ * would serve the first's queries — the per-suite-namespace collision the Mongo
+ * harness spent #2491 and #2783 on, reproduced exactly. A test that needs to run
+ * concurrently should call the repository with an explicit `dbOverride` from
+ * {@link createTestDatabase} instead, which is private to its own block.
+ *
  * ```ts
  * test('GET /api/folders lists roots', async () => {
  *   using live = await createLiveTestDatabase();
