@@ -172,7 +172,14 @@ function toChange(row: ChangeRow): AssetChangeWithId {
  *
  * Path separator is forward-slash throughout (the server stores POSIX paths;
  * the apple FP extension consumes them the same way).
+ *
+ * Copied from the Mongo repo rather than imported from it, and the copy is
+ * deliberate: importing would pull the Mongo client's whole module graph into
+ * this file for one pure function, and would leave a dangling import when the
+ * cutover (#3752) deletes that module. The parity test pins the two versions
+ * to the same type, and the duplication ends with the Mongo repo.
  */
+// fallow-ignore-next-line code-duplication
 export function computeRelativePath(folderPath: string, absPath: string): string | null {
   // Normalise the folder path so a trailing slash on the folder row doesn't
   // break the prefix-match.

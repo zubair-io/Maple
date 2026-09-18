@@ -144,6 +144,12 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
   .get(
     '/subscribe',
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    // The SSE generator has been over the complexity threshold since it was
+    // written — the replay/subscribe handshake, the keepalive race and the
+    // overflow guard are one state machine and splitting them is what the
+    // seam comments above warn against. This change touches two lines inside
+    // it, which is enough to re-fingerprint the finding as new.
+    // fallow-ignore-next-line complexity
     async function* ({ query, set, request }) {
       const since = Number.parseInt(query.since ?? '0', 10);
       if (!Number.isFinite(since) || since < 0) {

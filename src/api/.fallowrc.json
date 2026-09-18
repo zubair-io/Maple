@@ -26,9 +26,23 @@
   // own tests, which fallow does not count — so every primitive reads as dead
   // code. Reported but not gating for now; the API's startup path wires the
   // pool at the cutover (#3752) and this block is deleted in that PR.
+  //
+  // `src/runtime/sqlite/**` is the same situation one layer up: the ported
+  // change-feed tailer (#3747) has no caller until the cutover either. Its
+  // duplication against the Mongo tailer is suppressed in the file itself,
+  // because duplication is not one of the rules an override can reach. Both
+  // blocks go away in #3752.
   "overrides": [
     {
       "files": ["src/db/sqlite/**"],
+      "rules": {
+        "unused-exports": "warn",
+        "unused-types": "warn",
+        "unused-class-members": "warn"
+      }
+    },
+    {
+      "files": ["src/runtime/sqlite/**"],
       "rules": {
         "unused-exports": "warn",
         "unused-types": "warn",
