@@ -164,7 +164,6 @@ struct PhotoThumbnailCell: View {
       }
     }
     .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
-    .contentShape(Rectangle())
     // Drag preview (#2779): the cell's already-decoded bitmap (or the
     // sync `cachedImage` peek used above for the tile itself) — no
     // new decode work for the preview closure. `nil` when neither is
@@ -381,10 +380,20 @@ private struct TapWithFrame: ViewModifier {
   @State private var frame: CGRect = .zero
 
   func body(content: Content) -> some View {
+    let isWatched = onFrameChange != nil
     content
+      // Before the tap, so a tap anywhere in the cell's box counts.
+      .contentShape(Rectangle())
       .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { new in
         frame = new
         onFrameChange?(new)
+      }
+      // Geometry only reports on change. A cell that becomes the selected
+      // one while it sits still (paging in Preview to a tile already on
+      // screen — the scroll-into-view is a no-op) must report where it
+      // already is, or the close would shrink into the wrong tile.
+      .onChange(of: isWatched) { _, watched in
+        if watched { onFrameChange?(frame) }
       }
       .onTapGesture { onTap(frame) }
   }
