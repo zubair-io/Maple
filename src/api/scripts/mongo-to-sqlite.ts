@@ -116,4 +116,15 @@ async function main(): Promise<number> {
   return verificationFailed(verified) ? 1 : 0;
 }
 
-process.exitCode = await main();
+/**
+ * An operator running a cutover should get a sentence, not a stack trace, when
+ * MongoDB is unreachable or the destination path is not writable — and should
+ * be told the recovery, which is always the same command again: the checkpoint
+ * is durable, so a failed run resumes rather than starting over.
+ */
+process.exitCode = await main().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`\nImport failed: ${message}\n`);
+  process.stderr.write('Re-run the same command to resume from the last committed batch.\n');
+  return 1;
+});
