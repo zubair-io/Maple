@@ -14,10 +14,13 @@
  *     resumes the (paused-by-default) worker.
  */
 
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'deduplicate';
 const log = childLogger('deduplicate:config');
 
@@ -47,8 +50,7 @@ export function clampBatchSize(n: number): number {
 /** Resolve the effective config. Missing doc / missing fields → defaults. */
 export async function loadDeDuplicateConfig(): Promise<DeDuplicateConfig> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<DeDuplicateConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<DeDuplicateConfigDoc>(DOC_ID);
     return {
       batch_size:
         typeof doc?.batch_size === 'number' ? clampBatchSize(doc.batch_size) : DEFAULT_BATCH_SIZE,
@@ -67,12 +69,9 @@ export async function loadDeDuplicateConfig(): Promise<DeDuplicateConfig> {
 export async function saveDeDuplicateConfig(
   patch: Partial<DeDuplicateConfig>,
 ): Promise<DeDuplicateConfig> {
-  const set: Partial<DeDuplicateConfigDoc> = {};
+  const set: Record<string, SettingsValue | undefined> = {};
   if (patch.batch_size !== undefined) set.batch_size = clampBatchSize(patch.batch_size);
   if (patch.dry_run !== undefined) set.dry_run = patch.dry_run;
-  const db = await getDb();
-  await db
-    .collection<DeDuplicateConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
   return loadDeDuplicateConfig();
 }

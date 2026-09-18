@@ -4,9 +4,12 @@
  * `cloudflare-config.repo.ts`. Operator-editable at runtime (Settings →
  * Workers), never an env var (CLAUDE.md).
  */
-import { getDb } from '../../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../../db/sqlite/repos/app-settings.repo.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'derivative-audit';
 
 export interface DerivativeAuditConfig {
@@ -44,8 +47,7 @@ export const DEFAULT_DERIVATIVE_AUDIT_CONFIG: DerivativeAuditConfig = {
  * read error (mirrors `loadCloudflareConfig`'s swallow-and-default). */
 export async function loadDerivativeAuditConfig(): Promise<DerivativeAuditConfig> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<DerivativeAuditConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<DerivativeAuditConfigDoc>(DOC_ID);
     return { ...DEFAULT_DERIVATIVE_AUDIT_CONFIG, ...(doc?.config ?? {}) };
   } catch {
     return { ...DEFAULT_DERIVATIVE_AUDIT_CONFIG };
@@ -56,8 +58,7 @@ export async function loadDerivativeAuditConfig(): Promise<DerivativeAuditConfig
 export async function saveDerivativeAuditConfig(
   patch: Partial<DerivativeAuditConfig>,
 ): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = { 'config.updated_at': Date.now() };
+  const set: Record<string, SettingsValue | undefined> = { 'config.updated_at': Date.now() };
   for (const k of [
     'enabled',
     'interval_ms',
@@ -67,7 +68,5 @@ export async function saveDerivativeAuditConfig(
   ] as const) {
     if (patch[k] !== undefined) set[`config.${k}`] = patch[k];
   }
-  await db
-    .collection<DerivativeAuditConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }

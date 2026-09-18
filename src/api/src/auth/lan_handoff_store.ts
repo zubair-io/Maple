@@ -1,4 +1,4 @@
-// LAN handoff one-time code store.
+// LAN handoff one-time code store — now stored in SQLite (#3787).
 //
 // A signed-in web session on the public URL mints a short-TTL, single-use
 // code; the SAME browser redeems it moments later on the server's LAN
@@ -11,53 +11,16 @@
 // could intercept. Here there's no such side-channel — code and any verifier
 // would travel together in the same redirect URL — so a bare single-use,
 // short-TTL code carries the same guarantee.
-import type { ObjectId } from 'mongodb';
-import { lanHandoffCodesCollection } from '../db/client.ts';
-import {
-  hashHandoffCode as hashCode,
-  HANDOFF_CODE_TTL_MS as LAN_HANDOFF_CODE_TTL_MS,
-  newHandoffCode,
-} from './handoff-code.ts';
+//
+// Both handoff tables are ported together in
+// `db/sqlite/repos/auth.codes.repo.ts`, because they are the same mechanism
+// with and without PKCE. The single-use guarantee survives the move: what was
+// one `findOneAndUpdate` is now one `UPDATE` carrying the same conditions in
+// its `WHERE`, and a row count of 1 is what says this caller spent the code.
 
-export interface IssuedLanHandoffCode {
-  code: string;
-}
-
-/** Issue a single-use, short-TTL code bound to the user. The raw code is
- * returned once; only its hash is persisted. */
-export async function issueLanHandoffCode(args: {
-  userId: ObjectId;
-  deviceLabel: string;
-}): Promise<IssuedLanHandoffCode> {
-  const code = newHandoffCode();
-  const c = await lanHandoffCodesCollection();
-  await c.insertOne({
-    code_hash: hashCode(code),
-    user_id: args.userId,
-    device_label: args.deviceLabel,
-    created_at: new Date().toISOString(),
-    expires_at: new Date(Date.now() + LAN_HANDOFF_CODE_TTL_MS),
-    consumed_at: null,
-  });
-  return { code };
-}
-
-export interface RedeemedLanHandoffCode {
-  userId: ObjectId;
-  deviceLabel: string;
-}
-
-/** Atomically consume the code IFF it is unconsumed and unexpired — a single
- * CAS via `findOneAndUpdate`, no read-then-write TOCTOU. Returns null when
- * nothing matched (unknown, expired, or already-consumed code). */
-export async function redeemLanHandoffCode(
-  rawCode: string,
-): Promise<RedeemedLanHandoffCode | null> {
-  const c = await lanHandoffCodesCollection();
-  const row = await c.findOneAndUpdate(
-    { code_hash: hashCode(rawCode), consumed_at: null, expires_at: { $gt: new Date() } },
-    { $set: { consumed_at: new Date().toISOString() } },
-  );
-  if (!row) return null;
-  return { userId: row.user_id, deviceLabel: row.device_label };
-}
+export {
+  issueLanHandoffCode,
+  redeemLanHandoffCode,
+  type IssuedLanHandoffCode,
+  type RedeemedLanHandoffCode,
+} from '../db/sqlite/repos/auth.codes.repo.ts';

@@ -17,9 +17,12 @@
  * threaded-CPU `render_bytes` fallback accordingly.
  */
 
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'render';
 
 /**
@@ -61,8 +64,7 @@ export interface ResolvedRenderConfig {
  */
 export async function loadRenderConfig(): Promise<RenderConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<RenderConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<RenderConfigDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -72,16 +74,13 @@ export async function loadRenderConfig(): Promise<RenderConfig | null> {
 /** Upsert. Partial patches are supported: only the fields you supply are
  * touched, the rest of the config doc is preserved. */
 export async function saveRenderConfig(patch: Partial<RenderConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = {
+  const set: Record<string, SettingsValue | undefined> = {
     'config.updated_at': Date.now(),
   };
   if (patch.gpu_live_render_enabled !== undefined) {
     set['config.gpu_live_render_enabled'] = patch.gpu_live_render_enabled;
   }
-  await db
-    .collection<RenderConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }
 
 /**

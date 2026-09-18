@@ -2,8 +2,10 @@
  * existing Cloudflare settings storage policy and never leave this module's
  * server-side callers. Certificate material is in a separate internal row. */
 import { isIP } from 'node:net';
-import { getDb } from '../db/client.ts';
+import { patchAppSettings, readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
 import { SERVER_PORT } from '../runtime/server-port.ts';
+
+const DOC_ID = 'managed_https';
 
 export interface ManagedHttpsConfig {
   enabled: boolean;
@@ -59,16 +61,10 @@ export function validateHttpsConfig(config: ManagedHttpsConfig): string | null {
 }
 
 export async function loadHttpsConfig(): Promise<ManagedHttpsConfig> {
-  const db = await getDb();
-  const doc = await db
-    .collection<{ _id: string; config: ManagedHttpsConfig }>('app_settings')
-    .findOne({ _id: 'managed_https' });
+  const doc = await readAppSettings<{ config?: ManagedHttpsConfig }>(DOC_ID);
   return { ...DEFAULT_HTTPS, ...doc?.config };
 }
 
 export async function saveHttpsConfig(config: ManagedHttpsConfig): Promise<void> {
-  const db = await getDb();
-  await db
-    .collection<{ _id: string; config: ManagedHttpsConfig }>('app_settings')
-    .updateOne({ _id: 'managed_https' }, { $set: { config } }, { upsert: true });
+  await patchAppSettings(DOC_ID, { config });
 }

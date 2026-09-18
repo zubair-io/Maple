@@ -1,4 +1,4 @@
-// Native one-time auth-code store (#856).
+// Native one-time auth-code store (#856) — now stored in SQLite (#3787).
 //
 // PKCE code-exchange for the Apple shell, replacing the legacy
 // token-in-redirect-URL bridge. The web app (after a passkey ceremony
@@ -6,102 +6,23 @@
 // challenge + opaque state; the native app redeems it (with the verifier) for
 // freshly-minted, device-scoped tokens. A raw refresh token therefore never
 // rides in a redirect URL.
-import type { ObjectId } from 'mongodb';
-import { nativeAuthCodesCollection } from '../db/client.ts';
-import {
-  hashHandoffCode as hashCode,
-  HANDOFF_CODE_TTL_MS as NATIVE_CODE_TTL_MS,
-  newHandoffCode,
+//
+// The storage moved to `db/sqlite/repos/auth.codes.repo.ts` under the same
+// names. The two properties that matter are unchanged: a code is spendable
+// exactly once, and a wrong verifier neither succeeds nor burns it, because
+// the challenge match is still part of the compare-and-swap's predicate rather
+// than a check afterwards.
+//
+// `pkceS256`, the code generator and the hashing live in `./handoff-code.ts`
+// and are shared by both stores — one definition cannot drift from itself.
+// `pkceS256` is re-exported here because the native auth routes import it from
+// this path.
+
+export {
+  claimNativeCode,
+  issueNativeCode,
   pkceS256,
-} from './handoff-code.ts';
-
-// The hashing, the code generator and the PKCE transform are shared with the
-// LAN handoff store and with the SQLite port (#3751) — see `./handoff-code.ts`
-// for why one definition matters. `pkceS256` is re-exported because the native
-// auth routes import it from here.
-export { pkceS256 };
-
-export interface IssuedNativeCode {
-  code: string;
-}
-
-/** Issue a single-use, short-TTL authorization code bound to the user, the
- * PKCE challenge, and an opaque `state`. The raw code is returned once; only
- * its hash is persisted. */
-export async function issueNativeCode(args: {
-  userId: ObjectId;
-  codeChallenge: string;
-  state: string;
-  deviceLabel: string;
-}): Promise<IssuedNativeCode> {
-  const code = newHandoffCode();
-  const c = await nativeAuthCodesCollection();
-  await c.insertOne({
-    code_hash: hashCode(code),
-    code_challenge: args.codeChallenge,
-    state: args.state,
-    user_id: args.userId,
-    device_label: args.deviceLabel,
-    created_at: new Date().toISOString(),
-    expires_at: new Date(Date.now() + NATIVE_CODE_TTL_MS),
-    consumed_at: null,
-  });
-  return { code };
-}
-
-export interface RedeemedNativeCode {
-  userId: ObjectId;
-  deviceLabel: string;
-  state: string;
-}
-
-/** Atomically consume the code IFF it is unconsumed, unexpired, and the
- * supplied verifier hashes to the stored PKCE challenge. The challenge match is
- * part of the `findOneAndUpdate` filter (a single CAS — no read-then-write
- * TOCTOU), so a wrong verifier neither succeeds nor burns the code. Returns
- * null when nothing matched. */
-export async function redeemNativeCode(
-  rawCode: string,
-  codeVerifier: string,
-): Promise<RedeemedNativeCode | null> {
-  return await consumePending({
-    code_hash: hashCode(rawCode),
-    code_challenge: pkceS256(codeVerifier),
-  });
-}
-
-/**
- * The CAS both redeem paths share: consume the single row matching `identity`
- * that is also unconsumed and unexpired, and return what it proves.
- *
- * `identity` is whatever names the code — its hash, or its `state` — plus the
- * PKCE challenge, which is in the filter rather than checked afterwards so a
- * wrong verifier neither succeeds nor burns the code.
- */
-async function consumePending(
-  identity: Record<string, unknown>,
-): Promise<RedeemedNativeCode | null> {
-  const c = await nativeAuthCodesCollection();
-  const row = await c.findOneAndUpdate(
-    { ...identity, consumed_at: null, expires_at: { $gt: new Date() } },
-    { $set: { consumed_at: new Date().toISOString() } },
-  );
-  if (!row) return null;
-  return { userId: row.user_id, deviceLabel: row.device_label, state: row.state };
-}
-
-/** Atomically consume a pending code by `state` + PKCE verifier, WITHOUT the
- * raw code (#3063). The polling completion channel: Chromium refuses to launch
- * `maple-app://` from a script navigation with no user gesture, so a browser
- * that was already signed in mints the code but can never deliver it via the
- * redirect. The raw code only ever existed to bind that redirect hop; a caller
- * who proves possession of the private verifier (and the ceremony's own
- * `state`) is the same principal, so the same CAS applies — single-use,
- * unexpired, challenge must hash-match. Returns null while nothing is pending
- * (the app keeps polling) or when the verifier/state don't match. */
-export async function claimNativeCode(
-  state: string,
-  codeVerifier: string,
-): Promise<RedeemedNativeCode | null> {
-  return await consumePending({ state, code_challenge: pkceS256(codeVerifier) });
-}
+  redeemNativeCode,
+  type IssuedNativeCode,
+  type RedeemedNativeCode,
+} from '../db/sqlite/repos/auth.codes.repo.ts';

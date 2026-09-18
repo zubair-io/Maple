@@ -11,11 +11,14 @@
  * from Settings → Workers, re-read each sweep tick so changes take effect without restart.
  */
 
-import type { Db } from 'mongodb';
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
+import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
 import { child as childLogger } from '../log.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'change-log-gc';
 const log = childLogger('change-log-gc:config');
 
@@ -52,10 +55,9 @@ export function clampRetentionDays(n: number): number {
 }
 
 /** Load full config document from app_settings. */
-export async function loadChangeLogGcConfig(dbOverride?: Db): Promise<ChangeLogGcConfig> {
+export async function loadChangeLogGcConfig(dbOverride?: SqliteDb): Promise<ChangeLogGcConfig> {
   try {
-    const db = dbOverride ?? (await getDb());
-    const doc = await db.collection<ChangeLogGcDoc>(COLL).findOne({ _id: DOC_ID as never });
+    const doc = await readAppSettings<ChangeLogGcDoc>(DOC_ID, dbOverride);
     if (doc) {
       return {
         enabled: doc.enabled ?? true,
@@ -82,34 +84,26 @@ export async function loadChangeLogGcConfig(dbOverride?: Db): Promise<ChangeLogG
 /** Persist partial config patch. Returns updated config. */
 export async function saveChangeLogGcConfig(
   patch: Partial<Pick<ChangeLogGcConfig, 'enabled' | 'retention_days'>>,
-  dbOverride?: Db,
+  dbOverride?: SqliteDb,
 ): Promise<ChangeLogGcConfig> {
-  const setDoc: Partial<ChangeLogGcDoc> = {};
+  const setDoc: Record<string, SettingsValue | undefined> = {};
   if (typeof patch.enabled === 'boolean') {
     setDoc.enabled = patch.enabled;
   }
   if (typeof patch.retention_days === 'number') {
     setDoc.retention_days = clampRetentionDays(patch.retention_days);
   }
-  if (Object.keys(setDoc).length > 0) {
-    const db = dbOverride ?? (await getDb());
-    await db
-      .collection<ChangeLogGcDoc>(COLL)
-      .updateOne({ _id: DOC_ID as never }, { $set: setDoc }, { upsert: true });
-  }
+  await patchAppSettings(DOC_ID, setDoc, dbOverride);
   return loadChangeLogGcConfig(dbOverride);
 }
 
 /** Record summary of the latest sweep pass. */
 export async function recordChangeLogGcRun(
   summary: ChangeLogGcRunSummary,
-  dbOverride?: Db,
+  dbOverride?: SqliteDb,
 ): Promise<void> {
   try {
-    const db = dbOverride ?? (await getDb());
-    await db
-      .collection<ChangeLogGcDoc>(COLL)
-      .updateOne({ _id: DOC_ID as never }, { $set: { last_run: summary } }, { upsert: true });
+    await patchAppSettings(DOC_ID, { last_run: summary }, dbOverride);
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : err },

@@ -41,14 +41,18 @@ export type { SqliteDb } from './db-handle.ts';
  * Anything that survives a JSON round trip, which is everything these
  * documents hold: flags, thresholds, URLs, model names, and the
  * migration row's nested per-migration state.
+ *
+ * The composite branch is `object` rather than a recursive index signature
+ * because several settings documents store an `interface`-typed payload whole —
+ * the describe-server list and AI-connection block on the `enrichment` row, the
+ * `change-log-gc` run summary, the `managed_https` config — and TypeScript only
+ * grants an implicit index signature to a *type alias*, so a structurally
+ * JSON-shaped interface is rejected by `{ [key: string]: SettingsValue }`.
+ * Spelling it `object` is what lets those call sites hand their own declared
+ * type over unchanged instead of casting at the boundary. Nothing is lost at
+ * runtime: every value is `JSON.stringify`d on the way in either way.
  */
-export type SettingsValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly SettingsValue[]
-  | { readonly [key: string]: SettingsValue };
+export type SettingsValue = string | number | boolean | null | object;
 
 /**
  * A `$set` payload: field path → new value. A path may be dotted

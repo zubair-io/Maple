@@ -12,7 +12,11 @@ import type { AiConnectionsConfig } from './ai-connections.ts';
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
 import type { DescribeProviderName } from './describe-providers/index.ts';
 import type { DescribeServerConfig } from './describe-servers.ts';
@@ -33,7 +37,6 @@ import {
 } from './meilisearch-config.ts';
 import { DEFAULT_MEILISEARCH_TASK_TIMEOUT_MS } from './meilisearch-transport.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'enrichment';
 const log = childLogger('enrichment:config-repo');
 
@@ -289,8 +292,7 @@ interface EnrichmentConfigDoc {
  * boot of a fresh database). The caller should fall back to env vars. */
 export async function loadEnrichmentConfig(): Promise<EnrichmentConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<EnrichmentConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<EnrichmentConfigDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -320,7 +322,7 @@ const MEILISEARCH_SEMANTIC_FIELDS = [
 ] as const;
 
 function copyMeilisearchSemanticFields(
-  set: Record<string, unknown>,
+  set: Record<string, SettingsValue | undefined>,
   config: Partial<EnrichmentConfig>,
 ): void {
   for (const field of MEILISEARCH_SEMANTIC_FIELDS) {
@@ -340,8 +342,7 @@ function copyMeilisearchSemanticFields(
  * present in one patch, the new key wins. */
 // fallow-ignore-next-line complexity
 export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = {
+  const set: Record<string, SettingsValue | undefined> = {
     'config.updated_at': Date.now(),
   };
 
@@ -439,7 +440,5 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
     set['config.service_search_rate_limit_per_minute'] =
       remapped.service_search_rate_limit_per_minute;
   }
-  await db
-    .collection<EnrichmentConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }

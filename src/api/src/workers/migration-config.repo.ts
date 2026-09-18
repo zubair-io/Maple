@@ -20,11 +20,15 @@
  * the `processed` counter — so a re-run after new data appears just works.
  */
 
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  unsetAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
 import { BACKFILL_MEILISEARCH_VECTORS_ID } from './migration/ids.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'migration';
 const log = childLogger('migration:config');
 
@@ -88,8 +92,7 @@ function hydrate(partial: Partial<MigrationState> | undefined): MigrationState {
  * doc / DB error → empty map (callers fall back to per-id defaults). */
 export async function loadAllMigrationStates(): Promise<Record<string, MigrationState>> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<MigrationDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<MigrationDoc>(DOC_ID);
     const out: Record<string, MigrationState> = {};
     for (const [id, partial] of Object.entries(doc?.migrations ?? {})) {
       out[id] = hydrate(partial);
@@ -115,13 +118,9 @@ export async function patchMigrationState(
   id: string,
   partial: Partial<MigrationState>,
 ): Promise<void> {
-  const set: Record<string, unknown> = {};
+  const set: Record<string, SettingsValue | undefined> = {};
   for (const [k, v] of Object.entries(partial)) set[`migrations.${id}.${k}`] = v;
-  if (Object.keys(set).length === 0) return;
-  const db = await getDb();
-  await db
-    .collection<MigrationDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }
 
 /**
@@ -191,15 +190,16 @@ export async function resetMigrationState(id: string): Promise<MigrationState> {
  */
 export async function pruneUnknownMigrationStates(knownIds: readonly string[]): Promise<string[]> {
   try {
-    const db = await getDb();
-    const coll = db.collection<MigrationDoc>(COLL);
-    const doc = await coll.findOne({ _id: DOC_ID }, { projection: { migrations: 1 } });
+    const doc = await readAppSettings<MigrationDoc>(DOC_ID);
     const known = new Set(knownIds);
     const dead = Object.keys(doc?.migrations ?? {}).filter((id) => !known.has(id));
     if (dead.length === 0) return [];
-    const unset: Record<string, ''> = {};
-    for (const id of dead) unset[`migrations.${id}`] = '';
-    await coll.updateOne({ _id: DOC_ID }, { $unset: unset });
+    // Each id is kebab-case, so the dotted path is quoted segment by segment
+    // on the way into SQLite's JSON path syntax — see `unsetAppSettings`.
+    await unsetAppSettings(
+      DOC_ID,
+      dead.map((id) => `migrations.${id}`),
+    );
     log.info({ pruned: dead }, 'pruned persisted state for migrations no longer in the registry');
     return dead;
   } catch (err) {

@@ -1,33 +1,38 @@
 /**
- * Atomic server-ownership claim (#865).
+ * `auth/server_claim.ts` reaches the SQLite store (#3787).
  *
- * The first registration claims the single owner slot. This proves the claim is
- * atomic under concurrency — the TOCTOU that let two simultaneous first
- * registrations both become owner is closed.
+ * The sentinel's own behaviour — the concurrent race, the release, the
+ * boot-time backfill — is covered against the repository in
+ * `db/sqlite/repos/server-state.repo.test.ts`. This file covers the module
+ * `routes/auth.ts` and `index.ts` import: that the claim they call is the
+ * SQLite one, and that the exported id still names the row they look for.
  */
-process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import {
-  tryClaimOwnership,
-  releaseOwnershipClaim,
   OWNER_CLAIM_ID,
+  releaseOwnershipClaim,
+  tryClaimOwnership,
 } from '../../src/auth/server_claim.ts';
-import { serverStateCollection } from '../../src/db/client.ts';
+import { createLiveTestDatabase } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-beforeEach(async () => {
-  await (await serverStateCollection()).deleteOne({ _id: OWNER_CLAIM_ID });
-});
+describe('server ownership claim (#865) through the auth module', () => {
+  it('the first registration wins the single owner slot, and only the first', async () => {
+    using live = await createLiveTestDatabase();
 
-describe('server ownership claim (#865)', () => {
-  it('lets exactly one of many concurrent claimers win', async () => {
-    const results = await Promise.all(Array.from({ length: 8 }, () => tryClaimOwnership()));
-    expect(results.filter(Boolean)).toHaveLength(1);
-  });
-
-  it('a second claim fails until the first is released', async () => {
     expect(await tryClaimOwnership()).toBe(true);
     expect(await tryClaimOwnership()).toBe(false);
+
+    const rows = live.db
+      .query(`SELECT id FROM server_state WHERE id = ?`)
+      .all(OWNER_CLAIM_ID) as Array<{ id: string }>;
+    expect(rows).toHaveLength(1);
+  });
+
+  it('releasing lets the server be claimed again after a failed registration', async () => {
+    using live = await createLiveTestDatabase();
+
+    expect(await tryClaimOwnership()).toBe(true);
     await releaseOwnershipClaim();
     expect(await tryClaimOwnership()).toBe(true);
   });

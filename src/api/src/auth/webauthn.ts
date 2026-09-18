@@ -9,9 +9,18 @@ import {
   type VerifiedRegistrationResponse,
   type VerifiedAuthenticationResponse,
 } from '@simplewebauthn/server';
-import { challengesCollection, credentialsCollection } from '../db/client.ts';
+import { consumeChallenge, storeChallenge } from '../db/sqlite/repos/auth.challenges.repo.ts';
+import { listCredentialDescriptorsForUser } from '../db/sqlite/repos/auth.users.repo.ts';
 import { allowedBrowserOrigins } from '../runtime/allowed-origins.ts';
-import type { ChallengePurpose, CredentialDoc } from '../db/schema.ts';
+import type { CredentialDoc } from '../db/schema.ts';
+
+// The ceremony logic is `@simplewebauthn/server` and has no database in it.
+// The two things here that did — recording a challenge and spending it — moved
+// to `db/sqlite/repos/auth.challenges.repo.ts` at the cutover (#3787), along
+// with the five-minute lifetime and both of the error messages the register
+// and login routes surface. A challenge is still spendable exactly once: the
+// `findOneAndDelete` became a read followed by a delete whose row count
+// identifies the single winner.
 
 const RP_NAME = 'Maple';
 function rpID(): string {
@@ -21,27 +30,6 @@ function rpID(): string {
 // Allowed WebAuthn origins come from `runtime/allowed-origins.ts`:
 // MAPLE_ORIGIN (or the dev localhost ports) plus the managed LAN HTTPS
 // hostname while that listener is serving. SimpleWebAuthn accepts the array.
-
-const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-
-async function storeChallenge(args: {
-  challenge: string;
-  purpose: ChallengePurpose;
-  user_id: ObjectId | null;
-  email: string | null;
-  invite_code: string | null;
-}) {
-  const c = await challengesCollection();
-  await c.insertOne({ ...args, expires_at: new Date(Date.now() + CHALLENGE_TTL_MS) });
-}
-
-async function consumeChallenge(challenge: string) {
-  const c = await challengesCollection();
-  const row = await c.findOneAndDelete({ challenge });
-  if (!row) throw new Error('challenge not found / already consumed');
-  if (row.expires_at.getTime() < Date.now()) throw new Error('challenge expired');
-  return row;
-}
 
 /**
  * One WebAuthn registration ceremony: parse the clientDataJSON challenge,
@@ -130,8 +118,9 @@ async function verifyRegistration(args: {
 }
 
 export async function buildAuthenticationOptions(userId: ObjectId, email: string) {
-  const creds = await credentialsCollection();
-  const allowed = await creds.find({ user_id: userId }).toArray();
+  // Ids and transports only — a passkey's COSE public key has no place in a
+  // ceremony's options, and the repository's projection keeps it out.
+  const allowed = await listCredentialDescriptorsForUser(userId);
   const opts = await generateAuthenticationOptions({
     rpID: rpID(),
     allowCredentials: allowed.map((c) => ({

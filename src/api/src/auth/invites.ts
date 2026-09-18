@@ -1,50 +1,20 @@
-import type { ObjectId } from 'mongodb';
-import { invitesCollection } from '../db/client.ts';
-import { assertInviteRedeemable, generateInviteCode, INVITE_TTL_MS } from './invite-code.ts';
-import type { InviteDoc } from '../db/schema.ts';
+/**
+ * Invite codes — now stored in SQLite (#3787).
+ *
+ * The four operations moved verbatim to `db/sqlite/repos/auth.invites.repo.ts`
+ * under the same names and signatures, so this module is the re-export that
+ * keeps `routes/auth.ts` importing the path it always has. The alphabet, the
+ * generator, the lifetime and the redeemability assertion never moved: they
+ * live in `./invite-code.ts` and both stores share them, which is what stops a
+ * code minted from one alphabet being read back against another.
+ *
+ * Deleting MongoDB is #3785; until then this file is what makes the cutover a
+ * one-line revert rather than an edit to every caller.
+ */
 
-// The alphabet, the generator and the lifetime moved to `./invite-code.ts`
-// when the SQLite port (#3751) needed the same three — a code minted from one
-// alphabet and read back against another is a support ticket, not a bug report.
-
-export async function createInvite(
-  invitedBy: ObjectId,
-  email: string,
-): Promise<InviteDoc & { code: string; expires_at: Date }> {
-  const c = await invitesCollection();
-  const code = generateInviteCode();
-  const doc: InviteDoc = {
-    code,
-    email: email.toLowerCase(),
-    invited_by: invitedBy,
-    expires_at: new Date(Date.now() + INVITE_TTL_MS),
-    consumed_at: null,
-  };
-  await c.insertOne(doc);
-  return doc;
-}
-
-export async function redeemInvite(
-  code: string,
-  email: string,
-): Promise<{ ok: true; invitedBy: ObjectId }> {
-  const c = await invitesCollection();
-  const row = await c.findOne({ code });
-  assertInviteRedeemable(row, email);
-  await c.updateOne({ _id: row._id }, { $set: { consumed_at: new Date().toISOString() } });
-  return { ok: true, invitedBy: row.invited_by };
-}
-
-export async function listInvites(): Promise<
-  Pick<InviteDoc, 'code' | 'email' | 'expires_at' | 'consumed_at'>[]
-> {
-  const c = await invitesCollection();
-  return c
-    .find({}, { projection: { _id: 0, code: 1, email: 1, expires_at: 1, consumed_at: 1 } })
-    .toArray();
-}
-
-export async function rescindInvite(code: string): Promise<void> {
-  const c = await invitesCollection();
-  await c.deleteOne({ code });
-}
+export {
+  createInvite,
+  listInvites,
+  redeemInvite,
+  rescindInvite,
+} from '../db/sqlite/repos/auth.invites.repo.ts';

@@ -21,9 +21,12 @@
  * document only ever holds the boolean the operator controls at runtime.
  */
 
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'apns';
 
 export interface ApnsSettingsConfig {
@@ -44,8 +47,7 @@ export interface ResolvedApnsSettingsConfig {
 /** Read the persisted config. Returns `null` when no row exists yet. */
 export async function loadApnsSettingsConfig(): Promise<ApnsSettingsConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<ApnsSettingsDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<ApnsSettingsDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -57,14 +59,11 @@ export async function loadApnsSettingsConfig(): Promise<ApnsSettingsConfig | nul
  * same convention as `network-config.repo.ts`'s `saveNetworkConfig` and
  * `cloudflare-config.repo.ts`'s `saveCloudflareConfig`. */
 export async function saveApnsSettingsConfig(patch: Partial<ApnsSettingsConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = {
+  const set: Record<string, SettingsValue | undefined> = {
     'config.updated_at': Date.now(),
   };
   if (patch.enabled !== undefined) set['config.enabled'] = patch.enabled;
-  await db
-    .collection<ApnsSettingsDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }
 
 /** Resolve the effective config. Pure function of the DB doc — default off. */

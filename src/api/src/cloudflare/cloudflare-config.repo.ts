@@ -12,10 +12,13 @@
  * encryption piecemeal per-feature.
  */
 
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 import type { ResolvedCloudflareConfig } from './r2-client.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'cloudflare';
 
 export interface CloudflareConfig {
@@ -45,8 +48,7 @@ const DEFAULT_CONFIG: CloudflareConfig = {
 /** Read the persisted config. Returns `null` when no row exists yet. */
 export async function loadCloudflareConfig(): Promise<CloudflareConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<CloudflareConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<CloudflareConfigDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -59,8 +61,7 @@ export async function loadCloudflareConfig(): Promise<CloudflareConfig | null> {
  * translating "blank field in the UI" into "omit the key", never into an
  * explicit empty-string overwrite. */
 export async function saveCloudflareConfig(patch: Partial<CloudflareConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = {
+  const set: Record<string, SettingsValue | undefined> = {
     'config.updated_at': Date.now(),
   };
   if (patch.enabled !== undefined) set['config.enabled'] = patch.enabled;
@@ -70,9 +71,7 @@ export async function saveCloudflareConfig(patch: Partial<CloudflareConfig>): Pr
   if (patch.secret_access_key !== undefined) {
     set['config.secret_access_key'] = patch.secret_access_key;
   }
-  await db
-    .collection<CloudflareConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }
 
 /** Resolve the effective config, filling in defaults for a first-boot

@@ -16,9 +16,12 @@
  *      send telemetry direct-to-SigNoz from the browser/app.
  */
 
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'observability';
 
 /** Default SigNoz service namespace. Groups every Maple signal (API, web,
@@ -99,8 +102,7 @@ interface ObservabilityConfigDoc {
  * built-in defaults. */
 export async function loadObservabilityConfig(): Promise<ObservabilityConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<ObservabilityConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<ObservabilityConfigDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -110,8 +112,7 @@ export async function loadObservabilityConfig(): Promise<ObservabilityConfig | n
 /** Upsert. Partial patches are supported: only the fields you supply are
  * touched, the rest of the config doc is preserved. */
 export async function saveObservabilityConfig(patch: Partial<ObservabilityConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = {
+  const set: Record<string, SettingsValue | undefined> = {
     'config.updated_at': Date.now(),
   };
   if (patch.enabled !== undefined) {
@@ -138,9 +139,7 @@ export async function saveObservabilityConfig(patch: Partial<ObservabilityConfig
   if (patch.sample_ratio !== undefined) {
     set['config.sample_ratio'] = patch.sample_ratio;
   }
-  await db
-    .collection<ObservabilityConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }
 
 /**
