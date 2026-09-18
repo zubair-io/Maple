@@ -1,0 +1,215 @@
+/**
+ * Every statement the ported assets repository runs, in one place.
+ *
+ * The SQL is separated from the functions that call it for one reason: the
+ * shape of these queries is the performance argument, and a reviewer should be
+ * able to read all of it at once and check it against
+ * `docs/sqlite-schema.md`'s query-to-index map without stepping through
+ * TypeScript. Three shapes in here are load-bearing.
+ *
+ * **The list query is narrow.** {@link LIST_ITEMS_SQL} names seven columns.
+ * The Mongo query it replaces is a `find` with no projection, so a 1000-row
+ * page returns whole documents — measured at 10 MB of JSON, most of it vision
+ * payloads and face embeddings the list DTO never looks at. Because `assets`
+ * declares its two JSON columns last and neither is named here, SQLite stops
+ * reading each row before it reaches them.
+ *
+ * **Anything that filters assets by a location is a semi-join.** `EXISTS`
+ * keeps `assets` (or, for the phasset lookup, the link table) as the outer
+ * loop, so an ordered index scan can terminate at the limit. Written as an
+ * inner join the planner is free to lead with `asset_locations`, scan a whole
+ * library and sort every row of it to return a page: measured at 51.3 ms
+ * against 0.36 ms on 60,000 assets.
+ *
+ * **The live predicate is spelled exactly one way.** SQLite only uses a
+ * partial index when the query's own `WHERE` provably implies the index's, and
+ * the implication test is textual enough that a paraphrase silently loses the
+ * index. {@link LIVE_ASSET_PREDICATE} is imported from the DDL rather than
+ * retyped here so the two cannot drift.
+ */
+
+import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
+
+/**
+ * `?`-placeholder list for an `IN (…)` clause.
+ *
+ * Deliberately positional rather than `json_each` over a single bound array:
+ * a positional list gives the planner literal values it can turn into index
+ * probes, where a subquery over a table-valued function makes it build an
+ * ephemeral index first.
+ */
+export function placeholders(count: number): string {
+  return Array.from({ length: count }, () => '?').join(', ');
+}
+
+/**
+ * The asset row behind the detail and core-info DTOs.
+ *
+ * `exif` and `place` come last because the table declares them last: SQLite
+ * reads a row's columns in declaration order and stops once the statement has
+ * what it asked for, so naming them last is what keeps their overflow pages
+ * out of the queries that do not need them.
+ */
+const ASSET_CORE_COLUMNS = `
+  id, size, mtime, indexed_at,
+  rating, flag, color_label, has_xmp, sidecar_ver,
+  hidden, hidden_reason, hidden_ack, is_screenshot,
+  deleted_at, deleted_reason, original_path, maple_id,
+  exif, place`;
+
+export const ASSET_CORE_BY_ID_SQL = `SELECT ${ASSET_CORE_COLUMNS} FROM assets WHERE id = ?`;
+
+export function assetCoreByIdsSql(count: number): string {
+  return `SELECT ${ASSET_CORE_COLUMNS} FROM assets WHERE id IN (${placeholders(count)}) ORDER BY id`;
+}
+
+/**
+ * The narrow list projection — defect (1) of the ticket, fixed rather than
+ * reproduced.
+ *
+ * `ORDER BY captured_at DESC, id` is what lets `assets_live_captured` serve
+ * the page: an ordered partial index the scan can abandon at the limit,
+ * instead of a table scan that reads every live row before applying one. The
+ * Mongo query has no sort at all and therefore returns documents in whatever
+ * order the storage engine hands them over, so imposing this one makes the
+ * endpoint's output stable across calls as well as cheaper.
+ *
+ * `residuals` carries the optional `has_xmp` / `rating` / `captured_at`
+ * filters. They are interpolated as fixed SQL fragments with their values
+ * bound, so the statement text stays inside the worker's prepared-statement
+ * cache.
+ */
+export function listItemsSql(residuals: readonly string[], liveOnly: boolean): string {
+  const live = liveOnly ? [LIVE_ASSET_PREDICATE] : [];
+  const clauses = [...live, ...residuals];
+  const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  return `
+    SELECT id, mtime, rating, has_xmp, hidden, hidden_reason, hidden_ack
+      FROM assets
+      ${where}
+     ORDER BY captured_at DESC, id
+     LIMIT ?`;
+}
+
+/**
+ * Every location of every asset in the batch, in array order.
+ *
+ * Keyed on `asset_id` for a set of ids the caller already has, which is the
+ * probe half of the semi-join: `assets` decided which rows to return, and this
+ * fills in their `fileinfo` arrays. It never influences which assets come back.
+ */
+export function locationsByAssetIdsSql(count: number): string {
+  return `
+    SELECT asset_id, ordinal, library_id, path, filename,
+           deleted_at, missing_since, missing_reason, keep
+      FROM asset_locations
+     WHERE asset_id IN (${placeholders(count)})
+     ORDER BY asset_id, ordinal`;
+}
+
+/**
+ * Faces with their person's display name already resolved.
+ *
+ * One statement where the Mongo repo needs two round trips — the document,
+ * then an `$in` over `people` for the ids its faces referenced.
+ *
+ * That repo also has to canonicalise the id's case and discard malformed hex
+ * before building the `$in`, because `faces[].person_id` is a free-form string
+ * on Mongo and one bad value would throw for the whole asset. Here it is a
+ * foreign key into `people`, so a value that does not name a real person
+ * cannot be stored at all and the join needs no defence.
+ */
+export function facesByAssetIdsSql(count: number): string {
+  return `
+    SELECT f.asset_id, f.face_index, f.person_id, f.confidence,
+           f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, f.hidden,
+           f.landmarks, f.embedding, f.embedding_version,
+           p.name AS person_name
+      FROM faces f
+      LEFT JOIN people p ON p.id = f.person_id
+     WHERE f.asset_id IN (${placeholders(count)})
+     ORDER BY f.asset_id, f.face_index`;
+}
+
+export function detailByAssetIdsSql(count: number): string {
+  return `
+    SELECT asset_id, description, description_meta, ocr_text, ocr_meta,
+           vision, vision_meta, transcript, video_description, video_description_meta
+      FROM asset_detail
+     WHERE asset_id IN (${placeholders(count)})`;
+}
+
+export function enrichmentByAssetIdsSql(count: number): string {
+  return `
+    SELECT asset_id, stage, done_at, locked_by, lease_expires_at,
+           attempts, last_error, version, dead_letter_at
+      FROM enrichment_state
+     WHERE asset_id IN (${placeholders(count)})`;
+}
+
+/** Library roots, for resolving a location into an absolute path. */
+export const LIBRARY_ROOTS_SQL = `SELECT id, path FROM folders`;
+
+/**
+ * One asset addressed by `(library, directory, filename)`.
+ *
+ * A keyed lookup on the UNIQUE `asset_locations_lib_path_name` index, which is
+ * also what makes the answer unambiguous: two assets cannot claim the same
+ * file, so there is at most one row and no "first match wins" rule to get
+ * wrong. Liveness is deliberately not part of the predicate — the Mongo
+ * `$elemMatch` it replaces does not filter on it either, so a trashed location
+ * still resolves its asset.
+ */
+export const ASSET_ID_BY_ADDRESS_SQL = `
+  SELECT asset_id FROM asset_locations
+   WHERE library_id = ? AND path = ? AND filename = ?
+   LIMIT 1`;
+
+/**
+ * The backup-sidecar primary lookup: a content-dedup id, scoped to a library
+ * the asset still has a live location in.
+ *
+ * `assets_maple_id` answers the first predicate; the library scope is an
+ * `EXISTS` rather than a join so the planner probes one location per candidate
+ * instead of leading with the location table.
+ */
+export const ASSET_ID_BY_MAPLE_ID_SQL = `
+  SELECT a.id FROM assets a
+   WHERE a.maple_id = ?
+     AND EXISTS (
+       SELECT 1 FROM asset_locations l
+        WHERE l.asset_id = a.id AND l.library_id = ? AND l.deleted_at IS NULL)
+   LIMIT 1`;
+
+/**
+ * The backup-sidecar fallback lookup — defect (2) of the ticket.
+ *
+ * On Mongo this is `{ 'phasset_links.device_id': …, 'phasset_links.phasset_local_id': … }`:
+ * two dotted paths over an array with no index behind either, which the slow
+ * query log recorded scanning 288,000 documents for 3 to 6 seconds. It is also
+ * wrong, because dotted paths let *different* array entries satisfy the two
+ * conditions — an asset linked to `(deviceA, id1)` and `(deviceB, id2)`
+ * answers a lookup for `(deviceA, id2)`.
+ *
+ * As rows both problems disappear at once. The two columns are one index
+ * (`asset_phasset_links_device_local`), so the lookup is a seek; and a device
+ * and a local id are columns of the same row, so the mismatch cannot be
+ * expressed. The library scope stays an `EXISTS` so the seek still leads.
+ */
+export const ASSET_ID_BY_PHASSET_LINK_SQL = `
+  SELECT p.asset_id AS id FROM asset_phasset_links p
+   WHERE p.device_id = ? AND p.phasset_local_id = ?
+     AND EXISTS (
+       SELECT 1 FROM asset_locations l
+        WHERE l.asset_id = p.asset_id AND l.library_id = ? AND l.deleted_at IS NULL)
+   LIMIT 1`;
+
+/** The three text sources and the month the search blob is recomposed from. */
+export const SEARCH_BLOB_INPUTS_SQL = `
+  SELECT json_extract(a.place, '$.search_blob') AS place_search_blob,
+         a.captured_month AS captured_month,
+         d.description AS description,
+         d.ocr_text AS ocr_text
+    FROM assets a
+    LEFT JOIN asset_detail d ON d.asset_id = a.id
+   WHERE a.id = ?`;
