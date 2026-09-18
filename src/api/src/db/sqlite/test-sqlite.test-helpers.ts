@@ -36,10 +36,10 @@ import { SCHEMA_PRAGMAS } from './ddl/index.ts';
 import { fromBunSqlite, runMigrations, type MigrationDb } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
 import { newObjectIdHex } from './object-id.ts';
-// `SqlValue` is declared identically by `migrate.ts` and `protocol.ts` — the
-// migration runner keeps its own copy so it depends on no pool type. This file
-// needs both modules, so it takes the name from one of them rather than
-// importing an ambiguous pair.
+// `protocol.ts` is where `SqlValue` is declared; `migrate.ts` re-exports it so
+// the migration runner's public surface does not depend on a pool type. Taking
+// it from the declaration rather than the re-export keeps this file's imports
+// pointing at one module per name.
 import type { SqlParams, SqlRow, SqlStatement, SqlValue, SqlWriteResult } from './protocol.ts';
 import type { SqliteDb } from './repos/db-handle.ts';
 
