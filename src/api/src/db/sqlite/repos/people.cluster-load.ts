@@ -51,7 +51,7 @@ import {
   LIVE_CENTROIDS_SQL,
   MAX_AUTO_NAME_INDEX_SQL,
   SET_CENTROID_SQL,
-  UNASSIGNED_FACES_SQL,
+  UNASSIGNED_FACES_PAGE_SQL,
 } from './people.sql.ts';
 import type { Bbox } from '../../schema.ts';
 
@@ -110,6 +110,16 @@ interface UnassignedFaceRow {
  * the prepared-statement cache holds one entry instead of one per library size.
  */
 const EMBEDDING_CHUNK = 500;
+
+/**
+ * How many unassigned faces one read of the clustering input carries.
+ *
+ * An embedding is 512 floats of JSON text, about 5 KB a row, so this bounds
+ * the string memory of the load at a few megabytes regardless of library size.
+ * Exported because the paging is only correct if a page boundary changes
+ * nothing, and a test cannot cross one without knowing where it is.
+ */
+export const UNASSIGNED_FACE_PAGE = 1000;
 
 /** A JSON-encoded vector as numbers, or null when the column is absent or malformed. */
 function decodeArray(text: string | null): number[] | null {
@@ -230,23 +240,6 @@ function isDirty(row: CentroidRow): boolean {
   return decodeVector(row.centroid) === null;
 }
 
-/** Read every dirty person's unhidden embeddings, in bounded chunks. */
-async function readAssignedEmbeddings(
-  db: SqliteDb,
-  dirtyIds: readonly string[],
-): Promise<EmbeddingRow[]> {
-  const sql = assignedEmbeddingsSql(EMBEDDING_CHUNK);
-  const chunks: Array<Promise<EmbeddingRow[]>> = [];
-  for (let start = 0; start < dirtyIds.length; start += EMBEDDING_CHUNK) {
-    const slice = dirtyIds.slice(start, start + EMBEDDING_CHUNK);
-    const last = slice[slice.length - 1]!;
-    const padded = [...slice, ...new Array(EMBEDDING_CHUNK - slice.length).fill(last)];
-    chunks.push(db.read<EmbeddingRow>(sql, padded));
-  }
-  const results = await Promise.all(chunks);
-  return results.flat();
-}
-
 /** A person's running embedding sum, and how many embeddings went into it. */
 interface Accumulator {
   count: number;
@@ -254,17 +247,17 @@ interface Accumulator {
 }
 
 /**
- * Sum each wanted person's embeddings into one running vector.
+ * Sum each wanted person's embeddings into the running vectors.
  *
  * A row whose embedding is absent or the wrong length is skipped rather than
  * failing the pass: one malformed vector should not stop every other person's
  * centroid from being rebuilt.
  */
 function accumulateMeans(
+  accumulators: Map<string, Accumulator>,
   embeddings: readonly EmbeddingRow[],
   wanted: ReadonlySet<string>,
-): Map<string, Accumulator> {
-  const accumulators = new Map<string, Accumulator>();
+): void {
   for (const row of embeddings) {
     if (!wanted.has(row.person_id)) continue;
     const vector = decodeVector(row.embedding);
@@ -274,6 +267,36 @@ function accumulateMeans(
     if (!existing) accumulators.set(row.person_id, accumulator);
     for (let i = 0; i < EMBEDDING_DIM; i += 1) accumulator.mean[i] += vector[i]!;
     accumulator.count += 1;
+  }
+}
+
+/**
+ * Every dirty person's running embedding sum, read in bounded chunks.
+ *
+ * Each chunk is summed into the accumulators before the next is asked for, so
+ * only one chunk's JSON text is resident at a time. Reading them concurrently
+ * and flattening — which is what this did — holds every dirty person's
+ * embeddings in memory at once, and on a first pass the code's own comment says
+ * all ~25,800 people are dirty.
+ *
+ * Sequential is also what keeps the arithmetic identical: the chunks are
+ * summed in id order, exactly as the flattened array was, and floating-point
+ * addition is not associative. The parity fixtures include embeddings whose
+ * cosine score sits either side of the threshold, so a different summation
+ * order is a different assignment, not a different last bit.
+ */
+async function accumulateAssignedEmbeddings(
+  db: SqliteDb,
+  dirtyIds: readonly string[],
+): Promise<Map<string, Accumulator>> {
+  const sql = assignedEmbeddingsSql(EMBEDDING_CHUNK);
+  const wanted = new Set(dirtyIds);
+  const accumulators = new Map<string, Accumulator>();
+  for (let start = 0; start < dirtyIds.length; start += EMBEDDING_CHUNK) {
+    const slice = dirtyIds.slice(start, start + EMBEDDING_CHUNK);
+    const last = slice[slice.length - 1]!;
+    const padded = [...slice, ...new Array(EMBEDDING_CHUNK - slice.length).fill(last)];
+    accumulateMeans(accumulators, await db.read<EmbeddingRow>(sql, padded), wanted);
   }
   return accumulators;
 }
@@ -336,8 +359,7 @@ export async function recomputeCentroids(dbOverride?: SqliteDb): Promise<number>
   if (dirty.length === 0) return 0;
 
   const ids = dirty.map((row) => row.id);
-  const embeddings = await readAssignedEmbeddings(db, ids);
-  const accumulators = accumulateMeans(embeddings, new Set(ids));
+  const accumulators = await accumulateAssignedEmbeddings(db, ids);
   const updates = dirty.flatMap((row) => {
     const update = centroidUpdate(row, accumulators.get(row.id));
     return update === null ? [] : [update];
@@ -372,28 +394,50 @@ export async function loadCentroids(dbOverride?: SqliteDb): Promise<LoadedCentro
   });
 }
 
+/** One row as a loaded face, or nothing when its embedding is unusable. */
+function toLoadedFace(row: UnassignedFaceRow): LoadedFace[] {
+  const vector = decodeVector(row.embedding);
+  if (!vector) return [];
+  const bbox: Bbox = { x: row.bbox_x, y: row.bbox_y, w: row.bbox_w, h: row.bbox_h };
+  return [
+    {
+      asset_id_hex: row.asset_id,
+      face_index: row.face_index,
+      embedding: l2Normalise(vector),
+      bbox,
+    },
+  ];
+}
+
 /**
  * Every unassigned, unhidden face carrying a usable embedding, normalised.
  *
  * Hidden faces stay out: re-running clustering must not quietly reassign a face
  * the operator removed from the system.
+ *
+ * Read a page at a time and decoded as each page arrives, so the JSON text of
+ * one page is all that is ever resident — see `UNASSIGNED_FACES_PAGE_SQL` for
+ * why, and why the cursor cannot repeat or skip a face. What the pass then
+ * holds is the normalised vectors, which it needs anyway.
  */
 export async function loadUnassignedFaces(dbOverride?: SqliteDb): Promise<LoadedFace[]> {
   const db = peopleDb(dbOverride);
-  const rows = await db.read<UnassignedFaceRow>(UNASSIGNED_FACES_SQL);
-  return rows.flatMap((row) => {
-    const vector = decodeVector(row.embedding);
-    if (!vector) return [];
-    const bbox: Bbox = { x: row.bbox_x, y: row.bbox_y, w: row.bbox_w, h: row.bbox_h };
-    return [
-      {
-        asset_id_hex: row.asset_id,
-        face_index: row.face_index,
-        embedding: l2Normalise(vector),
-        bbox,
-      },
-    ];
-  });
+  const faces: LoadedFace[] = [];
+  let lastAsset = '';
+  let lastIndex = -1;
+  for (;;) {
+    const rows = await db.read<UnassignedFaceRow>(UNASSIGNED_FACES_PAGE_SQL, [
+      lastAsset,
+      lastAsset,
+      lastIndex,
+      UNASSIGNED_FACE_PAGE,
+    ]);
+    for (const row of rows) faces.push(...toLoadedFace(row));
+    if (rows.length < UNASSIGNED_FACE_PAGE) return faces;
+    const last = rows[rows.length - 1]!;
+    lastAsset = last.asset_id;
+    lastIndex = last.face_index;
+  }
 }
 
 /**

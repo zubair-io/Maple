@@ -305,20 +305,34 @@ export function assignedEmbeddingsSql(count: number): string {
 }
 
 /**
- * Every unassigned, unhidden face carrying an embedding — the clustering pass's
- * input, ordered so the pass is reproducible.
+ * One page of unassigned, unhidden faces carrying an embedding — the clustering
+ * pass's input, ordered so the pass is reproducible.
  *
  * Order is part of the contract, not a nicety: online clustering is
  * order-sensitive, so the same library must present its faces in the same
  * sequence on every run or two runs disagree. Mongo's aggregation returned them
  * in collection order, which is insertion order by `_id`; `(asset_id,
  * face_index)` is that same order, spelled explicitly. `faces_unassigned`.
+ *
+ * Paged rather than read whole, because the Mongo original streamed these
+ * through a cursor and `db.read` hands back an array: every row's embedding is
+ * ~5 KB of JSON text, so a first pass over a large library would hold hundreds
+ * of megabytes of strings at once, on a worker thread, before decoding any of
+ * them. The cursor is `(asset_id, face_index)` — the sort key itself, so the
+ * pages tile the same sequence exactly, with no row repeated or skipped.
+ *
+ * The lower bound is split in two so the range seek stays on `asset_id` and
+ * only the tie-break is a residual. The first page passes `('', '', -1)`: every
+ * asset id is 24 hex characters, so `>= ''` starts at the beginning.
  */
-export const UNASSIGNED_FACES_SQL = `
+export const UNASSIGNED_FACES_PAGE_SQL = `
   SELECT asset_id, face_index, bbox_x, bbox_y, bbox_w, bbox_h, embedding
     FROM faces
    WHERE person_id IS NULL AND hidden = 0 AND embedding IS NOT NULL
-   ORDER BY asset_id, face_index`;
+     AND asset_id >= ?
+     AND (asset_id > ? OR face_index > ?)
+   ORDER BY asset_id, face_index
+   LIMIT ?`;
 
 // ---------------------------------------------------------------------------
 // People writes
