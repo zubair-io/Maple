@@ -101,12 +101,25 @@ export async function searchCount(where: SearchWhere, dbOverride?: SqliteDb): Pr
  * A cursor replaces the skip rather than adding to it: the seek predicate
  * already positions the scan after the previous page's last row, so any offset
  * on top would silently drop that many results.
+ *
+ * A cursor cannot be combined with a text query, and this refuses the pair
+ * rather than serving a page built from it. A ranked page is ordered by
+ * `bm25()`, which is not a stored value and not what a cursor records, so
+ * resuming a relevance-ordered scan from a capture date lands somewhere
+ * arbitrary in it — the page both skips rows the user has not seen and repeats
+ * rows they have. `resolvePaging` in `routes/search/list-paging.ts` already
+ * answers 400 for the combination and is why no request reaches here with it;
+ * that guarantee lives in the layer this one replaces, so it is restated here
+ * rather than inherited.
  */
 export async function searchPage(
   where: SearchWhere,
   options: PageOptions,
   dbOverride?: SqliteDb,
 ): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+  if (options.cursor && where.match.kind === 'match') {
+    throw new Error('searchPage: a seek cursor cannot resume a relevance-ordered text query');
+  }
   const db = assetsDb(dbOverride);
   const seek = options.cursor ? seekPredicate(options.cursor) : undefined;
   const statement = pageSql(where, options.sort, options.limit, seek ? 0 : options.skip, seek);

@@ -60,7 +60,8 @@
 export { buildSearchWhere, searchWhereSql } from './search.where.ts';
 export type { BoundPredicate, SearchWhere, SearchWhereResult } from './search.where.ts';
 
-export { toMatchExpression } from './search.fts.ts';
+export { toTextFilter } from './search.fts.ts';
+export type { TextFilter } from './search.fts.ts';
 
 export { searchFacets } from './search.facets.ts';
 export type { SearchFacets, ValueBucket } from './search.facets.ts';

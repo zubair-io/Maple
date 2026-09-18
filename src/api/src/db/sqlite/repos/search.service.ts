@@ -21,13 +21,14 @@
  * **A text-search failure is not swallowed.** The Mongo version wraps its
  * ranked pass in a `try` that logs and returns the exact matches alone, because
  * a malformed `$text` string throws. The FTS5 expression is built by
- * {@link toMatchExpression}, which quotes every term, so there is no user input
+ * {@link toTextFilter}, which quotes every term, so there is no user input
  * that can produce a syntax error and nothing to swallow.
  */
 
 import { placeholders } from './assets.sql.ts';
-import { toMatchExpression } from './search.fts.ts';
+import { toTextFilter } from './search.fts.ts';
 import { serviceTextSearchSql } from './search.sql.ts';
+import { likeLiteral } from './search.terms.ts';
 import { QUALIFIED_LIVE_PREDICATE } from './search.where.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
 import type { SqlValue } from '../protocol.ts';
@@ -88,8 +89,11 @@ function scopeClauses(scope: ServiceSearchScope): Bound {
  *
  * `LIKE` with no wildcards is an equality test that is case-insensitive for
  * ASCII, which is what the anchored `^…$` case-insensitive regex it replaces
- * amounted to. The query is escaped so a filename containing `%` or `_` cannot
- * turn it into a wildcard.
+ * amounted to. The query is escaped through the same {@link likeLiteral} every
+ * other `LIKE` in the search layer uses — a second copy of the escape here read
+ * identically and would have gone on reading identically right up until one of
+ * them gained a character, at which point the two would disagree about which
+ * rows match rather than fail.
  */
 function exactFilenameSql(scope: Bound): string {
   return `
@@ -129,7 +133,7 @@ export async function serviceLexicalSearch(
   const db = assetsDb(dbOverride);
   const bound = scopeClauses(scope);
   const exactRows = await db.read<{ maple_id: string }>(exactFilenameSql(bound), [
-    query.replace(/[\\%_]/g, '\\$&'),
+    likeLiteral(query),
     ...bound.params,
     limit,
   ]);
@@ -137,13 +141,18 @@ export async function serviceLexicalSearch(
   const exactIds = new Set(ids);
   if (ids.length >= limit) return { ids, exactIds };
 
-  const match = toMatchExpression(query);
-  if (match === null) return { ids, exactIds };
+  // No expression means no ranked pass, and that is right for both of the
+  // reasons it can happen: a blank query has nothing to rank by, and a query
+  // whose terms all cancel (`-boat`, `???`) matches nothing to add. `$text`
+  // answers zero documents for the second, so the page ends at the exact
+  // filename matches either way.
+  const match = toTextFilter(query);
+  if (match.kind !== 'match') return { ids, exactIds };
 
   // The same scope clauses go into both statements, so the ranked pass and the
   // exact pass see the same universe of assets.
   const ranked = await db.read<{ maple_id: string }>(serviceTextSearchSql(bound.sql), [
-    match,
+    match.expression,
     ...bound.params,
     limit,
   ]);

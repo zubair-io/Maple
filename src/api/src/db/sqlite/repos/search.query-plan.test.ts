@@ -78,6 +78,56 @@ describe('the grid page walks the ordered live index', () => {
   });
 });
 
+describe('a text query that cannot match costs nothing', () => {
+  test('the statements prepare, which an INDEXED BY would not let them', async () => {
+    await withLibrary(async (db) => {
+      // `WHERE 0` is folded before planning, which strips every index
+      // constraint with it — so a statement that also names an index fails to
+      // prepare with "no query solution". `search.sql.ts` drops the hint for
+      // this case; if it stops doing that, these throw rather than go slow.
+      const where = translate({ placeQuery: '-boat' });
+      const page = pageSql(where, 'captured_desc', 200, 0);
+      expect(page.sql).not.toContain('INDEXED BY');
+      expect(() => db.query(page.sql).all(...(page.params as never[]))).not.toThrow();
+      const range = facetStatements(where).capture_range;
+      expect(range.sql).not.toContain('INDEXED BY');
+      expect(() => db.query(range.sql).all(...(range.params as never[]))).not.toThrow();
+    });
+  });
+
+  test('no statement joins the inverted index to prove an empty answer', async () => {
+    await withLibrary(async (db) => {
+      void db;
+      const where = translate({ placeQuery: '???' });
+      const statements = Object.values(facetStatements(where)).map((s) => s.sql);
+      for (const sql of [...statements, pageSql(where, 'captured_desc', 200, 0).sql]) {
+        expect(sql).toContain('WHERE 0');
+        expect(sql).not.toContain('assets_fts');
+      }
+    });
+  });
+
+  test('the loop is skipped rather than walked', async () => {
+    await withLibrary(async (db) => {
+      // `EXPLAIN QUERY PLAN` prints `SCAN assets` here and it is misleading:
+      // the plan it describes is generated inside a block the bytecode jumps
+      // over. The proof is one address further down — a `Goto` that lands past
+      // the loop — and the clock agrees, at 0.01 ms against 6.51 ms for the
+      // same count over 335,377 assets.
+      const { sql } = countSql(translate({ placeQuery: '-boat' }));
+      const ops = db.query(`EXPLAIN ${sql}`).all() as Array<{
+        addr: number;
+        opcode: string;
+        p2: number;
+      }>;
+      const rewind = ops.find((op) => op.opcode === 'Rewind');
+      const skip = ops.find((op) => op.opcode === 'Goto' && op.addr < (rewind?.addr ?? 0));
+      expect(rewind).toBeDefined();
+      expect(skip!.p2).toBeGreaterThan(rewind!.addr);
+    });
+  });
+});
+
 describe('a location filter is a semi-join', () => {
   test('library scope keeps assets as the outer loop', async () => {
     await withLibrary(async (db, library) => {

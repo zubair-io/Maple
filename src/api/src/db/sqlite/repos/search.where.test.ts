@@ -59,7 +59,7 @@ describe('buildSearchWhere — the clause list', () => {
     if ('error' in where) throw new Error(where.error);
     expect(where.clauses).toEqual(['assets.hidden = 0']);
     expect(where.params).toEqual([]);
-    expect(where.match).toBeNull();
+    expect(where.match).toEqual({ kind: 'none' });
     expect(searchWhereSql(where).sql).toBe(
       'WHERE assets.deleted_at IS NULL AND assets.live_location_count > 0\n     AND assets.hidden = 0',
     );
@@ -118,7 +118,7 @@ describe('buildSearchWhere — the clause list', () => {
   test('a path prefix matches the directory and its descendants only', () => {
     const where = buildSearchWhere({ pathPrefix: '/A/' });
     if ('error' in where) throw new Error(where.error);
-    expect(where.params).toEqual(['A', 'A/%']);
+    expect(where.params).toEqual(['A', 'A/', 'A/']);
   });
 
   test('a bare place label matches either half with the other blank', () => {

@@ -66,12 +66,29 @@ export interface BoundStatement {
  * keyed probes per hit. This is the one place an inner join is right, and it is
  * right for the same reason the semi-join is right elsewhere — the smallest
  * driving set goes first.
+ *
+ * A text query no row can satisfy also leads with `assets`: there is no
+ * expression to hand `MATCH`, the `WHERE` is the constant `0`, and joining an
+ * inverted index to prove that is work for nothing.
  */
 function fromClause(where: SearchWhere): string {
-  if (where.match === null) return 'FROM assets';
+  if (where.match.kind !== 'match') return 'FROM assets';
   return `FROM assets_fts
       JOIN asset_search ON asset_search.rowid = assets_fts.rowid
       JOIN assets ON assets.id = asset_search.asset_id`;
+}
+
+/**
+ * Whether the page and capture-range statements may name their index.
+ *
+ * `INDEXED BY` is an instruction the planner must be able to honour, and it
+ * cannot honour one on a statement whose `WHERE` it has already folded to
+ * false — it fails to prepare with "no query solution". So an unmatchable text
+ * query gives up the hint, which costs nothing: the statement returns no rows
+ * either way.
+ */
+function canNameIndex(where: SearchWhere): boolean {
+  return where.match.kind === 'none';
 }
 
 /** `SELECT <projection> FROM … WHERE …`, with `suffix` appended verbatim. */
@@ -158,13 +175,13 @@ export function pageSql(
   offset: number,
   seek?: BoundPredicate,
 ): BoundStatement {
-  const ranked = where.match !== null;
+  const ranked = where.match.kind === 'match';
   const projection = ranked ? `${PAGE_COLUMNS},\n           ${FTS_RANK_SQL}` : PAGE_COLUMNS;
   const order = ranked
     ? `${FTS_RANK_ORDER}, assets.captured_at DESC, assets.id`
     : (ORDER_BY[sort] ?? ORDER_BY.captured_desc!);
   const from =
-    !ranked && CAPTURE_SORTS.has(sort)
+    canNameIndex(where) && CAPTURE_SORTS.has(sort)
       ? 'FROM assets INDEXED BY assets_live_captured'
       : fromClause(where);
   return statement(
@@ -242,6 +259,21 @@ export function facetStatements(where: SearchWhere): Record<FacetName, BoundStat
     // the same way `$split` + `$arrayElemAt: -1` does: a name with no dot
     // reports itself, a name ending in one reports the empty string, and the
     // HAVING drops the latter exactly as the Mongo `$nin: [null, '']` did.
+    //
+    // `ordinal = 0` stands in for `$arrayElemAt(…, 0)`, and the two agree only
+    // while ordinals stay dense. They do: `asset_locations` is written in three
+    // places, and each either rewrites an entry in place or replaces the whole
+    // set with one entry at ordinal 0 (`assets.trash.ts`), so no path can
+    // remove the canonical entry and leave the rest at 1, 2, 3. If one ever
+    // could, an asset with no ordinal-0 row would count towards `total` and
+    // into no extension bucket, and this is the only facet whose buckets could
+    // then sum to less than the headline — every other one groups the same
+    // `FROM assets` the count does. Joining the *lowest* ordinal instead of
+    // ordinal 0 would hold under a sparse set, and it gives up
+    // `asset_locations_primary_entry`, which is partial over `ordinal = 0` and
+    // covering: measured over 335,377 assets, 539 ms against 460. That is the
+    // wrong trade for a state no writer produces, and #3768 — which redesigns
+    // exactly this facet's index — is where it stops being a trade at all.
     extensions: statement(
       `lower(replace(l.filename, rtrim(l.filename, replace(l.filename, '.', '')), '')) AS value,
            COUNT(*) AS count`,
@@ -269,7 +301,7 @@ export function facetStatements(where: SearchWhere): Record<FacetName, BoundStat
       '',
       undefined,
       [],
-      where.match === null ? 'FROM assets INDEXED BY assets_live_captured' : fromClause(where),
+      canNameIndex(where) ? 'FROM assets INDEXED BY assets_live_captured' : fromClause(where),
     ),
     scene_types: detailFacetSql(where, 'vision_scene_type', 20),
     activities: detailFacetSql(where, 'vision_activity', 50),
@@ -305,10 +337,10 @@ export function facetStatements(where: SearchWhere): Record<FacetName, BoundStat
       { sql: 'f.person_id IS NOT NULL AND f.hidden = 0', params: [] },
       [],
       `FROM faces f\n      JOIN assets ON assets.id = f.asset_id${
-        where.match === null
-          ? ''
-          : `\n      JOIN asset_search ON asset_search.asset_id = assets.id
+        where.match.kind === 'match'
+          ? `\n      JOIN asset_search ON asset_search.asset_id = assets.id
       JOIN assets_fts ON assets_fts.rowid = asset_search.rowid`
+          : ''
       }`,
     ),
     places: statement(
