@@ -30,7 +30,7 @@ export interface Term {
 }
 
 /** Escape a user string for `LIKE … ESCAPE '\'`. */
-export function likeLiteral(value: string): string {
+function likeLiteral(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 
