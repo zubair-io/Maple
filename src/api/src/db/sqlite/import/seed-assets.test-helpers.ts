@@ -193,7 +193,15 @@ export async function seedAssets(db: Db, ids: SeedIds): Promise<void> {
       rating: 0,
       flag: 0,
       color_label: '',
-      exif: { ...EXIF, gps: null, camera_serial: null },
+      // `captured_at` as a BSON date rather than the ISO string the types
+      // promise: the mapper stores it as ISO either way, and the probe used to
+      // report the difference as a failure on a correct row.
+      exif: {
+        ...EXIF,
+        captured_at: new Date(Date.UTC(2026, 0, 4, 10, 11, 12)),
+        gps: null,
+        camera_serial: null,
+      },
       place: null,
       indexed_at: iso(1),
       stages: stageSkeleton(),
