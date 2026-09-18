@@ -114,7 +114,7 @@ export async function findDetailsByIds(
   dbOverride?: SqliteDb,
 ): Promise<AssetDetailDto[]> {
   if (ids.length === 0) return [];
-  const db = assetsDb(dbOverride);
+  const db = sqliteDb(dbOverride);
   const hexes = bucketedIds(ids.map((id) => id.toHexString()));
   const rows = await db.read<AssetCoreRow>(assetCoreByIdsSql(hexes.length), hexes);
   if (rows.length === 0) return [];

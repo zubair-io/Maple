@@ -14,8 +14,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { Place } from '../../schema.ts';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { findCachedPlace, getCachedPlace, setCachedPlace } from './geocode-cache.repo.ts';
 
 const KEY = 'lat:42.6526,lon:-73.7562';

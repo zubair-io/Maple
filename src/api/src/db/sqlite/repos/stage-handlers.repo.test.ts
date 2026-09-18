@@ -5,8 +5,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { createTestDatabase, run } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { listEnabledStageHandlers } from './stage-handlers.repo.ts';
 import type { Database } from 'bun:sqlite';
 

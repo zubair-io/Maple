@@ -16,8 +16,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { SqlParams } from '../protocol.ts';
-import { createTestDatabase, run } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import type { SqliteDb } from './db-handle.ts';
 import {
   claimNextMirrorCopy,

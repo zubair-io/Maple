@@ -13,8 +13,7 @@ import { describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { createImport, getImport, getImportFiles } from './imports.repo.ts';
 import { retryImport } from './imports.retry.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
-import { createTestDatabase, insertFolder, run } from '../test-sqlite.test-helpers.ts';
+import { createTestDatabase, insertFolder, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import type { ImportFileEntry } from '../../schema.ts';
 import type { SqliteDb } from './db-handle.ts';
 

@@ -10,8 +10,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { ObjectId } from 'mongodb';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { insertUser } from './auth.users.repo.ts';
 import { createInvite, listInvites, redeemInvite, rescindInvite } from './auth.invites.repo.ts';
 import { consumeChallenge, storeChallenge } from './auth.challenges.repo.ts';

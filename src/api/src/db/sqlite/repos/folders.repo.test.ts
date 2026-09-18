@@ -11,8 +11,7 @@
 
 import { afterEach, describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import * as foldersRepo from './folders.repo.ts';
 import {
   __resetFolderPathCacheForTests,

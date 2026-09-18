@@ -22,8 +22,7 @@ import {
   type OpenOrResumeArgs,
   type OpenOrResumeResult,
 } from './upload-sessions.repo.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
-import { createTestDatabase, insertFolder, run } from '../test-sqlite.test-helpers.ts';
+import { createTestDatabase, insertFolder, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import type { Database } from 'bun:sqlite';
 
 const DAY_MS = 24 * 3600 * 1000;

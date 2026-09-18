@@ -8,8 +8,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { deletePreset, insertPreset, isPresetNameConflict, listPresets } from './presets.repo.ts';
 import type { SqliteDb } from './db-handle.ts';
 import type { PresetDoc } from '../../schema.ts';

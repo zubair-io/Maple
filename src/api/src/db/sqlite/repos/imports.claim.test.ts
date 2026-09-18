@@ -26,8 +26,7 @@ import {
   requestImportCancel,
   updateImportProgress,
 } from './imports.repo.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
-import { createTestDatabase, insertFolder, run } from '../test-sqlite.test-helpers.ts';
+import { createTestDatabase, insertFolder, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import type { ImportFileEntry } from '../../schema.ts';
 import type { SqlParams } from '../protocol.ts';
 import type { SqliteDb } from './db-handle.ts';

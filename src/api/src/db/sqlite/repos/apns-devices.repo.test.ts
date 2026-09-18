@@ -11,8 +11,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { newObjectIdHex } from '../object-id.ts';
-import { createTestDatabase, run } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import {
   listAllDeviceTokens,
   listDeviceTokensForUser,
