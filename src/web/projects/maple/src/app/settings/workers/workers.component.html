@@ -977,9 +977,11 @@
     }
 
     <!-- Maintenance — housekeeping workers, each a collapsible row like the
-         pipeline stages above: Backup (mirror replication) and the
+         pipeline stages above: Backup (mirror replication), the
          derivative-audit self-heal worker (re-arms thumb/preview/description/R2
-         when a derivative drifts, most often after a file move). -->
+         when a derivative drifts, most often after a file move), and
+         change-log-gc (prunes the file-provider change journal past its
+         retention window, #3741). -->
     <div
       class="group-label py-3.5 px-4.5 pb-1.5 text-[10px] font-semibold text-[var(--s-text-dim)] tracking-[0.18em] uppercase max-[1023px]:pt-4 max-[1023px]:px-0.5 max-[1023px]:pb-2"
     >
@@ -987,6 +989,7 @@
     </div>
     <maple-mirror-settings />
     <maple-derivative-audit-settings />
+    <maple-change-log-gc-settings />
     <maple-generated-search-settings />
 
     <!-- Rendering — runtime knobs for what the web editor does on the client,
