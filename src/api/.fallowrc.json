@@ -8,6 +8,7 @@
     "src/thumbs/imgdecode.child.ts",
     "src/thumbs/hdr-decode.child.ts",
     "src/enrichment/face-pool.child.ts",
+    "src/db/sqlite/db.worker.ts",
     "scripts/seed-fake-workers.ts",
     "src/people/clustering-quality-harness.ts",
     "tools/export-search-corpus.ts",
