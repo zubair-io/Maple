@@ -125,19 +125,29 @@ function toDoc(row: WorkerConfigRow): WorkerConfigDoc {
   return { name: row.name, ...Object.fromEntries(present) } as WorkerConfigDoc;
 }
 
-/** Column name for each `WorkerConfig` key a write may carry. */
-const COLUMN_OF: Readonly<Record<string, string>> = {
-  concurrency: 'concurrency',
-  maxAttempts: 'max_attempts',
-  paused: 'paused',
-  pause_reason: 'pause_reason',
-  last_seen_target_version: 'last_seen_target_version',
-  version: 'version',
-  prompt_text: 'prompt_text',
-  ai_provider: 'ai_provider',
-  ai_model: 'ai_model',
-  sweepDirIntervalMs: 'sweep_dir_interval_ms',
-};
+/**
+ * Column name for each `WorkerConfig` key a write may carry.
+ *
+ * A `Map` rather than an object literal because the keys iterated into this
+ * lookup come from `Object.entries` over a request body, and an object literal
+ * answers `constructor` and `toString` from its prototype. Those answers are
+ * truthy and are not column names, so they survive the `undefined` filter below
+ * and get interpolated into the statement's column list — a syntax error at
+ * best, and a shape nothing should have to reason about at worst. A `Map`
+ * answers only what was put in it, so the question does not arise.
+ */
+const COLUMN_OF = new Map<string, string>([
+  ['concurrency', 'concurrency'],
+  ['maxAttempts', 'max_attempts'],
+  ['paused', 'paused'],
+  ['pause_reason', 'pause_reason'],
+  ['last_seen_target_version', 'last_seen_target_version'],
+  ['version', 'version'],
+  ['prompt_text', 'prompt_text'],
+  ['ai_provider', 'ai_provider'],
+  ['ai_model', 'ai_model'],
+  ['sweepDirIntervalMs', 'sweep_dir_interval_ms'],
+]);
 
 /**
  * What a write may carry: any subset of a stage's config, any subset of the
@@ -165,7 +175,7 @@ async function writeFields(
   dbOverride?: SqliteDb,
 ): Promise<void> {
   const named = Object.entries(fields).flatMap(([key, value]) => {
-    const column = COLUMN_OF[key];
+    const column = COLUMN_OF.get(key);
     if (column === undefined || value === undefined) return [];
     return [{ column, value: typeof value === 'boolean' ? (value ? 1 : 0) : value }];
   });

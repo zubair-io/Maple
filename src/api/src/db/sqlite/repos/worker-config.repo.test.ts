@@ -140,6 +140,36 @@ describe('patch', () => {
     await repo.patch('thumb', {});
     expect(await repo.load('thumb')).toBeNull();
   });
+
+  test('a key that is only a property of Object is not a column', async () => {
+    using handle = await createTestDatabase();
+    const repo = new WorkerConfigRepo(testSqliteDb(handle.db));
+    // What `Object.entries` over a JSON body can hand the column lookup. An
+    // object-literal lookup answers these from its prototype with something
+    // truthy and non-column-shaped, which then lands in the statement's column
+    // list. The cast is the point of the test: the route validates its body, so
+    // the type never permits this and only the runtime can.
+    await repo.patch('thumb', {
+      constructor: 1,
+      toString: 2,
+      hasOwnProperty: 3,
+    } as unknown as Parameters<WorkerConfigRepo['patch']>[1]);
+    expect(await repo.load('thumb')).toBeNull();
+  });
+
+  test('a recognised field still lands beside keys that are not columns', async () => {
+    using handle = await createTestDatabase();
+    const repo = new WorkerConfigRepo(testSqliteDb(handle.db));
+    await repo.patch('thumb', {
+      concurrency: 2,
+      toString: 'nonsense',
+    } as unknown as Parameters<WorkerConfigRepo['patch']>[1]);
+    const loaded = await repo.load('thumb');
+    expect(loaded?.concurrency).toBe(2);
+    // `load` runs the row through `sanitizeWorkerConfig`, so the stage defaults
+    // are here; what must not be is a column named after an Object method.
+    expect(Object.keys(loaded ?? {})).not.toContain('toString');
+  });
 });
 
 describe('loadWorkerConfigSafe', () => {
