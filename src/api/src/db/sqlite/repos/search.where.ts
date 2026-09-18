@@ -202,12 +202,18 @@ function orGroup(terms: readonly Term[]): Term {
  * Uncorrelated on purpose, and it is the opposite call from `q` above. The
  * sub-query is an index-only range scan of `faces_person` per person — a
  * bounded, predictable set built once — where the correlated form would probe
- * that index once per person per candidate asset as the grid walks. An empty id
- * list must match nothing rather than everything, which is what `IN ()` would
- * have meant on Mongo and what the constant false says here.
+ * that index once per person per candidate asset as the grid walks.
+ *
+ * An empty id list must match nothing rather than everything: names that
+ * resolved to no live person are a filter, not the absence of one, which is
+ * what an empty `$in` meant on Mongo. It falls out of the generic shape,
+ * because SQLite accepts a literally empty `IN ()` and evaluates it false.
+ * Writing the constant `0` instead would be the obvious alternative and is
+ * wrong — SQLite folds an always-false `WHERE` before planning, which leaves
+ * the page query's `INDEXED BY` naming an index the plan no longer has, and the
+ * statement fails to prepare with "no query solution".
  */
 function peopleTerm(personIds: readonly string[]): Term {
-  if (personIds.length === 0) return { sql: '0', params: [] };
   return {
     sql: `assets.id IN (SELECT f.asset_id FROM faces f
                          WHERE f.person_id IN (${placeholders(personIds.length)})
@@ -353,8 +359,16 @@ function parseExtensions(raw: string | undefined): string[] | { error: string } 
 }
 
 /**
- * Validate every param that can fail, in the order `buildFilter` reaches them,
- * so two invalid params produce the same message on both engines.
+ * Validate every param that can fail up to the point `buildFilter` reaches the
+ * extension list.
+ *
+ * The order is the order that function checks them in, and it is load-bearing
+ * rather than cosmetic: a query that is wrong in two ways gets one message, and
+ * a client that reads the message should not get a different one after the
+ * cutover. The scope check is deliberately *not* here — on Mongo it comes after
+ * the extension parse, so it stays after it in {@link buildSearchWhere} too.
+ * `search.where.test.ts` runs both builders over the same malformed queries and
+ * compares their answers, so this ordering cannot rot silently.
  */
 function validate(q: SearchQuery): { error: string } | null {
   if (q.libraryId && !ObjectId.isValid(q.libraryId)) return { error: 'Invalid libraryId' };
@@ -369,9 +383,6 @@ function validate(q: SearchQuery): { error: string } | null {
   }
   if (q.sceneType !== undefined && q.sceneType !== '' && !SCENE_TYPES.has(q.sceneType)) {
     return { error: `Invalid sceneType: ${q.sceneType}` };
-  }
-  if (q.scope !== undefined && q.scope !== '' && !SEARCH_SCOPES.has(q.scope)) {
-    return { error: `Invalid scope: ${q.scope}` };
   }
   return null;
 }
@@ -394,6 +405,9 @@ export function buildSearchWhere(
 
   const extensions = parseExtensions(q.ext);
   if (!Array.isArray(extensions)) return extensions;
+  if (q.scope !== undefined && q.scope !== '' && !SEARCH_SCOPES.has(q.scope)) {
+    return { error: `Invalid scope: ${q.scope}` };
+  }
 
   const freeText = text(q.q);
   const camera = text(q.camera);

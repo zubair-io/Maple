@@ -83,6 +83,25 @@ const MAX_QUERY_CHARS = 500;
 const MAX_TERMS = 24;
 
 /**
+ * A bare term, split the way the tokenizer will split it.
+ *
+ * `harbour.dng` has to become two independent terms, not one two-word phrase.
+ * MongoDB's `$text` tokenizes on punctuation and ORs what comes out, so it
+ * matches a document containing only `harbour`; FTS5 tokenizes the *inside* of
+ * a quoted string too, and a quoted string of two tokens is a phrase requiring
+ * them adjacent. Re-emitting `"harbour.dng"` verbatim would therefore quietly
+ * narrow every query with a filename, a URL or a hyphenated word in it — which
+ * is exactly the silent relevance regression this port has to avoid.
+ *
+ * A term the tokenizer would discard entirely (`???`, `+++`) yields nothing and
+ * drops out. Deliberately Unicode-aware: `naïve`, `東京` and `Кремль` are real
+ * search terms that an `[a-z0-9]` split would mangle or discard.
+ */
+function splitBareTerm(text: string): string[] {
+  return text.split(/[^\p{L}\p{N}]+/u).filter((part) => part.length > 0);
+}
+
+/**
  * Split a search string into terms, honouring quotes and leading `-`.
  *
  * Written as a single scan rather than a regex split because the two features
@@ -114,7 +133,9 @@ function parseTerms(input: string): ParsedTerm[] {
 
     const next = input.slice(afterSign).search(/\s/);
     const end = next === -1 ? input.length : afterSign + next;
-    terms.push({ text: input.slice(afterSign, end), phrase: false, negated });
+    for (const part of splitBareTerm(input.slice(afterSign, end))) {
+      terms.push({ text: part, phrase: false, negated });
+    }
     index = end;
   }
 
