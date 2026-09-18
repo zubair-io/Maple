@@ -171,14 +171,13 @@ export async function dismissMergeSuggestion(
   if (!candidateHexes.includes(otherHex)) return 'stale';
 
   const other = await readPerson(db, otherHex);
-  const pair = sortedPairKey(personHex, otherHex);
-  // Compute both advances against a database that already knows about this
-  // dismissal, so the pair being dismissed is excluded from the new heads.
-  const dismissal: SqlStatement = {
-    sql: INSERT_DISMISSAL_SQL,
-    params: [pair, new Date().toISOString()],
-  };
-  await db.write(dismissal.sql, dismissal.params);
+  // Recorded before the heads are recomputed, so both advances run against a
+  // database that already knows about this dismissal and neither can hand the
+  // pair straight back as the new best candidate.
+  await db.write(INSERT_DISMISSAL_SQL, [
+    sortedPairKey(personHex, otherHex),
+    new Date().toISOString(),
+  ]);
 
   // Advance this side always, and the other side only when it currently points
   // back here — clobbering an unrelated suggestion the other person holds would
