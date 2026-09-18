@@ -125,7 +125,15 @@ struct PhotoGrid<Element: Identifiable>: View {
     /// grid's full-width tier passes `.native` so single-column tiles take
     /// each photo's own aspect ratio.
     var cellShape: ThumbnailShape = .square
-    let onTap: (Element) -> Void
+    /// Live window-space frame of the SELECTED cell (see
+    /// `PhotoThumbnailCell.onFrameChange`); attached to that one cell only.
+    var onSelectedFrameChange: ((CGRect) -> Void)? = nil
+    /// Draws an element's cell fully transparent (it keeps its place and
+    /// its taps). The iPhone grid blanks the tile whose photo the Preview
+    /// hero is carrying, as Photos does.
+    var isHidden: ((Element) -> Bool)? = nil
+    /// Tap on an element, with the tile's window-space frame at that moment.
+    let onTap: (Element, CGRect) -> Void
     let makeItem: (Element) -> PhotoGridItem
 
     @Environment(\.mapleLayout) private var layout
@@ -143,7 +151,9 @@ struct PhotoGrid<Element: Identifiable>: View {
         dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
         contextMenuItems: ((Element) -> AnyView?)? = nil,
         renameOverlay: ((Element) -> AnyView?)? = nil,
-        onTap: @escaping (Element) -> Void,
+        onSelectedFrameChange: ((CGRect) -> Void)? = nil,
+        isHidden: ((Element) -> Bool)? = nil,
+        onTap: @escaping (Element, CGRect) -> Void,
         makeItem: @escaping (Element) -> PhotoGridItem
     ) {
         self.data = data
@@ -158,6 +168,8 @@ struct PhotoGrid<Element: Identifiable>: View {
         self.dragPayload = dragPayload
         self.contextMenuItems = contextMenuItems
         self.renameOverlay = renameOverlay
+        self.onSelectedFrameChange = onSelectedFrameChange
+        self.isHidden = isHidden
         self.onTap = onTap
         self.makeItem = makeItem
     }
@@ -180,13 +192,15 @@ struct PhotoGrid<Element: Identifiable>: View {
                     transitionNamespace: transitionNamespace,
                     multiSelectChecked: multiSelectChecked?(element),
                     dragPayload: dragPayload?(element),
-                    onTap: { onTap(element) },
+                    onTap: { frame in onTap(element, frame) },
+                    onFrameChange: selection.contains(element.id) ? onSelectedFrameChange : nil,
                     onAppear: onAppearItem.map { cb in { cb(element) } },
                     contextMenuItems: contextMenuItems?(element)
                 )
                 .overlay(alignment: .bottom) {
                     renameOverlay?(element)
                 }
+                .opacity(isHidden?(element) == true ? 0 : 1)
                 // Tag each photo cell so ScrollViewReader.scrollTo can target it.
                 .id(element.id)
             }
@@ -218,7 +232,7 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
             columns: .fixed(3, spacing: 2),
             provider: .preview(),
             displayMode: .fill,
-            onTap: { _ in },
+            onTap: { _, _ in },
             makeItem: { $0 }
         )
         .padding(2)
@@ -234,7 +248,7 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
             columns: .adaptive(min: 140, spacing: 4),
             provider: .preview(),
             displayMode: .fill,
-            onTap: { _ in },
+            onTap: { _, _ in },
             makeItem: { $0 }
         )
         .padding(4)
@@ -251,7 +265,7 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
             provider: .preview(),
             displayMode: .fill,
             selection: Set(["prev-0", "prev-2"]),
-            onTap: { _ in },
+            onTap: { _, _ in },
             makeItem: { $0 }
         )
         .padding(2)
@@ -271,7 +285,7 @@ private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGri
             displayMode: .fill,
             selection: checkedIDs,
             multiSelectChecked: { item in checkedIDs.contains(item.id) },
-            onTap: { _ in },
+            onTap: { _, _ in },
             makeItem: { $0 }
         )
         .padding(4)

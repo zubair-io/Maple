@@ -169,7 +169,7 @@ struct AllSourcesTimelineMonthSection: View {
             columns: .fixed(CloudTimelineViewVM.columnCount, spacing: 6),
             provider: provider,
             displayMode: displayMode,
-            onTap: { cell in
+            onTap: { cell, _ in
                 switch CloudTimelineViewVM.selectionTarget(for: cell, absPathMap: absPathToAsset) {
                 case .cloud(let asset):
                     onSelectAsset(asset)

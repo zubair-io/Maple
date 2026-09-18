@@ -43,6 +43,9 @@ struct PreviewDestination: View {
     let source: (any ImageSource)?
     @Binding var sessions: [AssetRef.ID: EditSession]
     let onClose: () -> Void
+    /// A pull-down committed with the photo at `fromRect` (window space);
+    /// the host runs the hero close. `nil` → `onClose` directly.
+    var onPullDownCommitted: ((CGRect?) -> Void)? = nil
 
     /// Push the editor for `asset` onto the same NavigationStack. Wired by
     /// `PhoneLibraryView` to append `.edit(asset)` to `libraryPath`.
@@ -90,13 +93,19 @@ struct PreviewDestination: View {
             source: source,
             sessions: $sessions,
             onDismiss: close,
+            onPullDownCommitted: onPullDownCommitted,
             onEdit: onEdit,
             onSelectAsset: { next in
                 shownID = next.id
                 onSelectionChanged(next)
             },
             transitionProgress: transitionProgress,
-            isZoomDismissable: transitionNamespace != nil
+            // Preview drives its own pull-down on every push. The zoom's
+            // built-in drag dismissal took the touch on the iOS 26.4
+            // simulator but not on an iOS 27 device, and a pull that does
+            // nothing is worse than one owned here; the zoom still carries
+            // the open, the back button and pinch-in.
+            isZoomDismissable: false
         )
         .background {
             // Measured with the safe areas ignored so it matches `fullSize`

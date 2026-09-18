@@ -59,8 +59,15 @@ struct PhotoThumbnailCell: View {
   /// per the design doc's "multi-select drag carries the whole selection
   /// if the dragged item is part of it."
   var dragPayload: DraggedAssetPayload? = nil
-  /// Cell tap handler.
-  let onTap: () -> Void
+  /// Cell tap handler. Receives the cell's frame in the window's
+  /// coordinate space at the moment of the tap — the iPhone Preview hero
+  /// grows out of exactly that rect.
+  let onTap: (CGRect) -> Void
+  /// Publishes this cell's live frame in the window's coordinate space on
+  /// every layout change. The iPhone grid attaches it to the SELECTED cell
+  /// only — one geometry watcher, not one per tile — so the Preview hero
+  /// knows where to grow from and where to land.
+  var onFrameChange: ((CGRect) -> Void)? = nil
   /// Fired from the cell's `.onAppear`. SwiftUI may call `.onAppear` more than
   /// once (re-insertion / scroll in-out), so the work MUST be idempotent — use
   /// it for session priming or page-load triggers, not exactly-once side effects.
@@ -165,6 +172,7 @@ struct PhotoThumbnailCell: View {
       }
     }
     .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
+    .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     .contentShape(Rectangle())
     // Drag preview (#2779): the cell's already-decoded bitmap (or the
     // sync `cachedImage` peek used above for the tile itself) — no
@@ -176,7 +184,6 @@ struct PhotoThumbnailCell: View {
         payload: dragPayload,
         thumbnail: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id))
     )
-    .onTapGesture { onTap() }
     .onAppear { onAppear?() }
     .modifier(OptionalContextMenu(items: contextMenuItems))
     // Accessibility: UITest harness resolves cells by displayName via
@@ -371,6 +378,27 @@ private struct GridCellOverlayView: View {
   }
 }
 
+// MARK: - TapWithFrame
+
+/// Tracks the view's window-space frame and hands it to `onTap`. The
+/// frame is read through `onGeometryChange` (never a GeometryReader in
+/// `body`, which would size the cell); the read is the same one the
+/// optional `onFrameChange` publishes, so a cell pays for one watcher.
+private struct TapWithFrame: ViewModifier {
+  let onTap: (CGRect) -> Void
+  let onFrameChange: ((CGRect) -> Void)?
+  @State private var frame: CGRect = .zero
+
+  func body(content: Content) -> some View {
+    content
+      .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { new in
+        frame = new
+        onFrameChange?(new)
+      }
+      .onTapGesture { onTap(frame) }
+  }
+}
+
 // MARK: - ZoomSourceTag
 
 /// Applies `.matchedTransitionSource(id:in:)` on iOS 18+ when a namespace is
@@ -428,7 +456,7 @@ private struct DragPayloadModifier: ViewModifier {
     provider: .preview(),
     displayMode: .fill,
     isSelected: true,
-    onTap: {}
+    onTap: { _ in }
   )
   .frame(width: 120, height: 120)
   .padding()
@@ -445,7 +473,7 @@ private struct DragPayloadModifier: ViewModifier {
     provider: .preview(),
     displayMode: .fill,
     isSelected: false,
-    onTap: {}
+    onTap: { _ in }
   )
   .frame(width: 180, height: 180)
   .padding()
@@ -465,7 +493,7 @@ private struct DragPayloadModifier: ViewModifier {
     provider: .preview(),
     displayMode: .fill,
     isSelected: false,
-    onTap: {}
+    onTap: { _ in }
   )
   .frame(width: 140, height: 140)
   .padding()
@@ -483,7 +511,7 @@ private struct DragPayloadModifier: ViewModifier {
     displayMode: .fill,
     isSelected: true,
     multiSelectChecked: true,
-    onTap: {}
+    onTap: { _ in }
   )
   .frame(width: 180, height: 180)
   .padding()
@@ -501,7 +529,7 @@ private struct DragPayloadModifier: ViewModifier {
     displayMode: .fill,
     isSelected: false,
     multiSelectChecked: false,
-    onTap: {}
+    onTap: { _ in }
   )
   .frame(width: 180, height: 180)
   .padding()

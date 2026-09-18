@@ -37,7 +37,9 @@ struct LibraryGrid: View {
     @Binding var displayMode: GridDisplayMode
     let transitionNamespace: Namespace.ID?
 
-    let onOpenEditor: (AssetRef) -> Void
+    /// A tile tap: the asset and its tile's window-space frame, for the
+    /// Preview hero to grow out of.
+    let onOpenEditor: (AssetRef, CGRect) -> Void
     let onPrimeSession: (AssetRef) -> Void
     /// Tap on a sub-folder tile — drills the grid into that folder.
     let onNavigateFolder: (URL) -> Void
@@ -46,6 +48,11 @@ struct LibraryGrid: View {
     /// panel renders disabled and the phone has no route to the system
     /// permission prompt at all (#2924). `nil` in previews.
     var onGrantPhotosAccess: (() -> Void)? = nil
+    /// Live window-space frame of the selected photo's tile, for the
+    /// Preview hero to grow from and shrink back into.
+    var onSelectedFrameChange: ((CGRect) -> Void)? = nil
+    /// The photo whose tile is blanked while the Preview hero carries it.
+    var hiddenTileID: AssetRef.ID? = nil
 
     /// Local-only thumbnail provider.
     @State private var provider = ThumbnailProvider.local()
@@ -129,13 +136,15 @@ struct LibraryGrid: View {
                             onPrimeSession(asset)
                             Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
                         },
-                        onTap: { asset in
+                        onSelectedFrameChange: onSelectedFrameChange,
+                        isHidden: { $0.id == hiddenTileID },
+                        onTap: { asset, frame in
                             lastTappedID = asset.id
                             vm.selectedID = asset.id
                             #if canImport(UIKit)
                             UISelectionFeedbackGenerator().selectionChanged()
                             #endif
-                            onOpenEditor(asset)
+                            onOpenEditor(asset, frame)
                         },
                         makeItem: makeItem
                     )
@@ -198,18 +207,18 @@ struct LibraryGrid: View {
         PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
     }
 
-    /// Full width in fill mode shows each photo whole, at its own aspect
-    /// ratio; every other tier (and fit mode) keeps square tiles.
+    /// Full width shows each photo whole, at its own aspect ratio — there is
+    /// no square to fill or fit at 1-up, so the toolbar's fill/fit toggle
+    /// does not apply. Every other tier keeps square tiles.
     private var cellShape: ThumbnailShape {
-        columns == 1 && displayMode == .fill ? .native : .square
+        columns == 1 ? .native : .square
     }
 
     /// Height ÷ width of a photo's tile in the full-width tier — from its
     /// already-decoded thumbnail (the same bitmap the tile draws), square
     /// until that has landed. Must agree with `ThumbnailShape.native`.
     private func fullWidthAspect(of asset: AssetRef) -> CGFloat {
-        guard displayMode == .fill,
-              let image = ThumbnailDecoder.cachedImage(forKey: asset.stableID ?? asset.id.uuidString),
+        guard let image = ThumbnailDecoder.cachedImage(forKey: asset.stableID ?? asset.id.uuidString),
               image.width > 0
         else { return 1 }
         return CGFloat(image.height) / CGFloat(image.width)
@@ -388,7 +397,7 @@ struct LibraryGrid: View {
                     // the photo's shape: it takes the blended frame as is.
                     shape: .proposed,
                     isSelected: vm.selectedID == asset.id,
-                    onTap: {}
+                    onTap: { _ in }
                 )
             }
         }

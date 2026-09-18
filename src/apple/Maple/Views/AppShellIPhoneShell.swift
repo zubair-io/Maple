@@ -90,8 +90,14 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
     let onOpenEditor: (AssetRef) -> Void
+    /// A Library tile tap with the tile's window-space frame (Preview hero).
+    var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
     let onPrimeSession: (AssetRef) -> Void
     let onFullImageFallback: () -> Void
+    /// Live window-space frame of the grid's selected tile (Preview hero).
+    var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil
+    /// The photo whose tile is blanked while the Preview hero carries it.
+    var hiddenTileID: AssetRef.ID? = nil
     /// M2: called when the user taps "Merge to Panorama…" from PanoSelectionBar.
     var onMergePanorama: (() -> Void)? = nil
     /// M4: called when the user taps "Edit Metadata…" from PanoSelectionBar.
@@ -152,7 +158,10 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             onSelectLocalAsset: onSelectLocalAsset,
             onGrantPhotosAccess: onGrantPhotosAccess,
             onNavigateFolder: onNavigateFolder,
+            onSelectedTileFrameChange: onSelectedTileFrameChange,
+            hiddenTileID: hiddenTileID,
             onOpenEditor: onOpenEditor,
+            onOpenTile: onOpenTile,
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback,
             onMergePanorama: onMergePanorama,

@@ -93,6 +93,12 @@ struct AppShellCenterColumn: View {
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
+    /// iPhone only: live window-space frame of the Library grid's selected
+    /// tile, for the Preview hero (`PhoneLibraryView`).
+    var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil
+    /// iPhone only: the photo whose tile is blanked while the Preview hero
+    /// carries it.
+    var hiddenTileID: AssetRef.ID? = nil
     /// Security-scope bookmark for the currently-browsed local folder,
     /// forwarded to `BrowseGrid`'s folder tiles as drop targets (#2779).
     /// `nil` outside a local-folder browse (PhotoKit/SMB/Cloud) — see
@@ -102,6 +108,10 @@ struct AppShellCenterColumn: View {
     /// disables it (e.g. previews).
     var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
     let onOpenEditor: (AssetRef) -> Void
+    /// iPhone only: a Library tile tap with the tile's window-space frame,
+    /// for the Preview hero to grow out of. Mac / iPad surfaces keep
+    /// `onOpenEditor`.
+    var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
     let onPrimeSession: (AssetRef) -> Void
     /// Recover from a vanished selection by flipping back to Browse.
     let onFullImageFallback: () -> Void
@@ -259,14 +269,16 @@ struct AppShellCenterColumn: View {
                         sessions: $sessions,
                         displayMode: $browseDisplayMode,
                         transitionNamespace: previewTransitionNamespace,
-                        onOpenEditor: onOpenEditor,
+                        onOpenEditor: onOpenTile,
                         onPrimeSession: onPrimeSession,
                         onNavigateFolder: onNavigateFolder,
                         // #2924: the phone branch used to drop this on the
                         // floor, leaving the Photos permission panel with a
                         // dead Connect button (and, before the empty state
                         // itself landed, no panel at all).
-                        onGrantPhotosAccess: onGrantPhotosAccess
+                        onGrantPhotosAccess: onGrantPhotosAccess,
+                        onSelectedFrameChange: onSelectedTileFrameChange,
+                        hiddenTileID: hiddenTileID
                     )
                 } else {
                     BrowseGrid(
