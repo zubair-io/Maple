@@ -110,8 +110,11 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  // The database itself is dropped by `withTestDb`, which owns that cleanup for
+  // every suite precisely so no file has to remember it (#2491). Dropping it
+  // here as well would be a second round trip against the shared mongod for no
+  // benefit, on a suite whose neighbours already sit close to their timeout.
   if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
   }
   const { closeDb } = await import('../../client.ts');
