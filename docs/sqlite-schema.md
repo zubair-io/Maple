@@ -434,6 +434,21 @@ it is off by default. Without it every `ON DELETE CASCADE` in this schema is
 decoration. `SCHEMA_PRAGMAS` in `ddl/index.ts` is the list a connection owner
 applies.
 
+**Case-insensitive uniqueness is a stored key, not a collation** (#3749).
+`people_name_unique` is what makes naming two clusters the same thing a merge,
+and the Mongo index it replaces is declared `{ locale: 'en', strength: 2 }`.
+SQLite's `NOCASE` is not that collation: it folds ASCII `A`–`Z` and nothing
+else, so under it "josé" and "JOSÉ" are two names, the lookup misses, the index
+permits the second row and the merge silently does not happen. `bun:sqlite`
+cannot register a collation of our own, so `people` carries a `name_key` column
+folded by `caseFoldKey` (`db/sqlite/case-fold.ts`, NFKC then `toLowerCase`) and
+the unique index is built over that. Every comparison in `repos/people.sql.ts`
+is against `name_key`, and the repo's own "is this the same name" check folds
+through the same function, so the code and the constraint cannot disagree.
+`presets_name_unique` and `users_email_unique` still carry the original
+spelling and are tracked by #3781 — each lands with the slice that ports its
+repo, since a NOT NULL key column with no writer proves nothing.
+
 **A person's face count is derived, not stored** (#3749). `PersonDoc.face_count`
 is a denormalised number adjusted by hand at every membership change — assign,
 unassign, hide, merge — and then rewritten wholesale once per clustering pass by

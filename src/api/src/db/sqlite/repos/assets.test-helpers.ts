@@ -1,12 +1,13 @@
 /**
  * Fixture builders for the tables an asset's DTO draws on.
  *
- * The {@link SqliteDb} adapter these tests also need moved to the shared
+ * The `SqliteDb` adapter these tests also need moved to the shared
  * harness when the change feed became the second ported repository — see
  * `testSqliteDb` in `../test-sqlite.test-helpers.ts`.
  */
 
 import type { Database } from 'bun:sqlite';
+import { caseFoldKey } from '../case-fold.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { run } from '../test-sqlite.test-helpers.ts';
 
@@ -50,9 +51,10 @@ export function insertPerson(db: Database, name: string, id = newObjectIdHex()):
   const now = new Date().toISOString();
   run(
     db,
-    `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+    `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
     id,
     name,
+    caseFoldKey(name),
     now,
     now,
   );

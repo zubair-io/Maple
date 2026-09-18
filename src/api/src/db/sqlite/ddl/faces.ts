@@ -73,16 +73,12 @@ export const PEOPLE_TABLE_DDL = `
 CREATE TABLE people (
   id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
 
-  -- COLLATE on the COLUMN, not on the index expression. This is the lookup
-  -- that decides whether renaming a person merges into an existing cluster:
-  -- people.repo.ts's findByNameCI runs findOne({ name, merged_into: null })
-  -- with collation { locale: 'en', strength: 2 }. Declared only on the index,
-  -- the NOCASE index would be unusable by a BINARY WHERE name = ? — worse
-  -- than slow, because the probe would MISS a differently-cased name, the
-  -- caller would proceed to insert, and the NOCASE unique index below would
-  -- then reject it with a constraint error where the product contract is
-  -- "merge". On the column, the comparison and the index agree.
-  name       TEXT NOT NULL COLLATE NOCASE,
+  name       TEXT NOT NULL,
+  -- The case-insensitive identity of the name, and the only thing uniqueness
+  -- is ever checked against. NOT NULL with no default on purpose: a write path
+  -- that sets the name without it fails loudly instead of quietly creating a
+  -- second person the lookup cannot find. caseFoldKey in db/sqlite mints it.
+  name_key   TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
 
@@ -124,11 +120,14 @@ CREATE TABLE people (
 
 export const PEOPLE_INDEX_DDL = `
 -- Name uniqueness is what makes "tag two clusters with the same name" a merge.
--- Case-insensitive via the column's declared collation (see the table), and
--- scoped to live rows so a merged-away person does not hold its old name
+-- Built over name_key, not over the name under COLLATE NOCASE: NOCASE folds
+-- ASCII A-Z and nothing else, so under it josé and JOSÉ are two names and
+-- the merge silently does not happen — which is not what the Mongo collation
+-- { locale: 'en', strength: 2 } this replaces does. See db/sqlite/case-fold.ts.
+-- Scoped to live rows so a merged-away person does not hold its old name
 -- hostage.
 CREATE UNIQUE INDEX people_name_unique
-  ON people (name)
+  ON people (name_key)
   WHERE merged_into IS NULL;
 
 -- Audit trail walk: "which rows merged into this one".

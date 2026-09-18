@@ -393,12 +393,10 @@ function seedPeople(db: Database, now: string): string[] {
   for (let i = 0; i < 120; i += 1) {
     const id = newObjectIdHex();
     ids.push(id);
-    db.run(`INSERT INTO people (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`, [
-      id,
-      `Person ${i}`,
-      now,
-      now,
-    ]);
+    db.run(
+      `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      [id, `Person ${i}`, `person ${i}`, now, now],
+    );
   }
   return ids;
 }

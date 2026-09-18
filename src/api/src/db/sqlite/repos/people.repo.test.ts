@@ -4,24 +4,20 @@
  * The error strings are asserted verbatim, not by shape. The web client shows
  * several of them to the operator, so a reworded message is a user-visible
  * change and should fail here rather than be noticed in a screenshot.
+ *
+ * Naming — create, rename, and the search layer's name lookups — is in
+ * `people.names.test.ts`, because "two people cannot hold the same name, so
+ * naming one after another merges them" is a rule in its own right rather than
+ * a property of any single verb.
  */
 
 import { describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { createTestDatabase, insertAsset, insertLocation } from '../test-sqlite.test-helpers.ts';
-import {
-  assignFaceToPerson,
-  createPerson,
-  getPerson,
-  hideFace,
-  listPeople,
-  readFaces,
-  renamePerson,
-} from './people.repo.ts';
+import { assignFaceToPerson, getPerson, hideFace, listPeople, readFaces } from './people.repo.ts';
 import { listExcludedPeople, listHiddenPeople, personIdsToDrop } from './people.visibility.ts';
 import { hidePerson, excludePerson, unhidePerson } from './people.visibility.ts';
 import { setPersonCover } from './people.cover.ts';
-import { namesForPersonIds, personIdsForNames } from './people.search-filter.ts';
 import {
   insertFace,
   insertLibrary,
@@ -29,123 +25,6 @@ import {
   insertPerson,
   testDb,
 } from './people.test-helpers.ts';
-
-describe('createPerson', () => {
-  test('creates a person and returns it with an id', async () => {
-    using handle = await createTestDatabase();
-    const db = testDb(handle.db);
-
-    const person = await createPerson('Ada', db);
-
-    expect(person.name).toBe('Ada');
-    expect(person._id).toBeInstanceOf(ObjectId);
-    expect(person.merged_into).toBeNull();
-  });
-
-  test('is idempotent, case-insensitively', async () => {
-    using handle = await createTestDatabase();
-    const db = testDb(handle.db);
-
-    const first = await createPerson('Ada', db);
-    const second = await createPerson('ADA', db);
-
-    // Typing a name that already exists is not an error — it selects.
-    expect(second._id.toHexString()).toBe(first._id.toHexString());
-    expect(second.name).toBe('Ada');
-  });
-
-  test('trims, and refuses a blank name or one holding a comma', async () => {
-    using handle = await createTestDatabase();
-    const db = testDb(handle.db);
-
-    expect((await createPerson('  Ada  ', db)).name).toBe('Ada');
-    await expect(createPerson('   ', db)).rejects.toThrow('name must not be empty');
-    // The search wire format is comma-separated, so a comma in a name would
-    // split it into two filters.
-    await expect(createPerson('Lovelace, Ada', db)).rejects.toThrow(
-      'name must not contain a comma',
-    );
-  });
-
-  test('a merged-away person does not hold its old name hostage', async () => {
-    using handle = await createTestDatabase();
-    const db = handle.db;
-    const survivor = insertPerson(db, { name: 'Survivor' });
-    insertPerson(db, { name: 'Ada', mergedInto: survivor });
-
-    const created = await createPerson('Ada', testDb(db));
-
-    expect(created.name).toBe('Ada');
-    expect(created.merged_into).toBeNull();
-  });
-});
-
-describe('renamePerson', () => {
-  test('renames, and reports no merge', async () => {
-    using handle = await createTestDatabase();
-    const db = testDb(handle.db);
-    const person = await createPerson('Ada', db);
-
-    const result = await renamePerson(person._id, 'Ada Lovelace', db);
-
-    expect(result.survivor.name).toBe('Ada Lovelace');
-    expect(result.mergedFrom).toBeUndefined();
-  });
-
-  test('a case-only rename still rewrites the stored spelling', async () => {
-    using handle = await createTestDatabase();
-    const db = testDb(handle.db);
-    const person = await createPerson('ada', db);
-
-    const result = await renamePerson(person._id, 'Ada', db);
-    const stored = handle.db
-      .query('SELECT name FROM people WHERE id = ?')
-      .get(person._id.toHexString());
-
-    expect(result.survivor.name).toBe('Ada');
-    expect(stored).toEqual({ name: 'Ada' });
-  });
-
-  test('renaming onto a live name merges, and the older id survives', async () => {
-    using handle = await createTestDatabase();
-    const db = handle.db;
-    const library = insertLibrary(db);
-    // Ids are minted in ascending order, so `older` is the lexicographically
-    // smaller one and must win regardless of which side is renamed.
-    const [olderId, newerId] = [new ObjectId(), new ObjectId()]
-      .map((id) => id.toHexString())
-      .sort();
-    insertPerson(db, { id: olderId, name: 'Ada' });
-    insertPerson(db, { id: newerId, name: 'Ada L' });
-    const asset = insertLiveAsset(db, library);
-    insertFace(db, { assetId: asset, personId: newerId });
-
-    const result = await renamePerson(new ObjectId(newerId), 'Ada', testDb(db));
-
-    expect(result.survivor._id.toHexString()).toBe(olderId);
-    expect(result.mergedFrom?.toHexString()).toBe(newerId);
-    // The orphan's face came with it.
-    const face = db.query('SELECT person_id FROM faces WHERE asset_id = ?').get(asset);
-    expect(face).toEqual({ person_id: olderId });
-    const orphan = db.query('SELECT merged_into FROM people WHERE id = ?').get(newerId);
-    expect(orphan).toEqual({ merged_into: olderId });
-  });
-
-  test('refuses an unknown or already-merged person', async () => {
-    using handle = await createTestDatabase();
-    const db = handle.db;
-    const missing = new ObjectId();
-    const survivor = insertPerson(db, { name: 'Survivor' });
-    const merged = insertPerson(db, { name: 'Gone', mergedInto: survivor });
-
-    await expect(renamePerson(missing, 'Ada', testDb(db))).rejects.toThrow(
-      `person not found: ${missing.toHexString()}`,
-    );
-    await expect(renamePerson(new ObjectId(merged), 'Ada', testDb(db))).rejects.toThrow(
-      `person already merged: ${merged}`,
-    );
-  });
-});
 
 describe('listPeople', () => {
   test('is name-sorted case-insensitively and hides the marked and the merged', async () => {
@@ -520,41 +399,5 @@ describe('setPersonCover', () => {
       error: 'face is hidden',
       status: 400,
     });
-  });
-});
-
-describe('the search layer’s name lookups', () => {
-  test('personIdsForNames matches case-insensitively and skips the hidden', async () => {
-    using handle = await createTestDatabase();
-    const db = handle.db;
-    const ada = insertPerson(db, { name: 'Ada' });
-    const excluded = insertPerson(db, { name: 'Excluded', excluded: true });
-    insertPerson(db, { name: 'Hidden', hidden: true });
-    const dbHandle = testDb(db);
-
-    const found = await personIdsForNames(['ADA', 'Hidden', 'Excluded'], dbHandle);
-
-    // Excluded people are matched here and dropped later, by `personIdsToDrop`.
-    expect(found?.sort()).toEqual([ada, excluded].sort());
-    // An empty name list means "no person constraint", not "match nobody".
-    expect(await personIdsForNames([], dbHandle)).toBeNull();
-  });
-
-  test('namesForPersonIds leaves the auto-generated names out of the picker', async () => {
-    using handle = await createTestDatabase();
-    const db = handle.db;
-    const ada = insertPerson(db, { name: 'Ada' });
-    const auto = insertPerson(db, { name: 'Person 12' });
-    const notAuto = insertPerson(db, { name: 'Person Alice' });
-    const padded = insertPerson(db, { name: 'Person 007' });
-
-    const names = await namesForPersonIds([ada, auto, notAuto, padded, 'nonsense'], testDb(db));
-
-    expect(names.get(ada)).toBe('Ada');
-    expect(names.has(auto)).toBe(false);
-    // "Person 007" is digits to the end, so it is an auto-name too.
-    expect(names.has(padded)).toBe(false);
-    // "Person Alice" is somebody's actual name and must survive.
-    expect(names.get(notAuto)).toBe('Person Alice');
   });
 });

@@ -27,6 +27,7 @@
  */
 
 import type { ObjectId } from 'mongodb';
+import { caseFoldKey } from '../case-fold.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { toPerson, type PersonRow } from './people.rows.ts';
@@ -71,7 +72,7 @@ function mergeStatements(survivorHex: string, orphanHex: string, name: string): 
     { sql: CLEAR_SUGGESTIONS_POINTING_AT_SQL, params: [orphanHex] },
     // The survivor takes the name and is marked for a centroid recompute: it
     // just absorbed faces, so its stored mean is stale by construction.
-    { sql: CLAIM_SURVIVOR_SQL, params: [name, now, survivorHex] },
+    { sql: CLAIM_SURVIVOR_SQL, params: [name, caseFoldKey(name), now, survivorHex] },
   ];
 }
 

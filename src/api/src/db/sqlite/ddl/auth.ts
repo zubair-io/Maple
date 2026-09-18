@@ -46,10 +46,14 @@ CREATE TABLE users (
 `;
 
 export const USERS_INDEX_DDL = `
--- Case-insensitive uniqueness, matching the Mongo collation
--- { locale: 'en', strength: 2 } on the same field. The collation comes from
--- the column, which is what makes this index usable by an equality lookup.
-CREATE UNIQUE INDEX users_email_unique ON users (email);
+-- Case-insensitive uniqueness, standing in for the Mongo collation
+-- { locale: 'en', strength: 2 } on the same field — but only over ASCII,
+-- because NOCASE folds A-Z and nothing else. Addresses are ASCII or punycode
+-- in practice, so this is the low-risk instance of the gap people hit; the
+-- stored folded key lands with the slice that ports the users repo. See
+-- db/sqlite/case-fold.ts and #3781. The column carries the same collation, so
+-- an ordinary WHERE email = ? still seeks this index rather than scanning.
+CREATE UNIQUE INDEX users_email_unique ON users (email COLLATE NOCASE);
 `;
 
 /** One user, many passkeys. `public_key` is a COSE key, stored as a blob. */

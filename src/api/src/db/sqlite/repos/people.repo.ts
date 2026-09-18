@@ -45,6 +45,7 @@ import type { ObjectId } from 'mongodb';
 import path from 'node:path';
 import { child as childLogger } from '../../../log.ts';
 import { assertValidPersonName } from '../../../people/person-name.ts';
+import { caseFoldKey } from '../case-fold.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
@@ -129,14 +130,19 @@ async function findById(db: SqliteDb, hex: string): Promise<PersonWithId | null>
 
 /** The live person holding this name, compared case-insensitively. */
 async function findByNameCI(db: SqliteDb, name: string): Promise<PersonWithId | null> {
-  const rows = await db.read<PersonRow>(LIVE_PERSON_BY_NAME_SQL, [name]);
+  const rows = await db.read<PersonRow>(LIVE_PERSON_BY_NAME_SQL, [caseFoldKey(name)]);
   const row = rows[0];
   return row ? toPerson(row) : null;
 }
 
-/** True when two names differ only in case or accent — the Mongo collation's rule. */
+/**
+ * True when two names are the same name — the rule the unique index enforces.
+ *
+ * Folded through `caseFoldKey` rather than compared with `localeCompare`, so
+ * this and the database cannot disagree about whether a rename is a collision.
+ */
 function sameNameCI(a: string, b: string): boolean {
-  return a.localeCompare(b, 'en', { sensitivity: 'accent' }) === 0;
+  return caseFoldKey(a) === caseFoldKey(b);
 }
 
 /**
@@ -157,7 +163,7 @@ export async function createPerson(name: string, dbOverride?: SqliteDb): Promise
   const id = newObjectIdHex();
   const created = nowIso();
   try {
-    await db.write(INSERT_PERSON_SQL, [id, trimmed, created, created]);
+    await db.write(INSERT_PERSON_SQL, [id, trimmed, caseFoldKey(trimmed), created, created]);
   } catch (err) {
     const raced = await findByNameCI(db, trimmed);
     if (raced) return raced;
@@ -192,7 +198,12 @@ async function applyRename(
   trimmed: string,
   dbOverride?: SqliteDb,
 ): Promise<RenameResult> {
-  await db.write(RENAME_PERSON_SQL, [trimmed, nowIso(), subject._id.toHexString()]);
+  await db.write(RENAME_PERSON_SQL, [
+    trimmed,
+    caseFoldKey(trimmed),
+    nowIso(),
+    subject._id.toHexString(),
+  ]);
   // A case-only rename still changes the indexed token ("alice" → "Alice"), so
   // it re-indexes too.
   markAssetsForMeiliReindexBestEffort([subject._id], dbOverride);
