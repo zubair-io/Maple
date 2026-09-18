@@ -160,4 +160,33 @@ describe('WorkersApiService', () => {
     req.flush(payload);
     expect(result).toEqual(payload);
   });
+
+  it('getChangeLogRetentionWindow() GET /api/workers/change-log-gc/retention-window', () => {
+    let result: { days: number } | undefined;
+    svc.getChangeLogRetentionWindow().subscribe((r) => (result = r));
+    const req = http.expectOne('/api/workers/change-log-gc/retention-window');
+    expect(req.request.method).toBe('GET');
+    req.flush({ days: 30 });
+    expect(result).toEqual({ days: 30 });
+  });
+
+  it('setChangeLogRetentionWindow() PATCH /api/workers/change-log-gc/retention-window', () => {
+    let result: { ok: boolean; days: number } | undefined;
+    svc.setChangeLogRetentionWindow(60).subscribe((r) => (result = r));
+    const req = http.expectOne('/api/workers/change-log-gc/retention-window');
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.body).toEqual({ days: 60 });
+    req.flush({ ok: true, days: 60 });
+    expect(result).toEqual({ ok: true, days: 60 });
+  });
+
+  it('runChangeLogGcNow() POST /api/workers/change-log-gc/run', () => {
+    let result: { ok: boolean; deleted: number; batches: number; durationMs: number } | undefined;
+    svc.runChangeLogGcNow().subscribe((r) => (result = r));
+    const req = http.expectOne('/api/workers/change-log-gc/run');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({});
+    req.flush({ ok: true, deleted: 100, batches: 1, durationMs: 12 });
+    expect(result).toEqual({ ok: true, deleted: 100, batches: 1, durationMs: 12 });
+  });
 });

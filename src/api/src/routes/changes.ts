@@ -11,7 +11,7 @@
  */
 
 import { Elysia, sse, t } from 'elysia';
-import { listChangesSince } from '../db/changes.repo.ts';
+import { isChangeCursorTooOld, listChangesSince } from '../db/changes.repo.ts';
 import { getChangeBus, type ChangeBus } from '../runtime/change-bus.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
@@ -254,6 +254,11 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
           return { error: 'limit must be a positive integer' };
         }
         limit = Math.min(parsed, 1000);
+      }
+      const { tooOld, current } = await isChangeCursorTooOld(undefined, since);
+      if (tooOld) {
+        set.status = 409;
+        return { error: 'cursor too old', current };
       }
       const rows = await listChangesSince(undefined, { since, limit });
       const payload = rows.map(asPayload);

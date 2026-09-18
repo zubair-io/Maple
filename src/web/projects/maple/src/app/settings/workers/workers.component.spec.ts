@@ -59,6 +59,9 @@ describe('WorkersComponent', () => {
       });
     for (const request of http.match('/api/ai/connections/'))
       request.flush({ connections: [], assignments: {}, available_workers: [] });
+    // Change log GC panel reads retention window on init; drain it for the same reason.
+    for (const r of http.match('/api/workers/change-log-gc/retention-window'))
+      r.flush({ days: 30 });
     http.verify();
   });
 

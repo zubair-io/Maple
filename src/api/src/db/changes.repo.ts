@@ -262,3 +262,47 @@ export async function highestCursor(dbOverride?: Db): Promise<number> {
   const top = await coll.find({}).sort({ cursor: -1 }).limit(1).next();
   return top?.cursor ?? 0;
 }
+
+/** Returns the lowest cursor currently in the collection, or null if empty. */
+export async function lowestCursor(dbOverride?: Db): Promise<number | null> {
+  const coll = dbOverride
+    ? dbOverride.collection<AssetChangeDoc>('asset_changes')
+    : await assetChangesCollection();
+  const bottom = await coll.find({}).sort({ cursor: 1 }).limit(1).next();
+  return bottom?.cursor ?? null;
+}
+
+/** Returns the most recently allocated cursor sequence from server_state, or 0 if uninitialized. */
+export async function currentAllocatedCursor(dbOverride?: Db): Promise<number> {
+  const coll = dbOverride
+    ? dbOverride.collection<ServerStateDoc>('server_state')
+    : await serverStateCollection();
+  const doc = await coll.findOne({ _id: CURSOR_DOC_ID });
+  return doc?.seq ?? 0;
+}
+
+/**
+ * Checks whether a `since` cursor is older than the retained change log.
+ *
+ * Invariant mirrors `ChangeBus.isCursorReplayable`:
+ * - If the collection has rows with minimum cursor `L`, then any `since + 1 < L`
+ *   has had its next event pruned.
+ * - If the collection is empty, the cursor is too old if `since < currentAllocatedCursor`.
+ *
+ * Returns `{ tooOld, current }` where `current` is the latest cursor watermark.
+ */
+export async function isChangeCursorTooOld(
+  dbOverride: Db | undefined,
+  since: number,
+): Promise<{ tooOld: boolean; current: number }> {
+  const [lowest, top, allocated] = await Promise.all([
+    lowestCursor(dbOverride),
+    highestCursor(dbOverride),
+    currentAllocatedCursor(dbOverride),
+  ]);
+  const current = Math.max(top, allocated);
+  if (lowest === null) {
+    return { tooOld: since < current, current };
+  }
+  return { tooOld: since + 1 < lowest, current };
+}
