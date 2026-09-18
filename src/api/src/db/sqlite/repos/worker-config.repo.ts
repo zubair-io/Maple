@@ -98,8 +98,19 @@ const PATCHABLE = {
   ai_model: 'ai_model',
 } as const satisfies Record<keyof WorkerConfig, string>;
 
-/** Values a row needs on the insert branch of a partial patch. */
-const PATCH_INSERT_DEFAULTS = { concurrency: 1, max_attempts: 3, paused: 0 };
+/**
+ * What a partial patch writes into the columns it was not given.
+ *
+ * `concurrency` and `max_attempts` are `NOT NULL`, so a patch that creates the
+ * row has to put *something* in them — where the Mongo document simply leaves
+ * the fields absent for `bootConfig` to fill from the stage's own defaults.
+ * Zero is that "absent", and it is unambiguous rather than a convention:
+ * neither value is usable at zero. A stage at `concurrency: 0` derives a batch
+ * size of zero and silently claims nothing forever, and at `maxAttempts: 0`
+ * every asset dead-letters on its first attempt. {@link pickConfigured} is the
+ * other half — it reads zero as "nobody has chosen yet".
+ */
+const PATCH_INSERT_DEFAULTS = { concurrency: 0, max_attempts: 0, paused: 0 };
 
 /**
  * Drop the optional keys that carry no value, so a config object looks the
@@ -222,8 +233,24 @@ export interface StageDefaults extends WorkerConfig {
   pausedOnFirstBoot: boolean;
 }
 
+/** A stored integer, or the fallback when the column was never written. */
 function pickInt(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) ? value : fallback;
+}
+
+/**
+ * A stored count an operator actually chose, or the stage's default.
+ *
+ * Zero means "not configured" for the two `NOT NULL` counts — see
+ * {@link PATCH_INSERT_DEFAULTS}. This is the repair path the Mongo `bootConfig`
+ * gets for free by finding the field missing, and it is not hypothetical: a row
+ * whose `concurrency` is not a usable integer reaches the claim as a
+ * non-integer batch size, which crashes the tick rather than reading as a
+ * misconfiguration.
+ */
+function pickConfigured(value: unknown, fallback: number): number {
+  const chosen = pickInt(value, 0);
+  return chosen > 0 ? chosen : fallback;
 }
 
 /**
@@ -244,8 +271,8 @@ export async function bootConfig(
 
   const merged: WorkerConfig = {
     ...existing,
-    concurrency: pickInt(existing?.concurrency, stage.defaults.concurrency),
-    maxAttempts: pickInt(existing?.maxAttempts, stage.defaults.maxAttempts),
+    concurrency: pickConfigured(existing?.concurrency, stage.defaults.concurrency),
+    maxAttempts: pickConfigured(existing?.maxAttempts, stage.defaults.maxAttempts),
     paused:
       typeof existing?.paused === 'boolean' ? existing.paused : stage.defaults.pausedOnFirstBoot,
     last_seen_target_version: pickInt(existing?.last_seen_target_version, 0),

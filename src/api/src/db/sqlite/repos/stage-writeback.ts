@@ -35,6 +35,7 @@
  * `stage-state.repo.ts` for the count statements the worker's pass uses.
  */
 
+import type { StageResult } from '../../../workers/stage-config.ts';
 import type { SqlStatement } from '../protocol.ts';
 import {
   STAGE_CLAIM_ROLLBACK_SQL,
@@ -78,12 +79,13 @@ function assertStageNames(names: readonly string[]): void {
 export function invalidationStatements(
   names: readonly string[] | undefined,
   ownName: string,
+  assetId: string,
 ): SqlStatement[] {
   const list = names ?? [];
   assertStageNames(list);
   return list
     .filter((name) => name !== ownName)
-    .map((name) => ({ sql: STAGE_INVALIDATE_SQL, params: [name, ownName] }));
+    .map((name) => ({ sql: STAGE_INVALIDATE_SQL, params: [name, assetId] }));
 }
 
 /** The shared shape of every writeback: which asset, which stage. */
@@ -115,7 +117,7 @@ export function stageSuccessStatements(
   assertNoStageState(extra);
   return [
     ...extra,
-    ...invalidationStatements(options.invalidates, target.stage),
+    ...invalidationStatements(options.invalidates, target.stage, target.assetId),
     {
       sql: STAGE_SUCCESS_SQL,
       params: [
@@ -167,7 +169,7 @@ export function stageRearmStatements(
   dead: boolean,
 ): SqlStatement[] {
   return [
-    ...(dead ? [] : invalidationStatements([rearm.stage], target.stage)),
+    ...(dead ? [] : invalidationStatements([rearm.stage], target.stage, target.assetId)),
     {
       sql: STAGE_REARM_SELF_SQL,
       params: [
@@ -322,6 +324,74 @@ export function stageFailureStatements(input: {
 /** Park one row the runner has decided is terminal, with its reason. */
 export function markDeadStatement(target: StageTarget, reason: string): SqlStatement {
   return { sql: STAGE_MARK_DEAD_SQL, params: [reason, target.assetId, target.stage] };
+}
+
+/**
+ * What a stage's handler returned, in its SQLite spelling.
+ *
+ * The same four variants `StageResult` already has, with the patch's type
+ * argument filled in: on Mongo a patch is a map of document fields the runner
+ * folds into its own `$set`, and here it is the statements the handler wants
+ * run in the runner's transaction. Nothing else about the union changes, which
+ * is why it is the existing type rather than a parallel one.
+ */
+export type SqliteStageResult = StageResult<readonly SqlStatement[]>;
+
+/** What {@link stageResultStatements} needs to know about the attempt. */
+export interface StageAttempt {
+  target: StageTarget;
+  /** Attempt number the claim already persisted, 1-based. */
+  attemptNo: number;
+  maxAttempts: number;
+  /** Resolved `dependsOn` names — a `rearm` must name one of these. */
+  dependsOn: readonly string[];
+  tagsDamagedOnDeadLetter?: boolean;
+  at?: Date;
+}
+
+/**
+ * Turn one handler result into the statements that record it.
+ *
+ * The per-variant writeback that lives inline in the Mongo runner's dispatch
+ * body, lifted out so a tick can collect every asset's statements and commit
+ * them together. Throwing here is deliberate for the two misuse cases — a
+ * `rearm` naming a stage this one does not depend on, and a `damaged` from a
+ * stage that is not a damage-tagging stage — because both are programming
+ * errors that would otherwise strand the asset silently, and the runner's
+ * catch turns a throw into an ordinary failed attempt with the reason in
+ * `last_error`.
+ */
+export function stageResultStatements(
+  attempt: StageAttempt,
+  result: SqliteStageResult,
+): SqlStatement[] {
+  const { target, at } = attempt;
+  if ('patch' in result) {
+    return stageSuccessStatements(target, {
+      processedAt: at,
+      invalidates: result.invalidates,
+      extra: result.patch,
+    });
+  }
+  if ('wrote' in result) return stageSuccessStatements(target, { processedAt: at });
+  if ('skip' in result) {
+    return stageSuccessStatements(target, { processedAt: at, skipReason: result.skip });
+  }
+  if ('rearm' in result) {
+    const dep = result.rearm.stage;
+    if (!attempt.dependsOn.includes(dep)) {
+      throw new Error(
+        `stage '${target.stage}' returned { rearm: '${dep}' } but does not depend on it`,
+      );
+    }
+    return stageRearmStatements(target, result.rearm, attempt.attemptNo >= attempt.maxAttempts);
+  }
+  if (!attempt.tagsDamagedOnDeadLetter) {
+    throw new Error(
+      `stage '${target.stage}' returned { damaged } but is not a damage-tagging stage`,
+    );
+  }
+  return stageDamagedStatements(target, result.damaged, at);
 }
 
 /**

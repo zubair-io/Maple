@@ -303,10 +303,20 @@ export const SEED_STAGE_ROW_SQL = `
  *
  * This is what makes assets that predate a stage retroactively eligible for
  * it, the role `ALL_STAGE_NAMES` plays for the Mongo status counters.
+ *
+ * `WHERE true` is not decoration. SQLite's parser cannot tell an upsert's `ON
+ * CONFLICT` from a join's `ON` when the `INSERT` is fed by a `SELECT`, so the
+ * grammar requires the `SELECT` to carry a `WHERE` clause before an upsert
+ * clause; without one this is a syntax error at `DO`.
+ *
+ * Soft-deleted assets get a row too, deliberately: the rows are dense by
+ * design, a trashed asset can be restored, and the claim's own liveness gate is
+ * what keeps it from being picked up meanwhile.
+ *
  * Parameter: `stage`.
  */
 export const REGISTER_STAGE_SQL = `
-  INSERT INTO stage_state (asset_id, stage) SELECT id, ? FROM assets
+  INSERT INTO stage_state (asset_id, stage) SELECT id, ? FROM assets WHERE true
   ON CONFLICT (asset_id, stage) DO NOTHING`;
 
 /** Tag an asset damaged, parking it out of every stage's claim. */
