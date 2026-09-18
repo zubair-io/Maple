@@ -15,10 +15,10 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
+  createTestDatabase,
   insertAsset,
   insertFolder,
   insertLocation,
-  openMigratedDatabase,
   run,
 } from './test-sqlite.test-helpers.ts';
 import { newObjectIdHex } from './object-id.ts';
@@ -39,15 +39,16 @@ function indexColumns(db: Database, index: string): string[] {
 
 describe('content dedup', () => {
   test('the maple_id probe is an index seek, not a scan', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const plan = planOf(db, `SELECT id FROM assets WHERE maple_id = ?`, 'mid-1');
     expect(plan).toContain('assets_maple_id');
     expect(plan).not.toContain('SCAN assets');
-    db.close();
   });
 
   test('the dedup grouping uses the same index, with no temp B-tree', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const plan = planOf(
       db,
       `SELECT maple_id, COUNT(*) AS n FROM assets
@@ -55,11 +56,11 @@ describe('content dedup', () => {
     );
     expect(plan).toContain('assets_maple_id');
     expect(plan).not.toContain('TEMP B-TREE FOR GROUP BY');
-    db.close();
   });
 
   test('an empty maple_id is refused, which is what keeps the index predicate simple', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const id = newObjectIdHex();
     expect(() =>
       run(
@@ -77,13 +78,13 @@ describe('content dedup', () => {
       `INSERT INTO assets (id, size, mtime, indexed_at) VALUES (?, 1, 1, '2026-01-01')`,
       newObjectIdHex(),
     );
-    db.close();
   });
 });
 
 describe('case-insensitive name lookups', () => {
   test('a person is found by a differently-cased name, through the index', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const now = new Date().toISOString();
     const id = newObjectIdHex();
     run(
@@ -105,11 +106,11 @@ describe('case-insensitive name lookups', () => {
       .query(`SELECT id FROM people WHERE name = ? AND merged_into IS NULL`)
       .get('ada') as { id: string } | null;
     expect(found?.id).toBe(id);
-    db.close();
   });
 
   test('a preset and a user are both found case-insensitively, through their index', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     run(
       db,
       `INSERT INTO presets (id, name, schema_version, fields, created_at, updated_at)
@@ -135,13 +136,13 @@ describe('case-insensitive name lookups', () => {
     expect(
       db.query(`SELECT COUNT(*) AS n FROM users WHERE email = ?`).get('OWNER@example.com'),
     ).toEqual({ n: 1 });
-    db.close();
   });
 });
 
 describe('facet indexes', () => {
   test('every facet index carries the hidden column the queries always filter on', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     for (const index of [
       'assets_live',
       'assets_live_captured',
@@ -154,11 +155,11 @@ describe('facet indexes', () => {
     ]) {
       expect(indexColumns(db, index)).toContain('hidden');
     }
-    db.close();
   });
 
   test('the vision facet uses its index only when the query spells the predicate', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const spelled = planOf(
       db,
       `SELECT vision_scene_type, COUNT(*) AS n FROM asset_detail
@@ -175,11 +176,11 @@ describe('facet indexes', () => {
       `SELECT vision_scene_type, COUNT(*) AS n FROM asset_detail GROUP BY vision_scene_type`,
     );
     expect(bare).toContain('SCAN asset_detail');
-    db.close();
   });
 
   test('asset_detail is a rowid table, which is what makes that index usable', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     // A WITHOUT ROWID table cannot answer from an index over a generated
     // column: it fetches the row and re-parses the vision payload, 70x slower.
     const sql = (
@@ -188,13 +189,13 @@ describe('facet indexes', () => {
         .get() as { sql: string }
     ).sql;
     expect(sql).not.toContain('WITHOUT ROWID');
-    db.close();
   });
 });
 
 describe('the change feed outlives what it describes', () => {
   test('a delete event keeps its asset id after the asset row is gone', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const library = insertFolder(db);
     const asset = insertAsset(db);
     insertLocation(db, { assetId: asset, libraryId: library });
@@ -225,13 +226,13 @@ describe('the change feed outlives what it describes', () => {
       library,
       new Date().toISOString(),
     );
-    db.close();
   });
 });
 
 describe('wire contract', () => {
   test('is_screenshot holds all three states the DTO emits', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const ids = [newObjectIdHex(), newObjectIdHex(), newObjectIdHex()];
     const values = [null, 0, 1];
     ids.forEach((id, index) => {
@@ -260,13 +261,13 @@ describe('wire contract', () => {
       v: number | null;
     };
     expect(unset.v).toBeNull();
-    db.close();
   });
 });
 
 describe('collection coverage', () => {
   test('every live MongoDB collection has a table', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const tables = new Set(
       (
         db.query(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as Array<{
@@ -288,11 +289,11 @@ describe('collection coverage', () => {
     ]) {
       expect(tables).toContain(table);
     }
-    db.close();
   });
 
   test('a settings document round-trips whole, and a partial update keeps the rest', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     run(
       db,
       `INSERT INTO app_settings (id, doc) VALUES ('enrichment', json('{"config":{"paused":false,"model":"qwen2.5-vl"}}'))`,
@@ -305,6 +306,5 @@ describe('collection coverage', () => {
       doc: string;
     };
     expect(JSON.parse(row.doc)).toEqual({ config: { paused: true, model: 'qwen2.5-vl' } });
-    db.close();
   });
 });

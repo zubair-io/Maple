@@ -57,7 +57,8 @@ describe('runMigrations', () => {
   });
 
   test('a no-op second run takes no write lock at all', async () => {
-    const { db, migrationDb } = openTestDatabase();
+    using handle = createBlankTestDatabase();
+    const { migrationDb } = handle;
     await runMigrations(migrationDb, ALL_MIGRATIONS);
 
     // Every statement the second run issues, in order.
@@ -85,7 +86,6 @@ describe('runMigrations', () => {
     // migration per process role on every boot, for nothing.
     expect(statements.filter((sql) => sql.startsWith('BEGIN'))).toEqual([]);
     expect(statements.filter((sql) => sql.startsWith('COMMIT'))).toEqual([]);
-    db.close();
   });
 
   test('creates the sentinel table on a database that has never been touched', async () => {
