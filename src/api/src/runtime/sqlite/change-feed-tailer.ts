@@ -82,6 +82,8 @@ export class ChangeFeedTailer {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
   private stopped = false;
+  /** False until the bus's high watermark reflects the database. */
+  private seeded = false;
 
   constructor(opts: ChangeFeedTailerOptions = {}) {
     this.intervalMs = Math.max(50, opts.intervalMs ?? 500);
@@ -94,27 +96,46 @@ export class ChangeFeedTailer {
    * so we don't re-publish historical rows on boot, sets the bus's persisted
    * high watermark from the larger of the journal and the allocation counter,
    * then schedules the polling loop.
+   *
+   * A failed boot read is retried on every tick rather than written off. The
+   * watermark is what the 409 is decided from, so "start from 0" is not a
+   * degraded mode — against a swept journal it is indistinguishable from "this
+   * server has no history", and `isCursorReplayable` then waves every stale
+   * client through onto an empty stream. Nothing later raises it either: the
+   * only other writer is {@link tickOnce}, and a swept journal has no rows for
+   * it to read. The retry converges as soon as the database answers; until then
+   * the tailer publishes nothing, because a tick that listed from an unseeded
+   * `localMax` would republish the journal and then set the watermark from it,
+   * which is the wrong number by exactly the amount retention removed.
    */
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
     this.stopped = false;
     try {
-      const [journalMax, allocated] = await Promise.all([
-        highestCursor(this.db),
-        allocatedCursor(this.db),
-      ]);
-      this.localMax = journalMax;
-      getChangeBus().setPersistedHighWatermark(Math.max(journalMax, allocated));
-      log.info({ localMax: journalMax, allocated }, 'tailer started');
+      await this.seed();
     } catch (err) {
       log.error(
         { err: err instanceof Error ? err.message : err },
-        'tailer boot: cursor read failed; starting from 0',
+        'tailer boot: cursor read failed; retrying on the next tick',
       );
-      this.localMax = 0;
     }
     this.scheduleNext();
+  }
+
+  /**
+   * Point the bus's high watermark and this process's republish mark at the
+   * database. Idempotent, and the only place either is initialised.
+   */
+  private async seed(): Promise<void> {
+    const [journalMax, allocated] = await Promise.all([
+      highestCursor(this.db),
+      allocatedCursor(this.db),
+    ]);
+    this.localMax = journalMax;
+    getChangeBus().setPersistedHighWatermark(Math.max(journalMax, allocated));
+    this.seeded = true;
+    log.info({ localMax: journalMax, allocated }, 'tailer started');
   }
 
   /** Stop polling. Safe to call multiple times. */
@@ -132,6 +153,11 @@ export class ChangeFeedTailer {
    * the number of rows republished.
    */
   async tickOnce(): Promise<number> {
+    // A boot whose reads failed left the watermark unset; finish that before
+    // republishing anything, and let a still-unreachable database throw out of
+    // here so `scheduleNext` logs it and tries again rather than proceeding on
+    // a `localMax` of 0.
+    if (!this.seeded) await this.seed();
     const rows = await listChangesSince(this.db, {
       since: this.localMax,
       limit: this.batchSize,

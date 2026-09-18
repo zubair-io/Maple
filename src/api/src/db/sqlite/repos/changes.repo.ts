@@ -69,15 +69,34 @@ export type { SqliteDb } from './db-handle.ts';
 const CURSOR_ROW_ID = 'asset_changes_cursor';
 
 /**
- * Allocate the next cursor.
+ * Allocate the next cursor: one past the larger of the counter and the journal.
+ *
+ * Reading the journal as well as the counter looks redundant — the counter is
+ * the allocator and the journal only ever receives what it hands out — but it
+ * is what keeps the two from disagreeing, and a disagreement here is fatal
+ * rather than cosmetic. `cursor` is the primary key, so a counter that has
+ * fallen behind the journal mints a value a row already occupies, the insert is
+ * rejected, and {@link recordAndPublishAssetChange}'s best-effort handler
+ * swallows it: the feed stops emitting from boot with nothing but a warn line to
+ * say so. The way to get there is the Mongo→SQLite cutover (#3752) importing
+ * `asset_changes` rows without also seeding this row, and the repair costs a
+ * `MAX(cursor)` that SQLite answers from the end of the primary-key b-tree
+ * rather than a scan, inside the batch that was already being written.
  *
  * `COALESCE` guards the one way this row could hold a NULL `seq`: `server_state`
  * is shared with string-valued singletons such as the JWT secret, whose rows
- * leave the column unset, and `NULL + 1` is NULL rather than an error.
+ * leave the column unset, and `NULL + 1` is NULL rather than an error. The
+ * journal side needs the same guard for the ordinary empty-table case, which
+ * retention pruning (#3741) makes routine rather than first-boot-only.
  */
 const BUMP_CURSOR_SQL = `
-  INSERT INTO server_state (id, seq) VALUES (?, 1)
-  ON CONFLICT (id) DO UPDATE SET seq = COALESCE(seq, 0) + 1`;
+  INSERT INTO server_state (id, seq)
+  VALUES (?, (SELECT COALESCE(MAX(cursor), 0) FROM asset_changes) + 1)
+  ON CONFLICT (id) DO UPDATE SET
+    seq = MAX(
+      COALESCE(server_state.seq, 0),
+      (SELECT COALESCE(MAX(cursor), 0) FROM asset_changes)
+    ) + 1`;
 
 /** Write the row at the cursor the preceding statement just allocated. */
 const INSERT_CHANGE_SQL = `
@@ -97,6 +116,16 @@ const LIST_CHANGES_SQL = `
 const HIGHEST_CURSOR_SQL = `SELECT MAX(cursor) AS cursor FROM asset_changes`;
 
 const ALLOCATED_CURSOR_SQL = `SELECT seq FROM server_state WHERE id = ?`;
+
+/**
+ * The three numbers {@link isChangeCursorTooOld} compares, in one round trip.
+ * Each is a b-tree endpoint or a primary-key lookup, so the whole row costs
+ * three seeks; Mongo needs three separate queries to answer the same question.
+ */
+const RETENTION_FLOOR_SQL = `
+  SELECT (SELECT MIN(cursor) FROM asset_changes)        AS lowest,
+         (SELECT MAX(cursor) FROM asset_changes)        AS highest,
+         (SELECT seq FROM server_state WHERE id = ?)    AS allocated`;
 
 /** The columns {@link LIST_CHANGES_SQL} returns, before any conversion. */
 interface ChangeRow {
@@ -120,6 +149,39 @@ const folderPathCache: Map<string, string> = new Map();
 export function __resetFolderPathCacheForTests(): void {
   folderPathCache.clear();
 }
+
+/**
+ * Backoff between attempts when the writer is busy. Three retries spanning
+ * ~525ms, which is the shape of the contention this is for: SQLite serialises
+ * every writer in every child process through one `RESERVED` lock, so a change
+ * row emitted in the middle of a discover/index batch queues behind that
+ * batch's writes rather than behind a slow query. The pool's own
+ * `BUSY_TIMEOUT_MS` (5s) already absorbs the common case; this covers the tail
+ * where a batch holds the lock for longer than that.
+ */
+const BUSY_RETRY_DELAYS_MS = [25, 100, 400] as const;
+
+/**
+ * Whether a failed write is worth attempting again.
+ *
+ * Only lock contention is — it is transient by definition and the batch is
+ * atomic, so a retry starts from the same state the first attempt did and
+ * allocates a fresh cursor rather than reusing the one that rolled back. A
+ * constraint violation or a closed pool would fail identically every time, and
+ * retrying those turns one log line into four.
+ *
+ * Matching on the message rather than a code is what the pool leaves available:
+ * `worker-handle.ts` flattens the driver's error into text with the SQLite code
+ * appended, because an `Error` does not clone across the worker boundary. Both
+ * spellings are checked — the code for the pool path, the driver's own wording
+ * for a test or importer driving `bun:sqlite` directly.
+ */
+function isBusyError(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : String(err);
+  return /SQLITE_BUSY|SQLITE_LOCKED|database is locked|database table is locked/i.test(text);
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function lookupFolderPath(db: SqliteDb, folderId: ObjectId): Promise<string | null> {
   const key = folderId.toHexString();
@@ -220,47 +282,80 @@ export async function recordAssetChange(
   return (await recordAssetChangeRow(dbOverride, input)).cursor;
 }
 
-/** Persist before returning the exact row for callers that publish durably. */
+/**
+ * Persist before returning the exact row for callers that publish durably.
+ *
+ * Retries a write the writer was too busy to take. This is the one failure mode
+ * the port introduces: Mongo had no global write lock, while SQLite funnels
+ * every writer in every child process through a single one, so a change row
+ * emitted mid-batch can lose the race in a way it never did before. The caller
+ * above treats a failure as best-effort and logs it, which would turn that into
+ * a silently dropped event — the client is told it is current and the edit never
+ * reaches it.
+ */
 export async function recordAssetChangeRow(
   dbOverride: SqliteDb | undefined,
   input: RecordChangeInput,
 ): Promise<AssetChangeWithId> {
   const db = repoDb(dbOverride);
-  const at = new Date();
   const relativePath = input.relative_path ?? null;
-  try {
-    const results = await db.transaction([
-      { sql: BUMP_CURSOR_SQL, params: [CURSOR_ROW_ID] },
-      {
-        sql: INSERT_CHANGE_SQL,
-        params: [
-          CURSOR_ROW_ID,
-          input.asset_id?.toHexString() ?? null,
-          input.folder_id?.toHexString() ?? null,
-          input.kind,
-          input.abs_path,
-          relativePath,
-          at.toISOString(),
-        ],
-      },
-    ]);
-    // `cursor` is an INTEGER PRIMARY KEY, so the insert's rowid is the value
-    // the counter just handed out.
-    const cursor = results[1]!.lastInsertRowid;
-    return {
-      _id: syntheticId(cursor),
-      cursor,
-      asset_id: input.asset_id,
-      folder_id: input.folder_id,
-      kind: input.kind,
-      abs_path: input.abs_path,
-      relative_path: relativePath,
-      at,
-    };
-  } catch (err) {
-    log.error({ err, kind: input.kind }, 'recordAssetChange: write failed');
-    throw err;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await writeChangeRow(db, input, relativePath);
+    } catch (err) {
+      const delay = isBusyError(err) ? BUSY_RETRY_DELAYS_MS[attempt] : undefined;
+      if (delay === undefined) {
+        log.error(
+          { err, kind: input.kind, attempts: attempt + 1 },
+          'recordAssetChange: write failed',
+        );
+        throw err;
+      }
+      log.warn(
+        { err, kind: input.kind, attempt: attempt + 1 },
+        'recordAssetChange: writer busy, retrying',
+      );
+      await sleep(delay);
+    }
   }
+}
+
+/** One attempt: allocate and insert in a single batch, and report the row. */
+async function writeChangeRow(
+  db: SqliteDb,
+  input: RecordChangeInput,
+  relativePath: string | null,
+): Promise<AssetChangeWithId> {
+  // Stamped per attempt so `at` reports when the row actually landed.
+  const at = new Date();
+  const results = await db.transaction([
+    { sql: BUMP_CURSOR_SQL, params: [CURSOR_ROW_ID] },
+    {
+      sql: INSERT_CHANGE_SQL,
+      params: [
+        CURSOR_ROW_ID,
+        input.asset_id?.toHexString() ?? null,
+        input.folder_id?.toHexString() ?? null,
+        input.kind,
+        input.abs_path,
+        relativePath,
+        at.toISOString(),
+      ],
+    },
+  ]);
+  // `cursor` is an INTEGER PRIMARY KEY, so the insert's rowid is the value
+  // the counter just handed out.
+  const cursor = results[1]!.lastInsertRowid;
+  return {
+    _id: syntheticId(cursor),
+    cursor,
+    asset_id: input.asset_id,
+    folder_id: input.folder_id,
+    kind: input.kind,
+    abs_path: input.abs_path,
+    relative_path: relativePath,
+    at,
+  };
 }
 
 export interface ListChangesQuery {
@@ -323,7 +418,14 @@ async function resolveRelativePath(db: SqliteDb, input: RecordChangeInput): Prom
   const supplied = input.relative_path ?? null;
   if (supplied !== null || !input.folder_id || !input.abs_path) return supplied;
   const folderPath = await lookupFolderPath(db, input.folder_id);
-  if (folderPath === null) return null;
+  // An empty path is treated as no path, which is what the Mongo repo's
+  // truthiness check did. `folders.path` is NOT NULL UNIQUE but carries no
+  // non-empty CHECK, and an empty root makes every prefix match: the defensive
+  // "outside the root" branch never fires, and `computeRelativePath('', '/srv/
+  // photos/a.dng')` answers `srv/photos/a.dng` — a plausible-looking path the
+  // File Provider would route per-folder invalidation on. Null is the honest
+  // answer; the extension falls back to `abs_path`.
+  if (!folderPath) return null;
   const relative = computeRelativePath(folderPath, input.abs_path);
   if (relative === null) {
     log.warn(
@@ -359,4 +461,57 @@ export async function allocatedCursor(dbOverride?: SqliteDb): Promise<number> {
   const db = repoDb(dbOverride);
   const rows = await db.read<{ seq: number | null }>(ALLOCATED_CURSOR_SQL, [CURSOR_ROW_ID]);
   return rows[0]?.seq ?? 0;
+}
+
+/** What {@link isChangeCursorTooOld} reports: the verdict, and where to resume. */
+export interface ChangeCursorAge {
+  /** True when the row after `since` has been pruned and cannot be served. */
+  tooOld: boolean;
+  /** The highest cursor the server knows about — what a 409 names. */
+  current: number;
+}
+
+/**
+ * Whether a client's saved cursor predates the retained journal.
+ *
+ * This is the polling route's half of the 409 the SSE route already answers,
+ * and the two have to agree or a File Provider client gets a different verdict
+ * depending on which transport it happens to be on. `ChangeBus.isCursorReplayable`
+ * asks the same question of the in-memory ring buffer; this asks it of the
+ * journal, whose floor is set by retention pruning (#3741) rather than by a
+ * capacity limit.
+ *
+ * Without the check, a Mac that slept across a retention sweep polls `?since=2`,
+ * is handed the rows above the new floor with a 200, advances its anchor past
+ * them and never learns it skipped everything in between.
+ * `RemoteCatalog+Changes.swift` throws `StaleCursorError` on a 409 and
+ * `WorkingSetEnumerator.swift` maps that to `syncAnchorExpired`, so the full
+ * re-enumeration path the client already implements is reachable only if the
+ * server says 409.
+ *
+ * Ported to the same name, parameters and return shape as the Mongo function
+ * #3755 adds, deliberately: the cutover (#3752) swaps the route's import path
+ * and the guard has to survive that swap unchanged. See this PR's reply on
+ * #3766 for how the two land together.
+ */
+export async function isChangeCursorTooOld(
+  dbOverride: SqliteDb | undefined,
+  since: number,
+): Promise<ChangeCursorAge> {
+  const db = repoDb(dbOverride);
+  const rows = await db.read<{
+    lowest: number | null;
+    highest: number | null;
+    allocated: number | null;
+  }>(RETENTION_FLOOR_SQL, [CURSOR_ROW_ID]);
+  const row = rows[0];
+  const current = Math.max(row?.highest ?? 0, row?.allocated ?? 0);
+  const lowest = row?.lowest ?? null;
+  // An empty journal cannot distinguish "swept" from "never wrote anything", so
+  // the counter decides: a client at the allocation watermark is current, and
+  // anyone below it missed rows that no longer exist.
+  if (lowest === null) return { tooOld: since < current, current };
+  // `since + 1` is the next row the client wants. If that is below the floor it
+  // was pruned, and everything up to the floor went with it.
+  return { tooOld: since + 1 < lowest, current };
 }

@@ -30,6 +30,7 @@ import {
   type TestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import type { AssetChangeWithId } from '../../db/schema.ts';
+import type { SqlParams, SqlRow } from '../../db/sqlite/protocol.ts';
 
 beforeEach(__resetChangeBusForTests);
 
@@ -46,6 +47,22 @@ function change(overrides: Partial<RecordChangeInput> = {}): RecordChangeInput {
 /** `n` change rows, as a worker in another process would have written them. */
 async function seed(db: SqliteDb, n: number): Promise<void> {
   for (let i = 0; i < n; i++) await recordAssetChange(db, change({ abs_path: `/srv/${i}.dng` }));
+}
+
+/** A handle whose reads fail until {@link heal} is called. */
+function brokenReads(inner: SqliteDb): SqliteDb & { heal: () => void } {
+  let broken = true;
+  return {
+    read<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> {
+      if (broken) return Promise.reject(new Error('sqlite pool: reader worker is unavailable'));
+      return inner.read<T>(sql, params);
+    },
+    write: inner.write.bind(inner),
+    transaction: inner.transaction.bind(inner),
+    heal: () => {
+      broken = false;
+    },
+  };
 }
 
 /** A started tailer plus the handle it reads through. */
@@ -185,6 +202,63 @@ describe('the post-restart 409 decision', () => {
     try {
       expect(getChangeBus().getPersistedHighWatermark()).toBe(0);
       expect(getChangeBus().isCursorReplayable(0)).toBe(true);
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  test('a boot whose reads failed finishes seeding on the next tick', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    await seed(db, 3);
+    // The worst combination: a swept journal, so there is no row a later tick
+    // could raise the watermark from, and a boot read that failed, so nothing
+    // set it. Writing this off as "start from 0" leaves the bus permanently
+    // unable to tell a dormant client to re-enumerate.
+    run(handle.db, `DELETE FROM asset_changes`);
+    __resetChangeBusForTests();
+
+    const flaky = brokenReads(db);
+    const tailer = new ChangeFeedTailer({ intervalMs: 10_000, db: flaky });
+    await tailer.start();
+    try {
+      // start() swallowed the failure rather than throwing, so boot continues.
+      expect(getChangeBus().getPersistedHighWatermark()).toBe(0);
+
+      // The retry is the tick, and it converges as soon as the database
+      // answers. Before it does, the tick propagates rather than republishing
+      // from an unseeded mark.
+      await expect(tailer.tickOnce()).rejects.toThrow(/unavailable/);
+      flaky.heal();
+      expect(await tailer.tickOnce()).toBe(0);
+
+      const bus = getChangeBus();
+      expect(bus.getPersistedHighWatermark()).toBe(3);
+      expect(bus.isCursorReplayable(2)).toBe(false);
+      expect(bus.isCursorReplayable(3)).toBe(true);
+    } finally {
+      tailer.stop();
+    }
+  });
+
+  test('does not republish the journal it could not seed from', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    await seed(db, 3);
+    __resetChangeBusForTests();
+
+    const flaky = brokenReads(db);
+    const tailer = new ChangeFeedTailer({ intervalMs: 10_000, db: flaky });
+    await tailer.start();
+    try {
+      // A tick that listed from an unseeded `localMax` of 0 would replay all
+      // three rows to every connected client and then set the watermark from
+      // the journal — the wrong number by exactly what retention removed.
+      expect(getChangeBus().snapshot()).toHaveLength(0);
+      flaky.heal();
+      expect(await tailer.tickOnce()).toBe(0);
+      expect(getChangeBus().snapshot()).toHaveLength(0);
+      expect(getChangeBus().getPersistedHighWatermark()).toBe(3);
     } finally {
       tailer.stop();
     }

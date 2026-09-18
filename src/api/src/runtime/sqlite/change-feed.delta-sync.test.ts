@@ -10,8 +10,10 @@
  *
  * The SSE route reads the bus and never the database, which is why it can be
  * exercised against the SQLite port before the cutover (#3752) moves the
- * polling route's repository import. The poll half is covered by
- * `changes.repo.test.ts`.
+ * polling route's repository import. The poll half cannot be driven through
+ * `/api/changes` yet for the same reason — that handler still reads Mongo — so
+ * the last test here pins the ported repository's verdict against the live
+ * route's, cursor for cursor, on the scenario where the two have to match.
  *
  * The loop under test is the recovery one, and it has three steps the Apple
  * client performs in order: it is refused with a 409, it re-enumerates its
@@ -28,6 +30,7 @@ import { changesRoutes } from '../../routes/changes.ts';
 import { ChangeFeedTailer } from './change-feed-tailer.ts';
 import { __resetChangeBusForTests } from '../change-bus.ts';
 import {
+  isChangeCursorTooOld,
   listChangesSince,
   recordAssetChange,
   recordAndPublishAssetChange,
@@ -182,6 +185,43 @@ test('a client below the retention floor is refused, re-enumerates and resumes',
 
   expect(frames(body).map((frame) => frame.cursor)).toEqual([4]);
   expect(frames(body)[0]!.relative_path).toBe('d.dng');
+});
+
+test('the poll verdict matches the stream, cursor for cursor, after a sweep', async () => {
+  using handle = await createTestDatabase();
+  const db = testSqliteDb(handle.db);
+  const libraryId = insertFolder(handle.db, { path: LIBRARY_ROOT });
+  for (const name of ['a.dng', 'b.dng', 'c.dng']) await workerWrite(db, libraryId, name);
+
+  run(handle.db, `DELETE FROM asset_changes`);
+  __resetChangeBusForTests();
+  const tailer = new ChangeFeedTailer({ intervalMs: 10_000, db });
+  await tailer.start();
+
+  // A swept journal is the one state where the two transports must give the
+  // same answer: nothing is left for either to serve, so a client below the
+  // allocation watermark has to re-enumerate whichever way it asked. The SSE
+  // side is the product's own route; the poll side is what the cutover (#3752)
+  // will point `/api/changes` at, and it is the half that is missing today.
+  for (const since of [0, 1, 2, 3]) {
+    const streamed = await subscribe(since);
+    const polled = await isChangeCursorTooOld(db, since);
+    expect(polled.tooOld).toBe(streamed.status === 409);
+    if (streamed.status === 409) {
+      const stale = (await streamed.json()) as { current: number };
+      // Both have to name a cursor the client can resume from — 0 is the one
+      // value `ChangeFeedClient` cannot use.
+      expect(polled.current).toBe(stale.current);
+      expect(polled.current).toBe(3);
+    } else {
+      try {
+        await streamed.body?.cancel();
+      } catch {
+        // Already closed.
+      }
+    }
+  }
+  tailer.stop();
 });
 
 test('a caught-up client is not refused after a sweep', async () => {
