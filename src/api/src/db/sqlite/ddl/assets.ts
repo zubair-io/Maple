@@ -157,10 +157,12 @@ CREATE INDEX assets_live_captured
   ON assets (captured_at DESC, id)
   WHERE ${LIVE_ASSET_PREDICATE};
 
--- Plain "how many live assets" count. Narrowest possible key so the count is a
--- scan of an index that fits in the page cache, never a table scan.
+-- Plain "how many live assets" count. Keyed on live_location_count rather than
+-- on id: an index over the TEXT primary key duplicates the implicit unique
+-- index and the planner prefers a table scan to it, whereas this one answers
+-- the count as a 'live_location_count > 0' range seek over a partial index.
 CREATE INDEX assets_live
-  ON assets (id)
+  ON assets (live_location_count)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Facet group-bys. Covering: the group keys ARE the index columns, so these
@@ -173,8 +175,15 @@ CREATE INDEX assets_facet_lens
   ON assets (lens)
   WHERE ${LIVE_ASSET_PREDICATE};
 
+-- Country -> region -> locality, for the geographic drill-down.
 CREATE INDEX assets_facet_place
   ON assets (place_country_code, place_region, place_locality)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+-- The places facet groups by (locality, region) — the pair the wire label is
+-- built from — which the country-leading key above cannot serve.
+CREATE INDEX assets_facet_place_label
+  ON assets (place_locality, place_region)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 CREATE INDEX assets_facet_screenshot
