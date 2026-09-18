@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS ${SCHEMA_MIGRATIONS_TABLE} (
  * Creates the sentinel table when it is absent. Safe to call on every boot and
  * against a database that has never been touched.
  */
-export async function ensureMigrationsTable(db: MigrationDb): Promise<void> {
+async function ensureMigrationsTable(db: MigrationDb): Promise<void> {
   await db.exec(SCHEMA_MIGRATIONS_DDL);
 }
 
