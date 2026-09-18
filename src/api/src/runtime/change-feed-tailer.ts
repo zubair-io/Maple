@@ -22,13 +22,13 @@
  * the in-memory buffer hasn't been populated yet.
  */
 
-import { child as childLogger } from "../log.ts";
-import { assetChangesCollection } from "../db/client.ts";
-import { highestCursor, prunedThroughCursor } from "../db/changes.repo.ts";
-import { getChangeBus } from "./change-bus.ts";
-import type { AssetChangeWithId } from "../db/schema.ts";
+import { child as childLogger } from '../log.ts';
+import { assetChangesCollection } from '../db/client.ts';
+import { highestCursor, prunedThroughCursor } from '../db/changes.repo.ts';
+import { getChangeBus } from './change-bus.ts';
+import type { AssetChangeWithId } from '../db/schema.ts';
 
-const log = childLogger("change-feed-tailer");
+const log = childLogger('change-feed-tailer');
 
 export interface ChangeFeedTailerOptions {
   /** Polling interval in ms. Default 500ms — keeps SSE latency under
@@ -69,11 +69,11 @@ export class ChangeFeedTailer {
       // real, since-deleted events an empty stream instead of a 409.
       this.localMax = Math.max(await highestCursor(), await prunedThroughCursor());
       getChangeBus().setPersistedHighWatermark(this.localMax);
-      log.info({ localMax: this.localMax }, "tailer started");
+      log.info({ localMax: this.localMax }, 'tailer started');
     } catch (err) {
       log.error(
         { err: err instanceof Error ? err.message : err },
-        "tailer boot: highestCursor failed; starting from 0",
+        'tailer boot: highestCursor failed; starting from 0',
       );
       this.localMax = 0;
     }
@@ -118,10 +118,7 @@ export class ChangeFeedTailer {
     this.timer = setTimeout(() => {
       void this.tickOnce()
         .catch((err) => {
-          log.error(
-            { err: err instanceof Error ? err.message : err },
-            "tick failed",
-          );
+          log.error({ err: err instanceof Error ? err.message : err }, 'tick failed');
         })
         .finally(() => this.scheduleNext());
     }, this.intervalMs);
