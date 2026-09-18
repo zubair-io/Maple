@@ -195,7 +195,7 @@ const appSettingsPlan = onePerDocument({
   source: 'app_settings',
   table: 'app_settings',
   idKind: 'string',
-  columns: ['id', 'value'],
+  columns: ['id', 'doc'],
   values: (doc) => {
     const { _id, ...rest } = doc;
     void _id;

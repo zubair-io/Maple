@@ -123,7 +123,8 @@ describe('mongo → sqlite import', () => {
 
   it('fans the asset arrays out into their own tables', () => {
     if (client === null) return;
-    // 1 + 2 + 0 + 1 + 1 + 2, minus the one under an unregistered library root.
+    // 1 + 2 + 0 + 1 + 1 + 3, minus the one under an unregistered library root
+    // and the one whose library_id was never an ObjectId.
     expect(count('asset_locations')).toBe(6);
     // Two on the rich asset plus the one whose person no longer exists.
     expect(count('faces')).toBe(3);
@@ -178,14 +179,44 @@ describe('mongo → sqlite import', () => {
     expect(report?.danglingDropped).toEqual({ 'asset_locations.library_id': 1 });
   });
 
+  /**
+   * An unusable `library_id` costs its own location row and nothing else. It
+   * used to reject the whole document, which took the asset's rating, flag,
+   * colour label, faces, description and stage rows with it — the photo was
+   * simply not in the migrated library.
+   */
+  it('costs one location, not the whole asset, when a library_id is not an id', () => {
+    if (client === null || ids === null) return;
+    const assetId = ids.assets.orphanLocation.toHexString();
+    const db = open();
+    const asset = db.query(`SELECT id, rating FROM assets WHERE id = ?`).get(assetId) as {
+      id: string;
+      rating: number;
+    } | null;
+    const locations = (
+      db.query(`SELECT COUNT(*) AS n FROM asset_locations WHERE asset_id = ?`).get(assetId) as {
+        n: number;
+      }
+    ).n;
+    db.close();
+
+    expect(asset?.id).toBe(assetId);
+    // Its out-of-range rating was clamped rather than lost, which only matters
+    // because the row is here at all.
+    expect(asset?.rating).toBe(5);
+    expect(locations).toBe(1);
+    expect(report?.substitutions['asset_locations skipped for an unusable library_id']).toBe(1);
+    expect(report?.rejects).toEqual([]);
+  });
+
   it('carries the operator settings across', () => {
     if (client === null) return;
     const db = open();
-    const row = db.query(`SELECT value FROM app_settings WHERE id = 'cloudflare'`).get() as {
-      value: string;
+    const row = db.query(`SELECT doc FROM app_settings WHERE id = 'cloudflare'`).get() as {
+      doc: string;
     };
     db.close();
-    expect(JSON.parse(row.value)).toEqual({
+    expect(JSON.parse(row.doc)).toEqual({
       config: {
         enabled: true,
         account_id: 'acct',
