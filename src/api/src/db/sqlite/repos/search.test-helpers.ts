@@ -33,6 +33,13 @@ export interface SeedAsset {
   locality?: string | null;
   region?: string | null;
   countryCode?: string | null;
+  /**
+   * The whole `place` payload, for a test that needs more of it than the three
+   * rollups above — the display name, the address, the POIs. Wins over
+   * `locality`/`region`/`countryCode` when set, so a fixture picks one or the
+   * other rather than half of each.
+   */
+  placeDoc?: unknown;
   rating?: number;
   flag?: -1 | 0 | 1;
   colorLabel?: string;
@@ -84,6 +91,7 @@ const ASSET_DEFAULTS: Omit<Required<SeedAsset>, 'id' | 'filename' | 'mapleId'> =
   locality: null,
   region: null,
   countryCode: null,
+  placeDoc: null,
   rating: 0,
   flag: 0,
   colorLabel: '',
@@ -139,6 +147,7 @@ function exifJson(asset: ResolvedAsset): string {
 
 /** The `place` JSON column, or NULL when the asset was never geocoded. */
 function placeJson(asset: ResolvedAsset): string | null {
+  if (asset.placeDoc !== null) return JSON.stringify(asset.placeDoc);
   const { locality, region, countryCode } = asset;
   if (locality === null && region === null && countryCode === null) return null;
   return JSON.stringify({
@@ -222,12 +231,25 @@ function insertEnrichment(db: Database, asset: ResolvedAsset, people: Map<string
   }
 }
 
-/** Inserts one asset, its single location, and whatever hangs off it. */
-function seedAsset(
+/**
+ * Inserts one asset, its single location, and whatever hangs off it.
+ *
+ * Exported because the route suites need it too: a test that drives
+ * `GET /api/search` end to end wants two or three assets varying in exactly
+ * the thing it is about, not the whole shared library below. Sharing the
+ * seeder rather than hand-rolling `INSERT`s per suite is what keeps every
+ * search test agreeing about what a complete asset row looks like — the
+ * `exif` JSON, the generated columns it feeds and the side tables are easy
+ * to get subtly wrong one file at a time.
+ *
+ * `people` is optional and carries name → id across calls, so two assets
+ * seeded with the same person name share one person row.
+ */
+export function seedSearchAsset(
   db: Database,
   libraryId: string,
   seed: SeedAsset,
-  people: Map<string, string>,
+  people: Map<string, string> = new Map(),
 ): string {
   const asset = resolve(seed);
   insertAssetRow(db, asset);
@@ -418,7 +440,7 @@ export function seedSearchLibrary(db: Database): SeededLibrary {
   ];
 
   for (const [name, asset] of rows) {
-    assets.set(name, seedAsset(db, libraryId, asset, people));
+    assets.set(name, seedSearchAsset(db, libraryId, asset, people));
   }
   return { libraryId, assets, people };
 }

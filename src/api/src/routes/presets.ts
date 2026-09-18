@@ -20,7 +20,12 @@
 
 import { Elysia, t } from 'elysia';
 import type { WithId } from 'mongodb';
-import { presetsCollection } from '../db/client.ts';
+import {
+  deletePreset,
+  insertPreset,
+  isPresetNameConflict,
+  listPresets,
+} from '../db/sqlite/repos/presets.repo.ts';
 import type { PresetDoc } from '../db/schema.ts';
 import {
   isMongoSafeKey,
@@ -87,12 +92,7 @@ function toWireRow(row: WithId<PresetDoc>) {
 export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
   // ── List ────────────────────────────────────────────────────────────
   .get('/', async () => {
-    const col = await presetsCollection();
-    const rows = await col
-      .find({})
-      .collation({ locale: 'en', strength: 2 })
-      .sort({ name: 1 })
-      .toArray();
+    const rows = await listPresets();
     return { presets: rows.map(toWireRow) };
   })
 
@@ -133,18 +133,17 @@ export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
         updated_at: now,
       };
 
-      const col = await presetsCollection();
       try {
-        const res = await col.insertOne(doc);
+        const insertedId = await insertPreset(doc);
         set.status = 201;
-        return toWireRow({ _id: res.insertedId, ...doc });
+        return toWireRow({ _id: insertedId, ...doc });
       } catch (err) {
-        // E11000 from the case-insensitive unique name index.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/E11000/.test(msg)) {
+        // The case-insensitive unique name index rejected it.
+        if (isPresetNameConflict(err)) {
           set.status = 409;
           return { error: `a preset named "${name}" already exists` };
         }
+        const msg = err instanceof Error ? err.message : String(err);
         log.error({ err: msg }, 'preset insert failed');
         set.status = 500;
         return { error: msg };
@@ -160,8 +159,7 @@ export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
       set.status = 400;
       return { error: 'invalid preset id' };
     }
-    const col = await presetsCollection();
-    const res = await col.deleteOne({ _id: id });
+    const res = await deletePreset(id);
     if (res.deletedCount === 0) {
       set.status = 404;
       return { error: 'preset not found' };

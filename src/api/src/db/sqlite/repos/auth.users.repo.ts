@@ -205,6 +205,20 @@ export async function updateUser(
   return updateOutcome(result.changes);
 }
 
+/**
+ * Remove one account.
+ *
+ * The only caller is the rollback arm of `/register/verify`: registration is
+ * all-or-nothing, so if the credential insert or the token mint fails after the
+ * user row landed, that row is undone rather than left behind as an account
+ * nobody can sign in to. There is no "delete a user" endpoint, and this is not
+ * one.
+ */
+export async function deleteUser(id: ObjectId, dbOverride?: SqliteDb): Promise<DeleteOutcome> {
+  const result = await sqliteDb(dbOverride).write(`DELETE FROM users WHERE id = ?`, [toHex(id)]);
+  return deleteOutcome(result.changes);
+}
+
 // ---------------------------------------------------------------------------
 // credentials
 // ---------------------------------------------------------------------------

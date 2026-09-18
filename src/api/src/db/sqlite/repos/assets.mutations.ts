@@ -100,6 +100,26 @@ export async function setHasXmp(
 }
 
 /**
+ * Forget that this asset's thumbnail was ever mirrored to R2.
+ *
+ * Written by the hidden-asset cleanup in `cloudflare/hidden-cleanup.ts` right
+ * after it deletes the object, so the next sync run treats the asset as
+ * un-mirrored rather than as already current. Unconditional on the column's
+ * present value, exactly as the `$set` it replaces was: the caller is
+ * reconciling with R2, not with the row.
+ */
+export async function clearCfThumbSyncedAt(
+  id: ObjectId,
+  dbOverride?: SqliteDb,
+): Promise<UpdateOutcome> {
+  const result = await sqliteDb(dbOverride).write(
+    `UPDATE assets SET cf_thumb_synced_at = NULL WHERE id = ?`,
+    [id.toHexString()],
+  );
+  return updateOutcome(result.changes);
+}
+
+/**
  * Record an XMP edit: mark `has_xmp` and bump the monotonic `sidecar_ver` edit
  * counter, in one statement.
  *

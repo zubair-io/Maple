@@ -3,7 +3,7 @@
  * GET /api/folder/:slug/*    — sub-folder listing
  *
  * Catalog-backed folder listing. Resolves the slug:relPath address to a
- * directory, reads the indexed assets from Mongo, and merges in any on-disk
+ * directory, reads the indexed assets from the catalog, and merges in any on-disk
  * files not yet in the catalog (listed as indexed:false). Enqueues a
  * discover scan for any unindexed entries.
  *
@@ -19,7 +19,7 @@ import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import { parseAddressPath, resolveAddress } from '../../library/address.ts';
-import { assetsCollection } from '../../db/client.ts';
+import { listDirectoryAssets } from '../../db/sqlite/repos/assets.address.ts';
 import { child as childLogger } from '../../log.ts';
 import {
   IMAGE_EXTENSIONS_SET,
@@ -63,38 +63,12 @@ async function buildFolderListing(slug: string, wildcard: string): Promise<Respo
           return p === '.' ? `${slug}:` : `${slug}:${p}`;
         })();
 
-  // Query the catalog for images whose fileinfo has an entry in THIS library
-  // AND at THIS path (same entry — $elemMatch). A loose dot-notation match
-  // (`{'fileinfo.library_id': id, 'fileinfo.path': relPath}`) would
-  // cross-match deduplicated assets whose library_id and path live in
-  // DIFFERENT fileinfo entries, leaking files from other folders/libraries.
-  const coll = await assetsCollection();
-  const catalogRows = await coll
-    .find(
-      {
-        fileinfo: {
-          $elemMatch: {
-            library_id: libraryId,
-            path: relPath,
-            deleted_at: null,
-            missing_since: null,
-          },
-        },
-        deleted_at: null,
-      },
-      {
-        projection: {
-          maple_id: 1,
-          'fileinfo.filename': 1,
-          'fileinfo.path': 1,
-          'fileinfo.library_id': 1,
-          'exif.captured_at': 1,
-          'exif.width': 1,
-          'exif.height': 1,
-        },
-      },
-    )
-    .toArray();
+  // Query the catalog for images whose location is in THIS library AND at THIS
+  // path. Library and directory are columns of one `asset_locations` row, so a
+  // deduplicated asset can only surface the filename it holds here — the
+  // cross-matching a loose dot-notation Mongo filter allowed (files from other
+  // folders leaking into a listing) cannot be expressed.
+  const catalogRows = await listDirectoryAssets(libraryId, relPath);
 
   // One readdir to find on-disk entries.
   let diskEntries: { name: string; isDirectory: boolean }[] = [];
@@ -129,28 +103,17 @@ async function buildFolderListing(slug: string, wildcard: string): Promise<Respo
   const catalogFilenames = new Set<string>();
 
   for (const row of catalogRows) {
-    // Match the fileinfo entry on BOTH library_id and path so a deduplicated
-    // asset surfaces its filename for THIS folder only.
-    const fi = (
-      row.fileinfo as Array<{
-        filename: string;
-        path: string;
-        library_id: unknown;
-      }>
-    ).find((f) => String(f.library_id) === libraryId.toHexString() && f.path === relPath);
-    if (!fi) continue;
-    catalogFilenames.add(fi.filename);
-    const exif = row.exif as { captured_at?: string; width?: number; height?: number } | undefined;
+    catalogFilenames.add(row.filename);
     const fileAddress =
-      relPath === '' ? `${slug}:${fi.filename}` : `${slug}:${relPath}/${fi.filename}`;
+      relPath === '' ? `${slug}:${row.filename}` : `${slug}:${relPath}/${row.filename}`;
     images.push({
-      name: fi.filename,
+      name: row.filename,
       address: fileAddress,
-      mapleId: (row.maple_id as string | null) ?? null,
+      mapleId: row.maple_id,
       indexed: true,
-      width: exif?.width ?? undefined,
-      height: exif?.height ?? undefined,
-      capturedAt: exif?.captured_at ?? undefined,
+      width: row.width ?? undefined,
+      height: row.height ?? undefined,
+      capturedAt: row.captured_at ?? undefined,
     });
   }
 

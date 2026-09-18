@@ -116,6 +116,32 @@ export function personNamesByIdsSql(count: number): string {
              AND NOT ${AUTO_NAME_PREDICATE}`;
 }
 
+/**
+ * Names that may be *indexed* — for a batch of person ids, and for the whole
+ * roster.
+ *
+ * One predicate short of {@link personNamesByIdsSql}, and the extra clause is
+ * the point: an excluded person's name must not become searchable (#2894), so
+ * the search-index stage and the generated-search prompt digest both filter on
+ * `excluded` where the facet picker deliberately does not. Two statements over
+ * one predicate rather than two hand-written filters, because the two callers
+ * drifting apart is exactly how a hidden person reaches an unattended screen.
+ */
+const INDEXABLE_PERSON_PREDICATE = `merged_into IS NULL
+             AND hidden = 0
+             AND excluded = 0
+             AND name <> ''
+             AND NOT ${AUTO_NAME_PREDICATE}`;
+
+export function indexableNamesByIdsSql(count: number): string {
+  return `SELECT id, name FROM people
+           WHERE id IN (${placeholders(count)})
+             AND ${INDEXABLE_PERSON_PREDICATE}`;
+}
+
+export const INDEXABLE_ROSTER_NAMES_SQL = `SELECT name FROM people
+   WHERE ${INDEXABLE_PERSON_PREDICATE}`;
+
 /** Ids of every person carrying a visibility flag, regardless of merge state. */
 export function flaggedPersonIdsSql(column: 'hidden' | 'excluded'): string {
   return `SELECT id FROM people WHERE ${column} = 1`;

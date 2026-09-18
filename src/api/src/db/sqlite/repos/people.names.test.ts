@@ -139,6 +139,22 @@ describe('renamePerson', () => {
     expect(stored).toEqual({ name: 'Ada' });
   });
 
+  test('refuses a comma and leaves the stored name untouched', async () => {
+    using handle = await createTestDatabase();
+    const db = testDb(handle.db);
+    const person = await createPerson('Frank', db);
+
+    await expect(renamePerson(person._id, 'Frank, Jr', db)).rejects.toThrow(
+      'name must not contain a comma',
+    );
+
+    // The guard runs before anything is written, so a rejected rename is not a
+    // half-applied one.
+    expect(
+      handle.db.query('SELECT name FROM people WHERE id = ?').get(person._id.toHexString()),
+    ).toEqual({ name: 'Frank' });
+  });
+
   test('renaming onto a live name merges, and the older id survives', async () => {
     using handle = await createTestDatabase();
     const db = handle.db;

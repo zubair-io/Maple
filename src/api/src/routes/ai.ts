@@ -15,8 +15,7 @@ import {
 } from '../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { listProviderModels, handleAiTestConnection } from '../enrichment/ai-providers.service.ts';
-import { getDb } from '../db/client.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from '../workers/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 import type { WorkerConfig } from '../workers/stage-config.ts';
@@ -175,8 +174,7 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
   .get('/config', async () => {
     const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
 
-    const db = await getDb();
-    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+    const repo = new WorkerConfigRepo();
     const [describeConfig, videoDescribeConfig] = await Promise.all([
       repo.load('describe'),
       repo.load('video-describe'),
@@ -220,8 +218,7 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
   .put(
     '/config',
     async ({ body, set }) => {
-      const db = await getDb();
-      const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+      const repo = new WorkerConfigRepo();
       const currentEnrichment = await loadEnrichmentConfig();
       if (currentEnrichment?.ai_connections) {
         set.status = 409;

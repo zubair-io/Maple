@@ -32,6 +32,7 @@ import { locationsByAssetIdsSql } from './assets.sql.ts';
 import {
   countSql,
   descriptionsByAssetIdsSql,
+  mapleIdPageSql,
   pageSql,
   phassetLinksByAssetIdsSql,
   seekPredicate,
@@ -124,8 +125,60 @@ export async function searchPage(
   const seek = options.cursor ? seekPredicate(options.cursor) : undefined;
   const statement = pageSql(where, options.sort, options.limit, seek ? 0 : options.skip, seek);
   const rows = await db.read<PageRow>(statement.sql, statement.params);
-  if (rows.length === 0) return [];
+  return hydrate(db, rows);
+}
 
+/**
+ * The assets behind a page of Meilisearch hits, in the order the sidecar
+ * ranked them.
+ *
+ * The sidecar answers with `maple_id`s and a relevance order; the rows still
+ * come from here, and every structured filter the caller asked for still
+ * applies to them. That second half is what stops this from being a
+ * post-filter: `where` carries the whole query except its free text, so a
+ * camera or a date range narrows the statement rather than thinning a page
+ * after the fact.
+ *
+ * The text match is dropped rather than carried through, and that is the one
+ * thing here that cannot be inferred. Meilisearch is typo-tolerant, so a hit
+ * for "Musum" is a row whose text says "Museum" — re-running the full-text
+ * match over the ids it returned would reject the very rows it matched and
+ * answer an empty page. Its own `WHERE` already did the text half.
+ *
+ * Ids with no surviving row simply drop out, which is what a hard delete
+ * between the sidecar's index and this read looks like.
+ */
+export async function searchByMapleIds(
+  where: SearchWhere,
+  mapleIds: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+  if (mapleIds.length === 0) return [];
+  const db = assetsDb(dbOverride);
+  const statement = mapleIdPageSql({ ...where, match: { kind: 'none' } }, mapleIds);
+  const rows = await db.read<PageRow & { maple_id: string | null }>(
+    statement.sql,
+    statement.params,
+  );
+  const byMapleId = new Map(rows.map((row) => [row.maple_id, row] as const));
+  const ordered = mapleIds
+    .map((id) => byMapleId.get(id))
+    .filter((row): row is PageRow & { maple_id: string | null } => row !== undefined);
+  return hydrate(db, ordered);
+}
+
+/**
+ * Fills a set of chosen `assets` rows out into documents.
+ *
+ * Three statements, all keyed on the ids the first query already decided on,
+ * so nothing here can widen or narrow the result set — the semi-join rule
+ * again, one level up.
+ */
+async function hydrate(
+  db: SqliteDb,
+  rows: readonly PageRow[],
+): Promise<Array<AssetDoc & { _id: ObjectId }>> {
+  if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
   const [locations, descriptions, links] = await Promise.all([
     db.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),

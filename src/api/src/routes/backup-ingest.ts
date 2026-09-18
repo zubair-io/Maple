@@ -24,7 +24,14 @@
 import { backupId, backupChunkRange } from './backup-id.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
+import {
+  appendBackupLocation,
+  findIngestDedupTarget,
+  insertBackupAsset,
+  linkPhasset,
+  type PhassetLink,
+} from '../db/sqlite/repos/backup.repo.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
 import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
@@ -41,7 +48,6 @@ import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { appendBackupLocation, insertBackupAsset } from './backup-ingest.assets.ts';
 
 const log = childLogger('backup-ingest');
 
@@ -58,7 +64,7 @@ export const backupIngestRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
+    const folder = await findFolderById(libraryId);
     if (!folder) {
       set.status = 404;
       return { error: 'library not found' };
@@ -268,61 +274,52 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: 'X-Maple-Maple-Id required on final chunk' };
     }
 
-    // 1. Dedup lookup BEFORE any filesystem operations.
-    const a = await assetsCollection();
-    const existing = await a.findOne({ maple_id: mapleId });
-    const link: {
-      device_id: string;
-      phasset_local_id: string;
-      phasset_cloud_id?: string;
-      first_seen: Date;
-    } = { device_id: deviceId, phasset_local_id: phid, first_seen: new Date() };
-    if (phCloudId) link.phasset_cloud_id = phCloudId;
+    // 1. Dedup lookup BEFORE any filesystem operations. It answers three
+    //    things at once: which asset already carries this content, whether
+    //    this library holds a live copy of it, and whether this device's
+    //    PHAsset is already linked to it.
+    const existing = await findIngestDedupTarget({
+      mapleId,
+      libraryId,
+      deviceId,
+      phassetLocalId: phid,
+    });
+    const link: PhassetLink = {
+      device_id: deviceId,
+      phasset_local_id: phid,
+      first_seen: new Date(),
+      ...(phCloudId ? { phasset_cloud_id: phCloudId } : {}),
+    };
 
     if (existing) {
       // Same content already stored somewhere. Whether we can pure-dedup
       // (no second copy on disk) depends on which library that copy lives in.
       //
       // maple_id is a GLOBAL content hash — not scoped to a library. The
-      // matched row may carry fileinfo only for some OTHER library (e.g. the
+      // matched row may carry locations only for some OTHER library (e.g. the
       // photo was discovered by a folder scan, or backed up to a different
       // library first). The downstream sidecar / rendered routes look the
-      // asset up scoped to THIS library (`fileinfo.library_id == libraryId`),
-      // so if we link-and-dedup against an other-library row without giving
-      // THIS library a fileinfo entry, those steps 404 — which is the backup
-      // failure this branch caused. The invariant: backing a photo up to
-      // library Y must leave a usable fileinfo entry referencing Y.
-      const liveInThisLibrary = (existing.fileinfo ?? []).find(
-        (e: any) => !e.deleted_at && e.library_id?.toHexString?.() === libraryId.toHexString(),
-      );
+      // asset up scoped to THIS library, so if we link-and-dedup against an
+      // other-library row without giving THIS library a location, those steps
+      // 404 — which is the backup failure this branch caused. The invariant:
+      // backing a photo up to library Y must leave a usable location
+      // referencing Y.
+      const liveRelPath = existing.liveRelPathInLibrary;
 
-      const relFromFileInfo = (entry: any): string =>
-        entry && entry.path !== undefined
-          ? entry.path === ''
-            ? entry.filename
-            : `${entry.path}/${entry.filename}`
-          : '';
-
-      // Link this device to the existing row (idempotent on retry).
-      const alreadyLinked = (existing.phasset_links ?? []).some(
-        (l: any) => l.device_id === deviceId && l.phasset_local_id === phid,
-      );
-
-      if (liveInThisLibrary) {
+      if (liveRelPath !== null) {
         // Content already on disk in THIS library — true dedup. Drop the tmp
-        // bytes; the canonical copy already lives at this library's fileinfo
-        // entry.
-        if (!alreadyLinked) {
-          await a.updateOne({ _id: existing._id }, { $push: { phasset_links: link } });
+        // bytes; the canonical copy already lives at this library's location.
+        // Linking this device to the existing row is idempotent on retry.
+        if (!existing.alreadyLinked) {
+          await linkPhasset(existing.id, link);
         }
         try {
           await fs.unlink(tmpFile);
         } catch {
           /* already gone */
         }
-        // Reconstruct this library's rel path so the device knows where the
-        // canonical copy lives (used to route subsequent change-feed updates).
-        const liveRelPath = relFromFileInfo(liveInThisLibrary);
+        // The rel path tells the device where the canonical copy lives (used
+        // to route subsequent change-feed updates).
         await uploadSessions.complete({
           sessionId: session._id,
           mapleId,
@@ -343,10 +340,10 @@ export const backupIngestRoutes = new Elysia().post(
       }
 
       // Content exists, but NOT in this library — materialize a copy here so
-      // this library gets its own fileinfo entry (and the folder-scoped
-      // sidecar / rendered lookups succeed). We still avoid re-deriving the
-      // id or re-running enrichment: this is the same content-addressed row,
-      // we only add a location.
+      // this library gets its own location (and the folder-scoped sidecar /
+      // rendered lookups succeed). We still avoid re-deriving the id or
+      // re-running enrichment: this is the same content-addressed row, we only
+      // add a location.
       const finalPath = containedJoin(folder.path, resolvedTargetRelPath);
       if (!finalPath) {
         set.status = 400;
@@ -355,10 +352,10 @@ export const backupIngestRoutes = new Elysia().post(
       await fs.mkdir(path.dirname(finalPath), { recursive: true });
 
       // If the file already sits at the target path (e.g. a prior attempt
-      // moved it but Mongo didn't record this library's fileinfo entry), reuse
-      // it rather than clobbering — but only when it matches the freshly
+      // moved it but the database never recorded this library's location),
+      // reuse it rather than clobbering — but only when it matches the freshly
       // assembled upload's size. A stale/partial file of a different size must
-      // not be silently adopted and referenced by a new fileinfo entry, so we
+      // not be silently adopted and referenced by a new location, so we
       // overwrite it with the just-assembled tmp instead.
       let needMove = true;
       try {
@@ -378,11 +375,10 @@ export const backupIngestRoutes = new Elysia().post(
         }
       }
 
-      await appendBackupLocation(a, existing._id, {
-        resolvedTargetRelPath,
-        filename,
+      await appendBackupLocation(existing.id, {
+        relPath: resolvedTargetRelPath,
         libraryId,
-        link: alreadyLinked ? null : link,
+        link: existing.alreadyLinked ? null : link,
       });
 
       await uploadSessions.complete({
@@ -412,7 +408,7 @@ export const backupIngestRoutes = new Elysia().post(
 
     // 2. No existing row — place the assembled tmp file at its destination.
     //
-    // A file may already sit at the computed path with no Mongo row, and two
+    // A file may already sit at the computed path with no asset row, and two
     // situations produce that with opposite handling:
     //
     //   (a) A half-finished prior attempt for THIS asset moved its bytes into
@@ -494,8 +490,8 @@ export const backupIngestRoutes = new Elysia().post(
       resolvedRelPath: resolvedTargetRelPath,
     });
 
-    await insertBackupAsset(a, {
-      resolvedTargetRelPath,
+    await insertBackupAsset({
+      relPath: resolvedTargetRelPath,
       libraryId,
       totalBytes,
       mapleId,

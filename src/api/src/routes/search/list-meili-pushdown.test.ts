@@ -1,8 +1,8 @@
 /**
  * #2932 — the Meilisearch branch of `GET /api/search` asks Meili for one
- * page of `limit` relevance-ranked ids and then lets the Mongo re-fetch apply
- * the caller's structured filters to THAT PAGE. A filter Meilisearch never
- * saw can only remove rows from those ids; it can never reach a match ranked
+ * page of `limit` relevance-ranked ids and then lets the re-fetch apply the
+ * caller's structured filters to THAT PAGE. A filter Meilisearch never saw
+ * can only remove rows from those ids; it can never reach a match ranked
  * past them. The result is an empty grid under a `total` taken from
  * `estimatedTotalHits`, which counts documents the filter would have excluded.
  *
@@ -13,82 +13,57 @@
  *      `filterableAttributes`, so they are pushed down too — no migration.
  *   2. Every remaining filter has no Meilisearch counterpart. Rather than
  *      post-filter a page and report a count the grid cannot produce, the
- *      branch declines and the route falls through to the Mongo `$text`
- *      path, which applies all filters in one query and counts correctly.
+ *      branch declines and the route falls through to the database's own
+ *      full-text path, which applies all filters in one query and counts
+ *      correctly.
  *
  * (2) trades relevance ranking for correctness on those queries. That is the
  * right way round: today they return the wrong answer confidently.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId, type Db } from 'mongodb';
 import { listRoute } from './list.ts';
 import { unpushableFilters } from './list-meili.ts';
+import { _resetCacheForTests } from './total-cache.ts';
 import { SearchQueryT } from './query-schema.ts';
-import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchSearchOptions,
 } from '../../enrichment/meilisearch-client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-withTestDb(`maple_test_search_pushdown_${process.pid}`);
-
-let db: Db | null = null;
-let mongoReachable = false;
+let live: LiveTestDatabase;
 
 const MATCH_ID = 'maple-match';
 
 beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
-  // The Mongo fallback searches `$text`, which needs the index the real
-  // deployment builds at startup.
-  await db
-    .collection('assets')
-    .createIndex({ search_blob: 'text' })
-    .catch(() => {});
+  live = await createLiveTestDatabase();
+  const libraryId = insertFolder(live.db, { slug: 'pushdown', path: '/lib' });
+  seedSearchAsset(live.db, libraryId, {
+    filename: 'match.dng',
+    mapleId: MATCH_ID,
+    rating: 5,
+    capturedAt: '2025-07-15T12:00:00.000Z',
+    searchBlob: 'greyson beach',
+  });
+  _resetCacheForTests();
 });
 
 afterEach(() => {
   setMeilisearchClientForTests(null);
+  live.close();
+  _resetCacheForTests();
 });
-
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
-});
-
-async function seed(d: Db): Promise<void> {
-  await d.collection('assets').insertMany([
-    {
-      maple_id: MATCH_ID,
-      fileinfo: [{ path: '', filename: 'match.dng', library_id: new ObjectId(), deleted_at: null }],
-      size: 1,
-      mtime: 1,
-      rating: 5,
-      flag: 0,
-      color_label: '',
-      indexed_at: 'now',
-      deleted_at: null,
-      hidden: false,
-      search_blob: 'greyson beach',
-      exif: { captured_at: '2025-07-15T12:00:00.000Z', captured_month: 7 },
-    },
-  ] as never);
-}
 
 /** Returns a page that deliberately does NOT contain the seeded match, so a
- * test only passes if the route declined Meili and used Mongo instead. */
+ * test only passes if the route declined Meili and used the database. */
 function fakeMeiliClient(): { client: MeilisearchClient; calls: MeilisearchSearchOptions[] } {
   const calls: MeilisearchSearchOptions[] = [];
   const client: MeilisearchClient = {
@@ -107,7 +82,7 @@ function fakeMeiliClient(): { client: MeilisearchClient; calls: MeilisearchSearc
   return { client, calls };
 }
 
-describe('unpushableFilters — which filters force the Mongo path', () => {
+describe('unpushableFilters — which filters force the database path', () => {
   it('treats a query with only pushed-down filters as Meili-expressible', () => {
     expect(
       unpushableFilters({
@@ -159,10 +134,10 @@ describe('unpushableFilters — which filters force the Mongo path', () => {
   });
 
   /**
-   * `buildFilter` adds a clause for these only on the exact string 'true'.
-   * Treating any non-empty value as active would push `hasCapturedAt=false`
-   * onto the Mongo path for a filter that never existed, losing relevance
-   * ranking for nothing.
+   * The filter builder adds a clause for these only on the exact string
+   * 'true'. Treating any non-empty value as active would push
+   * `hasCapturedAt=false` onto the database path for a filter that never
+   * existed, losing relevance ranking for nothing.
    */
   it.each([
     ['hasCapturedAt', { hasCapturedAt: 'false' }],
@@ -181,7 +156,7 @@ describe('unpushableFilters — which filters force the Mongo path', () => {
     const declared = Object.keys(SearchQueryT.properties);
     const unclassified = declared.filter((key) => {
       // Probed with 'true': the boolean opt-in params (`hasCapturedAt`,
-      // `excludeHiddenPeople`) only add a Mongo clause on that exact value,
+      // `excludeHiddenPeople`) only add a clause on that exact value,
       // so any other probe would look inert and hide a real classification.
       const asFilter = unpushableFilters({ placeQuery: 'x', [key]: 'true' });
       const asEmpty = unpushableFilters({ placeQuery: 'x' });
@@ -192,8 +167,8 @@ describe('unpushableFilters — which filters force the Mongo path', () => {
   });
 });
 
-/** Params that legitimately do NOT force the Mongo path: pushed down into
- * the Meili query, or not filters at all. */
+/** Params that legitimately do NOT force the database path: pushed down
+ * into the Meili query, or not filters at all. */
 const KNOWN_MEILI_SAFE = new Set([
   'placeQuery',
   'libraryId',
@@ -213,8 +188,6 @@ const KNOWN_MEILI_SAFE = new Set([
 
 describe('GET /api/search — pushdown and fallback', () => {
   it('pushes the vision and screenshot filters into the Meili query', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
     const { client, calls } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
@@ -232,16 +205,14 @@ describe('GET /api/search — pushdown and fallback', () => {
     expect(calls[0]?.isScreenshot).toBe(false);
   });
 
-  it('declines Meili and answers from Mongo when a filter cannot be pushed down', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
+  it('declines Meili and answers from the database when a filter cannot be pushed down', async () => {
     const { client, calls } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
     const app = new Elysia().use(listRoute);
     // rating=4 has no Meilisearch counterpart. The seeded asset satisfies
     // both the text and the rating, but is absent from the fake Meili page —
-    // so it can only be found via the Mongo path.
+    // so it can only be found via the database path.
     const res = await app.handle(new Request('http://localhost/?placeQuery=greyson&rating=4'));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -250,8 +221,6 @@ describe('GET /api/search — pushdown and fallback', () => {
   });
 
   it('reports a total the grid can actually produce on the fallback path', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
     const { client } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 

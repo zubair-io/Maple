@@ -12,6 +12,7 @@
 import { describe, expect, test } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import {
+  clearCfThumbSyncedAt,
   recordSidecarEdit,
   requeueEnrichmentStage,
   setDescriptionOverride,
@@ -295,5 +296,49 @@ describe('requeueEnrichmentStage', () => {
     expect(
       await requeueEnrichmentStage(new ObjectId(), 'face', testSqliteDb(handle.db)),
     ).toBeNull();
+  });
+});
+
+describe('clearCfThumbSyncedAt', () => {
+  const syncedAt = (db: Parameters<typeof insertAsset>[0], id: string): string | null | undefined =>
+    (
+      db.query(`SELECT cf_thumb_synced_at AS at FROM assets WHERE id = ?`).get(id) as {
+        at: string | null;
+      } | null
+    )?.at;
+
+  test('forgets that the thumbnail was mirrored', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    const assetId = insertAsset(db);
+    run(
+      db,
+      `UPDATE assets SET cf_thumb_synced_at = ? WHERE id = ?`,
+      '2026-01-01T00:00:00.000Z',
+      assetId,
+    );
+
+    expect(await clearCfThumbSyncedAt(oid(assetId), testSqliteDb(db))).toMatchObject({
+      matchedCount: 1,
+    });
+    expect(syncedAt(db, assetId)).toBeNull();
+  });
+
+  test('is a no-op on an asset that was never mirrored, and still reports the match', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    const assetId = insertAsset(db);
+
+    expect(await clearCfThumbSyncedAt(oid(assetId), testSqliteDb(db))).toMatchObject({
+      matchedCount: 1,
+    });
+    expect(syncedAt(db, assetId)).toBeNull();
+  });
+
+  test('reports no match for an asset that does not exist', async () => {
+    using handle = await createTestDatabase();
+    expect(await clearCfThumbSyncedAt(new ObjectId(), testSqliteDb(handle.db))).toMatchObject({
+      matchedCount: 0,
+    });
   });
 });

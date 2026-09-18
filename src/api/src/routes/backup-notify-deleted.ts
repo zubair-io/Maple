@@ -18,7 +18,8 @@
  */
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
+import { markDeletedFromPhotos } from '../db/sqlite/repos/backup.repo.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('backup-notify-deleted');
@@ -43,7 +44,7 @@ export const backupNotifyDeletedRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
+    const folder = await findFolderById(libraryId);
     if (!folder) {
       set.status = 404;
       return { error: 'library not found' };
@@ -85,30 +86,19 @@ export const backupNotifyDeletedRoutes = new Elysia().post(
 
     const ids = phassetLocalIds as string[];
 
-    // Mark each matching AssetDoc as deleted.
+    // Mark each matching asset as gone from Apple Photos.
     // v1 spec: set deleted_from_photos = true when this device reports deletion.
-    const a = await assetsCollection();
-    const result = await a.updateMany(
-      {
-        // Scope by `fileinfo.library_id`, not the retired top-level
-        // `folder_id` (dropped in drop-abs-path-2026-05-21). The legacy
-        // field never matches a real document, so the previous query
-        // silently updated nothing and devices' Photos-deletion reports
-        // were lost. Mirrors backup-sidecar / backup-rendered scoping.
-        'fileinfo.library_id': libraryId,
-        phasset_links: {
-          $elemMatch: {
-            device_id: deviceId,
-            phasset_local_id: { $in: ids },
-          },
-        },
-      },
-      { $set: { deleted_from_photos: true } },
-    );
+    //
+    // Scoped by a location in this library, not the retired top-level
+    // `folder_id` (dropped in drop-abs-path-2026-05-21). The legacy field
+    // never matched a real row, so the previous query silently updated
+    // nothing and devices' Photos-deletion reports were lost. Mirrors
+    // backup-sidecar / backup-rendered scoping.
+    const updated = await markDeletedFromPhotos(libraryId, deviceId, ids);
 
-    log.debug({ deviceId, count: result.modifiedCount }, 'notify-deleted processed');
+    log.debug({ deviceId, count: updated }, 'notify-deleted processed');
     set.status = 200;
-    return { updated: result.modifiedCount };
+    return { updated };
   },
   {
     params: t.Object({ libraryId: t.String() }),

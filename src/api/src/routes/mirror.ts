@@ -32,7 +32,7 @@ import { ObjectId } from 'mongodb';
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { child as childLogger } from '../log.ts';
-import { foldersCollection } from '../db/client.ts';
+import { findFolderById, setFolderMirrors } from '../db/sqlite/repos/folders.repo.ts';
 import { validateRoot } from '../fs/root.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { mirrorQueueCounts, retryDeadMirrorCopies } from '../fs/mirror-queue.repo.ts';
@@ -88,8 +88,7 @@ export const mirrorRoutes = new Elysia()
       set.status = 400;
       return { error: 'invalid folder id' };
     }
-    const coll = await foldersCollection();
-    const folder = await coll.findOne({ _id: new ObjectId(params.id) });
+    const folder = await findFolderById(new ObjectId(params.id));
     if (!folder) {
       set.status = 404;
       return { error: 'folder not found' };
@@ -103,8 +102,7 @@ export const mirrorRoutes = new Elysia()
         set.status = 400;
         return { error: 'invalid folder id' };
       }
-      const coll = await foldersCollection();
-      const folder = await coll.findOne({ _id: new ObjectId(params.id) });
+      const folder = await findFolderById(new ObjectId(params.id));
       if (!folder) {
         set.status = 404;
         return { error: 'folder not found' };
@@ -143,7 +141,7 @@ export const mirrorRoutes = new Elysia()
         mirrors.push({ path: resolved, enabled: m.enabled });
       }
 
-      await coll.updateOne({ _id: folder._id }, { $set: { mirrors } });
+      await setFolderMirrors(folder._id, mirrors);
       await loadMirrorConfig(); // refresh the in-memory registry — no restart
       log.info({ folder: folder.path, mirrors: mirrors.length }, 'updated library mirrors');
       return { ok: true, mirrors };

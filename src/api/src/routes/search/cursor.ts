@@ -25,52 +25,38 @@
  *   - The `placeQuery` text path sorts by `$meta: 'textScore'` first, which
  *     is not a stored field and therefore not seekable at all.
  *
- * ## Type bracketing
+ * ## The undated group
  *
- * MongoDB range predicates are type-bracketed: `{ca: {$lt: "2024-…"}}`
- * only ever matches **string** values of `ca`. `AssetDoc`'s `exif`
- * declares `captured_at: string | null` and the `exif` stage writes an
- * ISO-8601 string, so exactly two BSON type classes reach this field —
- * String, and Null (explicit `null`, a missing `captured_at`, or a missing
- * `exif` sub-document, all of which Mongo treats identically for equality
- * to `null`). In the BSON sort order Null sorts below String, so those rows
- * form a contiguous group: the *tail* under `captured_desc`, the *head*
- * under `captured_asc`. A naive `$lt` seek walks off the end of the string
- * range and drops that entire group.
+ * `captured_at` is an ISO-8601 string or nothing at all, and the rows with
+ * nothing form one contiguous group at one end of the order: the *tail*
+ * under `captured_desc`, the *head* under `captured_asc`. A naive "less
+ * than" seek walks off the end of the dated rows and drops that whole
+ * group, so the cursor records which of the two groups its row came from
+ * (`v: string` vs `v: null`) and the predicate built from it spans the
+ * boundary exactly once.
  *
- * The cursor therefore records which of the two groups the last row came
- * from (`v: string` vs `v: null`) and `seekFilter` emits a predicate that
- * spans the boundary exactly once:
- *
- *   - desc, `v` is a string → strings below `v`, the `_id` tiebreak at
- *     `v`, **plus** the whole nullish group (which sorts after every
- *     string, so Mongo's `limit` only reaches it once the strings run out
- *     — no duplication, because the next cursor is then a nullish one).
- *   - desc, `v` is null → the nullish group with `_id` past the cursor.
- *   - asc, `v` is null → the nullish group past the cursor, **plus** every
- *     string (which sorts after nulls ascending).
- *   - asc, `v` is a string → strings above `v` plus the `_id` tiebreak.
- *
- * `{'exif.captured_at': null}` matches both explicit-null and missing and
- * has tight `[null, null]` index bounds on the (non-sparse) compound
- * index, so the boundary-spanning branch stays a cheap seek rather than a
- * scan. `{$type: 'string'}` is likewise a single contiguous index range.
+ * That predicate is `seekPredicate` in `db/sqlite/repos/search.sql.ts`,
+ * beside the page statement whose `ORDER BY` it has to agree with — this
+ * module owns the cursor's *shape* and its validation, not the SQL. Both
+ * engines happen to put the undated group in the same place, MongoDB
+ * because BSON sorts Null below String and SQLite because NULL sorts first
+ * ascending and last descending, so the four cases are unchanged from the
+ * Mongo original.
  *
  * ## Opacity + injection
  *
  * The cursor is base64url-encoded JSON, opaque to clients but never
  * trusted: `decodeCursor` rejects anything that isn't `{v: string|null,
- * i: <24 hex>, d: 'asc'|'desc'}`. Requiring `v` to be a primitive string
- * is what makes a forged cursor un-injectable — MongoDB only interprets
- * *objects* in the value position as operator documents, so a `{$ne: null}`
- * or `{$where: …}` payload can never reach the query.
+ * i: <24 hex>, d: 'asc'|'desc'}`. The validation is not load-bearing for
+ * injection any more — every part of the cursor is a bound parameter by the
+ * time it reaches a statement — but it is still what stops a forged or
+ * truncated cursor from silently restarting the scroll somewhere the user
+ * has already been.
  */
 
-import { ObjectId } from 'mongodb';
-import type { Filter } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-
-const CAPTURED_AT = 'exif.captured_at';
+// Type-only: an asset id is still a 24-character hex string on the wire, and
+// `ObjectId` is how the document shape spells one. See the brief's note on ids.
+import type { ObjectId } from 'mongodb';
 
 /** Direction of the `(captured_at, _id)` seek. */
 export type CursorDirection = 'asc' | 'desc';
@@ -146,36 +132,4 @@ export function cursorFromDoc(
     i: doc._id.toHexString(),
     d: direction,
   };
-}
-
-/**
- * The range predicate that resumes iteration after `cursor`, in the sort
- * order `{ 'exif.captured_at': ±1, _id: 1 }`. Callers `$and` this with the
- * request's own filter — never merge it in, since the filter may already
- * carry a top-level `$or`.
- */
-export function seekFilter(cursor: SeekCursor): Filter<AssetDoc> {
-  const id = new ObjectId(cursor.i);
-  const tiebreak = { [CAPTURED_AT]: cursor.v, _id: { $gt: id } };
-
-  if (cursor.v === null) {
-    // Inside the null/missing group. Descending, that group is the tail, so
-    // nothing follows it; ascending, every string row still follows.
-    const rest = { [CAPTURED_AT]: null, _id: { $gt: id } };
-    return (
-      cursor.d === 'desc' ? rest : { $or: [rest, { [CAPTURED_AT]: { $type: 'string' } }] }
-    ) as Filter<AssetDoc>;
-  }
-
-  const beyond =
-    cursor.d === 'desc'
-      ? { [CAPTURED_AT]: { $lt: cursor.v } }
-      : { [CAPTURED_AT]: { $gt: cursor.v } };
-  // Descending, the null/missing group sorts after every string, so it has
-  // to ride along in the same `$or` — Mongo's sort+limit only reaches it
-  // once the strings are exhausted. Ascending it sorts *before* every
-  // string and has already been consumed by the time `v` is a string.
-  const branches =
-    cursor.d === 'desc' ? [beyond, tiebreak, { [CAPTURED_AT]: null }] : [beyond, tiebreak];
-  return { $or: branches } as Filter<AssetDoc>;
 }

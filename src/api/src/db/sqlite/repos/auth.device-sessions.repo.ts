@@ -24,6 +24,7 @@ import type { ObjectId } from 'mongodb';
 import { revokeFamily } from './auth.refresh.repo.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { nowIso, toHex } from './values.ts';
+import { hashRefreshToken } from '../../../auth/tokens.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
@@ -33,6 +34,41 @@ export interface DeviceSession {
   platform: string;
   created_at: string;
   last_used_at: string;
+}
+
+/**
+ * Whether this raw refresh token is a live token from one of the user's own
+ * *primary* logins — the proof `POST /api/auth/device-sessions` demands before
+ * it will mint a 90-day device credential.
+ *
+ * Four conditions, and each one is load-bearing:
+ *
+ *  - the token hashes to a row this user owns, so a leaked 15-minute access
+ *    token on its own cannot pair a device;
+ *  - the row is unrevoked and unexpired;
+ *  - the whole *family* is alive (`family_revoked_at IS NULL`), because a
+ *    grace-window re-mint can leave a live-looking row inside a lineage that
+ *    logout has already killed;
+ *  - the family carries no `platform` marker, so a paired device cannot use its
+ *    own credential to pair further devices — pairing authority stays with a
+ *    fully-authenticated primary client.
+ *
+ * Read-only: the token is inspected, never rotated.
+ */
+export async function hasLivePrimaryRefreshToken(
+  userId: ObjectId,
+  rawToken: string,
+  dbOverride?: SqliteDb,
+): Promise<boolean> {
+  const rows = await sqliteDb(dbOverride).read<{ id: string }>(
+    `SELECT id FROM refresh_tokens
+      WHERE token_hash = ? AND user_id = ?
+        AND revoked_at IS NULL AND family_revoked_at IS NULL
+        AND expires_at > ? AND platform IS NULL
+      LIMIT 1`,
+    [hashRefreshToken(rawToken), toHex(userId), nowIso()],
+  );
+  return rows.length > 0;
 }
 
 /**

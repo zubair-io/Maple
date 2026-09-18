@@ -9,8 +9,11 @@
 import { describe, expect, test } from 'bun:test';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 import type { SqliteDb } from './db-handle.ts';
+import { MEILI_STAGE } from './assets.stage-rearm.ts';
+import { insertStageState } from './assets.test-helpers.ts';
 import { backfillCoverAssets, runOnlineClustering } from './people.clustering-job.ts';
 import { faceCountByPerson } from './people.face-count.ts';
+import { stageRow } from './stage-runtime.test-helpers.ts';
 import {
   insertFace,
   insertLibrary,
@@ -248,7 +251,36 @@ describe('runOnlineClustering', () => {
         .get(ada),
     ).toEqual({ head: null, ranked: null });
   });
+
+  test('re-queues the assets it assigned for the search index', async () => {
+    using handle = await createTestDatabase();
+    const db = handle.db;
+    const library = insertLibrary(db);
+    const assigned = insertLiveAsset(db, library);
+    const untouched = insertLiveAsset(db, library);
+    insertFace(db, { assetId: assigned, embedding: nearAxis(0, 0.05) });
+    // Both look already-indexed, so only a genuine re-arm shows as a change.
+    insertStageState(db, assigned, MEILI_STAGE, { version: 6 });
+    insertStageState(db, untouched, MEILI_STAGE, { version: 6 });
+
+    await runOnlineClustering({}, testDb(db));
+
+    // Fire-and-forget: a search-index hiccup must not fail the pass.
+    await waitFor(() => stageRow(db, assigned, MEILI_STAGE)?.version === 0);
+    expect(stageRow(db, assigned, MEILI_STAGE)?.version).toBe(0);
+    // An asset the pass did not touch keeps its place in the queue — re-arming
+    // every asset of every touched person would re-queue an entire library.
+    expect(stageRow(db, untouched, MEILI_STAGE)?.version).toBe(6);
+  });
 });
+
+/** Poll a condition for up to half a second. */
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
 
 describe('backfillCoverAssets', () => {
   test('gives an uncovered person their highest-confidence face', async () => {

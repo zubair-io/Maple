@@ -16,7 +16,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
-import { searchCount, searchPage, type SeekPosition } from './search.page.ts';
+import { searchByMapleIds, searchCount, searchPage, type SeekPosition } from './search.page.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchLibrary, type SeededLibrary } from './search.test-helpers.ts';
 import type { SqliteDb } from './db-handle.ts';
@@ -358,6 +358,71 @@ describe('searchCount — the three excluded assets', () => {
         expect(ids.has(library.assets.get(name)!)).toBe(false);
       }
       expect(ids.size).toBe(10);
+    });
+  });
+});
+
+describe('searchByMapleIds — the assets behind a page of Meilisearch hits', () => {
+  /** The `maple_id`s the shared fixture mints, keyed by the names tests use. */
+  const mapleId = (library: SeededLibrary, name: string): string =>
+    `maple-${library.assets.get(name)!}`;
+
+  test('answers in the order the sidecar ranked, not in capture order', async () => {
+    await withLibrary(async (db, library) => {
+      const where = translate({ name: 'no filters', query: () => ({}) }, library);
+      // `harbour` is the newest of the three and would lead a capture-ordered
+      // page; `skyline` is the oldest and would end one. The sidecar's order
+      // is neither, so the answer can only come from the ids as given.
+      const ids = ['skyline', 'harbour', 'lantern'].map((name) => mapleId(library, name));
+      const rows = await searchByMapleIds(where, ids, db);
+      expect(rows.map((row) => row.fileinfo?.[0]?.filename)).toEqual([
+        'skyline.dng',
+        'harbour.dng',
+        'lantern.dng',
+      ]);
+    });
+  });
+
+  test('still applies every structured filter — it is not a post-filter', async () => {
+    await withLibrary(async (db, library) => {
+      const where = translate({ name: 'rating', query: () => ({ rating: '4' }) }, library);
+      const ids = ['skyline', 'kitchen'].map((name) => mapleId(library, name));
+      // `kitchen` is rated 3 and must drop out even though the sidecar
+      // returned it: a filter with no Meilisearch counterpart still narrows.
+      const rows = await searchByMapleIds(where, ids, db);
+      expect(rows.map((row) => row.fileinfo?.[0]?.filename)).toEqual(['skyline.dng']);
+    });
+  });
+
+  test('drops the free text, because the sidecar already matched it', async () => {
+    await withLibrary(async (db, library) => {
+      // A typo-tolerant sidecar answers `zephyrhol` with the row whose blob
+      // says `zephyrhold`. Re-running the text match here would reject the
+      // very row the sidecar matched and answer an empty page.
+      const where = translate(
+        { name: 'typo', query: () => ({ placeQuery: 'zephyrhol' }) },
+        library,
+      );
+      const rows = await searchByMapleIds(where, [mapleId(library, 'harbour')], db);
+      expect(rows.map((row) => row.fileinfo?.[0]?.filename)).toEqual(['harbour.dng']);
+    });
+  });
+
+  test('a non-live asset has no row to return, however the sidecar ranked it', async () => {
+    await withLibrary(async (db, library) => {
+      const where = translate({ name: 'all', query: () => ({ hidden: 'all' }) }, library);
+      const ids = ['trashed', 'replaced', 'vanished', 'harbour'].map((name) =>
+        mapleId(library, name),
+      );
+      const rows = await searchByMapleIds(where, ids, db);
+      expect(rows.map((row) => row.fileinfo?.[0]?.filename)).toEqual(['harbour.dng']);
+    });
+  });
+
+  test('an empty id list costs no statement at all', async () => {
+    await withLibrary(async (db, library) => {
+      const where = translate({ name: 'no filters', query: () => ({}) }, library);
+      expect(await searchByMapleIds(where, [], db)).toEqual([]);
     });
   });
 });

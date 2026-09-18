@@ -1,6 +1,6 @@
 /**
  * The Meilisearch `placeQuery` branch applied the caller's capture-date
- * window ONLY as a Mongo predicate on the ids Meilisearch had already
+ * window ONLY as a database predicate on the ids Meilisearch had already
  * returned. Meilisearch ranks the whole corpus, hands back one page of
  * `limit` ids, and the date predicate then runs against that page — so a
  * match outside the first page was invisible even though it satisfied both
@@ -15,37 +15,38 @@
  *      nothing about the window — identical for every date range, and
  *      wildly larger than the number of rows the grid can ever show.
  *
- * Same shape as #2358 (hidden mode not threaded into `meili.search`, Mongo
+ * Same shape as #2358 (hidden mode not threaded into `meili.search`, the
  * intersection always empty). The pushdown machinery already exists:
  * `capturedFrom`/`capturedBefore` on `MeilisearchSearchOptions`, a
  * `capturedAt` clause in `meilisearch-filter.ts`, and `capturedAt` in the
  * index's `filterableAttributes` since settings v4. This branch just never
  * passed them.
  *
- * The fake client below reproduces the real `buildFilter` date semantics
- * (`capturedAt >= from`, `capturedAt < before`) against a seeded corpus and
- * pages the survivors, so the test exercises the pushdown end to end rather
- * than only asserting on the options object.
+ * The fake client below reproduces the real date semantics (`capturedAt >=
+ * from`, `capturedAt < before`) against a seeded corpus and pages the
+ * survivors, so the test exercises the pushdown end to end rather than only
+ * asserting on the options object.
  *
- * Real Mongo required — soft-skips when unreachable, matching `list.test.ts`.
+ * Real SQLite, installed as the process-wide handle for the re-fetch.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId, type Db } from 'mongodb';
 import { listRoute } from './list.ts';
-import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
+import { _resetCacheForTests } from './total-cache.ts';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchSearchOptions,
 } from '../../enrichment/meilisearch-client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-withTestDb(`maple_test_search_meili_dates_${process.pid}`);
-
-let db: Db | null = null;
-let mongoReachable = false;
+let live: LiveTestDatabase;
 
 /** Captured inside the "last summer" window (2025-06-01 … 2025-08-31). */
 const IN_WINDOW_ID = 'maple-in-window';
@@ -56,50 +57,28 @@ const IN_WINDOW_AT = '2025-07-15T12:00:00.000Z';
 const OUT_OF_WINDOW_AT = '2020-01-05T12:00:00.000Z';
 
 beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
+  live = await createLiveTestDatabase();
+  const libraryId = insertFolder(live.db, { slug: 'meili-dates', path: '/lib' });
+  seedSearchAsset(live.db, libraryId, {
+    filename: 'out-of-window.dng',
+    mapleId: OUT_OF_WINDOW_ID,
+    capturedAt: OUT_OF_WINDOW_AT,
+    searchBlob: 'greyson beach',
+  });
+  seedSearchAsset(live.db, libraryId, {
+    filename: 'in-window.dng',
+    mapleId: IN_WINDOW_ID,
+    capturedAt: IN_WINDOW_AT,
+    searchBlob: 'greyson beach',
+  });
+  _resetCacheForTests();
 });
 
 afterEach(() => {
   setMeilisearchClientForTests(null);
+  live.close();
+  _resetCacheForTests();
 });
-
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
-});
-
-function asset(mapleId: string, filename: string, capturedAt: string): Record<string, unknown> {
-  return {
-    maple_id: mapleId,
-    fileinfo: [{ path: '', filename, library_id: new ObjectId(), deleted_at: null }],
-    size: 1,
-    mtime: 1,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: 'now',
-    deleted_at: null,
-    hidden: false,
-    exif: { captured_at: capturedAt },
-  };
-}
-
-async function seed(d: Db): Promise<void> {
-  await d
-    .collection('assets')
-    .insertMany([
-      asset(OUT_OF_WINDOW_ID, 'out-of-window.dng', OUT_OF_WINDOW_AT),
-      asset(IN_WINDOW_ID, 'in-window.dng', IN_WINDOW_AT),
-    ] as never);
-}
 
 /**
  * Stands in for the real index: applies the `capturedAt` clauses the way
@@ -144,8 +123,6 @@ function fakeMeiliClient(): {
 
 describe('GET /api/search — capture-date window reaches Meilisearch', () => {
   it('returns an in-window match that relevance ranked outside the first page', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
     const { client } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
@@ -162,8 +139,6 @@ describe('GET /api/search — capture-date window reaches Meilisearch', () => {
   });
 
   it('passes the resolved window to Meilisearch rather than post-filtering', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
     const { client, calls } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
@@ -194,8 +169,6 @@ describe('GET /api/search — capture-date window reaches Meilisearch', () => {
    * to a canonical ISO instant, which cannot carry a quote.
    */
   it('never forwards an unparseable date bound to Meilisearch', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
     const { client, calls } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
@@ -214,8 +187,6 @@ describe('GET /api/search — capture-date window reaches Meilisearch', () => {
   });
 
   it('normalises a valid bare date bound to a canonical ISO instant', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
     const { client, calls } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
@@ -231,8 +202,6 @@ describe('GET /api/search — capture-date window reaches Meilisearch', () => {
   });
 
   it('reports a total that reflects the window, not the whole text match', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
     const { client } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 

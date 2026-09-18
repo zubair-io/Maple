@@ -40,7 +40,8 @@
 import { backupId, backupChunkRange } from './backup-id.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
+import { setAppleRenderedPath } from '../db/sqlite/repos/backup.repo.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
 import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
 import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
@@ -187,7 +188,7 @@ export const backupRenderedRoutes = new Elysia().post(
     const { start, end, rangeTotal, totalBytes } = chunk;
 
     // Check library exists.
-    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
+    const folder = await findFolderById(libraryId);
     if (!folder) {
       set.status = 404;
       return { error: 'library not found' };
@@ -346,15 +347,11 @@ export const backupRenderedRoutes = new Elysia().post(
     }
     await uploadSessions.complete({ sessionId: session._id, mapleId });
 
-    // Persist apple_rendered_path on the matching AssetDoc. Post
-    // drop-abs-path-2026-05-21 the per-library pointer lives on
-    // `fileinfo[].library_id`; we scope the update via that path plus
+    // Persist apple_rendered_path on the matching asset. Post
+    // drop-abs-path-2026-05-21 the per-library pointer is the asset's
+    // locations, so the update is scoped by a location in this library plus
     // the content-addressed `maple_id`.
-    const a = await assetsCollection();
-    await a.updateOne(
-      { 'fileinfo.library_id': libraryId, maple_id: mapleId },
-      { $set: { apple_rendered_path: resolvedTargetRelPath } },
-    );
+    await setAppleRenderedPath(libraryId, mapleId, resolvedTargetRelPath);
 
     log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, 'rendered ingest complete');
     set.status = 200;

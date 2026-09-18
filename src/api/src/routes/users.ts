@@ -15,7 +15,12 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import type { UserRole } from '../db/schema.ts';
-import { usersCollection } from '../db/client.ts';
+import {
+  countOtherOwners,
+  findUserById,
+  listUsers,
+  updateUser,
+} from '../db/sqlite/repos/auth.users.repo.ts';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import { userFileAccess } from '../auth/permissions.ts';
 import type { UserDoc } from '../db/schema.ts';
@@ -65,11 +70,7 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
   // would leave `auth` undefined in this instance's handlers.
   .use(requireAuth)
   .use(requireOwner)
-  .get('/', async () => {
-    const coll = await usersCollection();
-    const docs = await coll.find({}).sort({ created_at: 1 }).toArray();
-    return docs.map(toPublicUser);
-  })
+  .get('/', async () => (await listUsers()).map(toPublicUser))
   .patch(
     '/:id',
     async ({ params, body, set }) => {
@@ -77,8 +78,7 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
         set.status = 400;
         return { error: 'invalid user id' };
       }
-      const coll = await usersCollection();
-      const user = await coll.findOne({ _id: new ObjectId(params.id) });
+      const user = await findUserById(new ObjectId(params.id));
       if (!user) {
         set.status = 404;
         return { error: 'user not found' };
@@ -87,19 +87,18 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
       // Counted fresh at request time so the last-owner guard stays
       // authoritative under stale UIs; only needed when demoting an owner.
       const otherOwners =
-        user.role === 'owner' && body.role === 'member'
-          ? await coll.countDocuments({ _id: { $ne: user._id }, role: 'owner' })
-          : 1;
+        user.role === 'owner' && body.role === 'member' ? await countOtherOwners(user._id) : 1;
       const verdict = validateUserPatch(user, body, otherOwners);
       if (!verdict.ok) {
         set.status = verdict.status;
         return { error: verdict.error };
       }
 
-      const patch: { role?: UserRole; file_access?: boolean } = {};
-      if (body.role !== undefined) patch.role = body.role;
-      if (body.file_access !== undefined) patch.file_access = body.file_access;
-      await coll.updateOne({ _id: user._id }, { $set: patch });
+      const patch: { role?: UserRole; file_access?: boolean } = {
+        ...(body.role === undefined ? {} : { role: body.role }),
+        ...(body.file_access === undefined ? {} : { file_access: body.file_access }),
+      };
+      await updateUser(user._id, patch);
       // Role/permission changes land in newly-minted access tokens only —
       // an in-flight token keeps its old claims until it expires (≤15 min),
       // the same stateless trade the auth middleware documents.

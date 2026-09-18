@@ -12,7 +12,13 @@ import { describe, expect, test } from 'bun:test';
 import type { ObjectId } from 'mongodb';
 import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { insertUser } from './auth.users.repo.ts';
-import { createInvite, listInvites, redeemInvite, rescindInvite } from './auth.invites.repo.ts';
+import {
+  createInvite,
+  findInviteByCode,
+  listInvites,
+  redeemInvite,
+  rescindInvite,
+} from './auth.invites.repo.ts';
 import { consumeChallenge, storeChallenge } from './auth.challenges.repo.ts';
 import {
   findServiceApiKeyByKeyId,
@@ -90,6 +96,30 @@ describe('invites', () => {
     const owner = await seedUser(db);
     await createInvite(owner, 'a@x.com', db);
     expect((await listInvites(db))[0]?.expires_at).toBeInstanceOf(Date);
+  });
+
+  test('the registration peek reads an invite without spending it', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const owner = await seedUser(db);
+    const invite = await createInvite(owner, 'guest@example.com', db);
+
+    const peeked = await findInviteByCode(invite.code, db);
+    expect(peeked?.email).toBe('guest@example.com');
+    expect(peeked?.consumed_at).toBeNull();
+    expect(peeked?.expires_at).toBeInstanceOf(Date);
+
+    // Still redeemable afterwards — this is the whole point of the peek: the
+    // invite may only be spent once the authenticator has produced a
+    // credential, which happens on a later request.
+    await redeemInvite(invite.code, 'guest@example.com', db);
+    expect((await findInviteByCode(invite.code, db))?.consumed_at).not.toBeNull();
+  });
+
+  test('the peek reports an unknown code as absent rather than throwing', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    expect(await findInviteByCode('NOSUCH', db)).toBeNull();
   });
 });
 

@@ -66,7 +66,7 @@ export type { TextFilter } from './search.fts.ts';
 export { searchFacets } from './search.facets.ts';
 export type { SearchFacets, ValueBucket } from './search.facets.ts';
 
-export { searchCount, searchPage } from './search.page.ts';
+export { searchByMapleIds, searchCount, searchPage } from './search.page.ts';
 export type { PageOptions, SeekPosition } from './search.page.ts';
 
 export { searchBuckets } from './search.buckets.ts';

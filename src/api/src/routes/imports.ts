@@ -18,7 +18,7 @@ import { ObjectId } from 'mongodb';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { ImportFileEntry, ImportStatus, ImportWithId } from '../db/schema.ts';
-import { foldersCollection } from '../db/client.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { browseRoots, isUnderRoot } from '../fs/browse.ts';
 import { scanFolder, buildImportFiles } from '../imports/scan.ts';
 import { isSafeLabel } from '../imports/dest.ts';
@@ -202,9 +202,7 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
         set.status = 400;
         return { error: 'Invalid library_id' };
       }
-      const folder = await (
-        await foldersCollection()
-      ).findOne({ _id: new ObjectId(body.library_id) });
+      const folder = await findFolderById(new ObjectId(body.library_id));
       if (!folder) {
         set.status = 404;
         return { error: 'Library not found' };

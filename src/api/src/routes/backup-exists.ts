@@ -35,7 +35,8 @@
 import { fromHex, isMapleId } from '../indexer/id.ts';
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
+import { findMapleIdsPresentInLibrary } from '../db/sqlite/repos/backup.repo.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('backup-exists');
@@ -78,7 +79,7 @@ export const backupExistsRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
+    const folder = await findFolderById(libraryId);
     if (!folder) {
       set.status = 404;
       return { error: 'library not found' };
@@ -99,27 +100,12 @@ export const backupExistsRoutes = new Elysia().post(
       return { missing: [] };
     }
 
-    // Single Mongo query: which of the requested ids are already present in
-    // this library. Scoped to a LIVE fileinfo entry for this library
-    // (`deleted_at: null`) so soft-deleted content isn't reported present —
-    // otherwise the client would skip re-uploading a photo the user deleted.
-    // Matches the live-entry filter in backup-state.ts.
-    const a = await assetsCollection();
-    const rows = await a
-      .find(
-        {
-          fileinfo: { $elemMatch: { library_id: libraryId, deleted_at: null } },
-          maple_id: { $in: ids },
-        },
-        { projection: { maple_id: 1, _id: 0 } },
-      )
-      .toArray();
-
-    const present = new Set<string>();
-    for (const r of rows) {
-      if (typeof r.maple_id === 'string') present.add(r.maple_id);
-    }
-
+    // Single query: which of the requested ids are already present in this
+    // library. Scoped to a LIVE location for this library (`deleted_at` unset)
+    // so soft-deleted content isn't reported present — otherwise the client
+    // would skip re-uploading a photo the user deleted. Matches the live-entry
+    // filter in backup-state.ts.
+    const present = await findMapleIdsPresentInLibrary(ids, libraryId);
     const missing = ids.filter((id) => !present.has(id));
 
     log.debug(

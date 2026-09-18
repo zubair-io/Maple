@@ -64,6 +64,7 @@ import {
   STAGE_REARM_SELF_SQL,
   STAGE_SUCCESS_SQL,
   TAG_DAMAGED_SQL,
+  TAG_LOCATION_MISSING_BY_ADDRESS_SQL,
   TAG_LOCATION_MISSING_SQL,
 } from './stage-runtime.sql.ts';
 
@@ -254,6 +255,23 @@ export function tagLocationMissingStatement(
   return {
     sql: TAG_LOCATION_MISSING_SQL,
     params: [at.toISOString(), reason, assetId, ordinal],
+  };
+}
+
+/**
+ * The same stamp, for the caller that holds the location's address rather than
+ * its ordinal — the runner's ENOENT path, which resolved
+ * `(library_id, path, filename)` into the absolute path it failed to read.
+ */
+export function tagLocationMissingByAddressStatement(
+  assetId: string,
+  address: { libraryId: string; path: string; filename: string },
+  reason: string,
+  at: Date = new Date(),
+): SqlStatement {
+  return {
+    sql: TAG_LOCATION_MISSING_BY_ADDRESS_SQL,
+    params: [at.toISOString(), reason, assetId, address.libraryId, address.path, address.filename],
   };
 }
 

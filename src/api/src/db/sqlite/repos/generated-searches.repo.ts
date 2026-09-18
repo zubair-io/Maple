@@ -162,6 +162,29 @@ export async function findGeneratedSearchById(
 }
 
 /**
+ * Themes this library produced on or after `sinceIso`, so the next run's prompt
+ * can be told not to repeat itself.
+ *
+ * Themes only — the prompt never sees the rest of the row, and reading the whole
+ * document to use one field is what the narrow projections in this schema exist
+ * to avoid. `generated_at` is an ISO string with constant-width fields, so the
+ * range is a lexicographic compare, the same one `pruneGeneratedSearches` makes
+ * at the other end of the window.
+ */
+export async function recentGeneratedSearchThemes(
+  libraryId: string,
+  sinceIso: string,
+  dbOverride?: SqliteDb,
+): Promise<string[]> {
+  const rows = await sqliteDb(dbOverride).read<{ theme: string }>(
+    `SELECT theme FROM generated_searches
+      WHERE library_id = ? AND generated_at >= ? AND theme <> ''`,
+    [libraryId, sinceIso],
+  );
+  return rows.map((row) => row.theme);
+}
+
+/**
  * Drop collections older than the retention window, returning how many rows
  * went. `now` is injected so the test can pin it rather than sleep.
  *

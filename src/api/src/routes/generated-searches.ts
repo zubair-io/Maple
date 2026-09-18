@@ -18,25 +18,20 @@
 
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { getDb } from '../db/client.ts';
 import {
+  findGeneratedSearchById,
   listGeneratedSearches,
   type GeneratedSearchDoc,
-} from '../workers/generated-search/repo.ts';
-import { toSearchQuery, resolveLiveFilter } from '../workers/generated-search/execute.ts';
-import { assetsCollection } from '../db/client.ts';
+} from '../db/sqlite/repos/generated-searches.repo.ts';
+import { buildSearchWhere } from '../db/sqlite/repos/search.where.ts';
+import { searchCount, searchPage } from '../db/sqlite/repos/search.page.ts';
+import { toSearchQuery } from '../workers/generated-search/execute.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
-import { applyLiveFilter, clampInt } from './search/query.ts';
-import {
-  SEARCH_COUNT_TIMEOUT_MS,
-  SEARCH_FIND_TIMEOUT_MS,
-  SEARCH_TIMEOUT_BODY,
-  pageAndTotalOrTimeout,
-} from './search/query-timeout.ts';
-import { pickSort } from './search/sort.ts';
+import { clampInt, extractDatesFromQuery, peopleNames } from './search/query.ts';
+import { personIdsToDrop } from '../db/sqlite/repos/people.visibility.ts';
+import { personIdsForNames } from '../db/sqlite/repos/people.search-filter.ts';
 import { meiliPage } from './search/list-meili.ts';
 import { projectAsset } from './search/project.ts';
-import type { AssetDoc } from '../db/schema.ts';
 
 /** Wire shape for a collection card. The stored `query` rides along so a
  * client can deep-link into `/search` with the same filters. */
@@ -70,10 +65,7 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         return { error: 'invalid id' };
       }
 
-      const db = await getDb();
-      const doc = (await db
-        .collection('generated_searches')
-        .findOne({ _id: new ObjectId(params.id) })) as GeneratedSearchDoc | null;
+      const doc = await findGeneratedSearchById(new ObjectId(params.id));
       if (doc === null) {
         set.status = 404;
         return { error: 'not found' };
@@ -81,13 +73,18 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
 
       // Re-derive the live query on every request. Forcing at execution time
       // rather than at write time is what keeps a stale doc from surfacing a
-      // hidden person on an unattended screen.
-      const prepared = await resolveLiveFilter(toSearchQuery(doc.query, doc.library_id));
-      if ('error' in prepared) {
+      // hidden person on an unattended screen — so the two person-id lists are
+      // resolved here, per request, and never read out of the stored document.
+      const resolved = extractDatesFromQuery(toSearchQuery(doc.query, doc.library_id));
+      const [dropIds, peopleIds] = await Promise.all([
+        personIdsToDrop(resolved.excludeHiddenPeople),
+        personIdsForNames(peopleNames(resolved.people)),
+      ]);
+      const where = buildSearchWhere(resolved, dropIds, peopleIds);
+      if ('error' in where) {
         set.status = 400;
-        return { error: prepared.error };
+        return { error: where.error };
       }
-      const { resolved, filter } = prepared;
 
       const limit = clampInt(query.limit, 1, 500, 100);
       // Paged rather than capped. A collection can hold more photos than any
@@ -96,11 +93,9 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
       // `total` is already returned by both legs below, so a caller pages
       // until it has that many rows.
       const offset = clampInt(query.offset, 0, 100_000, 0);
-      const coll = await assetsCollection();
 
       const meili = await meiliPage({
-        coll,
-        filter,
+        where,
         resolved,
         libraryId: doc.library_id,
         skip: offset,
@@ -110,31 +105,19 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
         return { total: meili.total, results: meili.results };
       }
 
-      const liveFilter = applyLiveFilter(filter);
-      // Both legs are time-bounded and share one fate (#2988) — without the
-      // helper a MaxTimeMSExpired bubbled to the generic handler as a 500
-      // instead of the 503 contract /api/search keeps.
-      const outcome = await pageAndTotalOrTimeout(
-        coll
-          .find(liveFilter, { maxTimeMS: SEARCH_FIND_TIMEOUT_MS })
-          .sort(pickSort('captured_desc'))
-          .skip(offset)
-          .limit(limit)
-          .toArray(),
-        coll.countDocuments(liveFilter, { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS }),
-      );
-      if (outcome.timedOut) {
-        set.status = 503;
-        return SEARCH_TIMEOUT_BODY;
-      }
-      const [libs, idToSlug] = await Promise.all([
+      // The database leg. The page and the total are composed from the same
+      // `SearchWhere`, which is what stops a card claiming more photos than its
+      // own grid can show.
+      const [docs, total, libs, idToSlug] = await Promise.all([
+        searchPage(where, { sort: 'captured_desc', limit, skip: offset }),
+        searchCount(where),
         loadLibraryRoots().catch(() => new Map<string, string>()),
         loadLibraryIdToSlug().catch(() => new Map<string, string>()),
       ]);
 
       return {
-        total: outcome.total,
-        results: (outcome.docs as AssetDoc[]).map((d) => projectAsset(d as never, libs, idToSlug)),
+        total,
+        results: docs.map((d) => projectAsset(d as never, libs, idToSlug)),
       };
     },
     { query: t.Object({ limit: t.Optional(t.String()), offset: t.Optional(t.String()) }) },

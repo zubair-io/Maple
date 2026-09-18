@@ -6,7 +6,12 @@
 import { safeObjectId } from '../../safe-object-id.ts';
 import { caseFoldKey } from '../case-fold.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
-import { livePersonIdsForNamesSql, personNamesByIdsSql } from './people.sql.ts';
+import {
+  INDEXABLE_ROSTER_NAMES_SQL,
+  indexableNamesByIdsSql,
+  livePersonIdsForNamesSql,
+  personNamesByIdsSql,
+} from './people.sql.ts';
 
 /**
  * Hex ids of the live, non-hidden people holding these exact names, matched
@@ -54,4 +59,44 @@ export async function namesForPersonIds(
     valid,
   );
   return new Map(rows.map((row) => [row.id, row.name] as const));
+}
+
+/**
+ * Display names for a batch of person ids, keyed by canonical lowercase hex,
+ * for the surfaces that put a name into an *index* rather than a picker.
+ *
+ * {@link namesForPersonIds} with one predicate more: an excluded person is left
+ * out (#2894). The search-index stage folds these names into `search_blob` and
+ * into the Meilisearch document's `people` attribute, so including an excluded
+ * person there would make their name a search term — the one thing exclusion
+ * means. The facet picker keeps the looser rule because exclusion is applied to
+ * its results afterwards.
+ */
+export async function indexableNamesForPersonIds(
+  hexIds: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<Map<string, string>> {
+  const valid = hexIds
+    .map((hex) => safeObjectId(hex))
+    .filter((id): id is NonNullable<typeof id> => id !== null)
+    .map((id) => id.toHexString());
+  if (valid.length === 0) return new Map();
+  const rows = await peopleDb(dbOverride).read<{ id: string; name: string }>(
+    indexableNamesByIdsSql(valid.length),
+    valid,
+  );
+  return new Map(rows.map((row) => [row.id, row.name] as const));
+}
+
+/**
+ * Every name the generated-search prompt may use.
+ *
+ * The same visibility rule as {@link indexableNamesForPersonIds}, applied to the
+ * whole roster instead of a batch. Withholding beats post-filtering here: a name
+ * the model never sees is one it cannot build a themed collection around and put
+ * on an unattended screen.
+ */
+export async function indexableRosterNames(dbOverride?: SqliteDb): Promise<string[]> {
+  const rows = await peopleDb(dbOverride).read<{ name: string }>(INDEXABLE_ROSTER_NAMES_SQL);
+  return rows.map((row) => row.name);
 }

@@ -7,7 +7,7 @@
 //   POST /api/auth/native-code/redeem  (public) — the native app redeems it
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { usersCollection } from '../db/client.ts';
+import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import { toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
@@ -29,7 +29,7 @@ function jwtSecret(): string {
 /** Shared tail of /redeem and /claim: turn a consumed code row into the
  * device-scoped token payload the native app signs in with. */
 async function tokensForRedeemed(redeemed: RedeemedNativeCode) {
-  const user = await (await usersCollection()).findOne({ _id: redeemed.userId });
+  const user = await findUserById(redeemed.userId);
   if (!user) return null;
   const access_token = await signAccessToken(
     {

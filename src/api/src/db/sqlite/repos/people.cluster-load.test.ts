@@ -20,6 +20,7 @@ import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 import type { SqlParams, SqlRow } from '../protocol.ts';
 import type { SqliteDb } from './db-handle.ts';
 import {
+  EMBEDDING_DIM,
   loadUnassignedFaces,
   recomputeCentroids,
   UNASSIGNED_FACE_PAGE,
@@ -160,5 +161,91 @@ describe('the centroid recompute reads one chunk at a time', () => {
     // person's embeddings at once, which on a first pass is all of them.
     expect(log.peakConcurrency).toBe(1);
     expect(log.rowCounts.length).toBeGreaterThan(2);
+  });
+});
+
+/**
+ * Converted from the Mongo `people/cluster-load.recompute-heal.test.ts`.
+ *
+ * A person with a positive `centroid_face_count` but an empty or short stored
+ * vector is a stuck state, and it is stuck because it is invisible from both
+ * sides: the recompute reads the positive count as "already clean" and skips
+ * the row, while the seed load skips it as an unusable vector. So the centroid
+ * never rebuilds and any stale merge suggestion the person carries never
+ * clears. Treating a positive count with an undecodable vector as dirty is what
+ * breaks the deadlock.
+ */
+describe('the recompute heals a centroid that cannot rebuild itself (#2105)', () => {
+  /** A unit vector on one axis, so the mean's argmax is predictable. */
+  function axisEmbedding(axis: number): number[] {
+    const vector = new Array<number>(EMBEDDING_DIM).fill(0);
+    vector[axis] = 1;
+    return vector;
+  }
+
+  /** One person's stored centroid and count. */
+  function storedCentroid(
+    db: Database,
+    personId: string,
+  ): { centroid: string | null; centroid_face_count: number | null } {
+    return db
+      .query('SELECT centroid, centroid_face_count FROM people WHERE id = ?')
+      .get(personId) as { centroid: string | null; centroid_face_count: number | null };
+  }
+
+  test('rebuilds the vector when the count is positive but the vector is empty', async () => {
+    using dbHandle = await createTestDatabase();
+    const db = dbHandle.db;
+    const library = insertLibrary(db);
+    // The anomalous state: a count nothing could have produced, and no vector.
+    const person = insertPerson(db, { name: 'Stuck', centroid: [], centroidFaceCount: 4548 });
+    for (let index = 0; index < 2; index += 1) {
+      insertFace(db, {
+        assetId: insertLiveAsset(db, library),
+        personId: person,
+        embedding: axisEmbedding(7),
+      });
+    }
+
+    const updated = await recomputeCentroids(testDb(db));
+
+    expect(updated).toBe(1);
+    const row = storedCentroid(db, person);
+    const centroid = JSON.parse(row.centroid ?? 'null') as number[];
+    expect(centroid).toHaveLength(EMBEDDING_DIM);
+    expect(row.centroid_face_count).toBe(2);
+    // Both faces sit on axis 7, so the rebuilt mean must too.
+    expect(centroid.indexOf(Math.max(...centroid))).toBe(7);
+  });
+
+  test('clears to the empty state when the count is positive but no embeddings remain', async () => {
+    using dbHandle = await createTestDatabase();
+    const db = dbHandle.db;
+    const library = insertLibrary(db);
+    const person = insertPerson(db, {
+      name: 'StuckNoEmbeddings',
+      centroid: [],
+      centroidFaceCount: 4548,
+    });
+    // Assigned, but with nothing to average.
+    insertFace(db, { assetId: insertLiveAsset(db, library), personId: person, embedding: null });
+
+    await recomputeCentroids(testDb(db));
+
+    expect(storedCentroid(db, person)).toEqual({ centroid: '[]', centroid_face_count: 0 });
+  });
+
+  test('leaves the valid cleared state alone', async () => {
+    using dbHandle = await createTestDatabase();
+    const db = dbHandle.db;
+    // An empty vector with a zero count is the legitimate "nobody assigned"
+    // state. Rebuilding it would keep every manually created person dirty
+    // forever, at a cost that scales with the library.
+    const person = insertPerson(db, { name: 'EmptyValid', centroid: [], centroidFaceCount: 0 });
+
+    const updated = await recomputeCentroids(testDb(db));
+
+    expect(updated).toBe(0);
+    expect(storedCentroid(db, person)).toEqual({ centroid: '[]', centroid_face_count: 0 });
   });
 });

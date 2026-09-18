@@ -6,35 +6,36 @@
  * order, as walking it with `page`/`limit`. The seeded fixture is built to
  * break a naive implementation:
  *
- *   - duplicate `captured_at` values, so the `_id` tiebreak actually fires
+ *   - duplicate `captured_at` values, so the `id` tiebreak actually fires
  *     at a page boundary rather than only in theory;
- *   - rows with `captured_at: null`, rows with `exif` present but no
- *     `captured_at`, and rows with no `exif` at all — the three shapes that
- *     MongoDB's type-bracketed range predicates silently drop if the seek
- *     doesn't span the String→Null boundary explicitly;
+ *   - rows with no capture date at all — the group a seek silently drops if
+ *     it doesn't span the dated→undated boundary explicitly;
  *   - a page size that puts the boundary mid-page in one direction and on a
  *     page edge in the other.
  *
- * Real Mongo required (localhost:27017 by default, override via
- * `MAPLE_MONGO_URI`) — soft-skips when unreachable, matching `list.test.ts`.
+ * Real SQLite, installed as the process-wide handle so the route reaches it.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId, type Db } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { encodeCursor } from './cursor.ts';
-import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-let db: Db | null = null;
-let mongoReachable = false;
-const LIBRARY = new ObjectId();
+let live: LiveTestDatabase;
+let libraryId: string;
 
 /** `captured_at` for each seeded row, in seed order. Deliberately not
- * sorted, with two repeated timestamps so the `_id` tiebreak matters. */
-const TIMESTAMPS: Array<string | null | undefined> = [
+ * sorted, with two repeated timestamps so the `id` tiebreak matters. The
+ * trailing nulls are the undated group the seek has to reach. */
+const TIMESTAMPS: Array<string | null> = [
   '2024-01-05T00:00:00.000Z',
   '2024-01-03T00:00:00.000Z',
   '2024-01-09T00:00:00.000Z',
@@ -45,71 +46,36 @@ const TIMESTAMPS: Array<string | null | undefined> = [
   '2024-01-08T00:00:00.000Z',
   '2024-01-02T00:00:00.000Z',
   '2024-01-06T00:00:00.000Z',
-  null, // explicit null
-  undefined, // `exif` present, `captured_at` absent
   null,
-  undefined,
+  null,
+  null,
+  null,
+  null,
+  null,
 ];
-/** Rows seeded with no `exif` sub-document at all. */
-const NO_EXIF_COUNT = 2;
 
-function docFor(index: number, capturedAt: string | null | undefined): Record<string, unknown> {
-  const base = {
-    maple_id: `cursor-fixture-${String(index).padStart(3, '0')}`,
-    fileinfo: [
-      {
-        path: '',
-        filename: `cursor-${String(index).padStart(3, '0')}.dng`,
-        library_id: LIBRARY,
-        deleted_at: null,
-      },
-    ],
-    size: 1,
-    mtime: 1,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: 'now',
-    deleted_at: null,
-    hidden: false,
-  };
-  if (capturedAt === undefined) return { ...base, exif: {} };
-  return { ...base, exif: { captured_at: capturedAt } };
-}
+const TOTAL_SEEDED = TIMESTAMPS.length;
+/** Index of the first undated row; everything from here up is untimed. */
+const FIRST_UNTIMED = TIMESTAMPS.findIndex((ts) => ts === null);
 
-const TOTAL_SEEDED = TIMESTAMPS.length + NO_EXIF_COUNT;
-
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_cursor_paging_${process.pid}`);
-
-beforeAll(async () => {
-  try {
-    await closeDb();
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
-  const docs = TIMESTAMPS.map((ts, i) => docFor(i, ts));
-  for (let i = 0; i < NO_EXIF_COUNT; i += 1) {
-    const { exif: _exif, ...withoutExif } = docFor(TIMESTAMPS.length + i, null) as {
-      exif?: unknown;
-    } & Record<string, unknown>;
-    docs.push(withoutExif as Record<string, unknown>);
-  }
-  await db.collection('assets').insertMany(docs as never);
+beforeEach(async () => {
+  live = await createLiveTestDatabase();
+  libraryId = insertFolder(live.db, { slug: 'cursor-paging', path: '/lib' });
+  // Ids ascend with the seed index, so the `id` tiebreak inside a tie group
+  // is predictable and the expected orders below can be written out.
+  TIMESTAMPS.forEach((capturedAt, index) => {
+    const suffix = String(index).padStart(3, '0');
+    seedSearchAsset(live.db, libraryId, {
+      id: String(index).padStart(24, '0'),
+      filename: `cursor-${suffix}.dng`,
+      capturedAt,
+    });
+  });
   _resetCacheForTests();
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
+afterEach(() => {
+  live.close();
   _resetCacheForTests();
 });
 
@@ -124,9 +90,7 @@ interface PageBody {
 }
 
 async function fetchPage(qs: string): Promise<{ status: number; body: PageBody }> {
-  const res = await app.handle(
-    new Request(`http://localhost/?libraryId=${LIBRARY.toHexString()}&${qs}`),
-  );
+  const res = await app.handle(new Request(`http://localhost/?libraryId=${libraryId}&${qs}`));
   return { status: res.status, body: (await res.json()) as PageBody };
 }
 
@@ -166,7 +130,6 @@ async function walkByCursor(
 
 describe('GET /api/search — seek pagination (#2129)', () => {
   it('captured_desc: cursor walk matches the skip walk exactly', async () => {
-    if (!mongoReachable) return;
     const bySkip = await walkBySkip('captured_desc', 4);
     const byCursor = await walkByCursor('captured_desc', 4);
     expect(byCursor.names).toEqual(bySkip);
@@ -174,29 +137,25 @@ describe('GET /api/search — seek pagination (#2129)', () => {
   });
 
   it('captured_asc: cursor walk matches the skip walk exactly', async () => {
-    if (!mongoReachable) return;
     const bySkip = await walkBySkip('captured_asc', 4);
     const byCursor = await walkByCursor('captured_asc', 4);
     expect(byCursor.names).toEqual(bySkip);
     expect(bySkip.length).toBe(TOTAL_SEEDED);
   });
 
-  it('reaches every untimed row — null, missing field, and missing exif', async () => {
-    if (!mongoReachable) return;
-    // The regression this guards: `{captured_at: {$lt: "…"}}` is
-    // type-bracketed to strings, so a seek that doesn't explicitly span the
-    // String→Null boundary loses this whole group.
+  it('reaches every untimed row', async () => {
+    // The regression this guards: a seek that compares only dated values
+    // walks off the end of them and loses this whole group.
     const { names } = await walkByCursor('captured_desc', 4);
     const untimed = names.filter((n) => {
       const i = Number(n.slice('cursor-'.length, -'.dng'.length));
-      return i >= 10;
+      return i >= FIRST_UNTIMED;
     });
-    expect(untimed.length).toBe(6);
+    expect(untimed.length).toBe(TOTAL_SEEDED - FIRST_UNTIMED);
     expect(new Set(names).size).toBe(TOTAL_SEEDED);
   });
 
   it('never repeats a row across the tie-broken timestamp', async () => {
-    if (!mongoReachable) return;
     // Three rows share 2024-01-03; limit 2 forces a page boundary inside
     // that tie group in at least one direction.
     for (const sort of ['captured_desc', 'captured_asc']) {
@@ -207,7 +166,6 @@ describe('GET /api/search — seek pagination (#2129)', () => {
   });
 
   it('stops paging with a null cursor on a short final page', async () => {
-    if (!mongoReachable) return;
     const { body } = await fetchPage('sort=captured_desc&limit=100');
     expect(body.results.length).toBe(TOTAL_SEEDED);
     expect(body.nextCursor).toBeNull();
@@ -218,7 +176,6 @@ describe('GET /api/search — seek pagination (#2129)', () => {
   });
 
   it('keeps `total` unshrunk as the cursor advances', async () => {
-    if (!mongoReachable) return;
     const first = await fetchPage('sort=captured_desc&limit=4');
     expect(first.body.total).toBe(TOTAL_SEEDED);
     const second = await fetchPage(
@@ -228,9 +185,8 @@ describe('GET /api/search — seek pagination (#2129)', () => {
   });
 
   it('honours structured filters alongside the seek', async () => {
-    if (!mongoReachable) return;
-    // A `from` bound already brackets `captured_at` to strings; the seek
-    // must `$and` onto it rather than replace it.
+    // A `from` bound already narrows `captured_at`; the seek must be
+    // conjoined with it rather than replace it.
     const qs = 'sort=captured_desc&limit=2&from=2024-01-06&to=2024-01-09';
     const first = await fetchPage(qs);
     expect(first.body.results.length).toBe(2);
@@ -253,7 +209,6 @@ describe('GET /api/search — seek pagination (#2129)', () => {
 
 describe('GET /api/search — sorts without a seek story (#2129)', () => {
   it('mints no cursor for `name` or `rating`', async () => {
-    if (!mongoReachable) return;
     for (const sort of ['name', 'rating']) {
       const { body } = await fetchPage(`sort=${sort}&limit=4`);
       expect(body.results.length).toBe(4);
@@ -265,7 +220,6 @@ describe('GET /api/search — sorts without a seek story (#2129)', () => {
   });
 
   it('400s rather than silently restarting when a cursor is sent anyway', async () => {
-    if (!mongoReachable) return;
     const cursor = encodeCursor({
       v: '2024-01-05T00:00:00.000Z',
       i: new ObjectId().toHexString(),
@@ -279,7 +233,6 @@ describe('GET /api/search — sorts without a seek story (#2129)', () => {
   });
 
   it('400s when the cursor direction disagrees with the sort', async () => {
-    if (!mongoReachable) return;
     const cursor = encodeCursor({
       v: '2024-01-05T00:00:00.000Z',
       i: new ObjectId().toHexString(),
@@ -292,8 +245,7 @@ describe('GET /api/search — sorts without a seek story (#2129)', () => {
     expect(body.error).toBe('invalid cursor');
   });
 
-  it('400s on a forged cursor instead of coercing it into the query', async () => {
-    if (!mongoReachable) return;
+  it('400s on a forged cursor rather than resuming from somewhere arbitrary', async () => {
     const forged = Buffer.from(
       JSON.stringify({ v: { $ne: null }, i: new ObjectId().toHexString(), d: 'desc' }),
       'utf8',

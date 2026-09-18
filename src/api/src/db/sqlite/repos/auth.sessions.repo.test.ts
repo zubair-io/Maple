@@ -26,7 +26,11 @@ import {
   redeemLanHandoffCode,
   redeemNativeCode,
 } from './auth.codes.repo.ts';
-import { listDeviceSessions, revokeDeviceSession } from './auth.device-sessions.repo.ts';
+import {
+  hasLivePrimaryRefreshToken,
+  listDeviceSessions,
+  revokeDeviceSession,
+} from './auth.device-sessions.repo.ts';
 import {
   issueRefreshToken,
   RefreshError,
@@ -219,6 +223,61 @@ describe('device sessions', () => {
     const userId = await seedUser(db);
     const browser = await issueRefreshToken(userId, 'Browser', {}, db);
     expect(await revokeDeviceSession(userId, browser.familyId, db)).toBe(false);
+  });
+});
+
+/**
+ * The proof a device must present before the server will mint it a 90-day
+ * credential. Every rejection below is a way a leaked or downgraded token could
+ * otherwise be laundered into one.
+ */
+describe('the pairing proof', () => {
+  test("accepts the caller's own live primary-login token", async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const userId = await seedUser(db);
+    const own = await issueRefreshToken(userId, 'Safari on Mac', {}, db);
+    expect(await hasLivePrimaryRefreshToken(userId, own.raw, db)).toBe(true);
+  });
+
+  test('refuses a token that is not a token, and one belonging to someone else', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const mine = await seedUser(db, 'a@x.com');
+    const theirs = await seedUser(db, 'b@x.com');
+    const other = await issueRefreshToken(theirs, 'Their Safari', {}, db);
+    expect(await hasLivePrimaryRefreshToken(mine, 'not-a-real-token', db)).toBe(false);
+    expect(await hasLivePrimaryRefreshToken(mine, other.raw, db)).toBe(false);
+  });
+
+  test("refuses a paired device's own credential — only primary logins pair", async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const userId = await seedUser(db);
+    const tv = await issueRefreshToken(userId, 'Apple TV', { platform: 'tvos' }, db);
+    expect(await hasLivePrimaryRefreshToken(userId, tv.raw, db)).toBe(false);
+  });
+
+  test('refuses an expired token, and a live-looking row inside a logged-out family', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const userId = await seedUser(db);
+
+    const expired = await issueRefreshToken(userId, 'Old Session', {}, db);
+    await db.write(`UPDATE refresh_tokens SET expires_at = ? WHERE family_id = ?`, [
+      '2020-01-01T00:00:00.000Z',
+      expired.familyId.toHexString(),
+    ]);
+    expect(await hasLivePrimaryRefreshToken(userId, expired.raw, db)).toBe(false);
+
+    // The logout-race artifact: the row itself still looks live, but its
+    // lineage was killed — a grace-window re-mint can leave exactly this.
+    const loggedOut = await issueRefreshToken(userId, 'Old Phone', {}, db);
+    await db.write(`UPDATE refresh_tokens SET family_revoked_at = ? WHERE family_id = ?`, [
+      NOW,
+      loggedOut.familyId.toHexString(),
+    ]);
+    expect(await hasLivePrimaryRefreshToken(userId, loggedOut.raw, db)).toBe(false);
   });
 });
 

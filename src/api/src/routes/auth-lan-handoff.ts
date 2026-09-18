@@ -13,7 +13,7 @@
 // repeating the ceremony there.
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { usersCollection } from '../db/client.ts';
+import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
 import { toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
@@ -78,7 +78,7 @@ export const lanHandoffRedeemRoutes = new Elysia().post(
       set.status = 400;
       return { error: 'invalid or expired code' };
     }
-    const user = await (await usersCollection()).findOne({ _id: redeemed.userId });
+    const user = await findUserById(redeemed.userId);
     if (!user) {
       set.status = 401;
       return { error: 'user gone' };

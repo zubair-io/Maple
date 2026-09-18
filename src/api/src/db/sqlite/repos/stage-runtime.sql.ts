@@ -428,6 +428,32 @@ export const TAG_LOCATION_MISSING_SQL = `
    WHERE asset_id = ? AND ordinal = ? AND missing_since IS NULL`;
 
 /**
+ * The same stamp, addressed by the triple that names a file rather than by the
+ * row's position.
+ *
+ * The runner's ENOENT path knows which location it failed to read as a
+ * `(library_id, path, filename)` — that is what it resolved into the absolute
+ * path and re-stat'ed — and not as an ordinal. On Mongo the equivalent write
+ * matched the array element with exactly this triple in an `arrayFilter`, for
+ * the same reason: `ordinal` is a stored value, so an asset whose locations
+ * were written with gaps has no relationship between "the third entry" and
+ * `ordinal = 2`, and a positional guess would tag the wrong file.
+ *
+ * `live_location_count` needs no accompanying write: the triggers on
+ * `asset_locations` recompute it whenever `missing_since` changes, where the
+ * Mongo path had to call `updateLiveLocationCount` afterwards and could leave
+ * the roll-up stale if that second write failed.
+ *
+ * Parameters: `missing_since`, `missing_reason`, `asset_id`, `library_id`,
+ * `path`, `filename`.
+ */
+export const TAG_LOCATION_MISSING_BY_ADDRESS_SQL = `
+  UPDATE asset_locations
+     SET missing_since = ?, missing_reason = ?
+   WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
+     AND missing_since IS NULL`;
+
+/**
  * How many assets this stage still owes work on, ignoring the retry gate and
  * the dependency gates — the Workers page's "pending".
  *

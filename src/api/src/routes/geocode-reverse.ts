@@ -22,41 +22,40 @@
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9, §20.
  */
-import { Elysia, t } from "elysia";
-import { geocodeCacheCollection } from "../db/client.ts";
-import {
-  quantizedKey,
-  DEFAULT_QUANTIZATION_DECIMALS,
-} from "../enrichment/coordinate-cache.ts";
+import { Elysia, t } from 'elysia';
+import { findCachedPlace } from '../db/sqlite/repos/geocode-cache.repo.ts';
+import { quantizedKey, DEFAULT_QUANTIZATION_DECIMALS } from '../enrichment/coordinate-cache.ts';
 
 export const geocodeReverseRoutes = new Elysia().get(
-  "/api/geocode/reverse",
+  '/api/geocode/reverse',
   async ({ query, set }) => {
     if (!query.lat || !query.lon) {
       set.status = 400;
-      return { error: "lat and lon are required and must be finite numbers" };
+      return { error: 'lat and lon are required and must be finite numbers' };
     }
     const lat = parseFloat(query.lat);
     const lon = parseFloat(query.lon);
-    const precision = query.precision !== undefined
-      ? (/^\d+$/.test(query.precision) ? parseInt(query.precision, 10) : NaN)
-      : DEFAULT_QUANTIZATION_DECIMALS;
+    const precision =
+      query.precision !== undefined
+        ? /^\d+$/.test(query.precision)
+          ? parseInt(query.precision, 10)
+          : NaN
+        : DEFAULT_QUANTIZATION_DECIMALS;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       set.status = 400;
-      return { error: "lat and lon are required and must be finite numbers" };
+      return { error: 'lat and lon are required and must be finite numbers' };
     }
     if (!Number.isFinite(precision) || precision < 0 || precision > 8) {
       set.status = 400;
-      return { error: "precision must be an integer between 0 and 8" };
+      return { error: 'precision must be an integer between 0 and 8' };
     }
 
-    const coll = await geocodeCacheCollection();
-    const row = await coll.findOne({ _id: quantizedKey(lat, lon, precision) });
-    if (!row) {
+    const place = await findCachedPlace(quantizedKey(lat, lon, precision));
+    if (!place) {
       set.status = 404;
-      return { error: "not in cache" };
+      return { error: 'not in cache' };
     }
-    return { place: row.place };
+    return { place };
   },
   {
     query: t.Object({

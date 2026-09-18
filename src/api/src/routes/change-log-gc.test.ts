@@ -1,50 +1,59 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+/**
+ * Route-integration test: /api/change-log-gc (#3741) and the stale-cursor 409
+ * a retention sweep leaves behind.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787). The journal's cursor is allocated by the insert
+ * itself — `asset_changes.cursor` is an `INTEGER PRIMARY KEY`, so the row and
+ * its cursor land in one statement — which is why these tests write rows with
+ * `recordAssetChange` and then age them, rather than allocating a cursor and
+ * inserting a document around it the way the MongoDB version had to.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId, type Db } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { changeLogGcRoutes } from './change-log-gc.ts';
 import { changesRoutes } from './changes.ts';
-import { closeDb, getDb, isDbConnected } from '../db/client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
-import { allocateCursor, recordAssetChange } from '../db/changes.repo.ts';
+import { recordAssetChange } from '../db/sqlite/repos/changes.repo.ts';
 import { runChangeLogGcOnce } from '../workers/change-log-gc.ts';
 import { saveChangeLogGcConfig } from '../workers/change-log-gc-config.repo.ts';
 
-withTestDb(`maple_test_change_log_gc_routes_${process.pid}`);
-
 const DAY_MS = 86_400_000;
 
-let db: Db | null = null;
-let app: Pick<Elysia, 'handle'> | null = null;
-let mongoReachable = false;
-
-beforeAll(async () => {
-  await closeDb();
-});
+let live: LiveTestDatabase;
+let app: Pick<Elysia, 'handle'>;
 
 beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  if (!db) return;
-  await db.collection('asset_changes').deleteMany({});
-  await db.collection('server_state').deleteMany({});
-  await db.collection('app_settings').deleteMany({});
+  live = await createLiveTestDatabase();
   app = new Elysia().use(fakeAuth()).use(changeLogGcRoutes).use(changesRoutes);
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
+afterEach(() => {
+  live.close();
 });
+
+/** Write one journal row and return its cursor. */
+async function writeChange(absPath: string): Promise<number> {
+  return await recordAssetChange(undefined, {
+    kind: 'update',
+    asset_id: new ObjectId(),
+    folder_id: null,
+    abs_path: absPath,
+  });
+}
+
+/** Backdate a row so a retention sweep considers it expired. */
+function ageChange(cursor: number, at: Date): void {
+  live.db.run(`UPDATE asset_changes SET at = ? WHERE cursor = ?`, [at.toISOString(), cursor]);
+}
 
 describe('/api/change-log-gc', () => {
   it('reports the defaults before anything has been configured', async () => {
-    if (!mongoReachable || !app) return;
     const res = await app.handle(new Request('http://localhost/api/change-log-gc/status'));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -54,8 +63,14 @@ describe('/api/change-log-gc', () => {
     expect(body.pruned_through).toBe(0);
   });
 
+  it('counts the rows actually in the journal', async () => {
+    await writeChange('/lib/a.dng');
+    await writeChange('/lib/b.dng');
+    const res = await app.handle(new Request('http://localhost/api/change-log-gc/status'));
+    expect((await res.json()).rows).toBe(2);
+  });
+
   it('persists a retention-window edit and reads it straight back', async () => {
-    if (!mongoReachable || !app) return;
     const put = await app.handle(
       new Request('http://localhost/api/change-log-gc/config', {
         method: 'PUT',
@@ -73,7 +88,6 @@ describe('/api/change-log-gc', () => {
   });
 
   it('rejects a window outside the accepted range', async () => {
-    if (!mongoReachable || !app) return;
     const res = await app.handle(
       new Request('http://localhost/api/change-log-gc/config', {
         method: 'PUT',
@@ -87,31 +101,16 @@ describe('/api/change-log-gc', () => {
 
 describe('GET /api/changes after a sweep', () => {
   it('answers 409 to a cursor the sweep pruned past, and serves a fresh one', async () => {
-    if (!mongoReachable || !db || !app) return;
     await saveChangeLogGcConfig({ retention_days: 30 });
 
     const agedTime = new Date(Date.now() - 90 * DAY_MS);
     const stale: number[] = [];
     for (let i = 0; i < 3; i++) {
-      const cursor = await allocateCursor();
+      const cursor = await writeChange(`/lib/old-${i}.dng`);
+      ageChange(cursor, agedTime);
       stale.push(cursor);
-      await db.collection('asset_changes').insertOne({
-        _id: new ObjectId(),
-        cursor,
-        asset_id: new ObjectId(),
-        folder_id: null,
-        kind: 'update',
-        abs_path: `/lib/old-${i}.dng`,
-        relative_path: null,
-        at: agedTime,
-      } as never);
     }
-    const fresh = await recordAssetChange(undefined, {
-      kind: 'update',
-      asset_id: new ObjectId(),
-      folder_id: null,
-      abs_path: '/lib/new.dng',
-    });
+    const fresh = await writeChange('/lib/new.dng');
 
     const summary = await runChangeLogGcOnce({ pauseMs: 0 });
     expect(summary.deleted).toBe(3);
@@ -134,13 +133,7 @@ describe('GET /api/changes after a sweep', () => {
   });
 
   it('serves every cursor normally while nothing has been pruned', async () => {
-    if (!mongoReachable || !app) return;
-    const cursor = await recordAssetChange(undefined, {
-      kind: 'update',
-      asset_id: new ObjectId(),
-      folder_id: null,
-      abs_path: '/lib/a.dng',
-    });
+    const cursor = await writeChange('/lib/a.dng');
     const res = await app.handle(new Request('http://localhost/api/changes?since=0'));
     expect(res.status).toBe(200);
     expect((await res.json()).changes.map((c: { cursor: number }) => c.cursor)).toEqual([cursor]);

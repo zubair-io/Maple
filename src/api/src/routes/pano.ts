@@ -37,7 +37,10 @@ import {
 } from '../pano/pano-config.repo.ts';
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 import type { JobWithId } from '../db/schema.ts';
-import { assetsCollection } from '../db/client.ts';
+import {
+  findAssetLocationsByFilenames,
+  type AssetLocationsRow,
+} from '../db/sqlite/repos/assets.by-filename.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 
@@ -88,7 +91,7 @@ async function probeStrategySupported(cliPath: string): Promise<boolean> {
 
 // Per selected asset the client sends its best single reference: `assetPaths`
 // (absolute server-side filesystem paths, always fresh) when it has one, else
-// `assetIds` (Mongo ObjectId hex strings) for assets it can only name by id.
+// `assetIds` (24-character asset ids) for assets it can only name by id.
 // The two arrays are disjoint at the asset level — the client never sends both
 // a path and an id for the same asset, so a stale cached id can never shadow a
 // fresh path. The route resolves paths → ids and unions them with the supplied
@@ -143,7 +146,7 @@ function projectJob(doc: JobWithId): JobView {
 // ── path → asset-id resolution (server-authoritative) ────────────────────────
 
 /**
- * Resolve a list of absolute filesystem paths to MongoDB asset ObjectId hexes.
+ * Resolve a list of absolute filesystem paths to asset ids.
  *
  * Security: every path is validated against the registered library roots
  * (longest-prefix match from `loadLibraryRoots`). Paths outside every root
@@ -161,7 +164,7 @@ function projectJob(doc: JobWithId): JobView {
  *       deferred to the normal worker pipeline.
  *
  * Returns `{ resolvedIds, indexedCount }` where:
- *   `resolvedIds` — MongoDB ObjectId hex, one per input path, same order.
+ *   `resolvedIds` — 24-character asset ids, one per input path, same order.
  *   `indexedCount` — number of assets that were indexed on-demand.
  *
  * Throws a structured error when a path escapes the library roots.
@@ -199,8 +202,6 @@ async function resolveAssetPaths(
   const resolvedIds: string[] = [];
   let indexedCount = 0;
 
-  const coll = await assetsCollection();
-
   // ── 1. Normalize all paths ─────────────────────────────────────────────
   const normalized = await Promise.all(
     paths.map(async (rawPath) => {
@@ -231,18 +232,14 @@ async function resolveAssetPaths(
 
   // ── 2. Bulk-fetch candidate docs by filename ───────────────────────────
   const allFilenames = [...new Set(normalized.map((p) => p.filename))];
-  const candidateDocs = await coll
-    .find({ 'fileinfo.filename': { $in: allFilenames } }, { projection: { _id: 1, fileinfo: 1 } })
-    .toArray();
+  const candidateDocs = await findAssetLocationsByFilenames(allFilenames);
 
   // Index candidateDocs by filename so findInDocs only iterates the
   // subset matching the requested filename — O(1) lookup instead of
   // O(paths × candidateDocs) when many unique filenames are present.
-  type CollDoc = (typeof candidateDocs)[number];
-  const candidatesByFilename = new Map<string, CollDoc[]>();
+  const candidatesByFilename = new Map<string, AssetLocationsRow[]>();
   for (const doc of candidateDocs) {
-    const entries = (doc.fileinfo ?? []) as Array<{ filename: string }>;
-    for (const entry of entries) {
+    for (const entry of doc.fileinfo) {
       const fn = entry.filename;
       if (!candidatesByFilename.has(fn)) candidatesByFilename.set(fn, []);
       candidatesByFilename.get(fn)!.push(doc);
@@ -251,16 +248,13 @@ async function resolveAssetPaths(
 
   // Helper to match a normalized path against a pre-filtered subset of docs
   // (keyed by filename) or a fresh flat list (used after on-demand indexing).
-  const findInDocs = (absPath: string, filename: string, docs: CollDoc[]): string | null => {
+  const findInDocs = (
+    absPath: string,
+    filename: string,
+    docs: AssetLocationsRow[],
+  ): string | null => {
     for (const doc of docs) {
-      const entries = (doc.fileinfo ?? []) as Array<{
-        path: string;
-        filename: string;
-        library_id: { toHexString(): string };
-        deleted_at?: string | null;
-        missing_since?: string | null;
-      }>;
-      for (const entry of entries) {
+      for (const entry of doc.fileinfo) {
         if (entry.filename !== filename) continue;
         if (entry.deleted_at || entry.missing_since) continue;
         const libId = entry.library_id.toHexString();
@@ -294,10 +288,8 @@ async function resolveAssetPaths(
     await handleEvent({ kind: 'created', absPath: p.absPath }, p.owningFolderId, p.owningRoot);
     indexedCount++;
 
-    // Re-query after index to get the newly created _id.
-    const freshDocs = await coll
-      .find({ 'fileinfo.filename': p.filename }, { projection: { _id: 1, fileinfo: 1 } })
-      .toArray();
+    // Re-query after index to get the newly created id.
+    const freshDocs = await findAssetLocationsByFilenames([p.filename]);
     const afterId = findInDocs(p.absPath, p.filename, freshDocs);
 
     if (!afterId) {
@@ -368,7 +360,7 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
       //
       //    The client sends, per selected asset, the best reference it has:
       //      (a) `assetPaths` — absolute server-side paths (always fresh).
-      //      (b) `assetIds`   — MongoDB ObjectId hexes, ONLY for assets the
+      //      (b) `assetIds`   — 24-character asset ids, ONLY for assets the
       //                         client cannot reference by path (e.g. cloud-
       //                         hosted). The client never sends an id for an
       //                         asset it also sends a path for, so a stale id
@@ -415,8 +407,8 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
       }
 
       // Dedup while preserving order: a path and an id can resolve to the same
-      // deduplicated asset document (two files with identical content share one
-      // Mongo _id), and the stitcher must not receive the same input twice.
+      // deduplicated asset (two files with identical content share one asset
+      // id), and the stitcher must not receive the same input twice.
       const uniqueIds = [...new Set(resolvedIds)];
 
       // Need ≥ 2 distinct inputs for a stitch.

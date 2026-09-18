@@ -19,13 +19,15 @@ import {
   saveChangeLogGcConfig,
   type ChangeLogGcConfig,
 } from '../workers/change-log-gc-config.repo.ts';
-import { assetChangesCollection } from '../db/client.ts';
+import { countChanges } from '../db/sqlite/repos/changes.retention.ts';
 
-/** Collection metadata, not a scan — `countDocuments` on a journal this size
- * is exactly the query the ticket exists to make unnecessary. */
+/** How many rows the journal holds — the same count the sweep itself reports,
+ * so the panel's "rows" and its last pass's "remaining" cannot disagree. Soft-
+ * failed to 0, because a status panel should not 500 over a number that is
+ * only informational. */
 async function estimatedRows(): Promise<number> {
   try {
-    return await (await assetChangesCollection()).estimatedDocumentCount();
+    return await countChanges();
   } catch {
     return 0;
   }

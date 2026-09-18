@@ -8,7 +8,21 @@
 
 import { Elysia, t } from 'elysia';
 import { ObjectId, type WithId } from 'mongodb';
-import { usersCollection, credentialsCollection, invitesCollection } from '../db/client.ts';
+import {
+  anyUserExists,
+  deleteUser,
+  findCredentialByCredentialId,
+  findUserByEmail,
+  findUserById,
+  insertCredential,
+  insertUser,
+  touchCredential,
+  touchUserLastSeen,
+} from '../db/sqlite/repos/auth.users.repo.ts';
+// The peek below is the one invite operation `auth/invites.ts` does not
+// re-export, because it has no Mongo predecessor: reading an invite without
+// spending it only became a separate call when the inline query went away.
+import { findInviteByCode } from '../db/sqlite/repos/auth.invites.repo.ts';
 import {
   buildRegistrationOptions,
   consumeChallenge,
@@ -39,24 +53,18 @@ function jwtSecret(): string {
 /** Find-or-create the dev-login user (owner role) and stamp last_seen_at.
  * Null only on the vanishingly-unlikely re-read miss after insert. */
 async function upsertDevUser(email: string): Promise<WithId<UserDoc> | null> {
-  const u = await usersCollection();
-  const existing = await u.findOne({ email });
+  const existing = await findUserByEmail(email);
   if (existing) {
-    await u.updateOne({ _id: existing._id }, { $set: { last_seen_at: new Date().toISOString() } });
+    await touchUserLastSeen(existing._id);
     return existing;
   }
-  const ins = await u.insertOne({
-    email,
-    role: 'owner',
-    created_at: new Date().toISOString(),
-    last_seen_at: new Date().toISOString(),
-  });
-  return u.findOne({ _id: ins.insertedId });
+  const now = new Date().toISOString();
+  const id = await insertUser({ email, role: 'owner', created_at: now, last_seen_at: now });
+  return await findUserById(id);
 }
 
 async function isClaimed(): Promise<boolean> {
-  const u = await usersCollection();
-  return (await u.countDocuments({}, { limit: 1 })) > 0;
+  return await anyUserExists();
 }
 
 function devAuthEnabled(): boolean {
@@ -135,7 +143,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           return { error: 'invite required' };
         }
         // Peek at invite without consuming (consumed on verify).
-        const inv = await (await invitesCollection()).findOne({ code: body.invite_code });
+        const inv = await findInviteByCode(body.invite_code);
         if (!inv || inv.consumed_at || inv.expires_at.getTime() < Date.now()) {
           set.status = 410;
           return { error: 'invite invalid' };
@@ -195,31 +203,24 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       // All-or-nothing from here (#865): if anything fails, roll back the user
       // we inserted and (if we made it) the ownership claim, so we never strand
       // a credential-less owner or a "claimed" server with no owner account.
-      const u = await usersCollection();
-      const c = await credentialsCollection();
       let userId: ObjectId | null = null;
       try {
         if (!wonOwnership) {
           await redeemInvite(challengeRow.invite_code!, email);
         }
-        const userIns = await u.insertOne({
-          email,
-          role,
-          created_at: new Date().toISOString(),
-          last_seen_at: new Date().toISOString(),
-        });
-        userId = userIns.insertedId;
+        const now = new Date().toISOString();
+        userId = await insertUser({ email, role, created_at: now, last_seen_at: now });
 
         const reg = ceremony.registrationInfo;
-        await c.insertOne({
+        await insertCredential({
           user_id: userId,
           credential_id: reg.credential.id,
           public_key: Buffer.from(reg.credential.publicKey),
           counter: reg.credential.counter,
           transports: (body.credential.response?.transports ?? []) as string[],
           device_label: body.device_label,
-          created_at: new Date().toISOString(),
-          last_used_at: new Date().toISOString(),
+          created_at: now,
+          last_used_at: now,
         });
 
         const access_token = await signAccessToken(
@@ -240,7 +241,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           user: { id: userId.toHexString(), email, role, file_access: userFileAccess({ role }) },
         };
       } catch (e) {
-        if (userId) await u.deleteOne({ _id: userId });
+        if (userId) await deleteUser(userId);
         if (wonOwnership) await releaseOwnershipClaim();
         throw e;
       }
@@ -307,16 +308,12 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 400;
         return { error: 'unknown credential' };
       }
-      const [credsColl, usersColl] = await Promise.all([
-        credentialsCollection(),
-        usersCollection(),
-      ]);
-      const cred = await credsColl.findOne({ credential_id: credentialId });
+      const cred = await findCredentialByCredentialId(credentialId);
       if (!cred) {
         set.status = 400;
         return { error: 'unknown credential' };
       }
-      const user = await usersColl.findOne({ _id: cred.user_id });
+      const user = await findUserById(cred.user_id);
       if (!user) {
         set.status = 404;
         return { error: 'no such user' };
@@ -339,16 +336,8 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       // on the `expires_at` index, but better to never write it).
       const nowIso = new Date().toISOString();
       const updates = Promise.all([
-        credsColl.updateOne(
-          { _id: cred._id },
-          {
-            $set: {
-              counter: verification.authenticationInfo.newCounter,
-              last_used_at: nowIso,
-            },
-          },
-        ),
-        usersColl.updateOne({ _id: user._id }, { $set: { last_seen_at: nowIso } }),
+        touchCredential(cred._id, verification.authenticationInfo.newCounter, nowIso),
+        touchUserLastSeen(user._id, nowIso),
       ]);
       const access_token = await signAccessToken(
         {
@@ -419,7 +408,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 503;
         return { error: 'refresh temporarily unavailable' };
       }
-      const user = await (await usersCollection()).findOne({ _id: fresh.userId });
+      const user = await findUserById(fresh.userId);
       if (!user) {
         set.status = 401;
         return { error: 'user gone' };

@@ -35,7 +35,7 @@
  * cannot be written in the first place, so the race is prevented rather than
  * repaired. See `db/sqlite/repos/assets.refile.ts`.
  */
-import type { Collection, WithId } from 'mongodb';
+import type { WithId } from 'mongodb';
 import * as path from 'node:path';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
@@ -43,8 +43,7 @@ import { filesIdentical } from '../backup/fs-util.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import * as fs from '../fs/mirrored.ts';
 import { relocateAsset } from './relocate-asset.ts';
-import { relocateCacheStageResetSet, liveFileinfoMatchFilter } from '../db/relocate-cache-reset.ts';
-import { MEILI_REARM_SET } from '../people/people-search-reindex.ts';
+import { repointAssetLocation } from '../db/sqlite/repos/assets.relocate.repo.ts';
 import { finalize } from '../workers/migration/restructure-fs.ts';
 
 const log = childLogger('library/relocate-geo');
@@ -73,7 +72,6 @@ async function pathExists(p: string): Promise<boolean> {
  * branch only runs when the source had no rendered companion to begin
  * with). */
 async function dedupeAt(
-  c: Collection<AssetDoc>,
   doc: WithId<AssetDoc>,
   oldDirAbs: string,
   libRoot: string,
@@ -81,15 +79,17 @@ async function dedupeAt(
   primary: FileInfo,
   sourceAbsPath: string,
 ): Promise<GeoMoveOutcome> {
-  const set: Record<string, unknown> = {
-    'fileinfo.$.path': newDir,
-    'fileinfo.$.filename': primary.filename,
-    'fileinfo.$.missing_since': null,
-    ...MEILI_REARM_SET,
-    ...relocateCacheStageResetSet(),
-  };
-  const res = await c.updateOne(liveFileinfoMatchFilter(doc._id, primary), { $set: set } as never);
-  if (res.matchedCount === 0) {
+  // One call where there used to be a hand-rolled `$set`: the repoint, the
+  // cleared missing tag, the meili re-arm and the two path-keyed cache re-arms
+  // are all `repointAssetLocation`'s job, and it applies them in one
+  // transaction rather than one document update. Its `from` address is the
+  // concurrency guard the `matchedCount === 0` check below still reads.
+  const repointed = await repointAssetLocation({
+    id: doc._id,
+    from: { libraryId: primary.library_id, path: primary.path, filename: primary.filename },
+    to: { libraryId: primary.library_id, path: newDir, filename: primary.filename },
+  });
+  if (!repointed) {
     log.warn(
       { _id: String(doc._id) },
       'relocateGeoAsset: dedupe repoint found no matching live entry — skipped',
@@ -130,7 +130,6 @@ async function dedupeAt(
  * valid relocation candidate, matching the route's existing "clears
  * missing_since" contract). */
 export async function relocateGeoAsset(
-  c: Collection<AssetDoc>,
   doc: WithId<AssetDoc>,
   libRoot: string,
   newDir: string,
@@ -155,7 +154,7 @@ export async function relocateGeoAsset(
     (await pathExists(destAbsPath)) &&
     (await filesIdentical(sourceAbsPath, destAbsPath))
   ) {
-    return dedupeAt(c, doc, oldDirAbs, libRoot, newDir, primary, sourceAbsPath);
+    return dedupeAt(doc, oldDirAbs, libRoot, newDir, primary, sourceAbsPath);
   }
 
   const outcome = await relocateAsset({

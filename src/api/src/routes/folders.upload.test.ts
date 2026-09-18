@@ -8,7 +8,8 @@
  * `feat(api): emit change event on folder upload` and Copilot asked
  * for explicit coverage.
  *
- * Requires a running MongoDB (skips gracefully if unreachable).
+ * The handler reaches `sqliteDb()` with no override, so each test installs its
+ * own database as the process-wide handle for the block.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -16,79 +17,71 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { closeDb } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { foldersRoutes } from './folders.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_folders_upload_test_${process.pid}`;
+/** One row of the change feed, as the table stores it. */
+interface ChangeRow {
+  kind: string;
+  asset_id: string | null;
+  folder_id: string | null;
+  abs_path: string | null;
+  relative_path: string | null;
+}
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
+/** One asset location, as the table stores it. */
+interface LocationRow {
+  path: string;
+  filename: string;
+  library_id: string;
 }
 
 describe('POST /api/folders/:id/upload → asset_changes emit', () => {
-  let mongo: MongoClient | null = null;
-  let db: Db | null = null;
-  let folderId: ObjectId | null = null;
-  let folderPath: string | null = null;
+  let live: LiveTestDatabase;
+  let folderId: string;
+  let folderPath: string;
 
   beforeEach(async () => {
-    mongo = await tryConnect();
-    if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    // Reset module-cached client so MAPLE_MONGO_DB takes effect.
-    await closeDb();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
+    live = await createLiveTestDatabase();
     folderPath = await mkdtemp(nodePath.join(tmpdir(), 'maple-upload-test-'));
-    folderId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: folderId,
-      path: folderPath,
-      label: 'upload-test',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
+    folderId = insertFolder(live.db, { path: folderPath, slug: 'upload-test' });
   });
 
   afterEach(async () => {
-    if (db) await db.dropDatabase().catch(() => {});
-    if (mongo) await mongo.close().catch(() => {});
-    if (folderPath) await rm(folderPath, { recursive: true, force: true }).catch(() => {});
-    await closeDb();
-    db = null;
-    mongo = null;
-    folderId = null;
-    folderPath = null;
+    live.close();
+    await rm(folderPath, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('inserts an asset_changes row with kind=create matching the uploaded asset', async () => {
-    if (!mongo || !db || !folderId) {
-      console.log('[folders.upload.test] MongoDB unreachable — skipping');
-      return;
-    }
+  /** Every change row, oldest first. */
+  function changes(): ChangeRow[] {
+    return live.db
+      .query(
+        `SELECT kind, asset_id, folder_id, abs_path, relative_path
+           FROM asset_changes ORDER BY cursor ASC`,
+      )
+      .all() as ChangeRow[];
+  }
 
+  /** One asset's locations, in array order. */
+  function locations(assetId: string): LocationRow[] {
+    return live.db
+      .query(
+        `SELECT path, filename, library_id FROM asset_locations
+          WHERE asset_id = ? ORDER BY ordinal ASC`,
+      )
+      .all(assetId) as LocationRow[];
+  }
+
+  it('inserts an asset_changes row with kind=create matching the uploaded asset', async () => {
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]); // TIFF magic; harmless body
     const target = 'uploaded.dng';
-    const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
+    const url = `http://localhost/api/folders/${folderId}/upload`;
     const res = await app.handle(
       new Request(url, {
         method: 'POST',
@@ -102,37 +95,36 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as { asset_id: string; abs_path: string };
     expect(body.asset_id).toMatch(/^[a-f0-9]{24}$/);
-    const expectedAbsPath = nodePath.join(folderPath!, target);
+    const expectedAbsPath = nodePath.join(folderPath, target);
     expect(body.abs_path).toBe(expectedAbsPath);
 
     // The change emit is awaited inside the route (best-effort, but
     // sequential) so by the time the route returns 201 the row should
     // be present. No polling needed.
-    const changes = await db.collection('asset_changes').find({}).toArray();
-    expect(changes.length).toBe(1);
-    const change = changes[0]!;
+    const rows = changes();
+    expect(rows.length).toBe(1);
+    const change = rows[0]!;
     expect(change.kind).toBe('create');
-    expect((change.asset_id as ObjectId).toHexString()).toBe(body.asset_id);
-    expect((change.folder_id as ObjectId).toHexString()).toBe(folderId.toHexString());
+    expect(change.asset_id).toBe(body.asset_id);
+    expect(change.folder_id).toBe(folderId);
     expect(change.abs_path).toBe(expectedAbsPath);
     // `relative_path` is computed by `recordAndPublishAssetChange`
     // from `folder.path + abs_path`. For a top-level upload it equals
     // the target path with no leading slash.
     expect(change.relative_path).toBe(target);
 
-    // PR 1 content-addressing invariant: every writer that inserts an
-    // asset row writes `fileinfo[0]` with library-relative path +
-    // filename + library_id. The upload route is a writer.
-    const asset = await db.collection('assets').findOne({ _id: new ObjectId(body.asset_id) });
-    expect(asset?.fileinfo).toHaveLength(1);
+    // PR 1 content-addressing invariant: every writer that inserts an asset
+    // row writes its canonical location with library-relative path + filename
+    // + library_id. The upload route is a writer.
+    const entries = locations(body.asset_id);
+    expect(entries).toHaveLength(1);
     // Target was "uploaded.dng" at the library root → path === "".
-    expect(asset!.fileinfo![0].path).toBe('');
-    expect(asset!.fileinfo![0].filename).toBe(target);
-    expect((asset!.fileinfo![0].library_id as ObjectId).toHexString()).toBe(folderId.toHexString());
+    expect(entries[0]!.path).toBe('');
+    expect(entries[0]!.filename).toBe(target);
+    expect(entries[0]!.library_id).toBe(folderId);
   });
 
   it('rejects X-Maple-Target-Path containing backslashes with 400', async () => {
-    if (!mongo || !db || !folderId) return;
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]);
     // Percent-encode the backslashes so the raw header bytes are still
@@ -140,7 +132,7 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
     // and the validator must reject. Without encoding, fetch/Bun may
     // mangle backslashes in the header itself.
     const target = encodeURIComponent('vacation\\2024\\file.dng');
-    const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
+    const url = `http://localhost/api/folders/${folderId}/upload`;
     const res = await app.handle(
       new Request(url, {
         method: 'POST',
@@ -157,11 +149,10 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
   });
 
   it('uploads to a subdirectory record fileinfo[0].path correctly', async () => {
-    if (!mongo || !db || !folderId) return;
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const fileBytes = new Uint8Array([0x49, 0x49, 0x2a, 0x00]);
     const target = 'vacation/2024/uploaded2.dng';
-    const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
+    const url = `http://localhost/api/folders/${folderId}/upload`;
     const res = await app.handle(
       new Request(url, {
         method: 'POST',
@@ -175,10 +166,10 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as { asset_id: string };
 
-    const asset = await db.collection('assets').findOne({ _id: new ObjectId(body.asset_id) });
-    expect(asset?.fileinfo).toHaveLength(1);
-    expect(asset!.fileinfo![0].path).toBe('vacation/2024');
-    expect(asset!.fileinfo![0].filename).toBe('uploaded2.dng');
+    const entries = locations(body.asset_id);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.path).toBe('vacation/2024');
+    expect(entries[0]!.filename).toBe('uploaded2.dng');
   });
 
   // #2535 — a non-media upload (no AssetDoc) used to emit NO change-feed
@@ -187,14 +178,10 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
   // `create` row with `asset_id: null`, resolvable by the client via
   // `(folder_id, relative_path)` instead.
   it('emits an asset_changes row with asset_id=null for a non-media upload', async () => {
-    if (!mongo || !db || !folderId) {
-      console.log('[folders.upload.test] MongoDB unreachable — skipping');
-      return;
-    }
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const fileBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // not a real PDF, extension is what matters
     const target = 'invoice.pdf';
-    const url = `http://localhost/api/folders/${folderId.toHexString()}/upload`;
+    const url = `http://localhost/api/folders/${folderId}/upload`;
     const res = await app.handle(
       new Request(url, {
         method: 'POST',
@@ -208,19 +195,19 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as { abs_path: string; asset_id?: string };
     expect(body.asset_id).toBeUndefined();
-    const expectedAbsPath = nodePath.join(folderPath!, target);
+    const expectedAbsPath = nodePath.join(folderPath, target);
     expect(body.abs_path).toBe(expectedAbsPath);
 
-    // No AssetDoc for a non-media file.
-    const assetCount = await db.collection('assets').countDocuments({});
-    expect(assetCount).toBe(0);
+    // No catalog row for a non-media file.
+    const assetCount = live.db.query(`SELECT COUNT(*) AS n FROM assets`).get() as { n: number };
+    expect(assetCount.n).toBe(0);
 
-    const changes = await db.collection('asset_changes').find({}).toArray();
-    expect(changes.length).toBe(1);
-    const change = changes[0]!;
+    const rows = changes();
+    expect(rows.length).toBe(1);
+    const change = rows[0]!;
     expect(change.kind).toBe('create');
     expect(change.asset_id).toBeNull();
-    expect((change.folder_id as ObjectId).toHexString()).toBe(folderId.toHexString());
+    expect(change.folder_id).toBe(folderId);
     expect(change.abs_path).toBe(expectedAbsPath);
     expect(change.relative_path).toBe(target);
   });

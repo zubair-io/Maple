@@ -201,6 +201,36 @@ describe('getPerson', () => {
     expect(detail?.faces.map((face) => face.asset_id)).toEqual([live]);
   });
 
+  test('a page window landing on unresolvable faces still returns the resolvable ones (#2103)', async () => {
+    using handle = await createTestDatabase();
+    const db = handle.db;
+    const library = insertLibrary(db);
+    const ada = insertPerson(db, { name: 'Ada' });
+    const withFace = (capturedAt: string, present: boolean): void => {
+      const asset = insertAsset(db, { exif: JSON.stringify({ captured_at: capturedAt }) });
+      insertLocation(db, {
+        assetId: asset,
+        libraryId: library,
+        missingSince: present ? null : new Date().toISOString(),
+      });
+      insertFace(db, { assetId: asset, personId: ada });
+    };
+    // The three most recent faces are on files that have gone missing; the two
+    // older ones still resolve.
+    withFace('2026-07-19T10:00:00Z', false);
+    withFace('2026-07-19T09:00:00Z', false);
+    withFace('2026-07-19T08:00:00Z', false);
+    withFace('2026-05-01T10:00:00Z', true);
+    withFace('2026-05-01T09:00:00Z', true);
+
+    const detail = await getPerson(new ObjectId(ada), 0, 3, testDb(db));
+
+    // Filtering unresolvable faces *after* the limit — which is what the Mongo
+    // aggregation did before #2103 — makes this page come back empty while
+    // thousands of resolvable faces sit on later pages.
+    expect(detail?.faces).toHaveLength(2);
+  });
+
   test('answers null for an unknown person and for a merged one', async () => {
     using handle = await createTestDatabase();
     const db = handle.db;

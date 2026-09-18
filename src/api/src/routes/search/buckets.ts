@@ -1,11 +1,10 @@
 /**
  * `GET /api/search/buckets` — year/month histogram for the Timeline view.
  *
- * Two parallel aggregations instead of one $facet pipeline: each branch
- * can use its own optimal index, and Mongo schedules them independently.
- * The timed branch uses pre-computed numeric `exif.captured_year`/`month`
- * (set by the indexer + backfilled at startup) so `$group` is index-only —
- * no `$dateFromString` per doc.
+ * The two aggregations behind it live in `db/sqlite/repos/search.buckets.ts`:
+ * the dated rows group a partial index whose keys are the group keys, and the
+ * undated ones are a count over the live index. Splitting them is what lets
+ * each use its own index, and they run concurrently on separate readers.
  *
  * Responses are cached for 30 s keyed on the full filter set. Buckets
  * only change when assets are written; a tight TTL keeps repeat loads
@@ -13,17 +12,10 @@
  */
 
 import { Elysia } from 'elysia';
-import { SEARCH_COUNT_TIMEOUT_MS, SEARCH_TIMEOUT_BODY, isMaxTimeExpired } from './query-timeout.ts';
-import { assetsCollection } from '../../db/client.ts';
+import { buildSearchWhere, searchBuckets } from '../../db/sqlite/repos/search.repo.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
-import {
-  applyLiveFilter,
-  buildFilter,
-  peopleNames,
-  SearchQueryT,
-  type SearchQuery,
-} from './query.ts';
+import { peopleNames, SearchQueryT, type SearchQuery } from './query.ts';
 
 // ── Buckets response cache ────────────────────────────────────────────
 // Module-scoped because the cache lives for the process lifetime. Keys
@@ -44,13 +36,13 @@ const bucketsCache = new Map<string, CachedBuckets>();
 
 /** Fields whose value participates in the buckets cache key, in the
  * order they're serialised. Must include every `SearchQuery` field that
- * `buildFilter` (query.ts) consumes — anything left out lets two
- * requests that differ only in that field collide on the same cache
- * entry within the 30s TTL and serve each other's histogram.
- * `page`/`limit`/`sort` are deliberately excluded: `buildFilter` never
- * reads them, so they can't change the aggregation result. Referenced by
- * the completeness test in `buckets.test.ts`, which enumerates this list
- * against `SearchQuery`.
+ * `buildSearchWhere` consumes — anything left out lets two requests that
+ * differ only in that field collide on the same cache entry within the
+ * 30s TTL and serve each other's histogram.
+ * `page`/`limit`/`sort` are deliberately excluded: the filter builder
+ * never reads them, so they can't change the aggregation result.
+ * Referenced by the completeness test in `buckets.test.ts`, which
+ * enumerates this list against `SearchQuery`.
  */
 const BUCKETS_CACHE_KEY_FIELDS = [
   'pathPrefix',
@@ -90,16 +82,16 @@ const BUCKETS_CACHE_KEY_FIELDS = [
  * constructed. Exported so the completeness test in `buckets.test.ts`
  * can enumerate the field list against `SearchQuery`.
  */
-/** `buildFilter` only narrows on `places`/`people` — `photos`, `albums`,
+/** The scope chip only narrows on `places`/`people` — `photos`, `albums`,
  * `''`, and absent all produce the identical (unfiltered) aggregation, so
  * they must share one key. Keying the raw value would fragment the cache. */
 const canonicalScope = (v: SearchQuery['scope']): string | null =>
   v === 'places' || v === 'people' ? v : null;
 
-/** `buildFilter` treats anything other than `only`/`all` as the default
- * (exclude hidden). Folding unknown values to `null` also stops arbitrary
- * `hidden=...` strings minting unlimited fresh keys and churning the
- * 500-entry cache. */
+/** The filter builder treats anything other than `only`/`all` as the
+ * default (exclude hidden). Folding unknown values to `null` also stops
+ * arbitrary `hidden=...` strings minting unlimited fresh keys and churning
+ * the 500-entry cache. */
 const canonicalHidden = (v: SearchQuery['hidden']): string | null =>
   v === 'only' || v === 'all' ? v : null;
 
@@ -129,10 +121,10 @@ export const bucketsRoute = new Elysia().get(
     // Opt-in hidden-people exclusion (see `SearchQuery.excludeHiddenPeople`).
     // Folded into the cache key below, so buckets computed with and without
     // it never share an entry. Skips the lookup when not requested.
-    // Validate up front. `buildFilter` is pure and does no I/O, so running it
-    // before the cache lookup keeps an invalid `scope` returning 400 rather
-    // than being answered from a cache entry.
-    const validation = buildFilter(query as SearchQuery);
+    // Validate up front. `buildSearchWhere` is pure and does no I/O, so
+    // running it before the cache lookup keeps an invalid `scope` returning
+    // 400 rather than being answered from a cache entry.
+    const validation = buildSearchWhere(query as SearchQuery);
     if ('error' in validation) {
       set.status = 400;
       return { error: validation.error };
@@ -157,83 +149,13 @@ export const bucketsRoute = new Elysia().get(
     // these lines. Not duplication this changeset introduced.
     const dropIds = await personIdsToDrop((query as SearchQuery).excludeHiddenPeople);
     const peopleIds = await personIdsForNames(peopleNames((query as SearchQuery).people));
-    const filterOrError = buildFilter(query as SearchQuery, dropIds, peopleIds);
-    if ('error' in filterOrError) {
+    const whereOrError = buildSearchWhere(query as SearchQuery, dropIds, peopleIds);
+    if ('error' in whereOrError) {
       set.status = 400;
-      return { error: filterOrError.error };
+      return { error: whereOrError.error };
     }
 
-    const filter = filterOrError;
-    const coll = await assetsCollection();
-    const finalFilter = applyLiveFilter(filter);
-
-    // Two parallel aggregations instead of one $facet pipeline: each
-    // branch can use its own optimal index, and Mongo schedules them
-    // independently. The timed branch uses pre-computed numeric
-    // exif.captured_year/month (set by the indexer + backfilled at
-    // startup) so $group is index-only — no $dateFromString per doc.
-    const timedFilter = {
-      ...finalFilter,
-      'exif.captured_year': { $ne: null },
-    } as typeof finalFilter;
-    // Wrap the untimed predicate with `$and` instead of spreading: when
-    // `applyLiveFilter` returned a top-level `$or` (empty query case —
-    // the soft-delete clause is `{ $or: [{ deleted_at: null }, ...] }`),
-    // a naive spread + `$or` override would silently drop the live-row
-    // constraint and let soft-deleted untimed rows leak into the count.
-    // `$and` keeps both predicates restrictive.
-    const untimedFilter = {
-      $and: [
-        finalFilter,
-        {
-          $or: [{ 'exif.captured_at': null }, { 'exif.captured_at': { $exists: false } }],
-        },
-      ],
-    } as unknown as typeof finalFilter;
-
-    // Same 503-on-timeout contract as list + facets (#2988); the sentinel
-    // preserves the tuple type for the destructure.
-    const bucketRows = await Promise.all([
-      coll
-        .aggregate<{
-          _id: { year: number; month: number };
-          count: number;
-        }>(
-          [
-            { $match: timedFilter },
-            {
-              $group: {
-                _id: {
-                  year: '$exif.captured_year',
-                  month: '$exif.captured_month',
-                },
-                count: { $sum: 1 },
-              },
-            },
-            { $sort: { '_id.year': -1, '_id.month': -1 } },
-          ],
-          { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS },
-        )
-        .toArray(),
-      coll.countDocuments(untimedFilter, { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS }),
-    ] as const).catch((err: unknown) => {
-      if (isMaxTimeExpired(err)) return null;
-      throw err;
-    });
-    if (bucketRows === null) {
-      set.status = 503;
-      return SEARCH_TIMEOUT_BODY;
-    }
-    const [timed, untimed_count] = bucketRows;
-
-    const buckets = timed.map((t) => ({
-      year: t._id.year,
-      month: t._id.month,
-      count: t.count,
-    }));
-    const total = buckets.reduce((acc, b) => acc + b.count, 0);
-
-    const result = { total, buckets, untimed_count };
+    const result = await searchBuckets(whereOrError);
     // Bound the cache so a parameterised attack can't grow it
     // unboundedly. 500 unique filter sets is generous for a single
     // server; eviction is FIFO via insertion order.

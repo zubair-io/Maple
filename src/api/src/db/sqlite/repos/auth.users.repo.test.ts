@@ -14,6 +14,7 @@ import {
   countCredentialsForUser,
   countOtherOwners,
   deleteCredential,
+  deleteUser,
   findCredentialByCredentialId,
   findUserByEmail,
   findUserById,
@@ -141,6 +142,38 @@ describe('users', () => {
     const id = await seedOwner(db);
     await touchUserLastSeen(id, '2026-09-18T11:00:00.000Z', db);
     expect((await findUserById(id, db))?.last_seen_at).toBe('2026-09-18T11:00:00.000Z');
+  });
+
+  test('deleteUser removes the account — the registration rollback path', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const id = await seedOwner(db);
+    expect((await deleteUser(id, db)).deletedCount).toBe(1);
+    expect(await findUserById(id, db)).toBeNull();
+    // A second rollback attempt is a no-op rather than an error, which is what
+    // lets the route's catch arm run unconditionally.
+    expect((await deleteUser(id, db)).deletedCount).toBe(0);
+  });
+
+  test('deleting a half-registered account takes its credential with it', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const id = await seedOwner(db);
+    await insertCredential(
+      {
+        user_id: id,
+        credential_id: 'cred-rollback',
+        public_key: Buffer.from([9]),
+        counter: 0,
+        transports: [],
+        device_label: 'Laptop',
+        created_at: NOW,
+        last_used_at: null,
+      },
+      db,
+    );
+    await deleteUser(id, db);
+    expect(await findCredentialByCredentialId('cred-rollback', db)).toBeNull();
   });
 });
 

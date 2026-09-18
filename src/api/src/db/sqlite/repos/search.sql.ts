@@ -195,6 +195,31 @@ export function pageSql(
 }
 
 /**
+ * The assets behind one page of Meilisearch hits.
+ *
+ * Meilisearch answers with `maple_id`s ranked by relevance, and the row behind
+ * each one still has to come from here — the sidecar holds an index, not the
+ * source of truth. So this is the page query with the ordering, the limit and
+ * the offset taken off it: Meilisearch already decided which assets and in what
+ * order, and re-imposing a capture-date sort would throw that away.
+ *
+ * `maple_id` rides along in the projection because the caller has to put the
+ * rows back into the sidecar's order, and the id is the only thing the two
+ * sides share.
+ *
+ * The `where` arriving here never carries a text match — {@link searchByMapleIds}
+ * strips it, for the reason that function records — so the `FROM` is the plain
+ * `assets` one and the structured filters apply exactly as they do on the
+ * database path.
+ */
+export function mapleIdPageSql(where: SearchWhere, mapleIds: readonly string[]): BoundStatement {
+  return statement(`${PAGE_COLUMNS},\n           assets.maple_id`, where, '', {
+    sql: `assets.maple_id IN (${placeholders(mapleIds.length)})`,
+    params: [...mapleIds],
+  });
+}
+
+/**
  * The seek predicate that resumes iteration after a cursor, in the same order
  * `pageSql` imposes.
  *

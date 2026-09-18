@@ -92,6 +92,36 @@ export async function redeemInvite(
 }
 
 /**
+ * One invite by its code, without spending it.
+ *
+ * `POST /api/auth/register/options` needs this: it has to know whether the code
+ * a stranger typed is usable *before* the WebAuthn ceremony starts, but it must
+ * not consume it — the registration is only allowed to spend the invite once
+ * the authenticator has actually produced a credential, on `/register/verify`.
+ * It also reports a narrower set of reasons than {@link redeemInvite} does (one
+ * "invite invalid" covering unknown/consumed/expired, and a separate
+ * "invite/email mismatch"), so it does its own checks on the row rather than
+ * borrowing the assertion.
+ */
+export async function findInviteByCode(
+  code: string,
+  dbOverride?: SqliteDb,
+): Promise<Pick<InviteDoc, 'code' | 'email' | 'expires_at' | 'consumed_at'> | null> {
+  const rows = await sqliteDb(dbOverride).read<InviteRow>(
+    `SELECT code, email, expires_at, consumed_at FROM invites WHERE code = ?`,
+    [code],
+  );
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    code: row.code,
+    email: row.email,
+    expires_at: toDate(row.expires_at),
+    consumed_at: row.consumed_at,
+  };
+}
+
+/**
  * Every invite, for the owner's pending-invites list.
  *
  * Ordered by id, which is the order they were created in — an ObjectId's
