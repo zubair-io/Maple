@@ -29,6 +29,18 @@
     "src/__fixtures__/otel-crash-child.ts"
   ],
   "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"],
+
+  // The change feed is the one collection whose SQLite port and MongoDB
+  // original export the same ten names, because the route imports them by name
+  // and the cutover (#3752) swaps which module answers rather than editing the
+  // call sites. fallow reads that as a duplicated export surface, which is
+  // exactly what it is and exactly what the beside-then-switch shape requires
+  // — the two modules are one API over two engines. The entry goes when the
+  // MongoDB module does (#3785).
+  "ignoreExports": [
+    { "file": "src/db/changes.repo.ts", "exports": ["*"] },
+    { "file": "src/db/sqlite/repos/changes.repo.ts", "exports": ["*"] }
+  ],
   // The SQLite pool (#3742) is the first slice of the MongoDB-to-SQLite epic
   // (#3753), which sequences the pool ahead of the schema, the importer and
   // the repository ports. Until a port calls it, its only consumers are its
