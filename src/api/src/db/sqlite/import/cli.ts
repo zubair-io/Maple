@@ -14,7 +14,11 @@
  */
 
 import type { ImportReport, VerifyReport } from './types.ts';
-import { DEFAULT_CHANGES_WINDOW, SKIPPED_COLLECTIONS } from './plan/index.ts';
+import {
+  DEFAULT_CHANGES_WINDOW,
+  MANAGED_CERTIFICATES_WARNING,
+  SKIPPED_COLLECTIONS,
+} from './plan/index.ts';
 
 /** How many entries of a failure list to print before summarising the rest. */
 const LIST_LIMIT = 20;
@@ -169,6 +173,23 @@ function renderNotes(report: ImportReport): string[] {
     );
   }
 
+  for (const override of report.windowOverrides) {
+    out.push(
+      '',
+      `--changes-window ${override.requested} was ignored: this run resumed one that already ` +
+        `fixed ${override.source} at ${override.inEffect}, and a resumed run has to read the ` +
+        'same set. Use --restart to import a different window.',
+    );
+  }
+
+  if (!report.derivedRestored) {
+    out.push(
+      '',
+      'INCOMPLETE — the derived triggers and the search index are still switched off, so this ' +
+        'file is not one to point a server at. Run the same command again to finish it.',
+    );
+  }
+
   const sections: Array<[string, Record<string, number>]> = [
     ['Dangling references nulled', report.danglingNulled],
     ['Rows dropped for a missing required reference', report.danglingDropped],
@@ -211,8 +232,10 @@ export function renderImportReport(report: ImportReport): string[] {
     '',
     'Not imported, deliberately:',
     ...Object.entries(SKIPPED_COLLECTIONS).map(
-      ([collection, reason]) => `  ${collection.padEnd(26)}${reason}`,
+      ([collection, reason]) => `  ${collection.padEnd(30)}${reason}`,
     ),
+    '',
+    `  ${MANAGED_CERTIFICATES_WARNING}`,
   ];
 }
 
@@ -254,6 +277,9 @@ export function renderVerifyReport(report: VerifyReport): string[] {
     violations.length === 0
       ? '  foreign keys: clean'
       : `  ! foreign keys: ${violations.map(([table, n]) => `${table}=${n}`).join(', ')}`,
+    ...(report.derivedRestored
+      ? []
+      : ['  ! derived triggers and search index are still switched off']),
     '',
     report.ok ? 'VERIFIED — the import is complete and correct.' : 'FAILED verification.',
   ];

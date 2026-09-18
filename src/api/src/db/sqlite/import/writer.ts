@@ -19,6 +19,23 @@
  * A document is the unit because its rows are: an asset that reaches the faces
  * table and then fails on a stage row must leave nothing behind, or the counts
  * stop meaning anything.
+ *
+ * ## Only a verdict on the document may become a reject
+ *
+ * The per-document replay is right for "SQLite refuses THIS row" and wrong for
+ * everything else. A full disk, a lock this run waited out, a table that is not
+ * there — each of those fails every document in the batch identically, and
+ * recording all five hundred as rejects would hide the real cause behind five
+ * hundred copies of the same line AND move the checkpoint past documents that
+ * were never actually examined. Nothing re-reads the reject list, so those
+ * documents would be gone for good on the next resumed run.
+ *
+ * So the failure is classified before it is recorded: constraint, datatype and
+ * size refusals are the database's verdict on one document and become rejects;
+ * anything else is the environment and is re-thrown, which stops the run with
+ * the real error and leaves the checkpoint exactly where it was. Re-running
+ * then picks those documents up again, because the tool's promise is that
+ * running it twice is safe.
  */
 
 import type { Database, Statement } from 'bun:sqlite';
@@ -98,8 +115,11 @@ export function writeBatch(
     beforeCommit([]);
     db.exec('COMMIT');
     return [];
-  } catch {
+  } catch (err) {
     rollbackQuietly(db);
+    // Not a verdict on one document, so there is nothing to isolate: stop with
+    // the real error rather than blaming five hundred documents for it.
+    if (!isPerDocumentFault(err)) throw err;
   }
 
   const failures: WriteFailure[] = [];
@@ -113,6 +133,7 @@ export function writeBatch(
       } catch (err) {
         db.exec('ROLLBACK TO doc');
         db.exec('RELEASE doc');
+        if (!isPerDocumentFault(err)) throw err;
         failures.push({ sourceId: document.sourceId, reason: errorMessage(err) });
       }
     }
@@ -123,6 +144,26 @@ export function writeBatch(
     throw err;
   }
   return failures;
+}
+
+/**
+ * SQLite result codes that are a statement about the row, not about the
+ * machine.
+ *
+ * `SQLITE_CONSTRAINT_*` covers the refusals a stale document earns — a CHECK
+ * an enum value fails, a UNIQUE the case-insensitive index sees as a
+ * collision, a NOT NULL a field never had. `SQLITE_MISMATCH` and
+ * `SQLITE_TOOBIG` are the other two a single value can cause. Everything else,
+ * `SQLITE_BUSY`, `SQLITE_FULL`, `SQLITE_IOERR`, `SQLITE_READONLY`,
+ * `SQLITE_CORRUPT` and the bare `SQLITE_ERROR` a missing table produces, says
+ * nothing about the document and would say the same about the next one.
+ */
+function isPerDocumentFault(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code !== 'string') return false;
+  return (
+    code.startsWith('SQLITE_CONSTRAINT') || code === 'SQLITE_MISMATCH' || code === 'SQLITE_TOOBIG'
+  );
 }
 
 function rollbackQuietly(db: Database): void {

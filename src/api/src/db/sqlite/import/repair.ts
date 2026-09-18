@@ -29,6 +29,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
+import { readMeta, writeMeta } from './bookkeeping.ts';
 
 /** One foreign-key column and the table it points at. */
 export interface ForeignKey {
@@ -95,26 +96,80 @@ function danglingPredicate(fk: ForeignKey): string {
           )`;
 }
 
-/** Nulls or drops every reference that does not resolve. */
+/** What every repair pass this database has run did, in total. */
+function readRepairTotals(db: Database): RepairResult {
+  const stored = readMeta(db, REPAIR_META_KEY);
+  if (stored === null) return { nulled: {}, dropped: {} };
+  const parsed = JSON.parse(stored) as Partial<RepairResult>;
+  return { nulled: parsed.nulled ?? {}, dropped: parsed.dropped ?? {} };
+}
+
+/**
+ * Nulls or drops every reference that does not resolve, and adds what it did
+ * to the running total.
+ *
+ * ## Why the tally accumulates instead of being rewritten
+ *
+ * Verification asks the source how many rows a table should hold and subtracts
+ * the rows this pass dropped, because a location under a library root the
+ * operator unregistered is a row the source counts and the destination
+ * correctly does not. That subtraction has to survive a second run of the same
+ * command — which the documentation actively tells an operator to do after an
+ * interruption. The first run drops K rows and records K; the second finds
+ * nothing dangling, because the first already dealt with it. Overwriting the
+ * record with that second, empty answer made verification expect K rows that
+ * were never supposed to be there, so re-running a finished, correct import
+ * reported FAILED. Adding to the total instead leaves it at K.
+ *
+ * ## Why each foreign key commits its own tally
+ *
+ * The count, the statement and the record of it go in one transaction, for the
+ * same reason a batch commits with its checkpoint: a pass interrupted halfway
+ * through the list would otherwise leave rows deleted and nothing saying so,
+ * and the re-run cannot recount them — they are already gone.
+ */
 export function repairForeignKeys(db: Database): RepairResult {
-  const nulled: Record<string, number> = {};
-  const dropped: Record<string, number> = {};
+  const nulled = NULLABLE_FOREIGN_KEYS.reduce(
+    (totals, fk) =>
+      applyRepair(db, fk, totals, 'nulled', (predicate) =>
+        db.run(`UPDATE ${fk.table} SET ${fk.column} = NULL WHERE ${predicate}`),
+      ),
+    readRepairTotals(db),
+  );
+  return REQUIRED_FOREIGN_KEYS.reduce(
+    (totals, fk) =>
+      applyRepair(db, fk, totals, 'dropped', (predicate) =>
+        db.run(`DELETE FROM ${fk.table} WHERE ${predicate}`),
+      ),
+    nulled,
+  );
+}
 
-  for (const fk of NULLABLE_FOREIGN_KEYS) {
-    const affected = countMatching(db, fk);
-    if (affected === 0) continue;
-    db.run(`UPDATE ${fk.table} SET ${fk.column} = NULL WHERE ${danglingPredicate(fk)}`);
-    nulled[`${fk.table}.${fk.column}`] = affected;
+/** One foreign key's verdict, its statement and its tally, in one transaction. */
+function applyRepair(
+  db: Database,
+  fk: ForeignKey,
+  totals: RepairResult,
+  bucket: 'nulled' | 'dropped',
+  run: (predicate: string) => void,
+): RepairResult {
+  const affected = countMatching(db, fk);
+  if (affected === 0) return totals;
+  const key = `${fk.table}.${fk.column}`;
+  const merged = { ...totals[bucket], [key]: (totals[bucket][key] ?? 0) + affected };
+  const updated: RepairResult =
+    bucket === 'nulled' ? { ...totals, nulled: merged } : { ...totals, dropped: merged };
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    run(danglingPredicate(fk));
+    writeMeta(db, REPAIR_META_KEY, JSON.stringify(updated));
+    db.exec('COMMIT');
+    return updated;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
   }
-
-  for (const fk of REQUIRED_FOREIGN_KEYS) {
-    const affected = countMatching(db, fk);
-    if (affected === 0) continue;
-    db.run(`DELETE FROM ${fk.table} WHERE ${danglingPredicate(fk)}`);
-    dropped[`${fk.table}.${fk.column}`] = affected;
-  }
-
-  return { nulled, dropped };
 }
 
 /**

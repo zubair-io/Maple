@@ -244,4 +244,23 @@ describe('the rest of the library', () => {
     expect(JSON.parse(row.fields)).toEqual({ exposure: 0.25, contrast: 12 });
     expect(JSON.parse(row.extra)).toEqual({ unknown_future_key: true });
   });
+
+  /**
+   * The per-file rows of an import older than the `import_files` collection
+   * still live inside the `imports` document. They are read at runtime, so
+   * dropping them would have rendered every pre-migration import with an empty
+   * file list after the cutover.
+   */
+  it('turns an import that still holds its files inline into import_files rows', () => {
+    const { client, ids } = fixture.state;
+    if (client === null || ids === null) return;
+    const rows = fixture.all<{ idx: number; src: string; kind: string; state: string }>(
+      `SELECT idx, src, kind, state FROM import_files WHERE import_id = ? ORDER BY idx`,
+      ids.legacyImportJob.toHexString(),
+    );
+    expect(rows).toEqual([
+      { idx: 0, src: '/incoming/old/b.dng', kind: 'image', state: 'copied' },
+      { idx: 1, src: '/incoming/old/b.mov', kind: 'movie', state: 'skipped_duplicate' },
+    ]);
+  });
 });

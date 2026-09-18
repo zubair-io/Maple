@@ -37,7 +37,6 @@
  */
 
 import { Database } from 'bun:sqlite';
-import { existsSync, unlinkSync } from 'node:fs';
 import { MongoClient, type Db, type Document, type Filter, type ObjectId } from 'mongodb';
 import { ALL_STAGE_NAMES } from '../../../workers/stages/stage-names.ts';
 import {
@@ -55,6 +54,10 @@ import { fromBunSqlite, runMigrations } from '../migrate.ts';
 import { ALL_MIGRATIONS } from '../migrations/index.ts';
 import {
   clearBookkeeping,
+  DERIVED_DROPPED,
+  DERIVED_RESTORED,
+  DERIVED_STATE_KEY,
+  derivedRestored,
   ensureBookkeeping,
   readCheckpoint,
   type Checkpoint,
@@ -64,15 +67,17 @@ import {
   writeMeta,
   writeReject,
 } from './bookkeeping.ts';
+import { discardDestination } from './destination.ts';
 import { CHANGES_FLOOR_KEY } from './plan/library.ts';
-import { IMPORT_PLAN } from './plan/index.ts';
-import { REPAIR_META_KEY, repairForeignKeys } from './repair.ts';
+import { IMPORT_PLAN, uncoveredCollections, uncoveredMessage } from './plan/index.ts';
+import { repairForeignKeys } from './repair.ts';
 import type {
   CollectionPlan,
   CollectionResult,
   ImportOptions,
   ImportReport,
   MapContext,
+  WindowOverride,
 } from './types.ts';
 import { RowWriter, writeBatch, type MappedDocument, type WriteFailure } from './writer.ts';
 
@@ -108,7 +113,7 @@ export interface ImportSession {
 
 /** Opens the destination, migrates it, and connects to the source. */
 export async function openImportSession(options: ImportOptions): Promise<ImportSession> {
-  if (options.restart && existsSync(options.sqlitePath)) unlinkSync(options.sqlitePath);
+  if (options.restart) discardDestination(options.sqlitePath);
   const sqlite = new Database(options.sqlitePath, { create: true });
   for (const pragma of LOAD_PRAGMAS) sqlite.exec(pragma);
   await runMigrations(fromBunSqlite(sqlite), ALL_MIGRATIONS);
@@ -146,9 +151,33 @@ async function resolveFilter(
   if (remembered !== null) return JSON.parse(remembered) as Filter<Document>;
   const computed = (await plan.bound(mongo, options)) ?? {};
   writeMeta(sqlite, key, JSON.stringify(computed));
+  writeMeta(sqlite, windowKey(plan.source), String(options.changesWindow));
   const floor = (computed as { cursor?: { $gte?: number } }).cursor?.$gte;
   if (typeof floor === 'number') writeMeta(sqlite, CHANGES_FLOOR_KEY, String(floor));
   return computed;
+}
+
+/** `import_meta` key recording the window a bound was first computed from. */
+function windowKey(source: string): string {
+  return `window:${source}`;
+}
+
+/**
+ * Flags a `--changes-window` this run asked for and is not going to get.
+ *
+ * A resumed run has to read exactly the set the run it continues read, so the
+ * bound is remembered and the flag is ignored — including `--changes-window
+ * all`, which an operator could reasonably believe widened the import. The
+ * behaviour is right; the silence was the defect. Saying so costs a line and
+ * names the only way to change it, which is to start over.
+ */
+function windowOverrides(sqlite: Database, options: ImportOptions): WindowOverride[] {
+  const requested = String(options.changesWindow);
+  return IMPORT_PLAN.filter((plan) => plan.bound !== undefined).flatMap((plan) => {
+    const inEffect = readMeta(sqlite, windowKey(plan.source));
+    if (inEffect === null || inEffect === requested) return [];
+    return [{ source: plan.source, requested, inEffect }];
+  });
 }
 
 /**
@@ -299,8 +328,19 @@ async function importCollection(
   return { source: plan.source, documents, rejected, elapsedMs, skipped: false };
 }
 
-/** Drops the derived triggers for the bulk load. */
+/**
+ * Drops the derived triggers for the bulk load, and records that it did.
+ *
+ * A file whose triggers are dropped opens cleanly and answers every query —
+ * and silently indexes nothing new into the FTS5 table and stops maintaining
+ * `assets.live_location_count`, so a server pointed at it shows every
+ * newly-located asset as dead and finds nothing new in search. A run that is
+ * killed between here and `restoreDerived` leaves exactly that file, and
+ * nothing said so. The marker is what verification and the report read to
+ * refuse to call such a file finished; re-running the same command restores it.
+ */
 function dropDerivedTriggers(db: Database): void {
+  writeMeta(db, DERIVED_STATE_KEY, DERIVED_DROPPED);
   for (const name of TRIGGER_NAMES) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
 }
 
@@ -313,6 +353,7 @@ function restoreDerived(db: Database): void {
   // content table, so it needs no clearing step and is safe to repeat.
   db.exec(ASSETS_FTS_REBUILD_SQL);
   db.exec(ASSETS_FTS_OPTIMIZE_SQL);
+  writeMeta(db, DERIVED_STATE_KEY, DERIVED_RESTORED);
 }
 
 /**
@@ -334,6 +375,13 @@ export async function runImportOn(
     },
   };
 
+  // Before anything is written, and before the triggers come off: a collection
+  // nobody here has decided about is a collection the cutover would leave
+  // behind in silence, which is the one failure this tool must not have.
+  const uncovered = await uncoveredCollections(session.mongo, IMPORT_PLAN);
+  if (uncovered.length > 0) throw new Error(uncoveredMessage(uncovered));
+
+  const overrides = windowOverrides(session.sqlite, options);
   dropDerivedTriggers(session.sqlite);
 
   const collections: CollectionResult[] = [];
@@ -343,12 +391,11 @@ export async function runImportOn(
 
   // Repair first, while the triggers are still dropped: deleting a location
   // with the count triggers live would fire a per-row UPDATE on `assets` that
-  // the recompute below redoes in one statement anyway.
+  // the recompute below redoes in one statement anyway. The pass records its
+  // own running total in `import_meta`, because verification subtracts what it
+  // dropped from the source count and that subtraction has to survive a second
+  // run of the same command — see `repair.ts`.
   const repair = repairForeignKeys(session.sqlite);
-  // Verification reads this back: a row dropped because a NOT NULL reference
-  // did not resolve is a row the source counted and the destination correctly
-  // does not hold, so the count check has to know about it.
-  writeMeta(session.sqlite, REPAIR_META_KEY, JSON.stringify(repair));
   restoreDerived(session.sqlite);
 
   const floor = readMeta(session.sqlite, CHANGES_FLOOR_KEY);
@@ -360,6 +407,8 @@ export async function runImportOn(
     substitutions,
     unknownStages: [...unknownStages].sort(),
     changesCursorFloor: floor === null ? null : Number(floor),
+    windowOverrides: overrides,
+    derivedRestored: derivedRestored(session.sqlite),
     totalElapsedMs: Math.round(performance.now() - startedAt),
   };
 }

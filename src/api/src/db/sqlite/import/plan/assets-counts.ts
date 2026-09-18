@@ -50,6 +50,41 @@ function objectKeys(path: string): Document {
 }
 
 /**
+ * Locations, after the rule `locationRows` applies: an entry whose
+ * `library_id` is neither an ObjectId nor a 24-character hex string is not a
+ * row, because there is no foreign key it could carry.
+ *
+ * Spelled as nested `$cond`s rather than an `$and`, because `$toLower` errors
+ * on an ObjectId and only `$cond` is documented to leave the branch it did not
+ * take unevaluated.
+ */
+function locationCount(): Document {
+  const usable = {
+    $cond: [
+      { $eq: [{ $type: '$$f.library_id' }, 'objectId'] },
+      true,
+      {
+        $cond: [
+          { $eq: [{ $type: '$$f.library_id' }, 'string'] },
+          {
+            $regexMatch: {
+              input: { $toLower: '$$f.library_id' },
+              regex: '^[0-9a-f]{24}$',
+            },
+          },
+          false,
+        ],
+      },
+    ],
+  };
+  return {
+    $size: {
+      $filter: { input: { $ifNull: ['$fileinfo', []] }, as: 'f', cond: usable },
+    },
+  };
+}
+
+/**
  * Links, after the two rules `phassetRows` applies: an entry missing either
  * half of the device/local-id pair is skipped, and a pair repeated within one
  * asset lands as a single row because the table's UNIQUE constraint is stronger
@@ -101,7 +136,7 @@ export async function assetExpectedCounts(
   const [assetCount, locations, links, faces, detail, search, stages, enrichment] =
     await Promise.all([
       assets.countDocuments(filter),
-      total(db, filter, { $size: { $ifNull: ['$fileinfo', []] } }),
+      total(db, filter, locationCount()),
       total(db, filter, linkCount()),
       total(db, filter, { $size: { $ifNull: ['$faces', []] } }),
       assets.countDocuments(detailFilter),

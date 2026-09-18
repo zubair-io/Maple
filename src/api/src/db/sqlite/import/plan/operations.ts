@@ -35,11 +35,9 @@ import {
   textOr,
 } from '../values.ts';
 import { docId, onePerDocument } from './shared.ts';
+import { importFilesPlan, importsPlan } from './imports.ts';
 
 const JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'cancelled'] as const;
-const IMPORT_STATUSES = ['pending', 'running', 'done', 'failed', 'cancelled'] as const;
-const IMPORT_FILE_KINDS = ['image', 'sidecar', 'movie'] as const;
-const IMPORT_FILE_STATES = ['pending', 'copied', 'skipped_duplicate', 'failed'] as const;
 const TASK_KINDS = ['scan_folder', 'gen_thumb', 'extract_exif'] as const;
 const TASK_STATUSES = ['pending', 'processing', 'done', 'failed'] as const;
 const SESSION_STATES = ['open', 'completed', 'abandoned'] as const;
@@ -88,78 +86,6 @@ const jobsPlan = onePerDocument({
       toJsonText(doc.result),
       toJsonText(doc.checkpoint),
       toJsonText(doc.batch_scopes),
-    ];
-  },
-});
-
-const importsPlan = onePerDocument({
-  source: 'imports',
-  table: 'imports',
-  columns: [
-    'id',
-    'status',
-    'source_root',
-    'library_id',
-    'library_root',
-    'scan_pending',
-    'progress_current',
-    'progress_total',
-    'count_copied',
-    'count_skipped',
-    'count_failed',
-    'error',
-    'locked_by',
-    'lease_expires_at',
-    'cancel_requested',
-    'created_at',
-    'updated_at',
-  ],
-  values: (doc) => {
-    const status = toEnum(doc.status, IMPORT_STATUSES);
-    if (status === null) throw new Error(`unknown import status ${String(doc.status)}`);
-    const progress = asRecord(doc.progress);
-    const counts = asRecord(doc.counts);
-    return [
-      docId(doc),
-      status,
-      textOr(doc.source_root, ''),
-      requireIdHex(doc.library_id, 'library_id'),
-      textOr(doc.library_root, ''),
-      toBit(doc.scan_pending),
-      intOr(progress.current, 0),
-      intOr(progress.total, 0),
-      intOr(counts.copied, 0),
-      intOr(counts.skipped, 0),
-      intOr(counts.failed, 0),
-      toText(doc.error),
-      toText(doc.locked_by),
-      toIso(doc.lease_expires_at),
-      toBit(doc.cancel_requested),
-      toIso(doc.created_at) ?? EPOCH,
-      toIso(doc.updated_at) ?? EPOCH,
-    ];
-  },
-});
-
-const importFilesPlan = onePerDocument({
-  source: 'import_files',
-  table: 'import_files',
-  columns: ['import_id', 'idx', 'src', 'dest', 'size', 'mtime', 'kind', 'state', 'error'],
-  values: (doc) => {
-    const kind = toEnum(doc.kind, IMPORT_FILE_KINDS);
-    const state = toEnum(doc.state, IMPORT_FILE_STATES);
-    if (kind === null) throw new Error(`unknown import file kind ${String(doc.kind)}`);
-    if (state === null) throw new Error(`unknown import file state ${String(doc.state)}`);
-    return [
-      requireIdHex(doc.import_id, 'import_id'),
-      intOr(doc.idx, 0),
-      textOr(doc.src, ''),
-      textOr(doc.dest, ''),
-      intOr(doc.size, 0),
-      intOr(doc.mtime, 0),
-      kind,
-      state,
-      toText(doc.error),
     ];
   },
 });
