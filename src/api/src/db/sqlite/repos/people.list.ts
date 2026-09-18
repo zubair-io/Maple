@@ -78,9 +78,17 @@ export async function listPeopleByFilter(
   if (rows.length === 0) return [];
 
   const people = rows.map(toPerson);
+  // The listed people are named rather than left implicit, so a short listing
+  // (Hidden, Excluded) is answered by a seek each instead of a walk over every
+  // assigned face in the library. See `people.face-count.ts`.
   const [covers, counts] = await Promise.all([
     coverInfoByPerson(db, people),
-    withCounts ? faceCountByPerson(db) : Promise.resolve(new Map<string, number>()),
+    withCounts
+      ? faceCountByPerson(
+          people.map((person) => person._id.toHexString()),
+          db,
+        )
+      : Promise.resolve(new Map<string, number>()),
   ]);
 
   return people.map((person) => {

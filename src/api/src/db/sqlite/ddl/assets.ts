@@ -160,6 +160,19 @@ CREATE INDEX assets_live
   ON assets (live_location_count)
   WHERE ${LIVE_ASSET_PREDICATE};
 
+-- "Is this asset live", answered for a known id without reading its row.
+-- Every per-asset liveness probe — the per-person face count is the one that
+-- does it hundreds of thousands of times — joins to assets on the primary key
+-- and then tests the predicate. Against the implicit primary-key index that
+-- costs a seek to find the rowid plus a read of the whole asset row; with the
+-- predicate folded into a partial index keyed on id, the probe is index-only
+-- and the row is never touched. Measured on a generated 335,377-asset library
+-- (335,028 faces, ~251k assigned): the whole-library face count goes from
+-- 591 ms to 175 ms.
+CREATE INDEX assets_live_id
+  ON assets (id)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
 -- Facet group-bys. Covering: the group keys ARE the index columns, so these
 -- run as index-only scans and never read an asset row.
 CREATE INDEX assets_facet_camera

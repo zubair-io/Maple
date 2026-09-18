@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { Database } from 'bun:sqlite';
 import { ObjectId } from 'mongodb';
 import {
   createTestDatabase,
@@ -15,7 +16,9 @@ import {
   insertLocation,
   run,
 } from '../test-sqlite.test-helpers.ts';
+import type { SqlValue } from '../migrate.ts';
 import { faceCountByPerson, recomputePersonFaceCount } from './people.face-count.ts';
+import { faceCountsForPeopleSql, FACE_COUNTS_BY_PERSON_SQL } from './people.sql.ts';
 import { listPeople, assignFaceToPerson, hideFace } from './people.repo.ts';
 import { mergePeopleInto } from './people.merge.ts';
 import {
@@ -53,7 +56,7 @@ describe('faceCountByPerson', () => {
     insertFace(db, { assetId: first, faceIndex: 1, personId: grace });
     insertFace(db, { assetId: second, faceIndex: 0, personId: ada });
 
-    const counts = await faceCountByPerson(testDb(db));
+    const counts = await faceCountByPerson(undefined, testDb(db));
 
     expect(counts.get(ada)).toBe(2);
     expect(counts.get(grace)).toBe(1);
@@ -64,7 +67,7 @@ describe('faceCountByPerson', () => {
     const db = handle.db;
     const lonely = insertPerson(db, { name: 'Nobody' });
 
-    const counts = await faceCountByPerson(testDb(db));
+    const counts = await faceCountByPerson(undefined, testDb(db));
 
     // Every caller reads this through `?? 0`, which is the same contract the
     // Mongo aggregation has: it emits no group for a person with no rows.
@@ -95,9 +98,73 @@ describe('faceCountByPerson', () => {
     insertLocation(db, { assetId: gone, libraryId: library, missingSince: 'yesterday' });
     insertFace(db, { assetId: gone, personId: ada });
 
-    const counts = await faceCountByPerson(testDb(db));
+    const counts = await faceCountByPerson(undefined, testDb(db));
 
     expect(counts.get(ada)).toBe(1);
+  });
+
+  test('naming the people answers for exactly them, with the same numbers', async () => {
+    using handle = await createTestDatabase();
+    const db = handle.db;
+    const library = insertLibrary(db);
+    const ada = insertPerson(db, { name: 'Ada' });
+    const grace = insertPerson(db, { name: 'Grace' });
+
+    const first = insertLiveAsset(db, library);
+    const second = insertLiveAsset(db, library);
+    insertFace(db, { assetId: first, faceIndex: 0, personId: ada });
+    insertFace(db, { assetId: first, faceIndex: 1, personId: grace });
+    insertFace(db, { assetId: second, faceIndex: 0, personId: ada });
+
+    const scoped = await faceCountByPerson([ada], testDb(db));
+
+    expect(scoped.get(ada)).toBe(2);
+    // Grace has faces, but the caller did not ask about her.
+    expect(scoped.has(grace)).toBe(false);
+  });
+
+  test('naming nobody asks nothing of the database', async () => {
+    using handle = await createTestDatabase();
+    const db = handle.db;
+    const library = insertLibrary(db);
+    const ada = insertPerson(db, { name: 'Ada' });
+    insertFace(db, { assetId: insertLiveAsset(db, library), personId: ada });
+
+    expect((await faceCountByPerson([], testDb(db))).size).toBe(0);
+  });
+});
+
+/**
+ * The cost of deriving the count is a claim about which index answers it, and
+ * a timing over a handful of test rows cannot check that. These two plans are
+ * what keep the count off the "walk the whole face table and read an asset row
+ * per face" path the review of #3767 flagged.
+ */
+describe('the face count is answered by indexes, not by scans', () => {
+  function plan(db: Database, sql: string, ...params: SqlValue[]): string {
+    const rows = db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as Array<{ detail: string }>;
+    return rows.map((row) => row.detail).join('\n');
+  }
+
+  test('the whole-library count probes liveness from an index, not from the row', async () => {
+    using handle = await createTestDatabase();
+    const detail = plan(handle.db, FACE_COUNTS_BY_PERSON_SQL);
+
+    // Walking every assigned face is the point of this form, and it is
+    // index-only: `faces_person` already carries person_id and asset_id.
+    expect(detail).toContain('COVERING INDEX faces_person');
+    // The liveness probe is the part that used to read a whole asset row per
+    // face. 591 ms -> 175 ms on a 335k-asset library.
+    expect(detail).toContain('assets_live_id');
+  });
+
+  test('naming the people turns the walk into a seek each', async () => {
+    using handle = await createTestDatabase();
+    const detail = plan(handle.db, faceCountsForPeopleSql(2), 'a', 'b');
+
+    expect(detail).toContain('COVERING INDEX faces_person (person_id=?)');
+    expect(detail).toContain('assets_live_id');
+    expect(detail).not.toContain('SCAN faces');
   });
 });
 
@@ -139,9 +206,9 @@ describe('the count follows the rows with nothing maintaining it', () => {
     insertFace(db, { assetId: second, personId: ada });
     const handleDb = testDb(db);
 
-    const before = (await faceCountByPerson(handleDb)).get(ada);
+    const before = (await faceCountByPerson(undefined, handleDb)).get(ada);
     await hideFace(new ObjectId(first), 0, handleDb);
-    const after = (await faceCountByPerson(handleDb)).get(ada);
+    const after = (await faceCountByPerson(undefined, handleDb)).get(ada);
 
     expect(before).toBe(2);
     expect(after).toBe(1);
@@ -158,7 +225,7 @@ describe('the count follows the rows with nothing maintaining it', () => {
     const handleDb = testDb(db);
 
     await assignFaceToPerson(new ObjectId(asset), 0, new ObjectId(grace), handleDb);
-    const counts = await faceCountByPerson(handleDb);
+    const counts = await faceCountByPerson(undefined, handleDb);
 
     expect(counts.has(ada)).toBe(false);
     expect(counts.get(grace)).toBe(1);
@@ -179,7 +246,7 @@ describe('the count follows the rows with nothing maintaining it', () => {
     const handleDb = testDb(db);
 
     await mergePeopleInto(new ObjectId(ada), [new ObjectId(duplicate)], handleDb);
-    const counts = await faceCountByPerson(handleDb);
+    const counts = await faceCountByPerson(undefined, handleDb);
 
     // Repointing the rows is the update. On Mongo this is where the survivor's
     // stored counter has to be recomputed from ground truth and the orphan's
@@ -228,7 +295,7 @@ describe('a face row cannot outlive the person it points at', () => {
     insertFace(db, { assetId: asset, personId: ada });
 
     run(db, 'DELETE FROM people WHERE id = ?', ada);
-    const counts = await faceCountByPerson(testDb(db));
+    const counts = await faceCountByPerson(undefined, testDb(db));
     const face = db.query('SELECT person_id FROM faces WHERE asset_id = ?').get(asset);
 
     // `ON DELETE SET NULL` only fires with the foreign-keys pragma on, which the

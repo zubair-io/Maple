@@ -135,7 +135,7 @@ describe('runOnlineClustering', () => {
     const dbHandle = testDb(db);
 
     await runOnlineClustering({}, dbHandle);
-    const counts = await faceCountByPerson(dbHandle);
+    const counts = await faceCountByPerson(undefined, dbHandle);
 
     // The Mongo pass ends by recounting every person and rewriting a stored
     // counter, precisely to heal drift. Nothing does that here.

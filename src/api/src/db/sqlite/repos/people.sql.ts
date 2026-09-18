@@ -143,20 +143,52 @@ export const MAX_AUTO_NAME_INDEX_SQL = `
  * faces array. `faces_person` is a partial index on
  * `(person_id, asset_id) WHERE person_id IS NOT NULL AND hidden = 0`, so the
  * predicate below is written to imply it exactly.
+ *
+ * `INDEXED BY assets_live_id` is the same deliberate instruction `listItemsSql`
+ * gives, for the same reason: without it the planner takes the primary key's
+ * implicit unique index, which finds the rowid and then reads the whole asset
+ * row to test two columns — once per assigned face. Keyed on `id` with the
+ * predicate folded in, the probe never leaves the index. On a generated
+ * 335,377-asset library that is 591 ms against 175 ms, and the planner only
+ * finds the better plan on its own once `ANALYZE` has run, which is not
+ * something a query on the request path should depend on.
  */
 export const FACE_COUNTS_BY_PERSON_SQL = `
   SELECT f.person_id AS person_id, COUNT(*) AS n
     FROM faces f
-    JOIN assets a ON a.id = f.asset_id
+    JOIN assets a INDEXED BY assets_live_id ON a.id = f.asset_id
    WHERE f.person_id IS NOT NULL AND f.hidden = 0
      AND a.${LIVE_ASSET_PREDICATE}
    GROUP BY f.person_id`;
+
+/**
+ * The same count, for a named handful of people rather than all of them.
+ *
+ * The two forms answer the same question and differ only in how much of
+ * `faces_person` they touch: this one seeks straight to each named person,
+ * where the grouped form above walks every assigned face in the library. The
+ * Hidden and Excluded listings are a dozen rows against a person table of tens
+ * of thousands, so the difference there is the whole face table versus a dozen
+ * seeks — see `people.face-count.ts` for which listing gets which.
+ *
+ * `person_id IN (…)` implies `person_id IS NOT NULL`, so the partial index
+ * still applies and the seek stays index-only.
+ */
+export function faceCountsForPeopleSql(count: number): string {
+  return `
+  SELECT f.person_id AS person_id, COUNT(*) AS n
+    FROM faces f
+    JOIN assets a INDEXED BY assets_live_id ON a.id = f.asset_id
+   WHERE f.person_id IN (${placeholders(count)}) AND f.hidden = 0
+     AND a.${LIVE_ASSET_PREDICATE}
+   GROUP BY f.person_id`;
+}
 
 /** The same count for one person. */
 export const FACE_COUNT_FOR_PERSON_SQL = `
   SELECT COUNT(*) AS n
     FROM faces f
-    JOIN assets a ON a.id = f.asset_id
+    JOIN assets a INDEXED BY assets_live_id ON a.id = f.asset_id
    WHERE f.person_id = ? AND f.hidden = 0
      AND a.${LIVE_ASSET_PREDICATE}`;
 
