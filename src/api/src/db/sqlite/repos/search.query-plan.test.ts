@@ -144,6 +144,48 @@ describe('every facet groups an index over the live predicate', () => {
     });
   });
 
+  test('every facet index carries the hidden column', async () => {
+    await withLibrary(async (db) => {
+      // The filter nobody asks for: hidden assets are excluded unless the
+      // caller opts in, so every facet carries `hidden = 0`. An index that
+      // omits the column serves the group key and then fetches each candidate
+      // row to test it, which reads the whole `assets` table — measured at
+      // 57.6 ms against 2.5 ms for the camera facet over 60,000 assets, and
+      // 18.3 ms against 1.0 ms for the count.
+      //
+      // Asserted against the index definition rather than the query plan
+      // because `EXPLAIN QUERY PLAN` prints the same line either way: it names
+      // the index, not whether the scan had to leave it.
+      const indexes = [
+        'assets_live',
+        'assets_live_captured',
+        'assets_live_captured_ym',
+        'assets_facet_camera',
+        'assets_facet_lens',
+        'assets_facet_place',
+        'assets_facet_place_label',
+        'assets_facet_screenshot',
+      ];
+      for (const index of indexes) {
+        const columns = (
+          db.query(`PRAGMA index_info(${index})`).all() as Array<{ name: string | null }>
+        ).map((row) => row.name);
+        expect(columns).toContain('hidden');
+      }
+    });
+  });
+
+  test('the capture-range facet reads the date out of the index', async () => {
+    await withLibrary(async (db) => {
+      // Left to itself the planner seeks `assets_live`, which answers the live
+      // predicate and nothing else, then reads every matching row for its
+      // capture date: 41.2 ms against 3.3 ms over 60,000 assets.
+      expect(planOf(db, facetStatements(translate({})).capture_range.sql)).toContain(
+        'SCAN assets USING INDEX assets_live_captured',
+      );
+    });
+  });
+
   test('the people facet leads with the covering face index', async () => {
     await withLibrary(async (db) => {
       const plan = planOf(db, facetStatements(translate({})).people.sql);
