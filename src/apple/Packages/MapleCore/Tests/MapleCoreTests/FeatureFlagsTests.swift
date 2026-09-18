@@ -3,7 +3,7 @@
 import Foundation
 import XCTest
 
-@testable import MapleCore
+@testable import MapleCloudKit
 
 final class FeatureFlagsTests: XCTestCase {
 
@@ -74,5 +74,37 @@ final class FeatureFlagsTests: XCTestCase {
     UserDefaults.standard.removeObject(forKey: FeatureFlags.earlyFeaturesKey)
     UserDefaults.standard.removeObject(forKey: FeatureFlags.cloudFeaturesKey)
     UserDefaults.standard.removeObject(forKey: FeatureFlags.panoFeaturesKey)
+  }
+
+  func testPublishedAppGroupValueIsHonouredAfterPlist() {
+    let shared = FeatureFlags.sharedDefaults()
+    UserDefaults.standard.removeObject(forKey: FeatureFlags.earlyFeaturesKey)
+    UserDefaults.standard.removeObject(forKey: FeatureFlags.cloudFeaturesKey)
+    UserDefaults.standard.removeObject(forKey: FeatureFlags.panoFeaturesKey)
+    defer { shared.removeObject(forKey: FeatureFlags.publishedEarlyFeaturesKey) }
+
+    // A test binary is a DEBUG build, so only the "false" direction proves the
+    // published value is consulted before the compile-time default.
+    shared.set(false, forKey: FeatureFlags.publishedEarlyFeaturesKey)
+    XCTAssertFalse(FeatureFlags.areEarlyFeaturesEnabled)
+    XCTAssertFalse(FeatureFlags.isMapleCloudEnabled)
+    XCTAssertFalse(FeatureFlags.isPanoramaEnabled)
+
+    // Launch-argument / UserDefaults override still wins over the published value.
+    UserDefaults.standard.set(true, forKey: FeatureFlags.earlyFeaturesKey)
+    XCTAssertTrue(FeatureFlags.areEarlyFeaturesEnabled)
+    UserDefaults.standard.removeObject(forKey: FeatureFlags.earlyFeaturesKey)
+  }
+
+  func testPublishResolvedFlagsWritesTheAppGroupKey() {
+    let shared = FeatureFlags.sharedDefaults()
+    defer { shared.removeObject(forKey: FeatureFlags.publishedEarlyFeaturesKey) }
+    shared.removeObject(forKey: FeatureFlags.publishedEarlyFeaturesKey)
+    setenv(FeatureFlags.earlyFeaturesEnvVar, "0", 1)
+    defer { unsetenv(FeatureFlags.earlyFeaturesEnvVar) }
+
+    FeatureFlags.publishResolvedFlags()
+    XCTAssertNotNil(shared.object(forKey: FeatureFlags.publishedEarlyFeaturesKey))
+    XCTAssertFalse(shared.bool(forKey: FeatureFlags.publishedEarlyFeaturesKey))
   }
 }
