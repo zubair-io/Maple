@@ -239,7 +239,14 @@ async function verifyRowsPresent(
       .collection(plan.source)
       .find(storedFilter(sqlite, plan), { sort: { _id: 1 }, limit: sample })
       .toArray();
-    for (const doc of docs) {
+    // Sampled documents are hydrated exactly as the load hydrated them.
+    // Without this a plan that gathers its rows from a second collection maps
+    // to nothing here, `mapQuietly` swallows the refusal, and the collection
+    // quietly contributes no field checks at all — so the one plan whose bytes
+    // are worth re-deriving would be the one plan never checked.
+    const source =
+      (await plan.hydrate?.(mongo, docs as unknown as Record<string, unknown>[])) ?? docs;
+    for (const doc of source) {
       out.push(...checkDocument(sqlite, plan, doc as unknown as Record<string, unknown>));
     }
   }

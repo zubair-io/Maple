@@ -277,8 +277,11 @@ async function importCollection(
         .toArray();
       if (docs.length === 0) break;
 
-      const { mapped, failures: mapFailures } = mapBatch(docs, plan, ctx);
+      // The checkpoint is taken from the documents as READ, before hydration,
+      // so a plan that gathers extra data cannot move the resume cursor.
       const batchLastId = (docs.at(-1) as unknown as Record<string, unknown>)._id;
+      const source = (await plan.hydrate?.(mongo, docs as Record<string, unknown>[])) ?? docs;
+      const { mapped, failures: mapFailures } = mapBatch(source, plan, ctx);
       const batchDocuments = documents + docs.length;
       const elapsedSoFar = carriedMs + Math.round(performance.now() - startedAt);
 

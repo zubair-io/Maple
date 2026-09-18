@@ -75,8 +75,13 @@ export async function uncoveredCollections(
   db: Db,
   plan: readonly CollectionPlan[],
 ): Promise<string[]> {
+  // `alsoReads` is what keeps a plan that consumes a second collection from
+  // having to declare that collection skipped. The lens-profile bucket is the
+  // only such case: its chunks are read and written, so calling them skipped
+  // would be the false claim this file exists to prevent.
   const covered = new Set<string>([
     ...plan.map((entry) => entry.source),
+    ...plan.flatMap((entry) => entry.alsoReads ?? []),
     ...Object.keys(SKIPPED_COLLECTIONS),
   ]);
   const present = await db.listCollections({}, { nameOnly: true }).toArray();

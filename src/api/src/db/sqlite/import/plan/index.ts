@@ -28,18 +28,25 @@ import type { CollectionPlan } from '../types.ts';
 import { assetsPlan } from './assets.ts';
 import { AUTH_PLANS } from './auth.ts';
 import { LIBRARY_PLANS } from './library.ts';
+import { lensProfilesPlan } from './lens-profiles.ts';
 import { OPERATIONS_PLANS } from './operations.ts';
 
 /**
  * Every plan, in execution order: the roots the rest of the graph points at,
  * then assets and their fan-out, then users, then the queues — which reference
  * both a library root and a user.
+ *
+ * The lens-profile bucket sits at the end because it references nothing: a
+ * profile is addressed by the hash of its own bytes, and no row in the schema
+ * points at one. Its position is therefore free, and last keeps the
+ * foreign-key-ordered part of the list readable as exactly that.
  */
 export const IMPORT_PLAN: readonly CollectionPlan[] = [
   ...LIBRARY_PLANS,
   assetsPlan,
   ...AUTH_PLANS,
   ...OPERATIONS_PLANS,
+  lensProfilesPlan,
 ];
 
 export { DEFAULT_CHANGES_WINDOW } from './library.ts';

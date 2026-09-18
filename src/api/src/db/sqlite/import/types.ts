@@ -49,11 +49,36 @@ export interface CollectionPlan {
   tables: readonly string[];
   idKind: IdKind;
   /**
+   * Further source collections this plan consumes, which the coverage check
+   * counts as covered.
+   *
+   * Only the lens-profile bucket needs it: GridFS splits one file across
+   * `lens_profiles.files` and `lens_profiles.chunks`, and the chunks are read
+   * and written rather than left behind — so naming them in
+   * `SKIPPED_COLLECTIONS` would assert something false.
+   */
+  alsoReads?: readonly string[];
+  /**
    * Narrows the source set. Only the change log uses it; the bound it returns
    * is persisted on first use so a resumed run reads exactly the same set even
    * when the source has moved on.
    */
   bound?(db: Db, options: ImportOptions): Promise<Filter<Document> | null>;
+  /**
+   * Fetches whatever a document needs from outside its own collection, once per
+   * batch, and returns the documents {@link map} will see.
+   *
+   * `map` is synchronous and takes no database, which is what keeps a plan a
+   * pure function of one document — and is right for every collection whose
+   * rows come from the document alone. A GridFS file is the exception: its bytes
+   * live in another collection entirely, so they have to be gathered before
+   * mapping. Returning new documents rather than mutating the driver's keeps
+   * `map` pure either way.
+   *
+   * Throwing here fails the run rather than rejecting one document: a batch-wide
+   * read that fails says nothing about any single document in it.
+   */
+  hydrate?(db: Db, docs: readonly Record<string, unknown>[]): Promise<Record<string, unknown>[]>;
   /** One document to its rows. Throwing rejects the document, with the reason. */
   map(doc: Record<string, unknown>, ctx: MapContext): TableRows[];
   /** How many rows the SOURCE says each table should hold, after `bound`. */
