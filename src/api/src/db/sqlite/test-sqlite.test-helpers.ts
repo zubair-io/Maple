@@ -83,24 +83,44 @@ export interface TestDatabase extends Disposable {
  */
 const liveDirectories = new Set<string>();
 
-let exitHookInstalled = false;
+let sweepHooksInstalled = false;
+
+/** Removes every directory still on the books. Idempotent. */
+function sweep(): void {
+  for (const directory of liveDirectories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  liveDirectories.clear();
+}
 
 /**
- * Registers the exit sweep, once, on first use of `file` storage.
+ * Registers the leak sweep, once, on first use of `file` storage.
  *
  * Deliberately lazy rather than a module-level side effect: a suite that only
  * ever opens in-memory databases has nothing to sweep and should not be
  * installing process listeners just by importing this file.
+ *
+ * `exit` alone is not enough. It does not run for a process killed by a
+ * signal, and Ctrl-C on a run that is hung — which is exactly when a test is
+ * most likely to be holding an undisposed handle — is the ordinary way that
+ * happens. So SIGINT and SIGTERM sweep too, then re-exit with the status a
+ * shell expects from a signal death (128 + signal number) rather than
+ * swallowing the interrupt. SIGKILL and a hard crash remain unreachable by
+ * construction; the remaining residue there is one small directory per run.
  */
-function installExitHook(): void {
-  if (exitHookInstalled) return;
-  exitHookInstalled = true;
-  process.on('exit', () => {
-    for (const directory of liveDirectories) {
-      rmSync(directory, { recursive: true, force: true });
-    }
-    liveDirectories.clear();
-  });
+function installSweepHooks(): void {
+  if (sweepHooksInstalled) return;
+  sweepHooksInstalled = true;
+  process.on('exit', sweep);
+  for (const [signal, status] of [
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ] as const) {
+    process.on(signal, () => {
+      sweep();
+      process.exit(status);
+    });
+  }
 }
 
 /**
@@ -118,7 +138,7 @@ function installExitHook(): void {
  * sidecars WAL mode creates go away with it.
  */
 function makeDirectory(): string {
-  installExitHook();
+  installSweepHooks();
   const directory = mkdtempSync(join(tmpdir(), 'maple-api-testdb-'));
   liveDirectories.add(directory);
   return directory;
@@ -128,12 +148,20 @@ function makeHandle(db: Database, path: string, directory: string | null): TestD
   let closed = false;
   const close = (): void => {
     if (closed) return;
-    closed = true;
-    db.close();
-    if (directory !== null) {
-      rmSync(directory, { recursive: true, force: true });
-      liveDirectories.delete(directory);
+    // Removing the directory is in a `finally` and `closed` is set last, so a
+    // connection that refuses to close still gives up its files: otherwise the
+    // one case where cleanup matters most — something went wrong — is the case
+    // that leaks, and the handle could not even be closed a second time,
+    // because the early return above would have swallowed the retry.
+    try {
+      db.close();
+    } finally {
+      if (directory !== null) {
+        rmSync(directory, { recursive: true, force: true });
+        liveDirectories.delete(directory);
+      }
     }
+    closed = true;
   };
 
   return { db, migrationDb: fromBunSqlite(db), path, close, [Symbol.dispose]: close };
