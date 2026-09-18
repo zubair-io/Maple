@@ -1,0 +1,190 @@
+/**
+ * Composes the initial schema from the per-domain DDL modules.
+ *
+ * Tables come before their indexes and triggers so a fresh database is never
+ * momentarily indexed against a table that does not exist yet, and the ordering
+ * within the table block follows the foreign-key graph — `folders` and `users`
+ * first, then `assets`, then everything that points at an asset.
+ *
+ * The split across modules is for readability and the file-size budget; the
+ * schema is one unit and lands as one migration.
+ */
+
+import {
+  ASSET_DETAIL_INDEX_DDL,
+  ASSET_DETAIL_TABLE_DDL,
+  ASSET_PHASSET_LINKS_INDEX_DDL,
+  ASSET_PHASSET_LINKS_TABLE_DDL,
+} from './asset-detail.ts';
+import {
+  ASSET_LOCATIONS_INDEX_DDL,
+  ASSET_LOCATIONS_TABLE_DDL,
+  ASSET_LOCATIONS_TRIGGER_DDL,
+} from './asset-locations.ts';
+import { ASSETS_INDEX_DDL, ASSETS_TABLE_DDL } from './assets.ts';
+import {
+  CHALLENGES_TABLE_DDL,
+  CREDENTIALS_INDEX_DDL,
+  CREDENTIALS_TABLE_DDL,
+  EXPIRY_INDEX_DDL,
+  IMAGE_ACCESS_TOKENS_TABLE_DDL,
+  INVITES_TABLE_DDL,
+  LAN_HANDOFF_CODES_TABLE_DDL,
+  NATIVE_AUTH_CODES_TABLE_DDL,
+  REFRESH_TOKENS_INDEX_DDL,
+  REFRESH_TOKENS_TABLE_DDL,
+  SERVICE_API_KEYS_INDEX_DDL,
+  SERVICE_API_KEYS_TABLE_DDL,
+  USERS_INDEX_DDL,
+  USERS_TABLE_DDL,
+} from './auth.ts';
+import {
+  FACES_INDEX_DDL,
+  FACES_TABLE_DDL,
+  PEOPLE_INDEX_DDL,
+  PEOPLE_TABLE_DDL,
+  PERSON_MERGE_DISMISSALS_DDL,
+} from './faces.ts';
+import {
+  ASSET_CHANGES_INDEX_DDL,
+  ASSET_CHANGES_TABLE_DDL,
+  FOLDERS_TABLE_DDL,
+  GEOCODE_CACHE_INDEX_DDL,
+  GEOCODE_CACHE_TABLE_DDL,
+  MIRROR_QUEUE_INDEX_DDL,
+  MIRROR_QUEUE_TABLE_DDL,
+  PRESETS_INDEX_DDL,
+  PRESETS_TABLE_DDL,
+  SERVER_STATE_TABLE_DDL,
+} from './library.ts';
+import {
+  APNS_DEVICE_TOKENS_INDEX_DDL,
+  APNS_DEVICE_TOKENS_TABLE_DDL,
+  BACKUP_SESSIONS_TABLE_DDL,
+  DISCOVER_FRONTIER_INDEX_DDL,
+  DISCOVER_FRONTIER_TABLE_DDL,
+  IMPORT_FILES_TABLE_DDL,
+  IMPORTS_INDEX_DDL,
+  IMPORTS_TABLE_DDL,
+  INDEXER_QUEUE_INDEX_DDL,
+  INDEXER_QUEUE_TABLE_DDL,
+  JOBS_INDEX_DDL,
+  JOBS_TABLE_DDL,
+  STAGE_HANDLERS_TABLE_DDL,
+  UPLOAD_SESSIONS_INDEX_DDL,
+  UPLOAD_SESSIONS_TABLE_DDL,
+  WORKER_CONFIG_TABLE_DDL,
+} from './operations.ts';
+import { ASSET_SEARCH_TABLE_DDL, ASSET_SEARCH_TRIGGER_DDL } from './search.ts';
+import {
+  ENRICHMENT_STATE_INDEX_DDL,
+  ENRICHMENT_STATE_TABLE_DDL,
+  STAGE_STATE_INDEX_DDL,
+  STAGE_STATE_TABLE_DDL,
+} from './stage-state.ts';
+
+const TABLE_DDL = [
+  // Roots the rest of the graph points at.
+  FOLDERS_TABLE_DDL,
+  USERS_TABLE_DDL,
+  SERVER_STATE_TABLE_DDL,
+
+  // The photo library.
+  ASSETS_TABLE_DDL,
+  PEOPLE_TABLE_DDL,
+  FACES_TABLE_DDL,
+  PERSON_MERGE_DISMISSALS_DDL,
+  ASSET_LOCATIONS_TABLE_DDL,
+  ASSET_DETAIL_TABLE_DDL,
+  ASSET_PHASSET_LINKS_TABLE_DDL,
+  ASSET_SEARCH_TABLE_DDL,
+  STAGE_STATE_TABLE_DDL,
+  ENRICHMENT_STATE_TABLE_DDL,
+  ASSET_CHANGES_TABLE_DDL,
+
+  // Operations.
+  JOBS_TABLE_DDL,
+  IMPORTS_TABLE_DDL,
+  IMPORT_FILES_TABLE_DDL,
+  INDEXER_QUEUE_TABLE_DDL,
+  DISCOVER_FRONTIER_TABLE_DDL,
+  WORKER_CONFIG_TABLE_DDL,
+  STAGE_HANDLERS_TABLE_DDL,
+  MIRROR_QUEUE_TABLE_DDL,
+  GEOCODE_CACHE_TABLE_DDL,
+  PRESETS_TABLE_DDL,
+  BACKUP_SESSIONS_TABLE_DDL,
+  UPLOAD_SESSIONS_TABLE_DDL,
+  APNS_DEVICE_TOKENS_TABLE_DDL,
+
+  // Auth.
+  CREDENTIALS_TABLE_DDL,
+  INVITES_TABLE_DDL,
+  REFRESH_TOKENS_TABLE_DDL,
+  SERVICE_API_KEYS_TABLE_DDL,
+  CHALLENGES_TABLE_DDL,
+  NATIVE_AUTH_CODES_TABLE_DDL,
+  LAN_HANDOFF_CODES_TABLE_DDL,
+  IMAGE_ACCESS_TOKENS_TABLE_DDL,
+] as const;
+
+const INDEX_DDL = [
+  ASSETS_INDEX_DDL,
+  ASSET_LOCATIONS_INDEX_DDL,
+  ASSET_DETAIL_INDEX_DDL,
+  ASSET_PHASSET_LINKS_INDEX_DDL,
+  FACES_INDEX_DDL,
+  PEOPLE_INDEX_DDL,
+  STAGE_STATE_INDEX_DDL,
+  ENRICHMENT_STATE_INDEX_DDL,
+  ASSET_CHANGES_INDEX_DDL,
+  JOBS_INDEX_DDL,
+  IMPORTS_INDEX_DDL,
+  INDEXER_QUEUE_INDEX_DDL,
+  DISCOVER_FRONTIER_INDEX_DDL,
+  MIRROR_QUEUE_INDEX_DDL,
+  GEOCODE_CACHE_INDEX_DDL,
+  PRESETS_INDEX_DDL,
+  UPLOAD_SESSIONS_INDEX_DDL,
+  APNS_DEVICE_TOKENS_INDEX_DDL,
+  USERS_INDEX_DDL,
+  CREDENTIALS_INDEX_DDL,
+  REFRESH_TOKENS_INDEX_DDL,
+  SERVICE_API_KEYS_INDEX_DDL,
+  EXPIRY_INDEX_DDL,
+] as const;
+
+const TRIGGER_DDL = [ASSET_LOCATIONS_TRIGGER_DDL, ASSET_SEARCH_TRIGGER_DDL] as const;
+
+/** Every `CREATE TABLE` of the initial schema, in dependency order. */
+export const INITIAL_TABLES_SQL = TABLE_DDL.join('\n');
+
+/** Every `CREATE INDEX` of the initial schema. */
+export const INITIAL_INDEXES_SQL = INDEX_DDL.join('\n');
+
+/** Every `CREATE TRIGGER` of the initial schema. */
+export const INITIAL_TRIGGERS_SQL = TRIGGER_DDL.join('\n');
+
+/** The whole initial schema as one script. */
+export const INITIAL_SCHEMA_SQL = [
+  INITIAL_TABLES_SQL,
+  INITIAL_INDEXES_SQL,
+  INITIAL_TRIGGERS_SQL,
+].join('\n');
+
+/**
+ * Connection settings the schema assumes, applied per connection by whoever
+ * owns the handle — the worker pool in the API process, the importer and the
+ * benchmarks on their own.
+ *
+ * `foreign_keys` is the load-bearing one: SQLite parses foreign-key clauses
+ * always but enforces them only when this pragma is on, and it is off by
+ * default, per connection. Without it every `ON DELETE CASCADE` in this schema
+ * is decoration.
+ */
+export const SCHEMA_PRAGMAS = [
+  'PRAGMA journal_mode = WAL',
+  'PRAGMA foreign_keys = ON',
+  'PRAGMA busy_timeout = 5000',
+  'PRAGMA synchronous = NORMAL',
+] as const;
