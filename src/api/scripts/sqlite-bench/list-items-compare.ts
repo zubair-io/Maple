@@ -11,53 +11,54 @@
  *   bun scripts/sqlite-bench/list-items-compare.ts 200000     # a bigger one
  *
  * Nothing here touches production. The Mongo side creates a uniquely-named
- * database and drops it when it finishes; the SQLite side writes a temporary
- * file and deletes it. Both generators are seeded, so a re-run reproduces the
- * same library. A Mongo instance is optional — without one, the SQLite half
- * still runs and the comparison rows say so.
+ * database and drops it when it finishes; the SQLite side writes a scratch
+ * file under `SQLITE_BENCH_DIR` (`/tmp/maple-sqlite-bench` by default) and
+ * deletes it. Both generators are seeded, so a re-run reproduces the same
+ * library. A Mongo instance is optional — without one, the SQLite half still
+ * runs and the comparison rows say so.
  */
 
 import { Database } from 'bun:sqlite';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { MongoClient } from 'mongodb';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
 import { LIVE_ASSET_PREDICATE } from '../../src/db/sqlite/ddl/assets.ts';
 import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
 import { ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
 import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
 import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
-import { newObjectIdHex } from '../../src/db/sqlite/object-id.ts';
 import { findListItems as mongoFindListItems } from '../../src/db/assets.repo.ts';
 import { findListItems as sqliteFindListItems } from '../../src/db/sqlite/repos/assets.repo.ts';
 import { testSqliteDb } from '../../src/db/sqlite/repos/assets.test-helpers.ts';
 import { listItemsSql, locationsByAssetIdsSql } from '../../src/db/sqlite/repos/assets.sql.ts';
 import { generateLibrary } from './generate.ts';
-import { CAMERAS, LENSES, PLACES, SCENES, skewedIndex, words } from './fixtures.ts';
+import { buildMongoLibrary } from './mongo-library.ts';
 
 const DEFAULT_ASSETS = 60_000;
 const PAGE = 1000;
 const RUNS = 5;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const BENCH_DIR = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
+const DB_PATH = `${BENCH_DIR}/list-items-compare.db`;
+/** WAL leaves two sidecars beside the database; all three go together. */
+const DB_SUFFIXES = ['', '-wal', '-shm'];
 
-function median(samples: number[]): number {
-  const sorted = [...samples].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)]!;
-}
+/** The fallback lookup the ticket calls a defect, bound the same way on both engines. */
+const PHASSET_DEVICE = 'device-1';
+const PHASSET_LOCAL_ID = 'no-such-id';
 
-async function timed<T>(runs: number, fn: () => Promise<T>): Promise<{ ms: number; value: T }> {
+async function timed<T>(fn: () => Promise<T>): Promise<{ ms: number; value: T }> {
   const samples: number[] = [];
   let value = await fn();
-  for (let i = 0; i < runs; i += 1) {
+  for (let i = 0; i < RUNS; i += 1) {
     const startedAt = performance.now();
     value = await fn();
     samples.push(performance.now() - startedAt);
   }
-  return { ms: median(samples), value };
+  samples.sort((a, b) => a - b);
+  return { ms: samples[Math.floor(samples.length / 2)]!, value };
 }
 
-function kb(bytes: number): string {
+function size(bytes: number): string {
   return bytes < 1_000_000
     ? `${(bytes / 1024).toFixed(1)} KB`
     : `${(bytes / 1_048_576).toFixed(2)} MB`;
@@ -69,13 +70,27 @@ function kb(bytes: number): string {
 
 interface SqliteLibrary {
   db: Database;
-  directory: string;
   libraryId: string;
 }
 
+/**
+ * Removes a previous run's database.
+ *
+ * `Bun.file().delete()` rather than `node:fs` because the API's lint config
+ * restricts raw filesystem imports — the same workaround `./run.ts` uses, and
+ * for the same reason.
+ */
+async function removeDatabase(): Promise<void> {
+  for (const suffix of DB_SUFFIXES) {
+    await Bun.file(`${DB_PATH}${suffix}`)
+      .delete()
+      .catch(() => {});
+  }
+}
+
 async function buildSqlite(assetCount: number): Promise<SqliteLibrary> {
-  const directory = mkdtempSync(join(tmpdir(), 'maple-listcompare-'));
-  const db = new Database(join(directory, 'maple.sqlite'));
+  await removeDatabase();
+  const db = new Database(DB_PATH, { create: true });
   for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
   await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
   generateLibrary(db, { assetCount });
@@ -83,256 +98,147 @@ async function buildSqlite(assetCount: number): Promise<SqliteLibrary> {
   db.exec(ASSETS_FTS_REBUILD_SQL);
   db.exec('ANALYZE');
   const libraryId = (db.query(`SELECT id FROM folders LIMIT 1`).get() as { id: string }).id;
-  return { db, directory, libraryId };
+  return { db, libraryId };
 }
 
 /** Bytes the database hands the process for one page, before any transform. */
-function sqlitePageBytes(db: Database, pageSize: number): number {
-  const rows = db.query(listItemsSql([], true)).all(pageSize) as Array<{ id: string }>;
+function sqlitePageBytes(db: Database): number {
+  const rows = db.query(listItemsSql([], true)).all(PAGE) as Array<{ id: string }>;
   const ids = rows.map((row) => row.id);
   const locations = db.query(locationsByAssetIdsSql(ids.length)).all(...ids);
   return JSON.stringify(rows).length + JSON.stringify(locations).length;
 }
 
+function plan(db: Database, sql: string, ...params: unknown[]): string {
+  const rows = db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...(params as never[])) as Array<{
+    detail: string;
+  }>;
+  return rows.map((row) => row.detail).join(' / ');
+}
+
+const PHASSET_LOOKUP_SQL = `SELECT p.asset_id FROM asset_phasset_links p
+   WHERE p.device_id = ? AND p.phasset_local_id = ?
+     AND EXISTS (SELECT 1 FROM asset_locations l
+                  WHERE l.asset_id = p.asset_id AND l.library_id = ? AND l.deleted_at IS NULL)
+   LIMIT 1`;
+
+/** The shape the schema doc calls load-bearing, against the one it warns about. */
+const SEMI_JOIN_SQL = `SELECT a.id FROM assets a INDEXED BY assets_live_captured
+   WHERE a.${LIVE_ASSET_PREDICATE}
+     AND EXISTS (SELECT 1 FROM asset_locations l
+                  WHERE l.asset_id = a.id AND l.ordinal = 0 AND l.library_id = ?)
+   ORDER BY a.captured_at DESC, a.id LIMIT 200`;
+
+const INNER_JOIN_SQL = `SELECT a.id FROM assets a
+     JOIN asset_locations l ON l.asset_id = a.id AND l.ordinal = 0
+   WHERE a.${LIVE_ASSET_PREDICATE} AND l.library_id = ?
+   ORDER BY a.captured_at DESC, a.id LIMIT 200`;
+
 // ---------------------------------------------------------------------------
 // Mongo side
 // ---------------------------------------------------------------------------
 
-/**
- * One asset document, shaped like production rather than like a fixture.
- *
- * The size is the point: production documents average 8 KB because of the
- * vision payload, the transcript and the face embeddings, and those are
- * exactly the fields `findListItems` fetches and then throws away.
- */
-function mongoDocument(index: number, libraryId: ObjectId, random: () => number): object {
-  const [make, model] = CAMERAS[skewedIndex(random, CAMERAS.length)]!;
-  const [countryCode, region, locality] = PLACES[skewedIndex(random, PLACES.length)]!;
-  const captured = new Date(Date.UTC(2019 + (index % 7), index % 12, (index % 27) + 1));
-  const hasVision = random() < 0.8;
-  const faces = Array.from({ length: random() < 0.4 ? 2 : 0 }, () => ({
-    bbox: { x: random(), y: random(), w: 0.2, h: 0.2 },
-    person_id: null,
-    confidence: 0.9,
-    // A 512-float ArcFace vector, which is most of what makes a face row big.
-    embedding: Array.from({ length: 512 }, () => Math.round(random() * 1e6) / 1e6),
-    embedding_version: 'arcface_r100_glint360k_v1',
-  }));
-  return {
-    _id: new ObjectId(),
-    fileinfo: [
-      {
-        path: `${2019 + (index % 7)}/${String((index % 12) + 1).padStart(2, '0')}`,
-        filename: `IMG_${String(index).padStart(7, '0')}.dng`,
-        library_id: libraryId,
-        deleted_at: null,
-      },
-    ],
-    size: 40_000_000 + index,
-    mtime: captured.getTime(),
-    rating: Math.floor(random() * 6),
-    flag: 0,
-    color_label: '',
-    has_xmp: random() < 0.35,
-    sidecar_ver: 0,
-    hidden: false,
-    hidden_ack: false,
-    is_screenshot: random() < 0.08,
-    indexed_at: captured.toISOString(),
-    live_location_count: 1,
-    deleted_at: null,
-    exif: {
-      captured_at: captured.toISOString(),
-      captured_year: captured.getUTCFullYear(),
-      captured_month: captured.getUTCMonth() + 1,
-      camera_make: make,
-      camera_model: model,
-      lens: LENSES[skewedIndex(random, LENSES.length)],
-      iso: [100, 200, 400, 800, 1600][Math.floor(random() * 5)],
-      gps: { lat: 40 + random(), lng: -74 + random() },
-    },
-    place: {
-      source: 'nominatim',
-      geocoder_version: 3,
-      rollups: { locality, region, country_code: countryCode },
-      search_blob: `${locality} ${region}`.toLowerCase(),
-    },
-    vision: hasVision
-      ? {
-          caption: words(random, 40),
-          tags: Array.from({ length: 12 }, () => words(random, 1)),
-          subjects: Array.from({ length: 6 }, () => words(random, 1)),
-          setting: words(random, 2),
-          scene_type: SCENES[Math.floor(random() * SCENES.length)],
-          notable_objects: Array.from({ length: 8 }, () => words(random, 2)),
-          text_visible: words(random, 30),
-        }
-      : null,
-    description: hasVision ? words(random, 40) : null,
-    ocr_text: hasVision ? words(random, 30) : null,
-    transcript: random() < 0.1 ? { text: words(random, 400), language: 'en' } : null,
-    faces,
-    search_blob: words(random, 60),
-    stages: Object.fromEntries(
-      ['exif', 'thumb', 'preview', 'describe', 'geocode', 'meili'].map((stage) => [
-        stage,
-        { version: 1, attempts: 0, dead: false, processed_at: captured.toISOString() },
-      ]),
-    ),
-    phasset_links:
-      random() < 0.5
-        ? [
-            {
-              device_id: `device-${index % 4}`,
-              phasset_local_id: `${newObjectIdHex()}/L0/001`,
-              first_seen: captured.toISOString(),
-            },
-          ]
-        : [],
-  };
+/** The two report lines the Mongo half contributes. */
+interface MongoRows {
+  page: string;
+  lookup: string;
 }
 
-/** A seeded PRNG, so the Mongo library reproduces like the SQLite one. */
-function makeRandom(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+const MONGO_UNAVAILABLE: MongoRows = {
+  page: 'mongodb unavailable — skipped',
+  lookup: 'mongodb unavailable — skipped',
+};
 
-/** The indexes production carries for these two query shapes. */
-async function buildMongo(db: Db, assetCount: number): Promise<ObjectId> {
-  const libraryId = new ObjectId();
-  await db.collection('folders').insertOne({ _id: libraryId, path: '/libraries/bench' } as never);
-  const assets = db.collection('assets');
-  const random = makeRandom(0x5eed);
-  const batch: object[] = [];
-  for (let i = 0; i < assetCount; i += 1) {
-    batch.push(mongoDocument(i, libraryId, random));
-    if (batch.length === 5000) {
-      await assets.insertMany(batch as never[]);
-      batch.length = 0;
-    }
-  }
-  if (batch.length > 0) await assets.insertMany(batch as never[]);
-  await assets.createIndex({ deleted_at: 1 }, { partialFilterExpression: { deleted_at: null } });
-  await assets.createIndex({ 'fileinfo.library_id': 1, 'exif.captured_at': -1, _id: 1 });
-  return libraryId;
-}
-
-// ---------------------------------------------------------------------------
-// Report
-// ---------------------------------------------------------------------------
-
-async function main(): Promise<void> {
-  const assetCount = Number.parseInt(process.argv[2] ?? '', 10) || DEFAULT_ASSETS;
-  console.log(`#3746 — findListItems before/after, ${assetCount.toLocaleString()} assets\n`);
-
-  const sqlite = await buildSqlite(assetCount);
-  const sqliteHandle = testSqliteDb(sqlite.db);
-  const sqlitePage = await timed(RUNS, () =>
-    sqliteFindListItems({ liveOnly: true }, PAGE, sqliteHandle),
-  );
-  const sqliteFetched = sqlitePageBytes(sqlite.db, PAGE);
-
-  let mongoClient: MongoClient | null = null;
-  let mongoRow = 'mongodb unavailable — skipped';
-  let mongoLookupRow = 'mongodb unavailable — skipped';
+async function measureMongo(assetCount: number): Promise<MongoRows> {
+  let client: MongoClient | null = null;
   try {
-    mongoClient = await MongoClient.connect(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
-    const dbName = `maple_listcompare_${Date.now()}`;
-    const mongoDb = mongoClient.db(dbName);
-    await buildMongo(mongoDb, assetCount);
+    client = await MongoClient.connect(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
+    const db = client.db(`maple_listcompare_${Date.now()}`);
+    await buildMongoLibrary(db, assetCount);
 
-    const mongoPage = await timed(RUNS, () =>
-      mongoFindListItems({ liveOnly: true }, PAGE, mongoDb),
-    );
-    const fetched = await mongoDb
-      .collection('assets')
-      .find({ deleted_at: null })
-      .limit(PAGE)
-      .toArray();
-    mongoRow = `${mongoPage.ms.toFixed(1)} ms | fetched ${kb(JSON.stringify(fetched).length)} | DTO ${kb(
-      JSON.stringify(mongoPage.value).length,
-    )}`;
+    const page = await timed(() => mongoFindListItems({ liveOnly: true }, PAGE, db));
+    const fetched = await db.collection('assets').find({ deleted_at: null }).limit(PAGE).toArray();
 
-    const explain = await mongoDb
+    // The current filter, verbatim: two dotted paths with no index behind them.
+    const explain = await db
       .collection('assets')
       .find({
-        'phasset_links.device_id': 'device-1',
-        'phasset_links.phasset_local_id': 'no-such-id',
+        'phasset_links.device_id': PHASSET_DEVICE,
+        'phasset_links.phasset_local_id': PHASSET_LOCAL_ID,
       })
       .explain('executionStats');
     const stats = (
       explain as { executionStats: { executionTimeMillis: number; totalDocsExamined: number } }
     ).executionStats;
     const stage = JSON.stringify(explain).includes('"COLLSCAN"') ? 'COLLSCAN' : 'indexed';
-    mongoLookupRow = `${stage}, ${stats.totalDocsExamined.toLocaleString()} docs examined, ${stats.executionTimeMillis} ms`;
 
-    await mongoDb.dropDatabase();
+    await db.dropDatabase();
+    return {
+      page: `${page.ms.toFixed(1)} ms | fetched ${size(JSON.stringify(fetched).length)} | DTO ${size(
+        JSON.stringify(page.value).length,
+      )}`,
+      lookup: `${stage}, ${stats.totalDocsExamined.toLocaleString()} docs examined, ${stats.executionTimeMillis} ms`,
+    };
   } catch (err) {
     console.log(`  (mongo half skipped: ${err instanceof Error ? err.message : String(err)})\n`);
+    return MONGO_UNAVAILABLE;
   } finally {
-    await mongoClient?.close();
+    await client?.close();
   }
+}
 
-  const sqlitePlan = (sql: string, ...params: unknown[]): string =>
-    (
-      sqlite.db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...(params as never[])) as Array<{
-        detail: string;
-      }>
-    )
-      .map((row) => row.detail)
-      .join(' / ');
+// ---------------------------------------------------------------------------
+// Report
+// ---------------------------------------------------------------------------
 
-  const lookupSql = `SELECT p.asset_id FROM asset_phasset_links p
-     WHERE p.device_id = ? AND p.phasset_local_id = ?
-       AND EXISTS (SELECT 1 FROM asset_locations l
-                    WHERE l.asset_id = p.asset_id AND l.library_id = ? AND l.deleted_at IS NULL)
-     LIMIT 1`;
-  const lookup = await timed(RUNS, async () =>
-    sqlite.db.query(lookupSql).all('device-1', 'no-such-id', sqlite.libraryId),
-  );
-
-  // The shape the schema doc calls load-bearing, against the shape it warns
-  // about: same result, same data, one planner decision apart.
-  const semiJoin = `SELECT a.id FROM assets a INDEXED BY assets_live_captured
-     WHERE a.${LIVE_ASSET_PREDICATE}
-       AND EXISTS (SELECT 1 FROM asset_locations l
-                    WHERE l.asset_id = a.id AND l.ordinal = 0 AND l.library_id = ?)
-     ORDER BY a.captured_at DESC, a.id LIMIT 200`;
-  const innerJoin = `SELECT a.id FROM assets a
-       JOIN asset_locations l ON l.asset_id = a.id AND l.ordinal = 0
-     WHERE a.${LIVE_ASSET_PREDICATE} AND l.library_id = ?
-     ORDER BY a.captured_at DESC, a.id LIMIT 200`;
-  const semi = await timed(RUNS, async () => sqlite.db.query(semiJoin).all(sqlite.libraryId));
-  const inner = await timed(RUNS, async () => sqlite.db.query(innerJoin).all(sqlite.libraryId));
-
+function reportPage(sqlite: SqliteLibrary, ms: number, dtoBytes: number, mongo: string): void {
   console.log(`findListItems, ${PAGE} rows`);
-  console.log(`  mongo   ${mongoRow}`);
+  console.log(`  mongo   ${mongo}`);
   console.log(
-    `  sqlite  ${sqlitePage.ms.toFixed(1)} ms | fetched ${kb(sqliteFetched)} | DTO ${kb(
-      JSON.stringify(sqlitePage.value).length,
+    `  sqlite  ${ms.toFixed(1)} ms | fetched ${size(sqlitePageBytes(sqlite.db))} | DTO ${size(
+      dtoBytes,
     )}`,
   );
+}
 
+function reportLookup(sqlite: SqliteLibrary, ms: number, mongo: string): void {
+  const args = [PHASSET_DEVICE, PHASSET_LOCAL_ID, sqlite.libraryId];
   console.log(`\nbackup-sidecar fallback lookup`);
-  console.log(`  mongo   ${mongoLookupRow}`);
-  console.log(`  sqlite  ${lookup.ms.toFixed(3)} ms`);
-  console.log(`          ${sqlitePlan(lookupSql, 'device-1', 'no-such-id', sqlite.libraryId)}`);
+  console.log(`  mongo   ${mongo}`);
+  console.log(`  sqlite  ${ms.toFixed(3)} ms`);
+  console.log(`          ${plan(sqlite.db, PHASSET_LOOKUP_SQL, ...args)}`);
+}
 
+function reportGridShape(sqlite: SqliteLibrary, semiMs: number, innerMs: number): void {
   console.log(`\ngrid page by library and date, 200 rows`);
-  console.log(`  semi-join   ${semi.ms.toFixed(2)} ms — ${sqlitePlan(semiJoin, sqlite.libraryId)}`);
   console.log(
-    `  inner join  ${inner.ms.toFixed(2)} ms — ${sqlitePlan(innerJoin, sqlite.libraryId)}`,
+    `  semi-join   ${semiMs.toFixed(2)} ms — ${plan(sqlite.db, SEMI_JOIN_SQL, sqlite.libraryId)}`,
   );
+  console.log(
+    `  inner join  ${innerMs.toFixed(2)} ms — ${plan(sqlite.db, INNER_JOIN_SQL, sqlite.libraryId)}`,
+  );
+}
+
+async function main(): Promise<void> {
+  const assetCount = Number.parseInt(process.argv[2] ?? '', 10) || DEFAULT_ASSETS;
+  console.log(`#3746 — findListItems before/after, ${assetCount.toLocaleString()} assets\n`);
+
+  const sqlite = await buildSqlite(assetCount);
+  const handle = testSqliteDb(sqlite.db);
+  const lookupArgs = [PHASSET_DEVICE, PHASSET_LOCAL_ID, sqlite.libraryId];
+
+  const page = await timed(() => sqliteFindListItems({ liveOnly: true }, PAGE, handle));
+  const lookup = await timed(async () => sqlite.db.query(PHASSET_LOOKUP_SQL).all(...lookupArgs));
+  const semi = await timed(async () => sqlite.db.query(SEMI_JOIN_SQL).all(sqlite.libraryId));
+  const inner = await timed(async () => sqlite.db.query(INNER_JOIN_SQL).all(sqlite.libraryId));
+  const mongo = await measureMongo(assetCount);
+
+  reportPage(sqlite, page.ms, JSON.stringify(page.value).length, mongo.page);
+  reportLookup(sqlite, lookup.ms, mongo.lookup);
+  reportGridShape(sqlite, semi.ms, inner.ms);
 
   sqlite.db.close();
-  rmSync(sqlite.directory, { recursive: true, force: true });
+  await removeDatabase();
 }
 
 await main();
