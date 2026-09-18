@@ -1,6 +1,6 @@
 # iPhone Photos-style Preview hero — repair plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> This plan was written with the superpowers writing-plans skill and executed task by task with executing-plans; steps use checkbox syntax for tracking.
 
 **Goal:** On iPhone, tapping a grid tile grows the photo out of that tile into Preview, and pulling down shrinks it back into the _current_ photo's tile with the grid visible beneath — one continuous motion, chrome fading, no duplicate image, no safe-area glitch — and the grid pinches between square tiers exactly like Photos.
 
