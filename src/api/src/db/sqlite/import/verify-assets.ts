@@ -37,10 +37,31 @@ type Cell = [expected: unknown, actual: unknown];
 /** A row read back from SQLite, or nothing when there was none. */
 type Row = Record<string, unknown> | undefined | null;
 
-/** Renders a value for the expected/actual strings of a {@link FieldCheck}. */
+/**
+ * Renders a value for the expected/actual strings of a {@link FieldCheck}.
+ *
+ * Normalised first, then rendered, because the source and the row reach this
+ * function in different forms and the comparison is on the rendered text. A
+ * BSON date in `exif` is stored by the mapper as the ISO string the generated
+ * column then extracts — correctly — but rendering the source side as JSON
+ * quoted it and the column's own string did not, so every sampled asset
+ * reported a mismatch on a database that was right. The types say
+ * `exif.captured_at` is always a string; `description_meta` is this branch's
+ * own reminder that the types are not the whole truth.
+ */
 function show(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
-  return typeof value === 'string' ? value : JSON.stringify(normaliseJson(value));
+  const normalised = normaliseSafely(value);
+  if (normalised === null || normalised === undefined) return 'null';
+  return typeof normalised === 'string' ? normalised : JSON.stringify(normalised);
+}
+
+/** {@link normaliseJson}, except that an undecided type renders as its name. */
+function normaliseSafely(value: unknown): unknown {
+  try {
+    return normaliseJson(value);
+  } catch (err) {
+    return err instanceof Error ? `[${err.message}]` : '[unrenderable]';
+  }
 }
 
 /** Turns a table of cells into checks, comparing rendered forms. */
