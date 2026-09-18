@@ -348,3 +348,22 @@ describe('LAN handoff', () => {
     expect(await redeemLanHandoffCode('never-issued', db)).toBeNull();
   });
 });
+
+describe('the native-code claim lookup is keyed', () => {
+  test('polling for a pending code seeks the state index rather than scanning', async () => {
+    using handle = await createTestDatabase();
+    // `claimNativeCode` runs this once per poll, and the Apple shell polls in
+    // a loop while it waits for the browser to finish signing in.
+    const rows = handle.db
+      .query(
+        `EXPLAIN QUERY PLAN
+           SELECT id FROM native_auth_codes
+            WHERE state = ? AND code_challenge = ? AND consumed_at IS NULL AND expires_at > ?
+            ORDER BY created_at, id LIMIT 1`,
+      )
+      .all('s', 'c', NOW) as Array<{ detail: string }>;
+    const detail = rows.map((row) => row.detail).join('\n');
+    expect(detail).toContain('native_auth_codes_state');
+    expect(detail).not.toContain('SCAN');
+  });
+});
