@@ -20,15 +20,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MongoClient } from 'mongodb';
 import { ALL_STAGE_NAMES } from '../../../workers/stages/stage-names.ts';
-import {
-  closeImportSession,
-  openImportSession,
-  runImportOn,
-  verifyImport,
-  type ImportOptions,
-  type ImportReport,
-  type VerifyReport,
-} from './index.ts';
+import { closeImportSession, openImportSession, runImportOn } from './run.ts';
+import type { ImportOptions, ImportReport, VerifyReport } from './types.ts';
+import { verifyImport } from './verify.ts';
 import {
   connectTestMongo,
   seedLibrary,

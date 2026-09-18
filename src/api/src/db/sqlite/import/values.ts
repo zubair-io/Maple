@@ -169,7 +169,7 @@ export function toBlob(value: unknown): Uint8Array | null {
 }
 
 /** A short, safe rendering of an unexpected value for an error message. */
-export function describe(value: unknown): string {
+function describe(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   const text = typeof value === 'object' ? JSON.stringify(normaliseJson(value)) : String(value);

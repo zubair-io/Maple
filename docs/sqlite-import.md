@@ -223,9 +223,11 @@ unassigned, duplicate Apple Photos links, a large vision payload with an
 library of identical well-formed documents would satisfy the row counts and
 prove nothing.
 
-| File                     | What it holds to                                                              |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| `import.test.ts`         | A full import: per-table counts, the fan-out, identifiers, the whole verdict. |
-| `import-fields.test.ts`  | Field-level comparison — arrays, JSON payloads, dates, blobs, renamed fields. |
-| `import-resume.test.ts`  | A real interruption mid-assets, then convergence on an uninterrupted import.  |
-| `import-changes.test.ts` | The change-log window, and that its floor holds across a resume.              |
+| File                         | What it holds to                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `import.test.ts`             | A full import: per-table counts, the fan-out, identifiers, the whole verdict. |
+| `import-fields.test.ts`      | The asset row: JSON payloads, generated columns, and the nested arrays.       |
+| `import-collections.test.ts` | The detail payloads and every collection that is not an asset.                |
+| `import-resume.test.ts`      | A real interruption mid-assets, then convergence on an uninterrupted import.  |
+| `import-changes.test.ts`     | The change-log window, and that its floor holds across a resume.              |
+| `cli.test.ts`                | Argument parsing and report rendering, which need no database.                |

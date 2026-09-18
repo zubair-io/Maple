@@ -20,13 +20,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ObjectId, type MongoClient } from 'mongodb';
-import {
-  closeImportSession,
-  openImportSession,
-  runImportOn,
-  verifyImport,
-  type ImportOptions,
-} from './index.ts';
+import { closeImportSession, openImportSession, runImportOn } from './run.ts';
+import type { ImportOptions } from './types.ts';
+import { verifyImport } from './verify.ts';
 import {
   connectTestMongo,
   seedLibrary,

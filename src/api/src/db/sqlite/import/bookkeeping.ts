@@ -33,7 +33,7 @@ import type { Database } from 'bun:sqlite';
 import { ObjectId } from 'mongodb';
 import type { IdKind, ImportReject } from './types.ts';
 
-export const BOOKKEEPING_DDL = `
+const BOOKKEEPING_DDL = `
 CREATE TABLE IF NOT EXISTS import_checkpoint (
   source      TEXT NOT NULL PRIMARY KEY,
   -- Highest source _id committed so far, rendered per id_kind. NULL before the
@@ -59,9 +59,6 @@ CREATE TABLE IF NOT EXISTS import_meta (
   value TEXT NOT NULL
 ) WITHOUT ROWID;
 `;
-
-/** Names of the three tables, so a caller can drop them after a cutover. */
-export const BOOKKEEPING_TABLES = ['import_checkpoint', 'import_rejects', 'import_meta'] as const;
 
 /** Where one collection's import stopped. */
 export interface Checkpoint {
