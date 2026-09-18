@@ -80,6 +80,22 @@ describe('getOrCreateJwtSecret', () => {
     expect((await getOrCreateJwtSecret(db)).secret).toBe(minted.secret);
   });
 
+  test('fills a row whose value is the empty string', async () => {
+    using handle = await createTestDatabase();
+    // The other half-written row. `readSecret` counts `''` as no secret, so the
+    // upsert's guard has to count it too — otherwise the read says "mint one",
+    // the guarded update matches nothing, the re-read says "still nothing", and
+    // the function throws. The row never changes, so that throw repeats on
+    // every boot for good and no token can ever be signed again.
+    run(handle.db, `INSERT INTO server_state (id, value) VALUES (?, '')`, JWT_SECRET_DOC_ID);
+    const db = testSqliteDb(handle.db);
+    const minted = await getOrCreateJwtSecret(db);
+    expect(minted.created).toBe(true);
+    expect(minted.secret.length).toBeGreaterThan(0);
+    // And it persisted, so the next boot signs with the same key.
+    expect(await getOrCreateJwtSecret(db)).toEqual({ secret: minted.secret, created: false });
+  });
+
   test('never overwrites a secret that is already there', async () => {
     using handle = await createTestDatabase();
     run(
