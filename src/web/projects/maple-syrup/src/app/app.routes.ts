@@ -52,6 +52,17 @@ const baseRoutes: Routes = [
     loadComponent: () =>
       import('./maple-ui-page/maple-ui-page.component').then((m) => m.MapleUiPageComponent),
   },
+  // Public legal pages, linked from the App Store Connect submission (App
+  // Privacy, App Information) and from Settings.
+  {
+    path: 'terms',
+    loadComponent: () => import('./legal/terms/terms.component').then((m) => m.TermsComponent),
+  },
+  {
+    path: 'privacy',
+    loadComponent: () =>
+      import('./legal/privacy/privacy.component').then((m) => m.PrivacyComponent),
+  },
 ];
 
 export const routes: Routes = [...baseRoutes, { path: '**', redirectTo: '' }];
