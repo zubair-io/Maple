@@ -64,7 +64,13 @@ async function tick(
   const outcome = await claimStageBatch(request({ now: options.now, maxAttempts }), db);
   const results = [];
   for (const row of outcome.claimed) {
-    const target = { assetId: row.asset_id, stage: STAGE, targetVersion: TARGET_VERSION };
+    // The lease the claim just stamped: every writeback below is fenced on it.
+    const target = {
+      assetId: row.asset_id,
+      stage: STAGE,
+      targetVersion: TARGET_VERSION,
+      lease: row.next_attempt_at,
+    };
     try {
       const value = options.handler();
       await db.transaction(

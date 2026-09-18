@@ -11,24 +11,27 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  StageWritebackBatch,
   claimRollbackStatement,
   invalidationStatements,
+  stageFailureStatements,
   stageResultStatements,
   stageSuccessStatements,
   tagLocationMissingStatement,
   type StageAttempt,
 } from './stage-writeback.ts';
+import { renewStageLease } from './stage-claim.ts';
 import { testSqliteDb } from './assets.test-helpers.ts';
 import { damagedTag, seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 
 const STAGE = 'describe';
 const AT = new Date('2026-06-01T12:00:00.000Z');
+/** The lease a claim would have stamped. Seeded rows carry the same value. */
+const LEASE = '2026-06-01T12:15:00.000Z';
 
 function attempt(assetId: string, overrides: Partial<StageAttempt> = {}): StageAttempt {
   return {
-    target: { assetId, stage: STAGE, targetVersion: 7 },
+    target: { assetId, stage: STAGE, targetVersion: 7, lease: LEASE },
     attemptNo: 1,
     maxAttempts: 3,
     dependsOn: ['preview'],
@@ -37,18 +40,37 @@ function attempt(assetId: string, overrides: Partial<StageAttempt> = {}): StageA
   };
 }
 
+/**
+ * A claimable asset whose stage rows are already leased, so a writeback fenced
+ * on {@link LEASE} matches. Every stage named gets the lease unless the case
+ * sets its own `nextAttemptAt`.
+ */
+function seedLeased(
+  db: Parameters<typeof seedClaimableAsset>[0],
+  options: Parameters<typeof seedClaimableAsset>[1] = {},
+): string {
+  const stages = Object.fromEntries(
+    Object.entries(options.stages ?? {}).map(([stage, state]) => [
+      stage,
+      { nextAttemptAt: LEASE, ...state },
+    ]),
+  );
+  return seedClaimableAsset(db, { ...options, stages });
+}
+
 describe('a clean run', () => {
   test('`wrote` puts the stage at target and clears the whole failure trail', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, {
+    // A row that failed before and has now been re-claimed: the failure trail
+    // is still on it, but `next_attempt_at` is this attempt's lease.
+    const assetId = seedLeased(handle.db, {
       stages: {
         [STAGE]: {
           version: 3,
           attempts: 2,
           lastError: 'provider timed out',
           failedAt: '2026-05-01T00:00:00.000Z',
-          nextAttemptAt: '2026-05-01T00:05:00.000Z',
         },
       },
     });
@@ -72,7 +94,7 @@ describe('a clean run', () => {
   test('`skip` records the reason and still resets attempts, so it cannot dead-letter', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: { attempts: 2 } } });
+    const assetId = seedLeased(handle.db, { stages: { [STAGE]: { attempts: 2 } } });
 
     await db.transaction(
       stageResultStatements(attempt(assetId), { skip: 'no-resolvable-location' }),
@@ -88,7 +110,7 @@ describe('a clean run', () => {
   test('`patch` lands the handler’s own writes in the same transaction', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } });
+    const assetId = seedLeased(handle.db, { stages: { [STAGE]: {} } });
 
     await db.transaction(
       stageResultStatements(attempt(assetId), {
@@ -112,7 +134,7 @@ describe('a clean run', () => {
   test('a handler that tries to write its own bookkeeping is rejected', () => {
     expect(() =>
       stageSuccessStatements(
-        { assetId: 'a', stage: STAGE, targetVersion: 7 },
+        { assetId: 'a', stage: STAGE, targetVersion: 7, lease: LEASE },
         { extra: [{ sql: 'UPDATE stage_state SET version = 99', params: [] }] },
       ),
     ).toThrow(/stage_state/);
@@ -123,7 +145,7 @@ describe('invalidates', () => {
   test('resets the named downstream stage in the same write as the patch', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, {
+    const assetId = seedLeased(handle.db, {
       stages: { [STAGE]: {}, meili: { version: 6, attempts: 1, dead: true } },
     });
 
@@ -156,7 +178,7 @@ describe('invalidates', () => {
   test('creates the downstream row when it is missing rather than silently no-opping', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } });
+    const assetId = seedLeased(handle.db, { stages: { [STAGE]: {} } });
 
     await db.transaction(
       stageResultStatements(attempt(assetId), { patch: [], invalidates: ['meili'] }),
@@ -186,7 +208,7 @@ describe('rearm', () => {
   test('resets the upstream stage and leaves this one below target, attempt kept', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, {
+    const assetId = seedLeased(handle.db, {
       stages: { [STAGE]: { version: 0, attempts: 1 }, preview: { version: 4 } },
     });
 
@@ -208,7 +230,7 @@ describe('rearm', () => {
   test('stops re-arming once out of attempts', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, {
+    const assetId = seedLeased(handle.db, {
       stages: { [STAGE]: { attempts: 2 }, preview: { version: 4 } },
     });
 
@@ -238,7 +260,7 @@ describe('damaged', () => {
   test('parks the stage after one attempt and tags the asset', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } });
+    const assetId = seedLeased(handle.db, { stages: { [STAGE]: {} } });
 
     await db.transaction(
       stageResultStatements(attempt(assetId, { tagsDamagedOnDeadLetter: true }), {
@@ -265,7 +287,7 @@ describe('damaged', () => {
   test('a tagged asset is left alone by a second stage reaching the same conclusion', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {}, thumb: {} } });
+    const assetId = seedLeased(handle.db, { stages: { [STAGE]: {}, thumb: {} } });
 
     await db.transaction(
       stageResultStatements(attempt(assetId, { tagsDamagedOnDeadLetter: true }), {
@@ -276,7 +298,7 @@ describe('damaged', () => {
       stageResultStatements(
         attempt(assetId, {
           tagsDamagedOnDeadLetter: true,
-          target: { assetId, stage: 'thumb', targetVersion: 1 },
+          target: { assetId, stage: 'thumb', targetVersion: 1, lease: LEASE },
         }),
         { damaged: 'second detection' },
       ),
@@ -300,12 +322,10 @@ describe('the ENOENT park', () => {
   test('hands the claim back without spending an attempt, and tags the location', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, {
-      stages: { [STAGE]: { attempts: 1, nextAttemptAt: '2026-06-01T12:15:00.000Z' } },
-    });
+    const assetId = seedLeased(handle.db, { stages: { [STAGE]: { attempts: 1 } } });
 
     await db.transaction([
-      claimRollbackStatement({ assetId, stage: STAGE, targetVersion: 7 }),
+      claimRollbackStatement({ assetId, stage: STAGE, targetVersion: 7, lease: LEASE }),
       tagLocationMissingStatement(assetId, 0, `stage-enoent:${STAGE}`, AT),
     ]);
 
@@ -331,7 +351,7 @@ describe('the ENOENT park', () => {
   test('a second detection does not move the timestamp the reaper counts from', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } });
+    const assetId = seedLeased(handle.db, { stages: { [STAGE]: {} } });
 
     await db.write(...toArgs(tagLocationMissingStatement(assetId, 0, 'first', AT)));
     await db.write(
@@ -348,61 +368,100 @@ describe('the ENOENT park', () => {
   });
 });
 
-describe('StageWritebackBatch', () => {
-  test('commits a whole tick in one transaction', async () => {
+describe('the lease fence', () => {
+  test('a writeback from an attempt whose lease was taken over changes nothing', async () => {
     using handle = await createTestDatabase();
-    const calls: number[] = [];
     const db = testSqliteDb(handle.db);
-    const counting = {
-      ...db,
-      transaction: async (statements: Parameters<typeof db.transaction>[0]) => {
-        calls.push(statements.length);
-        return db.transaction(statements);
-      },
-    };
-    const assets = Array.from({ length: 5 }, () =>
-      seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } }),
-    );
-    const batch = new StageWritebackBatch(counting);
+    // The row as a SECOND claimer left it: same asset, a different lease.
+    const secondLease = '2026-06-01T12:40:00.000Z';
+    const assetId = seedClaimableAsset(handle.db, {
+      stages: { [STAGE]: { version: 3, attempts: 1, nextAttemptAt: secondLease } },
+    });
 
-    for (const assetId of assets) {
-      await batch.record(stageResultStatements(attempt(assetId), { wrote: true }));
-    }
-    await batch.flush();
+    // The first claimer finishes late and writes back against ITS lease.
+    await db.transaction(stageResultStatements(attempt(assetId), { wrote: true }));
 
-    // Five results, one transaction, five statements. The Mongo runner issues
-    // one `updateOne` per asset per event — five round trips and five
-    // independent commits for the same work.
-    expect(calls).toEqual([5]);
-    expect(assets.map((id) => stageRow(handle.db, id, STAGE)?.version)).toEqual([7, 7, 7, 7, 7]);
+    // Unfenced, this would have set version 7 and cleared `next_attempt_at`,
+    // releasing a claim someone else is holding — so a third worker could take
+    // an asset two handlers were already running.
+    expect(stageRow(handle.db, assetId, STAGE)).toMatchObject({
+      version: 3,
+      attempts: 1,
+      next_attempt_at: secondLease,
+    });
   });
 
-  test('flushes early rather than letting one transaction grow without bound', async () => {
+  test('every terminal path is fenced, not just success', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const assets = Array.from({ length: 6 }, () =>
-      seedClaimableAsset(handle.db, { stages: { [STAGE]: {} } }),
+    const stale = { assetId: '', stage: STAGE, targetVersion: 7, lease: LEASE };
+    const secondLease = '2026-06-01T12:40:00.000Z';
+    const seed = (): string =>
+      seedClaimableAsset(handle.db, {
+        stages: { [STAGE]: { attempts: 1, nextAttemptAt: secondLease }, preview: { version: 4 } },
+      });
+    const failed = seed();
+    const rearmed = seed();
+    const damaged = seed();
+    const rolledBack = seed();
+
+    await db.transaction(
+      stageFailureStatements({
+        target: { ...stale, assetId: failed },
+        attemptNo: 1,
+        maxAttempts: 3,
+        err: new Error('late'),
+        retryDelayMs: () => 30_000,
+        failedAt: AT,
+      }).statements,
     );
-    const batch = new StageWritebackBatch(db, 2);
+    await db.transaction(
+      stageResultStatements(attempt(rearmed), { rearm: { stage: 'preview', reason: 'gone' } }),
+    );
+    await db.transaction(
+      stageResultStatements(attempt(damaged, { tagsDamagedOnDeadLetter: true }), {
+        damaged: 'unreadable',
+      }),
+    );
+    await db.transaction([claimRollbackStatement({ ...stale, assetId: rolledBack })]);
 
-    for (const assetId of assets) {
-      await batch.record(stageResultStatements(attempt(assetId), { wrote: true }));
+    // Not one of the four may touch the row: each of them writes
+    // `next_attempt_at`, so each of them would release the live claim.
+    for (const assetId of [failed, rearmed, damaged, rolledBack]) {
+      expect(stageRow(handle.db, assetId, STAGE)).toMatchObject({
+        attempts: 1,
+        dead: 0,
+        next_attempt_at: secondLease,
+      });
     }
-    await batch.flush();
-
-    expect(batch.size).toBe(0);
-    expect(assets.every((id) => stageRow(handle.db, id, STAGE)?.version === 7)).toBe(true);
   });
 
-  test('flushing an empty batch is free and does not write', async () => {
+  test('a renewed lease is the one the writeback must carry', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const batch = new StageWritebackBatch(db);
+    const assetId = seedLeased(handle.db, { stages: { [STAGE]: { attempts: 1 } } });
 
-    await batch.flush();
-    await batch.flush();
+    const renewed = await renewStageLease(
+      { assetId, stage: STAGE, lease: LEASE },
+      { now: new Date('2026-06-01T12:14:00.000Z'), leaseMs: 900_000 },
+      db,
+    );
+    // Writing back with the ORIGINAL lease now fences out, because renewing
+    // moved it — the runner has to carry the value forward.
+    await db.transaction(stageResultStatements(attempt(assetId), { wrote: true }));
+    const afterStale = stageRow(handle.db, assetId, STAGE);
+    await db.transaction(
+      stageResultStatements(
+        attempt(assetId, {
+          target: { assetId, stage: STAGE, targetVersion: 7, lease: renewed ?? '' },
+        }),
+        { wrote: true },
+      ),
+    );
 
-    expect(batch.size).toBe(0);
+    expect(renewed).toBe('2026-06-01T12:29:00.000Z');
+    expect(afterStale?.version).toBe(0);
+    expect(stageRow(handle.db, assetId, STAGE)?.version).toBe(7);
   });
 });
 

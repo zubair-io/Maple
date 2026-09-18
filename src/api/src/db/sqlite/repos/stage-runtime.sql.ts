@@ -33,6 +33,16 @@
  * partial index when the query's own `WHERE` provably implies the index's, and
  * the implication test is textual enough that a paraphrase loses the index.
  * {@link LIVE_ASSET_PREDICATE} is imported from the DDL rather than retyped.
+ *
+ * **Every write to a claimed row is fenced on the lease that claimed it.**
+ * `AND next_attempt_at = ?` is the last clause of the success, failure, re-arm,
+ * damaged and rollback statements, and it is not decoration: a handler that
+ * outlives `CLAIM_LEASE_MS` has already had its asset re-claimed by
+ * someone else, and an unfenced writeback would then clear that second
+ * claimer's lease and hand the asset to a third while two handlers were still
+ * running. Fenced, the stale write matches zero rows and the second claim is
+ * untouched. The lease string is the one the claim stamped, which
+ * `claimStageBatch` hands back on every row it won.
  */
 
 import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
@@ -86,6 +96,34 @@ const DEPENDENCY_SQL = `
        WHERE dep.asset_id = stage_state.asset_id AND dep.stage = ? AND dep.version >= ?
     )`;
 
+/** `dependencyCount` copies of the dependency probe, two parameters each. */
+function dependencyClauses(dependencyCount: number): string[] {
+  return Array.from({ length: dependencyCount }, () => DEPENDENCY_SQL);
+}
+
+/**
+ * The stage's own extra predicate, parenthesised so its internal `OR`s cannot
+ * escape and weaken a gate above it.
+ */
+function residualClauses(residualSql?: string): string[] {
+  return residualSql === undefined ? [] : [`(${residualSql})`];
+}
+
+/**
+ * The fence every write to a claimed row carries: the lease this caller was
+ * granted, compared against the one in the row.
+ *
+ * A handler slower than `CLAIM_LEASE_MS` — `transcribe` on a long video,
+ * `describe` against a cold model — has already lost its asset to a second
+ * claimer by the time it returns. Its writeback must not clear that claimer's
+ * lease, and the lease string is what tells the two attempts apart. Zero
+ * `changes` is how the caller learns it was fenced out; {@link
+ * STAGE_RENEW_LEASE_SQL} is how a handler that expects to be slow avoids
+ * getting there.
+ */
+const LEASE_FENCE = `
+     AND next_attempt_at = ?`;
+
 /**
  * The candidate scan. Parameters, in order: `stage`, `targetVersion`, `now`,
  * then two per dependency, then one per in-flight id, then the residual's own
@@ -102,16 +140,14 @@ export function stageClaimCandidatesSql(
   inFlightCount: number,
   residualSql?: string,
 ): string {
-  const dependencies = Array.from({ length: dependencyCount }, () => DEPENDENCY_SQL);
   const inFlight = inFlightCount === 0 ? [] : [`asset_id NOT IN (${placeholders(inFlightCount)})`];
-  const residual = residualSql === undefined ? [] : [`(${residualSql})`];
   const clauses = [
     'stage = ?',
     CLAIMABLE_GATES,
     ASSET_CLAIMABLE_SQL,
-    ...dependencies,
+    ...dependencyClauses(dependencyCount),
     ...inFlight,
-    ...residual,
+    ...residualClauses(residualSql),
   ];
   return `SELECT ${STAGE_STATE_COLUMNS}
      FROM stage_state
@@ -123,17 +159,18 @@ export function stageClaimCandidatesSql(
 /**
  * The claim itself: take one candidate, or find it already taken.
  *
- * Parameters: `leaseUntil`, `asset_id`, `stage`, `targetVersion`, `now`.
+ * Parameters: `leaseUntil`, `asset_id`, `stage`, `targetVersion`, `now`, then
+ * two per dependency, then the residual's own parameters.
  *
  * Two things happen in this one statement, and both matter.
  *
  * `attempts = attempts + 1` persists the attempt BEFORE the handler runs, so
  * an uncatchable process death — a native `abort()` inside libraw or onnx —
  * still counts against the attempt budget. That is the property #897 added and
- * it is why {@link STAGE_CRASH_EXHAUSTED_SQL} exists to sweep up after it.
+ * it is why {@link STAGE_PARK_EXHAUSTED_SQL} exists to sweep up after it.
  *
  * `next_attempt_at = <lease>` is what makes the claim exclusive. The gates
- * repeated in the `WHERE` are the same ones the candidate scan applied, so a
+ * repeated in the `WHERE` are every gate the candidate scan applied, so a
  * claimer that lost the race updates zero rows and learns it lost from
  * `changes`. On Mongo the equivalent guard is the runner's in-process
  * `inFlight` set, which protects one process against itself and nothing
@@ -142,12 +179,50 @@ export function stageClaimCandidatesSql(
  * writeback overwrites the lease — cleared on success, replaced by the real
  * retry backoff on failure — so the lease only outlives the attempt when the
  * process died holding it, which is exactly when something should reclaim it.
+ *
+ * Exclusivity would hold with only the three row-level gates, because the
+ * lease write is what falsifies them for the loser. The rest are here for the
+ * other race: the scan is an un-locked read, so an asset can be trashed,
+ * tagged damaged, or have an upstream stage invalidated in the window between
+ * being scanned and being taken, and re-asking the whole question is what
+ * stops that asset being dispatched anyway. The one gate deliberately NOT
+ * repeated is the in-flight exclusion — that set is this process's own
+ * bookkeeping, and the cross-process case it would stand in for is exactly
+ * what the lease covers.
  */
-export const STAGE_CLAIM_SQL = `
-  UPDATE stage_state
+export function stageClaimSql(dependencyCount: number, residualSql?: string): string {
+  const clauses = [
+    CLAIMABLE_GATES,
+    ASSET_CLAIMABLE_SQL,
+    ...dependencyClauses(dependencyCount),
+    ...residualClauses(residualSql),
+  ];
+  return `UPDATE stage_state
      SET attempts = attempts + 1, next_attempt_at = ?
    WHERE asset_id = ? AND stage = ?
-     AND ${CLAIMABLE_GATES}`;
+     AND ${clauses.join('\n     AND ')}`;
+}
+
+/**
+ * Push a held lease further out, without spending an attempt.
+ *
+ * The other half of the fence. Fencing alone would make a handler slower than
+ * `CLAIM_LEASE_MS` strictly worse off than before — its work would be
+ * silently discarded every time instead of clobbering someone else's — so a
+ * stage whose handler can legitimately run that long renews as it goes, and a
+ * renewal that matches zero rows tells it the claim is gone and the work
+ * should be abandoned rather than written.
+ *
+ * Compare-and-swap on the lease itself, for the same reason the claim is one:
+ * a renewal must not resurrect a claim that already expired and was taken by
+ * someone else.
+ *
+ * Parameters: `newLease`, `asset_id`, `stage`, `heldLease`.
+ */
+export const STAGE_RENEW_LEASE_SQL = `
+  UPDATE stage_state
+     SET next_attempt_at = ?
+   WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
  * A clean run: version at target, retry bookkeeping cleared.
@@ -156,13 +231,18 @@ export const STAGE_CLAIM_SQL = `
  * carry a stale error string (#2730) or a backoff gate (#2729) that would hold
  * its NEXT version bump hostage for the remainder of the ladder.
  *
- * Parameters: `version`, `last_error`, `processed_at`, `asset_id`, `stage`.
+ * Fenced on the lease, because this is the statement that clears it: an
+ * unfenced success from a handler that ran past its lease would release the
+ * claim a second worker is currently holding.
+ *
+ * Parameters: `version`, `last_error`, `processed_at`, `asset_id`, `stage`,
+ * `lease`.
  */
 export const STAGE_SUCCESS_SQL = `
   UPDATE stage_state
      SET version = ?, attempts = 0, last_error = ?, processed_at = ?,
          dead = 0, failed_at = NULL, next_attempt_at = NULL
-   WHERE asset_id = ? AND stage = ?`;
+   WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
  * Mark another stage stale so its poll loop rebuilds from what this one just
@@ -190,12 +270,12 @@ export const STAGE_INVALIDATE_SQL = `
  * stage completes and it re-claims automatically. The lease is cleared because
  * the asset is parked by the dependency, not by a backoff.
  *
- * Parameters: `last_error`, `dead`, `asset_id`, `stage`.
+ * Parameters: `last_error`, `dead`, `asset_id`, `stage`, `lease`.
  */
 export const STAGE_REARM_SELF_SQL = `
   UPDATE stage_state
      SET last_error = ?, dead = ?, next_attempt_at = NULL
-   WHERE asset_id = ? AND stage = ?`;
+   WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
  * A handler that classified the bytes as unreadable up front.
@@ -205,12 +285,12 @@ export const STAGE_REARM_SELF_SQL = `
  * park it. `version` is deliberately NOT bumped: if an operator clears the tag,
  * the asset reprocesses from here.
  *
- * Parameters: `last_error`, `asset_id`, `stage`.
+ * Parameters: `last_error`, `asset_id`, `stage`, `lease`.
  */
 export const STAGE_DAMAGED_SQL = `
   UPDATE stage_state
      SET attempts = 1, last_error = ?, dead = 1, next_attempt_at = NULL
-   WHERE asset_id = ? AND stage = ?`;
+   WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
  * A failed attempt. `dead` is computed by the caller from the attempt number
@@ -218,12 +298,12 @@ export const STAGE_DAMAGED_SQL = `
  * re-increments.
  *
  * Parameters: `last_error`, `dead`, `failed_at`, `next_attempt_at`,
- * `asset_id`, `stage`.
+ * `asset_id`, `stage`, `lease`.
  */
 export const STAGE_FAILURE_SQL = `
   UPDATE stage_state
      SET last_error = ?, dead = ?, failed_at = ?, next_attempt_at = ?
-   WHERE asset_id = ? AND stage = ?`;
+   WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
  * Give back a claim without spending an attempt, and make the row immediately
@@ -236,12 +316,12 @@ export const STAGE_FAILURE_SQL = `
  * ASSET_CLAIMABLE_SQL}), and if the reaper recovers the file it should be
  * claimable at once rather than sitting out a lease it never used.
  *
- * Parameters: `asset_id`, `stage`.
+ * Parameters: `asset_id`, `stage`, `lease`.
  */
 export const STAGE_CLAIM_ROLLBACK_SQL = `
   UPDATE stage_state
      SET attempts = MAX(attempts - 1, 0), next_attempt_at = NULL
-   WHERE asset_id = ? AND stage = ?`;
+   WHERE asset_id = ? AND stage = ?${LEASE_FENCE}`;
 
 /**
  * Park one row whose attempt budget was consumed without it ever completing —
@@ -255,23 +335,45 @@ export const STAGE_CLAIM_ROLLBACK_SQL = `
  * carry their attempt counts, so `stage-claim.ts` partitions them in memory,
  * which is also exactly what the Mongo runner does.
  *
- * Parameters: `last_error`, `asset_id`, `stage`.
+ * The predicate is a compare-and-swap for the same reason the claim's is. The
+ * partition it comes from is computed against a scan that took no lock, so an
+ * operator can raise the target version — or clear the dead-letter list —
+ * between the scan and this transaction. Re-asking "still out of attempts,
+ * still not parked, still below target" means the park loses that race
+ * instead of silently undoing the re-queue the operator just performed and
+ * blaming it on a crash that did not happen.
+ *
+ * Parameters: `last_error`, `asset_id`, `stage`, `maxAttempts`,
+ * `targetVersion`.
  */
-export const STAGE_MARK_DEAD_SQL = `
+export const STAGE_PARK_EXHAUSTED_SQL = `
   UPDATE stage_state
      SET dead = 1, last_error = ?, next_attempt_at = NULL
-   WHERE asset_id = ? AND stage = ?`;
+   WHERE asset_id = ? AND stage = ?
+     AND attempts >= ? AND dead = 0 AND version < ?`;
 
 /**
  * The version-bump reset: re-queue everything below the new target.
  *
  * Clears `dead` and the attempt count but leaves `version` alone — the row is
- * already below target, which is what makes it claimable. Parameters:
- * `stage`, `targetVersion`.
+ * already below target, which is what makes it claimable.
+ *
+ * `next_attempt_at` is deliberately untouched, which is both what the Mongo
+ * original did and what keeps a bump from revoking a live claim. A restart
+ * across a bump is the case: the outgoing process is still draining handlers
+ * for up to 30 seconds while the incoming one boots, sees the new target and
+ * runs this. Clearing the column here would drop the leases those in-flight
+ * handlers hold, and the new process would claim and run the same assets
+ * concurrently on its first tick. Nothing is stranded by leaving it: every
+ * path that parks a row — a dead-letter, a re-arm, a damaged classification —
+ * already sets the column to NULL, so the only rows still carrying a value are
+ * a live lease or an unexpired retry backoff, and both lift on their own.
+ *
+ * Parameters: `stage`, `targetVersion`.
  */
 export const STAGE_VERSION_BUMP_RESET_SQL = `
   UPDATE stage_state
-     SET dead = 0, attempts = 0, last_error = NULL, next_attempt_at = NULL
+     SET dead = 0, attempts = 0, last_error = NULL
    WHERE stage = ? AND version < ?`;
 
 /**
@@ -337,6 +439,37 @@ export function stagePendingCountSql(residualSql?: string): string {
      FROM stage_state
     WHERE stage = ? AND version < ? AND dead = 0
       AND ${ASSET_CLAIMABLE_SQL}${residual}`;
+}
+
+/**
+ * How many of those assets could start right now — the Workers page's "ready",
+ * and the other half of the split it renders as "N ready · M blocked on an
+ * upstream stage".
+ *
+ * Every gate the claim applies, which is the point: `blocked = pending - ready`
+ * is only a meaningful number if `ready` is the claim's own question. A stage
+ * parked behind `dependsOn` otherwise reports a large pending backlog with
+ * nothing to say that none of it can move, which is the exact diagnosis the
+ * split exists to give.
+ *
+ * The in-flight exclusion is left out on purpose — it is one process's private
+ * bookkeeping, and a count that shrank because a worker happened to be busy
+ * would report a different backlog to every reader.
+ *
+ * Parameters: `stage`, `targetVersion`, `now`, then two per dependency, then
+ * the residual's own parameters.
+ */
+export function stageReadyCountSql(dependencyCount: number, residualSql?: string): string {
+  const clauses = [
+    'stage = ?',
+    CLAIMABLE_GATES,
+    ASSET_CLAIMABLE_SQL,
+    ...dependencyClauses(dependencyCount),
+    ...residualClauses(residualSql),
+  ];
+  return `SELECT COUNT(*) AS n
+     FROM stage_state
+    WHERE ${clauses.join('\n    AND ')}`;
 }
 
 /** Parked rows for one stage — the dead-letter count, served by `stage_dead`. */

@@ -273,15 +273,38 @@ every terminal path: cleared on success, replaced by the real backoff on
 failure. A lease therefore only outlives its attempt when the process died
 holding it, which is exactly when the row should become claimable again.
 
+A lease that expires only helps if everything else respects it, so three things
+go together. Every write to the claimed row carries `AND next_attempt_at = ?`
+against the lease it was granted, which means a handler that finishes after its
+lease was taken over updates nothing instead of releasing a claim someone else
+now holds. `renewStageLease` pushes the lease out for a handler that
+legitimately runs longer than one — `transcribe` runs the length of a video —
+and returns null when the claim is already gone, which is how that handler
+learns to drop its work rather than write it. And the version-bump reset leaves
+`next_attempt_at` alone, exactly as the Mongo original did: a restart across a
+bump has the outgoing process still draining handlers while the incoming one
+boots and re-queues, and clearing the column there would drop the leases those
+handlers hold. Nothing is stranded by leaving it, because every path that parks
+a row already nulls the column itself.
+
 The claim is a compare-and-swap, because a write cannot return rows: the pool's
 `write` reports `{ changes, lastInsertRowid }` and `read` runs on a read-only
 connection, so `UPDATE … RETURNING` is unavailable in both directions. It reads
 a short candidate list and then swaps each candidate, with `changes === 1` as
 the proof that this caller won, and the whole batch goes in one
-`BEGIN IMMEDIATE`. The extra round trip that costs is measured rather than
-assumed: `bun scripts/sqlite-bench/stage-claim-roundtrip.ts` puts it at 0.018 ms
-of a 0.224 ms claim on 60,000 assets, against 0.05 ms of scan — small enough
-that a returning-capable primitive is not worth adding to the pool for it.
+`BEGIN IMMEDIATE`. Each swap re-asks every gate the scan asked, not only the
+three that carry exclusivity, because the scan takes no lock — an asset can be
+trashed, tagged damaged or have an upstream stage invalidated in the window
+between being scanned and being taken. All of them are keyed probes against one
+already-identified row, and the measurement below does not separate their cost
+from run-to-run noise.
+
+The extra round trip that costs is measured rather than assumed:
+`bun scripts/sqlite-bench/stage-claim-roundtrip.ts` puts it at ~0.02 ms — the
+empty-read figure — of a 0.41–0.44 ms claim on 60,000 assets, of which 0.06 ms
+is the scan and 0.16–0.19 ms the swap. About 5% of a claim, and a claim is
+spent once per tick against a handler that then runs for seconds, so a
+returning-capable primitive is not worth adding to the pool for it.
 
 ## The migration runner
 

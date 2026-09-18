@@ -23,10 +23,11 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import {
-  STAGE_CLAIM_SQL,
   STAGE_DEAD_COUNT_SQL,
   stageClaimCandidatesSql,
+  stageClaimSql,
   stagePendingCountSql,
+  stageReadyCountSql,
 } from './stage-runtime.sql.ts';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 import type { SqlValue } from '../migrate.ts';
@@ -119,12 +120,41 @@ describe('the claim and its bookkeeping', () => {
   test('taking one candidate is a primary-key seek', async () => {
     using handle = await createTestDatabase();
 
-    const detail = plan(handle.db, STAGE_CLAIM_SQL, NOW, 'a'.repeat(24), 'thumb', 2, NOW);
+    const detail = plan(handle.db, stageClaimSql(0), NOW, 'a'.repeat(24), 'thumb', 2, NOW);
 
     // `WITHOUT ROWID` means the row lives in the primary-key B-tree itself, so
     // this is one descent with no separate index lookup.
     expect(detail).toContain('SEARCH stage_state USING PRIMARY KEY');
     expect(detail).not.toContain('SCAN');
+  });
+
+  test('re-asking the scan’s whole question stays a seek plus keyed probes', async () => {
+    using handle = await createTestDatabase();
+
+    const detail = plan(
+      handle.db,
+      stageClaimSql(
+        1,
+        `EXISTS (SELECT 1 FROM assets WHERE id = stage_state.asset_id AND media_kind IN (?, ?))`,
+      ),
+      NOW,
+      'a'.repeat(24),
+      'transcribe',
+      2,
+      NOW,
+      'preview',
+      1,
+      'video',
+      'audio',
+    );
+
+    // The claim re-checks liveness, the dependencies and the residual as well
+    // as the three row gates, and every one of them is a keyed probe against a
+    // single already-identified row. Nothing here can turn into a scan, which
+    // is what makes the completeness affordable.
+    expect(detail).toContain('SEARCH stage_state USING PRIMARY KEY');
+    expect(detail).not.toContain('SCAN');
+    expect(detail).toMatch(/SEARCH dep (EXISTS )?USING PRIMARY KEY \(asset_id=\? AND stage=\?\)/);
   });
 
   test('the candidate scan reads the attempt count the reconciliation needs', async () => {
@@ -167,5 +197,18 @@ describe('the persisted counts', () => {
     // every column it filters on is in the index.
     expect(detail).toContain('USING COVERING INDEX stage_claim');
     expect(detail).not.toContain('SCAN stage_state');
+  });
+
+  test('the ready count reads the same index the claim scan does', async () => {
+    using handle = await createTestDatabase();
+
+    const detail = plan(handle.db, stageReadyCountSql(1), 'describe', 2, NOW, 'preview', 1);
+
+    // It asks the claim's question, so it has to cost what the claim's scan
+    // costs — an index range over `stage_claim` with keyed probes hanging off
+    // it, not a walk of the stage's whole backlog per Workers-page refresh.
+    expect(detail.split('\n')[0]).toContain('USING COVERING INDEX stage_claim');
+    expect(detail).not.toContain('SCAN assets');
+    expect(detail).not.toContain('SCAN dep');
   });
 });

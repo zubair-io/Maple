@@ -13,7 +13,12 @@
 import { describe, expect, test } from 'bun:test';
 import { claimStageBatch } from './stage-claim.ts';
 import { insertStageState, testSqliteDb } from './assets.test-helpers.ts';
-import { seedClaimableAsset, seedClaimableAssets, stageRow } from './stage-runtime.test-helpers.ts';
+import {
+  damagedTag,
+  seedClaimableAsset,
+  seedClaimableAssets,
+  stageRow,
+} from './stage-runtime.test-helpers.ts';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 
 const STAGE = 'thumb';
@@ -328,5 +333,66 @@ describe('claimStageBatch — crash-exhausted reconciliation', () => {
     // distinguishable once the lease has elapsed, so the sweep waits for it.
     expect(outcome.crashExhausted).toEqual([]);
     expect(stageRow(handle.db, assetId, STAGE)?.dead).toBe(0);
+  });
+
+  test('tags the asset damaged when the stage tags on dead-letter', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const poisoned = seedClaimableAsset(handle.db, {
+      stages: { [STAGE]: { attempts: 3 }, exif: {}, preview: {} },
+    });
+
+    await claimStageBatch(request({ maxAttempts: 3, tagsDamagedOnDeadLetter: true }), db);
+    const otherStage = await claimStageBatch(
+      { stage: 'exif', targetVersion: 2, dependsOn: [], limit: 50, maxAttempts: 3 },
+      db,
+    );
+
+    // Without the tag, a RAW that `abort()`s libraw is parked for this stage
+    // and then claimed — and kills the process again — for `exif`, `preview`
+    // and `describe` in turn. The tag parks it out of every claim at once.
+    expect(damagedTag(handle.db, poisoned)).toMatchObject({
+      damaged_stage: STAGE,
+      damaged_reason: expect.stringContaining('worker aborted mid-handler'),
+    });
+    expect(otherStage.claimed).toEqual([]);
+  });
+
+  test('leaves the asset untagged for a stage that does not tag on dead-letter', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const poisoned = seedClaimableAsset(handle.db, { stages: { [STAGE]: { attempts: 3 } } });
+
+    await claimStageBatch(request({ maxAttempts: 3 }), db);
+
+    // Only a file-reading stage can conclude the bytes are the problem.
+    expect(damagedTag(handle.db, poisoned).damaged_since).toBeNull();
+    expect(stageRow(handle.db, poisoned, STAGE)?.dead).toBe(1);
+  });
+
+  test('does not undo a re-queue an operator performed between the scan and the park', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const assetId = seedClaimableAsset(handle.db, { stages: { [STAGE]: { attempts: 3 } } });
+    const scanning = {
+      ...db,
+      read: async <T>(sql: string, params?: Parameters<typeof db.read>[1]): Promise<T[]> => {
+        const rows = await db.read<T>(sql, params);
+        // The operator raises the target version — or hits "Retry dead" — in
+        // the window the un-locked candidate scan leaves open.
+        handle.db.run(`UPDATE stage_state SET attempts = 0, dead = 0 WHERE asset_id = ?`, [
+          assetId,
+        ]);
+        return rows;
+      },
+    };
+
+    const outcome = await claimStageBatch(request({ maxAttempts: 3 }), scanning);
+
+    // The park is a compare-and-swap like the claim next to it, so it loses
+    // this race instead of re-parking the row with a crash reason that never
+    // happened.
+    expect(outcome.crashExhausted.map((row) => row.assetId)).toEqual([assetId]);
+    expect(stageRow(handle.db, assetId, STAGE)).toMatchObject({ dead: 0, attempts: 0 });
   });
 });
