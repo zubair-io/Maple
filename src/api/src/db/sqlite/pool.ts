@@ -142,9 +142,7 @@ export class SqlitePool {
    * `busy-retry.ts` for why that is safe and what the ladder is sized against.
    */
   write(sql: string, params?: SqlParams): Promise<SqlWriteResult> {
-    return (
-      this.rejectIfClosed() ?? retryOnBusy('write', () => this.writer.write(sql, params))
-    );
+    return this.rejectIfClosed() ?? retryOnBusy(() => this.writer.write(sql, params));
   }
 
   /**
@@ -157,10 +155,7 @@ export class SqlitePool {
    * state the first attempt started from.
    */
   transaction(statements: readonly SqlStatement[]): Promise<SqlWriteResult[]> {
-    return (
-      this.rejectIfClosed() ??
-      retryOnBusy('transaction', () => this.writer.transaction(statements))
-    );
+    return this.rejectIfClosed() ?? retryOnBusy(() => this.writer.transaction(statements));
   }
 
   stats(): SqlitePoolStats {

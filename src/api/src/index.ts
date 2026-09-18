@@ -94,11 +94,7 @@ import { initOtel, shutdownOtel } from './otel.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 import { getApnsPushTrigger } from './apns/push-trigger.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
-import {
-  ChildProcessWorker,
-  childScriptPath,
-  DEFAULT_NATIVE_CHILD_NICE,
-} from './runtime/child-process-worker.ts';
+import { startWorkerSupervisor, stopWorkerSupervisor } from './runtime/worker-supervisor.ts';
 import { SERVER_PORT } from './runtime/server-port.ts';
 import { TLS_ENABLED, listenOptions } from './runtime/tls-config.ts';
 
@@ -262,13 +258,6 @@ export const app = buildApp({ stageNames: [] });
 // Startup
 // ---------------------------------------------------------------------------
 
-/** Handle for the spawned worker-tier child process (Task 3). */
-let _workerChild: ChildProcessWorker | null = null;
-
-/** Set to true at the start of shutdown() so the respawn guard doesn't
- * re-spawn a worker that we intentionally terminated. */
-let shuttingDown = false;
-
 /**
  * The cutover, and the pool every repository reads through afterwards (#3752).
  *
@@ -380,51 +369,12 @@ async function start(): Promise<void> {
       log.error({ err }, 'APNs push trigger failed to start');
     }
 
-    // Worker tier — spawned as a niced child process so the HTTP event loop can
-    // never be starved or crashed by indexer/enrichment load. The child runs
-    // `startWorkers()` which owns stages, discover, FFI pool, enrichment, job
-    // runner, and import runner. Auto-respawns on crash unless shutting down.
-    // Respawn backoff. A worker that dies almost immediately is crash-looping
-    // (e.g. a poison asset that aborts the tier on boot per #897, or a bad
-    // deploy); a flat 1s respawn just hammers the box and the log pipeline.
-    // Grow the delay on each rapid death (capped), and reset it once a worker
-    // has run healthily — so a one-off crash still respawns promptly.
-    const WORKER_RESPAWN_MIN_MS = 1000;
-    const WORKER_RESPAWN_MAX_MS = 30_000;
-    const WORKER_HEALTHY_UPTIME_MS = 60_000;
-    let workerRespawnMs = WORKER_RESPAWN_MIN_MS;
-    function spawnWorker(): void {
-      if (shuttingDown) return;
-      try {
-        const spawnedAt = Date.now();
-        const w = new ChildProcessWorker(
-          childScriptPath(import.meta.url, './workers/worker-main.ts'),
-          { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'worker' },
-        );
-        w.addEventListener('error', (e) => {
-          const uptimeMs = Date.now() - spawnedAt;
-          // Ran healthily then died → one-off, reset backoff. Died fast → grow it.
-          if (uptimeMs >= WORKER_HEALTHY_UPTIME_MS) workerRespawnMs = WORKER_RESPAWN_MIN_MS;
-          const delayMs = workerRespawnMs;
-          workerRespawnMs = Math.min(workerRespawnMs * 2, WORKER_RESPAWN_MAX_MS);
-          log.error(
-            { msg: e.message, uptimeMs, respawnInMs: delayMs },
-            'worker process died — respawning',
-          );
-          _workerChild = null;
-          if (!shuttingDown) setTimeout(spawnWorker, delayMs);
-        });
-        _workerChild = w;
-        log.info('worker process spawned');
-      } catch (err) {
-        log.error({ err }, 'failed to spawn worker process');
-      }
-    }
-    if (process.env.MAPLE_INDEXER_AUTOSTART === '0') {
-      log.info('Worker process disabled (MAPLE_INDEXER_AUTOSTART=0)');
-    } else {
-      spawnWorker();
-    }
+    // Worker tier — a niced child process, so indexer and enrichment load can
+    // never starve or crash the HTTP event loop. Spawned here rather than
+    // earlier because the SQLite migration (#3752) must be finished before
+    // anything claims a stage; `startSqlite()` at the top of `start()` is what
+    // guarantees that. Respawn-on-crash and its backoff live in the supervisor.
+    startWorkerSupervisor(import.meta.url);
 
     await initializeHttpSearch();
 
@@ -488,7 +438,6 @@ async function start(): Promise<void> {
 
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
-  shuttingDown = true;
   log.info({ signal }, 'shutting down');
   managedHttps.stop();
   // Stop the event-loop lag probe (no-op if it was never started).
@@ -514,8 +463,7 @@ async function shutdown(signal: string): Promise<void> {
   // stages, discover, enrichment workers, job/import runners, and FFI pool
   // before exiting. Best-effort — worker may already be dead or not yet spawned.
   try {
-    _workerChild?.terminate();
-    _workerChild = null;
+    stopWorkerSupervisor();
   } catch (e) {
     log.warn({ err: e }, 'error stopping worker process');
   }

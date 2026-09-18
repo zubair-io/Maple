@@ -268,9 +268,7 @@ export async function recordAssetChangeRow(
   const db = sqliteDb(dbOverride);
   const relativePath = input.relative_path ?? null;
   try {
-    return await retryOnBusy(`change:${input.kind}`, () =>
-      writeChangeRow(db, input, relativePath),
-    );
+    return await retryOnBusy(() => writeChangeRow(db, input, relativePath));
   } catch (err) {
     log.error({ err, kind: input.kind }, 'recordAssetChange: write failed');
     throw err;

@@ -24,8 +24,8 @@
  * The change feed carried its own copy first, because it was the first writer
  * that could be interrupted mid-batch by the worker tier. Every repository has
  * that property now, so the retry belongs to the primitive both processes go
- * through — {@link SqlitePool.write} and {@link SqlitePool.transaction} — and
- * not to whichever repository happened to notice first.
+ * through — `SqlitePool.write` and `SqlitePool.transaction` — and not to
+ * whichever repository happened to notice first.
  *
  * ## Why retrying is safe
  *
@@ -35,11 +35,21 @@
  * started from, and re-running it cannot double-apply. This is *only* true of
  * lock contention: a constraint violation or a closed pool fails identically
  * every time, and retrying those would turn one log line into four.
+ *
+ * ## Why this module does not log, though it would like to
+ *
+ * It has no import of `log.ts`, and must not grow one. `pool.ts` imports this
+ * module, and the clustering worker (`repos/people.cluster.worker.ts`) reaches
+ * `pool.ts` through `worker-db.ts` — so anything imported here is loaded inside
+ * a `Worker` thread. Importing pino there wedges the thread: the worker never
+ * answers its first message and the caller waits forever. Measured by adding a
+ * one-line `log.warn` to this file, which took `people.cluster-pool.test.ts`
+ * from 214 ms to a hard timeout, and removing it again.
+ *
+ * A retry that succeeds is therefore silent, and a retry that exhausts the
+ * ladder throws, which the caller logs where it already has a logger — see
+ * `recordAssetChangeRow` in `repos/changes.repo.ts`.
  */
-
-import { child as childLogger } from '../../log.ts';
-
-const log = childLogger('sqlite:busy');
 
 /**
  * Backoff between attempts, in milliseconds. Three retries spanning ~525 ms.
@@ -68,21 +78,20 @@ export function isBusyError(err: unknown): boolean {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Runs `attempt` and retries it while the writer is locked by another process.
+ * Runs `attempt`, and runs it again while the writer is locked by another
+ * process.
  *
- * `label` names the operation in the warning line, so an operator reading the
- * log sees which write is queueing rather than a bare count. Exhausting the
- * ladder rethrows the last error: a lock held for longer than five and a half
- * seconds is a real problem and swallowing it would only move the symptom.
+ * Exhausting the ladder rethrows the last error: a lock held for longer than
+ * five and a half seconds is a real problem, and swallowing it would only move
+ * the symptom somewhere harder to find.
  */
-export async function retryOnBusy<T>(label: string, attempt: () => Promise<T>): Promise<T> {
+export async function retryOnBusy<T>(attempt: () => Promise<T>): Promise<T> {
   for (let tries = 0; ; tries++) {
     try {
       return await attempt();
     } catch (err) {
       const delay = isBusyError(err) ? BUSY_RETRY_DELAYS_MS[tries] : undefined;
       if (delay === undefined) throw err;
-      log.warn({ label, attempt: tries + 1 }, 'sqlite writer busy, retrying');
       await sleep(delay);
     }
   }
