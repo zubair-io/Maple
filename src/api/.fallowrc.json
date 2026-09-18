@@ -11,6 +11,8 @@
     "scripts/seed-fake-workers.ts",
     "scripts/sqlite-bench/run.ts",
     "scripts/sqlite-bench/list-items-compare.ts",
+    "scripts/sqlite-bench/search-compare.ts",
+    "scripts/sqlite-bench/search-relevance.ts",
     "src/people/clustering-quality-harness.ts",
     "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",

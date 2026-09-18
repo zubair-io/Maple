@@ -23,26 +23,29 @@
  * it. Both generators are seeded, so a re-run reproduces the same library.
  */
 
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import { MongoClient, type Collection, type Db } from 'mongodb';
-import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
-import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
-import { ASSETS_FTS_OPTIMIZE_SQL, ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
-import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
-import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
+// The verbs come from the repository's public surface; the statement builders
+// come from the module that owns them, because this benchmark times each facet
+// separately and `searchFacets` deliberately issues all twelve at once.
+import { buildSearchWhere, type SearchWhere } from '../../src/db/sqlite/repos/search.repo.ts';
 import { countSql, facetStatements, pageSql } from '../../src/db/sqlite/repos/search.sql.ts';
-import { buildSearchWhere, type SearchWhere } from '../../src/db/sqlite/repos/search.where.ts';
-import { generateLibrary } from './generate.ts';
+import {
+  benchDbPath,
+  buildLibrary,
+  removeDatabase,
+  reopenReadOnly,
+  sizeArgument,
+  timeAsync,
+  timeStatement,
+} from './bench-db.ts';
 import { buildMongoLibrary } from './mongo-library.ts';
 import { MONGO_FACET_PIPELINES, mongoLiveFilter } from './search-mongo-facets.ts';
 
 const DEFAULT_ASSETS = 60_000;
 const RUNS = 5;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const BENCH_DIR = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
-const DB_PATH = `${BENCH_DIR}/search-compare.db`;
-/** WAL leaves two sidecars beside the database; all three go together. */
-const DB_SUFFIXES = ['', '-wal', '-shm'];
+const DB_PATH = benchDbPath('search-compare');
 
 /** The translated empty query — the facet route's own unfiltered case. */
 function emptyWhere(): SearchWhere {
@@ -51,71 +54,8 @@ function emptyWhere(): SearchWhere {
   return where;
 }
 
-function median(samples: number[]): number {
-  const sorted = [...samples].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)]!;
-}
-
-/** Median of `RUNS` timed calls, after one untimed warm-up. */
-async function timed<T>(fn: () => Promise<T>): Promise<{ ms: number; value: T }> {
-  let value = await fn();
-  const samples: number[] = [];
-  for (let i = 0; i < RUNS; i += 1) {
-    const startedAt = performance.now();
-    value = await fn();
-    samples.push(performance.now() - startedAt);
-  }
-  return { ms: median(samples), value };
-}
-
-function timeSync(db: Database, sql: string, params: unknown[]): { ms: number; rows: number } {
-  const statement = db.query(sql);
-  statement.all(...(params as never[]));
-  const samples: number[] = [];
-  let rows = 0;
-  for (let i = 0; i < RUNS; i += 1) {
-    const startedAt = performance.now();
-    rows = statement.all(...(params as never[])).length;
-    samples.push(performance.now() - startedAt);
-  }
-  return { ms: median(samples), rows };
-}
-
-/**
- * What the bulk load deferred: the derived location counts, the FTS5 index and
- * the planner statistics. The importer (#3744) does the same three things.
- */
-function finishBulkLoad(db: Database): void {
-  db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
-  db.exec(ASSETS_FTS_REBUILD_SQL);
-  db.exec(ASSETS_FTS_OPTIMIZE_SQL);
-  db.exec('ANALYZE');
-  db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-}
-
-async function removeDatabase(): Promise<void> {
-  for (const suffix of DB_SUFFIXES) {
-    await Bun.file(`${DB_PATH}${suffix}`)
-      .delete()
-      .catch(() => {});
-  }
-}
-
 async function buildSqlite(assetCount: number): Promise<Database> {
-  await removeDatabase();
-  const db = new Database(DB_PATH, { create: true });
-  for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
-  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
-  generateLibrary(db, { assetCount });
-  finishBulkLoad(db);
-  db.close();
-  // Re-opened read-only so the timings start with an empty page cache, the
-  // same way `./run.ts` measures.
-  const reopened = new Database(DB_PATH, { readonly: true });
-  for (const pragma of SCHEMA_PRAGMAS) {
-    if (!pragma.includes('journal_mode')) reopened.exec(pragma);
-  }
-  return reopened;
+  return reopenReadOnly(await buildLibrary(DB_PATH, assetCount), DB_PATH);
 }
 
 /** One row of the comparison table. */
@@ -131,11 +71,11 @@ function timeSqlite(db: Database): Row[] {
   const where = emptyWhere();
   const statements = facetStatements(where);
   const facets = Object.entries(statements).map(([name, statement]) => {
-    const { ms, rows } = timeSync(db, statement.sql, statement.params);
+    const { ms, rows } = timeStatement(db, statement.sql, statement.params, RUNS);
     return { name: `facet: ${name}`, sqliteMs: ms, sqliteRows: rows, mongoMs: null };
   });
   const page = pageSql(where, 'captured_desc', 200, 0);
-  const pageTiming = timeSync(db, page.sql, page.params);
+  const pageTiming = timeStatement(db, page.sql, page.params, RUNS);
   return [
     ...facets,
     {
@@ -188,7 +128,7 @@ function timeCounterfactuals(db: Database, libraryId: string): Row[] {
     ],
   ];
   return cases.map(([name, sql]) => {
-    const { ms, rows } = timeSync(db, sql, []);
+    const { ms, rows } = timeStatement(db, sql, [], RUNS);
     return { name, sqliteMs: ms, sqliteRows: rows, mongoMs: null };
   });
 }
@@ -197,39 +137,41 @@ function timeCounterfactuals(db: Database, libraryId: string): Row[] {
 async function timeMongo(assets: Collection): Promise<Map<string, number>> {
   const filter = mongoLiveFilter();
   const timings = new Map<string, number>();
-  const count = await timed(() => assets.countDocuments(filter));
+  const count = await timeAsync(() => assets.countDocuments(filter), RUNS);
   timings.set('facet: total', count.ms);
   for (const [name, pipeline] of Object.entries(MONGO_FACET_PIPELINES)) {
-    const result = await timed(() => assets.aggregate([{ $match: filter }, ...pipeline]).toArray());
+    const result = await timeAsync(
+      () => assets.aggregate([{ $match: filter }, ...pipeline]).toArray(),
+      RUNS,
+    );
     timings.set(`facet: ${name}`, result.ms);
   }
-  const page = await timed(() =>
-    assets.find(filter).sort({ 'exif.captured_at': -1, _id: 1 }).limit(200).toArray(),
+  const page = await timeAsync(
+    () => assets.find(filter).sort({ 'exif.captured_at': -1, _id: 1 }).limit(200).toArray(),
+    RUNS,
   );
   timings.set('grid page, 200 rows', page.ms);
   return timings;
 }
 
 function ratio(row: Row): string {
-  if (row.mongoMs === null) return '—';
-  if (row.sqliteMs <= 0) return '—';
-  return `${(row.mongoMs / row.sqliteMs).toFixed(0)}×`;
+  const usable = row.mongoMs !== null && row.sqliteMs > 0;
+  return usable ? `${(row.mongoMs! / row.sqliteMs).toFixed(0)}×` : '—';
 }
 
-function printTable(rows: Row[], withMongo: boolean): void {
-  console.log(
-    withMongo ? '\n| query | MongoDB | SQLite | speed-up | rows |' : '\n| query | SQLite | rows |',
-  );
-  console.log(withMongo ? '| --- | --- | --- | --- | --- |' : '| --- | --- | --- |');
-  for (const row of rows) {
-    const sqlite = `${row.sqliteMs.toFixed(2)} ms`;
-    if (!withMongo) {
-      console.log(`| ${row.name} | ${sqlite} | ${row.sqliteRows} |`);
-      continue;
-    }
-    const mongo = row.mongoMs === null ? '—' : `${row.mongoMs.toFixed(0)} ms`;
-    console.log(`| ${row.name} | ${mongo} | ${sqlite} | ${ratio(row)} | ${row.sqliteRows} |`);
-  }
+/** One table row, with or without the MongoDB columns. */
+function formatRow(row: Row, withMongo: boolean): string {
+  const sqlite = `${row.sqliteMs.toFixed(2)} ms`;
+  if (!withMongo) return `| ${row.name} | ${sqlite} | ${row.sqliteRows} |`;
+  const mongo = row.mongoMs === null ? '—' : `${row.mongoMs.toFixed(0)} ms`;
+  return `| ${row.name} | ${mongo} | ${sqlite} | ${ratio(row)} | ${row.sqliteRows} |`;
+}
+
+function printTable(rows: readonly Row[], withMongo: boolean): void {
+  const header = withMongo
+    ? ['\n| query | MongoDB | SQLite | speed-up | rows |', '| --- | --- | --- | --- | --- |']
+    : ['\n| query | SQLite | rows |', '| --- | --- | --- |'];
+  console.log([...header, ...rows.map((row) => formatRow(row, withMongo))].join('\n'));
 }
 
 async function withMongoLibrary(
@@ -258,11 +200,7 @@ async function withMongoLibrary(
 
 const args = Bun.argv.slice(2);
 const skipMongo = args.includes('--no-mongo');
-const sizes = args
-  .filter((a) => !a.startsWith('--'))
-  .map(Number)
-  .filter((n) => Number.isFinite(n) && n > 0);
-const assetCount = sizes[0] ?? DEFAULT_ASSETS;
+const assetCount = sizeArgument(args, DEFAULT_ASSETS);
 
 console.log(`\n# /api/search facets: MongoDB vs SQLite, ${assetCount.toLocaleString()} assets\n`);
 console.log('Building the SQLite library…');
@@ -291,4 +229,4 @@ console.log('\n## The two shapes the schema rejected\n');
 printTable(counterfactuals, false);
 
 sqlite.close();
-await removeDatabase();
+await removeDatabase(DB_PATH);

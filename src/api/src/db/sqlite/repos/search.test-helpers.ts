@@ -64,34 +64,82 @@ export interface SeededLibrary {
   people: Map<string, string>;
 }
 
-function isoOrNull(value: string | null | undefined): string | null {
-  return value === undefined ? '2024-06-01T12:00:00.000Z' : value;
+/**
+ * What an asset looks like when the fixture says nothing about it.
+ *
+ * Defaults live here rather than as a `??` per field at each use, which is what
+ * keeps the seeding functions below readable — and measurable: the same code
+ * written as thirty inline fallbacks scores 29 cyclomatic complexity, because
+ * every `??` is a branch.
+ */
+const ASSET_DEFAULTS: Omit<Required<SeedAsset>, 'id' | 'filename' | 'mapleId'> = {
+  capturedAt: '2024-06-01T12:00:00.000Z',
+  cameraMake: null,
+  cameraModel: null,
+  lens: null,
+  iso: null,
+  aperture: null,
+  focalLength: null,
+  gps: null,
+  locality: null,
+  region: null,
+  countryCode: null,
+  rating: 0,
+  flag: 0,
+  colorLabel: '',
+  hasXmp: false,
+  hidden: false,
+  isScreenshot: false,
+  mediaKind: 'image',
+  deletedAt: null,
+  path: 'trips/2024',
+  locationDeletedAt: null,
+  locationMissingSince: null,
+  sceneType: null,
+  activity: null,
+  subjects: [],
+  description: null,
+  ocrText: null,
+  searchBlob: null,
+  people: [],
+};
+
+/** A fixture asset with every unspecified field filled in. */
+type ResolvedAsset = Required<SeedAsset>;
+
+function resolve(asset: SeedAsset): ResolvedAsset {
+  const id = asset.id ?? newObjectIdHex();
+  return {
+    ...ASSET_DEFAULTS,
+    filename: `${id}.dng`,
+    mapleId: `maple-${id}`,
+    // A field the caller set to `undefined` explicitly must still take the
+    // default, so the spread filters those out rather than letting them win.
+    ...Object.fromEntries(Object.entries(asset).filter(([, value]) => value !== undefined)),
+    id,
+  } as ResolvedAsset;
 }
 
-/** The `exif` JSON column for one fixture asset, or NULL when it has none. */
-function exifJson(asset: SeedAsset): string | null {
-  const capturedAt = isoOrNull(asset.capturedAt);
-  const captured = capturedAt === null ? null : new Date(capturedAt);
-  const exif = {
-    captured_at: capturedAt,
-    captured_year: captured?.getUTCFullYear() ?? null,
+/** The `exif` JSON column for one fixture asset. */
+function exifJson(asset: ResolvedAsset): string {
+  const captured = asset.capturedAt === null ? null : new Date(asset.capturedAt);
+  return JSON.stringify({
+    captured_at: asset.capturedAt,
+    captured_year: captured === null ? null : captured.getUTCFullYear(),
     captured_month: captured === null ? null : captured.getUTCMonth() + 1,
-    camera_make: asset.cameraMake ?? null,
-    camera_model: asset.cameraModel ?? null,
-    lens: asset.lens ?? null,
-    iso: asset.iso ?? null,
-    aperture: asset.aperture ?? null,
-    focal_length: asset.focalLength ?? null,
-    gps: asset.gps ?? null,
-  };
-  return JSON.stringify(exif);
+    camera_make: asset.cameraMake,
+    camera_model: asset.cameraModel,
+    lens: asset.lens,
+    iso: asset.iso,
+    aperture: asset.aperture,
+    focal_length: asset.focalLength,
+    gps: asset.gps,
+  });
 }
 
 /** The `place` JSON column, or NULL when the asset was never geocoded. */
-function placeJson(asset: SeedAsset): string | null {
-  const locality = asset.locality ?? null;
-  const region = asset.region ?? null;
-  const countryCode = asset.countryCode ?? null;
+function placeJson(asset: ResolvedAsset): string | null {
+  const { locality, region, countryCode } = asset;
   if (locality === null && region === null && countryCode === null) return null;
   return JSON.stringify({
     source: 'nominatim',
@@ -104,74 +152,88 @@ function placeJson(asset: SeedAsset): string | null {
   });
 }
 
-/** Inserts one asset, its single location, and whatever hangs off it. */
-function seedAsset(db: Database, libraryId: string, asset: SeedAsset, people: Map<string, string>) {
-  const id = asset.id ?? newObjectIdHex();
+/** The narrow `assets` row. */
+function insertAssetRow(db: Database, asset: ResolvedAsset): void {
   run(
     db,
     `INSERT INTO assets
        (id, size, mtime, indexed_at, rating, flag, color_label, has_xmp, media_kind,
         hidden, is_screenshot, deleted_at, maple_id, exif, place)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id,
+    asset.id,
     1024,
     1_700_000_000_000,
     '2024-01-01T00:00:00.000Z',
-    asset.rating ?? 0,
-    asset.flag ?? 0,
-    asset.colorLabel ?? '',
-    asset.hasXmp === true ? 1 : 0,
-    asset.mediaKind ?? 'image',
-    asset.hidden === true ? 1 : 0,
-    asset.isScreenshot === true ? 1 : 0,
-    asset.deletedAt ?? null,
-    asset.mapleId ?? `maple-${id}`,
+    asset.rating,
+    asset.flag,
+    asset.colorLabel,
+    asset.hasXmp ? 1 : 0,
+    asset.mediaKind,
+    asset.hidden ? 1 : 0,
+    asset.isScreenshot ? 1 : 0,
+    asset.deletedAt,
+    asset.mapleId,
     exifJson(asset),
     placeJson(asset),
   );
+}
 
+/** The one location every fixture asset has, live unless the fixture says not. */
+function insertLocationRow(db: Database, libraryId: string, asset: ResolvedAsset): void {
   run(
     db,
     `INSERT INTO asset_locations
        (asset_id, ordinal, library_id, path, filename, deleted_at, missing_since)
      VALUES (?, 0, ?, ?, ?, ?, ?)`,
-    id,
+    asset.id,
     libraryId,
-    asset.path ?? 'trips/2024',
-    asset.filename ?? `${id}.dng`,
-    asset.locationDeletedAt ?? null,
-    asset.locationMissingSince ?? null,
+    asset.path,
+    asset.filename,
+    asset.locationDeletedAt,
+    asset.locationMissingSince,
   );
+}
 
-  const hasDetail =
-    asset.sceneType !== undefined ||
-    asset.activity !== undefined ||
-    asset.subjects !== undefined ||
-    asset.description !== undefined ||
-    asset.ocrText !== undefined;
-  if (hasDetail) {
-    insertDetail(db, id, {
-      description: asset.description ?? null,
-      ocrText: asset.ocrText ?? null,
-      vision: JSON.stringify({
-        scene_type: asset.sceneType ?? null,
-        activity: asset.activity ?? null,
-        subjects: asset.subjects ?? [],
-      }),
-    });
+/** The describe-stage payload, the search blob and the faces, where present. */
+function insertEnrichment(db: Database, asset: ResolvedAsset, people: Map<string, string>): void {
+  insertDetail(db, asset.id, {
+    description: asset.description,
+    ocrText: asset.ocrText,
+    vision: JSON.stringify({
+      scene_type: asset.sceneType,
+      activity: asset.activity,
+      subjects: asset.subjects,
+    }),
+  });
+
+  if (asset.searchBlob !== null) {
+    run(
+      db,
+      `INSERT INTO asset_search (asset_id, search_blob) VALUES (?, ?)`,
+      asset.id,
+      asset.searchBlob,
+    );
   }
 
-  if (asset.searchBlob != null) {
-    run(db, `INSERT INTO asset_search (asset_id, search_blob) VALUES (?, ?)`, id, asset.searchBlob);
-  }
-
-  for (const [index, name] of (asset.people ?? []).entries()) {
+  for (const [index, name] of asset.people.entries()) {
     const personId = people.get(name) ?? insertPerson(db, name);
     people.set(name, personId);
-    insertFace(db, { assetId: id, faceIndex: index, personId });
+    insertFace(db, { assetId: asset.id, faceIndex: index, personId });
   }
+}
 
-  return id;
+/** Inserts one asset, its single location, and whatever hangs off it. */
+function seedAsset(
+  db: Database,
+  libraryId: string,
+  seed: SeedAsset,
+  people: Map<string, string>,
+): string {
+  const asset = resolve(seed);
+  insertAssetRow(db, asset);
+  insertLocationRow(db, libraryId, asset);
+  insertEnrichment(db, asset, people);
+  return asset.id;
 }
 
 /**
@@ -360,19 +422,3 @@ export function seedSearchLibrary(db: Database): SeededLibrary {
   }
   return { libraryId, assets, people };
 }
-
-/** The ten assets of {@link seedSearchLibrary} that are live and visible. */
-export const LIVE_ASSET_NAMES = [
-  'harbour',
-  'kitchen',
-  'skyline',
-  'lantern',
-  'macro',
-  'screenshot',
-  'undated',
-  'clip',
-  'unplaced',
-] as const;
-
-/** Live but hidden, so absent from every default search. */
-export const HIDDEN_ASSET_NAME = 'hidden';
