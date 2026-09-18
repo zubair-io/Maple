@@ -37,8 +37,18 @@ export interface RedeemableInvite {
  * things to tell a person who cannot register, and the route surfaces the text
  * verbatim. Shared between the two stores so neither can drift into saying
  * something the other does not.
+ *
+ * The `asserts` return type is what makes the guard load-bearing to the
+ * compiler rather than only to a reader. Both stores go on to read a field off
+ * the invite they just checked; declared `void`, that read needed a `!` and the
+ * day a branch of this chain stopped throwing the failure would be a crash on
+ * an absent field instead of the 410 the caller means to send, with nothing in
+ * the type system objecting.
  */
-export function assertInviteRedeemable(invite: RedeemableInvite | null, email: string): void {
+export function assertInviteRedeemable(
+  invite: RedeemableInvite | null,
+  email: string,
+): asserts invite is RedeemableInvite {
   const reject = (message: string): never => {
     throw Object.assign(new Error(message), { status: 410 });
   };

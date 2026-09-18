@@ -82,15 +82,13 @@ export async function redeemInvite(
     [code],
   );
   const row = rows[0];
-  assertInviteRedeemable(
-    row === undefined ? null : { ...row, expires_at: toDate(row.expires_at) },
-    email,
-  );
+  // Named rather than passed inline so the assertion's narrowing lands on
+  // something the rest of the function can use.
+  const invite = row === undefined ? null : { ...row, expires_at: toDate(row.expires_at) };
+  assertInviteRedeemable(invite, email);
 
   await db.write(`UPDATE invites SET consumed_at = ? WHERE code = ?`, [nowIso(), code]);
-  // The assertion above threw unless the row exists, which TypeScript cannot
-  // see through a function that returns void.
-  return { ok: true, invitedBy: toObjectId(row!.invited_by) };
+  return { ok: true, invitedBy: toObjectId(invite.invited_by) };
 }
 
 /**

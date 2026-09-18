@@ -31,8 +31,8 @@ export async function redeemInvite(
   const c = await invitesCollection();
   const row = await c.findOne({ code });
   assertInviteRedeemable(row, email);
-  await c.updateOne({ _id: row!._id }, { $set: { consumed_at: new Date().toISOString() } });
-  return { ok: true, invitedBy: row!.invited_by };
+  await c.updateOne({ _id: row._id }, { $set: { consumed_at: new Date().toISOString() } });
+  return { ok: true, invitedBy: row.invited_by };
 }
 
 export async function listInvites(): Promise<
