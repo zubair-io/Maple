@@ -13,43 +13,24 @@ import UIKit.UIGestureRecognizerSubclass
 /// transition, so midpoint scrubbing remains entirely inside UIKit.
 ///
 /// Gestures on a page, and who owns them:
-///   • pinch                → the page's `UIScrollView` zoom; at fit zoom a
-///                            pinch-in is the system zoom transition's own
-///                            pinch-to-dismiss (`PreviewDestination`)
+///   • pinch                → the page's `UIScrollView` zoom
 ///   • horizontal pan       → this pager's page scroll
-///   • vertical pull-down   → the system zoom transition's own interactive
-///                            dismissal (`PreviewDestination`), which shrinks
-///                            the still back into its grid tile with the grid
-///                            visible beneath. UIKit only lets that pan begin
-///                            when no scroll view under the finger claims it,
-///                            and this pager's horizontal page scroll claims
-///                            EVERY pan — so `pullGate` below exists purely to
-///                            arbitrate: it recognises a downward,
-///                            vertical-dominant start at fit zoom and does
-///                            nothing with it, but the page scroll is made to
-///                            wait for it (`require(toFail:)`), so a pull is
-///                            left to the system dismissal while a horizontal
-///                            start fails the gate at once and pages as before.
+///   • vertical pull-down   → `pullGate` below, at fit zoom only: it decides
+///                            on the first points of travel whether the touch
+///                            is a downward pull and FAILS otherwise, and the
+///                            page scroll waits on it (`require(toFail:)`) —
+///                            so a pull never drags the next page in sideways
+///                            and a page swipe never shrinks the photo. The
+///                            pull's translation drives `PreviewView`'s still;
+///                            its release hands the photo's rect to the host's
+///                            hero (`onPlainPullEnded`).
 struct PreviewPager: UIViewControllerRepresentable {
     let asset: AssetRef
     let assets: [AssetRef]
     let source: (any ImageSource)?
     let provider: ThumbnailProvider
-    /// See `PreviewView.transitionProgress` — forwarded to every page so the
-    /// still is cropped like its tile while the zoom is tile-sized.
-    let transitionProgress: CGFloat
-    /// See `PreviewView.isZoomDismissable`: with a zoom, a recognised pull
-    /// is left to the system dismissal; without one, its translation is
-    /// reported so Preview can dismiss itself.
-    let isZoomDismissable: Bool
     let onSelectAsset: (AssetRef) -> Void
-    /// Fires with `true` the moment a pull-down is recognised (the system
-    /// dismissal is now dragging the whole view as a card) and `false` when
-    /// the finger lifts — whether the dismissal then commits or springs
-    /// back. UIKit scales the card rather than resizing it, so this is the
-    /// only signal `PreviewView` has to fade its chrome during the drag.
-    let onPullActiveChanged: (Bool) -> Void
-    /// Plain pushes only: the pull's live translation, then its final
+    /// The pull's live translation, then its final
     /// translation + velocity on release.
     let onPlainPullChanged: (CGSize) -> Void
     let onPlainPullEnded: (CGSize, CGSize, CGRect?) -> Void
@@ -69,9 +50,7 @@ struct PreviewPager: UIViewControllerRepresentable {
             assets: assets,
             source: source,
             provider: provider,
-            isZoomDismissable: isZoomDismissable,
             onSelectAsset: onSelectAsset,
-            onPullActiveChanged: onPullActiveChanged,
             onPlainPullChanged: onPlainPullChanged,
             onPlainPullEnded: onPlainPullEnded
         )
@@ -95,7 +74,6 @@ struct PreviewPager: UIViewControllerRepresentable {
         pager.delegate = context.coordinator
         if let initial = context.coordinator.controller(for: asset.id) {
             pager.setViewControllers([initial], direction: .forward, animated: false)
-            initial.setTransitionProgress(transitionProgress)
             initial.setRefinementActive(true)
             context.coordinator.prune(around: asset.id)
         }
@@ -107,13 +85,10 @@ struct PreviewPager: UIViewControllerRepresentable {
             assets: assets,
             source: source,
             provider: provider,
-            isZoomDismissable: isZoomDismissable,
             onSelectAsset: onSelectAsset,
-            onPullActiveChanged: onPullActiveChanged,
             onPlainPullChanged: onPlainPullChanged,
             onPlainPullEnded: onPlainPullEnded
         )
-        context.coordinator.setTransitionProgress(transitionProgress)
         guard let target = context.coordinator.controller(for: asset.id),
               pager.viewControllers?.first !== target else { return }
         pager.setViewControllers([target], direction: .forward, animated: false)
@@ -133,11 +108,8 @@ struct PreviewPager: UIViewControllerRepresentable {
         private var source: (any ImageSource)?
         private var provider: ThumbnailProvider?
         private var onSelectAsset: ((AssetRef) -> Void)?
-        private var onPullActiveChanged: ((Bool) -> Void)?
         private var onPlainPullChanged: ((CGSize) -> Void)?
         private var onPlainPullEnded: ((CGSize, CGSize, CGRect?) -> Void)?
-        private var isZoomDismissable = false
-        private var transitionProgress: CGFloat = 1
         weak var pager: UIPageViewController?
         weak var pullGate: UIPanGestureRecognizer?
 
@@ -165,15 +137,11 @@ struct PreviewPager: UIViewControllerRepresentable {
             assets: [AssetRef],
             source: (any ImageSource)?,
             provider: ThumbnailProvider,
-            isZoomDismissable: Bool,
             onSelectAsset: @escaping (AssetRef) -> Void,
-            onPullActiveChanged: @escaping (Bool) -> Void,
             onPlainPullChanged: @escaping (CGSize) -> Void,
             onPlainPullEnded: @escaping (CGSize, CGSize, CGRect?) -> Void
         ) {
-            self.isZoomDismissable = isZoomDismissable
             self.onSelectAsset = onSelectAsset
-            self.onPullActiveChanged = onPullActiveChanged
             self.onPlainPullChanged = onPlainPullChanged
             self.onPlainPullEnded = onPlainPullEnded
             // A page captures its `ThumbnailSource` (and so the ambient
@@ -198,17 +166,6 @@ struct PreviewPager: UIViewControllerRepresentable {
             controllerIndices.removeAll(keepingCapacity: true)
         }
 
-        /// Fan the zoom's progress out to every materialised page (the
-        /// visible one and its wrapped neighbours) — cheap, and it keeps a
-        /// neighbour that scrolls in mid-transition consistent.
-        func setTransitionProgress(_ progress: CGFloat) {
-            guard progress != transitionProgress else { return }
-            transitionProgress = progress
-            for controller in controllers.values {
-                controller.setTransitionProgress(progress)
-            }
-        }
-
         // MARK: Pull-down arbitration
 
         /// Zoomed in, a vertical pan is the image pan — never a pull.
@@ -220,27 +177,19 @@ struct PreviewPager: UIViewControllerRepresentable {
             pager?.viewControllers?.first as? PreviewZoomController
         }
 
-        /// With a zoom, the gate recognises a pull only to keep the page
-        /// scroll out of its way and to report that a pull is in hand — the
-        /// system dismissal reads the touch itself. Without one, the pull is
-        /// Preview's own: its translation drives the still.
+        /// The pull's translation drives `PreviewView`'s still; its release
+        /// hands the photo's on-screen rect to the host.
         @objc func pullChanged(_ recognizer: UIPanGestureRecognizer) {
             let point = recognizer.translation(in: recognizer.view)
             let translation = CGSize(width: point.x, height: point.y)
             switch recognizer.state {
-            case .began:
-                if isZoomDismissable { onPullActiveChanged?(true) }
             case .changed:
-                if !isZoomDismissable { onPlainPullChanged?(translation) }
+                onPlainPullChanged?(translation)
             case .ended, .cancelled, .failed:
-                if isZoomDismissable {
-                    onPullActiveChanged?(false)
-                } else {
-                    let velocityPoint = recognizer.velocity(in: recognizer.view)
-                    onPlainPullEnded?(
-                        translation, CGSize(width: velocityPoint.x, height: velocityPoint.y),
-                        visiblePage?.photoRectInWindow)
-                }
+                let velocityPoint = recognizer.velocity(in: recognizer.view)
+                onPlainPullEnded?(
+                    translation, CGSize(width: velocityPoint.x, height: velocityPoint.y),
+                    visiblePage?.photoRectInWindow)
             default:
                 break
             }
@@ -264,13 +213,12 @@ struct PreviewPager: UIViewControllerRepresentable {
             let controller = PreviewZoomController(
                 assetID: item.id,
                 // The grid cell's decoded tile is cached under the same key
-                // `PhotoGridItem(local:)` uses, so the page can paint it on its
-                // very first frame — the zoom never grows an empty page.
+                // `PhotoGridItem(local:)` uses, so the page paints it on its
+                // very first frame instead of a blank.
                 seedKey: item.stableID ?? item.id.uuidString,
                 source: PreviewViewVM.thumbnailSource(for: item, source: source),
                 provider: provider
             )
-            controller.setTransitionProgress(transitionProgress)
             controllers[index] = controller
             controllerIndices[ObjectIdentifier(controller)] = index
             return controller

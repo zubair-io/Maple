@@ -66,26 +66,17 @@ struct PreviewView: View {
     /// on screen right now (window space) so the hero can shrink it from
     /// there into its tile. `nil` (default) means plain `onDismiss`.
     var onPullDownCommitted: ((CGRect?) -> Void)? = nil
+    /// iPhone: whether the chrome may show yet. The hero keeps it `false`
+    /// while the photo is growing out of its tile and flips it once the
+    /// open lands, so the header / filmstrip / bar fade in late, after the
+    /// photo — as in Photos — instead of arriving with it.
+    var chromeRevealed: Bool = true
     /// Enter the editor for the current asset (the ONLY editor entry point).
     let onEdit: (AssetRef) -> Void
     /// Move Preview to a sibling asset (filmstrip tap, swipe, arrow key). The
     /// parent updates its selection + navigation state and re-renders Preview
     /// with the new `asset`.
     let onSelectAsset: (AssetRef) -> Void
-    /// Where the iPhone zoom push/pop is between the grid tile (0) and
-    /// fullscreen (1) — `PreviewDestination` derives it from this view's live
-    /// frame (`PreviewViewVM.zoomTransitionProgress`). 1 whenever no zoom is
-    /// running (Mac / iPad pane shell, the Search tab's plain push). Drives
-    /// the tile-crop → full-aspect "uncrop" of the still and the chrome fade,
-    /// so the zoom reads as one photo growing out of its tile rather than a
-    /// whole screen — bars and all — scaling up from a point.
-    var transitionProgress: CGFloat = 1
-    /// Whether a pull-down is handed to the zoom transition's own
-    /// interactive dismissal (a push with a live tile source). Without one
-    /// Preview dismisses itself: the still follows the finger and a release
-    /// past the threshold pops.
-    var isZoomDismissable: Bool = false
-
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     /// Flag popover (regular) / bottom sheet (compact) presentation.
@@ -105,35 +96,23 @@ struct PreviewView: View {
     /// `body`, so opening Preview to look at a photo costs nothing when the
     /// pane is closed.
     @State private var flagInfoSession: EditSession?
-    /// A pull-down is in hand: the system dismissal is dragging this view
-    /// around as a card (iPhone). The chrome hides for the duration.
-    @State private var isPulling = false
-    /// Finger travel of a pull-down on a plain (non-zoom) push — the still
-    /// follows it. Zero whenever a zoom owns the pull.
+    /// Finger travel of the pull-down (iPhone) — the still follows it.
     @State private var plainPullTranslation: CGSize = .zero
     @State private var isPlainPullDismissing = false
     private var isRegular: Bool { hSizeClass == .regular }
 
     /// Height of the bottom chrome (filmstrip + action bar). The still is
-    /// inset by it at full size so the layout is unchanged from the stacked
-    /// one it replaces, but the inset collapses with `transitionProgress` so
-    /// a tile-sized destination is all photo. Both parts are fixed-height,
-    /// so this is a constant and the first frame is already laid out right.
+    /// inset by it; both parts are fixed-height, so this is a constant.
     private var bottomChromeHeight: CGFloat {
         PreviewActionBar.height + (isRegular ? 0 : FilmstripView.height)
     }
 
     private var orderedIDs: [AssetRef.ID] { assets.map(\.id) }
 
-    /// Chrome (header, strips, action bar) visibility: hidden while the
-    /// zoom — including its interactive pull-down / pinch dismissal, which
-    /// resizes this view live just like the push — is tile-sized.
+    /// Chrome (header, strips, action bar) visibility: fades out over the
+    /// first stretch of a pull-down so the photo is alone on the backdrop.
     private var chromeOpacity: Double {
-        isPulling
-            ? 0
-            : min(
-                PreviewViewVM.zoomTransitionChromeOpacity(progress: transitionProgress),
-                PreviewViewVM.plainPullChromeOpacity(translationY: plainPullTranslation.height))
+        chromeRevealed ? PreviewViewVM.plainPullChromeOpacity(translationY: plainPullTranslation.height) : 0
     }
 
     var body: some View {
@@ -151,14 +130,9 @@ struct PreviewView: View {
             // is a band above the action bar.
             //
             // The strips and the bar are OVERLAYS on the still, not stacked
-            // siblings, and the still is inset by their measured height
-            // instead. At full size that is the same layout; during the
-            // iPhone zoom push/pop — where UIKit lays this view out at every
-            // size from the grid tile up — the inset collapses with
-            // `transitionProgress`, so the tile-sized destination is nothing
-            // but the photo (cropped exactly like its tile, see
-            // `PreviewZoomController.setTransitionProgress`) and the chrome
-            // fades in only once there is room for it.
+            // siblings, and the still is inset by their fixed height instead —
+            // the same layout, but the chrome can fade independently of the
+            // still during a pull-down.
             //
             // The prev/next swipe is scoped to the IMAGE area only — NOT
             // the whole container — so it doesn't compete with either
@@ -171,6 +145,7 @@ struct PreviewView: View {
             // swipe / pager.
             ZStack {
                 imageBody
+                    .background(photoAreaReporter)
                     .padding(.horizontal, isRegular ? 16 : 8)
                     .scaleEffect(PreviewViewVM.plainPullScale(translationY: plainPullTranslation.height))
                     .offset(plainPullTranslation)
@@ -188,7 +163,7 @@ struct PreviewView: View {
                     .opacity(chromeOpacity)
                 }
             }
-            .padding(.bottom, bottomChromeHeight * transitionProgress)
+            .padding(.bottom, bottomChromeHeight)
         }
         .onChange(of: asset.id) { _, _ in
             // A committed pull is tied to the photo it started on.
@@ -228,19 +203,8 @@ struct PreviewView: View {
             .padding(.top, 8)
             .opacity(chromeOpacity)
         }
-        #if DEBUG && os(iOS)
-        // On-device diagnostic (no log capture is available for a
-        // network-paired phone): what the zoom measured. Remove before merge.
-        .overlay(alignment: .topTrailing) {
-            Text(String(format: "zoom %.2f  pull %@", Double(transitionProgress), isZoomDismissable ? "system" : "own"))
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.7))
-                .padding(4)
-                .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 4))
-                .padding(.top, 60)
-                .padding(.trailing, 8)
-        }
-        #endif
+        // After the chrome overlays, so the reveal fades them.
+        .animation(MapleTokens.Motion.chromeHide, value: chromeRevealed)
         // Keyboard prev/next (desktop). `.focusable()` makes the surface a key
         // target; the arrow handlers move selection through the folder. (The
         // touch prev/next swipe is attached to `imageBody` above, not here, so
@@ -333,12 +297,7 @@ struct PreviewView: View {
             assets: assets,
             source: source,
             provider: provider,
-            transitionProgress: transitionProgress,
-            isZoomDismissable: isZoomDismissable,
             onSelectAsset: onSelectAsset,
-            onPullActiveChanged: { active in
-                withAnimation(MapleTokens.Motion.chromeHide) { isPulling = active }
-            },
             onPlainPullChanged: updatePlainPull,
             onPlainPullEnded: finishPlainPull
         )
@@ -400,7 +359,20 @@ struct PreviewView: View {
         onSelectAsset(prev)
     }
 
-    // MARK: - Pull-down on a plain push (iPhone, no zoom source)
+    /// Publishes where the photo is laid out (window space) so the iPhone
+    /// hero can land its still exactly on Preview's own. Measured under the
+    /// pull's scale/offset, so it is the rest position.
+    @ViewBuilder private var photoAreaReporter: some View {
+        #if os(iOS)
+        GeometryReader { geometry in
+            Color.clear.preference(key: PreviewPhotoAreaKey.self, value: geometry.frame(in: .global))
+        }
+        #else
+        Color.clear
+        #endif
+    }
+
+    // MARK: - Pull-down (iPhone)
 
     private func updatePlainPull(_ translation: CGSize) {
         guard !isPlainPullDismissing else { return }
