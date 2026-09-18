@@ -149,9 +149,13 @@ async function advanceHeadStatement(db: SqliteDb, person: PersonWithId): Promise
  * the head: the banner surfaces the best still-valid one, which can sit behind
  * an entry that was already dismissed or has since merged away.
  *
- * The dismissal and both head advances commit together. On Mongo they are three
- * separate writes, so a crash between them can record the dismissal while
- * leaving the banner still showing the pair.
+ * The dismissal is recorded first and on its own, and the head advances follow
+ * in one transaction. That order is deliberate — see the comment at the write
+ * — and it means the three writes are two, not one. A crash between them leaves
+ * the pair dismissed with a head still pointing at it, which the next
+ * clustering pass clears and the banner's own walk of the ranked list already
+ * skips. Doing better would mean computing the advances against a dismissal
+ * that has not been written yet, which is the bug the ordering avoids.
  */
 export async function dismissMergeSuggestion(
   personId: ObjectId,

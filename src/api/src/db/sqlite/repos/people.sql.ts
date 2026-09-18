@@ -234,6 +234,12 @@ export const REPOINT_FACES_SQL = `UPDATE faces SET person_id = ? WHERE person_id
  * rows that were then thrown away). As a join there is no staged pipeline to
  * get wrong: the predicate and the `ORDER BY` describe one query and SQLite
  * applies them in the only order that answers it.
+ *
+ * `face_index` closes the sort. Two faces of the same person on one asset tie
+ * on both of the other keys, and rows that tie under a `LIMIT`/`OFFSET` can be
+ * returned in a different order on the next page — the same row twice, another
+ * never. Mongo's `{ captured_at: -1, _id: 1 }` has that gap; the third key
+ * costs nothing here and closes it, so the order is total.
  */
 export const PERSON_FACE_PAGE_SQL = `
   SELECT f.asset_id AS asset_id, f.face_index AS face_index,
@@ -243,7 +249,7 @@ export const PERSON_FACE_PAGE_SQL = `
     JOIN assets a ON a.id = f.asset_id
    WHERE f.person_id = ? AND f.hidden = 0
      AND a.${LIVE_ASSET_PREDICATE}
-   ORDER BY a.captured_at DESC, a.id ASC
+   ORDER BY a.captured_at DESC, a.id ASC, f.face_index ASC
    LIMIT ? OFFSET ?`;
 
 /**

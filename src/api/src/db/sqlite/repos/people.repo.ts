@@ -41,7 +41,7 @@
  * maintained; `people.face-count.ts` has that argument in full.
  */
 
-import type { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import path from 'node:path';
 import { child as childLogger } from '../../../log.ts';
 import { assertValidPersonName } from '../../../people/person-name.ts';
@@ -170,25 +170,20 @@ export async function createPerson(name: string, dbOverride?: SqliteDb): Promise
     throw err;
   }
   log.info({ id, name: trimmed }, 'created person');
-  return toPerson({
-    id,
+  // Built from what was inserted rather than by reading a row back through
+  // `toPerson`. The difference is visible on the wire: `toPerson` emits the
+  // suggestion head as an explicit null, because a clustered row always carries
+  // one, and `JSON.stringify` keeps an explicit null while dropping an absent
+  // key. The Mongo `createPerson` builds a document with four fields and no
+  // suggestion fields at all, so `POST /api/people` answers without them, and a
+  // client testing for presence rather than value would see the change.
+  return {
+    _id: new ObjectId(id),
     name: trimmed,
     created_at: created,
     updated_at: created,
-    cover_asset_id: null,
-    cover_bbox_x: null,
-    cover_bbox_y: null,
-    cover_bbox_w: null,
-    cover_bbox_h: null,
     merged_into: null,
-    hidden: 0,
-    excluded: 0,
-    centroid: null,
-    centroid_face_count: null,
-    suggested_merge_person_id: null,
-    suggested_merge_score: null,
-    suggested_merges: null,
-  });
+  } as PersonWithId;
 }
 
 /** Rename in place and re-index. The shared tail of the three non-merge branches. */

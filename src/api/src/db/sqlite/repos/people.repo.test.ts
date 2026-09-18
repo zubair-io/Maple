@@ -162,6 +162,25 @@ describe('getPerson', () => {
     expect(clamped?.faces).toHaveLength(1);
   });
 
+  test('pages two faces of one asset without repeating or skipping either', async () => {
+    using handle = await createTestDatabase();
+    const db = handle.db;
+    const library = insertLibrary(db);
+    const ada = insertPerson(db, { name: 'Ada' });
+    // Both faces are on the same asset, so they tie on captured_at and on id —
+    // every sort key the page had before face_index was added to it.
+    const asset = insertLiveAsset(db, library, { capturedAt: '2025-01-01T00:00:00Z' });
+    insertFace(db, { assetId: asset, faceIndex: 0, personId: ada });
+    insertFace(db, { assetId: asset, faceIndex: 1, personId: ada });
+    const dbHandle = testDb(db);
+
+    const first = await getPerson(new ObjectId(ada), 0, 1, dbHandle);
+    const second = await getPerson(new ObjectId(ada), 1, 1, dbHandle);
+
+    expect(first?.faces.map((face) => face.face_index)).toEqual([0]);
+    expect(second?.faces.map((face) => face.face_index)).toEqual([1]);
+  });
+
   test('drops faces whose asset no longer resolves to a file', async () => {
     using handle = await createTestDatabase();
     const db = handle.db;

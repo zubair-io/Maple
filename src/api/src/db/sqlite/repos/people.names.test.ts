@@ -39,6 +39,25 @@ describe('createPerson', () => {
     expect(person.merged_into).toBeNull();
   });
 
+  test('answers without the suggestion keys the Mongo document omits', async () => {
+    using handle = await createTestDatabase();
+    const db = testDb(handle.db);
+
+    const person = await createPerson('Ada', db);
+
+    // A just-created person has never been through a clustering pass, so the
+    // Mongo document has no suggestion fields at all. JSON.stringify drops an
+    // absent key and keeps an explicit null, so a client testing for presence
+    // rather than value sees the difference.
+    expect(Object.keys(JSON.parse(JSON.stringify(person)) as object).sort()).toEqual([
+      '_id',
+      'created_at',
+      'merged_into',
+      'name',
+      'updated_at',
+    ]);
+  });
+
   test('is idempotent, case-insensitively', async () => {
     using handle = await createTestDatabase();
     const db = testDb(handle.db);
