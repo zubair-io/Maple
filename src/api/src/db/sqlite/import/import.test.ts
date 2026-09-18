@@ -246,10 +246,18 @@ describe('mongo → sqlite import', () => {
       name: string;
     }>;
     db.close();
-    const names = tables.map((row) => row.name);
-    expect(names).not.toContain('migrations');
-    expect(names).not.toContain('worker_status');
-    expect(names).not.toContain('generated_searches');
-    expect(count('image_access_tokens')).toBe(0);
+
+    // Mongo's own migration sentinels have no counterpart at all — SQLite
+    // keeps its schema history in `schema_migrations`.
+    expect(tables.map((row) => row.name)).not.toContain('migrations');
+
+    // The other three do have a table, because the schema declares every
+    // collection the API opens whether or not the import carries its rows.
+    // Emptiness is therefore the assertion: each one is rebuilt on first boot
+    // (a status snapshot, a regenerated search set) or expires on its own (a
+    // capability token that lives for minutes).
+    for (const table of ['worker_status', 'generated_searches', 'image_access_tokens']) {
+      expect({ table, rows: count(table) }).toEqual({ table, rows: 0 });
+    }
   });
 });
