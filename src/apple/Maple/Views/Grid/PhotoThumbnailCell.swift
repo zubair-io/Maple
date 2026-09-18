@@ -377,7 +377,11 @@ private struct GridCellOverlayView: View {
 private struct TapWithFrame: ViewModifier {
   let onTap: (CGRect) -> Void
   let onFrameChange: ((CGRect) -> Void)?
-  @State private var frame: CGRect = .zero
+  /// A reference, not `@State` value storage: the global frame changes on
+  /// every scroll frame for every visible cell, and writing it into
+  /// `@State` would re-evaluate each cell's body per frame. The box holds
+  /// the latest frame for the tap to read without invalidating anything.
+  @State private var latest = FrameBox()
 
   func body(content: Content) -> some View {
     let isWatched = onFrameChange != nil
@@ -385,7 +389,7 @@ private struct TapWithFrame: ViewModifier {
       // Before the tap, so a tap anywhere in the cell's box counts.
       .contentShape(Rectangle())
       .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { new in
-        frame = new
+        latest.frame = new
         onFrameChange?(new)
       }
       // Geometry only reports on change. A cell that becomes the selected
@@ -393,10 +397,15 @@ private struct TapWithFrame: ViewModifier {
       // screen — the scroll-into-view is a no-op) must report where it
       // already is, or the close would shrink into the wrong tile.
       .onChange(of: isWatched) { _, watched in
-        if watched { onFrameChange?(frame) }
+        if watched { onFrameChange?(latest.frame) }
       }
-      .onTapGesture { onTap(frame) }
+      .onTapGesture { onTap(latest.frame) }
   }
+}
+
+/// Latest global frame of a cell (see `TapWithFrame`).
+private final class FrameBox {
+  var frame: CGRect = .zero
 }
 
 // MARK: - DragPayloadModifier
