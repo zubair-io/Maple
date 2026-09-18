@@ -5,8 +5,8 @@ document is the design record and the query-to-index map; the DDL itself lives
 in `src/api/src/db/sqlite/ddl/` and the migration runner in
 `src/api/src/db/sqlite/migrate.ts`.
 
-Schema only. No repository code is ported here and no data is imported — those
-are separate pieces of work.
+No repository code is ported here — that is a separate piece of work. Moving an
+existing library's data across is the importer, `docs/sqlite-import.md`.
 
 ## How it works, in five sentences
 
@@ -89,6 +89,7 @@ aliases are used freely for the internal tables whose ids never reach a client:
 | `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                                                                 | same                                                                                                                          |                                                                                   |
 | `jobs`, `imports`, `import_files`, `indexer_queue`, `discover_frontier`, `worker_config`, `stage_handlers`, `backup_sessions`, `upload_sessions`, `apns_device_tokens` | same                                                                                                                          | Queues and configuration.                                                         |
 | `users`, `credentials`, `invites`, `refresh_tokens`, `service_api_keys`, `challenges`, `native_auth_codes`, `lan_handoff_codes`, `image_access_tokens`                 | same                                                                                                                          |                                                                                   |
+| `app_settings`                                                                                                                                                         | same                                                                                                                          | One row per settings key, payload stored whole. Added by migration 0002.          |
 | `schema_migrations`                                                                                                                                                    | `migrations`                                                                                                                  | The runner's sentinel.                                                            |
 
 ### The live-asset predicate

@@ -216,21 +216,30 @@ async function main(): Promise<number> {
   write(`Destination: ${options.sqlitePath}`);
   write('');
 
+  // The live counter rewrites one line, which is only readable on a terminal.
+  // Redirected to a file it would be tens of thousands of carriage returns on
+  // one unreadable line, so a non-interactive run reports once per collection
+  // instead — which is what an operator piping this to a log actually wants.
+  const interactive = process.stderr.isTTY === true;
   const session = await openImportSession(options);
   let report: ImportReport;
   let verified: VerifyReport | null = null;
   try {
-    let lastLine = '';
+    let lastSource = '';
     report = await runImportOn(session, {
       ...options,
       onProgress(progress) {
         const line = `${progress.source}: ${progress.documentsDone}/${progress.documentsTotal}`;
-        if (line === lastLine) return;
-        lastLine = line;
-        process.stderr.write(`\r${line.padEnd(60)}`);
+        if (interactive) {
+          process.stderr.write(`\r${line.padEnd(60)}`);
+          return;
+        }
+        if (progress.source === lastSource) return;
+        lastSource = progress.source;
+        process.stderr.write(`${progress.source}: ${progress.documentsTotal} documents\n`);
       },
     });
-    process.stderr.write('\r'.padEnd(62));
+    if (interactive) process.stderr.write('\r'.padEnd(62));
     if (options.verify) verified = await verifyImport(session.mongo, session.sqlite, options);
   } finally {
     await closeImportSession(session);
