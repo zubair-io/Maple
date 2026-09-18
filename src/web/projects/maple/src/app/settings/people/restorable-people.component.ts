@@ -30,6 +30,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { DecimalPipe } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
@@ -79,17 +80,21 @@ import {
   ],
   templateUrl: './restorable-people.component.html',
   styleUrl: './people.component.scss',
+  host: { class: 'set-vars set-page-host w-full' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RestorablePeopleComponent extends PeopleGridHost {
   private readonly store = inject(PeopleStore);
+  private readonly route = inject(ActivatedRoute);
+  private readonly routeData = toSignal(this.route.data);
 
-  /** Which recovery list this instance renders — from route `data.kind`. */
-  protected readonly kind: 'hidden' | 'excluded' =
-    inject(ActivatedRoute).snapshot.data['kind'] === 'excluded' ? 'excluded' : 'hidden';
+  /** Which recovery list this instance renders — reactively from route `data.kind`. */
+  readonly kind = computed<'hidden' | 'excluded'>(() =>
+    this.routeData()?.['kind'] === 'excluded' ? 'excluded' : 'hidden',
+  );
 
-  protected readonly copy =
-    this.kind === 'hidden'
+  protected readonly copy = computed(() =>
+    this.kind() === 'hidden'
       ? {
           title: 'Hidden people',
           description:
@@ -106,16 +111,17 @@ export class RestorablePeopleComponent extends PeopleGridHost {
             'searchable — restore one anytime to bring everything back.',
           emptyTitle: 'No excluded people.',
           emptyAction: 'exclude',
-        };
+        },
+  );
 
   /** The recovery list, fed by the store's per-kind SWR cache. `?? []` so the
    * template's `@for` sees an array before the first fetch resolves. */
   readonly people = computed<ApiPerson[]>(() =>
-    this.kind === 'hidden' ? (this.store.hidden() ?? []) : (this.store.excluded() ?? []),
+    this.kind() === 'hidden' ? (this.store.hidden() ?? []) : (this.store.excluded() ?? []),
   );
 
   readonly loadError = computed<string | null>(() => {
-    const err = this.kind === 'hidden' ? this.store.hiddenError() : this.store.excludedError();
+    const err = this.kind() === 'hidden' ? this.store.hiddenError() : this.store.excludedError();
     return err ? errorMessage(err) : null;
   });
 
@@ -123,7 +129,7 @@ export class RestorablePeopleComponent extends PeopleGridHost {
 
   /** First fetch in flight (nothing cached to show yet). */
   readonly loading = computed(() =>
-    this.kind === 'hidden' ? this.store.hiddenLoading() : this.store.excludedLoading(),
+    this.kind() === 'hidden' ? this.store.hiddenLoading() : this.store.excludedLoading(),
   );
 
   readonly sortedPeople = computed(() => sortPeople(this.people()));
@@ -148,9 +154,11 @@ export class RestorablePeopleComponent extends PeopleGridHost {
 
   constructor() {
     super();
-    // SWR list: first entry fetches, later entries serve cached + refresh.
-    if (this.kind === 'hidden') this.store.ensureHidden();
-    else this.store.ensureExcluded();
+    // SWR list: reactively fetch whenever kind changes (or on init).
+    effect(() => {
+      if (this.kind() === 'hidden') this.store.ensureHidden();
+      else this.store.ensureExcluded();
+    });
 
     // Re-target the ResizeObserver each time the viewport appears (it lives
     // in a conditional block, like the main People list).
@@ -183,7 +191,7 @@ export class RestorablePeopleComponent extends PeopleGridHost {
     if (this.isRestoring(person.id)) return;
     this.restoringIds.update((s) => new Set(s).add(person.id));
     try {
-      if (this.kind === 'hidden') await this.store.unhidePerson(person.id);
+      if (this.kind() === 'hidden') await this.store.unhidePerson(person.id);
       else await this.store.unexcludePerson(person.id);
       this.showToast(`Restored ${person.name}`, 'success');
     } catch (err) {
