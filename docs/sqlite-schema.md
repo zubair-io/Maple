@@ -301,9 +301,10 @@ from run-to-run noise.
 
 The extra round trip that costs is measured rather than assumed:
 `bun scripts/sqlite-bench/stage-claim-roundtrip.ts` puts it at ~0.02 ms — the
-empty-read figure — of a 0.41–0.44 ms claim on 60,000 assets, of which 0.06 ms
-is the scan and 0.16–0.19 ms the swap. About 5% of a claim, and a claim is
-spent once per tick against a handler that then runs for seconds, so a
+empty-read figure — against a whole claim of 0.28–0.64 ms over five runs on
+60,000 assets, of which 0.05–0.06 ms is the scan and 0.13–0.19 ms the swap. A
+few percent of a claim, well inside the spread between runs, and a claim is
+spent once per tick against a handler that then runs for seconds — so a
 returning-capable primitive is not worth adding to the pool for it.
 
 ## The migration runner

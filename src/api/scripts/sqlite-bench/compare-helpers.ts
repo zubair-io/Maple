@@ -70,8 +70,18 @@ export async function removeDatabase(path: string): Promise<void> {
   }
 }
 
-/** A fresh scratch database with the pragmas and the full schema applied. */
+/**
+ * A fresh scratch database with the pragmas and the full schema applied.
+ *
+ * `create: true` creates the FILE, not the directory above it, so on a machine
+ * that has never run these scripts — or with `SQLITE_BENCH_DIR` pointed
+ * somewhere new — the open fails with `unable to open database file`. Writing a
+ * marker first is what creates the directory: `Bun.write` makes missing parents,
+ * and it avoids the raw `node:fs` import the API's lint config restricts, for
+ * the same reason {@link removeDatabase} uses `Bun.file().delete()`.
+ */
 export async function openBenchDatabase(path: string): Promise<Database> {
+  await Bun.write(`${path.slice(0, path.lastIndexOf('/'))}/.keep`, '');
   await removeDatabase(path);
   const db = new Database(path, { create: true });
   for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
