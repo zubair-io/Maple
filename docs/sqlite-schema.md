@@ -240,8 +240,9 @@ index's `WHERE`; as a sub-select it cannot.
 **TTL indexes become a sweep.** Six collections rely on Mongo's TTL monitor to
 delete expired rows. SQLite has no TTL monitor, so expiry becomes an explicit
 periodic `DELETE … WHERE expires_at < ?`, and each table carries an index on
-`expires_at` to make that a range scan. `EXPIRING_TABLES` in
-`ddl/auth.ts` is the list. Nothing gets less safe: every one of these tables
+`expires_at` to make that a range scan. `EXPIRY_INDEX_DDL` in `ddl/auth.ts` is
+the list, and `upload_sessions` is a seventh table in the same position.
+Nothing gets less safe: every one of these tables
 already had to check expiry at read time, because Mongo's monitor only runs once
 a minute and an expired document is fully readable until it fires.
 
