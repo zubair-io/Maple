@@ -4,7 +4,6 @@
 //   - load lifecycle (.task + cancel on disappear via task cancellation)
 //   - overlay rendering (badges from GridCellOverlays, selection outline)
 //   - tap routing (closure, same pattern as BrowseGrid + CloudTimeline)
-//   - zoom-transition source tag (iOS 18+ matchedTransitionSource seam)
 //
 // Overlay visuals are ported verbatim from the existing cells:
 //   - phone pick-dot + ≥4★ gold   ← LibraryCell.phoneBadgeOverlay
@@ -39,10 +38,6 @@ struct PhotoThumbnailCell: View {
   let displayMode: GridDisplayMode
 
   var isSelected: Bool = false
-  /// When non-nil, applies `.matchedTransitionSource(id:in:)` on iOS 18+
-  /// using `item.id` as the tag. The zoom-open transition (#1489) adopts
-  /// this seam in M1+. Setting this to `nil` is a no-op (no transition tag).
-  var transitionNamespace: Namespace.ID? = nil
   /// Multi-select checked state. When non-nil the cell is in multi-select
   /// mode and renders a checkmark badge at top-trailing:
   ///   - `true`  — filled checkmark.circle.fill white-on-accent (selected)
@@ -168,7 +163,6 @@ struct PhotoThumbnailCell: View {
           .accessibilityHidden(true)
       }
     }
-    .modifier(ZoomSourceTag(id: item.id, namespace: transitionNamespace))
     .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     .contentShape(Rectangle())
     // Drag preview (#2779): the cell's already-decoded bitmap (or the
@@ -393,24 +387,6 @@ private struct TapWithFrame: ViewModifier {
         onFrameChange?(new)
       }
       .onTapGesture { onTap(frame) }
-  }
-}
-
-// MARK: - ZoomSourceTag
-
-/// Applies `.matchedTransitionSource(id:in:)` on iOS 18+ when a namespace is
-/// provided. A no-op on older OS and when namespace is nil. The zoom-open
-/// transition (#1489) adopts this seam in M1+.
-private struct ZoomSourceTag: ViewModifier {
-  let id: String
-  let namespace: Namespace.ID?
-
-  func body(content: Content) -> some View {
-    if #available(iOS 18.0, macOS 15.0, *), let ns = namespace {
-      content.matchedTransitionSource(id: id, in: ns)
-    } else {
-      content
-    }
   }
 }
 

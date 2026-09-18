@@ -99,7 +99,6 @@ struct PhotoGrid<Element: Identifiable>: View {
     let provider: ThumbnailProvider
     let displayMode: GridDisplayMode
     var selection: Set<Element.ID> = []
-    var transitionNamespace: Namespace.ID? = nil
     var onAppearItem: ((Element) -> Void)? = nil
     /// Optional multi-select badge state per element. When non-nil, the closure
     /// is called for each visible element and the result is passed to
@@ -140,7 +139,6 @@ struct PhotoGrid<Element: Identifiable>: View {
         provider: ThumbnailProvider,
         displayMode: GridDisplayMode,
         selection: Set<Element.ID> = [],
-        transitionNamespace: Namespace.ID? = nil,
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
         dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
@@ -156,7 +154,6 @@ struct PhotoGrid<Element: Identifiable>: View {
         self.provider = provider
         self.displayMode = displayMode
         self.selection = selection
-        self.transitionNamespace = transitionNamespace
         self.onAppearItem = onAppearItem
         self.multiSelectChecked = multiSelectChecked
         self.dragPayload = dragPayload
@@ -182,7 +179,6 @@ struct PhotoGrid<Element: Identifiable>: View {
                     provider: provider,
                     displayMode: displayMode,
                     isSelected: selection.contains(element.id),
-                    transitionNamespace: transitionNamespace,
                     multiSelectChecked: multiSelectChecked?(element),
                     dragPayload: dragPayload?(element),
                     onTap: { frame in onTap(element, frame) },

@@ -16,10 +16,11 @@
 // offset is shifted by exactly what the focal photo moved, so swapping the
 // overlay out is invisible.
 //
-// Preview hand-off: a tap zooms the tile open (system zoom transition, see
-// `PreviewDestination`); paging in Preview moves `vm.selectedID`, and the
-// grid scrolls that photo's tile into view while it is covered, so the
-// pop always has a live tile to shrink back into.
+// Preview hand-off: a tap reports the tile's frame and the `PreviewHero`
+// grows the photo out of it (see `PhoneTabShell`); paging in Preview moves
+// `vm.selectedID`, and the grid scrolls that photo's tile into view while
+// it is covered and reports its frame, so a close always has a live tile
+// to shrink back into.
 
 #if os(iOS)
 
@@ -35,7 +36,6 @@ struct LibraryGrid: View {
     let source: (any ImageSource)?
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Binding var displayMode: GridDisplayMode
-    let transitionNamespace: Namespace.ID?
 
     /// A tile tap: the asset and its tile's window-space frame, for the
     /// Preview hero to grow out of.
@@ -130,7 +130,6 @@ struct LibraryGrid: View {
                         provider: provider,
                         displayMode: displayMode,
                         selection: vm.selectedID.map { Set([$0]) } ?? [],
-                        transitionNamespace: transitionNamespace,
                         onAppearItem: { asset in
                             onPrimeSession(asset)
                             Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
