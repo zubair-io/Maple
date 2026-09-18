@@ -27,6 +27,7 @@
  */
 
 import { beforeAll, afterAll } from 'bun:test';
+import { withTestEnv } from '../test-support/env.test-helpers.ts';
 import { MongoClient } from 'mongodb';
 
 /**
@@ -80,19 +81,7 @@ export async function tryConnectTestMongo(uri?: string): Promise<MongoClient | n
  * capture the `Db` handle in `beforeAll` and drop that, because by teardown
  * `getDb()` answers with the default database again.
  */
-export function withTestEnv(name: string, value: string): void {
-  let prev: string | undefined;
-
-  beforeAll(() => {
-    prev = process.env[name];
-    process.env[name] = value;
-  });
-
-  afterAll(() => {
-    if (prev === undefined) delete process.env[name];
-    else process.env[name] = prev;
-  });
-}
+export { withTestEnv };
 
 /**
  * Point `getDb()` at `testDb` for the duration of this suite, hand the name
