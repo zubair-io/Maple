@@ -181,11 +181,17 @@ export async function markSoftDeleted(args: {
  * asset's locations, faces, detail payload, search row, phasset links and
  * stage bookkeeping all carry `ON DELETE CASCADE`, so they go with it instead
  * of being orphaned rows nothing would ever look at again.
+ *
+ * That cascade is also why the reported count is not the statement's raw row
+ * count. `bun:sqlite` reports every row the statement changed, cascaded
+ * deletes and trigger writes included — a ten-row asset deletes as sixteen —
+ * and `deletedCount` on the wire means "documents removed". The delete targets
+ * one primary key, so the answer is one or nothing.
  */
 export async function hardDelete(id: ObjectId, dbOverride?: SqliteDb): Promise<DeleteOutcome> {
   const db = assetsDb(dbOverride);
   const result = await db.write(`DELETE FROM assets WHERE id = ?`, [id.toHexString()]);
-  return deleteOutcome(result.changes);
+  return deleteOutcome(result.changes > 0 ? 1 : 0);
 }
 
 /**
