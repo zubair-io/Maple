@@ -120,17 +120,29 @@ a concurrent save to a different key survives, and the function creates the
 intermediate objects a dotted Mongo path like
 `migrations.refile-backups.enabled` needs.
 
-### Migrations after the initial schema
+### Migrations, and why there is only one
 
-A shipped migration id is frozen, so a table the initial schema got wrong is
-corrected by a later migration rather than by an edit to `0001` — a database
-that already recorded `0001-initial-schema` would never re-run it, and new
-installs would silently diverge from existing ones.
+A shipped migration id is frozen: the runner skips a recorded id without
+looking at what it now declares, so a database that already ran
+`0001-initial-schema` would never re-run it and an edit there would reach new
+installs only. That is what makes a correction a new migration rather than an
+edit — **after** the schema has shipped.
 
-| Migration                         | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0002-settings-and-audit-tables`  | Adds the five tables `0001` did not enumerate, and rebuilds `image_access_tokens`, which was modelled from its name: the row the code writes is keyed by the 64-character token hash and carries the bound `path` and a `purpose`, not a `user_id`.                                                                                                                                                                                                            |
-| `0003-worker-config-partial-rows` | Relaxes `worker_config`'s `NOT NULL` scalars, because `WorkerConfigRepo.patch` upserts a partial — a stage's first write can create a row holding only a name and a `paused` flag. A defaulted `paused = 0` was the subtler half: it is indistinguishable from an operator resume, so it would tell `bootConfig` a stage is running and suppress the `pausedOnFirstBoot` parking `geocode` relies on. Also adds the discover worker's `sweep_dir_interval_ms`. |
+Nothing in this epic shipped while it was being built. Three port slices each
+found the initial schema wrong about a table they were porting, and each wrote
+a `0002` or `0003` to correct it on top; integrating them collapsed all three
+back into `0001`, because a fresh install creating a table and immediately
+rebuilding it twice is ceremony, not safety. There is one migration, and the
+freeze starts at the cutover (#3752).
+
+The corrections themselves survive, in the DDL rather than on top of it:
+
+| Table                 | What the first draft got wrong                                                                                                                                                                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `image_access_tokens` | Modelled from the collection's name. The row the code writes is keyed by the 64-character token hash and carries the bound `path` and a `purpose`, not a `user_id`.                                                                                                                                                             |
+| `worker_config`       | Every scalar was `NOT NULL`, but `WorkerConfigRepo.patch` upserts a partial — a stage's first write can create a row holding only a name and a `paused` flag. A defaulted `paused = 0` is the subtler half: indistinguishable from an operator resume, it would tell `bootConfig` a stage is running and suppress the `pausedOnFirstBoot` parking `geocode` relies on. |
+| `asset_changes`       | Carried foreign keys to `assets` and `folders`. The most important row in this table is a `delete`, written *after* the asset row is gone, so a key either rejects that insert or blanks the id the event exists to carry.                                                                                                        |
+| `people`              | Uniqueness leaned on `COLLATE NOCASE`, which folds A–Z and nothing else, so `josé` and `JOSÉ` were two people and a rename silently failed to merge. A stored `name_key` holds the folded spelling instead.                                                                                                                       |
 
 ### The live-asset predicate
 

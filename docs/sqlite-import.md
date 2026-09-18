@@ -22,10 +22,63 @@ then a separate step with its own verdict: row counts per table against the
 source, row-presence and field-level checks on a sample, `PRAGMA
 foreign_key_check`, and a reject list that fails the run on a single entry.
 
-## Running it
+## At boot, which is how it actually runs in production (#3752)
 
-Stop the server first. The importer only ever reads MongoDB, so a copy of the
-library is a safe rehearsal and the original stays available as the rollback.
+The command below stays, and is what a rehearsal against a copy uses. On a real
+deploy nobody types it: the API process runs the same importer itself, before it
+serves, and the operator's only job is the two environment variables below.
+
+The sequence on the deploy that lands the cutover:
+
+1. The deploy timer picks up `main` and restarts the service.
+2. The API opens the database named by `MAPLE_SQLITE_PATH`. If that database
+   records a completed cutover, it goes straight to step 5.
+3. Otherwise it connects to MongoDB and runs this importer to completion,
+   logging progress per batch. **It is not serving during this.**
+4. It records the completion in `server_state`, so the next restart skips it.
+5. It opens the pool, spawns the worker child, and starts serving.
+
+For the production library — roughly 335,000 assets — step 3 is single-digit
+minutes. That is the downtime; it happens once, and it is in the log rather than
+inferred.
+
+Three properties are load-bearing, and `db/sqlite/boot-migration.test.ts` drives
+each of them:
+
+- **It fails closed.** A migration that does not finish and verify stops the
+  boot rather than serving. Every other phase of this server's boot logs its
+  failure and continues, because a degraded subsystem beats no server; this one
+  is the exception, because a half-imported library is indistinguishable over the
+  API from a deleted one and the File Provider clients would act on the
+  difference.
+- **It resumes.** The checkpoints are per batch, so a boot killed halfway
+  continues where it stopped. An unfinished database is therefore kept, not
+  discarded — discarding it would make every interrupted cutover start from zero.
+- **Only one process migrates.** The worker tier is a separate child with its own
+  connection. It never migrates, and the API does not spawn it until the
+  migration has returned, so nothing claims a stage against a half-built library.
+
+Once the cutover is recorded, MongoDB is never contacted again.
+
+### What an operator adds to the deploy script, by hand
+
+Production does not use `src/api/docker-compose.yml`; it runs a hand-written
+script on the box with every port and variable spelled out. Two variables go in:
+
+| Variable            | Value                                                                    |
+| ------------------- | ------------------------------------------------------------------------ |
+| `MAPLE_SQLITE_PATH` | Absolute path to the library database, e.g. `/var/lib/maple/maple.db`. On a persistent volume, and backed up the way the Mongo dump was — this file now *is* the library. Defaults to `./data/maple.sqlite`, which is relative to the working directory and not what a service should rely on. |
+| `MAPLE_MONGO_URI`   | Already set. Keep it: the migrating boot reads it, and reverting the cutover needs it. `MAPLE_MONGO_DB` likewise.                                                                                                                                                                             |
+
+Nothing else changes, and nothing is removed — deleting MongoDB from the
+configuration is #3785, after production is confirmed healthy.
+
+## Running it by hand
+
+For a rehearsal against a copy, or to build the database ahead of the deploy so
+the boot finds it already migrated. The importer only ever reads MongoDB, so a
+copy of the library is a safe rehearsal and the original stays available as the
+rollback. Stop the server first.
 
 ```bash
 cd src/api
