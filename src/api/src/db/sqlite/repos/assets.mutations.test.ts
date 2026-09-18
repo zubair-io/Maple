@@ -141,6 +141,31 @@ describe('setPlaceOverride', () => {
     expect(searchBlob(db, assetId)).toBe('a boat sea spring');
   });
 
+  test('drops the previous place tokens when the new place carries no search_blob', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    const assetId = seedAsset(db);
+    await setPlaceOverride(oid(assetId), PLACE, testSqliteDb(db));
+    expect(searchBlob(db, assetId)).toBe('a boat brooklyn new sea spring york');
+
+    // `PUT /api/assets/:id/place` validates the body as an open object and
+    // casts it — `routes/assets/overrides.ts` — so an operator can re-place an
+    // asset with a display name and rollups and no internal denormalised blob.
+    // `search_blob` is then `undefined` at runtime however the type reads.
+    const handWritten = {
+      source: 'manual',
+      display_name: 'Lisbon, Portugal',
+      rollups: { locality: 'Lisbon', region: 'Lisboa', country_code: 'pt' },
+    } as unknown as Place;
+
+    await setPlaceOverride(oid(assetId), handWritten, testSqliteDb(db));
+
+    // The tokens of the place that was just replaced must not survive it:
+    // treating `undefined` as "the caller is not changing place" would leave
+    // Brooklyn searchable on an asset now placed in Lisbon.
+    expect(searchBlob(db, assetId)).toBe('a boat sea spring');
+  });
+
   test('removes the search row entirely when nothing is left to index', async () => {
     using handle = await createTestDatabase();
     const { db } = handle;
