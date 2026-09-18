@@ -105,7 +105,8 @@ describe('the change-log window', () => {
   }, 60_000);
 
   it('holds the floor across a resume, even when the source moved on', async () => {
-    if (client === null || ids === null) return;
+    const seeded = ids;
+    if (client === null || seeded === null) return;
     const path = join(workDir, 'resume-window.db');
     const run = { ...options(path, 5), restart: true };
     const first = await openImportSession(run);
@@ -123,8 +124,8 @@ describe('the change-log window', () => {
       .insertMany(
         [21, 22, 23, 24, 25, 26].map((cursor) => ({
           cursor,
-          asset_id: new ObjectId(ids.assets.rich),
-          folder_id: new ObjectId(ids.libraryA),
+          asset_id: new ObjectId(seeded.assets.rich),
+          folder_id: new ObjectId(seeded.libraryA),
           kind: 'update',
           abs_path: `/libraries/a/late-${cursor}.dng`,
           relative_path: `late-${cursor}.dng`,

@@ -5,8 +5,8 @@ document is the design record and the query-to-index map; the DDL itself lives
 in `src/api/src/db/sqlite/ddl/` and the migration runner in
 `src/api/src/db/sqlite/migrate.ts`.
 
-Schema only. No repository code is ported here and no data is imported — those
-are separate pieces of work.
+No repository code is ported here — that is a separate piece of work. Moving an
+existing library's data across is the importer, `docs/sqlite-import.md`.
 
 ## How it works, in five sentences
 

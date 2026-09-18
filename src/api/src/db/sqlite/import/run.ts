@@ -38,7 +38,7 @@
 
 import { Database } from 'bun:sqlite';
 import { existsSync, unlinkSync } from 'node:fs';
-import { MongoClient, type Db, type Document, type Filter } from 'mongodb';
+import { MongoClient, ObjectId, type Db, type Document, type Filter } from 'mongodb';
 import { ALL_STAGE_NAMES } from '../../../workers/stages/stage-names.ts';
 import {
   ASSET_LOCATIONS_TRIGGER_DDL,
@@ -90,6 +90,13 @@ const LOAD_PRAGMAS = [
 ] as const;
 
 const TRIGGER_NAMES = [...ASSET_LOCATIONS_TRIGGER_NAMES, ...ASSET_SEARCH_TRIGGER_NAMES];
+
+/**
+ * The `_id` a resumed run continues after: an `ObjectId` for most collections,
+ * a string for the handful keyed by a natural key, and null before the first
+ * batch.
+ */
+type ResumeCursor = ObjectId | string | null;
 
 /** An open destination database plus the Mongo handle feeding it. */
 export interface ImportSession {
@@ -143,6 +150,24 @@ async function resolveFilter(
   return computed;
 }
 
+/**
+ * The plan's filter, narrowed to the documents after the last committed `_id`.
+ *
+ * Written as a function with an explicit return type rather than a ternary
+ * because the two branches are different shapes and TypeScript would otherwise
+ * widen them into a union the driver's `Filter` does not accept.
+ */
+function resumeFrom(filter: Filter<Document>, lastId: ResumeCursor): Filter<Document> {
+  if (lastId === null) return filter;
+  // The driver's `Filter<Document>` declares `_id` as an ObjectId, which is
+  // true of most collections and wrong for the handful keyed by a natural
+  // string — `geocode_cache`, `server_state`, `app_settings`. The cast asserts
+  // what those collections actually hold; `ResumeCursor` above is the honest
+  // type and the checkpoint stores the kind alongside the value.
+  const after = { _id: { $gt: lastId } } as Filter<Document>;
+  return { $and: [filter, after] };
+}
+
 /** Imports one collection, resuming from wherever it stopped. */
 async function importCollection(
   session: ImportSession,
@@ -168,15 +193,18 @@ async function importCollection(
 
   const writer = new RowWriter(sqlite);
   const startedAt = performance.now();
-  let lastId = checkpoint?.lastId ?? null;
+  // The resume cursor. Typed as the driver's own alias rather than as `unknown`
+  // because it is bound straight into a `$gt` comparison: a collection's `_id`
+  // is an ObjectId for most collections and a natural-key string for the
+  // handful keyed by one, and the driver's `Filter` type accepts either.
+  let lastId: ResumeCursor = (checkpoint?.lastId ?? null) as ResumeCursor;
   let documents = checkpoint?.documents ?? 0;
   let rejected = checkpoint?.rejected ?? 0;
   const carriedMs = checkpoint?.elapsedMs ?? 0;
 
   try {
     for (;;) {
-      const scoped: Filter<Document> =
-        lastId === null ? filter : { $and: [filter, { _id: { $gt: lastId } }] };
+      const scoped = resumeFrom(filter, lastId);
       const docs = await collection
         .find(scoped, { sort: { _id: 1 }, limit: options.batchSize })
         .toArray();
@@ -215,7 +243,7 @@ async function importCollection(
         });
       });
 
-      lastId = batchLastId;
+      lastId = batchLastId as ResumeCursor;
       documents = batchDocuments;
       rejected += mapFailures.length + writeFailures.length;
       options.onProgress?.({
