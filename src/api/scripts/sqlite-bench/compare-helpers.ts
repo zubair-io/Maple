@@ -95,16 +95,23 @@ export async function withMongoDatabase<T>(
   fallback: T,
 ): Promise<T> {
   let client: MongoClient | null = null;
+  let db: Db | null = null;
   try {
     client = await MongoClient.connect(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
-    const db = client.db(`${namePrefix}_${Date.now()}`);
-    const result = await measure(db);
-    await db.dropDatabase();
-    return result;
+    db = client.db(`${namePrefix}_${Date.now()}`);
+    return await measure(db);
   } catch (err) {
     console.log(`  (mongo half skipped: ${err instanceof Error ? err.message : String(err)})\n`);
     return fallback;
   } finally {
+    // The drop belongs in `finally`, not on the success path: a measurement
+    // that throws half way through has still created the database, and a
+    // benchmark nobody watches is exactly the kind of thing that leaves them
+    // behind. #2491 counted 11,375 test databases leaked on a shared server by
+    // suites that were each individually expected to tidy up after themselves.
+    // Best-effort, because a failed drop must not replace the caller's result
+    // — or the error that caused it — with an error about cleanup.
+    await db?.dropDatabase().catch(() => {});
     await client?.close();
   }
 }
