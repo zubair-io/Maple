@@ -8,6 +8,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
+import type { SqliteDb } from './db-handle.ts';
 import { backfillCoverAssets, runOnlineClustering } from './people.clustering-job.ts';
 import { faceCountByPerson } from './people.face-count.ts';
 import {
@@ -140,6 +141,39 @@ describe('runOnlineClustering', () => {
     // The Mongo pass ends by recounting every person and rewriting a stored
     // counter, precisely to heal drift. Nothing does that here.
     expect([...counts.values()]).toEqual([3]);
+  });
+
+  test('a new person and the face that opened it commit together', async () => {
+    using handle = await createTestDatabase();
+    const db = handle.db;
+    const library = insertLibrary(db);
+    insertFace(db, { assetId: insertLiveAsset(db, library), embedding: nearAxis(0, 0.05) });
+    insertFace(db, { assetId: insertLiveAsset(db, library), embedding: nearAxis(80, 0.05) });
+
+    const inner = testDb(db);
+    const batches: string[][] = [];
+    const recording: SqliteDb = {
+      read: (sql, params) => inner.read(sql, params),
+      write: (sql, params) => inner.write(sql, params),
+      transaction: (statements) => {
+        batches.push(statements.map((statement) => statement.sql));
+        return inner.transaction(statements);
+      },
+    };
+
+    await runOnlineClustering({}, recording);
+
+    // A person row alone in its transaction is a person that exists for a
+    // while with a centroid, a cover crop and no faces — and if the pass dies
+    // there, permanently. Every insert must share a transaction with the
+    // assignment that justifies it.
+    const inserts = batches.filter((batch) =>
+      batch.some((sql) => sql.includes('INSERT INTO people')),
+    );
+    expect(inserts.length).toBeGreaterThan(0);
+    for (const batch of inserts) {
+      expect(batch.some((sql) => sql.includes('UPDATE faces SET person_id'))).toBe(true);
+    }
   });
 
   test('a hidden face is neither clustered nor given a person', async () => {
