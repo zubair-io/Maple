@@ -214,11 +214,12 @@ enum PreviewViewVM {
     // MARK: - Pull-down dismissal (iPhone)
 
     /// Travel before a touch is classified as a pull or a page swipe. Long
-    /// enough to read a direction, short enough that paging never feels
-    /// delayed.
-    static let pullDecisionDistance: CGFloat = 10
-    /// How much more vertical than horizontal a pull must be.
-    static let pullVerticalDominance: CGFloat = 1.2
+    /// enough to read a direction from a real finger (whose first points
+    /// wobble sideways), short enough that paging never feels delayed.
+    static let pullDecisionDistance: CGFloat = 14
+    /// A pull only has to be at least as vertical as it is horizontal —
+    /// Photos' rule; anything stricter drops real pulls.
+    static let pullVerticalDominance: CGFloat = 1
 
     /// Whether a pan that has just been recognised is a pull-down rather
     /// than a page swipe or an upward flick (let the pager have it). Decided
@@ -226,7 +227,7 @@ enum PreviewViewVM {
     /// of the touch — a vertical pull never becomes a page turn halfway
     /// through.
     static func shouldBeginDismissDrag(translation: CGSize) -> Bool {
-        translation.height > 0 && translation.height > abs(translation.width) * pullVerticalDominance
+        translation.height > 0 && translation.height >= abs(translation.width) * pullVerticalDominance
     }
 
     // MARK: - Pull-down without a zoom (plain pushes)

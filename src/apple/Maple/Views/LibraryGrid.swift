@@ -123,6 +123,7 @@ struct LibraryGrid: View {
                         provider: provider,
                         displayMode: displayMode,
                         selection: vm.selectedID.map { Set([$0]) } ?? [],
+                        cellShape: cellShape,
                         transitionNamespace: transitionNamespace,
                         onAppearItem: { asset in
                             onPrimeSession(asset)
@@ -197,6 +198,23 @@ struct LibraryGrid: View {
         PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
     }
 
+    /// Full width in fill mode shows each photo whole, at its own aspect
+    /// ratio; every other tier (and fit mode) keeps square tiles.
+    private var cellShape: ThumbnailShape {
+        columns == 1 && displayMode == .fill ? .native : .square
+    }
+
+    /// Height ÷ width of a photo's tile in the full-width tier — from its
+    /// already-decoded thumbnail (the same bitmap the tile draws), square
+    /// until that has landed. Must agree with `ThumbnailShape.native`.
+    private func fullWidthAspect(of asset: AssetRef) -> CGFloat {
+        guard displayMode == .fill,
+              let image = ThumbnailDecoder.cachedImage(forKey: asset.stableID ?? asset.id.uuidString),
+              image.width > 0
+        else { return 1 }
+        return CGFloat(image.height) / CGFloat(image.width)
+    }
+
     // MARK: - Pinch-to-resize
 
     private var magnifyGesture: some Gesture {
@@ -225,25 +243,26 @@ struct LibraryGrid: View {
 
     private func beginPinch(at startLocation: CGPoint) {
         let frame = scroll.gridFrame
-        let count = vm.assets.count
-        guard frame.width > 0, count > 0 else { return }
+        let assets = vm.assets
+        guard frame.width > 0, !assets.isEmpty else { return }
+        let geometry = LibraryGridZoom.Geometry(width: frame.width, count: assets.count) { index in
+            fullWidthAspect(of: assets[index])
+        }
         // The finger's point in grid coordinates, and the photo under it.
         let focal = CGPoint(x: startLocation.x - frame.minX, y: startLocation.y - frame.minY)
-        guard let cell = LibraryGridZoom.focalCell(at: focal, columns: columns, width: frame.width, count: count)
-        else { return }
+        guard let cell = geometry.focalCell(at: focal, columns: columns) else { return }
         // Draw, for every tier, the cells within two viewports of where that
         // tier puts the focal photo — the overlay keeps it under the fingers,
         // so nothing further away can come on screen, and the fingers may
         // pan a little.
-        guard let slice = LibraryGridZoom.overlaySlice(
+        guard let slice = geometry.overlaySlice(
             focalIndex: cell.index, focalFraction: cell.fraction,
-            reach: 2 * scroll.geometry.containerSize.height, width: frame.width, count: count)
+            reach: 2 * scroll.geometry.containerSize.height)
         else { return }
         let interpolation = LibraryGridZoom.interpolation(baseColumns: columns, magnification: 1, width: frame.width)
         pinch = PinchSession(
             baseColumns: columns,
-            width: frame.width,
-            count: count,
+            geometry: geometry,
             focalIndex: cell.index,
             focalFraction: cell.fraction,
             focalPoint: focal,
@@ -252,7 +271,7 @@ struct LibraryGrid: View {
             nearestColumns: columns,
             lastMagnification: 1,
             isSettling: false,
-            scrollRoom: scroll.room(baseColumns: columns, targetColumns: interpolation.to, count: count, width: frame.width)
+            scrollRoom: scroll.room(geometry: geometry, baseColumns: columns, targetColumns: interpolation.to)
         )
     }
 
@@ -262,8 +281,7 @@ struct LibraryGrid: View {
         session.interpolation = LibraryGridZoom.interpolation(
             baseColumns: session.baseColumns, magnification: magnification, width: session.width)
         session.scrollRoom = scroll.room(
-            baseColumns: session.baseColumns, targetColumns: session.interpolation.to,
-            count: session.count, width: session.width)
+            geometry: session.geometry, baseColumns: session.baseColumns, targetColumns: session.interpolation.to)
         let nearest = LibraryGridZoom.nearestColumns(
             cellWidth: LibraryGridZoom.cellSize(columns: session.baseColumns, width: session.width) * magnification,
             width: session.width)
@@ -351,9 +369,9 @@ struct LibraryGrid: View {
     private func pinchOverlay(_ session: PinchSession) -> some View {
         let interpolation = session.interpolation
         let focalNow = session.focalPoint(at: interpolation)
-        let baseHeight = LibraryGridZoom.gridHeight(
-            count: session.count, columns: session.baseColumns, width: session.width)
+        let baseHeight = session.geometry.gridHeight(columns: session.baseColumns)
         InterpolatedGridLayout(
+            geometry: session.geometry,
             from: interpolation.from,
             to: interpolation.to,
             progress: interpolation.progress,
@@ -366,6 +384,9 @@ struct LibraryGrid: View {
                     item: makeItem(asset),
                     provider: provider,
                     displayMode: displayMode,
+                    // Mid-way between two tiers a cell is neither square nor
+                    // the photo's shape: it takes the blended frame as is.
+                    shape: .proposed,
                     isSelected: vm.selectedID == asset.id,
                     onTap: {}
                 )
@@ -408,8 +429,9 @@ struct LibraryGrid: View {
 /// Everything a live pinch needs, captured when it begins.
 private struct PinchSession {
     let baseColumns: Int
-    let width: CGFloat
-    let count: Int
+    /// Every tier's layout for the grid as it was when the pinch began.
+    let geometry: LibraryGridZoom.Geometry
+    var width: CGFloat { geometry.width }
     /// The photo under the fingers, and where inside it they landed.
     let focalIndex: Int
     let focalFraction: CGPoint
@@ -428,9 +450,9 @@ private struct PinchSession {
     /// Where the focal point sits in the blended layout.
     func focalPoint(at interpolation: LibraryGridZoom.Interpolation) -> CGPoint {
         LibraryGridZoom.point(
-            in: LibraryGridZoom.interpolatedRect(
+            in: geometry.interpolatedRect(
                 index: focalIndex, from: interpolation.from, to: interpolation.to,
-                progress: interpolation.progress, width: width),
+                progress: interpolation.progress),
             fraction: focalFraction)
     }
 
@@ -464,11 +486,10 @@ private final class ScrollGeometryBox {
     /// content height the grid will have at the pinch's TARGET tier (the
     /// live content is still laid out at the base tier): a pinch out lower
     /// in a dense grid needs room the sparser tier brings with it.
-    func room(baseColumns: Int, targetColumns: Int, count: Int, width: CGFloat) -> ScrollRoom {
+    func room(geometry grid: LibraryGridZoom.Geometry, baseColumns: Int, targetColumns: Int) -> ScrollRoom {
         let g = geometry
         let minOffset = -g.contentInsets.top
-        let targetContentHeight = g.contentSize.height
-            + LibraryGridZoom.heightDelta(count: count, from: baseColumns, to: targetColumns, width: width)
+        let targetContentHeight = g.contentSize.height + grid.heightDelta(from: baseColumns, to: targetColumns)
         let maxOffset = max(minOffset, targetContentHeight + g.contentInsets.bottom - g.containerSize.height)
         return ScrollRoom(
             up: max(0, g.contentOffset.y - minOffset),
@@ -484,6 +505,7 @@ private final class ScrollGeometryBox {
 /// re-flows every cell along the straight line between its two homes —
 /// the same motion `UICollectionViewTransitionLayout` gives Photos.
 private struct InterpolatedGridLayout: Layout {
+    let geometry: LibraryGridZoom.Geometry
     let from: Int
     let to: Int
     var progress: CGFloat
@@ -500,8 +522,7 @@ private struct InterpolatedGridLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         for (offset, subview) in subviews.enumerated() {
-            let rect = LibraryGridZoom.interpolatedRect(
-                index: firstIndex + offset, from: from, to: to, progress: progress, width: bounds.width)
+            let rect = geometry.interpolatedRect(index: firstIndex + offset, from: from, to: to, progress: progress)
             subview.place(
                 at: CGPoint(x: bounds.minX + rect.minX, y: bounds.minY + rect.minY),
                 anchor: .topLeading,

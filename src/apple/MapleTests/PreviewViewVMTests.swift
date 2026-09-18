@@ -346,8 +346,11 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: -6, height: 10)))
     // Page swipe (horizontal-dominant) — leave it to the pager.
     XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 12, height: 4)))
-    // Diagonal that is not clearly vertical — leave it to the pager.
-    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 10, height: 11)))
+    // A real finger wobbles: a diagonal that is at least as vertical as it
+    // is horizontal is still a pull.
+    XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 10, height: 11)))
+    XCTAssertTrue(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 10, height: 10)))
+    XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 11, height: 10)))
     // Upward — nothing to dismiss into.
     XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: CGSize(width: 0, height: -12)))
     XCTAssertFalse(PreviewViewVM.shouldBeginDismissDrag(translation: .zero))
