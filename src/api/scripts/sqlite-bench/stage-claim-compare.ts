@@ -399,14 +399,22 @@ async function main(): Promise<void> {
       '1. This measures the runtime, not the stages. describe is bounded by Ollama,\n' +
       '   the face stages by the GPU and geocode by a rate-limited endpoint — for\n' +
       '   those the claim was never the bottleneck and this port does not move them.\n\n' +
-      '2. The commit rows compare different durability guarantees. SQLite commits\n' +
+      '2. The scan row is flat in library size — 0.04 ms at 20k, 60k and 150k\n' +
+      '   assets — because it is an index range scan that stops at the limit. The\n' +
+      '   commit rows are NOT flat: past roughly 100k assets a batch of scattered\n' +
+      '   WITHOUT ROWID updates dirties enough pages to trip the 1,000-page WAL\n' +
+      '   auto-checkpoint inside a timed tick, and the tick pays for it. That is a\n' +
+      '   property of this write storm more than of the runtime — a real tick\n' +
+      '   retires a few dozen assets per second, so the same checkpoints amortise\n' +
+      '   over orders of magnitude more wall time.\n\n' +
+      '3. The commit rows compare different durability guarantees. SQLite commits\n' +
       '   through a write-ahead log with `synchronous = NORMAL`, so a batch is on\n' +
       "   disk when the transaction returns; the Mongo driver's default write\n" +
       '   concern (w:1, j:false) acknowledges from memory before the journal is\n' +
       '   flushed. The scan row is the like-for-like comparison; the commit rows\n' +
       '   are SQLite paying for a stronger promise, which is also why batching a\n' +
       '   whole tick into one transaction is worth as much as it is.\n\n' +
-      '3. Sustained throughput here is a write storm with no handler in it. A real\n' +
+      '4. Sustained throughput here is a write storm with no handler in it. A real\n' +
       '   tick spends milliseconds in the database and seconds in the handler, so\n' +
       '   this row measures how hard the runtime CAN hit the database, not how hard\n' +
       '   it does.',
