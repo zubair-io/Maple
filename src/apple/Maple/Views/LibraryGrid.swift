@@ -130,7 +130,6 @@ struct LibraryGrid: View {
                         provider: provider,
                         displayMode: displayMode,
                         selection: vm.selectedID.map { Set([$0]) } ?? [],
-                        cellShape: cellShape,
                         transitionNamespace: transitionNamespace,
                         onAppearItem: { asset in
                             onPrimeSession(asset)
@@ -207,22 +206,6 @@ struct LibraryGrid: View {
         PhotoGridItem(local: asset, source: source, overlays: overlays(for: asset))
     }
 
-    /// Full width shows each photo whole, at its own aspect ratio — there is
-    /// no square to fill or fit at 1-up, so the toolbar's fill/fit toggle
-    /// does not apply. Every other tier keeps square tiles.
-    private var cellShape: ThumbnailShape {
-        columns == 1 ? .native : .square
-    }
-
-    /// Height ÷ width of a photo's tile in the full-width tier — from its
-    /// already-decoded thumbnail (the same bitmap the tile draws), square
-    /// until that has landed. Must agree with `ThumbnailShape.native`.
-    private func fullWidthAspect(of asset: AssetRef) -> CGFloat {
-        guard let image = ThumbnailDecoder.cachedImage(forKey: asset.stableID ?? asset.id.uuidString),
-              image.width > 0
-        else { return 1 }
-        return CGFloat(image.height) / CGFloat(image.width)
-    }
 
     // MARK: - Pinch-to-resize
 
@@ -254,9 +237,7 @@ struct LibraryGrid: View {
         let frame = scroll.gridFrame
         let assets = vm.assets
         guard frame.width > 0, !assets.isEmpty else { return }
-        let geometry = LibraryGridZoom.Geometry(width: frame.width, count: assets.count) { index in
-            fullWidthAspect(of: assets[index])
-        }
+        let geometry = LibraryGridZoom.Geometry(width: frame.width, count: assets.count)
         // The finger's point in grid coordinates, and the photo under it.
         let focal = CGPoint(x: startLocation.x - frame.minX, y: startLocation.y - frame.minY)
         guard let cell = geometry.focalCell(at: focal, columns: columns) else { return }
@@ -393,9 +374,6 @@ struct LibraryGrid: View {
                     item: makeItem(asset),
                     provider: provider,
                     displayMode: displayMode,
-                    // Mid-way between two tiers a cell is neither square nor
-                    // the photo's shape: it takes the blended frame as is.
-                    shape: .proposed,
                     isSelected: vm.selectedID == asset.id,
                     onTap: { _ in }
                 )
