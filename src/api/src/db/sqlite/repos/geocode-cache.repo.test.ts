@@ -46,14 +46,14 @@ describe('getCachedPlace', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const stored = place();
-    await setCachedPlace(KEY, stored, 1, db);
+    await setCachedPlace(KEY, stored, 1, undefined, db);
     expect(await getCachedPlace(KEY, 1, db)).toEqual(stored);
   });
 
   test('reads an entry written by a different geocoder version as a miss', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    await setCachedPlace(KEY, place(), 1, db);
+    await setCachedPlace(KEY, place(), 1, undefined, db);
     expect(await getCachedPlace(KEY, 2, db)).toBeNull();
   });
 });
@@ -62,8 +62,8 @@ describe('setCachedPlace', () => {
   test('overwrites in place rather than accumulating rows', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    await setCachedPlace(KEY, place({ display_name: 'first' }), 1, db);
-    await setCachedPlace(KEY, place({ display_name: 'second' }), 1, db);
+    await setCachedPlace(KEY, place({ display_name: 'first' }), 1, undefined, db);
+    await setCachedPlace(KEY, place({ display_name: 'second' }), 1, undefined, db);
 
     expect((await getCachedPlace(KEY, 1, db))?.display_name).toBe('second');
     const rows = await db.read<{ n: number }>(`SELECT COUNT(*) AS n FROM geocode_cache`);
@@ -73,10 +73,10 @@ describe('setCachedPlace', () => {
   test('a re-fetch after a version bump replaces the stale entry', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    await setCachedPlace(KEY, place({ display_name: 'old parser' }), 1, db);
+    await setCachedPlace(KEY, place({ display_name: 'old parser' }), 1, undefined, db);
     expect(await getCachedPlace(KEY, 2, db)).toBeNull();
 
-    await setCachedPlace(KEY, place({ display_name: 'new parser' }), 2, db);
+    await setCachedPlace(KEY, place({ display_name: 'new parser' }), 2, undefined, db);
     expect((await getCachedPlace(KEY, 2, db))?.display_name).toBe('new parser');
   });
 
@@ -84,12 +84,25 @@ describe('setCachedPlace', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const before = new Date().toISOString();
-    await setCachedPlace(KEY, place(), 1, db);
+    await setCachedPlace(KEY, place(), 1, undefined, db);
     const rows = await db.read<{ fetched_at: string }>(
       `SELECT fetched_at FROM geocode_cache WHERE id = ?`,
       [KEY],
     );
     expect(rows[0]!.fetched_at >= before).toBe(true);
+  });
+
+  test('takes the instant when the caller owns a clock', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    // `CoordinateCache` injects `now` so its own test can pin the value; the
+    // parameter is what lets that keep working after the cutover.
+    await setCachedPlace(KEY, place(), 1, '2026-01-01T00:00:00.000Z', db);
+    const rows = await db.read<{ fetched_at: string }>(
+      `SELECT fetched_at FROM geocode_cache WHERE id = ?`,
+      [KEY],
+    );
+    expect(rows[0]!.fetched_at).toBe('2026-01-01T00:00:00.000Z');
   });
 });
 
@@ -97,7 +110,7 @@ describe('findCachedPlace', () => {
   test('returns an entry whatever version wrote it', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    await setCachedPlace(KEY, place({ display_name: 'Albany' }), 1, db);
+    await setCachedPlace(KEY, place({ display_name: 'Albany' }), 1, undefined, db);
     // The route deliberately does not check the version: a stale address is
     // still good enough to pick a destination folder.
     expect((await findCachedPlace(KEY, db))?.display_name).toBe('Albany');
