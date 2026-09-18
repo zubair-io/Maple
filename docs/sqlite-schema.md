@@ -670,21 +670,21 @@ statements `db/sqlite/repos/search.sql.ts` actually generates for an unfiltered
 `GET /api/search/facets`, which differ in one way that turned out to matter: they
 all carry the always-on `hidden = 0` filter. At 335,377 assets:
 
-| facet                     | SQLite   | reads                       |
-| ------------------------- | -------- | --------------------------- |
-| total                     | 6.1 ms   | `assets_live`               |
-| camera make + model       | 16.3 ms  | `assets_facet_camera`       |
-| lens                      | 14.0 ms  | `assets_facet_lens`         |
-| place locality + region   | 17.3 ms  | `assets_facet_place_label`  |
-| screenshot                | 9.3 ms   | `assets_facet_screenshot`   |
-| capture range             | 21.0 ms  | `assets_live_captured`      |
-| grid page, 200 rows       | 0.15 ms  | `assets_live_captured`      |
-| ISO range                 | 256 ms   | every matching asset row    |
-| extensions                | 465 ms   | `asset_locations`, per row  |
-| people                    | 643 ms   | `faces`, then an asset row  |
-| activity                  | 706 ms   | `asset_detail`, per row     |
-| scene type                | 810 ms   | `asset_detail`, per row     |
-| subjects                  | 1,193 ms | the `vision` JSON, per row  |
+| facet                   | SQLite   | reads                      |
+| ----------------------- | -------- | -------------------------- |
+| total                   | 6.1 ms   | `assets_live`              |
+| camera make + model     | 16.3 ms  | `assets_facet_camera`      |
+| lens                    | 14.0 ms  | `assets_facet_lens`        |
+| place locality + region | 17.3 ms  | `assets_facet_place_label` |
+| screenshot              | 9.3 ms   | `assets_facet_screenshot`  |
+| capture range           | 21.0 ms  | `assets_live_captured`     |
+| grid page, 200 rows     | 0.15 ms  | `assets_live_captured`     |
+| ISO range               | 256 ms   | every matching asset row   |
+| extensions              | 465 ms   | `asset_locations`, per row |
+| people                  | 643 ms   | `faces`, then an asset row |
+| activity                | 706 ms   | `asset_detail`, per row    |
+| scene type              | 810 ms   | `asset_detail`, per row    |
+| subjects                | 1,193 ms | the `vision` JSON, per row |
 
 The first seven are the ones every index in this schema was built for, and they
 are where the migration's case lies — against 4.7 to 5.7 seconds each on
