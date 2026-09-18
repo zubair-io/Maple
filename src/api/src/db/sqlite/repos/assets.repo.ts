@@ -83,6 +83,12 @@ export function parseAssetId(id: string): ObjectId | null {
   }
 }
 
+/** One asset's narrow row, or `null` when there is no such asset. */
+async function readCoreRow(db: SqliteDb, hex: string): Promise<AssetCoreRow | null> {
+  const rows = await db.read<AssetCoreRow>(ASSET_CORE_BY_ID_SQL, [hex]);
+  return rows[0] ?? null;
+}
+
 /** Single asset, full detail DTO (used by `GET /api/assets/:id`). */
 export async function findDetailById(
   id: ObjectId,
@@ -90,8 +96,7 @@ export async function findDetailById(
 ): Promise<AssetDetailDto | null> {
   const db = assetsDb(dbOverride);
   const hex = id.toHexString();
-  const rows = await db.read<AssetCoreRow>(ASSET_CORE_BY_ID_SQL, [hex]);
-  const row = rows[0];
+  const row = await readCoreRow(db, hex);
   if (!row) return null;
   const [libraries, bundles] = await Promise.all([loadLibraries(db), loadBundles(db, [hex])]);
   return toDetailDto(row, bundles.get(hex) ?? EMPTY_BUNDLE, libraries);
@@ -169,8 +174,7 @@ export async function findCoreInfoById(
 ): Promise<AssetCoreInfo | null> {
   const db = assetsDb(dbOverride);
   const hex = id.toHexString();
-  const rows = await db.read<AssetCoreRow>(ASSET_CORE_BY_ID_SQL, [hex]);
-  const row = rows[0];
+  const row = await readCoreRow(db, hex);
   if (!row) return null;
   const [libraries, bundle] = await Promise.all([loadLibraries(db), loadCoreBundle(db, hex)]);
   return toCoreInfo(row, bundle, libraries);
