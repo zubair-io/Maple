@@ -27,8 +27,13 @@
  *
  * Provenance. Nothing in the repository reads the column, and expiry is by
  * version rather than by age — Nominatim addresses do not drift week to week.
- * It is stamped here rather than passed in, so `CoordinateCache`'s injectable
- * clock loses its only consumer at the cutover.
+ *
+ * The instant comes from the caller rather than from a clock call here, because
+ * `CoordinateCache` already owns an injectable `now` that one of its tests pins.
+ * Stamping it in this module would leave that clock with no consumer at the
+ * cutover and quietly turn a deterministic test into one that accepts whatever
+ * the wall clock said. The parameter defaults to now, so a caller with no
+ * opinion still gets the obvious behaviour.
  */
 
 import type { Place } from '../../schema.ts';
