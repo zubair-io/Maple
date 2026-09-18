@@ -41,7 +41,7 @@ describe('the API process', () => {
     const index = source('index.ts');
 
     const migration = index.indexOf('await startSqlite()');
-    const spawn = index.indexOf('spawnWorker();');
+    const spawn = index.indexOf('startWorkerSupervisor(');
     const listen = index.indexOf('server.listen(');
 
     expect(migration).toBeGreaterThan(-1);
