@@ -40,14 +40,8 @@
  */
 
 import { ObjectId } from 'mongodb';
-import {
-  toCoreInfo,
-  toDetailDto,
-  toListItemDto,
-  EMPTY_BUNDLE,
-  type AssetBundle,
-} from './assets.dto.ts';
-import { loadBundles, loadLibraries, loadLocations } from './assets.read.ts';
+import { toCoreInfo, toDetailDto, toListItemDto, EMPTY_BUNDLE } from './assets.dto.ts';
+import { loadBundles, loadCoreBundle, loadLibraries, loadLocations } from './assets.read.ts';
 import type { AssetCoreRow, ListItemRow } from './assets.rows.ts';
 import {
   ASSET_CORE_BY_ID_SQL,
@@ -164,6 +158,10 @@ export async function findDetailByAddress(
 /**
  * Single asset, minimal info used by routes that drive filesystem or
  * change-feed side effects rather than shipping the full DTO.
+ *
+ * Reads three tables rather than five: this shape carries no faces and no
+ * enrichment, and it is the hottest read here — every `/api/assets/:id`
+ * sub-route resolves through it before it touches disk.
  */
 export async function findCoreInfoById(
   id: ObjectId,
@@ -174,8 +172,7 @@ export async function findCoreInfoById(
   const rows = await db.read<AssetCoreRow>(ASSET_CORE_BY_ID_SQL, [hex]);
   const row = rows[0];
   if (!row) return null;
-  const [libraries, bundles] = await Promise.all([loadLibraries(db), loadBundles(db, [hex])]);
-  const bundle: AssetBundle = bundles.get(hex) ?? EMPTY_BUNDLE;
+  const [libraries, bundle] = await Promise.all([loadLibraries(db), loadCoreBundle(db, hex)]);
   return toCoreInfo(row, bundle, libraries);
 }
 
