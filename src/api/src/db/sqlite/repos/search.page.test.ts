@@ -67,6 +67,16 @@ const FILTER_CASES: FilterCase[] = [
   { name: 'full text, quoted phrase', query: () => ({ placeQuery: '"paper lanterns"' }) },
   { name: 'full text, negated term', query: () => ({ placeQuery: 'new york -bridge' }) },
   { name: 'full text matching nothing', query: () => ({ placeQuery: 'unfindable' }) },
+  // A text query that cannot match is still a text query, and the count has to
+  // agree with the empty page rather than report the whole library.
+  { name: 'full text, negations only', query: () => ({ placeQuery: '-boat' }) },
+  { name: 'full text, punctuation only', query: () => ({ placeQuery: '???' }) },
+  {
+    name: 'full text, longer than the old 500-character cap',
+    query: () => ({ placeQuery: `harbour ${'filler '.repeat(80)}` }),
+  },
+  { name: 'path prefix, exact case', query: () => ({ pathPrefix: 'trips' }) },
+  { name: 'path prefix, wrong case', query: () => ({ pathPrefix: 'Trips' }) },
   {
     name: 'people filter',
     query: () => ({}),
@@ -185,8 +195,9 @@ describe('cursor paging walks the same rows as skip paging', () => {
         const where = translate(testCase, library);
         // A text query is ranked by bm25, which is not a stored column and so
         // not seekable — the route keeps those on skip paging and says so with
-        // `cursorPaging: false`. Everything else must match id for id.
-        if (where.match !== null) return;
+        // `cursorPaging: false`, and `searchPage` refuses the pair outright.
+        // Everything else must match id for id.
+        if (where.match.kind === 'match') return;
         for (const sort of CURSOR_SORTS) {
           const bySkip = await pageThroughBySkip(db, where, sort);
           const byCursor = await pageThroughByCursor(db, where, sort);
@@ -247,6 +258,61 @@ describe('searchPage — ordering', () => {
       // mentions it once scores better than the long caption around it.
       expect(rows.length).toBe(2);
       expect(rows[0]!.fileinfo?.[0]?.filename).toBe('clip.mp4');
+    });
+  });
+});
+
+describe('searchPage — the combinations it refuses', () => {
+  test('a cursor cannot resume a relevance-ordered text query', async () => {
+    await withLibrary(async (db, library) => {
+      const where = translate(
+        { name: 'harbour', query: () => ({ placeQuery: 'harbour' }) },
+        library,
+      );
+      const cursor: SeekPosition = { v: '2024-06-01T12:00:00.000Z', i: 'a'.repeat(24), d: 'desc' };
+      // A bm25 page resumed from a capture date lands somewhere arbitrary in
+      // it — rows the user has not seen are skipped and rows they have are
+      // repeated. The route answers 400 for the pair; this layer refuses to
+      // build a page from it rather than inherit that guarantee.
+      await expect(
+        searchPage(where, { sort: 'captured_desc', limit: 3, skip: 0, cursor }, db),
+      ).rejects.toThrow(/relevance-ordered/);
+    });
+  });
+
+  test('a cursor is still fine on a text query that matches nothing', async () => {
+    await withLibrary(async (db, library) => {
+      const where = translate({ name: 'none', query: () => ({ placeQuery: '-boat' }) }, library);
+      const cursor: SeekPosition = { v: '2024-06-01T12:00:00.000Z', i: 'a'.repeat(24), d: 'desc' };
+      expect(
+        await searchPage(where, { sort: 'captured_desc', limit: 3, skip: 0, cursor }, db),
+      ).toEqual([]);
+    });
+  });
+});
+
+describe('searchPage — the timeline subtree scope', () => {
+  test('matches the directory and its descendants, and matches case exactly', async () => {
+    await withLibrary(async (db, library) => {
+      // Every fixture asset is filed under `trips/`, so the parent answers the
+      // whole unhidden live set while each year answers its own share — and
+      // nothing answers a prefix that only differs in case. The Mongo regex
+      // `^trips(\/|$)` carries no `i` flag; an ASCII-case-insensitive `LIKE`
+      // used to make the descendant arm disagree with both it and the `=` arm
+      // beside it.
+      const found = async (pathPrefix: string): Promise<number> => {
+        const where = translate({ name: pathPrefix, query: () => ({ pathPrefix }) }, library);
+        const rows = await searchPage(where, { sort: 'captured_desc', limit: 50, skip: 0 }, db);
+        return rows.length;
+      };
+      expect(await found('trips')).toBe(9);
+      expect(await found('trips/2024')).toBe(7);
+      expect(await found('trips/2023')).toBe(2);
+      expect(await found('Trips')).toBe(0);
+      expect(await found('TRIPS/2024')).toBe(0);
+      // And the boundary the regex insists on: a sibling sharing the prefix
+      // without a separator is not a subtree.
+      expect(await found('trip')).toBe(0);
     });
   });
 });

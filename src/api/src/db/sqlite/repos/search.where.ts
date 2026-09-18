@@ -50,7 +50,7 @@
 
 import { ObjectId } from 'mongodb';
 import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
-import { toMatchExpression } from './search.fts.ts';
+import { toTextFilter, type TextFilter } from './search.fts.ts';
 import {
   contains,
   excludedPeopleTerm,
@@ -87,12 +87,13 @@ import {
  * `match` is separate from `clauses` because a text query changes the *shape*
  * of the statement rather than adding a predicate to it — the page query joins
  * `assets_fts` and orders by `bm25()`, which no residual can express. See
- * `search.sql.ts`.
+ * `search.sql.ts`. Its third state, a text query no row can satisfy, is the one
+ * case that *is* a residual, and {@link searchWhereSql} is where it becomes one.
  */
 export interface SearchWhere {
   clauses: readonly string[];
   params: readonly SqlValue[];
-  match: string | null;
+  match: TextFilter;
 }
 
 /** A translated query, or the 400 the route should answer instead. */
@@ -180,7 +181,7 @@ export function buildSearchWhere(
   return {
     clauses: terms.map((term) => term.sql),
     params: terms.flatMap((term) => term.params),
-    match: toMatchExpression(text(q.placeQuery) ?? ''),
+    match: toTextFilter(text(q.placeQuery) ?? ''),
   };
 }
 
@@ -273,10 +274,28 @@ export const QUALIFIED_LIVE_PREDICATE = LIVE_ASSET_PREDICATE.replace(
 );
 
 /**
+ * The leading predicate a translated text query contributes.
+ *
+ * A `match` is the `MATCH` call. A text query nothing can satisfy is the bare
+ * constant `0`, which SQLite folds away before planning — so the statement
+ * costs nothing rather than scanning an index to reject every row. The folding
+ * is also why {@link SearchWhere} is the only thing that may carry it: an
+ * always-false `WHERE` leaves an explicit `INDEXED BY` naming an index the plan
+ * no longer has, and SQLite then refuses to prepare the statement with "no
+ * query solution". `search.sql.ts` drops the `INDEXED BY` for exactly this
+ * case, and `search.query-plan.test.ts` holds it there.
+ */
+function textPredicate(match: TextFilter): BoundPredicate | null {
+  if (match.kind === 'none') return null;
+  if (match.kind === 'nothing') return { sql: '0', params: [] };
+  return { sql: 'assets_fts MATCH ?', params: [match.expression] };
+}
+
+/**
  * The `WHERE` clause for a translated query, and its parameters in the order
  * the placeholders appear.
  *
- * Three groups in a fixed order. The full-text `MATCH` comes first because it
+ * Three groups in a fixed order. The full-text predicate comes first because it
  * is the most selective thing any search can carry and the statement reads
  * better led by it. The live predicate is next and verbatim, so the partial
  * indexes apply. Residuals follow, then whatever one statement adds of its own —
@@ -286,16 +305,15 @@ export const QUALIFIED_LIVE_PREDICATE = LIVE_ASSET_PREDICATE.replace(
  * {@link SearchWhere}.
  */
 export function searchWhereSql(where: SearchWhere, extra?: BoundPredicate): BoundPredicate {
-  const match = where.match === null ? [] : ['assets_fts MATCH ?'];
-  const matchParams = where.match === null ? [] : [where.match];
+  const lead = textPredicate(where.match);
   const clauses = [
-    ...match,
+    ...(lead ? [lead.sql] : []),
     QUALIFIED_LIVE_PREDICATE,
     ...where.clauses,
     ...(extra ? [extra.sql] : []),
   ];
   return {
     sql: `WHERE ${clauses.join('\n     AND ')}`,
-    params: [...matchParams, ...where.params, ...(extra?.params ?? [])],
+    params: [...(lead?.params ?? []), ...where.params, ...(extra?.params ?? [])],
   };
 }

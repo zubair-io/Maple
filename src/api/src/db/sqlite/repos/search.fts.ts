@@ -33,6 +33,19 @@
  * FTS5 binds `NOT` tighter than `AND` and `AND` tighter than `OR`, so every
  * group is parenthesised rather than relying on that.
  *
+ * ## Three answers, not two
+ *
+ * A query that leaves no positive term behind — `???`, `-boat`, `((((` — is a
+ * filter that matches nothing, and it is emphatically not the same thing as
+ * having no filter at all. Measured against the index this replaces: `$text`
+ * answers 0 documents for every one of `???`, `((((`, `"`, `-`, `+++` and
+ * `-boat -lanterns -kitchen`, because the search string contributes no term to
+ * OR against. Collapsing those onto "no text filter" would answer the whole
+ * live library instead — a 1,482-result grid for a query the user expected to
+ * narrow — so {@link toTextFilter} distinguishes them. Only a query that is
+ * blank once trimmed carries no text filter, which is the same test the Mongo
+ * route applies before it attaches `$text` at all.
+ *
  * ## Ranking
  *
  * `bm25(assets_fts)` replaces `{ $meta: 'textScore' }`. The two disagree on
@@ -61,24 +74,31 @@ interface ParsedTerm {
  *
  * A term made only of punctuation tokenises to nothing, and an FTS5 string that
  * produces no tokens matches every row rather than none — `MATCH '"!!"'` is not
- * an error, it is a query with no terms. Dropping those terms here is what stops
- * a query of `???` from returning the whole library.
+ * an error, it is a query with no terms. Dropping those terms here is half of
+ * what stops a query of `???` from returning the whole library; the other half
+ * is that a query left with no term at all becomes `nothing` rather than
+ * `none`, which is what `$text` answers for the same input.
  *
  * The test is deliberately Unicode-aware: `naïve`, `東京` and `Кремль` are all
  * real search terms and all fail an `[a-z0-9]` test.
  */
 const HAS_TOKEN_CHARS = /[\p{L}\p{N}]/u;
 
-/** Longest query we will translate. Matches the service route's own cap. */
-const MAX_QUERY_CHARS = 500;
-
 /**
  * Bound on how many terms one query contributes to the expression.
  *
- * FTS5 costs roughly one index scan per term, so a 500-character query of
- * single letters would otherwise fan out into 250 scans on a reader thread.
- * Terms past the cap are dropped rather than rejected, because a person who
- * pasted a paragraph into the search box wants results, not a 400.
+ * FTS5 costs roughly one index scan per term, so a long query of single letters
+ * would otherwise fan out into hundreds of scans on a reader thread. Terms past
+ * the cap are dropped rather than rejected, because a person who pasted a
+ * paragraph into the search box wants results, not a 400.
+ *
+ * This is the *only* bound on a query's cost, deliberately. An earlier draft
+ * also refused a query over 500 characters outright, which silently turned a
+ * pasted caption into "no text filter" and answered the entire live library —
+ * the opposite of what the paste asked for, and a widening no user could see.
+ * Length is the transport's business and the service route's (it answers 400
+ * over 500 characters, in `routes/service-asset-search.ts`); what this module
+ * owes is a bound on the work, which the term cap already gives.
  */
 const MAX_TERMS = 24;
 
@@ -129,29 +149,40 @@ function quote(text: string): string {
 }
 
 /**
- * The FTS5 `MATCH` expression for a user's query, or `null` when the query
- * carries nothing searchable.
+ * What a user's free-text query became.
  *
- * `null` is a real answer, not a failure. It happens for an empty string, for
- * punctuation-only input, and for a query that is nothing but negations — the
- * last of which FTS5 cannot express at all, since `NOT` needs a left operand.
- * Every caller treats `null` as "this query has no text filter", which is what
- * the route already does for a blank `placeQuery`.
+ * Three cases, because two would have to lie about one of them:
+ *
+ *   - `none` — the query carries no text filter. Only a blank string, which is
+ *     the same condition the Mongo route tests before it attaches `$text`.
+ *   - `match` — an FTS5 expression to hand to `MATCH`.
+ *   - `nothing` — the user asked for text, and no row can satisfy it. FTS5
+ *     cannot express this (`NOT` needs a left operand), and it does not have
+ *     to: the statement builder answers it with a false predicate instead.
  */
-export function toMatchExpression(raw: string): string | null {
-  if (raw.length === 0 || raw.length > MAX_QUERY_CHARS) return null;
+export type TextFilter =
+  | { kind: 'none' }
+  | { kind: 'match'; expression: string }
+  | { kind: 'nothing' };
+
+/** The translated free-text query. See {@link TextFilter} for the three cases. */
+export function toTextFilter(raw: string): TextFilter {
+  // Trimmed here rather than trusted to the caller, so "blank means no filter"
+  // is a property of this function and not of each of the two call sites.
+  if (raw.trim().length === 0) return { kind: 'none' };
   const terms = parseTerms(raw);
-  if (terms.length === 0) return null;
 
   const required = terms.filter((t) => !t.negated && t.phrase).map((t) => quote(t.text));
   const optional = terms.filter((t) => !t.negated && !t.phrase).map((t) => quote(t.text));
   const excluded = terms.filter((t) => t.negated).map((t) => quote(t.text));
 
   const positive = [...required, ...(optional.length > 0 ? [`(${optional.join(' OR ')})`] : [])];
-  if (positive.length === 0) return null;
+  if (positive.length === 0) return { kind: 'nothing' };
 
   const included = `(${positive.join(' AND ')})`;
-  return excluded.length === 0 ? included : `${included} NOT (${excluded.join(' OR ')})`;
+  const expression =
+    excluded.length === 0 ? included : `${included} NOT (${excluded.join(' OR ')})`;
+  return { kind: 'match', expression };
 }
 
 /**

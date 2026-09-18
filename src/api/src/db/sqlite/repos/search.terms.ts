@@ -29,8 +29,15 @@ export interface Term {
   params: SqlValue[];
 }
 
-/** Escape a user string for `LIKE … ESCAPE '\'`. */
-function likeLiteral(value: string): string {
+/**
+ * Escape a user string for `LIKE … ESCAPE '\'`.
+ *
+ * Exported because the service route's exact-filename pass needs the literal
+ * without the surrounding wildcards {@link contains} adds, and a second copy of
+ * three characters is a copy that can drift: two escapes that disagree return
+ * different rows rather than an error.
+ */
+export function likeLiteral(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 
@@ -81,14 +88,34 @@ export function libraryTerm(libraryId: string): Term {
  * The Mongo form is an anchored regex requiring a directory boundary after the
  * prefix, so `A` matches `A` and `A/B` but not `A (1)`. Two predicates say the
  * same thing without a regex: equality for the directory itself, and a prefix
- * `LIKE` for its descendants.
+ * test for its descendants.
+ *
+ * The descendant arm is `substr` rather than the `LIKE` it started as, and the
+ * difference is case. `^A(\/|$)` carries no `i` flag, so Mongo matches `A/B`
+ * and not `a/b`; SQLite's `=` is likewise BINARY, but its `LIKE` is
+ * case-insensitive for ASCII whatever the column's collation. The two arms
+ * therefore disagreed with each other — on a case-sensitive filesystem,
+ * `pathPrefix=trips` showed everything filed under `Trips/…` while hiding the
+ * photos sitting directly in `Trips`, and swept in rows the regex never
+ * matched. `substr` compares under the column's own collation, so both arms are
+ * BINARY and both agree with the regex. It costs no plan: the correlated
+ * `EXISTS` is driven by `asset_id` through `UNIQUE (asset_id, ordinal)` and
+ * `path` is a residual either way — no index leads on it, and SQLite's `LIKE`
+ * optimisation never applied here anyway, since it needs a case-sensitive
+ * `LIKE` to begin with.
+ *
+ * `length(?)` rather than the prefix length measured in TypeScript: `substr`
+ * counts characters and JavaScript counts UTF-16 code units, so a folder named
+ * with anything outside the basic plane would otherwise compare the wrong
+ * number of them.
  */
 export function pathPrefixTerm(prefix: string): Term {
+  const subtree = `${prefix}/`;
   return {
     sql: `EXISTS (SELECT 1 FROM asset_locations l
                    WHERE l.asset_id = assets.id
-                     AND (l.path = ? OR l.path LIKE ? ESCAPE '\\'))`,
-    params: [prefix, `${likeLiteral(prefix)}/%`],
+                     AND (l.path = ? OR substr(l.path, 1, length(?)) = ?))`,
+    params: [prefix, subtree, subtree],
   };
 }
 
@@ -216,15 +243,37 @@ function rangeTerms(column: string, min: number | undefined, max: number | undef
  * leaves them in the JSON and this reads them out of it — the same trade the
  * Mongo side makes, where neither has an index either.
  */
-const APERTURE = `json_extract(assets.exif, '$.aperture')`;
-const FOCAL_LENGTH = `json_extract(assets.exif, '$.focal_length')`;
+const APERTURE = `'$.aperture'`;
+const FOCAL_LENGTH = `'$.focal_length'`;
+
+/**
+ * A numeric range over a value inside the `exif` JSON, bracketed by type.
+ *
+ * SQLite orders every number before every string, so a payload that stored
+ * `"aperture": "2.8"` as a JSON *string* would satisfy `>= 2.8` — and `>= 22`,
+ * and every other `apertureMin` a caller can send. MongoDB's `$gte` compares
+ * only within a type, so that document matches nothing there. The `json_type`
+ * guard restores the bracket: only a real number is compared, and a string, an
+ * object or a missing key drops out exactly as it does today.
+ *
+ * The indexer writes both fields through a numeric coercion, so this is not a
+ * shape it produces; it is a shape the JSON column cannot rule out, and the
+ * guard is free — neither field has an index on either engine.
+ */
+function exifRangeTerms(path: string, min: number | undefined, max: number | undefined): Term[] {
+  if (min === undefined && max === undefined) return [];
+  return [
+    { sql: `json_type(assets.exif, ${path}) IN ('integer', 'real')`, params: [] },
+    ...rangeTerms(`json_extract(assets.exif, ${path})`, min, max),
+  ];
+}
 
 /** The structured EXIF filters: three ranges and a capture window. */
 export function exifTerms(q: SearchQuery): Term[] {
   return [
     ...rangeTerms('assets.iso', asNumber(q.isoMin), asNumber(q.isoMax)),
-    ...rangeTerms(APERTURE, asNumber(q.apertureMin), asNumber(q.apertureMax)),
-    ...rangeTerms(FOCAL_LENGTH, asNumber(q.focalMin), asNumber(q.focalMax)),
+    ...exifRangeTerms(APERTURE, asNumber(q.apertureMin), asNumber(q.apertureMax)),
+    ...exifRangeTerms(FOCAL_LENGTH, asNumber(q.focalMin), asNumber(q.focalMax)),
     // `captured_at` is an ISO 8601 string, so a lexicographic compare is a date
     // compare. A bare `YYYY-MM-DD` is widened to the whole day first, or
     // `to=2025-07-31` would skip every photo taken on the 31st. NULL never

@@ -51,7 +51,7 @@
 
 import type { Database } from 'bun:sqlite';
 import { MongoClient, ObjectId, type Collection, type Db } from 'mongodb';
-import { toMatchExpression } from '../../src/db/sqlite/repos/search.repo.ts';
+import { toTextFilter } from '../../src/db/sqlite/repos/search.repo.ts';
 import { createTestDatabase, run } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { benchDbPath, buildLibrary, removeDatabase, sizeArgument } from './bench-db.ts';
 import { agreementPrefix, RANKING_CORPUS, RANKING_PROBES } from './search-ranking-corpus.ts';
@@ -162,8 +162,8 @@ async function mongoSearch(assets: Collection, query: string, limit: number): Pr
 
 /** SQLite's answer: the shipped translation and the shipped ranking. */
 function sqliteSearch(db: Database, query: string, limit: number): string[] {
-  const match = toMatchExpression(query);
-  if (match === null) return [];
+  const match = toTextFilter(query);
+  if (match.kind !== 'match') return [];
   const rows = db
     .query(
       `SELECT s.asset_id AS asset_id
@@ -173,7 +173,7 @@ function sqliteSearch(db: Database, query: string, limit: number): string[] {
         ORDER BY bm25(assets_fts)
         LIMIT ?`,
     )
-    .all(match, limit) as Array<{ asset_id: string }>;
+    .all(match.expression, limit) as Array<{ asset_id: string }>;
   return rows.map((row) => row.asset_id);
 }
 
@@ -187,11 +187,11 @@ async function mongoCount(assets: Collection, query: string): Promise<number> {
 }
 
 function sqliteCount(db: Database, query: string): number {
-  const match = toMatchExpression(query);
-  if (match === null) return 0;
+  const match = toTextFilter(query);
+  if (match.kind !== 'match') return 0;
   const row = db
     .query('SELECT COUNT(*) AS n FROM assets_fts WHERE assets_fts MATCH ?')
-    .get(match) as { n: number };
+    .get(match.expression) as { n: number };
   return row.n;
 }
 
