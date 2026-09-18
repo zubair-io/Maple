@@ -79,7 +79,7 @@ import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
 import { uploadSessions } from './backup/upload-session.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { authedApi } from './routes/authed-api.ts';
-import { getDb, ensureIndexes, closeDb } from './db/client.ts';
+
 import { openSqlitePool, closeSqlitePool } from './db/sqlite/index.ts';
 import { migrateAtBoot, sqliteDatabasePath } from './db/sqlite/boot-migration.ts';
 import { loadMirrorConfig } from './fs/mirror-config.ts';
@@ -317,25 +317,25 @@ async function start(): Promise<void> {
     // pool respawns) and never the server. Nothing to warm here; the pool
     // spawns its first child lazily on the first decode request.
 
+    // No `getDb()` / `ensureIndexes()` here any more (#3787). The database is
+    // SQLite, its pool was opened before `listen`, and its schema arrived with
+    // the migration rather than being reconciled on every boot — there is no
+    // index to ensure and nothing to connect to lazily. The one place that
+    // still reaches MongoDB is `migrateAtBoot`, above, which reads it to fill
+    // SQLite and then never looks again.
+    //
+    // This phase is no longer allowed to fail soft the way the Mongo one did.
+    // "MongoDB not available — DB-bound routes will 503" was a reasonable
+    // posture for a remote server that might come back; a missing SQLite file
+    // is not that, and the pool has already refused to open if it were.
     try {
-      await getDb();
-    } catch (err) {
-      log.warn({ err }, 'MongoDB not available — server continues, DB-bound routes will 503');
-      return;
-    }
-
-    try {
-      await ensureIndexes();
-      // #2920 — plant the ownership sentinel on installs whose owner
-      // predates it (or came from dev-login), so an invited registration
-      // can never win the claim. Self-gating: one point-read per boot.
+      // #2920 — plant the ownership sentinel on installs whose owner predates
+      // it (or came from dev-login), so an invited registration can never win
+      // the claim. Self-gating: one point-read per boot.
       await backfillOwnershipClaim();
       log.info('DB ready');
     } catch (err) {
-      log.error(
-        { err },
-        'ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved',
-      );
+      log.error({ err }, 'ownership-claim backfill failed — registration claims may be contested');
     }
 
     try {
@@ -484,11 +484,8 @@ async function shutdown(signal: string): Promise<void> {
   } catch {
     /* ignore */
   }
-  try {
-    await closeDb();
-  } catch {
-    /* ignore */
-  }
+  // Nothing to close on the Mongo side: the only connection this process opens
+  // to it belongs to the boot migration, which closes its own before serving.
   // Terminates the pool's writer and reader threads. Last, so anything above
   // that still wanted a query got one.
   try {
@@ -513,11 +510,11 @@ process.on('SIGINT', () => {
 });
 
 // Only kick off the boot sequence when this module is run as the process
-// entry point — `bun src/index.ts`. Importing the module (tests reaching
-// for `app` / `buildApp` / route handlers) must not trigger the background
-// boot, otherwise its `ensureIndexes()` races with the test harness's
-// `closeDb()` calls and randomly skips index builds downstream tests rely
-// on. Bun sets `import.meta.main = true` for the entry module.
+// entry point — `bun src/index.ts`. Importing the module (tests reaching for
+// `app` / `buildApp` / route handlers) must not trigger the background boot:
+// it would run the migration and open a second pool against the operator's
+// real database underneath a test that installed its own handle. Bun sets
+// `import.meta.main = true` for the entry module.
 if ((import.meta as { main?: boolean }).main) {
   start();
 }

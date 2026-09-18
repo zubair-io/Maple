@@ -263,6 +263,26 @@ describe('isChangeCursorTooOld', () => {
     expect(await isChangeCursorTooOld(db, 0)).toEqual({ tooOld: false, current: 3 });
   });
 
+  test('treats a gap at the bottom as a prune, even when nothing was pruned', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    for (let i = 0; i < 3; i++) await recordAssetChange(db, change());
+    // Nothing has been swept. The journal simply does not start at 1 — which is
+    // what a client holding a cursor it leaked from an earlier era sees.
+    run(handle.db, `UPDATE asset_changes SET cursor = cursor + 10`);
+
+    // Pinning the accepted difference from the Mongo guard (#3784), not
+    // endorsing it. Deriving the floor from the surviving minimum cannot tell
+    // "these rows were pruned" from "these rows never existed down here", so a
+    // client at 0 is sent to re-enumerate where the Mongo path, which compared
+    // against a persisted retention floor, would have served it. The cost is an
+    // expensive-but-correct re-enumeration; the opposite error, serving a page
+    // that silently skips rows, is the one that loses data. The owner accepted
+    // this form for the cutover. If #3784 gives the guard the retention floor,
+    // this expectation flips to `tooOld: false` — deliberately, here.
+    expect(await isChangeCursorTooOld(db, 0)).toEqual({ tooOld: true, current: 13 });
+  });
+
   test('never admits a page that skips a row without saying so', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
