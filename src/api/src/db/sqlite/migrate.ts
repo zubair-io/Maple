@@ -226,10 +226,16 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** The shape of `bun:sqlite`'s `Database` that {@link fromBunSqlite} needs. */
+/**
+ * The shape of `bun:sqlite`'s `Database` that {@link fromBunSqlite} needs.
+ *
+ * `run` takes its bindings as a single array rather than a variadic list —
+ * `bun:sqlite` accepts both at runtime, but only the array form type-checks
+ * against its declared `run<P extends SQLQueryBindings[]>(sql, ...bindings: P[])`.
+ */
 export interface BunSqliteLike {
   exec(sql: string): unknown;
-  run(sql: string, ...params: SqlValue[]): unknown;
+  run(sql: string, params: SqlValue[]): unknown;
   query(sql: string): { all(...params: SqlValue[]): unknown[] };
 }
 
@@ -247,7 +253,7 @@ export function fromBunSqlite(db: BunSqliteLike): MigrationDb {
       db.exec(sql);
     },
     run: (sql, params = []) => {
-      db.run(sql, ...params);
+      db.run(sql, [...params]);
     },
     all: <T>(sql: string, params: readonly SqlValue[] = []) => db.query(sql).all(...params) as T[],
   };
