@@ -503,6 +503,15 @@ export async function isImportCancelRequested(
  * AND maple_id <> ''`, `sha1_head IS NOT NULL`). SQLite only uses a partial
  * index when the query's own predicate textually implies the index's, and a
  * bound `= ?` does not prove the column is non-empty.
+ *
+ * That repetition also changes one answer, deliberately. An empty `maple_id`
+ * used to match any other asset whose `maple_id` was empty, because Mongo's
+ * `findOne({ maple_id })` compared the two empty strings and found them equal —
+ * so a file whose hash came back empty was reported as already in the library
+ * and skipped, and so was every later one. An empty hash is the absence of an
+ * identity rather than an identity everything shares, so it now matches
+ * nothing and the file is imported. `sha1_head` needs no equivalent: it is
+ * `NULL` when absent, and `NULL = NULL` was never true on either side.
  */
 export async function assetExistsForHash(
   maple_id: string,
