@@ -177,6 +177,7 @@ export function workerRoutes() {
         { body: t.Object({ hours: t.Number({ minimum: 1, maximum: 8760 }) }) },
       )
 
+      // DeDuplicate worker tunables: per-pass batch size + dry-run preview. The
       // worker re-reads these each tick, so a PATCH takes effect on the next
       // pass without a restart. (The worker itself starts paused — resume via
       // POST /api/workers/deduplicate/resume.)
