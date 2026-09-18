@@ -92,12 +92,23 @@ interface Statements {
   link: Prepared;
 }
 
+/**
+ * Library roots the assets are spread across, most-populated first.
+ *
+ * Four rather than one because a single root makes every library-scoped query
+ * match 100% of the rows, which is the one case a library scope never has to
+ * discriminate in — the grid page would look fast for the wrong reason. The
+ * skew is Zipf-ish like every other distribution here: a main library, a
+ * couple of smaller ones, and a nearly empty one.
+ */
+const LIBRARY_COUNT = 4;
+
 /** Everything the per-asset writers need, threaded through as one value. */
 interface Context {
   st: Statements;
   random: () => number;
   now: string;
-  libraryId: string;
+  libraryIds: string[];
   personIds: string[];
   counts: Record<string, number>;
 }
@@ -111,6 +122,8 @@ interface AssetShape {
   hasExif: boolean;
   /** Implies hasExif — a geocode needs GPS, which needs EXIF. */
   hasPlace: boolean;
+  /** Index into the generated library roots. */
+  libraryIndex: number;
 }
 
 function prepare(db: Database): Statements {
@@ -215,7 +228,9 @@ function writeAssetRow(ctx: Context, shape: AssetShape): void {
     flag(random, 0.22),
     pickMediaKind(random),
     flag(random, 0.012),
-    flag(random, 0.07),
+    // Tri-state: NULL on the assets the describe stage has not classified yet,
+    // which is what the column and the DTO both say (#3761).
+    either(random, 0.28, null, flag(random, 0.1)),
     either(random, 0.02, shape.captured.toISOString(), null),
     `mid-${shape.id}`,
     exif,
@@ -237,7 +252,7 @@ function writeLocations(ctx: Context, shape: AssetShape, index: number): void {
     ctx.st.location.run(
       shape.id,
       ordinal,
-      ctx.libraryId,
+      ctx.libraryIds[shape.libraryIndex],
       dir,
       `IMG_${index}_${ordinal}.dng`,
       ordinal === 0 ? tombstone : null,
@@ -348,6 +363,7 @@ function writeAsset(ctx: Context, index: number): void {
     placeIndex: skewedIndex(random, PLACES.length),
     hasExif,
     hasPlace: hasExif && random() > 0.34,
+    libraryIndex: skewedIndex(random, LIBRARY_COUNT),
   };
   writeAssetRow(ctx, shape);
   writeLocations(ctx, shape, index);
@@ -402,19 +418,21 @@ export function generateLibrary(db: Database, options: GenerateOptions): Generat
   const { assetCount, seed = 0x5eed, batchSize = 20_000 } = options;
   const startedAt = performance.now();
   const now = new Date().toISOString();
-  const libraryId = newObjectIdHex();
+  const libraryIds = Array.from({ length: LIBRARY_COUNT }, () => newObjectIdHex());
 
-  db.run(
-    `INSERT INTO folders (id, path, slug, label, file_count, created_at) VALUES (?, ?, ?, ?, 0, ?)`,
-    [libraryId, '/libraries/bench', 'bench', 'Benchmark library', now],
-  );
+  libraryIds.forEach((id, index) => {
+    db.run(
+      `INSERT INTO folders (id, path, slug, label, file_count, created_at) VALUES (?, ?, ?, ?, 0, ?)`,
+      [id, `/libraries/bench-${index}`, `bench-${index}`, `Benchmark library ${index}`, now],
+    );
+  });
   dropDerivedTriggers(db);
 
   const ctx: Context = {
     st: prepare(db),
     random: makeRandom(seed),
     now,
-    libraryId,
+    libraryIds,
     personIds: seedPeople(db, now),
     counts: {
       assets: 0,
