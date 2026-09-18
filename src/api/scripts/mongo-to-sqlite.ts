@@ -70,7 +70,10 @@ async function importAndVerify(
   try {
     const onProgress = makeProgressReporter(interactive);
     const report = await runImportOn(session, { ...options, onProgress });
-    if (interactive) process.stderr.write('\r'.padEnd(62));
+    // Blank the progress line AND return the cursor to column 0: without the
+    // trailing carriage return it sits at column 62, and the next line of
+    // output starts there.
+    if (interactive) process.stderr.write(`\r${' '.repeat(61)}\r`);
     const verified = options.verify
       ? await verifyImport(session.mongo, session.sqlite, options)
       : null;
