@@ -280,7 +280,7 @@ struct BrowseGrid: View {
       // .onTapGesture — merged cells in BrowseGrid are informational only;
       // the full merged-tap routing lives in CloudTimelineView. Kept as
       // no-op to preserve the same behaviour.
-      onTap: { _ in },
+      onTap: { _, _ in },
       makeItem: { cell in
         PhotoGridItem(
           merged: cell,
@@ -391,7 +391,7 @@ struct BrowseGrid: View {
           )
         },
         renameOverlay: { asset in AnyView(GridCellRenameCaption(asset: asset)) },
-        onTap: { asset in
+        onTap: { asset, _ in
           if vm.isSelecting {
             // Multi-select mode: tap toggles check.
             vm.toggleSelected(asset.id)

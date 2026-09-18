@@ -186,7 +186,7 @@ struct CloudSearchView: View {
               Task { await vm.loadMore() }
             }
           },
-          onTap: { onSelectAsset($0) },
+          onTap: { asset, _ in onSelectAsset(asset) },
           makeItem: { asset in
             PhotoGridItem(
               cloud: asset,

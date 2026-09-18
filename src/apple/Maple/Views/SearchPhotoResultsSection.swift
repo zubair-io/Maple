@@ -64,7 +64,7 @@ struct SearchPhotoResultsSection: View {
                     onAppearItem: { asset in
                         if asset.id == results.last?.id { onLoadMore() }
                     },
-                    onTap: onTap,
+                    onTap: { asset, _ in onTap(asset) },
                     makeItem: { asset in
                         PhotoGridItem(cloud: asset, host: host, style: .phone)
                     }
