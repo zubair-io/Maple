@@ -21,6 +21,13 @@ export { SqlitePool, type SqlitePoolOptions, type SqlitePoolStats } from './pool
 export type { SqliteWorkerStats } from './worker-handle.ts';
 export type { SqlParams, SqlRow, SqlStatement, SqlValue, SqlWriteResult } from './protocol.ts';
 
+/**
+ * The open pool, and the open that is still spawning its workers. Both are
+ * needed: the guard below has to reject a second caller while the first one is
+ * still awaiting its threads, which is the window in which `pool` is null.
+ */
+let opening: Promise<SqlitePool> | null = null;
+let openingPath: string | null = null;
 let pool: SqlitePool | null = null;
 
 /**
@@ -28,18 +35,48 @@ let pool: SqlitePool | null = null;
  * cannot be opened, and throws if a pool is already open — a second pool on
  * the same file would mean a second writer, which is exactly what the single
  * writer worker exists to prevent.
+ *
+ * The in-flight open is recorded before the first `await`, so two callers that
+ * race cannot both pass the guard: a check-then-await guard would let the
+ * second one through and leave the first pool's writer and reader threads
+ * running with nothing left holding a reference that could close them.
+ *
+ * A pool closed through the object rather than through {@link closeSqlitePool}
+ * does not block a reopen: it owns no threads and no file handle, so there is
+ * nothing for a new pool to collide with, and refusing would wedge the module
+ * until the process restarted.
  */
 export async function openSqlitePool(options: SqlitePoolOptions): Promise<SqlitePool> {
-  if (pool) {
-    throw new Error(`sqlite pool: already open on ${pool.path}`);
+  if (opening && !pool?.isClosed) {
+    throw new Error(`sqlite pool: already open on ${openingPath}`);
   }
-  pool = await SqlitePool.open(options);
-  return pool;
+  const started = SqlitePool.open(options);
+  opening = started;
+  openingPath = options.path;
+  pool = null;
+
+  try {
+    const opened = await started;
+    if (opening !== started) {
+      // closeSqlitePool() ran while the workers were still coming up. Honour
+      // it rather than installing threads the caller has already disowned.
+      opened.close();
+      throw new Error(`sqlite pool: open of ${options.path} was cancelled by close`);
+    }
+    pool = opened;
+    return opened;
+  } catch (e) {
+    if (opening === started) {
+      opening = null;
+      openingPath = null;
+    }
+    throw e;
+  }
 }
 
-/** The open pool. Throws if startup never opened one. */
+/** The open pool. Throws if startup never opened one, or if it was closed. */
 export function sqlitePool(): SqlitePool {
-  if (!pool) {
+  if (!pool || pool.isClosed) {
     throw new Error('sqlite pool: not open — openSqlitePool() must run during startup');
   }
   return pool;
@@ -49,4 +86,6 @@ export function sqlitePool(): SqlitePool {
 export function closeSqlitePool(): void {
   pool?.close();
   pool = null;
+  opening = null;
+  openingPath = null;
 }

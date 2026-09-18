@@ -141,3 +141,17 @@ export const DEFAULT_READER_COUNT = 2;
 
 /** Milliseconds a connection waits on a held lock before reporting SQLITE_BUSY. */
 export const BUSY_TIMEOUT_MS = 5_000;
+
+/**
+ * Milliseconds the pool waits for a worker's reply before rejecting the
+ * caller. This is a liveness backstop for a reply that never arrives — a
+ * dropped `postMessage`, a wedged thread — not a query deadline: the clock
+ * includes time the request spends queued behind earlier ones on the same
+ * worker, so it is set far above anything a request-path query should run for.
+ * Without it a lost reply hangs its caller for the life of the process.
+ *
+ * A caller that deliberately runs a statement longer than this — an index
+ * build during a migration, a single enormous import transaction — should
+ * raise it with `requestTimeoutMs` rather than assume this default covers it.
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;

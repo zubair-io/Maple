@@ -85,24 +85,52 @@ function handleOpen(request: OpenRequest): SqliteWorkerResponse {
     request.role === 'writer'
       ? new Database(request.path, { create: true })
       : new Database(request.path, { readonly: true });
-  // Writer-only pragmas: WAL is a persistent property of the file, and a
-  // read-only connection may not change it. WAL is what lets the readers run
-  // while a write is in flight, so a multi-hundred-millisecond facet query
-  // cannot delay a grid page.
-  if (request.role === 'writer') {
-    opened.run('PRAGMA journal_mode = WAL');
-    opened.run('PRAGMA synchronous = NORMAL');
-    opened.run('PRAGMA foreign_keys = ON');
-    // Force the shared-memory index (`-shm`) and write-ahead log (`-wal`) into
-    // existence before any reader attaches. A read-only connection cannot
-    // create them — it would fail with SQLITE_CANTOPEN on a brand-new database
-    // that has only ever been opened, never queried. One read transaction on
-    // the writer is enough, and the pool always starts the writer first.
-    opened.query('SELECT count(*) AS n FROM sqlite_schema').get();
+  try {
+    if (request.role === 'writer') configureWriter(opened);
+    opened.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  } catch (e) {
+    // Nothing was published, so release the file rather than leaving a handle
+    // on it until the thread is torn down.
+    opened.close();
+    throw e;
   }
-  opened.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
   db = opened;
   return { kind: 'open', id: request.id, ok: true };
+}
+
+/**
+ * Writer-only pragmas: WAL is a persistent property of the file, and a
+ * read-only connection may not change it. WAL is what lets the readers run
+ * while a write is in flight, so a multi-hundred-millisecond facet query
+ * cannot delay a grid page.
+ *
+ * The switch is verified rather than assumed. `PRAGMA journal_mode = WAL` does
+ * not throw when SQLite refuses it — it returns the mode actually in effect,
+ * which is `delete` on a network filesystem or some FUSE mounts, a realistic
+ * place for a Self Hosted library to live. Coming up "successfully" in
+ * rollback-journal mode would mean readers holding SHARED locks that block the
+ * writer until `busy_timeout` expires and writes start failing SQLITE_BUSY —
+ * exactly the silent degradation this module refuses to do.
+ */
+function configureWriter(opened: Database): void {
+  const reported = opened.query('PRAGMA journal_mode = WAL').get() as {
+    journal_mode?: unknown;
+  } | null;
+  const mode = String(reported?.journal_mode ?? 'unknown').toLowerCase();
+  if (mode !== 'wal') {
+    throw new Error(
+      `database refused WAL mode (journal_mode is '${mode}') — a network or FUSE ` +
+        `mount cannot support it; move the database onto local storage`,
+    );
+  }
+  opened.run('PRAGMA synchronous = NORMAL');
+  opened.run('PRAGMA foreign_keys = ON');
+  // Force the shared-memory index (`-shm`) and write-ahead log (`-wal`) into
+  // existence before any reader attaches. A read-only connection cannot create
+  // them — it would fail with SQLITE_CANTOPEN on a brand-new database that has
+  // only ever been opened, never queried. One read transaction on the writer is
+  // enough, and the pool always starts the writer first.
+  opened.query('SELECT count(*) AS n FROM sqlite_schema').get();
 }
 
 function handleRead(request: ReadRequest): SqliteWorkerResponse {

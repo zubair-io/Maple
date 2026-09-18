@@ -30,6 +30,7 @@
 
 import {
   DEFAULT_READER_COUNT,
+  DEFAULT_REQUEST_TIMEOUT_MS,
   type SqlParams,
   type SqlRow,
   type SqlStatement,
@@ -52,6 +53,12 @@ export interface SqlitePoolOptions {
    * the fail-closed path can be exercised without an unspawnable environment.
    */
   spawnWorker?: SpawnWorker;
+  /**
+   * How long a single request may go unanswered before the caller is rejected.
+   * Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}. It is a backstop against a
+   * reply that never arrives, not a query deadline — see the constant.
+   */
+  requestTimeoutMs?: number;
 }
 
 /** Queue depth across the pool — what an operator watches during a bulk import. */
@@ -90,10 +97,11 @@ export class SqlitePool {
       throw new Error(`sqlite pool: readers must be a positive integer, got ${readerCount}`);
     }
     const spawn = options.spawnWorker ?? spawnDatabaseWorker;
-    const writer = new SqliteWorkerHandle('writer', spawn);
+    const timeout = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    const writer = new SqliteWorkerHandle('writer', spawn, timeout);
     const readers = Array.from(
       { length: readerCount },
-      () => new SqliteWorkerHandle('reader', spawn),
+      () => new SqliteWorkerHandle('reader', spawn, timeout),
     );
 
     try {
@@ -111,7 +119,16 @@ export class SqlitePool {
   /** Run one statement on a reader and return its rows. */
   read<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> {
     const closed = this.rejectIfClosed();
-    return (closed ?? this.leastBusyReader().read(sql, params)) as Promise<T[]>;
+    if (closed) return closed as Promise<T[]>;
+    const reader = this.leastBusyReader();
+    if (!reader) {
+      return Promise.reject(
+        new Error(
+          `sqlite pool: every reader worker for ${this.path} has died — no reader to run on`,
+        ),
+      );
+    }
+    return reader.read(sql, params) as Promise<T[]>;
   }
 
   /** Run one statement on the writer. Writes are executed in call order. */
@@ -147,15 +164,39 @@ export class SqlitePool {
   }
 
   /**
-   * Pick the reader with the shallowest queue, breaking ties by rotating. A
-   * plain round-robin would happily hand a second slow facet query to the
-   * worker already running one while its neighbour sits idle.
+   * True once {@link close} has run. The process-wide handle in `index.ts`
+   * reads this so that closing a pool through the object rather than through
+   * `closeSqlitePool()` does not wedge the module: a closed pool holds no
+   * threads and no file, so there is nothing left for a reopen to collide with.
    */
-  private leastBusyReader(): SqliteWorkerHandle {
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
+  /**
+   * Pick the live reader with the shallowest queue, breaking ties by rotating,
+   * or null when every reader has died. A plain round-robin would happily hand
+   * a second slow facet query to the worker already running one while its
+   * neighbour sits idle.
+   *
+   * Dead readers are skipped before the queue depths are compared, because a
+   * dead handle reports zero in flight forever: on depth alone it looks like
+   * the idlest worker in the pool, so one crashed thread would attract every
+   * subsequent read and turn a 1-in-N failure into a total read outage.
+   *
+   * A dead reader is left in place rather than respawned. Respawning wants a
+   * policy this slice has no caller for — how many attempts, how long to back
+   * off, what to do when the environment genuinely cannot spawn a thread — and
+   * the honest failure here is a read that rejects while `stats()` shows which
+   * worker is gone, not a silent retry loop.
+   */
+  private leastBusyReader(): SqliteWorkerHandle | null {
     const start = this.cursor % this.readers.length;
     this.cursor = (start + 1) % this.readers.length;
     const rotated = [...this.readers.slice(start), ...this.readers.slice(0, start)];
-    return rotated.reduce((best, reader) => (reader.inFlight < best.inFlight ? reader : best));
+    const live = rotated.filter((reader) => reader.alive);
+    if (live.length === 0) return null;
+    return live.reduce((best, reader) => (reader.inFlight < best.inFlight ? reader : best));
   }
 
   /**

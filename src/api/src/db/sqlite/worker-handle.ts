@@ -17,19 +17,25 @@
  * unbounded backlog.
  */
 
-import type {
-  SqlParams,
-  SqlRow,
-  SqlStatement,
-  SqlWriteResult,
-  SqliteWorkerRequest,
-  SqliteWorkerResponse,
-  SqliteWorkerRole,
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  type SqlParams,
+  type SqlRow,
+  type SqlStatement,
+  type SqlWriteResult,
+  type SqliteWorkerRequest,
+  type SqliteWorkerResponse,
+  type SqliteWorkerRole,
 } from './protocol.ts';
 
 /** Observable queue depth for one worker. */
 export interface SqliteWorkerStats {
   role: SqliteWorkerRole;
+  /**
+   * False once the thread has died or been terminated. An operator reading
+   * `inFlight: 0` on a dead worker would otherwise see it as merely idle.
+   */
+  alive: boolean;
   /** Requests sent but not yet answered. */
   inFlight: number;
   /** Highest `inFlight` seen since the worker started. */
@@ -43,6 +49,8 @@ export interface SqliteWorkerStats {
 interface PendingRequest {
   resolve: (response: SqliteWorkerResponse) => void;
   reject: (error: Error) => void;
+  /** Lost-reply backstop, cleared the moment the request settles. */
+  timer: ReturnType<typeof setTimeout>;
 }
 
 /** How a worker thread is created. Overridable only so the fail-closed path is
@@ -66,6 +74,7 @@ export class SqliteWorkerHandle {
   constructor(
     readonly role: SqliteWorkerRole,
     private readonly spawn: SpawnWorker = spawnDatabaseWorker,
+    private readonly requestTimeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
   ) {}
 
   /**
@@ -129,9 +138,19 @@ export class SqliteWorkerHandle {
     return this.pending.size;
   }
 
+  /**
+   * False once the thread has died or been terminated. Routing must consult
+   * this rather than {@link inFlight} alone: a dead handle reports zero in
+   * flight forever, which reads as the idlest worker in the pool.
+   */
+  get alive(): boolean {
+    return this.deadReason === null;
+  }
+
   stats(): SqliteWorkerStats {
     return {
       role: this.role,
+      alive: this.alive,
       inFlight: this.pending.size,
       peakInFlight: this.peak,
       completed: this.completed,
@@ -139,7 +158,17 @@ export class SqliteWorkerHandle {
     };
   }
 
-  /** Stop the thread and reject anything still outstanding. Idempotent. */
+  /**
+   * Stop the thread and reject anything still outstanding. Idempotent.
+   *
+   * The worker reference deliberately outlives {@link onDeath}: an `error`
+   * event from an uncaught throw inside the worker's message handler does not
+   * necessarily exit the thread, so a handle that has been marked dead may
+   * still own a running thread holding the database file open. Dropping the
+   * reference there would leave `close()` with nothing to terminate, and the
+   * next `openSqlitePool` on the same path would have a second writer
+   * connection it does not know about.
+   */
   terminate(): void {
     const worker = this.worker;
     this.worker = null;
@@ -158,12 +187,16 @@ export class SqliteWorkerHandle {
     }
     const id = this.nextId++;
     return new Promise<SqliteWorkerResponse>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => this.expire(id), this.requestTimeoutMs);
+      // A backstop must not be the reason a process stays alive: the worker
+      // thread itself already holds the loop open while a request is real.
+      timer.unref?.();
+      this.pending.set(id, { resolve, reject, timer });
       this.peak = Math.max(this.peak, this.pending.size);
       try {
         worker.postMessage({ ...request, id });
       } catch (e) {
-        this.pending.delete(id);
+        this.settle(id);
         this.failed += 1;
         reject(e instanceof Error ? e : new Error(String(e)));
       }
@@ -173,9 +206,10 @@ export class SqliteWorkerHandle {
   private onMessage(event: MessageEvent): void {
     const response = event.data as SqliteWorkerResponse | undefined;
     if (!response || typeof response.id !== 'number') return;
-    const pending = this.pending.get(response.id);
+    // An unknown id is a reply to a request that already timed out. It is not
+    // an error — the caller has been told; there is simply nobody to resolve.
+    const pending = this.settle(response.id);
     if (!pending) return;
-    this.pending.delete(response.id);
     if (response.ok) {
       this.completed += 1;
       pending.resolve(response);
@@ -185,17 +219,50 @@ export class SqliteWorkerHandle {
     pending.reject(sqlError(response.error, response.code));
   }
 
+  /**
+   * Give up on a request whose reply never arrived.
+   *
+   * Nothing else would ever settle it: the only other paths are a matching
+   * reply and worker death. A dropped `postMessage` reply — which Bun 1.4.3
+   * does under some interleavings — would otherwise hang the HTTP request that
+   * asked for it forever AND leave an orphan entry inflating this worker's
+   * in-flight count for the life of the process, biasing the pool's routing
+   * away from a perfectly healthy worker.
+   *
+   * The clock starts when the request is posted, so it covers queue time as
+   * well as execution. That is why the default is far longer than any query
+   * this pool expects to run — it is a liveness backstop, not a query deadline.
+   */
+  private expire(id: number): void {
+    const pending = this.settle(id);
+    if (!pending) return;
+    this.failed += 1;
+    pending.reject(
+      new Error(
+        `sqlite pool: ${this.role} worker did not answer request ${id} within ${this.requestTimeoutMs}ms`,
+      ),
+    );
+  }
+
+  /** Remove a pending request and cancel its backstop, exactly once. */
+  private settle(id: number): PendingRequest | undefined {
+    const pending = this.pending.get(id);
+    if (!pending) return undefined;
+    this.pending.delete(id);
+    clearTimeout(pending.timer);
+    return pending;
+  }
+
   /** Fail every outstanding call and refuse later ones. */
   private onDeath(reason: string): void {
     if (this.deadReason) return;
     this.deadReason = reason;
     const error = new Error(`sqlite pool: ${this.role} ${reason}`);
-    for (const pending of this.pending.values()) {
+    for (const id of [...this.pending.keys()]) {
+      const pending = this.settle(id);
       this.failed += 1;
-      pending.reject(error);
+      pending?.reject(error);
     }
-    this.pending.clear();
-    this.worker = null;
   }
 }
 
