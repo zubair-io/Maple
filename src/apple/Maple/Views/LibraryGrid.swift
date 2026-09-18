@@ -359,16 +359,18 @@ struct LibraryGrid: View {
         let interpolation = session.interpolation
         let focalNow = session.focalPoint(at: interpolation)
         let baseHeight = session.geometry.gridHeight(columns: session.baseColumns)
+        // Clamped: a PhotoKit page can land (or a folder reload shrink the
+        // list) while the pinch is live. The layout's first index is the
+        // clamped one so the cells it lays out are the ones iterated.
+        let slice = session.slice.clamped(to: vm.assets.indices)
         InterpolatedGridLayout(
             geometry: session.geometry,
             from: interpolation.from,
             to: interpolation.to,
             progress: interpolation.progress,
-            firstIndex: session.slice.lowerBound
+            firstIndex: slice.lowerBound
         ) {
-            // Clamped: a PhotoKit page can land (or a folder reload shrink the
-            // list) while the pinch is live.
-            ForEach(Array(vm.assets[session.slice.clamped(to: vm.assets.indices)])) { asset in
+            ForEach(Array(vm.assets[slice])) { asset in
                 PhotoThumbnailCell(
                     item: makeItem(asset),
                     provider: provider,
