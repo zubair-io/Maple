@@ -15,7 +15,7 @@ describe('change-log-gc-config.repo', () => {
   beforeEach(async () => {
     try {
       const db = await getDb();
-      await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' });
+      await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' as never });
     } catch {
       // Ignore if DB is unreachable in pure unit runs
     }

@@ -24,7 +24,7 @@ beforeEach(async () => {
   try {
     const db = await getDb();
     await db.collection('asset_changes').deleteMany({});
-    await db.collection('server_state').deleteOne({ _id: 'asset_changes_cursor' });
+    await db.collection('server_state').deleteOne({ _id: 'asset_changes_cursor' as never });
   } catch {
     // Ignore if DB unreachable
   }

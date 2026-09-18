@@ -30,8 +30,8 @@ import { loadChangeLogRetentionDays } from './change-log-gc-config.repo.ts';
 const log = childLogger('change-log-gc');
 const DAY_MS = 86_400_000;
 const DEFAULT_INTERVAL_MS = DAY_MS;
-export const DEFAULT_CHANGE_LOG_GC_BATCH_SIZE = 1000;
-export const BATCH_YIELD_MS = 10;
+const DEFAULT_CHANGE_LOG_GC_BATCH_SIZE = 1000;
+const BATCH_YIELD_MS = 10;
 
 export interface ChangeLogGcOptions {
   retentionDays?: number;
