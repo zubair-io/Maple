@@ -103,6 +103,35 @@ from the first draft of this schema, `app_settings` most consequentially: it is
 where every DB-backed setting lives, which is where Maple's operator-facing
 configuration belongs by policy.
 
+### `app_settings` is the one table that is a document, and why
+
+Every other table follows the rule that a field a query filters on is a
+column. `app_settings` is the exception, because nothing ever filters it:
+all twenty-odd `*-config.repo.ts` modules read one row by its id and write a
+flat `$set` back. The documents have nothing in common — the observability row
+holds an OTLP endpoint, the describe row a model name and a spend cap, the
+migration row a map of per-migration enable flags — so columns would mean
+either a table per settings domain or a wide table of mutually exclusive
+nullable fields that every new knob has to migrate.
+
+One JSON document per id keeps the storage as boring as the access pattern,
+and `json_set` keeps the partial update atomic rather than a read-modify-write:
+a concurrent save to a different key survives, and the function creates the
+intermediate objects a dotted Mongo path like
+`migrations.refile-backups.enabled` needs.
+
+### Migrations after the initial schema
+
+A shipped migration id is frozen, so a table the initial schema got wrong is
+corrected by a later migration rather than by an edit to `0001` — a database
+that already recorded `0001-initial-schema` would never re-run it, and new
+installs would silently diverge from existing ones.
+
+| Migration                         | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0002-settings-and-audit-tables`  | Adds the five tables `0001` did not enumerate, and rebuilds `image_access_tokens`, which was modelled from its name: the row the code writes is keyed by the 64-character token hash and carries the bound `path` and a `purpose`, not a `user_id`.                                                                                                                                                                                                            |
+| `0003-worker-config-partial-rows` | Relaxes `worker_config`'s `NOT NULL` scalars, because `WorkerConfigRepo.patch` upserts a partial — a stage's first write can create a row holding only a name and a `paused` flag. A defaulted `paused = 0` was the subtler half: it is indistinguishable from an operator resume, so it would tell `bootConfig` a stage is running and suppress the `pausedOnFirstBoot` parking `geocode` relies on. Also adds the discover worker's `sweep_dir_interval_ms`. |
+
 ### The live-asset predicate
 
 "Live" means the same thing every browse, search and facet surface already
@@ -371,6 +400,24 @@ the list, and `upload_sessions` is a seventh table in the same position.
 Nothing gets less safe: every one of these tables
 already had to check expiry at read time, because Mongo's monitor only runs once
 a minute and an expired document is fully readable until it fires.
+
+The sweep itself is `sweepExpiredAuthRows` in
+`db/sqlite/repos/auth.expiry.ts`, and it is garbage collection rather than
+enforcement — each repository's own `expires_at > ?` predicate is what refuses
+an expired row, whether or not the sweep has run. One table's failure therefore
+does not abort the pass; the result reports what it removed and what it could
+not.
+
+**A write cannot return rows, so a claim is a compare-and-swap.** The pool's
+`write` reports `{ changes, lastInsertRowid }` and nothing else, and `read` runs
+on a read-only connection, so `UPDATE … RETURNING` is unavailable in both
+directions. Every Mongo `findOneAndUpdate` therefore becomes an `UPDATE` whose
+`WHERE` carries the whole filter, with `changes === 1` as the proof that this
+caller won — identical safety, because the winner is established by the write
+rather than by a preceding read. Where the caller does not already know the
+row's key (claiming the oldest free row of a queue), it reads a short list of
+candidate ids first and CASes them in order; a candidate another worker took in
+between simply reports zero rows changed and the next one is tried.
 
 **Stage rows are seeded, not lazy.** On Mongo a missing `stages.<name>` subdoc
 is claimable, because BSON orders a missing field below any number so
