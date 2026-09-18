@@ -56,12 +56,15 @@ describe('the candidate scan', () => {
 
     const detail = plan(handle.db, stageClaimCandidatesSql(0, 0), 'thumb', 2, NOW, 20);
 
-    // `assets` is probed by key per candidate, and `EXISTS` in the detail is
-    // the planner saying it stops at the first match. If it led instead, the
-    // planner would walk the asset table and test 12 million stage rows
-    // against it — the inner-join shape the schema doc measures at 51.3 ms
-    // against 0.36 ms.
-    expect(detail).toMatch(/SEARCH assets EXISTS USING INDEX \w+ \(id=\?\)/);
+    // `assets` is probed by key per candidate. If it led instead, the planner
+    // would walk the asset table and test 12 million stage rows against it —
+    // the inner-join shape the schema doc measures at 51.3 ms against 0.36 ms.
+    //
+    // The optional `EXISTS` is the planner noting it stops at the first match,
+    // and it is not in every SQLite build's output — matching on it verbatim
+    // fails on a version that omits it, while proving nothing the keyed probe
+    // and the absent `SCAN` do not already prove.
+    expect(detail).toMatch(/SEARCH assets (EXISTS )?USING INDEX \w+ \(id=\?\)/);
     expect(detail.split('\n')[0]).toContain('stage_state');
     expect(detail).not.toContain('SCAN assets');
   });
@@ -82,7 +85,7 @@ describe('the candidate scan', () => {
 
     // `(asset_id, stage)` is the primary key of a WITHOUT ROWID table, so the
     // dependency gate is one B-tree descent per candidate.
-    expect(detail).toContain('SEARCH dep EXISTS USING PRIMARY KEY (asset_id=? AND stage=?)');
+    expect(detail).toMatch(/SEARCH dep (EXISTS )?USING PRIMARY KEY \(asset_id=\? AND stage=\?\)/);
     expect(detail).not.toContain('SCAN dep');
     expect(detail).not.toContain('TEMP B-TREE');
   });
