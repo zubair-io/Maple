@@ -18,45 +18,25 @@
  * runs and the comparison rows say so.
  */
 
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import { MongoClient } from 'mongodb';
-import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
 import { LIVE_ASSET_PREDICATE } from '../../src/db/sqlite/ddl/assets.ts';
-import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
-import { ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
-import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
-import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
 import { findListItems as mongoFindListItems } from '../../src/db/assets.repo.ts';
 import { findListItems as sqliteFindListItems } from '../../src/db/sqlite/repos/assets.repo.ts';
 import { testSqliteDb } from '../../src/db/sqlite/repos/assets.test-helpers.ts';
 import { listItemsSql, locationsByAssetIdsSql } from '../../src/db/sqlite/repos/assets.sql.ts';
-import { generateLibrary } from './generate.ts';
+import { benchDbPath, buildLibrary, removeDatabase, timeAsync } from './bench-db.ts';
 import { buildMongoLibrary } from './mongo-library.ts';
 
 const DEFAULT_ASSETS = 60_000;
 const PAGE = 1000;
 const RUNS = 5;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const BENCH_DIR = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
-const DB_PATH = `${BENCH_DIR}/list-items-compare.db`;
-/** WAL leaves two sidecars beside the database; all three go together. */
-const DB_SUFFIXES = ['', '-wal', '-shm'];
+const DB_PATH = benchDbPath('list-items-compare');
 
 /** The fallback lookup the ticket calls a defect, bound the same way on both engines. */
 const PHASSET_DEVICE = 'device-1';
 const PHASSET_LOCAL_ID = 'no-such-id';
-
-async function timed<T>(fn: () => Promise<T>): Promise<{ ms: number; value: T }> {
-  const samples: number[] = [];
-  let value = await fn();
-  for (let i = 0; i < RUNS; i += 1) {
-    const startedAt = performance.now();
-    value = await fn();
-    samples.push(performance.now() - startedAt);
-  }
-  samples.sort((a, b) => a - b);
-  return { ms: samples[Math.floor(samples.length / 2)]!, value };
-}
 
 function size(bytes: number): string {
   return bytes < 1_000_000
@@ -73,30 +53,8 @@ interface SqliteLibrary {
   libraryId: string;
 }
 
-/**
- * Removes a previous run's database.
- *
- * `Bun.file().delete()` rather than `node:fs` because the API's lint config
- * restricts raw filesystem imports — the same workaround `./run.ts` uses, and
- * for the same reason.
- */
-async function removeDatabase(): Promise<void> {
-  for (const suffix of DB_SUFFIXES) {
-    await Bun.file(`${DB_PATH}${suffix}`)
-      .delete()
-      .catch(() => {});
-  }
-}
-
 async function buildSqlite(assetCount: number): Promise<SqliteLibrary> {
-  await removeDatabase();
-  const db = new Database(DB_PATH, { create: true });
-  for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
-  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
-  generateLibrary(db, { assetCount });
-  db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
-  db.exec(ASSETS_FTS_REBUILD_SQL);
-  db.exec('ANALYZE');
+  const db = await buildLibrary(DB_PATH, assetCount);
   const libraryId = (db.query(`SELECT id FROM folders LIMIT 1`).get() as { id: string }).id;
   return { db, libraryId };
 }
@@ -156,7 +114,7 @@ async function measureMongo(assetCount: number): Promise<MongoRows> {
     const db = client.db(`maple_listcompare_${Date.now()}`);
     await buildMongoLibrary(db, assetCount);
 
-    const page = await timed(() => mongoFindListItems({ liveOnly: true }, PAGE, db));
+    const page = await timeAsync(() => mongoFindListItems({ liveOnly: true }, PAGE, db), RUNS);
     const fetched = await db.collection('assets').find({ deleted_at: null }).limit(PAGE).toArray();
 
     // The current filter, verbatim: two dotted paths with no index behind them.
@@ -227,10 +185,19 @@ async function main(): Promise<void> {
   const handle = testSqliteDb(sqlite.db);
   const lookupArgs = [PHASSET_DEVICE, PHASSET_LOCAL_ID, sqlite.libraryId];
 
-  const page = await timed(() => sqliteFindListItems({ liveOnly: true }, PAGE, handle));
-  const lookup = await timed(async () => sqlite.db.query(PHASSET_LOOKUP_SQL).all(...lookupArgs));
-  const semi = await timed(async () => sqlite.db.query(SEMI_JOIN_SQL).all(sqlite.libraryId));
-  const inner = await timed(async () => sqlite.db.query(INNER_JOIN_SQL).all(sqlite.libraryId));
+  const page = await timeAsync(() => sqliteFindListItems({ liveOnly: true }, PAGE, handle), RUNS);
+  const lookup = await timeAsync(
+    async () => sqlite.db.query(PHASSET_LOOKUP_SQL).all(...lookupArgs),
+    RUNS,
+  );
+  const semi = await timeAsync(
+    async () => sqlite.db.query(SEMI_JOIN_SQL).all(sqlite.libraryId),
+    RUNS,
+  );
+  const inner = await timeAsync(
+    async () => sqlite.db.query(INNER_JOIN_SQL).all(sqlite.libraryId),
+    RUNS,
+  );
   const mongo = await measureMongo(assetCount);
 
   reportPage(sqlite, page.ms, JSON.stringify(page.value).length, mongo.page);
@@ -238,7 +205,7 @@ async function main(): Promise<void> {
   reportGridShape(sqlite, semi.ms, inner.ms);
 
   sqlite.db.close();
-  await removeDatabase();
+  await removeDatabase(DB_PATH);
 }
 
 await main();
