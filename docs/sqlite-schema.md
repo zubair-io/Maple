@@ -440,15 +440,15 @@ every terminal path: cleared on success, replaced by the real backoff on
 failure. A lease therefore only outlives its attempt when the process died
 holding it, which is exactly when the row should become claimable again.
 
-**A claim reports which rows it won through `changes`, not `RETURNING`.** The
-natural spelling is `UPDATE … RETURNING`, and SQLite supports it, but the
-pool's transaction primitive carries back `changes` and `lastInsertRowid`
-rather than rows — so a `RETURNING` clause would execute and its output would
-be discarded. The claim issues one `UPDATE` per candidate inside a single
-transaction and reads identity off each statement's `changes` instead. It is
-one round trip to the writer either way, and every statement is a primary-key
-probe into a `WITHOUT ROWID` table. Widening the pool's protocol to return rows
-from a write would be the alternative, and it is not worth doing for one caller.
+The claim is a compare-and-swap, because a write cannot return rows: the pool's
+`write` reports `{ changes, lastInsertRowid }` and `read` runs on a read-only
+connection, so `UPDATE … RETURNING` is unavailable in both directions. It reads
+a short candidate list and then swaps each candidate, with `changes === 1` as
+the proof that this caller won, and the whole batch goes in one
+`BEGIN IMMEDIATE`. The extra round trip that costs is measured rather than
+assumed: `bun scripts/sqlite-bench/stage-claim-roundtrip.ts` puts it at 0.018 ms
+of a 0.224 ms claim on 60,000 assets, against 0.05 ms of scan — small enough
+that a returning-capable primitive is not worth adding to the pool for it.
 
 **Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
 enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
