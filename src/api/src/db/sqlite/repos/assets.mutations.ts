@@ -120,10 +120,42 @@ export async function recordSidecarEdit(
   return updateOutcome(result.changes);
 }
 
-/** The blob inputs for one asset, or `null` when there is no such asset. */
-async function readSearchBlobInputs(db: SqliteDb, hex: string): Promise<SearchBlobInputs | null> {
+/**
+ * Both overrides are the same three steps — read the other blob sources, write
+ * the override, then rewrite the blob and re-arm the search stage — with one
+ * source substituted and one statement differing, so they share a body.
+ *
+ * `override` supplies the field this caller is changing; every other source
+ * comes off the row that was just read. The returned outcome reports one
+ * matched row when the asset exists and none when it does not, which is what
+ * the Mongo `updateOne` on `{ _id }` reports.
+ */
+async function applyOverride(
+  db: SqliteDb,
+  hex: string,
+  write: (inputs: SearchBlobInputs) => { statement: SqlStatement; blob: string },
+): Promise<UpdateOutcome> {
   const rows = await db.read<SearchBlobInputs>(SEARCH_BLOB_INPUTS_SQL, [hex]);
-  return rows[0] ?? null;
+  const inputs = rows[0];
+  if (!inputs) return updateOutcome(0);
+  const { statement, blob } = write(inputs);
+  await db.transaction([statement, searchBlobStatement(hex, blob), meiliRearmStatement(hex)]);
+  return updateOutcome(1);
+}
+
+/** The blob for one asset, given its stored sources and this caller's override. */
+function blobFor(
+  inputs: SearchBlobInputs,
+  override: { placeSearchBlob?: string | null; description?: string | null },
+): string {
+  const placeBlob =
+    override.placeSearchBlob === undefined ? inputs.place_search_blob : override.placeSearchBlob;
+  return composeSearchBlob({
+    place: placeBlob === null ? null : { search_blob: placeBlob },
+    description: override.description === undefined ? inputs.description : override.description,
+    ocrText: inputs.ocr_text,
+    capturedMonth: inputs.captured_month,
+  });
 }
 
 /**
@@ -135,26 +167,14 @@ export async function setPlaceOverride(
   place: Place | null,
   dbOverride?: SqliteDb,
 ): Promise<UpdateOutcome> {
-  const db = assetsDb(dbOverride);
   const hex = id.toHexString();
-  const inputs = await readSearchBlobInputs(db, hex);
-  if (!inputs) return updateOutcome(0);
-
-  const blob = composeSearchBlob({
-    place: place === null ? null : { search_blob: place.search_blob },
-    description: inputs.description,
-    ocrText: inputs.ocr_text,
-    capturedMonth: inputs.captured_month,
-  });
-  await db.transaction([
-    {
+  return applyOverride(assetsDb(dbOverride), hex, (inputs) => ({
+    statement: {
       sql: `UPDATE assets SET place = ? WHERE id = ?`,
       params: [place === null ? null : JSON.stringify(place), hex],
     },
-    searchBlobStatement(hex, blob),
-    meiliRearmStatement(hex),
-  ]);
-  return updateOutcome(1);
+    blob: blobFor(inputs, { placeSearchBlob: place === null ? null : place.search_blob }),
+  }));
 }
 
 /**
@@ -166,23 +186,11 @@ export async function setDescriptionOverride(
   text: string | null,
   dbOverride?: SqliteDb,
 ): Promise<UpdateOutcome> {
-  const db = assetsDb(dbOverride);
   const hex = id.toHexString();
-  const inputs = await readSearchBlobInputs(db, hex);
-  if (!inputs) return updateOutcome(0);
-
-  const blob = composeSearchBlob({
-    place: inputs.place_search_blob === null ? null : { search_blob: inputs.place_search_blob },
-    description: text,
-    ocrText: inputs.ocr_text,
-    capturedMonth: inputs.captured_month,
-  });
-  await db.transaction([
-    { sql: DESCRIPTION_UPSERT_SQL, params: [hex, text] },
-    searchBlobStatement(hex, blob),
-    meiliRearmStatement(hex),
-  ]);
-  return updateOutcome(1);
+  return applyOverride(assetsDb(dbOverride), hex, (inputs) => ({
+    statement: { sql: DESCRIPTION_UPSERT_SQL, params: [hex, text] },
+    blob: blobFor(inputs, { description: text }),
+  }));
 }
 
 /**

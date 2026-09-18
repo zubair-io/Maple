@@ -102,7 +102,7 @@ const REPLACE_ENTRIES_INSERT_SQL = `
  */
 function locationStatements(
   assetId: string,
-  destination: { libraryId: string; path: string; filename: string },
+  destination: Destination,
   source: LocationSource | undefined,
 ): SqlStatement[] {
   if (source) {
@@ -130,6 +130,54 @@ function locationStatements(
   ];
 }
 
+/** The destination of a move, resolved relative to the library that owns it. */
+interface Destination {
+  libraryId: string;
+  path: string;
+  filename: string;
+}
+
+/**
+ * The destination as a `(library, directory, filename)` triple, or a thrown
+ * error naming the caller when the path escapes the library root.
+ *
+ * Both workflows fail the same way on the same input, so they resolve it the
+ * same way; the caller's name is threaded through only so the message says
+ * which one refused.
+ */
+function resolveDestination(
+  caller: string,
+  args: {
+    libraryRoot: string;
+    libraryId: ObjectId;
+    newAbsPath: string;
+  },
+): Destination {
+  const split = relSplit(args.libraryRoot, args.newAbsPath);
+  if (!split) {
+    throw new Error(
+      `${caller}: newAbsPath ${args.newAbsPath} is outside libraryRoot ${args.libraryRoot}`,
+    );
+  }
+  return { libraryId: args.libraryId.toHexString(), path: split.path, filename: split.filename };
+}
+
+/**
+ * The tail both workflows share: repoint the locations, then re-arm the search
+ * stage and the two path-keyed caches.
+ */
+function moveTailStatements(
+  assetId: string,
+  destination: Destination,
+  source: LocationSource | undefined,
+): SqlStatement[] {
+  return [
+    ...locationStatements(assetId, destination, source),
+    meiliRearmStatement(assetId),
+    ...relocateCacheRearmStatements(assetId),
+  ];
+}
+
 /**
  * Mark a live asset as soft-deleted and repoint the moved location at its
  * trash destination. `originalAbsPath` is preserved in `original_path` so the
@@ -149,26 +197,14 @@ export async function markSoftDeleted(args: {
   dbOverride?: SqliteDb;
 }): Promise<UpdateOutcome> {
   const db = assetsDb(args.dbOverride);
-  const split = relSplit(args.libraryRoot, args.newAbsPath);
-  if (!split) {
-    throw new Error(
-      `markSoftDeleted: newAbsPath ${args.newAbsPath} is outside libraryRoot ${args.libraryRoot}`,
-    );
-  }
+  const destination = resolveDestination('markSoftDeleted', args);
   const hex = args.id.toHexString();
-  const destination = {
-    libraryId: args.libraryId.toHexString(),
-    path: split.path,
-    filename: split.filename,
-  };
   const results = await db.transaction([
     {
       sql: `UPDATE assets SET deleted_at = ?, original_path = ? WHERE id = ?`,
       params: [new Date().toISOString(), args.originalAbsPath, hex],
     },
-    ...locationStatements(hex, destination, args.source),
-    meiliRearmStatement(hex),
-    ...relocateCacheRearmStatements(hex),
+    ...moveTailStatements(hex, destination, args.source),
   ]);
   return updateOutcome(changesAt(results, 0));
 }
@@ -221,18 +257,8 @@ export async function restoreFromTrash(args: {
   dbOverride?: SqliteDb;
 }): Promise<UpdateOutcome> {
   const db = assetsDb(args.dbOverride);
-  const split = relSplit(args.libraryRoot, args.newAbsPath);
-  if (!split) {
-    throw new Error(
-      `restoreFromTrash: newAbsPath ${args.newAbsPath} is outside libraryRoot ${args.libraryRoot}`,
-    );
-  }
+  const destination = resolveDestination('restoreFromTrash', args);
   const hex = args.id.toHexString();
-  const destination = {
-    libraryId: args.libraryId.toHexString(),
-    path: split.path,
-    filename: split.filename,
-  };
   const results = await db.transaction([
     {
       sql: `DELETE FROM assets
@@ -247,9 +273,7 @@ export async function restoreFromTrash(args: {
              WHERE id = ?`,
       params: [args.size, args.mtimeMs, hex],
     },
-    ...locationStatements(hex, destination, args.source),
-    meiliRearmStatement(hex),
-    ...relocateCacheRearmStatements(hex),
+    ...moveTailStatements(hex, destination, args.source),
   ]);
   return updateOutcome(changesAt(results, 1));
 }
