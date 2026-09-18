@@ -94,6 +94,15 @@ CREATE INDEX asset_locations_library_live
   ON asset_locations (library_id, asset_id)
   WHERE deleted_at IS NULL AND missing_since IS NULL;
 
+-- The canonical entry, covering. This is what turns a grid page into "walk
+-- assets in capture order, probe one location per row, stop at the limit":
+-- the probe reads only this index, never an asset_locations row, and because
+-- it is cheap the planner picks the ordered assets index for the outer loop
+-- instead of scanning a whole library and sorting.
+CREATE INDEX asset_locations_primary_entry
+  ON asset_locations (asset_id, library_id, path, filename)
+  WHERE ordinal = 0;
+
 -- "Which assets have two or more live locations" — the deduplicate worker's
 -- candidate set and its badge count. An index-only GROUP BY … HAVING COUNT(*)
 -- >= 2, replacing the fileinfo.1 partial index plus the $expr/$filter pass
