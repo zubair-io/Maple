@@ -45,6 +45,7 @@ const DB_PATH = `${BENCH_DIR}/list-items-compare.db`;
 const PHASSET_DEVICE = 'device-1';
 const PHASSET_LOCAL_ID = 'no-such-id';
 
+
 // ---------------------------------------------------------------------------
 // SQLite side
 // ---------------------------------------------------------------------------
@@ -189,10 +190,19 @@ async function main(): Promise<void> {
   const handle = testSqliteDb(sqlite.db);
   const lookupArgs = [PHASSET_DEVICE, PHASSET_LOCAL_ID, sqlite.libraryId];
 
-  const page = await timed(() => sqliteFindListItems({ liveOnly: true }, PAGE, handle));
-  const lookup = await timed(async () => sqlite.db.query(PHASSET_LOOKUP_SQL).all(...lookupArgs));
-  const semi = await timed(async () => sqlite.db.query(SEMI_JOIN_SQL).all(sqlite.libraryId));
-  const inner = await timed(async () => sqlite.db.query(INNER_JOIN_SQL).all(sqlite.libraryId));
+  const page = await timeAsync(() => sqliteFindListItems({ liveOnly: true }, PAGE, handle), RUNS);
+  const lookup = await timeAsync(
+    async () => sqlite.db.query(PHASSET_LOOKUP_SQL).all(...lookupArgs),
+    RUNS,
+  );
+  const semi = await timeAsync(
+    async () => sqlite.db.query(SEMI_JOIN_SQL).all(sqlite.libraryId),
+    RUNS,
+  );
+  const inner = await timeAsync(
+    async () => sqlite.db.query(INNER_JOIN_SQL).all(sqlite.libraryId),
+    RUNS,
+  );
   const mongo = await measureMongo(assetCount);
 
   reportPage(sqlite, page.ms, JSON.stringify(page.value).length, mongo.page);
