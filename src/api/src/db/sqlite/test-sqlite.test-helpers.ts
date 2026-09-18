@@ -9,7 +9,7 @@
 
 import { Database } from 'bun:sqlite';
 import { SCHEMA_PRAGMAS } from './ddl/index.ts';
-import { fromBunSqlite, runMigrations, type MigrationDb } from './migrate.ts';
+import { fromBunSqlite, runMigrations, type MigrationDb, type SqlValue } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
 import { newObjectIdHex } from './object-id.ts';
 
@@ -36,6 +36,18 @@ export async function openMigratedDatabase(): Promise<TestDb> {
   return handle;
 }
 
+/**
+ * `db.run` with the parameter list as an array.
+ *
+ * `bun:sqlite` accepts both a variadic list and a single array at runtime, but
+ * only the array form type-checks against its declared
+ * `run<P extends SQLQueryBindings[]>(sql, ...bindings: P[])`. Wrapping it once
+ * keeps every call site readable.
+ */
+export function run(db: Database, sql: string, ...params: SqlValue[]): void {
+  db.run(sql, params);
+}
+
 /** Inserts a library root and returns its id. */
 export function insertFolder(
   db: Database,
@@ -44,7 +56,8 @@ export function insertFolder(
   const id = newObjectIdHex();
   const path = overrides.path ?? `/libraries/${id}`;
   const slug = overrides.slug ?? `lib-${id.slice(-6)}`;
-  db.run(
+  run(
+    db,
     `INSERT INTO folders (id, path, slug, label, file_count, created_at)
      VALUES (?, ?, ?, ?, 0, ?)`,
     id,
@@ -62,7 +75,8 @@ export function insertAsset(
   overrides: { exif?: string | null; place?: string | null; deletedAt?: string | null } = {},
 ): string {
   const id = newObjectIdHex();
-  db.run(
+  run(
+    db,
     `INSERT INTO assets (id, size, mtime, indexed_at, exif, place, deleted_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     id,
@@ -89,7 +103,8 @@ export function insertLocation(
     missingSince?: string | null;
   },
 ): void {
-  db.run(
+  run(
+    db,
     `INSERT INTO asset_locations
        (asset_id, ordinal, library_id, path, filename, deleted_at, missing_since)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,

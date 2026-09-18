@@ -15,6 +15,7 @@ import {
   insertLocation,
   liveLocationCount,
   openMigratedDatabase,
+  run,
 } from './test-sqlite.test-helpers.ts';
 import { newObjectIdHex } from './object-id.ts';
 
@@ -22,7 +23,8 @@ describe('assets', () => {
   test('rejects an id that is not a 24-character hex string', async () => {
     const { db } = await openMigratedDatabase();
     expect(() =>
-      db.run(
+      run(
+        db,
         `INSERT INTO assets (id, size, mtime, indexed_at) VALUES ('short', 1, 1, '2026-01-01')`,
       ),
     ).toThrow(/CHECK constraint failed/);
@@ -33,13 +35,15 @@ describe('assets', () => {
     const { db } = await openMigratedDatabase();
     const id = newObjectIdHex();
     expect(() =>
-      db.run(
+      run(
+        db,
         `INSERT INTO assets (id, size, mtime, indexed_at, rating) VALUES (?, 1, 1, '2026-01-01', 9)`,
         id,
       ),
     ).toThrow(/CHECK constraint failed/);
     expect(() =>
-      db.run(
+      run(
+        db,
         `INSERT INTO assets (id, size, mtime, indexed_at, flag) VALUES (?, 1, 1, '2026-01-01', 2)`,
         id,
       ),
@@ -175,7 +179,7 @@ describe('asset_locations', () => {
     const asset = insertAsset(db);
     insertLocation(db, { assetId: asset, libraryId: library });
 
-    db.run(`DELETE FROM assets WHERE id = ?`, asset);
+    run(db, `DELETE FROM assets WHERE id = ?`, asset);
     const remaining = db
       .query(`SELECT COUNT(*) AS n FROM asset_locations WHERE asset_id = ?`)
       .get(asset) as { n: number };
@@ -207,7 +211,8 @@ describe('live_location_count', () => {
     expect(liveLocationCount(db, asset)).toBe(2);
 
     // Tagged missing on disk — no longer live.
-    db.run(
+    run(
+      db,
       `UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00.000Z'
         WHERE asset_id = ? AND ordinal = 1`,
       asset,
@@ -215,21 +220,23 @@ describe('live_location_count', () => {
     expect(liveLocationCount(db, asset)).toBe(1);
 
     // Recovered by the reaper's re-stat.
-    db.run(
+    run(
+      db,
       `UPDATE asset_locations SET missing_since = NULL WHERE asset_id = ? AND ordinal = 1`,
       asset,
     );
     expect(liveLocationCount(db, asset)).toBe(2);
 
     // Bytes replaced in place — the other non-live tag.
-    db.run(
+    run(
+      db,
       `UPDATE asset_locations SET deleted_at = '2026-01-02T00:00:00.000Z'
         WHERE asset_id = ? AND ordinal = 0`,
       asset,
     );
     expect(liveLocationCount(db, asset)).toBe(1);
 
-    db.run(`DELETE FROM asset_locations WHERE asset_id = ? AND ordinal = 1`, asset);
+    run(db, `DELETE FROM asset_locations WHERE asset_id = ? AND ordinal = 1`, asset);
     expect(liveLocationCount(db, asset)).toBe(0);
     db.close();
   });
@@ -245,7 +252,7 @@ describe('live_location_count', () => {
     expect(liveLocationCount(db, survivor)).toBe(0);
 
     // What a duplicate merge does: re-point the entry at the survivor.
-    db.run(`UPDATE asset_locations SET asset_id = ? WHERE asset_id = ?`, survivor, loser);
+    run(db, `UPDATE asset_locations SET asset_id = ? WHERE asset_id = ?`, survivor, loser);
 
     expect(liveLocationCount(db, loser)).toBe(0);
     expect(liveLocationCount(db, survivor)).toBe(1);
@@ -293,7 +300,8 @@ describe('same-entry (ANY location) matching', () => {
     const { db } = await openMigratedDatabase();
     const asset = insertAsset(db);
     const first = new Date().toISOString();
-    db.run(
+    run(
+      db,
       `INSERT INTO asset_phasset_links (asset_id, device_id, phasset_local_id, first_seen)
        VALUES (?, 'device-a', 'local-1', ?), (?, 'device-b', 'local-2', ?)`,
       asset,
@@ -327,15 +335,15 @@ describe('stage_state', () => {
   test('holds one row per asset and stage', async () => {
     const { db } = await openMigratedDatabase();
     const asset = insertAsset(db);
-    db.run(`INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'exif', 3)`, asset);
-    db.run(`INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'thumb', 1)`, asset);
+    run(db, `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'exif', 3)`, asset);
+    run(db, `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'thumb', 1)`, asset);
 
     expect(() =>
-      db.run(`INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'exif', 4)`, asset),
+      run(db, `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'exif', 4)`, asset),
     ).toThrow(/UNIQUE constraint failed/);
 
     // Registering a stage is an insert, not a schema change.
-    db.run(`INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'brand-new', 0)`, asset);
+    run(db, `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'brand-new', 0)`, asset);
     const rows = db
       .query(`SELECT COUNT(*) AS n FROM stage_state WHERE asset_id = ?`)
       .get(asset) as { n: number };
@@ -365,7 +373,8 @@ describe('full-text search', () => {
   test('a blob inserted into asset_search becomes matchable, and stays in step', async () => {
     const { db } = await openMigratedDatabase();
     const asset = insertAsset(db);
-    db.run(
+    run(
+      db,
       `INSERT INTO asset_search (asset_id, search_blob) VALUES (?, ?)`,
       asset,
       'Albany New York museum visit',
@@ -389,7 +398,8 @@ describe('full-text search', () => {
     expect(stemmed.n).toBe(1);
 
     // Update replaces the postings rather than adding to them.
-    db.run(
+    run(
+      db,
       `UPDATE asset_search SET search_blob = 'something else entirely' WHERE asset_id = ?`,
       asset,
     );
@@ -401,7 +411,7 @@ describe('full-text search', () => {
     expect(stale.n).toBe(0);
 
     // Deleting the asset cascades to asset_search and retracts the postings.
-    db.run(`DELETE FROM assets WHERE id = ?`, asset);
+    run(db, `DELETE FROM assets WHERE id = ?`, asset);
     const gone = db
       .query(`SELECT COUNT(*) AS n FROM assets_fts WHERE assets_fts MATCH 'entirely'`)
       .get() as {
@@ -415,7 +425,7 @@ describe('full-text search', () => {
     const { db } = await openMigratedDatabase();
     const asset = insertAsset(db);
     expect(() =>
-      db.run(`INSERT INTO asset_search (asset_id, search_blob) VALUES (?, '')`, asset),
+      run(db, `INSERT INTO asset_search (asset_id, search_blob) VALUES (?, '')`, asset),
     ).toThrow(/CHECK constraint failed/);
     db.close();
   });
@@ -426,7 +436,8 @@ describe('people and faces', () => {
     const { db } = await openMigratedDatabase();
     const now = new Date().toISOString();
     const first = newObjectIdHex();
-    db.run(
+    run(
+      db,
       `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'Ada', ?, ?)`,
       first,
       now,
@@ -434,7 +445,8 @@ describe('people and faces', () => {
     );
 
     expect(() =>
-      db.run(
+      run(
+        db,
         `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'ada', ?, ?)`,
         newObjectIdHex(),
         now,
@@ -443,8 +455,9 @@ describe('people and faces', () => {
     ).toThrow(/UNIQUE constraint failed/);
 
     // A merged-away row does not hold its old name hostage.
-    db.run(`UPDATE people SET merged_into = ? WHERE id = ?`, first, first);
-    db.run(
+    run(db, `UPDATE people SET merged_into = ? WHERE id = ?`, first, first);
+    run(
+      db,
       `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'Ada', ?, ?)`,
       newObjectIdHex(),
       now,
@@ -457,14 +470,16 @@ describe('people and faces', () => {
     const { db } = await openMigratedDatabase();
     const now = new Date().toISOString();
     const person = newObjectIdHex();
-    db.run(
+    run(
+      db,
       `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'Grace', ?, ?)`,
       person,
       now,
       now,
     );
     const asset = insertAsset(db);
-    db.run(
+    run(
+      db,
       `INSERT INTO faces (asset_id, face_index, person_id, confidence, bbox_x, bbox_y, bbox_w, bbox_h)
        VALUES (?, 0, ?, 0.98, 0.1, 0.1, 0.2, 0.2)`,
       asset,
@@ -479,7 +494,7 @@ describe('people and faces', () => {
       .get(person) as { id: string };
     expect(found.id).toBe(asset);
 
-    db.run(`DELETE FROM people WHERE id = ?`, person);
+    run(db, `DELETE FROM people WHERE id = ?`, person);
     const orphan = db.query(`SELECT person_id FROM faces WHERE asset_id = ?`).get(asset) as {
       person_id: string | null;
     };
