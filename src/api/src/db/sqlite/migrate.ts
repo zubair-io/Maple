@@ -50,6 +50,18 @@ export interface MigrationDb {
  * once a migration has shipped, its id is frozen, because live databases carry
  * it. The convention is `NNNN-kebab-summary`, zero-padded so lexical order and
  * apply order agree; {@link assertMigrationOrder} enforces that they do.
+ *
+ * **What it does is frozen too, and nothing here can enforce that.** A database
+ * that has recorded an id skips that migration forever, on the id alone, so
+ * editing a shipped migration changes what NEW installs get and leaves every
+ * existing one behind, with no error anywhere. Once a migration has run
+ * somewhere real, a change to the schema is a new migration.
+ *
+ * Before that — while the only databases carrying `0001` are development files
+ * and CI's, both disposable — editing in place is the right move and beats
+ * shipping a corrective `0002` that every future install would run for no
+ * reason. That is deliberate rather than accidental: the cost is deleting a
+ * scratch database.
  */
 export interface Migration {
   id: string;
@@ -157,28 +169,42 @@ export function assertMigrationOrder(migrations: readonly Migration[]): void {
  * Applies every pending migration in order, each inside its own transaction
  * together with its sentinel row.
  *
- * Idempotent: a second call with the same list is a pair of cheap reads. Safe
- * to call concurrently from two processes against the same file — the second
- * blocks on the write lock, then finds the sentinel and skips.
+ * Idempotent, and cheaply so: the already-applied ids are read once, up front,
+ * and a boot with nothing to do takes no write lock at all. That is the point
+ * of reading the sentinel table before the loop rather than inside it — this
+ * repository boots three process roles against one file, so a per-migration
+ * `BEGIN IMMEDIATE` on the common no-op path would cost one exclusive lock and
+ * one fsync per migration per role, serialised against each other, for nothing.
+ *
+ * Still safe to call concurrently: the id list is re-checked inside the write
+ * lock, because another process may have applied a migration between the read
+ * above and this one acquiring the lock. The loser finds the sentinel and
+ * skips, rather than racing into a duplicate-key error it has to swallow.
  *
  * A migration that throws rolls back and the error propagates with the
  * offending id attached; nothing after it runs, and nothing it did survives.
+ * `BEGIN IMMEDIATE` is inside the same guard, so a lock-contention failure
+ * ("database is locked", when the connection owner set no `busy_timeout` or
+ * the other role's migration outran it) also names the migration it was
+ * waiting for instead of arriving bare.
  */
 export async function runMigrations(
   db: MigrationDb,
   migrations: readonly Migration[],
 ): Promise<MigrationRunResult> {
-  assertMigrationOrder(migrations);
-  await ensureMigrationsTable(db);
+  const pending = await pendingMigrations(db, migrations);
+  const pendingIds = new Set(pending.map((migration) => migration.id));
 
   const applied: string[] = [];
-  const skipped: string[] = [];
+  const skipped = migrations
+    .filter((migration) => !pendingIds.has(migration.id))
+    .map((migration) => migration.id);
   const durations: Record<string, number> = {};
 
-  for (const migration of migrations) {
+  for (const migration of pending) {
     const startedAt = performance.now();
-    await db.exec('BEGIN IMMEDIATE');
     try {
+      await db.exec('BEGIN IMMEDIATE');
       // Re-read inside the write lock: another process may have applied this
       // migration between our pending check and our acquiring the lock.
       const rows = await db.all<{ id: string }>(
