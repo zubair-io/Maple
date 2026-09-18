@@ -172,6 +172,25 @@ function probeLocations(sqlite: Database, doc: Record<string, unknown>, id: stri
   return out;
 }
 
+/**
+ * The `person_id` the row should hold, which is not always the one the source
+ * document carries.
+ *
+ * Two deliberate normalisations stand between them, and a probe that ignored
+ * either would report a failure on a library that imported exactly right. The
+ * mapper lowercases the id and drops anything that is not 24 hex characters,
+ * because the column is a foreign key into a `TEXT PRIMARY KEY CHECK (length =
+ * 24)`. The repair pass then nulls a reference to a person who is no longer
+ * there, which is what the column's own `ON DELETE SET NULL` says should happen.
+ */
+function expectedPersonId(sqlite: Database, raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const lowered = raw.toLowerCase();
+  if (!/^[0-9a-f]{24}$/.test(lowered)) return null;
+  const person = sqlite.query(`SELECT 1 AS present FROM people WHERE id = ? LIMIT 1`).get(lowered);
+  return person === null ? null : lowered;
+}
+
 const FACE_SQL = `
 SELECT face_index, person_id, confidence, bbox_x, bbox_y, bbox_w, bbox_h, embedding
   FROM faces WHERE asset_id = ? ORDER BY face_index`;
@@ -187,7 +206,10 @@ function probeFaces(sqlite: Database, doc: Record<string, unknown>, id: string):
       // `face_index` is on the wire — the person detail page addresses a face
       // by it — so a renumbering here breaks every existing deep link.
       [`faces[${index}].face_index`]: [index, at(row, 'face_index')],
-      [`faces[${index}].person_id`]: [face.person_id ?? null, at(row, 'person_id')],
+      [`faces[${index}].person_id`]: [
+        expectedPersonId(sqlite, face.person_id),
+        at(row, 'person_id'),
+      ],
       [`faces[${index}].bbox.x`]: [bbox.x ?? 0, at(row, 'bbox_x')],
       [`faces[${index}].bbox.h`]: [bbox.h ?? 0, at(row, 'bbox_h')],
       [`faces[${index}].embedding`]: [face.embedding ?? null, json(row, 'embedding')],

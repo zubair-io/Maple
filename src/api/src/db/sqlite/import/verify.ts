@@ -31,6 +31,7 @@ import { readMeta, readRejects } from './bookkeeping.ts';
 import { IMPORT_PLAN } from './plan/index.ts';
 import {
   foreignKeyViolations,
+  NULLABLE_FOREIGN_KEYS,
   REPAIR_META_KEY,
   REQUIRED_FOREIGN_KEYS,
   type RepairResult,
@@ -123,6 +124,37 @@ function rowPresent(
   return found !== null;
 }
 
+/** True when `value` names a row that exists in `parent`. */
+function resolves(sqlite: Database, parent: string, key: string, value: Row[number]): boolean {
+  return (
+    sqlite
+      .query(`SELECT 1 AS present FROM ${parent} WHERE ${key} IS ? LIMIT 1`)
+      .get(value as never) !== null
+  );
+}
+
+/**
+ * The mapped row as the database should hold it, after the repair pass.
+ *
+ * A nullable foreign key pointing at a row the source no longer has is nulled
+ * on import, because that is what the column's own `ON DELETE SET NULL`
+ * declares — a face assigned to a person who was deleted, say. Comparing the
+ * mapper's output to the stored row without applying the same rule would
+ * report a mismatch on a library that imported exactly right.
+ */
+function afterRepair(sqlite: Database, table: string, columns: readonly string[], row: Row): Row {
+  const repaired = [...row];
+  for (const fk of NULLABLE_FOREIGN_KEYS) {
+    if (fk.table !== table) continue;
+    const index = columns.indexOf(fk.column);
+    if (index < 0) continue;
+    const value = repaired[index];
+    if (value === null || value === undefined) continue;
+    if (!resolves(sqlite, fk.parent, fk.parentKey, value)) repaired[index] = null;
+  }
+  return repaired;
+}
+
 /**
  * Why a mapped row is legitimately absent, or null when it should be there.
  *
@@ -144,10 +176,9 @@ function absentByDesign(
     if (index < 0) continue;
     const value = row[index];
     if (value === null || value === undefined) continue;
-    const parent = sqlite
-      .query(`SELECT 1 AS present FROM ${fk.parent} WHERE ${fk.parentKey} IS ? LIMIT 1`)
-      .get(value as never);
-    if (parent === null) return `dropped: ${fk.column} does not resolve`;
+    if (!resolves(sqlite, fk.parent, fk.parentKey, value)) {
+      return `dropped: ${fk.column} does not resolve`;
+    }
   }
   return null;
 }
@@ -167,7 +198,8 @@ function checkDocument(
   const sourceId = String(doc._id);
   const batches = mapQuietly(plan, doc);
   return batches.flatMap((batch) =>
-    batch.rows.map((row, index) => {
+    batch.rows.map((raw, index) => {
+      const row = afterRepair(sqlite, batch.table, batch.columns, raw);
       const present = rowPresent(sqlite, batch.table, batch.columns, row);
       const excuse = present ? null : absentByDesign(sqlite, batch.table, batch.columns, row);
       return {

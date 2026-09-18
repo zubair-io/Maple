@@ -31,7 +31,7 @@
 import type { Database } from 'bun:sqlite';
 
 /** One foreign-key column and the table it points at. */
-interface ForeignKey {
+export interface ForeignKey {
   table: string;
   column: string;
   parent: string;
@@ -39,7 +39,7 @@ interface ForeignKey {
 }
 
 /** Nullable references — a dangling one is nulled, as `ON DELETE SET NULL` says. */
-const NULLABLE_FOREIGN_KEYS: readonly ForeignKey[] = [
+export const NULLABLE_FOREIGN_KEYS: readonly ForeignKey[] = [
   { table: 'faces', column: 'person_id', parent: 'people', parentKey: 'id' },
   { table: 'people', column: 'cover_asset_id', parent: 'assets', parentKey: 'id' },
   { table: 'people', column: 'merged_into', parent: 'people', parentKey: 'id' },
