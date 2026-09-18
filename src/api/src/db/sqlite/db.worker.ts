@@ -69,7 +69,10 @@ function handle(request: SqliteWorkerRequest): SqliteWorkerResponse {
       case 'transaction':
         return handleTransaction(request);
       default:
-        return failure(request, new Error(`unknown request kind`));
+        return failure(
+          request,
+          new Error(`unknown request kind ${String((request as { kind?: unknown }).kind)}`),
+        );
     }
   } catch (e) {
     return failure(request, e);
