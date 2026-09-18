@@ -24,6 +24,13 @@ import { getChangeBus } from '../runtime/change-bus.ts';
 const log = childLogger('changes-repo');
 
 const CURSOR_DOC_ID = 'asset_changes_cursor';
+/**
+ * Separate `server_state` row holding the retention floor: the highest cursor
+ * a `change-log-gc` sweep has deleted. Deliberately NOT the allocator row —
+ * pruning must never touch `asset_changes_cursor`, whose `seq` only ever moves
+ * forward by one per allocation.
+ */
+const PRUNED_DOC_ID = 'asset_changes_pruned_through';
 
 // Tiny per-process cache for folder.path lookups. Folders are
 // effectively immutable at the path level (rename is not a supported
@@ -261,4 +268,36 @@ export async function highestCursor(dbOverride?: Db): Promise<number> {
     : await assetChangesCollection();
   const top = await coll.find({}).sort({ cursor: -1 }).limit(1).next();
   return top?.cursor ?? 0;
+}
+
+/**
+ * The retention floor: the highest cursor a `change-log-gc` sweep has removed,
+ * or 0 when nothing has ever been pruned.
+ *
+ * A client whose `since` is below this has missed rows that no longer exist,
+ * which is indistinguishable from the cursor-gap case documented at the top of
+ * this file — except that here we KNOW it happened, so the feed can say so
+ * instead of quietly returning a short list. `GET /api/changes` answers 409 and
+ * the client re-enumerates.
+ */
+export async function prunedThroughCursor(dbOverride?: Db): Promise<number> {
+  const coll = dbOverride
+    ? dbOverride.collection<ServerStateDoc>('server_state')
+    : await serverStateCollection();
+  const doc = await coll.findOne({ _id: PRUNED_DOC_ID });
+  const seq = (doc as unknown as { seq?: number } | null)?.seq;
+  return typeof seq === 'number' ? seq : 0;
+}
+
+/**
+ * Raise the retention floor to `cursor`. Monotonic by construction — `$max`
+ * means an out-of-order or replayed sweep can only ever leave the floor where
+ * it was, never rewind it.
+ */
+export async function recordPrunedThrough(cursor: number, dbOverride?: Db): Promise<void> {
+  if (!Number.isFinite(cursor) || cursor <= 0) return;
+  const coll = dbOverride
+    ? dbOverride.collection<ServerStateDoc>('server_state')
+    : await serverStateCollection();
+  await coll.updateOne({ _id: PRUNED_DOC_ID }, { $max: { seq: cursor } }, { upsert: true });
 }

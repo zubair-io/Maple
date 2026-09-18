@@ -11,7 +11,7 @@
  */
 
 import { Elysia, sse, t } from 'elysia';
-import { listChangesSince } from '../db/changes.repo.ts';
+import { listChangesSince, prunedThroughCursor } from '../db/changes.repo.ts';
 import { getChangeBus } from '../runtime/change-bus.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
@@ -111,6 +111,15 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
           return { error: 'limit must be a positive integer' };
         }
         limit = Math.min(parsed, 1000);
+      }
+      // Retention floor (#3741). Once change-log-gc has pruned, a client whose
+      // cursor predates what was removed can never be brought up to date from
+      // the journal — returning the surviving tail would look like "nothing
+      // much changed". Same 409 contract as /subscribe: re-enumerate.
+      const prunedThrough = await prunedThroughCursor();
+      if (since < prunedThrough) {
+        set.status = 409;
+        return { error: 'cursor too old', current: prunedThrough };
       }
       const rows = await listChangesSince(undefined, { since, limit });
       const payload = rows.map(asPayload);

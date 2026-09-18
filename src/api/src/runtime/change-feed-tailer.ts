@@ -24,7 +24,7 @@
 
 import { child as childLogger } from "../log.ts";
 import { assetChangesCollection } from "../db/client.ts";
-import { highestCursor } from "../db/changes.repo.ts";
+import { highestCursor, prunedThroughCursor } from "../db/changes.repo.ts";
 import { getChangeBus } from "./change-bus.ts";
 import type { AssetChangeWithId } from "../db/schema.ts";
 
@@ -63,7 +63,11 @@ export class ChangeFeedTailer {
     this.running = true;
     this.stopped = false;
     try {
-      this.localMax = await highestCursor();
+      // Take the retention floor into account (#3741). If change-log-gc has
+      // pruned the whole journal, `highestCursor()` reads 0 and the bus would
+      // declare every stale cursor replayable — handing a client that missed
+      // real, since-deleted events an empty stream instead of a 409.
+      this.localMax = Math.max(await highestCursor(), await prunedThroughCursor());
       getChangeBus().setPersistedHighWatermark(this.localMax);
       log.info({ localMax: this.localMax }, "tailer started");
     } catch (err) {

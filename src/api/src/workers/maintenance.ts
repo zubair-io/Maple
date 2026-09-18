@@ -6,6 +6,9 @@
  * Members:
  *   - trash-gc       — purge trashed assets (`deleted_at`) past the retention
  *                      window: unlink the file + sidecars, delete the row.
+ *   - change-log-gc  — prune `asset_changes` rows past the retention window in
+ *                      bounded batches (#3741). Clients that fall behind the
+ *                      window re-enumerate via the cursor-too-old 409 path.
  *   - missing-reaper — hard-delete rows whose on-disk original vanished
  *                      (`missing_since`). Always starts PAUSED; operator-gated
  *                      via /api/workers/missing-reaper/{pause,resume}.
@@ -29,6 +32,7 @@
  */
 
 import { startTrashGc, type TrashGcHandle } from './trash-gc.ts';
+import { startChangeLogGc, type ChangeLogGcHandle } from './change-log-gc.ts';
 import { startMissingReaper, type MissingReaperHandle } from './missing-reaper.ts';
 import { startMigration, type MigrationHandle } from './migration.ts';
 import { startDeDuplicate, type DeDuplicateHandle } from './dedupe.ts';
@@ -49,6 +53,7 @@ const log = childLogger('maintenance');
 const MIRROR_CONFIG_RELOAD_MS = 60_000;
 
 let trashGc: TrashGcHandle | null = null;
+let changeLogGc: ChangeLogGcHandle | null = null;
 let missingReaper: MissingReaperHandle | null = null;
 let migration: MigrationHandle | null = null;
 let deduplicate: DeDuplicateHandle | null = null;
@@ -62,6 +67,9 @@ let generatedSearch: GeneratedSearchHandle | null = null;
  * prior set is still running. */
 export function startMaintenanceJobs(): void {
   if (!trashGc) trashGc = startTrashGc({});
+  // Reads its window (and its enabled flag) from worker_config on every pass,
+  // so a Settings → Workers edit applies without a restart.
+  if (!changeLogGc) changeLogGc = startChangeLogGc({});
   if (!missingReaper) missingReaper = startMissingReaper();
   if (!migration) migration = startMigration();
   if (!deduplicate) deduplicate = startDeDuplicate({});
@@ -100,6 +108,8 @@ export function startMaintenanceJobs(): void {
 export function stopMaintenanceJobs(): void {
   trashGc?.stop();
   trashGc = null;
+  changeLogGc?.stop();
+  changeLogGc = null;
   missingReaper?.stop();
   missingReaper = null;
   migration?.stop();

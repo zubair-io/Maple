@@ -1696,6 +1696,10 @@ export type ApnsDeviceTokenWithId = WithId<ApnsDeviceTokenDoc>;
  * A small key/value collection for server-wide singletons. Rows:
  *   - `_id: "asset_changes_cursor"` — holds the next cursor value to allocate
  *     (numeric, in `seq`).
+ *   - `_id: "asset_changes_pruned_through"` — the retention floor (numeric, in
+ *     `seq`): the highest cursor a `change-log-gc` sweep has deleted. Raised
+ *     with `$max` only, and kept apart from the allocator row so pruning can
+ *     never disturb the sequence. See `workers/change-log-gc.ts`.
  *   - `_id: "jwt_secret"` — the HS256 signing key for access tokens (string,
  *     in `value`). Stored here so every instance shares one secret and it
  *     survives container recreates. See `auth/jwt-secret.repo.ts`.
@@ -1704,7 +1708,8 @@ export interface ServerStateDoc {
   _id: string;
   /** For the asset_changes counter row: the most recently allocated
    * cursor. The next allocation atomically `$inc`'s this and returns
-   * the new value. */
+   * the new value. On the `asset_changes_pruned_through` row it instead
+   * carries the retention floor. */
   seq?: number;
   /** For string-valued singletons (e.g. the `jwt_secret` row). */
   value?: string;
