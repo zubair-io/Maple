@@ -72,15 +72,25 @@ interface ParsedTerm {
 /**
  * Characters that can carry meaning to the `unicode61` tokenizer.
  *
- * A term made only of punctuation tokenises to nothing, and an FTS5 string that
- * produces no tokens matches every row rather than none — `MATCH '"!!"'` is not
- * an error, it is a query with no terms. Dropping those terms here is half of
- * what stops a query of `???` from returning the whole library; the other half
- * is that a query left with no term at all becomes `nothing` rather than
- * `none`, which is what `$text` answers for the same input.
+ * A term made only of punctuation tokenises to nothing, and an FTS5 string with
+ * no tokens in it is not an error — it is a phrase with nothing in it, and it
+ * matches no row. Measured on SQLite 3.54 against the fixture library:
+ * `MATCH '"!!"'` answers 0 of 9, and so does `("!!" AND "harbour")`, while
+ * `("harbour" OR "!!")` answers the same 2 as `"harbour"` alone. So an empty
+ * phrase is harmless in an OR and silently empties an AND, which is why a term
+ * that tokenises to nothing is dropped here rather than quoted and emitted:
+ * `kyoto "???"` should find the kyoto photos, not nothing at all.
+ *
+ * Dropping it is only half the job. A query left with no term at all then
+ * becomes `nothing` rather than `none` — see {@link toTextFilter} — because the
+ * absence of an expression must not read as the absence of a filter.
  *
  * The test is deliberately Unicode-aware: `naïve`, `東京` and `Кремль` are all
- * real search terms and all fail an `[a-z0-9]` test.
+ * real search terms and all fail an `[a-z0-9]` test. It is also the same
+ * boundary {@link splitBareTerm} splits on, which is the boundary `unicode61`
+ * itself uses: the DDL declares `tokenize = 'porter unicode61'` with no
+ * `tokenchars`, so everything outside letters and numbers — `_` included — is a
+ * separator on both sides of the translation.
  */
 const HAS_TOKEN_CHARS = /[\p{L}\p{N}]/u;
 
