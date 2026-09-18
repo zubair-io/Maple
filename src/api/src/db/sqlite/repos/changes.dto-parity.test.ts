@@ -11,6 +11,14 @@
  * `allocateCursor` is absent from the SQLite module on purpose — see that
  * module's header — so there is nothing to compare for it.
  *
+ * `isChangeCursorTooOld` goes the other way: the SQLite module has it and the
+ * Mongo one does not yet, because #3755 is the branch adding it there. An
+ * `Exact<>` line naming `MongoRepo.isChangeCursorTooOld` would not compile
+ * until that lands, so it is deliberately absent and belongs in whichever of
+ * the two PRs merges second. The SQLite signature was written to #3755's —
+ * `(dbOverride, since) => Promise<{ tooOld, current }>` — so adding the
+ * assertion is the whole of that follow-up.
+ *
  * **By value.** A stored row is projected exactly the way `routes/changes.ts`
  * projects one onto the wire, and the result is compared key for key. The field
  * that has caused trouble before is `relative_path`, whose contract is an

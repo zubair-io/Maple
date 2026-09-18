@@ -19,12 +19,14 @@ import {
   allocatedCursor,
   computeRelativePath,
   highestCursor,
+  isChangeCursorTooOld,
   listChangesSince,
   recordAndPublishAssetChange,
   recordAssetChange,
   recordAssetChangeRow,
   __resetFolderPathCacheForTests,
   type RecordChangeInput,
+  type SqliteDb,
 } from './changes.repo.ts';
 import {
   createTestDatabase,
@@ -61,6 +63,30 @@ function storedRows(handle: TestDatabase): Array<Record<string, unknown>> {
   >;
 }
 
+/** Counts write attempts and fails the first `failures` of them with `error`. */
+function flakyWriter(
+  inner: SqliteDb,
+  failures: number,
+  error: Error,
+): SqliteDb & { attempts: () => number } {
+  let attempts = 0;
+  return {
+    read: inner.read.bind(inner),
+    write: inner.write.bind(inner),
+    transaction: async (statements) => {
+      attempts++;
+      if (attempts <= failures) throw error;
+      return inner.transaction(statements);
+    },
+    attempts: () => attempts,
+  };
+}
+
+/** What the pool reports when a writer could not take the lock in time. */
+function busyError(): Error {
+  return new Error('database is locked (SQLITE_BUSY)');
+}
+
 describe('cursor allocation', () => {
   test('allocates strictly increasing cursors, one per row', async () => {
     using handle = await createTestDatabase();
@@ -88,6 +114,67 @@ describe('cursor allocation', () => {
     expect(await allocatedCursor(db)).toBe(1);
     expect(await highestCursor(db)).toBe(1);
     expect(await recordAssetChange(db, change())).toBe(2);
+  });
+
+  test('continues from the journal when the counter row is missing', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    // What a cutover importer (#3752) that copies `asset_changes` without also
+    // seeding `server_state` leaves behind. `cursor` is the primary key, so an
+    // allocator that trusted the counter alone would mint 1, collide with the
+    // row already there, and be swallowed by the best-effort handler — the feed
+    // would emit nothing at all from boot, with one warn line to show for it.
+    for (const cursor of [1, 2, 3]) {
+      run(
+        handle.db,
+        `INSERT INTO asset_changes (cursor, kind, abs_path, at) VALUES (?, 'create', ?, ?)`,
+        cursor,
+        `/srv/photos/${cursor}.dng`,
+        new Date().toISOString(),
+      );
+    }
+    expect(await allocatedCursor(db)).toBe(0);
+
+    expect(await recordAssetChange(db, change())).toBe(4);
+    expect(await allocatedCursor(db)).toBe(4);
+    expect(storedRows(handle).map((row) => row.cursor)).toEqual([1, 2, 3, 4]);
+  });
+
+  test('keeps the counter when it is ahead of the journal', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    for (let i = 0; i < 3; i++) await recordAssetChange(db, change());
+    // Retention leaves the counter ahead of every stored row. Reconciling
+    // against the journal must never walk it backwards into reissuing cursors
+    // clients have already seen.
+    run(handle.db, `DELETE FROM asset_changes WHERE cursor < 3`);
+    expect(await recordAssetChange(db, change())).toBe(4);
+  });
+
+  test('retries a write the writer was too busy to take', async () => {
+    using handle = await createTestDatabase();
+    const db = flakyWriter(testSqliteDb(handle.db), 1, busyError());
+    // Mongo had no global write lock; SQLite funnels every writer in every
+    // child process through one. A change row emitted mid-batch that lost that
+    // race used to be logged and dropped, and the client is told it is current.
+    expect(await recordAssetChange(db, change())).toBe(1);
+    expect(db.attempts()).toBe(2);
+    expect(storedRows(handle)).toHaveLength(1);
+  });
+
+  test('gives up once the retries are spent', async () => {
+    using handle = await createTestDatabase();
+    const db = flakyWriter(testSqliteDb(handle.db), 99, busyError());
+    await expect(recordAssetChange(db, change())).rejects.toThrow(/locked/i);
+    // Three delays, so four attempts in total.
+    expect(db.attempts()).toBe(4);
+  });
+
+  test('does not retry an error a retry cannot fix', async () => {
+    using handle = await createTestDatabase();
+    const db = flakyWriter(testSqliteDb(handle.db), 99, new Error('CHECK constraint failed'));
+    await expect(recordAssetChange(db, change())).rejects.toThrow(/CHECK/);
+    expect(db.attempts()).toBe(1);
   });
 
   test('records a delete for an asset that has already been removed', async () => {
@@ -132,6 +219,71 @@ describe('the retention floor', () => {
     const db = testSqliteDb(handle.db);
     expect(await highestCursor(db)).toBe(0);
     expect(await allocatedCursor(db)).toBe(0);
+  });
+});
+
+describe('isChangeCursorTooOld', () => {
+  test('refuses a cursor whose next row was pruned, and names where to resume', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    for (let i = 0; i < 5; i++) await recordAssetChange(db, change());
+    // A sweep keeps the tail. The floor is now 4, so the next row a client at
+    // 2 wants (3) no longer exists and it has to re-enumerate.
+    run(handle.db, `DELETE FROM asset_changes WHERE cursor < 4`);
+
+    expect(await isChangeCursorTooOld(db, 2)).toEqual({ tooOld: true, current: 5 });
+    expect(await isChangeCursorTooOld(db, 0)).toEqual({ tooOld: true, current: 5 });
+    // 3 + 1 is the floor itself — nothing was lost, so this is servable.
+    expect(await isChangeCursorTooOld(db, 3)).toEqual({ tooOld: false, current: 5 });
+    expect(await isChangeCursorTooOld(db, 5)).toEqual({ tooOld: false, current: 5 });
+  });
+
+  test('falls back to the counter once the journal is empty', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    for (let i = 0; i < 3; i++) await recordAssetChange(db, change());
+    run(handle.db, `DELETE FROM asset_changes`);
+
+    // Nothing is left to compare against, so the allocation counter decides:
+    // a client that had seen everything is current, anyone behind it is not.
+    expect(await isChangeCursorTooOld(db, 3)).toEqual({ tooOld: false, current: 3 });
+    expect(await isChangeCursorTooOld(db, 2)).toEqual({ tooOld: true, current: 3 });
+  });
+
+  test('accepts every cursor on a server that has emitted nothing', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    expect(await isChangeCursorTooOld(db, 0)).toEqual({ tooOld: false, current: 0 });
+  });
+
+  test('serves an unpruned journal from the beginning', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    for (let i = 0; i < 3; i++) await recordAssetChange(db, change());
+    expect(await isChangeCursorTooOld(db, 0)).toEqual({ tooOld: false, current: 3 });
+  });
+
+  test('never admits a page that skips a row without saying so', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    for (let i = 0; i < 5; i++) await recordAssetChange(db, change());
+    run(handle.db, `DELETE FROM asset_changes WHERE cursor < 4`);
+
+    // The guarantee the polling route rests on, stated as an invariant rather
+    // than as a table of cases: a page it is allowed to serve always starts at
+    // the row immediately after the cursor the client asked from. Anything else
+    // is a gap the client would advance its anchor straight past. This is
+    // exactly what the missing check let happen — a client at 2 was handed
+    // rows 4 and 5 with a 200 and never learned 3 was gone.
+    for (const since of [0, 1, 2, 3, 4, 5]) {
+      const { tooOld } = await isChangeCursorTooOld(db, since);
+      const rows = await listChangesSince(db, { since, limit: 1000 });
+      if (tooOld) {
+        expect(rows.length > 0 && rows[0]!.cursor > since + 1).toBe(true);
+        continue;
+      }
+      if (rows.length > 0) expect(rows[0]!.cursor).toBe(since + 1);
+    }
   });
 });
 
@@ -197,6 +349,22 @@ describe('recordAndPublishAssetChange', () => {
       db,
     );
     expect(storedRows(handle)).toHaveLength(1);
+    expect(storedRows(handle)[0]!.relative_path).toBeNull();
+  });
+
+  test('stores null when the library root is an empty path', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    // `folders.path` is NOT NULL UNIQUE but carries no non-empty CHECK. An
+    // empty root is a prefix of everything, so the defensive "outside the root"
+    // branch never fires and the whole absolute path would be stored as if it
+    // were relative — a plausible-looking path the File Provider would route
+    // per-folder invalidation on.
+    const folderId = insertFolder(handle.db, { path: '' });
+    await recordAndPublishAssetChange(
+      change({ folder_id: new ObjectId(folderId), abs_path: '/srv/photos/a.dng' }),
+      db,
+    );
     expect(storedRows(handle)[0]!.relative_path).toBeNull();
   });
 
