@@ -204,6 +204,48 @@ final class LibraryGridZoomTests: XCTestCase {
     XCTAssertEqual(LibraryGridZoom.heightDelta(count: 30, from: 3, to: 3, width: width), 0)
   }
 
+  // MARK: - Full-width tier with whole photos
+
+  func testSquareGeometryMatchesTheStaticFunctions() {
+    let g = LibraryGridZoom.Geometry.square(width: width, count: 24)
+    for columns in LibraryGridZoom.columnTiers {
+      XCTAssertEqual(g.cellRect(index: 7, columns: columns), LibraryGridZoom.cellRect(index: 7, columns: columns, width: width))
+      XCTAssertEqual(g.gridHeight(columns: columns), LibraryGridZoom.gridHeight(count: 24, columns: columns, width: width), accuracy: 1e-9)
+      let p = CGPoint(x: 100, y: 500)
+      XCTAssertEqual(g.focalCell(at: p, columns: columns)?.index, LibraryGridZoom.focalCell(at: p, columns: columns, width: width, count: 24)?.index)
+      XCTAssertEqual(g.indices(intersecting: 300...900, columns: columns), LibraryGridZoom.indices(intersecting: 300...900, columns: columns, width: width, count: 24))
+    }
+  }
+
+  func testFullWidthRowsTakeEachPhotosAspect() {
+    // Landscape 3:2, portrait 2:3, square, unknown (1).
+    let aspects: [CGFloat] = [2.0 / 3.0, 3.0 / 2.0, 1, 1]
+    let g = LibraryGridZoom.Geometry(width: width, count: 4, aspects: { aspects[$0] })
+    let r0 = g.cellRect(index: 0, columns: 1)
+    let r1 = g.cellRect(index: 1, columns: 1)
+    XCTAssertEqual(r0.height, width * 2 / 3, accuracy: 1e-9)
+    XCTAssertEqual(r1.minY, r0.maxY + 2, accuracy: 1e-9)
+    XCTAssertEqual(r1.height, width * 3 / 2, accuracy: 1e-9)
+    XCTAssertEqual(g.gridHeight(columns: 1), r0.height + r1.height + 2 * width + 3 * 2, accuracy: 1e-9)
+    // Multi-column tiers are untouched by aspects.
+    XCTAssertEqual(g.cellRect(index: 1, columns: 3), LibraryGridZoom.cellRect(index: 1, columns: 3, width: width))
+    // Hit-testing walks the variable rows, including a point in a gutter.
+    XCTAssertEqual(g.focalCell(at: CGPoint(x: 10, y: r1.midY), columns: 1)?.index, 1)
+    XCTAssertEqual(g.focalCell(at: CGPoint(x: 10, y: r0.maxY + 1), columns: 1)?.index, 0)
+    XCTAssertEqual(g.focalCell(at: CGPoint(x: 10, y: -50), columns: 1)?.index, 0)
+    XCTAssertEqual(g.focalCell(at: CGPoint(x: 10, y: 99_999), columns: 1)?.index, 3)
+    // The gutter after a row belongs to that row (as `floor(y / span)` does
+    // for square tiers); one point into the next row reaches it.
+    XCTAssertEqual(g.indices(intersecting: (r1.minY + 1)...(r1.maxY + 1), columns: 1), 1..<2)
+    XCTAssertEqual(g.indices(intersecting: (r1.minY + 1)...(r1.maxY + 3), columns: 1), 1..<3)
+    // A blend from the full-width row to its square cell in the 2-up tier.
+    let mid = g.interpolatedRect(index: 1, from: 1, to: 2, progress: 0.5)
+    let two = LibraryGridZoom.cellRect(index: 1, columns: 2, width: width)
+    XCTAssertEqual(mid.height, (r1.height + two.height) / 2, accuracy: 1e-9)
+    XCTAssertEqual(mid.minX, two.minX / 2, accuracy: 1e-9)
+    XCTAssertNil(LibraryGridZoom.Geometry.square(width: width, count: 0).focalCell(at: .zero, columns: 1))
+  }
+
   func testNearestTierAndStoredValidation() {
     XCTAssertEqual(LibraryGridZoom.nearestColumns(cellWidth: 398, width: width), 1)
     XCTAssertEqual(LibraryGridZoom.nearestColumns(cellWidth: 130, width: width), 3)
