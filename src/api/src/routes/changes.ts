@@ -12,7 +12,7 @@
 
 import { Elysia, sse, t } from 'elysia';
 import { listChangesSince } from '../db/changes.repo.ts';
-import { getChangeBus } from '../runtime/change-bus.ts';
+import { getChangeBus, type ChangeBus } from '../runtime/change-bus.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 
@@ -71,6 +71,23 @@ function asPayload(r: AssetChangeWithId): ChangePayload {
     relative_path: r.relative_path ?? null,
     at: r.at.toISOString(),
   };
+}
+
+/**
+ * The cursor a 409 tells the client to resume from.
+ *
+ * It must be the highest cursor the server knows about, not the highest one
+ * still sitting in the ring buffer. Those differ in exactly the case that
+ * produces most 409s — a freshly restarted process, whose buffer is empty while
+ * its persisted high watermark reflects everything the previous process
+ * emitted. Reporting the buffer alone answered `current: 0` there, and 0 is the
+ * one value the Apple client cannot use: `ChangeFeedClient` treats it as "no
+ * usable cursor" and resets to `since=0`, which trips the same 409 on the next
+ * connect and loops. Retention pruning (#3741) makes the empty buffer ordinary
+ * rather than restart-only, so the difference stops being a corner case.
+ */
+function resumeCursor(bus: ChangeBus): number {
+  return Math.max(bus.snapshot().at(-1)?.cursor ?? 0, bus.getPersistedHighWatermark());
 }
 
 /**
@@ -136,8 +153,7 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
       const bus = getChangeBus();
       if (!bus.isCursorReplayable(since)) {
         set.status = 409;
-        const current = bus.snapshot().at(-1)?.cursor ?? 0;
-        return { error: 'cursor too old', current };
+        return { error: 'cursor too old', current: resumeCursor(bus) };
       }
 
       set.headers['content-type'] = 'text/event-stream';
@@ -195,8 +211,7 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
       if (!bus.isCursorReplayable(since)) {
         unsub();
         set.status = 409;
-        const current = bus.snapshot().at(-1)?.cursor ?? 0;
-        return { error: 'cursor too old', current };
+        return { error: 'cursor too old', current: resumeCursor(bus) };
       }
 
       // 4. Now safe to flush headers. Yield the open frame as raw bytes

@@ -21,7 +21,6 @@ import {
   insertEnrichmentState,
   insertFace,
   insertPerson,
-  testSqliteDb,
 } from './assets.test-helpers.ts';
 import {
   createTestDatabase,
@@ -29,6 +28,7 @@ import {
   insertFolder,
   insertLocation,
   run,
+  testSqliteDb,
 } from '../test-sqlite.test-helpers.ts';
 import type { SqlParams } from '../protocol.ts';
 import type { SqliteDb } from './db-handle.ts';

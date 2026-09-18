@@ -34,13 +34,25 @@ CREATE TABLE folders (
  * The File Provider push channel. `cursor` is allocated from the
  * `asset_changes_cursor` row of `server_state` and is the ordering contract —
  * `at` is informational.
+ *
+ * `asset_id` and `folder_id` carry no foreign key, and that is the one thing
+ * about this table worth arguing over. It is a journal of things that happened,
+ * not a set of live relationships: the single most important row in it is a
+ * `delete`, written by `routes/assets/trash.ts` *after* `hardDelete` has already
+ * removed the asset. A foreign key would reject that insert outright, and
+ * `ON DELETE SET NULL` would blank the id of any delete row that did land —
+ * either way the File Provider extension never learns which item to drop, and
+ * the change repository's best-effort error handling would swallow the failure
+ * silently. The same argument applies to a library that gets deregistered while
+ * a client is mid-sync. Referential integrity here would destroy exactly the
+ * events the feed exists to deliver.
  */
 export const ASSET_CHANGES_TABLE_DDL = `
 CREATE TABLE asset_changes (
   cursor INTEGER NOT NULL PRIMARY KEY,
 
-  asset_id  TEXT REFERENCES assets (id) ON DELETE SET NULL,
-  folder_id TEXT REFERENCES folders (id) ON DELETE SET NULL,
+  asset_id  TEXT,
+  folder_id TEXT,
   kind      TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete', 'restore')),
 
   abs_path      TEXT,

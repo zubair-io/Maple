@@ -23,7 +23,6 @@ import {
   insertEnrichmentState,
   insertStageState,
   stageState,
-  testSqliteDb,
 } from './assets.test-helpers.ts';
 import {
   createTestDatabase,
@@ -31,6 +30,7 @@ import {
   insertFolder,
   insertLocation,
   run,
+  testSqliteDb,
 } from '../test-sqlite.test-helpers.ts';
 import type { Place } from '../../schema.ts';
 

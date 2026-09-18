@@ -17,7 +17,6 @@ import {
   insertPhassetLink,
   insertStageState,
   stageState,
-  testSqliteDb,
 } from './assets.test-helpers.ts';
 import {
   createTestDatabase,
@@ -26,6 +25,7 @@ import {
   insertLocation,
   liveLocationCount,
   run,
+  testSqliteDb,
 } from '../test-sqlite.test-helpers.ts';
 import type { Database } from 'bun:sqlite';
 

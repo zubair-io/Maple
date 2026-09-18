@@ -1,61 +1,14 @@
 /**
- * What the repository tests need that the shared SQLite harness does not
- * provide: a {@link SqliteDb} over a test's own connection, and fixture
- * builders for the tables an asset's DTO draws on.
+ * Fixture builders for the tables an asset's DTO draws on.
  *
- * `bun:sqlite` is used directly here for the same reason `createTestDatabase`
- * does — a test owns its connection outright and has no event loop to protect.
- * The worker-backed pool exists to keep the API process responsive and cannot
- * back an in-memory database anyway, since each pool worker opens the file by
- * path. Production code must never reach for this adapter; that is what
- * `assetsDb()` and the pool are for.
+ * The {@link SqliteDb} adapter these tests also need moved to the shared
+ * harness when the change feed became the second ported repository — see
+ * `testSqliteDb` in `../test-sqlite.test-helpers.ts`.
  */
 
 import type { Database } from 'bun:sqlite';
-import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from '../protocol.ts';
-import type { SqliteDb } from './db-handle.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { run } from '../test-sqlite.test-helpers.ts';
-
-/** Normalise bound parameters to the varargs shape `bun:sqlite` expects. */
-function args(params: SqlParams | undefined): never[] {
-  if (params === undefined) return [];
-  return (Array.isArray(params) ? [...params] : [params]) as never[];
-}
-
-function exec(db: Database, statement: SqlStatement): SqlWriteResult {
-  const result = db.prepare(statement.sql).run(...args(statement.params));
-  return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) };
-}
-
-/**
- * Adapts a synchronous `bun:sqlite` handle to the three primitives a
- * repository uses. The transaction wrapper mirrors the database worker's:
- * `BEGIN IMMEDIATE`, then a rollback that never masks the original error.
- */
-export function testSqliteDb(db: Database): SqliteDb {
-  return {
-    read: async <T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> =>
-      db.query(sql).all(...args(params)) as T[],
-    write: async (sql: string, params?: SqlParams) => exec(db, { sql, params }),
-    transaction: async (statements: readonly SqlStatement[]) => {
-      db.run('BEGIN IMMEDIATE');
-      const results: SqlWriteResult[] = [];
-      try {
-        for (const statement of statements) results.push(exec(db, statement));
-        db.run('COMMIT');
-      } catch (e) {
-        try {
-          db.run('ROLLBACK');
-        } catch {
-          // Already unwound by SQLite; the caller's error is the one to report.
-        }
-        throw e;
-      }
-      return results;
-    },
-  };
-}
 
 /** Inserts an `asset_detail` row. Every payload column is optional. */
 export function insertDetail(

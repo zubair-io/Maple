@@ -51,7 +51,7 @@ import {
   assetCoreByIdsSql,
   listItemsSql,
 } from './assets.sql.ts';
-import { assetsDb, type SqliteDb } from './db-handle.ts';
+import { repoDb, type SqliteDb } from './db-handle.ts';
 import type { AssetCoreInfo, AssetDetailDto, AssetListItemDto } from '../../assets.transform.ts';
 
 export type { AssetCoreInfo, AssetDetailDto, AssetListItemDto };
@@ -94,7 +94,7 @@ export async function findDetailById(
   id: ObjectId,
   dbOverride?: SqliteDb,
 ): Promise<AssetDetailDto | null> {
-  const db = assetsDb(dbOverride);
+  const db = repoDb(dbOverride);
   const hex = id.toHexString();
   const row = await readCoreRow(db, hex);
   if (!row) return null;
@@ -113,7 +113,7 @@ export async function findDetailsByIds(
   dbOverride?: SqliteDb,
 ): Promise<AssetDetailDto[]> {
   if (ids.length === 0) return [];
-  const db = assetsDb(dbOverride);
+  const db = repoDb(dbOverride);
   const hexes = ids.map((id) => id.toHexString());
   const rows = await db.read<AssetCoreRow>(assetCoreByIdsSql(hexes.length), hexes);
   if (rows.length === 0) return [];
@@ -149,7 +149,7 @@ export async function findDetailByAddress(
   const filename = lastSlash === -1 ? normalised : normalised.slice(lastSlash + 1);
   if (filename === '') return null;
 
-  const db = assetsDb(dbOverride);
+  const db = repoDb(dbOverride);
   const matches = await db.read<{ asset_id: string }>(ASSET_ID_BY_ADDRESS_SQL, [
     libraryId.toHexString(),
     dirPath,
@@ -172,7 +172,7 @@ export async function findCoreInfoById(
   id: ObjectId,
   dbOverride?: SqliteDb,
 ): Promise<AssetCoreInfo | null> {
-  const db = assetsDb(dbOverride);
+  const db = repoDb(dbOverride);
   const hex = id.toHexString();
   const row = await readCoreRow(db, hex);
   if (!row) return null;
@@ -234,7 +234,7 @@ export async function findListItems(
   limit: number,
   dbOverride?: SqliteDb,
 ): Promise<AssetListItemDto[]> {
-  const db = assetsDb(dbOverride);
+  const db = repoDb(dbOverride);
   const { clauses, params } = listResiduals(filter);
   const safeLimit = Number.isFinite(limit) && limit >= 1 ? limit : 1000;
   const clamped = Math.min(Math.max(safeLimit, 1), 20000);
@@ -261,7 +261,7 @@ export async function findLiveAssetIdByMapleId(
   libraryId: ObjectId,
   dbOverride?: SqliteDb,
 ): Promise<ObjectId | null> {
-  const db = assetsDb(dbOverride);
+  const db = repoDb(dbOverride);
   const rows = await db.read<{ id: string }>(ASSET_ID_BY_MAPLE_ID_SQL, [
     mapleId,
     libraryId.toHexString(),
@@ -293,7 +293,7 @@ export async function findLiveAssetIdByPhassetLink(
   libraryId: ObjectId,
   dbOverride?: SqliteDb,
 ): Promise<ObjectId | null> {
-  const db = assetsDb(dbOverride);
+  const db = repoDb(dbOverride);
   const rows = await db.read<{ id: string }>(ASSET_ID_BY_PHASSET_LINK_SQL, [
     deviceId,
     phassetLocalId,
