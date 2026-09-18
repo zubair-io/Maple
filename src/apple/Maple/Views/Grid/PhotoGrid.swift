@@ -121,6 +121,10 @@ struct PhotoGrid<Element: Identifiable>: View {
     /// overlay — every surface besides `BrowseGrid`'s normal (non-merged)
     /// grid leaves this unset.
     var renameOverlay: ((Element) -> AnyView?)? = nil
+    /// Tile outline for every cell — see `ThumbnailImage.shape`. The iPhone
+    /// grid's full-width tier passes `.native` so single-column tiles take
+    /// each photo's own aspect ratio.
+    var cellShape: ThumbnailShape = .square
     let onTap: (Element) -> Void
     let makeItem: (Element) -> PhotoGridItem
 
@@ -132,6 +136,7 @@ struct PhotoGrid<Element: Identifiable>: View {
         provider: ThumbnailProvider,
         displayMode: GridDisplayMode,
         selection: Set<Element.ID> = [],
+        cellShape: ThumbnailShape = .square,
         transitionNamespace: Namespace.ID? = nil,
         onAppearItem: ((Element) -> Void)? = nil,
         multiSelectChecked: ((Element) -> Bool?)? = nil,
@@ -146,6 +151,7 @@ struct PhotoGrid<Element: Identifiable>: View {
         self.provider = provider
         self.displayMode = displayMode
         self.selection = selection
+        self.cellShape = cellShape
         self.transitionNamespace = transitionNamespace
         self.onAppearItem = onAppearItem
         self.multiSelectChecked = multiSelectChecked
@@ -169,6 +175,7 @@ struct PhotoGrid<Element: Identifiable>: View {
                     item: item,
                     provider: provider,
                     displayMode: displayMode,
+                    shape: cellShape,
                     isSelected: selection.contains(element.id),
                     transitionNamespace: transitionNamespace,
                     multiSelectChecked: multiSelectChecked?(element),

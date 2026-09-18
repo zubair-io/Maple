@@ -37,6 +37,8 @@ struct PhotoThumbnailCell: View {
   let item: PhotoGridItem
   let provider: ThumbnailProvider
   let displayMode: GridDisplayMode
+  /// The tile's outline — see `ThumbnailImage.shape`.
+  var shape: ThumbnailShape = .square
 
   var isSelected: Bool = false
   /// When non-nil, applies `.matchedTransitionSource(id:in:)` on iOS 18+
@@ -119,7 +121,8 @@ struct PhotoThumbnailCell: View {
     // placeholder flash and no main-thread decode.
     ThumbnailImage(
       image: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id),
-      displayMode: displayMode
+      displayMode: displayMode,
+      shape: shape
     )
     .opacity(item.overlays.hidden ? 0.4 : 1.0)
     .overlay {

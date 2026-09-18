@@ -86,6 +86,22 @@ struct ThumbnailImage: View {
     /// decoding in `body` on the main thread was the original grid-jank source.
     let image: CGImage?
     let displayMode: GridDisplayMode
+    /// The tile's outline. `.square` is every grid's default; `.native`
+    /// (the iPhone grid's full-width tier) shapes the tile to the photo so
+    /// nothing is cropped; `.proposed` takes exactly the size it is offered
+    /// (the pinch overlay, whose cells are mid-way between two shapes).
+    var shape: ThumbnailShape = .square
+
+    /// Width ÷ height the tile is held to, or nil to take the proposal.
+    private var aspect: CGFloat? {
+        switch shape {
+        case .square: return 1
+        case .native:
+            guard let image, image.height > 0 else { return 1 }
+            return CGFloat(image.width) / CGFloat(image.height)
+        case .proposed: return nil
+        }
+    }
 
     var body: some View {
         Rectangle()
@@ -104,9 +120,16 @@ struct ThumbnailImage: View {
                         .foregroundStyle(MapleTokens.textMuted)
                 }
             }
-            .aspectRatio(1, contentMode: .fit)
+            .aspectRatio(aspect, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
     }
+}
+
+/// See `ThumbnailImage.shape`.
+enum ThumbnailShape {
+    case square
+    case native
+    case proposed
 }
 
 #Preview("ThumbnailImage — placeholder") {

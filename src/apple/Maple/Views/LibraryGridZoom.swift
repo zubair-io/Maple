@@ -219,4 +219,120 @@ enum LibraryGridZoom {
                 < abs(log(cellSize(columns: rhs, width: width)) - log(max(1, cellWidth)))
         } ?? defaultColumns
     }
+
+    // MARK: - A grid whose full-width tier shows whole photos
+
+    /// The layout of one grid for every tier at once. The multi-column tiers
+    /// are square cells (the static functions above); the full-width tier
+    /// gives each photo its own height (`aspects[i]` = height ÷ width, 1 for
+    /// a photo whose size is not known yet), so its rows are a prefix sum
+    /// built once per pinch — O(n) once, then every lookup is a binary
+    /// search, never a walk.
+    struct Geometry {
+        let width: CGFloat
+        let count: Int
+        /// Top of each full-width row, plus one trailing entry: the height
+        /// of the whole full-width grid.
+        let rowTops: [CGFloat]
+
+        init(width: CGFloat, count: Int, aspects: (Int) -> CGFloat) {
+            self.width = width
+            self.count = count
+            let cell = LibraryGridZoom.cellSize(columns: 1, width: width)
+            self.rowTops = (0..<count).reduce(into: [0]) { tops, index in
+                let height = cell * max(0.1, aspects(index))
+                tops.append(tops[tops.count - 1] + height + LibraryGridZoom.spacing)
+            }
+        }
+
+        /// Square everywhere — the fit-mode grid, and every test that only
+        /// cares about the multi-column tiers.
+        static func square(width: CGFloat, count: Int) -> Geometry {
+            Geometry(width: width, count: count, aspects: { _ in 1 })
+        }
+
+        func cellRect(index: Int, columns: Int) -> CGRect {
+            guard columns == 1, count > 0 else {
+                return LibraryGridZoom.cellRect(index: index, columns: columns, width: width)
+            }
+            let i = min(count - 1, max(0, index))
+            return CGRect(
+                x: 0, y: rowTops[i], width: width,
+                height: rowTops[i + 1] - rowTops[i] - LibraryGridZoom.spacing)
+        }
+
+        func gridHeight(columns: Int) -> CGFloat {
+            guard columns == 1 else {
+                return LibraryGridZoom.gridHeight(count: count, columns: columns, width: width)
+            }
+            return count > 0 ? rowTops[count] - LibraryGridZoom.spacing : 0
+        }
+
+        /// Row of the full-width tier containing `y` (clamped to the ends).
+        private func row(at y: CGFloat) -> Int {
+            // Last row whose top is at or above `y`.
+            var low = 0
+            var high = count - 1
+            while low < high {
+                let mid = (low + high + 1) / 2
+                if rowTops[mid] <= y { low = mid } else { high = mid - 1 }
+            }
+            return low
+        }
+
+        func focalCell(at point: CGPoint, columns: Int) -> (index: Int, fraction: CGPoint)? {
+            guard columns == 1 else {
+                return LibraryGridZoom.focalCell(at: point, columns: columns, width: width, count: count)
+            }
+            guard count > 0 else { return nil }
+            let index = row(at: point.y)
+            let rect = cellRect(index: index, columns: 1)
+            return (
+                index,
+                CGPoint(
+                    x: min(1, max(0, (point.x - rect.minX) / rect.width)),
+                    y: min(1, max(0, (point.y - rect.minY) / rect.height)))
+            )
+        }
+
+        func point(ofCell index: Int, fraction: CGPoint, columns: Int) -> CGPoint {
+            LibraryGridZoom.point(in: cellRect(index: index, columns: columns), fraction: fraction)
+        }
+
+        func indices(intersecting yRange: ClosedRange<CGFloat>, columns: Int) -> Range<Int> {
+            guard columns == 1 else {
+                return LibraryGridZoom.indices(intersecting: yRange, columns: columns, width: width, count: count)
+            }
+            guard count > 0 else { return 0..<0 }
+            let first = row(at: yRange.lowerBound)
+            let last = row(at: yRange.upperBound)
+            return first..<(last + 1)
+        }
+
+        func interpolatedRect(index: Int, from: Int, to: Int, progress: CGFloat) -> CGRect {
+            let a = cellRect(index: index, columns: from)
+            let b = cellRect(index: index, columns: to)
+            let t = min(1, max(0, progress))
+            return CGRect(
+                x: a.minX + (b.minX - a.minX) * t,
+                y: a.minY + (b.minY - a.minY) * t,
+                width: a.width + (b.width - a.width) * t,
+                height: a.height + (b.height - a.height) * t
+            )
+        }
+
+        /// See the free `overlaySlice`: the same union, on this geometry.
+        func overlaySlice(focalIndex: Int, focalFraction: CGPoint, reach: CGFloat) -> Range<Int>? {
+            LibraryGridZoom.columnTiers.reduce(into: Range<Int>?.none) { union, tier in
+                let focalY = point(ofCell: focalIndex, fraction: focalFraction, columns: tier).y
+                let range = indices(intersecting: (focalY - reach)...(focalY + reach), columns: tier)
+                guard !range.isEmpty else { return }
+                union = union.map { min($0.lowerBound, range.lowerBound)..<max($0.upperBound, range.upperBound) } ?? range
+            }
+        }
+
+        func heightDelta(from: Int, to: Int) -> CGFloat {
+            gridHeight(columns: to) - gridHeight(columns: from)
+        }
+    }
 }
