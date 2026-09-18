@@ -143,6 +143,18 @@ generated assets: 51.3 ms as an inner join, 0.36 ms as a semi-join.
 
 ### Facets and counts
 
+Every index in this section carries `hidden` as its last column, and that is
+load-bearing rather than tidy. Hidden assets are excluded unless the caller opts
+in, so `buildFilter` puts `hidden: { $ne: true }` on literally every query.
+Without the column the index serves the group key and then fetches each
+candidate row to test it, which reads the whole `assets` table — measured during
+#3750 at 28.9 ms against 1.1 ms for the count, and 84.6 ms against 2.5 ms for
+the camera facet, over 60,000 assets. It goes last because it is not a group
+key: appending it leaves the leading columns in the order each `GROUP BY` wants.
+Putting it in the partial index's `WHERE` instead would be smaller and wrong,
+because `hidden=only` and `hidden=all` are real wire values that would then lose
+the index entirely.
+
 | Call site                                                              | Mongo                                                     | SQLite                                                  | Index                                                                      |
 | ---------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------- |
 | facet total, Meili live count, generated-search preview, buckets total | `countDocuments(live)`                                    | `COUNT(*) WHERE live`                                   | `assets_live`                                                              |
@@ -203,6 +215,19 @@ count came from a grep whose hits are mostly prose in doc comments. The two are
 Both become `assets_fts MATCH ?`, with `bm25(assets_fts)` in place of the text
 score. The `porter unicode61` tokenizer gives the English stemming the Mongo
 index got from `default_language: 'english'`.
+
+A user's string cannot be forwarded to `MATCH` as it stands. `$text` takes a
+search string in which anything unrecognised is just a term; `MATCH` takes a
+query expression in which `*`, `:`, `^`, `-`, parentheses and the bare words
+`AND` / `OR` / `NOT` / `NEAR` are operators, and a syntax error there raises
+rather than matching nothing — so `C++ (2019)` would 500 the search route.
+`db/sqlite/repos/search.fts.ts` re-emits every term as a quoted FTS5 string,
+splitting bare terms on punctuation the way `$text` tokenizes them so
+`harbour.dng` stays two OR'd terms rather than becoming a two-word phrase.
+Measured against `$text` over an identical 14,429-document corpus, eleven query
+shapes matched the same number of documents on both engines; the orderings
+differ, because BM25 weighs document length and term rarity more strongly than
+MongoDB's text score does.
 
 ### Index count
 
@@ -329,12 +354,47 @@ present in nearly every document, where the work is ranking the matches rather
 than finding them; a selective term, which is what a person types, is three
 orders of magnitude faster.
 
+### The same facets through the ported route (#3750)
+
+The table above times the queries the schema was designed around. These time the
+statements `db/sqlite/repos/search.sql.ts` actually generates for an unfiltered
+`GET /api/search/facets`, which differ in one way that turned out to matter: they
+all carry the always-on `hidden = 0` filter. At 335,377 assets:
+
+| facet                     | SQLite   | reads                       |
+| ------------------------- | -------- | --------------------------- |
+| total                     | 6.1 ms   | `assets_live`               |
+| camera make + model       | 16.3 ms  | `assets_facet_camera`       |
+| lens                      | 14.0 ms  | `assets_facet_lens`         |
+| place locality + region   | 17.3 ms  | `assets_facet_place_label`  |
+| screenshot                | 9.3 ms   | `assets_facet_screenshot`   |
+| capture range             | 21.0 ms  | `assets_live_captured`      |
+| grid page, 200 rows       | 0.15 ms  | `assets_live_captured`      |
+| ISO range                 | 256 ms   | every matching asset row    |
+| extensions                | 465 ms   | `asset_locations`, per row  |
+| people                    | 643 ms   | `faces`, then an asset row  |
+| activity                  | 706 ms   | `asset_detail`, per row     |
+| scene type                | 810 ms   | `asset_detail`, per row     |
+| subjects                  | 1,193 ms | the `vision` JSON, per row  |
+
+The first seven are the ones every index in this schema was built for, and they
+are where the migration's case lies — against 4.7 to 5.7 seconds each on
+production MongoDB today. The last six each have to leave the `assets` row to
+answer, and none of them has an index that covers what it needs; the schema
+already flagged the scene, activity and ISO cases as unindexed, and the ported
+measurement puts numbers on them. Closing that gap is #3768.
+
 ## Reproducing the measurements
 
 ```bash
 cd src/api
 bun scripts/sqlite-bench/run.ts                 # 335k, 600k and 1M assets
 bun scripts/sqlite-bench/run.ts 335377 --keep   # one size, leave the file behind
+
+# The ported search and facet queries, against both engines (#3750)
+bun scripts/sqlite-bench/search-compare.ts              # 60,000 assets
+bun scripts/sqlite-bench/search-compare.ts 335377 --no-mongo
+bun scripts/sqlite-bench/search-relevance.ts            # $text vs FTS5
 ```
 
 The generator is seeded, so a re-run reproduces the same library. It touches
