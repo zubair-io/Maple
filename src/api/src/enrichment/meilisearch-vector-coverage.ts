@@ -1,24 +1,40 @@
-import type { ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
+/**
+ * Which assets are covered by the current embedder generation, and how that
+ * coverage is carried forward.
+ *
+ * Storage is `db/sqlite/repos/assets.meilisearch.ts`. The Mongo-era
+ * `LIVE_ASSET_FILTER` — a `deleted_at` check plus an `$elemMatch` over
+ * `fileinfo` — is gone, because "live" is one predicate on the assets table
+ * (`LIVE_ASSET_PREDICATE`) that the repository spells verbatim so its partial
+ * indexes apply. {@link countLiveAssets} and
+ * {@link countLiveAssetsWithFingerprint} are what the status surface asks for
+ * instead of composing that filter itself.
+ */
 
-export const LIVE_ASSET_FILTER = {
-  deleted_at: { $in: [null] },
-  fileinfo: {
-    $elemMatch: {
-      deleted_at: { $in: [null] },
-      missing_since: { $in: [null] },
-    },
-  },
-} as const;
+import {
+  advanceVectorFingerprint,
+  countLiveAssets as countLiveAssetsRow,
+  countLiveAssetsWithFingerprint as countLiveAssetsWithFingerprintRow,
+  markAssetsVectorized as markAssetsVectorizedRow,
+} from '../db/sqlite/repos/assets.meilisearch.ts';
+
+/** How many live assets the library holds — vector coverage's denominator. */
+export async function countLiveAssets(): Promise<number> {
+  return countLiveAssetsRow();
+}
+
+/** How many live assets carry this exact fingerprint — coverage's numerator. */
+export async function countLiveAssetsWithFingerprint(fingerprint: string | null): Promise<number> {
+  if (!fingerprint) return 0;
+  return countLiveAssetsWithFingerprintRow(fingerprint);
+}
 
 export async function markAssetsVectorized(
-  assetIds: ObjectId[],
+  assetIds: readonly string[],
   fingerprint: string | null | undefined,
 ): Promise<void> {
   if (!fingerprint || assetIds.length === 0) return;
-  await (
-    await assetsCollection()
-  ).updateMany({ _id: { $in: assetIds } }, { $set: { semantic_vector_fingerprint: fingerprint } });
+  await markAssetsVectorizedRow(assetIds, fingerprint);
 }
 
 /**
@@ -42,7 +58,7 @@ export function documentShapeOf(fingerprint: string | null | undefined): string 
 
 /** A completed embedder-settings task re-embeds documents already confirmed
  * in Meilisearch. Carry only those markers forward, and only WITHIN one
- * document shape (see `documentShapeOf`); unmarked Mongo rows stay uncovered
+ * document shape (see `documentShapeOf`); unmarked rows stay uncovered
  * until their stage/backfill task succeeds. */
 export async function advanceKnownVectorCoverage(
   fingerprint: string | null | undefined,
@@ -50,17 +66,9 @@ export async function advanceKnownVectorCoverage(
   if (!fingerprint) return;
   const shape = documentShapeOf(fingerprint);
   if (shape === null) return;
-  await (
-    await assetsCollection()
-  ).updateMany(
-    {
-      ...LIVE_ASSET_FILTER,
-      // Only rows whose stored fingerprint has the SAME document shape. A
-      // shape change matches nothing, leaving every row uncovered — which is
-      // what surfaces "re-embed needed" on Settings → Workers and what the
-      // backfill route then works through.
-      semantic_vector_fingerprint: { $regex: `^${shape}:` },
-    } as never,
-    { $set: { semantic_vector_fingerprint: fingerprint } },
-  );
+  // Only rows whose stored fingerprint has the SAME document shape. A shape
+  // change matches nothing, leaving every row uncovered — which is what
+  // surfaces "re-embed needed" on Settings → Workers and what the backfill
+  // route then works through.
+  await advanceVectorFingerprint(`${shape}:`, fingerprint);
 }

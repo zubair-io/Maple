@@ -6,84 +6,30 @@
  * failure doesn't silently drop an asset from the search index forever.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { afterEach, describe, expect, it } from 'bun:test';
 import {
   setMeilisearchClientForTests,
   type MeilisearchAssetDoc,
   type MeilisearchClient,
 } from '../src/enrichment/meilisearch-client.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import {
+  BROKEN_PLACE,
+  failuresByMapleId,
+  repairPlace,
+  seedFailure,
+  seedIndexableAsset,
+} from './helpers/meili-backfill-fixtures.ts';
+import {
+  countMeilisearchBackfillFailures,
+  redriveMeilisearchBackfillFailures,
+} from '../src/enrichment/meilisearch-backfill-redrive.ts';
+import { runMeilisearchBackfill } from '../src/enrichment/meilisearch-backfill.ts';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
 
-const TEST_DB = withTestDb(`maple_test_meili_redrive_${process.pid}`);
-const URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-let mongo: MongoClient | null = null;
-let db: Db | null = null;
-const folder = new ObjectId();
-
-beforeAll(async () => {
-  mongo = new MongoClient(URI, { serverSelectionTimeoutMS: 1500 });
-  try {
-    await mongo.connect();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
-  } catch {
-    await mongo.close().catch(() => {});
-    mongo = null;
-    return;
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!db) return;
-  for (const collection of [
-    'assets',
-    'people',
-    'meilisearch_backfill_state',
-    'meilisearch_backfill_failures',
-    'meilisearch_backfill_leases',
-  ]) {
-    await db.collection(collection).deleteMany({});
-  }
+afterEach(() => {
   setMeilisearchClientForTests(null);
 });
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-  setMeilisearchClientForTests(null);
-});
-
-function liveFile(filename: string) {
-  return { library_id: folder, path: '', filename, deleted_at: null, missing_since: null };
-}
-
-function row(id: string, overrides: Record<string, unknown> = {}) {
-  return {
-    maple_id: id,
-    folder_id: folder,
-    filename: `${id}.jpg`,
-    fileinfo: [liveFile(`${id}.jpg`)],
-    deleted_at: null,
-    ...overrides,
-  };
-}
-
-function failureDoc(assetId: ObjectId, mapleId: string, attempts = 1) {
-  return {
-    _id: assetId,
-    maple_id: mapleId,
-    error: 'boom',
-    attempts,
-    updated_at: new Date(0).toISOString(),
-  };
-}
 
 function client() {
   const upserts: MeilisearchAssetDoc[] = [];
@@ -111,125 +57,102 @@ function client() {
 
 describe('meilisearch backfill dead-letter redrive', () => {
   it('retries a dead-lettered row and clears it once it composes successfully', async () => {
-    if (!db) return;
-    const assetId = new ObjectId();
-    // `description` is a number, not a string — composeSearchBlob's
+    using live = await createLiveTestDatabase();
+    // The stored place blob is a number, not a string — composeSearchBlob's
     // `raw.toLowerCase()` throws a TypeError, the same shape of failure the
     // main pass would hit from a genuinely transient bad-data condition.
-    await db
-      .collection('assets')
-      .insertOne({ _id: assetId, ...row('broken', { description: 42 }) });
-    await db.collection('meilisearch_backfill_failures').insertOne(failureDoc(assetId, 'broken'));
+    const assetId = seedIndexableAsset(live.db, {
+      mapleId: 'broken',
+      placeSearchBlob: BROKEN_PLACE,
+    });
+    seedFailure(live.db, { assetId, mapleId: 'broken' });
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures } =
-      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const first = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(first).toEqual({ retried: 1, recovered: 0, stillFailing: 1 });
-    expect(
-      await db.collection('meilisearch_backfill_failures').findOne({ maple_id: 'broken' }),
-    ).toMatchObject({ attempts: 2 });
+    expect(failuresByMapleId(live.db).get('broken')).toEqual({ attempts: 2 });
     expect(meili.upserts).toHaveLength(0);
 
     // Fix the malformed field, as a later write to the row would.
-    await db
-      .collection('assets')
-      .updateOne({ _id: assetId }, { $set: { description: 'a real caption' } });
+    repairPlace(live.db, assetId);
 
     const second = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(second).toEqual({ retried: 1, recovered: 1, stillFailing: 0 });
     expect(meili.upserts.map((doc) => doc.id)).toEqual(['broken']);
-    expect(
-      await db.collection('meilisearch_backfill_failures').findOne({ maple_id: 'broken' }),
-    ).toBeNull();
+    expect(failuresByMapleId(live.db).has('broken')).toBe(false);
   });
 
   it('drops a dead letter whose asset was hard-deleted since the failure was recorded', async () => {
-    if (!db) return;
-    const goneId = new ObjectId();
-    await db.collection('meilisearch_backfill_failures').insertOne(failureDoc(goneId, 'gone'));
+    using live = await createLiveTestDatabase();
+    // The table cascades on the asset, so a hard delete takes the dead letter
+    // with it. What the redrive has to handle is the row it reads back with no
+    // asset behind it — here, an asset that never got a `maple_id`.
+    const assetId = seedIndexableAsset(live.db, { mapleId: null });
+    seedFailure(live.db, { assetId, mapleId: 'gone' });
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures } =
-      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const outcome = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(outcome).toEqual({ retried: 1, recovered: 1, stillFailing: 0 });
-    expect(
-      await db.collection('meilisearch_backfill_failures').findOne({ maple_id: 'gone' }),
-    ).toBeNull();
+    expect(failuresByMapleId(live.db).has('gone')).toBe(false);
   });
 
   it('tombstones and clears a dead letter whose asset has since been soft-deleted', async () => {
-    if (!db) return;
-    const assetId = new ObjectId();
-    await db.collection('assets').insertOne({
-      _id: assetId,
-      ...row('tombstoned', { deleted_at: new Date().toISOString() }),
+    using live = await createLiveTestDatabase();
+    const assetId = seedIndexableAsset(live.db, {
+      mapleId: 'tombstoned',
+      deletedAt: new Date().toISOString(),
     });
-    await db
-      .collection('meilisearch_backfill_failures')
-      .insertOne(failureDoc(assetId, 'tombstoned'));
+    seedFailure(live.db, { assetId, mapleId: 'tombstoned' });
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures } =
-      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const outcome = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(outcome).toEqual({ retried: 1, recovered: 1, stillFailing: 0 });
     expect(meili.tombstones).toEqual(['tombstoned']);
-    expect(
-      await db.collection('meilisearch_backfill_failures').findOne({ maple_id: 'tombstoned' }),
-    ).toBeNull();
+    expect(failuresByMapleId(live.db).has('tombstoned')).toBe(false);
   });
 
   it('is a bounded, safe no-op when Meilisearch is unreachable', async () => {
-    if (!db) return;
-    const assetId = new ObjectId();
-    await db.collection('assets').insertOne({ _id: assetId, ...row('unreachable') });
-    await db
-      .collection('meilisearch_backfill_failures')
-      .insertOne(failureDoc(assetId, 'unreachable'));
+    using live = await createLiveTestDatabase();
+    const assetId = seedIndexableAsset(live.db, { mapleId: 'unreachable' });
+    seedFailure(live.db, { assetId, mapleId: 'unreachable' });
     const meili = client();
     meili.fake.upsertBatchOrThrow = async () => {
       throw new Error('connect ECONNREFUSED');
     };
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures } =
-      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const outcome = await redriveMeilisearchBackfillFailures(meili.fake, 10);
     expect(outcome).toEqual({ retried: 0, recovered: 0, stillFailing: 0 });
     // The failure is untouched (still attempts: 1) — a transient outage
     // during the redrive pass itself must not corrupt the dead letter it
     // couldn't even attempt.
-    expect(
-      await db.collection('meilisearch_backfill_failures').findOne({ maple_id: 'unreachable' }),
-    ).toMatchObject({ attempts: 1 });
+    expect(failuresByMapleId(live.db).get('unreachable')).toEqual({ attempts: 1 });
   });
 
   it('runs at the end of a completed backfill run and clears the live failure count', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     // 'broken' fails to compose on the main pass; fixing it before the run's
     // final, redrive-triggering batch proves the redrive pass — not the main
-    // pass — is what recovers it.
-    const brokenId = new ObjectId();
-    await db
-      .collection('assets')
-      .insertMany([{ _id: brokenId, ...row('broken', { description: 42 }) }, row('valid')]);
+    // pass — is what recovers it. The ids fix the cursor order so 'broken' is
+    // the batch the run starts with.
+    const brokenId = seedIndexableAsset(live.db, {
+      id: '1'.repeat(24),
+      mapleId: 'broken',
+      placeSearchBlob: BROKEN_PLACE,
+    });
+    seedIndexableAsset(live.db, { id: '2'.repeat(24), mapleId: 'valid' });
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
-    const { runMeilisearchBackfill } = await import('../src/enrichment/meilisearch-backfill.ts');
-    const { countMeilisearchBackfillFailures } =
-      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const firstBatch = await runMeilisearchBackfill(1, false);
     expect(firstBatch.complete).toBe(false);
     expect(await countMeilisearchBackfillFailures()).toBe(1);
     expect(meili.upserts).toHaveLength(0);
 
-    await db.collection('assets').updateOne({ _id: brokenId }, { $set: { description: 'fixed' } });
+    repairPlace(live.db, brokenId);
 
     const secondBatch = await runMeilisearchBackfill(1, false);
     expect(secondBatch.complete).toBe(true);
@@ -238,7 +161,7 @@ describe('meilisearch backfill dead-letter redrive', () => {
   });
 
   it('drains a backlog larger than batchSize across passes, leaving only the permanent failures', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     const batchSize = 3;
     const recoverableIds = ['r1', 'r2', 'r3', 'r4'];
     const permanentIds = ['p1', 'p2', 'p3'];
@@ -249,25 +172,25 @@ describe('meilisearch backfill dead-letter redrive', () => {
     // regardless of which ones happen to be permanently broken.
     const order = ['r1', 'p1', 'r2', 'p2', 'r3', 'p3', 'r4'];
 
-    for (const [index, id] of order.entries()) {
-      const assetId = new ObjectId();
-      const isPermanent = permanentIds.includes(id);
-      // `description: 42` reproduces the same TypeError every attempt (see
+    for (const [index, mapleId] of order.entries()) {
+      const isPermanent = permanentIds.includes(mapleId);
+      // A numeric place blob reproduces the same TypeError every attempt (see
       // the first test above) — a stand-in for a row that's permanently
       // unfixable, as opposed to one dead-lettered by a transient failure.
-      await db
-        .collection('assets')
-        .insertOne({ _id: assetId, ...row(id, isPermanent ? { description: 42 } : {}) });
-      await db.collection('meilisearch_backfill_failures').insertOne({
-        ...failureDoc(assetId, id),
-        updated_at: new Date(index).toISOString(),
+      const assetId = seedIndexableAsset(live.db, {
+        id: newObjectIdHex(),
+        mapleId,
+        placeSearchBlob: isPermanent ? BROKEN_PLACE : undefined,
+      });
+      seedFailure(live.db, {
+        assetId,
+        mapleId,
+        updatedAt: new Date(index).toISOString(),
       });
     }
 
     const meili = client();
     setMeilisearchClientForTests(meili.fake);
-    const { redriveMeilisearchBackfillFailures, countMeilisearchBackfillFailures } =
-      await import('../src/enrichment/meilisearch-backfill-redrive.ts');
 
     const outcome = await redriveMeilisearchBackfillFailures(meili.fake, batchSize);
 
@@ -283,16 +206,12 @@ describe('meilisearch backfill dead-letter redrive', () => {
     expect(await countMeilisearchBackfillFailures()).toBe(permanentIds.length);
     expect(meili.upserts.map((doc) => doc.id).sort()).toEqual([...recoverableIds].sort());
 
-    const remaining = await db
-      .collection('meilisearch_backfill_failures')
-      .find({})
-      .sort({ maple_id: 1 })
-      .toArray();
-    expect(remaining.map((doc) => doc.maple_id)).toEqual([...permanentIds].sort());
+    const remaining = failuresByMapleId(live.db);
+    expect([...remaining.keys()].sort()).toEqual([...permanentIds].sort());
     // Each permanent row started at attempts: 1 (the initial dead-letter) and
     // must have been re-attempted at least once by the drain loop — and the
     // loop terminated (this assertion runs at all) instead of spinning on
     // them forever.
-    for (const doc of remaining) expect(doc.attempts).toBeGreaterThan(1);
+    for (const entry of remaining.values()) expect(entry.attempts).toBeGreaterThan(1);
   });
 });
