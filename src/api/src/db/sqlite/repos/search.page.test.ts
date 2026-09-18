@@ -15,8 +15,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { searchCount, searchPage, type SeekPosition } from './search.page.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchLibrary, type SeededLibrary } from './search.test-helpers.ts';

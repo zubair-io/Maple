@@ -8,8 +8,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { searchBuckets } from './search.buckets.ts';
 import { searchCount } from './search.page.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';

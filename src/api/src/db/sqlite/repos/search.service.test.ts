@@ -11,8 +11,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { serviceLexicalSearch, type ServiceSearchScope } from './search.service.ts';
 import { seedSearchLibrary, type SeededLibrary } from './search.test-helpers.ts';
 

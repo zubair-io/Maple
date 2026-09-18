@@ -11,8 +11,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { toTextFilter } from './search.fts.ts';
 import { searchCount, searchPage } from './search.page.ts';
 import { buildSearchWhere } from './search.where.ts';

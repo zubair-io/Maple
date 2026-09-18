@@ -250,8 +250,14 @@ describe('every facet groups an index over the live predicate', () => {
       expect(planOf(db, statements.extensions.sql)).toContain(
         'SEARCH l USING INDEX sqlite_autoindex_asset_locations_1 (asset_id=? AND ordinal=?)',
       );
+      // `asset_detail` is a rowid table, so its primary key is an index rather
+      // than the row order, and the seek names that index. It is still a seek —
+      // which is the property this test is about — and the rowid table is the
+      // measured choice: SQLite will not answer a grouping from an index over a
+      // generated column on a `WITHOUT ROWID` table, which cost the vision
+      // facets 69.8 ms against 1.0 ms.
       expect(planOf(db, statements.scene_types.sql)).toContain(
-        'SEARCH d USING PRIMARY KEY (asset_id=?)',
+        'SEARCH d USING INDEX sqlite_autoindex_asset_detail_1 (asset_id=?)',
       );
     });
   });
