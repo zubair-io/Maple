@@ -13,6 +13,7 @@
     "scripts/sqlite-bench/run.ts",
     "scripts/sqlite-bench/list-items-compare.ts",
     "scripts/mongo-to-sqlite.ts",
+    "scripts/sqlite-bench/stage-claim-compare.ts",
     "src/people/clustering-quality-harness.ts",
     "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",
