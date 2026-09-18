@@ -95,6 +95,16 @@ export async function readCheckpoint(
  * exactly as the `$set` it replaces did — the field on the argument is
  * overwritten, so a caller that passes a stale one cannot make the row look
  * older than the write that just happened.
+ *
+ * `sweep_gen` is the one column an absent field must not clear. `sweepGen` is
+ * optional on {@link CheckpointDoc}, and the `$set: { ...doc }` this replaces
+ * simply had no such key when the caller omitted it, so whatever generation was
+ * stored survived. `excluded.sweep_gen` would write NULL instead, and a NULL
+ * reads back as "no sweep in progress" — which restarts the discover sweep from
+ * generation 0 and re-walks the whole library. `COALESCE` restores the `$set`
+ * semantics: a supplied generation overwrites, an omitted one leaves the stored
+ * value alone. Clearing a generation is not something any caller asks for, and
+ * an optional field cannot express the difference anyway.
  */
 export async function writeCheckpoint(doc: CheckpointDoc, dbOverride?: SqliteDb): Promise<void> {
   await sqliteDb(dbOverride).write(
@@ -105,7 +115,7 @@ export async function writeCheckpoint(doc: CheckpointDoc, dbOverride?: SqliteDb)
        path           = excluded.path,
        last_walked_at = excluded.last_walked_at,
        inflight_ids   = excluded.inflight_ids,
-       sweep_gen      = excluded.sweep_gen,
+       sweep_gen      = COALESCE(excluded.sweep_gen, indexer_checkpoints.sweep_gen),
        updated_at     = excluded.updated_at`,
     [
       doc.folderId,

@@ -91,6 +91,44 @@ describe('writeCheckpoint', () => {
     expect(doc?.sweepGen).toBe(2);
     expect(doc?.inflightIds).toEqual([]);
   });
+
+  test('a walk that names no sweep generation leaves the stored one alone', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const folderId = newObjectIdHex();
+    await writeCheckpoint(
+      { folderId, path: '/a', lastWalkedAt: 1, inflightIds: [], sweepGen: 7, updatedAt: 0 },
+      db,
+    );
+    // `sweepGen` is optional, so this is a legal document. On Mongo the key was
+    // absent from the `$set` and generation 7 survived; `sweep_gen =
+    // excluded.sweep_gen` would write NULL and restart the discover sweep from
+    // generation 0.
+    await writeCheckpoint(
+      { folderId, path: '/a', lastWalkedAt: 2, inflightIds: [], updatedAt: 0 },
+      db,
+    );
+    const doc = await readCheckpoint(folderId, db);
+    expect(doc?.sweepGen).toBe(7);
+    // The columns the document does name still move.
+    expect(doc?.lastWalkedAt).toBe(2);
+  });
+
+  test('a later generation still overwrites an earlier one', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const folderId = newObjectIdHex();
+    await writeCheckpoint(
+      { folderId, path: '/a', lastWalkedAt: 1, inflightIds: [], sweepGen: 7, updatedAt: 0 },
+      db,
+    );
+    await writeCheckpoint(
+      { folderId, path: '/a', lastWalkedAt: 2, inflightIds: [], sweepGen: 8, updatedAt: 0 },
+      db,
+    );
+    // COALESCE preserves an omitted generation; it must not swallow a named one.
+    expect((await readCheckpoint(folderId, db))?.sweepGen).toBe(8);
+  });
 });
 
 describe('markInflight', () => {
