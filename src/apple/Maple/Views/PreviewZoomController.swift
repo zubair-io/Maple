@@ -55,6 +55,17 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
         abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.01
     }
 
+    /// Where the photo's pixels are on screen right now, in window space —
+    /// the rect the Preview hero shrinks from on a pull-down commit. The
+    /// image view spans the page with the photo aspect-fit inside it, so
+    /// the fit rect is derived from the image size and mapped through
+    /// whatever scale/offset the view currently carries.
+    var photoRectInWindow: CGRect? {
+        guard let image = imageView.image, let window = view.window else { return nil }
+        let fit = PreviewViewVM.fitRect(imageSize: image.size, in: imageView.bounds)
+        return imageView.convert(fit, to: window)
+    }
+
     init(assetID: AssetRef.ID, seedKey: String, source: ThumbnailSource, provider: ThumbnailProvider) {
         self.assetID = assetID
         self.source = source
@@ -68,7 +79,7 @@ final class PreviewZoomController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(MapleTokens.bg)
+        view.backgroundColor = .clear  // the SwiftUI host paints (and fades) the ground
 
         scrollView.delegate = self
         scrollView.bouncesZoom = true

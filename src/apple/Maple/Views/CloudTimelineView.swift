@@ -203,7 +203,7 @@ struct CloudTimelineMonthSection: View {
       columns: .fixed(CloudTimelineViewVM.columnCount, spacing: 6),
       provider: provider,
       displayMode: displayMode,
-      onTap: { onSelectAsset($0) },
+      onTap: { asset, _ in onSelectAsset(asset) },
       makeItem: { asset in
         PhotoGridItem(cloud: asset, host: host, style: .cloud)
       }
@@ -228,7 +228,7 @@ struct CloudTimelineMonthSection: View {
       columns: .fixed(CloudTimelineViewVM.columnCount, spacing: 6),
       provider: provider,
       displayMode: displayMode,
-      onTap: { cell in
+      onTap: { cell, _ in
         // Cloud-side cells route through the SearchAsset map so the
         // editor opens via CloudSource. `.localOnly` cells aren't on
         // the server yet — open the PhotoKit asset directly via the

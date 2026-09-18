@@ -88,9 +88,17 @@ struct ThumbnailImage: View {
     let displayMode: GridDisplayMode
     /// The tile's outline. `.square` is every grid's default; `.native`
     /// (the iPhone grid's full-width tier) shapes the tile to the photo so
-    /// nothing is cropped; `.proposed` takes exactly the size it is offered
-    /// (the pinch overlay, whose cells are mid-way between two shapes).
+    /// nothing is cropped and there is nothing to fill or fit; `.proposed`
+    /// takes exactly the size it is offered (the pinch overlay, whose cells
+    /// are mid-way between two shapes).
     var shape: ThumbnailShape = .square
+
+    /// The photo's content mode inside the tile. A native-shaped tile IS
+    /// the photo's shape, so fill and fit coincide; fill is used so a
+    /// sub-pixel rounding of the tile can never show a hairline of ground.
+    private var contentMode: ContentMode {
+        shape == .native ? .fill : displayMode.contentMode
+    }
 
     /// Width ÷ height the tile is held to, or nil to take the proposal.
     private var aspect: CGFloat? {
@@ -114,7 +122,7 @@ struct ThumbnailImage: View {
                     // no pixel decode is deferred to draw time on the main thread.
                     Image(decorative: image, scale: 1)
                         .resizable()
-                        .aspectRatio(contentMode: displayMode.contentMode)
+                        .aspectRatio(contentMode: contentMode)
                 } else {
                     Image(systemName: "photo")
                         .foregroundStyle(MapleTokens.textMuted)

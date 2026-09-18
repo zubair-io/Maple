@@ -69,6 +69,12 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
     let onOpenEditor: (AssetRef) -> Void
+    /// A Library tile tap with the tile's window-space frame (Preview hero).
+    var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
+    /// Live window-space frame of the selected tile (Preview hero close).
+    var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil
+    /// The photo whose tile is blanked while the Preview hero carries it.
+    var hiddenTileID: AssetRef.ID? = nil
     let onPrimeSession: (AssetRef) -> Void
     let onFullImageFallback: () -> Void
     /// Resolves the iPhone Preview sibling list for a Timeline-opened asset
@@ -89,11 +95,6 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via AppShellIPhoneShell.
     var clipboard: AdjustmentClipboard? = nil
-
-    /// The Library tab's full frame (safe areas ignored) — the size a pushed
-    /// Preview settles at, handed to `PreviewDestination` so it can read the
-    /// zoom transition's progress off its own live frame.
-    @State private var fullSize: CGSize = .zero
 
     var body: some View {
         AppShellIPhoneShell(
@@ -121,63 +122,28 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             onGrantPhotosAccess: onGrantPhotosAccess,
             onNavigateFolder: onNavigateFolder,
             onOpenEditor: onOpenEditor,
+            onOpenTile: onOpenTile,
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback,
+            onSelectedTileFrameChange: onSelectedTileFrameChange,
+            hiddenTileID: hiddenTileID,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
             onBatchRename: onBatchRename,
             onTrashAssets: onTrashAssets,
             clipboard: clipboard
         )
-        .background {
-            Color.clear
-                .ignoresSafeArea()
-                .onGeometryChange(for: CGSize.self, of: { $0.size }) { fullSize = $0 }
-        }
-        // Tab-bar hide-on-push contract for the phone shell (#625/#791).
-        // Fast Preview epic §1: a grid / cloud-result tap pushes `.preview`
-        // (the fast static surface); Preview's Edit pushes `.edit` onto the
-        // same stack. Both hide the tab bar + system nav bar (each ships its
-        // own 44pt header with a back button → `dismiss()`).
+        // Fast Preview epic §1: a grid / cloud-result tap puts `.preview`
+        // in `libraryPath` and Preview's Edit pushes `.edit` on top. Only
+        // `.edit` reaches the stack (`PhoneTabShell.pushedLibraryPath`);
+        // `.preview` is drawn by the hero overlay below, with the grid live
+        // beneath it. The tab bar hides for both (#625/#791).
         .navigationDestination(for: LibraryDestination.self) { destination in
             Group {
                 switch destination {
-                case .preview(let ref):
-                    PreviewDestination(
-                        asset: ref,
-                        // Snapshot the current folder's assets at push time so
-                        // the filmstrip + prev/next have the sibling list. The
-                        // local library flow carries the full `browseVM.assets`;
-                        // a Timeline tap (#2299) leaves `browseVM` empty, so
-                        // fall back to that Timeline VM's own already-loaded
-                        // ordered cells (`timelinePreviewSiblingAssets` splices
-                        // `ref` itself in at its matching position). A search
-                        // result (neither) still degrades to the single-asset
-                        // `[ref]` `timelinePreviewSiblingAssets` returns when it
-                        // finds no sibling list either.
-                        assets: browseVM.assets.contains(ref)
-                            ? browseVM.assets
-                            : timelinePreviewSiblingAssets(ref),
-                        source: browseVM.currentSource ?? cloudPreviewSource,
-                        sessions: $sessions,
-                        onClose: popPreview,
-                        onEdit: { asset in libraryPath.append(.edit(asset)) },
-                        onSelectionChanged: { asset in
-                            browseVM.selectedID = asset.id
-                            // Prime the REAL session (with a CloudSidecarStore
-                            // for a Timeline-sourced cloud sibling — see
-                            // `AssetRef.thumbnailProvenance` / `ensureSession`)
-                            // the moment a lazily-built sibling becomes the
-                            // shown asset, so a later Edit tap on it reuses a
-                            // fully-wired session instead of EditorDestination's
-                            // bare no-remote-store fallback. No-ops if a
-                            // session already exists (idempotent, matches
-                            // `onPrimeSession`'s existing BrowseGrid contract).
-                            onPrimeSession(asset)
-                        },
-                        transitionNamespace: previewTransition,
-                        fullSize: fullSize
-                    )
+                case .preview:
+                    // Never pushed — see `PhoneTabShell.pushedLibraryPath`.
+                    EmptyView()
                 case .edit(let ref):
                     EditorDestination(asset: ref, sessions: $sessions)
                 }
@@ -185,13 +151,6 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             .toolbar(.hidden, for: .tabBar)
             .toolbar(.hidden, for: .navigationBar)
         }
-    }
-
-    /// Pop Preview with the stack's own (zoom) transition — the system
-    /// animates the still back into its grid tile.
-    private func popPreview() {
-        guard case .preview? = libraryPath.last else { return }
-        _ = libraryPath.removeLast()
     }
 }
 

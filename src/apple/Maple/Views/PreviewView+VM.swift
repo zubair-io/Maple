@@ -230,6 +230,34 @@ enum PreviewViewVM {
         translation.height > 0 && translation.height >= abs(translation.width) * pullVerticalDominance
     }
 
+    // MARK: - Hero (iPhone open / close between the tile and fullscreen)
+
+    /// Where the still is drawn at a point of the hero: a straight blend
+    /// from the tile's frame (0) to the fit rect (1). Both are in the same
+    /// coordinate space — the hero overlay's.
+    static func heroRect(from tile: CGRect, to fit: CGRect, progress: CGFloat) -> CGRect {
+        let t = min(1, max(0, progress))
+        return CGRect(
+            x: tile.minX + (fit.minX - tile.minX) * t,
+            y: tile.minY + (fit.minY - tile.minY) * t,
+            width: tile.width + (fit.width - tile.width) * t,
+            height: tile.height + (fit.height - tile.height) * t
+        )
+    }
+
+    /// The aspect-fit rect of a photo inside `bounds`.
+    static func fitRect(imageSize: CGSize, in bounds: CGRect) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0, bounds.width > 0, bounds.height > 0 else { return bounds }
+        let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        return CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
+    }
+
+    /// Tile corner radius fading to square as the hero opens.
+    static func heroCornerRadius(progress: CGFloat, tileRadius: CGFloat) -> CGFloat {
+        tileRadius * (1 - min(1, max(0, progress)))
+    }
+
     // MARK: - Pull-down without a zoom (plain pushes)
 
     // A Preview pushed with no zoom source (the Search tab, a deep link)
@@ -240,12 +268,40 @@ enum PreviewViewVM {
     /// Travel over which the still reaches `plainPullMinScale`.
     static let plainPullDistance: CGFloat = 320
     /// Smallest the still gets while pulled.
-    static let plainPullMinScale: CGFloat = 0.75
+    static let plainPullMinScale: CGFloat = 0.6
+    /// Travel over which the header / strips / bar fade away — quick, so
+    /// the photo is alone on the backdrop well before a commit.
+    static let plainPullChromeFadeDistance: CGFloat = 80
+
+    /// 0…1 travel of the pull.
+    static func plainPullProgress(translationY: CGFloat) -> CGFloat {
+        min(1, max(0, translationY / plainPullDistance))
+    }
 
     /// The still's scale for a given downward travel.
     static func plainPullScale(translationY: CGFloat) -> CGFloat {
-        let progress = min(1, max(0, translationY / plainPullDistance))
-        return 1 - progress * (1 - plainPullMinScale)
+        1 - plainPullProgress(translationY: translationY) * (1 - plainPullMinScale)
+    }
+
+    /// The dark backdrop thins out as the pull travels so what is beneath
+    /// (the grid) shows through by the time the pull could commit.
+    static func plainPullBackdropOpacity(translationY: CGFloat) -> Double {
+        Double(1 - plainPullProgress(translationY: translationY))
+    }
+
+    /// Chrome opacity for a given downward travel.
+    static func plainPullChromeOpacity(translationY: CGFloat) -> Double {
+        Double(1 - min(1, max(0, translationY / plainPullChromeFadeDistance)))
+    }
+
+    /// A rect scaled about its own centre (the pull's `scaleEffect` anchor)
+    /// and then offset — the same transform the pull applies to the still.
+    static func pulledRect(_ rest: CGRect, scale: CGFloat, offset: CGSize) -> CGRect {
+        let size = CGSize(width: rest.width * scale, height: rest.height * scale)
+        return CGRect(
+            x: rest.midX - size.width / 2 + offset.width,
+            y: rest.midY - size.height / 2 + offset.height,
+            width: size.width, height: size.height)
     }
 
     /// Commit the dismiss on release: enough travel, or a downward flick.

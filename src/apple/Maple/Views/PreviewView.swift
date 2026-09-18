@@ -62,6 +62,10 @@ struct PreviewView: View {
 
     /// Back — pop Preview (iPhone) / return to Browse (Mac/iPad).
     let onDismiss: () -> Void
+    /// iPhone: a pull-down committed. Carries where the photo's pixels are
+    /// on screen right now (window space) so the hero can shrink it from
+    /// there into its tile. `nil` (default) means plain `onDismiss`.
+    var onPullDownCommitted: ((CGRect?) -> Void)? = nil
     /// Enter the editor for the current asset (the ONLY editor entry point).
     let onEdit: (AssetRef) -> Void
     /// Move Preview to a sibling asset (filmstrip tap, swipe, arrow key). The
@@ -125,12 +129,17 @@ struct PreviewView: View {
     /// zoom — including its interactive pull-down / pinch dismissal, which
     /// resizes this view live just like the push — is tile-sized.
     private var chromeOpacity: Double {
-        isPulling ? 0 : PreviewViewVM.zoomTransitionChromeOpacity(progress: transitionProgress)
+        isPulling
+            ? 0
+            : min(
+                PreviewViewVM.zoomTransitionChromeOpacity(progress: transitionProgress),
+                PreviewViewVM.plainPullChromeOpacity(translationY: plainPullTranslation.height))
     }
 
     var body: some View {
         ZStack {
             MapleTokens.bg
+                .opacity(PreviewViewVM.plainPullBackdropOpacity(translationY: plainPullTranslation.height))
                 .ignoresSafeArea()
 
             // Body: fit-to-screen still. On regular (iPad/Mac) the SAME
@@ -181,6 +190,10 @@ struct PreviewView: View {
             }
             .padding(.bottom, bottomChromeHeight * transitionProgress)
         }
+        .onChange(of: asset.id) { _, _ in
+            // A committed pull is tied to the photo it started on.
+            isPlainPullDismissing = false
+        }
         .overlay(alignment: .bottom) {
             VStack(spacing: 0) {
                 if !isRegular {
@@ -215,6 +228,19 @@ struct PreviewView: View {
             .padding(.top, 8)
             .opacity(chromeOpacity)
         }
+        #if DEBUG && os(iOS)
+        // On-device diagnostic (no log capture is available for a
+        // network-paired phone): what the zoom measured. Remove before merge.
+        .overlay(alignment: .topTrailing) {
+            Text(String(format: "zoom %.2f  pull %@", Double(transitionProgress), isZoomDismissable ? "system" : "own"))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.7))
+                .padding(4)
+                .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 4))
+                .padding(.top, 60)
+                .padding(.trailing, 8)
+        }
+        #endif
         // Keyboard prev/next (desktop). `.focusable()` makes the surface a key
         // target; the arrow handlers move selection through the folder. (The
         // touch prev/next swipe is attached to `imageBody` above, not here, so
@@ -381,11 +407,26 @@ struct PreviewView: View {
         plainPullTranslation = translation
     }
 
-    private func finishPlainPull(_ translation: CGSize, _ velocity: CGSize) {
+    private func finishPlainPull(_ translation: CGSize, _ velocity: CGSize, _ photoRect: CGRect?) {
         guard !isPlainPullDismissing else { return }
         if PreviewViewVM.shouldCommitPlainPull(translationY: translation.height, velocityY: velocity.height) {
             isPlainPullDismissing = true
-            onDismiss()
+            if let onPullDownCommitted {
+                // Hand the hero the photo where the finger left it: the pager
+                // reports the still's rest rect (the UIKit view knows nothing
+                // of the SwiftUI pull transform), so apply the pull's scale
+                // and offset here. The still itself stays where it is; the
+                // hero hides this whole view the moment the close begins.
+                let pulled = photoRect.map { rest in
+                    PreviewViewVM.pulledRect(
+                        rest,
+                        scale: PreviewViewVM.plainPullScale(translationY: translation.height),
+                        offset: translation)
+                }
+                onPullDownCommitted(pulled)
+            } else {
+                onDismiss()
+            }
         } else {
             withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
                 plainPullTranslation = .zero

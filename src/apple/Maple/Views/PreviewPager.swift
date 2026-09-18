@@ -52,7 +52,7 @@ struct PreviewPager: UIViewControllerRepresentable {
     /// Plain pushes only: the pull's live translation, then its final
     /// translation + velocity on release.
     let onPlainPullChanged: (CGSize) -> Void
-    let onPlainPullEnded: (CGSize, CGSize) -> Void
+    let onPlainPullEnded: (CGSize, CGSize, CGRect?) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -61,7 +61,10 @@ struct PreviewPager: UIViewControllerRepresentable {
             transitionStyle: .scroll,
             navigationOrientation: .horizontal
         )
-        pager.view.backgroundColor = UIColor(MapleTokens.bg)
+        // Clear: `PreviewView` paints the ground, and fades it during a
+        // pull-down so the grid shows through — an opaque page would hide
+        // that.
+        pager.view.backgroundColor = .clear
         context.coordinator.configure(
             assets: assets,
             source: source,
@@ -132,7 +135,7 @@ struct PreviewPager: UIViewControllerRepresentable {
         private var onSelectAsset: ((AssetRef) -> Void)?
         private var onPullActiveChanged: ((Bool) -> Void)?
         private var onPlainPullChanged: ((CGSize) -> Void)?
-        private var onPlainPullEnded: ((CGSize, CGSize) -> Void)?
+        private var onPlainPullEnded: ((CGSize, CGSize, CGRect?) -> Void)?
         private var isZoomDismissable = false
         private var transitionProgress: CGFloat = 1
         weak var pager: UIPageViewController?
@@ -166,7 +169,7 @@ struct PreviewPager: UIViewControllerRepresentable {
             onSelectAsset: @escaping (AssetRef) -> Void,
             onPullActiveChanged: @escaping (Bool) -> Void,
             onPlainPullChanged: @escaping (CGSize) -> Void,
-            onPlainPullEnded: @escaping (CGSize, CGSize) -> Void
+            onPlainPullEnded: @escaping (CGSize, CGSize, CGRect?) -> Void
         ) {
             self.isZoomDismissable = isZoomDismissable
             self.onSelectAsset = onSelectAsset
@@ -210,7 +213,11 @@ struct PreviewPager: UIViewControllerRepresentable {
 
         /// Zoomed in, a vertical pan is the image pan — never a pull.
         var visibleIsAtFitZoom: Bool {
-            (pager?.viewControllers?.first as? PreviewZoomController)?.isAtFitZoom ?? false
+            visiblePage?.isAtFitZoom ?? false
+        }
+
+        private var visiblePage: PreviewZoomController? {
+            pager?.viewControllers?.first as? PreviewZoomController
         }
 
         /// With a zoom, the gate recognises a pull only to keep the page
@@ -230,7 +237,9 @@ struct PreviewPager: UIViewControllerRepresentable {
                     onPullActiveChanged?(false)
                 } else {
                     let velocityPoint = recognizer.velocity(in: recognizer.view)
-                    onPlainPullEnded?(translation, CGSize(width: velocityPoint.x, height: velocityPoint.y))
+                    onPlainPullEnded?(
+                        translation, CGSize(width: velocityPoint.x, height: velocityPoint.y),
+                        visiblePage?.photoRectInWindow)
                 }
             default:
                 break

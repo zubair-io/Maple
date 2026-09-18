@@ -73,6 +73,23 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// PhotoKit fast path entirely.
     @State private var cloudPreviewSource: (any ImageSource)?
 
+    /// The photo the Preview hero is showing. Follows `libraryPath`'s
+    /// `.preview` entry — the path stays the source of truth (Edit pushes
+    /// on top of it, deep links seed it, the drawer gates on it); the hero
+    /// is how that entry is drawn, ABOVE this tab's NavigationStack so the
+    /// grid stays live beneath it and none of the stack root's toolbars is
+    /// laid out under it.
+    @State private var hero: PreviewHeroSubject?
+    /// The tapped tile's window-space frame — where the hero grows from;
+    /// nil for a Timeline / Search / deep-link push (it grows from centre).
+    @State private var heroTileFrame: CGRect?
+    /// Live frame of the selected tile: after paging, where the close lands.
+    @State private var selectedTileFrame: CGRect?
+    @State private var heroClose: PreviewHeroCloseRequest?
+    /// Where the hero is; the source tile is blanked while the photo is in
+    /// flight (`.opening` / `.closing`), as Photos does.
+    @State private var heroPhase: PreviewHeroPhase = .opening
+
     /// Live text for the Search tab's native `.searchable` field (the
     /// iOS 26 `Tab(role: .search)` search bar). Bound into `PhoneSearchTab`.
     @State private var searchQuery: String = ""
@@ -202,7 +219,13 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     private var tabView: some View {
         TabView(selection: $activeTab) {
             Tab("Library", systemImage: "photo.on.rectangle.angled", value: "library") {
-              NavigationStack(path: $libraryPath) {
+              // The stack pushes everything in `libraryPath` EXCEPT
+              // `.preview`: Preview is drawn by `PhoneLibraryView`'s hero
+              // overlay with the grid live beneath it (a pushed destination
+              // would cover the grid), while `libraryPath` keeps the
+              // `.preview` entry as the source of truth — Edit pushes on top
+              // of it, deep links seed it, the drawer gates on it.
+              NavigationStack(path: pushedLibraryPath) {
                 PhoneLibraryView(
                     isDrawerOpen: $isDrawerOpen,
                     mode: mode,
@@ -264,6 +287,9 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     // never a cloud asset, so nil is right — and it clears any
                     // source from a previous push.
                     onOpenEditor: { pushPreview($0) },
+                    onOpenTile: { asset, frame in pushPreview(asset, tileFrame: frame) },
+                    onSelectedTileFrameChange: { selectedTileFrame = $0 },
+                    hiddenTileID: hero == nil || heroPhase == .open ? nil : hero?.asset.id,
                     onPrimeSession: onPrimeSession,
                     onFullImageFallback: onFullImageFallback,
                     timelinePreviewSiblingAssets: timelinePreviewSiblingAssets,
@@ -273,6 +299,42 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     onTrashAssets: onTrashAssets,
                     clipboard: clipboard
                 )
+              }
+              .overlay {
+                  if let hero {
+                      PreviewHero(
+                          subject: hero,
+                          tileFrame: selectedTileFrame ?? heroTileFrame,
+                          tileCornerRadius: ThumbnailImage.cornerRadius,
+                          content: { previewContent(for: hero.asset) },
+                          onClosed: {
+                              // Show the tile again in the same frame the
+                              // still disappears — no blank tile between.
+                              heroPhase = .open
+                              self.hero = nil
+                              heroClose = nil
+                              popPreview()
+                          },
+                          closeRequest: $heroClose,
+                          onPhaseChange: { heroPhase = $0 }
+                      )
+                      .zIndex(1)
+                  }
+              }
+              // The tab bar hides for the whole life of the hero (the
+              // `.edit` destination hides it itself once pushed on top).
+              .toolbar(hero == nil ? .visible : .hidden, for: .tabBar)
+              .onChange(of: previewEntry, initial: true) { _, entry in
+                  // Follow the path: a new `.preview` entry opens the hero;
+                  // the entry going away (back from a popped editor, a
+                  // reset) drops it.
+                  guard let entry else { hero = nil; heroClose = nil; return }
+                  guard hero?.asset.id != entry.id else { return }
+                  selectedTileFrame = nil
+                  heroPhase = .opening
+                  hero = PreviewHeroSubject(
+                      asset: entry,
+                      image: ThumbnailDecoder.cachedImage(forKey: entry.stableID ?? entry.id.uuidString))
               }
             }
 
@@ -334,8 +396,63 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// source left over from a previous push. Making it a parameter rather
     /// than a separate assignment at one call site means a new push site
     /// cannot silently inherit the last asset's source.
-    private func pushPreview(_ asset: AssetRef, cloudSource: (any ImageSource)? = nil) {
+    /// The `.preview` entry currently in the path, if any.
+    private var previewEntry: AssetRef? {
+        for case .preview(let ref) in libraryPath { return ref }
+        return nil
+    }
+
+    /// The Preview the hero shows once open.
+    @ViewBuilder
+    private func previewContent(for ref: AssetRef) -> some View {
+        PreviewDestination(
+            asset: ref,
+            // The current folder's assets for the filmstrip + prev/next; a
+            // Timeline tap (#2299) leaves `browseVM` empty, so fall back to
+            // that Timeline VM's ordered cells (`timelinePreviewSiblingAssets`
+            // splices `ref` in at its position; a search result degrades to
+            // the single-asset `[ref]`).
+            assets: browseVM.assets.contains(ref) ? browseVM.assets : timelinePreviewSiblingAssets(ref),
+            source: browseVM.currentSource ?? cloudPreviewSource,
+            sessions: $sessions,
+            onClose: { heroClose = PreviewHeroCloseRequest(fromRect: nil) },
+            onPullDownCommitted: { rect in heroClose = PreviewHeroCloseRequest(fromRect: rect) },
+            onEdit: { asset in libraryPath.append(.edit(asset)) },
+            onSelectionChanged: { asset in
+                browseVM.selectedID = asset.id
+                // Prime the real session the moment a lazily-built sibling
+                // becomes the shown asset, so a later Edit tap reuses it
+                // (idempotent, matches `onPrimeSession`'s BrowseGrid contract).
+                onPrimeSession(asset)
+            }
+        )
+    }
+
+    /// Remove the `.preview` entry once the hero has closed. Everything
+    /// above it (an editor) is already gone by then.
+    private func popPreview() {
+        guard case .preview? = libraryPath.last else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { _ = libraryPath.removeLast() }
+    }
+
+    /// `libraryPath` without its `.preview` entry — what the Library tab's
+    /// NavigationStack actually pushes. Writes (a pop) remove from the tail
+    /// of the full path, so a popped editor lands back on Preview.
+    private var pushedLibraryPath: Binding<[LibraryDestination]> {
+        Binding(
+            get: { libraryPath.filter { if case .preview = $0 { return false }; return true } },
+            set: { pushed in
+                let previews = libraryPath.filter { if case .preview = $0 { return true }; return false }
+                libraryPath = previews + pushed
+            }
+        )
+    }
+
+    private func pushPreview(_ asset: AssetRef, tileFrame: CGRect? = nil, cloudSource: (any ImageSource)? = nil) {
         cloudPreviewSource = cloudSource
+        heroTileFrame = tileFrame
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {

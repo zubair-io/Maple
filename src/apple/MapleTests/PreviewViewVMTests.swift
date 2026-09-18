@@ -328,6 +328,53 @@ final class PreviewViewVMTests: XCTestCase {
     XCTAssertEqual(PreviewViewVM.zoomTransitionChromeOpacity(progress: 1), 1)
   }
 
+  func testHeroRectBlendsTileToFit() {
+    let tile = CGRect(x: 10, y: 300, width: 130, height: 130)
+    let fit = CGRect(x: 0, y: 200, width: 402, height: 268)
+    XCTAssertEqual(PreviewViewVM.heroRect(from: tile, to: fit, progress: 0), tile)
+    XCTAssertEqual(PreviewViewVM.heroRect(from: tile, to: fit, progress: 1), fit)
+    let mid = PreviewViewVM.heroRect(from: tile, to: fit, progress: 0.5)
+    XCTAssertEqual(mid.midX, (tile.midX + fit.midX) / 2, accuracy: 1e-9)
+    XCTAssertEqual(mid.width, (tile.width + fit.width) / 2, accuracy: 1e-9)
+    XCTAssertEqual(PreviewViewVM.heroRect(from: tile, to: fit, progress: 7), fit)
+  }
+
+  func testFitRectCentresTheAspectFitPhoto() {
+    let bounds = CGRect(x: 0, y: 0, width: 400, height: 800)
+    let landscape = PreviewViewVM.fitRect(imageSize: CGSize(width: 3000, height: 2000), in: bounds)
+    XCTAssertEqual(landscape.width, 400, accuracy: 1e-9)
+    XCTAssertEqual(landscape.height, 400 * 2 / 3, accuracy: 1e-9)
+    XCTAssertEqual(landscape.midY, 400, accuracy: 1e-9)
+    let portrait = PreviewViewVM.fitRect(imageSize: CGSize(width: 2000, height: 3000), in: bounds)
+    XCTAssertEqual(portrait.height, 600, accuracy: 1e-9)
+    XCTAssertEqual(portrait.midX, 200, accuracy: 1e-9)
+    XCTAssertEqual(PreviewViewVM.fitRect(imageSize: .zero, in: bounds), bounds)
+    XCTAssertEqual(PreviewViewVM.heroCornerRadius(progress: 0, tileRadius: 4), 4)
+    XCTAssertEqual(PreviewViewVM.heroCornerRadius(progress: 1, tileRadius: 4), 0)
+  }
+
+  func testPulledRectScalesAboutCentreThenOffsets() {
+    let rest = CGRect(x: 0, y: 200, width: 400, height: 300)
+    let pulled = PreviewViewVM.pulledRect(rest, scale: 0.5, offset: CGSize(width: 10, height: 100))
+    XCTAssertEqual(pulled.width, 200, accuracy: 1e-9)
+    XCTAssertEqual(pulled.height, 150, accuracy: 1e-9)
+    XCTAssertEqual(pulled.midX, rest.midX + 10, accuracy: 1e-9)
+    XCTAssertEqual(pulled.midY, rest.midY + 100, accuracy: 1e-9)
+    XCTAssertEqual(PreviewViewVM.pulledRect(rest, scale: 1, offset: .zero), rest)
+  }
+
+  func testPlainPullFadesChromeAndBackdropWithTravel() {
+    XCTAssertEqual(PreviewViewVM.plainPullChromeOpacity(translationY: 0), 1)
+    XCTAssertEqual(PreviewViewVM.plainPullChromeOpacity(translationY: PreviewViewVM.plainPullChromeFadeDistance / 2), 0.5, accuracy: 1e-9)
+    XCTAssertEqual(PreviewViewVM.plainPullChromeOpacity(translationY: 1_000), 0)
+    XCTAssertEqual(PreviewViewVM.plainPullBackdropOpacity(translationY: 0), 1)
+    XCTAssertGreaterThan(PreviewViewVM.plainPullBackdropOpacity(translationY: 100), PreviewViewVM.plainPullBackdropOpacity(translationY: 200))
+    XCTAssertEqual(PreviewViewVM.plainPullBackdropOpacity(translationY: 10_000), 0)
+    // An upward drag never fades anything.
+    XCTAssertEqual(PreviewViewVM.plainPullChromeOpacity(translationY: -50), 1)
+    XCTAssertEqual(PreviewViewVM.plainPullBackdropOpacity(translationY: -50), 1)
+  }
+
   func testPlainPullShrinksWithTravelAndCommitsOnDistanceOrFlick() {
     XCTAssertEqual(PreviewViewVM.plainPullScale(translationY: 0), 1)
     XCTAssertLessThan(PreviewViewVM.plainPullScale(translationY: 100), 1)
