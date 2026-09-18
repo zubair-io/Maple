@@ -163,54 +163,6 @@ enum PreviewViewVM {
         isPaneOpen && !hasSession
     }
 
-    // MARK: - Zoom transition progress (iPhone push)
-
-    /// Where the system zoom transition is between the grid tile (0) and the
-    /// fullscreen Preview (1), derived from the destination's live frame.
-    /// UIKit lays the destination out at every intermediate size, and it
-    /// interpolates that frame linearly from the (square) tile rect to the
-    /// full rect, so `width - height` grows linearly from 0 to
-    /// `fullWidth - fullHeight`. That ratio is the progress, and it needs no
-    /// knowledge of the tile's size or position. `nil` (no layout yet) reads
-    /// as 0 so the first frames of a push never flash the fullscreen chrome.
-    /// A near-square container (no usable difference) falls back to the
-    /// width ratio.
-    static func zoomTransitionProgress(size: CGSize?, fullSize: CGSize) -> CGFloat {
-        guard let size, fullSize.width > 0, fullSize.height > 0 else { return 0 }
-        // The two frames are measured by different views; a point of
-        // disagreement at rest must still read as "settled", or the chrome
-        // would sit at 96% and the display tier would never be requested.
-        if abs(size.width - fullSize.width) <= zoomSettledTolerance,
-           abs(size.height - fullSize.height) <= zoomSettledTolerance {
-            return 1
-        }
-        let fullDelta = fullSize.width - fullSize.height
-        let raw = abs(fullDelta) >= zoomNearSquareDelta
-            ? (size.width - size.height) / fullDelta
-            : size.width / fullSize.width
-        return raw >= zoomSettledProgress ? 1 : min(1, max(0, raw))
-    }
-
-    /// Frames this close to the full size are the settled full size.
-    static let zoomSettledTolerance: CGFloat = 1
-    /// Progress this close to the end is the end (rounding in the frame
-    /// interpolation can leave it a hair short).
-    static let zoomSettledProgress: CGFloat = 0.98
-    /// Below this width–height difference the container is too square for
-    /// the difference to carry the signal; the width ratio stands in.
-    static let zoomNearSquareDelta: CGFloat = 40
-
-    /// Header / filmstrip / action-bar opacity during the zoom: hidden while
-    /// the still is tile-sized, fading in over the last part of the open
-    /// (and out over the first part of the close) so the chrome never
-    /// shrinks into the tile with the photo.
-    static func zoomTransitionChromeOpacity(progress: CGFloat) -> Double {
-        Double(min(1, max(0, (progress - zoomChromeFadeStart) / (1 - zoomChromeFadeStart))))
-    }
-
-    /// The chrome fades in over the last quarter of the open.
-    static let zoomChromeFadeStart: CGFloat = 0.75
-
     // MARK: - Pull-down dismissal (iPhone)
 
     /// Travel before a touch is classified as a pull or a page swipe. Long
@@ -258,12 +210,12 @@ enum PreviewViewVM {
         tileRadius * (1 - min(1, max(0, progress)))
     }
 
-    // MARK: - Pull-down without a zoom (plain pushes)
+    // MARK: - Pull-down travel (iPhone)
 
-    // A Preview pushed with no zoom source (the Search tab, a deep link)
-    // has no system dismissal to hand a pull to, so it dismisses itself:
-    // the still follows the finger and shrinks, and release past the
-    // threshold pops the stack.
+    // Preview owns its pull-down: the still follows the finger and shrinks,
+    // the chrome and backdrop fade, and release past the threshold hands
+    // the photo's rect to the host (the Library hero shrinks it into its
+    // tile; the Search tab pops the stack).
 
     /// Travel over which the still reaches `plainPullMinScale`.
     static let plainPullDistance: CGFloat = 320

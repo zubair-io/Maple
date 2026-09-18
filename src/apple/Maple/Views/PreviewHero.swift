@@ -25,6 +25,7 @@
 #if os(iOS)
 
 import SwiftUI
+import UIKit
 import MapleCore
 
 /// Everything the hero needs about the photo being opened.
@@ -80,39 +81,58 @@ struct PreviewHero<Content: View>: View {
     /// while the photo is in flight.
     var onPhaseChange: (PreviewHeroPhase) -> Void = { _ in }
 
+    /// Where Preview lays its photo out (window space), reported by the
+    /// content through `PreviewPhotoAreaKey`. The still lands exactly there,
+    /// so the hand-over to Preview's own still is invisible.
+    @State private var photoArea: CGRect?
+
     var body: some View {
-        GeometryReader { geometry in
-            // The overlay ignores the safe areas, so `bounds` is window
-            // space — the same space `tileFrame` (a `.global` frame) and the
-            // pager's `photoRectInWindow` use.
-            let bounds = CGRect(origin: .zero, size: geometry.size)
-            let fit = PreviewViewVM.fitRect(imageSize: subject.imageSize, in: bounds)
-            // Without a tile (a Timeline / deep-link push with no grid tile
-            // on screen) grow from the centre; it still reads as an open.
-            let tile = tileFrame ?? CGRect(x: bounds.midX - 40, y: bounds.midY - 40, width: 80, height: 80)
-            let start = phase == .closing ? (closeStart ?? fit) : fit
-            let rect = PreviewViewVM.heroRect(from: tile, to: start, progress: progress)
-
-            ZStack {
-                MapleTokens.bg
-                    .opacity(Double(progress) * PreviewHeroMotion.dimAtOpen)
-
-                // Preview is a normal full-screen view: it handles its own
-                // safe areas (header pill under the status bar, action bar
-                // above the home indicator) exactly as it did when pushed.
-                // It fades in over the tail of the open and is gone the
-                // instant a close starts — the still is the photo from then
-                // on; two copies would show the hand-over.
-                content()
-                    .opacity(phase == .open ? 1 : (phase == .closing ? 0 : contentOpacity))
-                    .allowsHitTesting(phase == .open)
-
-                if phase != .open {
+        ZStack {
+            // Preview is a normal full-screen view with its safe areas
+            // intact: header pill under the status bar, action bar above
+            // the home indicator, exactly as when it was pushed. It appears
+            // in one step the moment the open lands and is gone the instant
+            // a close starts: the still is the photo until then, and it
+            // lands exactly on Preview's own (`photoArea`), so the cut is
+            // invisible. A fade instead would show two copies — `progress`
+            // reads as its target the moment the spring starts, so nothing
+            // derived from it can wait for the still to arrive.
+            content()
+                .opacity(phase == .open ? 1 : 0)
+                .allowsHitTesting(phase == .open)
+                .onPreferenceChange(PreviewPhotoAreaKey.self) { photoArea = $0 }
+                // The tab bar hides (animated, by UIKit) as the hero mounts,
+                // and its share of the bottom safe area would shrink under
+                // Preview mid-open, sliding its still while the hero's is
+                // in flight. Preview gets the window's own bottom inset
+                // instead — the home indicator, which nothing animates.
+                .safeAreaPadding(.bottom, PreviewHeroMotion.windowBottomInset)
+        }
+        .ignoresSafeArea(.container, edges: .bottom)
+        .background {
+            MapleTokens.bg
+                .opacity(Double(progress) * PreviewHeroMotion.dimAtOpen)
+                .ignoresSafeArea()
+        }
+        .overlay {
+            if phase != .open {
+                GeometryReader { geometry in
+                    // Window space — the same space `tileFrame` (a `.global`
+                    // frame), `photoArea`, and the pager's `photoRectInWindow`
+                    // use.
+                    let bounds = CGRect(origin: .zero, size: geometry.size)
+                    let fit = PreviewViewVM.fitRect(imageSize: subject.imageSize, in: photoArea ?? bounds)
+                    // Without a tile (a Timeline / deep-link push with no grid
+                    // tile on screen) grow from the centre; it still reads as
+                    // an open.
+                    let tile = tileFrame ?? CGRect(x: bounds.midX - 40, y: bounds.midY - 40, width: 80, height: 80)
+                    let start = phase == .closing ? (closeStart ?? fit) : fit
+                    let rect = PreviewViewVM.heroRect(from: tile, to: start, progress: progress)
                     heroStill(in: rect, progress: progress)
                 }
+                .ignoresSafeArea()
             }
         }
-        .ignoresSafeArea()
         .onAppear {
             onPhaseChange(.opening)
             withAnimation(PreviewHeroMotion.openSpring, completionCriteria: .logicallyComplete) {
@@ -142,10 +162,6 @@ struct PreviewHero<Content: View>: View {
         }
     }
 
-    private var contentOpacity: Double {
-        Double(min(1, max(0, (progress - PreviewHeroMotion.contentFadeStart) / (1 - PreviewHeroMotion.contentFadeStart))))
-    }
-
     /// The still: the tile's bitmap, filled into a frame that blends from
     /// the tile to the fit rect. The frame's aspect walks from the tile's
     /// to the photo's, so `.fill` uncrops continuously — the tile's centre
@@ -173,12 +189,31 @@ struct PreviewHero<Content: View>: View {
 enum PreviewHeroMotion {
     static let openSpring = Animation.spring(response: 0.46, dampingFraction: 0.86)
     static let closeSpring = Animation.spring(response: 0.42, dampingFraction: 0.9)
-    /// Preview fades in over the tail of the open so the still is never
-    /// visibly replaced.
-    static let contentFadeStart: CGFloat = 0.7
     /// The grid stays faintly visible beneath a fully open Preview, as in
     /// Photos.
     static let dimAtOpen: Double = 0.92
+
+    /// The key window's bottom safe-area inset (the home indicator). Unlike
+    /// a view's container inset it excludes the tab bar, so it is stable
+    /// while the tab bar animates away.
+    @MainActor static var windowBottomInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .lazy
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.bottom ?? 0
+    }
+}
+
+/// The window-space rect Preview fits its photo into (the still's area
+/// inside the header and bottom chrome). Preview publishes it; the hero
+/// aims its open at it.
+struct PreviewPhotoAreaKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
+    }
 }
 
 /// A close, as requested by the content: where its photo currently is

@@ -73,7 +73,6 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
-    let previewTransitionNamespace: Namespace.ID
 
     /// Pre-built shared toolbar content — composed alongside the iPhone-
     /// only hamburger + Info items inside the NavigationStack's `.toolbar`.
@@ -148,7 +147,6 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
-            previewTransitionNamespace: previewTransitionNamespace,
             onSelectCloudAsset: onSelectCloudAsset,
             onSelectMapPlace: onSelectMapPlace,
             // `isSearchActive` is always false above, so `CloudSearchView`

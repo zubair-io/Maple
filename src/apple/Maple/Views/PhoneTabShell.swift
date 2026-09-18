@@ -417,6 +417,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
             sessions: $sessions,
             onClose: { heroClose = PreviewHeroCloseRequest(fromRect: nil) },
             onPullDownCommitted: { rect in heroClose = PreviewHeroCloseRequest(fromRect: rect) },
+            chromeRevealed: heroPhase == .open,
             onEdit: { asset in libraryPath.append(.edit(asset)) },
             onSelectionChanged: { asset in
                 browseVM.selectedID = asset.id
