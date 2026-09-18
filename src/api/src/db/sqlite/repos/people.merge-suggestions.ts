@@ -13,7 +13,7 @@
  * the operator already answered this question.
  */
 
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { rankedCandidates, toPerson, type PersonRow } from './people.rows.ts';

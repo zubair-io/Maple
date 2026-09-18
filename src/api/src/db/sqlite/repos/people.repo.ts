@@ -41,7 +41,7 @@
  * maintained; `people.face-count.ts` has that argument in full.
  */
 
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import path from 'node:path';
 import { child as childLogger } from '../../../log.ts';
 import { assertValidPersonName } from '../../../people/person-name.ts';
