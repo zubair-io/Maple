@@ -23,7 +23,11 @@ import { describe, expect, test } from 'bun:test';
 import { claimStageBatch, type StageClaimRequest } from './stage-claim.ts';
 import { stageFailureStatements, stageResultStatements } from './stage-writeback.ts';
 import { damagedTag, seedClaimableAssets, stageRow } from './stage-runtime.test-helpers.ts';
-import { createTestDatabase, testSqliteDb, type TestDatabase } from '../test-sqlite.test-helpers.ts';
+import {
+  createTestDatabase,
+  testSqliteDb,
+  type TestDatabase,
+} from '../test-sqlite.test-helpers.ts';
 import { retryDelayMs } from '../../../workers/loop-policy.ts';
 import { tagDamagedStatement } from './stage-writeback.ts';
 

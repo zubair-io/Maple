@@ -10,7 +10,12 @@
 
 import { describe, expect, test } from 'bun:test';
 import { newObjectIdHex } from '../object-id.ts';
-import { createTestDatabase, insertFolder, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
+import {
+  createTestDatabase,
+  insertFolder,
+  run,
+  testSqliteDb,
+} from '../test-sqlite.test-helpers.ts';
 import { backupSessionsRepo } from './backup-sessions.repo.ts';
 import { toObjectId } from './values.ts';
 

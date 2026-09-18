@@ -17,7 +17,12 @@ import {
   remainingForGen,
   seedRoot,
 } from './discover-frontier.repo.ts';
-import { createTestDatabase, insertFolder, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
+import {
+  createTestDatabase,
+  insertFolder,
+  run,
+  testSqliteDb,
+} from '../test-sqlite.test-helpers.ts';
 import type { SqlParams } from '../protocol.ts';
 import type { SqliteDb } from './db-handle.ts';
 

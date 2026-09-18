@@ -104,9 +104,9 @@ function readCutoverMarker(path: string): string | null {
   let db: Database | null = null;
   try {
     db = new Database(path, { readonly: true });
-    const row = db
-      .query(`SELECT value FROM server_state WHERE id = ?`)
-      .get(CUTOVER_STATE_ID) as { value: string | null } | null;
+    const row = db.query(`SELECT value FROM server_state WHERE id = ?`).get(CUTOVER_STATE_ID) as {
+      value: string | null;
+    } | null;
     return row?.value ?? null;
   } catch {
     return null;

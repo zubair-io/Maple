@@ -33,7 +33,11 @@ import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
 import { claimStageBatch, type StageClaimRequest } from './stage-claim.ts';
 import { seedClaimableAssets, stageRow } from './stage-runtime.test-helpers.ts';
-import { createTestDatabase, testSqliteDb, type TestDatabase } from '../test-sqlite.test-helpers.ts';
+import {
+  createTestDatabase,
+  testSqliteDb,
+  type TestDatabase,
+} from '../test-sqlite.test-helpers.ts';
 import { SCHEMA_PRAGMAS } from '../ddl/index.ts';
 import { stageClaimCandidatesSql } from './stage-runtime.sql.ts';
 

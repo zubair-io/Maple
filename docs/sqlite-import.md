@@ -65,10 +65,10 @@ Once the cutover is recorded, MongoDB is never contacted again.
 Production does not use `src/api/docker-compose.yml`; it runs a hand-written
 script on the box with every port and variable spelled out. Two variables go in:
 
-| Variable            | Value                                                                    |
-| ------------------- | ------------------------------------------------------------------------ |
-| `MAPLE_SQLITE_PATH` | Absolute path to the library database, e.g. `/var/lib/maple/maple.db`. On a persistent volume, and backed up the way the Mongo dump was — this file now *is* the library. Defaults to `./data/maple.sqlite`, which is relative to the working directory and not what a service should rely on. |
-| `MAPLE_MONGO_URI`   | Already set. Keep it: the migrating boot reads it, and reverting the cutover needs it. `MAPLE_MONGO_DB` likewise.                                                                                                                                                                             |
+| Variable            | Value                                                                                                                                                                                                                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MAPLE_SQLITE_PATH` | Absolute path to the library database, e.g. `/var/lib/maple/maple.db`. On a persistent volume, and backed up the way the Mongo dump was — this file now _is_ the library. Defaults to `./data/maple.sqlite`, which is relative to the working directory and not what a service should rely on. |
+| `MAPLE_MONGO_URI`   | Already set. Keep it: the migrating boot reads it, and reverting the cutover needs it. `MAPLE_MONGO_DB` likewise.                                                                                                                                                                              |
 
 Nothing else changes, and nothing is removed — deleting MongoDB from the
 configuration is #3785, after production is confirmed healthy.
