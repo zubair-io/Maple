@@ -214,16 +214,21 @@ export const ASSET_ID_BY_ADDRESS_SQL = `
  * `EXISTS` rather than a join so the planner probes one location per candidate
  * instead of leading with the location table.
  *
- * The two guards after the equality are not redundant. `assets_maple_id` is a
- * UNIQUE partial index over `maple_id IS NOT NULL AND maple_id <> ''` —
- * skeleton rows carry no dedup key and must not collide with each other — and
- * SQLite only uses a partial index when the query's own `WHERE` provably
- * implies the index's. `maple_id = ?` alone does not, because the bound value
- * could be the empty string, so without them this lookup is a table scan.
+ * The `IS NOT NULL` after the equality is not redundant. `assets_maple_id` is
+ * a UNIQUE partial index over `maple_id IS NOT NULL` — skeleton rows carry no
+ * dedup key and must not collide with each other — and SQLite only uses a
+ * partial index when the query's own `WHERE` provably implies the index's.
+ * `maple_id = ?` alone does not, because the bound value is unknown when the
+ * statement is planned, so without it this lookup is a table scan.
+ *
+ * "Non-empty" is deliberately *not* repeated here. The schema moved that half
+ * of the guarantee to a CHECK on the column, precisely so the index predicate
+ * stays to what a query's `WHERE` will contain verbatim; see
+ * `docs/sqlite-schema.md` § "The implication test is textual".
  */
 export const ASSET_ID_BY_MAPLE_ID_SQL = `
   SELECT a.id FROM assets a
-   WHERE a.maple_id = ? AND a.maple_id IS NOT NULL AND a.maple_id <> ''
+   WHERE a.maple_id = ? AND a.maple_id IS NOT NULL
      AND EXISTS (
        SELECT 1 FROM asset_locations l
         WHERE l.asset_id = a.id AND l.library_id = ? AND l.deleted_at IS NULL)

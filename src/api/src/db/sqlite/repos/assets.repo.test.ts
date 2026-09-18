@@ -334,11 +334,19 @@ describe('findCoreInfoById', () => {
     expect(info!.exif).toMatchObject({ iso: 400 });
   });
 
-  test('reports an empty maple_id as null', async () => {
+  test('reports an absent maple_id as null, and cannot be given an empty one', async () => {
     using handle = await createTestDatabase();
     const { db } = handle;
     const assetId = insertAsset(db);
-    run(db, `UPDATE assets SET maple_id = '' WHERE id = ?`, assetId);
+
+    // The empty string is not a state this column can reach: the schema moved
+    // "non-empty" out of the dedup index's predicate and into a CHECK, so the
+    // write is refused rather than producing a row the reader has to normalise.
+    expect(() => run(db, `UPDATE assets SET maple_id = '' WHERE id = ?`, assetId)).toThrow(
+      /CHECK constraint failed/,
+    );
+
+    run(db, `UPDATE assets SET maple_id = NULL WHERE id = ?`, assetId);
     const info = await findCoreInfoById(oid(assetId), testSqliteDb(db));
     expect(info!.maple_id).toBeNull();
   });
