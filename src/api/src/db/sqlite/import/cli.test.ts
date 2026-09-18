@@ -134,6 +134,8 @@ const EMPTY_REPORT: ImportReport = {
   substitutions: {},
   unknownStages: [],
   changesCursorFloor: null,
+  windowOverrides: [],
+  derivedRestored: true,
   totalElapsedMs: 1203,
 };
 
@@ -179,6 +181,7 @@ const PASSING_VERIFY: VerifyReport = {
   ],
   foreignKeyViolations: {},
   rejects: [],
+  derivedRestored: true,
   ok: true,
 };
 
@@ -205,6 +208,7 @@ describe('renderVerifyReport', () => {
       ],
       foreignKeyViolations: { faces: 2 },
       rejects: [],
+      derivedRestored: true,
       ok: false,
     }).join('\n');
     expect(lines).toContain('! assets');

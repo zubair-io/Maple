@@ -128,26 +128,65 @@ export function clampInt(value: unknown, min: number, max: number, fallback: num
 
 /**
  * Replaces the BSON types a JSON column cannot hold with their canonical text
- * form: `ObjectId` with its hex, `Date` with ISO 8601, `Binary` with base64.
- * Everything else is walked structurally so a nested id deep inside a vision
- * payload is converted too.
+ * form: `ObjectId` with its hex, `Date` with ISO 8601, `Binary` and raw bytes
+ * with base64. Everything else is walked structurally so a nested id deep
+ * inside a vision payload is converted too.
+ *
+ * ## Anything else is a reject, not a rewrite
+ *
+ * A wrapper this function does not recognise used to fall through to the plain
+ * object walk and be stored as the driver's internal representation, which is
+ * valid JSON and completely wrong: a `Decimal128` became `{"bytes":{"0":…}}`,
+ * a `Long` became `{"low":…,"high":…,"unsigned":…}`, a `BSONRegExp` became
+ * `{"pattern":…,"options":…}`, a `RegExp` became `{}`. None of that can be
+ * caught downstream — `json_valid` passes, the generated columns extract
+ * something, and verification compares the source through this same function,
+ * so it agrees with itself about the wrong answer.
+ *
+ * So an unrecognised wrapper throws instead. The document lands on the reject
+ * list with its id and the type name, a single reject fails the verdict, and
+ * the operator is told about a value nobody here has decided how to store
+ * rather than shipped a quiet rewrite of it.
  */
 export function normaliseJson(value: unknown): unknown {
   if (value === null || value === undefined) return null;
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value !== 'object') return value;
+  return normaliseObject(value);
+}
+
+/** The object cases: the four with a text form, arrays, then plain objects. */
+function normaliseObject(value: object): unknown {
   if (value instanceof ObjectId) return value.toHexString();
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
   if (value instanceof Binary) return value.toString('base64');
+  if (value instanceof Uint8Array) return Buffer.from(value).toString('base64');
   if (Array.isArray(value)) return value.map(normaliseJson);
-  if (typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
-      if (inner === undefined) continue;
-      out[key] = normaliseJson(inner);
-    }
-    return out;
+  rejectUnknownWrapper(value);
+  return normaliseFields(value as Record<string, unknown>);
+}
+
+/** Every defined field of a plain object, normalised. */
+function normaliseFields(value: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, inner] of Object.entries(value)) {
+    if (inner === undefined) continue;
+    out[key] = normaliseJson(inner);
   }
-  if (typeof value === 'bigint') return Number(value);
-  return value;
+  return out;
+}
+
+/** Throws for any object that is not a plain one, naming what it was. */
+function rejectUnknownWrapper(value: object): void {
+  const bsonType = (value as { _bsontype?: unknown })._bsontype;
+  if (typeof bsonType === 'string') {
+    throw new Error(`unsupported BSON type ${bsonType}: no JSON form is defined for it`);
+  }
+  const prototype = Object.getPrototypeOf(value) as object | null;
+  if (prototype !== null && prototype !== Object.prototype) {
+    const name = (value.constructor as { name?: string } | undefined)?.name ?? 'object';
+    throw new Error(`unsupported value of type ${name}: no JSON form is defined for it`);
+  }
 }
 
 /**
@@ -168,12 +207,26 @@ export function toBlob(value: unknown): Uint8Array | null {
   return null;
 }
 
-/** A short, safe rendering of an unexpected value for an error message. */
+/**
+ * A short, safe rendering of an unexpected value for an error message.
+ *
+ * `normaliseJson` now throws on a wrapper it does not know, which would be a
+ * poor way for a message about something else to fail, so the fallback is the
+ * type name.
+ */
 function describe(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
-  const text = typeof value === 'object' ? JSON.stringify(normaliseJson(value)) : String(value);
+  const text = typeof value === 'object' ? safeJson(value) : String(value);
   return text.length > 80 ? `${text.slice(0, 77)}…` : text;
+}
+
+function safeJson(value: object): string {
+  try {
+    return JSON.stringify(normaliseJson(value)) ?? 'null';
+  } catch {
+    return `[${(value.constructor as { name?: string } | undefined)?.name ?? 'object'}]`;
+  }
 }
 
 /** Narrowing helper for the document shapes the mappers read field-by-field. */

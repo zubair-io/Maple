@@ -60,6 +60,25 @@ CREATE TABLE IF NOT EXISTS import_meta (
 ) WITHOUT ROWID;
 `;
 
+/**
+ * `import_meta` key saying whether the derived triggers are currently in place.
+ *
+ * The bulk load drops them and puts them back at the end, so between those two
+ * points the file is not one a server may be pointed at: it opens cleanly and
+ * answers queries, and quietly maintains neither the FTS5 index nor
+ * `assets.live_location_count`. A killed run leaves it that way, which is why
+ * the state is written down rather than inferred — verification refuses a
+ * database that is still marked dropped, and re-running restores it.
+ */
+export const DERIVED_STATE_KEY = 'derived';
+export const DERIVED_DROPPED = 'dropped';
+export const DERIVED_RESTORED = 'restored';
+
+/** True when the derived triggers and indexes are in place. */
+export function derivedRestored(db: Database): boolean {
+  return readMeta(db, DERIVED_STATE_KEY) === DERIVED_RESTORED;
+}
+
 /** Where one collection's import stopped. */
 export interface Checkpoint {
   source: string;

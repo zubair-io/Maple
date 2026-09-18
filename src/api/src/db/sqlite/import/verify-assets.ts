@@ -27,7 +27,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import type { Db } from 'mongodb';
+import type { Collection, Db, Document, Filter } from 'mongodb';
 import type { FieldCheck } from './types.ts';
 import { asArray, asRecord, normaliseJson } from './values.ts';
 
@@ -306,14 +306,35 @@ function probeStages(sqlite: Database, doc: Record<string, unknown>, id: string)
 }
 
 /**
- * Probes up to `sample` assets, spread evenly across the collection in `_id`
- * order.
+ * The `_id`s of up to `sample` assets, spread evenly across the collection in
+ * `_id` order.
  *
- * Evenly rather than randomly, and streamed rather than materialised: the same
- * run twice gives the same sample, which is what makes a reported failure
- * reproducible, and a third of a million documents never has to fit in memory
- * to choose a hundred of them.
+ * Evenly rather than randomly, so the same run twice gives the same sample and
+ * a reported failure is reproducible. The choice is made over a projection of
+ * `_id` alone, which the `_id` index answers without touching a document: to
+ * reach the two-hundredth sample point on a third of a million assets the
+ * server walks index entries instead of sending roughly 2 GB of BSON across
+ * the wire to discard all but two hundred of it. Only the chosen documents are
+ * then fetched, so what the operator waits for scales with the sample rather
+ * than with the size of their library.
  */
+async function sampleAssetIds(assets: Collection<Document>, sample: number): Promise<unknown[]> {
+  const step = Math.max(1, Math.floor((await assets.countDocuments()) / sample));
+  const cursor = assets.find({}, { sort: { _id: 1 }, projection: { _id: 1 } });
+  const picked: unknown[] = [];
+  let index = 0;
+  for await (const doc of cursor) {
+    if (index % step === 0) {
+      picked.push(doc._id);
+      if (picked.length >= sample) break;
+    }
+    index += 1;
+  }
+  await cursor.close();
+  return picked;
+}
+
+/** Probes up to `sample` assets, spread evenly across the collection. */
 export async function verifyAssetFields(
   mongo: Db,
   sqlite: Database,
@@ -321,20 +342,9 @@ export async function verifyAssetFields(
 ): Promise<FieldCheck[]> {
   if (sample <= 0) return [];
   const assets = mongo.collection('assets');
-  const step = Math.max(1, Math.floor((await assets.countDocuments()) / sample));
+  const ids = await sampleAssetIds(assets, sample);
+  if (ids.length === 0) return [];
 
-  const out: FieldCheck[] = [];
-  let index = 0;
-  let taken = 0;
-  const cursor = assets.find({}, { sort: { _id: 1 } });
-  for await (const doc of cursor) {
-    if (index % step === 0) {
-      out.push(...probeAsset(sqlite, doc as unknown as Record<string, unknown>));
-      taken += 1;
-      if (taken >= sample) break;
-    }
-    index += 1;
-  }
-  await cursor.close();
-  return out;
+  const docs = await assets.find({ _id: { $in: ids } } as Filter<Document>).toArray();
+  return docs.flatMap((doc) => probeAsset(sqlite, doc as unknown as Record<string, unknown>));
 }

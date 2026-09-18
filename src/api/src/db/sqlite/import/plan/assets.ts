@@ -231,8 +231,25 @@ function assetRow(doc: Record<string, unknown>, id: string, ctx: MapContext): Ro
   ];
 }
 
-function locationRows(doc: Record<string, unknown>, id: string): Row[] {
-  return asArray(doc.fileinfo).map((raw, ordinal) => {
+/**
+ * One `asset_locations` row per usable `fileinfo` entry.
+ *
+ * An entry whose `library_id` is not an ObjectId costs that entry and nothing
+ * else. It used to throw, which rejected the whole asset — its rating, flag,
+ * colour label, faces, description and every stage row went with it, and the
+ * photo simply was not in the migrated library. The repair pass already reaches
+ * the gentler verdict for the same condition one step later, when the id is
+ * well formed but names a library root that was unregistered: drop the
+ * location, keep the asset. This is the same judgement applied to the same
+ * kind of damage, and it is the one every Mongo read path already makes by
+ * walking past the entry.
+ *
+ * The ordinal stays the position in the source array rather than being
+ * renumbered, so a surviving row still says where it came from — gaps are
+ * expected in this column anyway, because the repair pass deletes into it.
+ */
+function locationRows(doc: Record<string, unknown>, id: string, ctx: MapContext): Row[] {
+  return asArray(doc.fileinfo).flatMap((raw, ordinal): Row[] => {
     const entry = asRecord(raw);
     const libraryId = entry.library_id;
     const hex =
@@ -240,18 +257,21 @@ function locationRows(doc: Record<string, unknown>, id: string): Row[] {
         ? libraryId.toLowerCase()
         : ((libraryId as { toHexString?(): string } | undefined)?.toHexString?.() ?? null);
     if (hex === null || !/^[0-9a-f]{24}$/.test(hex)) {
-      throw new Error(`fileinfo[${ordinal}].library_id is not an ObjectId`);
+      ctx.note('asset_locations skipped for an unusable library_id');
+      return [];
     }
     return [
-      id,
-      ordinal,
-      hex,
-      typeof entry.path === 'string' ? entry.path : '',
-      typeof entry.filename === 'string' ? entry.filename : '',
-      toIso(entry.deleted_at),
-      toIso(entry.missing_since),
-      toText(entry.missing_reason),
-      toBit(entry.keep),
+      [
+        id,
+        ordinal,
+        hex,
+        typeof entry.path === 'string' ? entry.path : '',
+        typeof entry.filename === 'string' ? entry.filename : '',
+        toIso(entry.deleted_at),
+        toIso(entry.missing_since),
+        toText(entry.missing_reason),
+        toBit(entry.keep),
+      ],
     ];
   });
 }
@@ -379,7 +399,7 @@ function mapAsset(doc: Record<string, unknown>, ctx: MapContext): TableRows[] {
   const id = docId(doc);
   const out: TableRows[] = [
     { table: 'assets', columns: ASSETS_COLUMNS, rows: [assetRow(doc, id, ctx)] },
-    { table: 'asset_locations', columns: LOCATION_COLUMNS, rows: locationRows(doc, id) },
+    { table: 'asset_locations', columns: LOCATION_COLUMNS, rows: locationRows(doc, id, ctx) },
     { table: 'asset_phasset_links', columns: PHASSET_COLUMNS, rows: phassetRows(doc, id) },
     { table: 'faces', columns: FACE_COLUMNS, rows: faceRows(doc, id, ctx) },
     { table: 'stage_state', columns: STAGE_COLUMNS, rows: stageRows(doc, id, ctx) },

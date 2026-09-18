@@ -99,6 +99,13 @@ export interface ImportReject {
   reason: string;
 }
 
+/** A `--changes-window` this run asked for and a resumed bound overrode. */
+export interface WindowOverride {
+  source: string;
+  requested: string;
+  inEffect: string;
+}
+
 /** Per-collection outcome of a run. */
 export interface CollectionResult {
   source: string;
@@ -123,6 +130,13 @@ export interface ImportReport {
   unknownStages: string[];
   /** The change-log cursor floor actually imported, or null for a full import. */
   changesCursorFloor: number | null;
+  /** Flags this run asked for that a resumed bound ignored. */
+  windowOverrides: WindowOverride[];
+  /**
+   * False when the run did not reach the end: the derived triggers and the
+   * FTS5 index are not in place, so the file is not one to point a server at.
+   */
+  derivedRestored: boolean;
   totalElapsedMs: number;
 }
 
@@ -151,5 +165,7 @@ export interface VerifyReport {
   /** Surviving `PRAGMA foreign_key_check` rows, as `table → count`. */
   foreignKeyViolations: Record<string, number>;
   rejects: ImportReject[];
+  /** False when the load's dropped triggers were never put back. */
+  derivedRestored: boolean;
   ok: boolean;
 }

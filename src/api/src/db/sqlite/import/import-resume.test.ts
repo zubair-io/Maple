@@ -151,23 +151,42 @@ describe('resuming an interrupted import', () => {
     expect(verified?.ok).toBe(true);
   }, 120_000);
 
-  it('re-running a finished import is a no-op, not a duplication', async () => {
+  /**
+   * Re-running a finished import has to stay VERIFIED.
+   *
+   * The documentation tells an operator to re-run after an interruption, and
+   * an operator who is not sure a run finished will re-run it. The second pass
+   * finds every collection complete and every reference already repaired, so
+   * the question is whether the record of the FIRST pass's repairs survives —
+   * verification subtracts the rows that pass dropped from the source count,
+   * and an empty second answer overwriting the first made a correct database
+   * report FAILED. Verifying after the second run is the part that was
+   * missing; without it the regression is invisible.
+   */
+  it('re-running a finished import is a no-op, and still verifies', async () => {
     if (client === null) return;
     const path = join(workDir, 'twice.db');
     const options = { ...baseOptions(path), batchSize: 4 };
 
     const first = await openImportSession({ ...options, restart: true });
+    let firstReport;
+    let firstVerified;
     try {
-      await runImportOn(first, { ...options, restart: true });
+      firstReport = await runImportOn(first, { ...options, restart: true });
+      firstVerified = await verifyImport(first.mongo, first.sqlite, options);
     } finally {
       await closeImportSession(first);
     }
     const afterFirst = snapshot(path);
+    expect(firstVerified?.ok).toBe(true);
+    expect(firstReport?.danglingDropped).toEqual({ 'asset_locations.library_id': 1 });
 
     const second = await openImportSession(options);
     let report;
+    let verified;
     try {
       report = await runImportOn(second, options);
+      verified = await verifyImport(second.mongo, second.sqlite, options);
     } finally {
       await closeImportSession(second);
     }
@@ -175,5 +194,43 @@ describe('resuming an interrupted import', () => {
     expect(snapshot(path)).toEqual(afterFirst);
     // Every collection short-circuited on its completed checkpoint.
     expect(report?.collections.every((entry) => entry.skipped)).toBe(true);
+    // The first run's repair is still on the record, so the count check still
+    // expects one fewer location than the source holds.
+    expect(report?.danglingDropped).toEqual({ 'asset_locations.library_id': 1 });
+    expect(verified?.counts.filter((entry) => !entry.ok)).toEqual([]);
+    expect(verified?.ok).toBe(true);
+  }, 120_000);
+
+  /**
+   * A run that dies before the end leaves the derived triggers dropped, and
+   * the file says so rather than looking finished.
+   */
+  it('refuses to call a half-loaded database verified', async () => {
+    if (client === null) return;
+    const path = join(workDir, 'halted.db');
+    const options = { ...baseOptions(path), restart: true };
+
+    const session = await openImportSession(options);
+    try {
+      await runImportOn(session, {
+        ...options,
+        onProgress(progress) {
+          if (progress.source === 'assets' && progress.documentsDone >= 2) {
+            throw new Error('simulated interruption');
+          }
+        },
+      });
+    } catch {
+      // Expected: the point is the state it leaves behind.
+    }
+
+    let verified;
+    try {
+      verified = await verifyImport(session.mongo, session.sqlite, options);
+    } finally {
+      await closeImportSession(session);
+    }
+    expect(verified?.derivedRestored).toBe(false);
+    expect(verified?.ok).toBe(false);
   }, 120_000);
 });

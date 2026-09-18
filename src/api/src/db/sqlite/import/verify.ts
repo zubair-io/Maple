@@ -27,7 +27,7 @@
 import type { Database } from 'bun:sqlite';
 import type { Db, Document, Filter } from 'mongodb';
 import { ALL_STAGE_NAMES } from '../../../workers/stages/stage-names.ts';
-import { readMeta, readRejects } from './bookkeeping.ts';
+import { derivedRestored, readMeta, readRejects } from './bookkeeping.ts';
 import { IMPORT_PLAN } from './plan/index.ts';
 import {
   foreignKeyViolations,
@@ -258,16 +258,22 @@ export async function verifyImport(
   const violations = foreignKeyViolations(sqlite);
   const rejects = readRejects(sqlite);
   const fields = [...rows, ...assetFields];
+  // A file whose derived triggers are still dropped answers every query here
+  // correctly and would still be the wrong file to start a server against, so
+  // it is part of the verdict rather than a footnote to it.
+  const derived = derivedRestored(sqlite);
 
   return {
     counts,
     fields,
     foreignKeyViolations: violations,
     rejects,
+    derivedRestored: derived,
     ok:
       counts.every((entry) => entry.ok) &&
       fields.every((entry) => entry.ok) &&
       Object.keys(violations).length === 0 &&
-      rejects.length === 0,
+      rejects.length === 0 &&
+      derived,
   };
 }

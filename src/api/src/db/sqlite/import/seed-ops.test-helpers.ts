@@ -90,6 +90,45 @@ export async function seedOperational(db: Db, ids: SeedIds): Promise<void> {
     updated_at: iso(1),
   } as never);
 
+  // Older than the `import_files` collection: its files are still inline, the
+  // shape `ImportDoc.files` documents as read best-effort and never written.
+  await db.collection('imports').insertOne({
+    _id: ids.legacyImportJob,
+    status: 'done',
+    source_root: '/incoming/old',
+    library_id: ids.libraryA,
+    library_root: '/libraries/a',
+    scan_pending: false,
+    progress: { current: 2, total: 2 },
+    counts: { copied: 1, skipped: 1, failed: 0 },
+    error: null,
+    locked_by: null,
+    lease_expires_at: null,
+    cancel_requested: false,
+    created_at: iso(0),
+    updated_at: iso(0),
+    files: [
+      {
+        src: '/incoming/old/b.dng',
+        dest: '2025/12/b.dng',
+        size: 20,
+        mtime: 2,
+        kind: 'image',
+        state: 'copied',
+        error: null,
+      },
+      {
+        src: '/incoming/old/b.mov',
+        dest: '2025/12/b.mov',
+        size: 30,
+        mtime: 2,
+        kind: 'movie',
+        state: 'skipped_duplicate',
+        error: null,
+      },
+    ],
+  } as never);
+
   await db.collection('import_files').insertMany([
     {
       import_id: ids.importJob,

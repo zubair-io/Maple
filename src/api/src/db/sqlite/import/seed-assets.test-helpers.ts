@@ -16,7 +16,9 @@
  *  - `trashed` is soft-deleted by the reaper;
  *  - `damaged` carries the damaged tag plus two retired stage names;
  *  - `orphanLocation` has a location under a library root that was never
- *    registered, plus a rating outside the destination's CHECK range.
+ *    registered and one whose `library_id` is not an ObjectId at all, plus a
+ *    rating outside the destination's CHECK range. The asset has to survive
+ *    both — a bad entry costs its own row and nothing else.
  */
 
 import type { Db } from 'mongodb';
@@ -246,12 +248,16 @@ export async function seedAssets(db: Db, ids: SeedIds): Promise<void> {
       },
     },
     {
-      // A location under a library root that is no longer registered, and a
-      // rating outside the destination's CHECK range.
+      // Three kinds of location on one asset: a good one, one under a library
+      // root that is no longer registered — the repair pass drops that — and
+      // one whose library_id was never an ObjectId at all, which the mapper
+      // skips. Neither bad entry may cost the asset itself. The rating is also
+      // outside the destination's CHECK range.
       _id: ids.assets.orphanLocation,
       fileinfo: [
         { path: '', filename: 'IMG_0006.dng', library_id: ids.libraryA },
         { path: 'gone', filename: 'IMG_0006.dng', library_id: ids.unregisteredLibrary },
+        { path: 'ancient', filename: 'IMG_0006.dng', library_id: '/libraries/old' },
       ],
       size: 1024,
       mtime: 1_767_225_600_004,

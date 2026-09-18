@@ -45,6 +45,8 @@ export interface SeedIds {
     orphanLocation: ObjectId;
   };
   importJob: ObjectId;
+  /** An import from before the per-file rows moved out into their own collection. */
+  legacyImportJob: ObjectId;
   changeCursors: number[];
 }
 
@@ -66,6 +68,7 @@ export function newSeedIds(): SeedIds {
       orphanLocation: new ObjectId(),
     },
     importJob: new ObjectId(),
+    legacyImportJob: new ObjectId(),
     changeCursors: [],
   };
 }
