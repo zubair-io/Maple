@@ -59,6 +59,28 @@ export async function loadLocations(
 }
 
 /**
+ * The narrower bundle behind the core-info shape: locations and the detail
+ * row, and nothing else.
+ *
+ * Core info carries no faces and no enrichment, so fetching them would be two
+ * statements per call for values that are thrown away — and this is the
+ * hottest read in the repository, on the path of every `/api/assets/:id`
+ * sub-route that touches the filesystem or the change feed.
+ */
+export async function loadCoreBundle(db: SqliteDb, id: string): Promise<AssetBundle> {
+  const [locations, details] = await Promise.all([
+    db.read<LocationRow>(locationsByAssetIdsSql(1), [id]),
+    db.read<DetailRow>(detailByAssetIdsSql(1), [id]),
+  ]);
+  return {
+    locations,
+    faces: EMPTY_BUNDLE.faces,
+    detail: details[0],
+    enrichment: EMPTY_BUNDLE.enrichment,
+  };
+}
+
+/**
  * Locations, faces, detail payloads and enrichment state for a batch of
  * assets, grouped per asset.
  *
