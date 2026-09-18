@@ -7,7 +7,7 @@ struct DragBar: View {
   @Bindable var state: EditorState
 
   var body: some View {
-    LivingSliderRow(state: state, tool: state.armedTool)
+    LivingSliderRow(state: state, tool: state.armedTool, style: .dragBar)
       .disabled(!state.armedToolAcceptsValueEdits)
       .accessibilityIdentifier("editor-drag-bar")
   }
