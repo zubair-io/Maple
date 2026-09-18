@@ -142,14 +142,41 @@ CREATE TABLE assets (
  */
 export const LIVE_ASSET_PREDICATE = 'deleted_at IS NULL AND live_location_count > 0';
 
+/**
+ * Why `hidden` is the last column of almost every index below.
+ *
+ * Every browse, search and facet request carries one filter nobody asked for:
+ * hidden assets are excluded unless the caller opts in, so `buildFilter` emits
+ * `hidden: { $ne: true }` on literally every query and the SQLite translation
+ * emits `hidden = 0`. An index that omits the column therefore serves the group
+ * key and then has to fetch each candidate row to test it, which turns an
+ * index-only scan into a read of the whole `assets` table — the one thing this
+ * schema exists to avoid.
+ *
+ * Measured on 60,000 generated assets (#3750), shipped queries against the
+ * indexes as first written:
+ *
+ * | query                       | without `hidden` | with it |
+ * | --------------------------- | ---------------- | ------- |
+ * | count live assets           | 18.3 ms          | 1.0 ms  |
+ * | facet: camera make + model  | 57.6 ms          | 2.5 ms  |
+ *
+ * It goes last rather than first because it is not a group key: appending it
+ * leaves the leading columns in the order each `GROUP BY` wants, so the scan
+ * stays index-only *and* streams its groups. Putting it in the partial index's
+ * `WHERE` instead would be smaller on disk and wrong — `hidden=only` and
+ * `hidden=all` are real wire values, and both would lose the index entirely.
+ */
 export const ASSETS_INDEX_DDL = `
 -- Default search/browse sort: newest capture first, id breaking ties so
 -- pagination is stable across pages of burst frames. Replaces
 -- { 'fileinfo.library_id': 1, 'exif.captured_at': -1, _id: 1 } — the library
 -- scope is now a semi-join against asset_locations, which under a LIMIT costs
 -- one index probe per returned row instead of leading the compound key.
+-- The hidden column trails the sort key so the MIN/MAX capture-range facet is
+-- index-only; a grid page reads its row anyway, for the projection.
 CREATE INDEX assets_live_captured
-  ON assets (captured_at DESC, id)
+  ON assets (captured_at DESC, id, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Plain "how many live assets" count. Keyed on live_location_count rather than
@@ -157,37 +184,37 @@ CREATE INDEX assets_live_captured
 -- index and the planner prefers a table scan to it, whereas this one answers
 -- the count as a 'live_location_count > 0' range seek over a partial index.
 CREATE INDEX assets_live
-  ON assets (live_location_count)
+  ON assets (live_location_count, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Facet group-bys. Covering: the group keys ARE the index columns, so these
 -- run as index-only scans and never read an asset row.
 CREATE INDEX assets_facet_camera
-  ON assets (camera_make, camera_model)
+  ON assets (camera_make, camera_model, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 CREATE INDEX assets_facet_lens
-  ON assets (lens)
+  ON assets (lens, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Country -> region -> locality, for the geographic drill-down.
 CREATE INDEX assets_facet_place
-  ON assets (place_country_code, place_region, place_locality)
+  ON assets (place_country_code, place_region, place_locality, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- The places facet groups by (locality, region) — the pair the wire label is
 -- built from — which the country-leading key above cannot serve.
 CREATE INDEX assets_facet_place_label
-  ON assets (place_locality, place_region)
+  ON assets (place_locality, place_region, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 CREATE INDEX assets_facet_screenshot
-  ON assets (is_screenshot)
+  ON assets (is_screenshot, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Timeline buckets: $group by { captured_year, captured_month }.
 CREATE INDEX assets_live_captured_ym
-  ON assets (captured_year DESC, captured_month DESC)
+  ON assets (captured_year DESC, captured_month DESC, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Meilisearch live-vector coverage: countDocuments(LIVE_ASSET_FILTER +
