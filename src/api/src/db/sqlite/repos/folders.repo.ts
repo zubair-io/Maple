@@ -165,11 +165,15 @@ export async function listFolderSlugs(dbOverride?: SqliteDb): Promise<string[]> 
 /**
  * Register a library root and return its new id.
  *
+ * Named for what it does rather than for the statement it issues, which also
+ * keeps it distinct from the test harness's `insertFolder` fixture — two
+ * exports of one name in the same tree resolve ambiguously through a barrel.
+ *
  * Throws on a duplicate `path` or `slug`, which is the uniqueness the schema
  * enforces and the registration route recovers from — see
  * {@link isSlugConflict}.
  */
-export async function insertFolder(
+export async function registerFolder(
   input: { path: string; label: string; slug: string; createdAt?: string },
   dbOverride?: SqliteDb,
 ): Promise<ObjectId> {

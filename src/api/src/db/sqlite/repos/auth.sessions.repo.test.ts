@@ -31,9 +31,9 @@ import { listDeviceSessions, revokeDeviceSession } from './auth.device-sessions.
 import {
   issueRefreshToken,
   RefreshError,
+  REFRESH_GRACE_MS,
   revokeChain,
   revokeFamilyByToken,
-  revokeOne,
   rotateRefreshToken,
 } from './auth.refresh.repo.ts';
 import type { SqliteDb } from './db-handle.ts';
@@ -44,10 +44,16 @@ async function seedUser(db: SqliteDb, email = 'owner@example.com'): Promise<Obje
   return await insertUser({ email, role: 'owner', created_at: NOW, last_seen_at: null }, db);
 }
 
-/** Backdate a token's revocation so it falls outside the grace window. */
-async function backdateRevocation(db: SqliteDb, msAgo: number): Promise<void> {
+/**
+ * Backdate a token's revocation so it falls outside the grace window.
+ *
+ * Derived from `REFRESH_GRACE_MS` rather than hard-coded, so widening or
+ * narrowing the window cannot leave this test quietly asserting the wrong side
+ * of it.
+ */
+async function backdateRevocation(db: SqliteDb): Promise<void> {
   await db.write(`UPDATE refresh_tokens SET revoked_at = ? WHERE revoked_at IS NOT NULL`, [
-    new Date(Date.now() - msAgo).toISOString(),
+    new Date(Date.now() - REFRESH_GRACE_MS - 1_000).toISOString(),
   ]);
 }
 
@@ -136,7 +142,7 @@ describe('refresh token rotation', () => {
     const userId = await seedUser(db);
     const first = await issueRefreshToken(userId, 'Laptop', {}, db);
     await rotateRefreshToken(first.raw, db);
-    await backdateRevocation(db, 10 * 60_000);
+    await backdateRevocation(db);
 
     await expect(rotateRefreshToken(first.raw, db)).rejects.toMatchObject({
       code: 'reuse_detected',
@@ -173,17 +179,6 @@ describe('refresh token rotation', () => {
     // The grace window measures from this timestamp, so re-stamping it would
     // silently extend it.
     expect(after[0]?.revoked_at).toBe(before[0]?.revoked_at ?? '');
-  });
-
-  test('revokeOne touches only the presented token', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const userId = await seedUser(db);
-    const a = await issueRefreshToken(userId, 'Laptop', {}, db);
-    await issueRefreshToken(userId, 'Phone', {}, db);
-    await revokeOne(a.raw, db);
-    const live = await db.read(`SELECT id FROM refresh_tokens WHERE revoked_at IS NULL`);
-    expect(live).toHaveLength(1);
   });
 });
 

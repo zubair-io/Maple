@@ -19,22 +19,20 @@
  */
 
 import type { ObjectId } from 'mongodb';
-import { randomBytes } from 'node:crypto';
 import { newObjectIdHex } from '../object-id.ts';
+import {
+  assertInviteRedeemable,
+  generateInviteCode,
+  INVITE_TTL_MS,
+} from '../../../auth/invite-code.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { nowIso, toDate, toHex, toObjectId } from './values.ts';
 import type { InviteDoc } from '../../schema.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
-/** RFC 4648 base32 without 0/1/8/9, so a code cannot be misread aloud. */
-const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-const TTL_MS = 15 * 60 * 1000;
-
-function genCode(): string {
-  const b = randomBytes(8);
-  return Array.from(b, (x) => ALPHA[x % 32]).join('');
-}
+// The alphabet and the lifetime are shared with the Mongo store rather than
+// redeclared — see `auth/invite-code.ts` for why one definition matters.
 
 interface InviteRow {
   code: string;
@@ -50,12 +48,12 @@ export async function createInvite(
   email: string,
   dbOverride?: SqliteDb,
 ): Promise<InviteDoc & { code: string; expires_at: Date }> {
-  const code = genCode();
+  const code = generateInviteCode();
   const doc: InviteDoc = {
     code,
     email: email.toLowerCase(),
     invited_by: invitedBy,
-    expires_at: new Date(Date.now() + TTL_MS),
+    expires_at: new Date(Date.now() + INVITE_TTL_MS),
     consumed_at: null,
   };
   await sqliteDb(dbOverride).write(
@@ -84,15 +82,15 @@ export async function redeemInvite(
     [code],
   );
   const row = rows[0];
-  if (row === undefined) throw Object.assign(new Error('invite not found'), { status: 410 });
-  if (row.email !== email.toLowerCase())
-    throw Object.assign(new Error('invite/email mismatch'), { status: 410 });
-  if (row.consumed_at !== null) throw Object.assign(new Error('invite consumed'), { status: 410 });
-  if (toDate(row.expires_at).getTime() < Date.now())
-    throw Object.assign(new Error('invite expired'), { status: 410 });
+  assertInviteRedeemable(
+    row === undefined ? null : { ...row, expires_at: toDate(row.expires_at) },
+    email,
+  );
 
   await db.write(`UPDATE invites SET consumed_at = ? WHERE code = ?`, [nowIso(), code]);
-  return { ok: true, invitedBy: toObjectId(row.invited_by) };
+  // The assertion above threw unless the row exists, which TypeScript cannot
+  // see through a function that returns void.
+  return { ok: true, invitedBy: toObjectId(row!.invited_by) };
 }
 
 /**

@@ -12,20 +12,12 @@
 // would travel together in the same redirect URL — so a bare single-use,
 // short-TTL code carries the same guarantee.
 import type { ObjectId } from 'mongodb';
-import { randomBytes } from 'node:crypto';
-import { sha256 } from '@noble/hashes/sha2.js';
 import { lanHandoffCodesCollection } from '../db/client.ts';
-
-const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
-const b64url = (b: Uint8Array): string => Buffer.from(b).toString('base64url');
-
-/** One-time code TTL — short by design; the browser redeems immediately
- * after the redirect. */
-const LAN_HANDOFF_CODE_TTL_MS = 60_000;
-
-function hashCode(rawCode: string): string {
-  return Buffer.from(sha256(utf8(rawCode))).toString('hex');
-}
+import {
+  hashHandoffCode as hashCode,
+  HANDOFF_CODE_TTL_MS as LAN_HANDOFF_CODE_TTL_MS,
+  newHandoffCode,
+} from './handoff-code.ts';
 
 export interface IssuedLanHandoffCode {
   code: string;
@@ -37,7 +29,7 @@ export async function issueLanHandoffCode(args: {
   userId: ObjectId;
   deviceLabel: string;
 }): Promise<IssuedLanHandoffCode> {
-  const code = b64url(randomBytes(32));
+  const code = newHandoffCode();
   const c = await lanHandoffCodesCollection();
   await c.insertOne({
     code_hash: hashCode(code),

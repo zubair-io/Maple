@@ -47,57 +47,26 @@ import type { ObjectId } from 'mongodb';
 import { newObjectIdHex } from '../object-id.ts';
 import { changesAt, sqliteDb, type SqliteDb } from './db-handle.ts';
 import { nowIso, toBool, toHex, toObjectId } from './values.ts';
+import {
+  RefreshError,
+  REFRESH_GRACE_MS,
+  type IssuedRefresh,
+  type IssueRefreshTokenOptions,
+} from '../../../auth/refresh-contract.ts';
 import { generateRefreshToken, hashRefreshToken, refreshExpiresAt } from '../../../auth/tokens.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
-export interface IssuedRefresh {
-  raw: string;
-  userId: ObjectId;
-  familyId: ObjectId;
-  /** Whether the caller's cookie for this token must be `Secure`. */
-  secure: boolean;
-}
-
-export type RefreshErrorCode =
-  | 'unknown_token'
-  | 'token_expired'
-  | 'rotation_conflict'
-  | 'reuse_detected';
-
-/**
- * Declared here rather than imported from the Mongo module on purpose: after
- * the cutover that module is deleted, and a route that kept catching its class
- * would stop recognising the error it is handed. The shape is identical, so a
- * route's `err instanceof RefreshError` keeps working across the swap.
- */
-export class RefreshError extends Error {
-  constructor(
-    public readonly code: RefreshErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'RefreshError';
-  }
-}
-
-/**
- * Lost-response / concurrent-rotation grace window (#858).
- *
- * A just-rotated token replayed within this window — while its family still
- * has a live token — is a benign retry and is re-minted, not treated as theft.
- * See the Mongo module for the full argument; the value and the behaviour are
- * unchanged.
- */
-export const REFRESH_GRACE_MS = 60_000;
-
-export interface IssueRefreshTokenOptions {
-  /** Rotation lineage. Omitting starts a NEW family (a fresh login / device). */
-  familyId?: ObjectId;
-  platform?: string;
-  /** Defaults to `true`; `false` only for the LAN-handoff redeem. */
-  secure?: boolean;
-}
+// The error class and the option/result shapes are shared with the Mongo store
+// rather than redeclared, so `routes/auth.ts`'s `err instanceof RefreshError`
+// means the same thing whichever store threw — before, during and after the
+// cutover. `auth/refresh-contract.ts` holds them and touches no database.
+export {
+  RefreshError,
+  REFRESH_GRACE_MS,
+  type IssuedRefresh,
+  type IssueRefreshTokenOptions,
+} from '../../../auth/refresh-contract.ts';
 
 /** The columns a rotation or a classification needs off an existing row. */
 interface TokenRow {
@@ -192,17 +161,111 @@ function rotationBatch(args: {
   ];
 }
 
+/** `true` when a member of this family is still live. */
+async function familyHasLiveToken(db: SqliteDb, familyId: string): Promise<boolean> {
+  const rows = await db.read<{ id: string }>(
+    `SELECT id FROM refresh_tokens WHERE family_id = ? AND revoked_at IS NULL LIMIT 1`,
+    [familyId],
+  );
+  return rows.length > 0;
+}
+
 /**
- * Rotate a refresh token.
+ * The successor the winning transaction just committed, as the caller's
+ * result. Its lineage was copied from the parent in SQL, so this reads it back
+ * rather than recomputing it.
+ */
+async function issuedSuccessor(
+  db: SqliteDb,
+  successorId: string,
+  successorRaw: string,
+): Promise<IssuedRefresh> {
+  const rows = await db.read<{ user_id: string; family_id: string; secure: number | null }>(
+    `SELECT user_id, family_id, secure FROM refresh_tokens WHERE id = ?`,
+    [successorId],
+  );
+  const row = rows[0];
+  if (row === undefined) {
+    // Only reachable if the committed insert vanished, which nothing in this
+    // process can do. Surfacing it as a conflict lets the client retry.
+    throw new RefreshError('rotation_conflict', 'refresh token rotation conflict');
+  }
+  return {
+    raw: successorRaw,
+    userId: toObjectId(row.user_id),
+    familyId: toObjectId(row.family_id),
+    secure: row.secure === null ? true : toBool(row.secure),
+  };
+}
+
+/**
+ * What a token that failed the liveness swap actually is, and what to do about
+ * it. Always either re-mints or throws; it never returns "nothing happened".
  *
- *  1. Atomic compare-and-swap — consume the token iff it is live and mint its
- *     successor in the same transaction.
- *  2. No live match → classify: unknown / expired.
- *  3. Revoked + within grace + the family still has a live token → benign
- *     retry (a lost response, or two tabs refreshing at once) → re-mint.
- *  4. Revoked + within grace but the family is dead → a race or a logged-out
- *     token → reject WITHOUT revoking, so a racing successor survives.
- *  5. Revoked + outside grace → genuine reuse → revoke the whole family.
+ *  - Unknown, or live-but-expired → say which.
+ *  - Revoked moments ago while the family still holds a live token → a lost
+ *    response or two tabs refreshing at once. Re-mint in the same family.
+ *  - Revoked moments ago with no live sibling → a racing rotation whose
+ *    successor has not committed. Reject WITHOUT revoking, so the winner
+ *    survives and the client's retry self-heals.
+ *  - Revoked long enough ago to be genuine reuse → revoke the whole family.
+ */
+async function recoverOrReject(db: SqliteDb, oldHash: string, now: Date): Promise<IssuedRefresh> {
+  const row = await readByHash(db, oldHash);
+  if (!row) throw new RefreshError('unknown_token', 'unknown refresh token');
+  if (row.revoked_at === null) throw new RefreshError('token_expired', 'refresh token expired');
+
+  const withinGrace = now.getTime() - new Date(row.revoked_at).getTime() <= REFRESH_GRACE_MS;
+  if (!withinGrace) return await revokeAfterReuse(db, row);
+
+  if (row.family_revoked_at !== null) {
+    throw new RefreshError('reuse_detected', 'refresh token family revoked');
+  }
+  if (row.family_id === null || !(await familyHasLiveToken(db, row.family_id))) {
+    throw new RefreshError('rotation_conflict', 'refresh token rotation conflict');
+  }
+  return await remintInFamily(db, row, row.family_id);
+}
+
+/**
+ * Treat a long-dead token as theft: revoke the device's whole lineage and say
+ * so. A legacy token issued before family tracking has no family to kill, so
+ * the fallback is every family the user holds.
+ */
+async function revokeAfterReuse(db: SqliteDb, row: TokenRow): Promise<never> {
+  if (row.family_id === null) await revokeChain(toObjectId(row.user_id), db);
+  else await revokeFamily(toObjectId(row.family_id), db);
+  throw new RefreshError('reuse_detected', 'refresh token reuse detected — family revoked');
+}
+
+/**
+ * Re-mint into an existing lineage, carrying the rotated token's platform
+ * marker and cookie-security flag forward so the family stays labelled.
+ */
+async function remintInFamily(
+  db: SqliteDb,
+  row: TokenRow,
+  familyId: string,
+): Promise<IssuedRefresh> {
+  return await issueRefreshToken(
+    toObjectId(row.user_id),
+    row.device_label,
+    {
+      familyId: toObjectId(familyId),
+      ...(row.platform === null ? {} : { platform: row.platform }),
+      secure: row.secure === null ? true : toBool(row.secure),
+    },
+    db,
+  );
+}
+
+/**
+ * Rotate a refresh token: consume it and hand back its successor.
+ *
+ * The happy path is the transaction — it either wins the liveness swap or it
+ * does not, and the second statement's row count says which. Everything else
+ * is {@link recoverOrReject}, which decides whether a token that failed the
+ * swap is a benign retry or theft.
  */
 export async function rotateRefreshToken(
   rawOld: string,
@@ -225,68 +288,9 @@ export async function rotateRefreshToken(
     }),
   );
 
-  // 1. The CAS won — read back the lineage the successor inherited in SQL.
-  if (changesAt(results, 1) === 1) {
-    const successor = await db.read<{ user_id: string; family_id: string; secure: number | null }>(
-      `SELECT user_id, family_id, secure FROM refresh_tokens WHERE id = ?`,
-      [successorId],
-    );
-    const row = successor[0];
-    if (row === undefined) {
-      // Only reachable if the committed insert vanished, which nothing in this
-      // process can do. Surfacing it as a conflict lets the client retry.
-      throw new RefreshError('rotation_conflict', 'refresh token rotation conflict');
-    }
-    return {
-      raw: successorRaw,
-      userId: toObjectId(row.user_id),
-      familyId: toObjectId(row.family_id),
-      secure: row.secure === null ? true : toBool(row.secure),
-    };
-  }
-
-  // 2. Not live — classify.
-  const row = await readByHash(db, oldHash);
-  if (!row) throw new RefreshError('unknown_token', 'unknown refresh token');
-  if (row.revoked_at === null) throw new RefreshError('token_expired', 'refresh token expired');
-
-  // 3/4. Revoked, but recently enough that this may be a retry rather than theft.
-  if (now.getTime() - new Date(row.revoked_at).getTime() <= REFRESH_GRACE_MS) {
-    if (row.family_revoked_at !== null) {
-      throw new RefreshError('reuse_detected', 'refresh token family revoked');
-    }
-    const live =
-      row.family_id === null
-        ? []
-        : await db.read<{ id: string }>(
-            `SELECT id FROM refresh_tokens WHERE family_id = ? AND revoked_at IS NULL LIMIT 1`,
-            [row.family_id],
-          );
-    if (live.length > 0) {
-      return await issueRefreshToken(
-        toObjectId(row.user_id),
-        row.device_label,
-        {
-          ...(row.family_id === null ? {} : { familyId: toObjectId(row.family_id) }),
-          ...(row.platform === null ? {} : { platform: row.platform }),
-          secure: row.secure === null ? true : toBool(row.secure),
-        },
-        db,
-      );
-    }
-    // A winning rotation linked its successor but has not committed it yet.
-    // The family was not deliberately revoked, so this is transient.
-    throw new RefreshError('rotation_conflict', 'refresh token rotation conflict');
-  }
-
-  // 5. Revoked long enough ago to be genuine reuse — kill this device's family.
-  if (row.family_id === null) {
-    // Legacy token issued before family tracking — fall back to per-user.
-    await revokeChain(toObjectId(row.user_id), db);
-  } else {
-    await revokeFamily(toObjectId(row.family_id), db);
-  }
-  throw new RefreshError('reuse_detected', 'refresh token reuse detected — family revoked');
+  return changesAt(results, 1) === 1
+    ? await issuedSuccessor(db, successorId, successorRaw)
+    : await recoverOrReject(db, oldHash, now);
 }
 
 /**
@@ -339,13 +343,5 @@ export async function revokeChain(userId: ObjectId, dbOverride?: SqliteDb): Prom
         SET family_revoked_at = ?, revoked_at = COALESCE(revoked_at, ?)
       WHERE user_id = ?`,
     [revokedAt, revokedAt, toHex(userId)],
-  );
-}
-
-/** Revoke a single token by its raw value. */
-export async function revokeOne(rawToken: string, dbOverride?: SqliteDb): Promise<void> {
-  await sqliteDb(dbOverride).write(
-    `UPDATE refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
-    [nowIso(), hashRefreshToken(rawToken)],
   );
 }

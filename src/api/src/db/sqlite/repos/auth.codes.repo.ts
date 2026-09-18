@@ -27,40 +27,60 @@
  * claimed.
  */
 
-import { randomBytes } from 'node:crypto';
-import { sha256 } from '@noble/hashes/sha2.js';
 import type { ObjectId } from 'mongodb';
 import { newObjectIdHex } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { nowIso, toHex, toObjectId } from './values.ts';
+import {
+  hashHandoffCode,
+  HANDOFF_CODE_TTL_MS,
+  newHandoffCode,
+  pkceS256,
+} from '../../../auth/handoff-code.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
-const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
-const b64url = (b: Uint8Array): string => Buffer.from(b).toString('base64url');
-
-/** One-time code TTL — short by design; both flows redeem immediately. */
-const CODE_TTL_MS = 60_000;
-
-/**
- * PKCE S256 transform: `base64url(sha256(verifier))`. The native app sends
- * this challenge when it launches the web flow and keeps the verifier private,
- * proving possession at redeem.
- */
-export function pkceS256(codeVerifier: string): string {
-  return b64url(sha256(utf8(codeVerifier)));
-}
-
-function hashCode(rawCode: string): string {
-  return Buffer.from(sha256(utf8(rawCode))).toString('hex');
-}
-
-function newCode(): string {
-  return b64url(randomBytes(32));
-}
+// The hashing, the generator and the PKCE transform are shared with the Mongo
+// stores rather than reimplemented: a code hashed one way at issue and another
+// at redeem simply stops working, and one definition cannot drift from itself.
+export { pkceS256 };
 
 function expiryIso(): string {
-  return new Date(Date.now() + CODE_TTL_MS).toISOString();
+  return new Date(Date.now() + HANDOFF_CODE_TTL_MS).toISOString();
+}
+
+/**
+ * Spend a code by its hash and read back what it proves, or `null` when
+ * nothing matched.
+ *
+ * Both tables redeem the same way — a compare-and-swap that sets `consumed_at`
+ * under the whole filter, then a read of the columns the caller needs — and
+ * differ only in the table, those columns, and whether there is an extra
+ * condition (the native code adds its PKCE challenge; the LAN code has none).
+ *
+ * `changes === 1` is what says this caller spent it, exactly as a returned
+ * document did under `findOneAndUpdate`. The read afterwards is safe because
+ * every column it names is written once at issue and never updated; the only
+ * mutable column is the one the swap just claimed.
+ *
+ * `table` and `columns` are literals from this module, never caller input.
+ */
+async function spendCodeByHash<T>(
+  db: SqliteDb,
+  table: 'native_auth_codes' | 'lan_handoff_codes',
+  columns: string,
+  codeHash: string,
+  extra: { sql: string; params: readonly string[] } = { sql: '', params: [] },
+): Promise<T | null> {
+  const now = nowIso();
+  const result = await db.write(
+    `UPDATE ${table} SET consumed_at = ?
+      WHERE code_hash = ?${extra.sql} AND consumed_at IS NULL AND expires_at > ?`,
+    [now, codeHash, ...extra.params, now],
+  );
+  if (result.changes !== 1) return null;
+  const rows = await db.read<T>(`SELECT ${columns} FROM ${table} WHERE code_hash = ?`, [codeHash]);
+  return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,14 +116,14 @@ export async function issueNativeCode(
   },
   dbOverride?: SqliteDb,
 ): Promise<IssuedNativeCode> {
-  const code = newCode();
+  const code = newHandoffCode();
   await sqliteDb(dbOverride).write(
     `INSERT INTO native_auth_codes
        (id, code_hash, code_challenge, state, user_id, device_label, created_at, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       newObjectIdHex(),
-      hashCode(code),
+      hashHandoffCode(code),
       args.codeChallenge,
       args.state,
       toHex(args.userId),
@@ -115,14 +135,10 @@ export async function issueNativeCode(
   return { code };
 }
 
-/** The identity a spent code proves, read back after the swap won. */
-async function redeemedNative(db: SqliteDb, id: string): Promise<RedeemedNativeCode | null> {
-  const rows = await db.read<NativeCodeRow>(
-    `SELECT user_id, device_label, state FROM native_auth_codes WHERE id = ?`,
-    [id],
-  );
-  const row = rows[0];
-  if (row === undefined) return null;
+const NATIVE_IDENTITY_COLUMNS = 'user_id, device_label, state';
+
+/** A spent native code's row as the caller's result. */
+function toRedeemedNative(row: NativeCodeRow): RedeemedNativeCode {
   return { userId: toObjectId(row.user_id), deviceLabel: row.device_label, state: row.state };
 }
 
@@ -133,29 +149,23 @@ async function redeemedNative(db: SqliteDb, id: string): Promise<RedeemedNativeC
  * The challenge match is part of the `WHERE`, so a wrong verifier changes
  * nothing — it neither succeeds nor burns the code for the real app. `null`
  * means nothing matched, and deliberately does not say which condition failed.
+ *
+ * `code_hash` is UNIQUE, so the predicate names at most one row and the swap
+ * needs no separate id lookup.
  */
 export async function redeemNativeCode(
   rawCode: string,
   codeVerifier: string,
   dbOverride?: SqliteDb,
 ): Promise<RedeemedNativeCode | null> {
-  const db = sqliteDb(dbOverride);
-  const codeHash = hashCode(rawCode);
-  // `code_hash` is UNIQUE, so this predicate names at most one row and the
-  // swap needs no separate id lookup.
-  const result = await db.write(
-    `UPDATE native_auth_codes SET consumed_at = ?
-      WHERE code_hash = ? AND code_challenge = ? AND consumed_at IS NULL AND expires_at > ?`,
-    [nowIso(), codeHash, pkceS256(codeVerifier), nowIso()],
+  const row = await spendCodeByHash<NativeCodeRow>(
+    sqliteDb(dbOverride),
+    'native_auth_codes',
+    NATIVE_IDENTITY_COLUMNS,
+    hashHandoffCode(rawCode),
+    { sql: ' AND code_challenge = ?', params: [pkceS256(codeVerifier)] },
   );
-  if (result.changes !== 1) return null;
-  const rows = await db.read<NativeCodeRow>(
-    `SELECT user_id, device_label, state FROM native_auth_codes WHERE code_hash = ?`,
-    [codeHash],
-  );
-  const row = rows[0];
-  if (row === undefined) return null;
-  return { userId: toObjectId(row.user_id), deviceLabel: row.device_label, state: row.state };
+  return row === null ? null : toRedeemedNative(row);
 }
 
 /**
@@ -196,7 +206,11 @@ export async function claimNativeCode(
     [nowIso(), id, nowIso()],
   );
   if (result.changes !== 1) return null;
-  return await redeemedNative(db, id);
+  const rows = await db.read<NativeCodeRow>(
+    `SELECT ${NATIVE_IDENTITY_COLUMNS} FROM native_auth_codes WHERE id = ?`,
+    [id],
+  );
+  return rows[0] === undefined ? null : toRedeemedNative(rows[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -217,12 +231,19 @@ export async function issueLanHandoffCode(
   args: { userId: ObjectId; deviceLabel: string },
   dbOverride?: SqliteDb,
 ): Promise<IssuedLanHandoffCode> {
-  const code = newCode();
+  const code = newHandoffCode();
   await sqliteDb(dbOverride).write(
     `INSERT INTO lan_handoff_codes
        (id, code_hash, user_id, device_label, created_at, expires_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [newObjectIdHex(), hashCode(code), toHex(args.userId), args.deviceLabel, nowIso(), expiryIso()],
+    [
+      newObjectIdHex(),
+      hashHandoffCode(code),
+      toHex(args.userId),
+      args.deviceLabel,
+      nowIso(),
+      expiryIso(),
+    ],
   );
   return { code };
 }
@@ -236,19 +257,11 @@ export async function redeemLanHandoffCode(
   rawCode: string,
   dbOverride?: SqliteDb,
 ): Promise<RedeemedLanHandoffCode | null> {
-  const db = sqliteDb(dbOverride);
-  const codeHash = hashCode(rawCode);
-  const result = await db.write(
-    `UPDATE lan_handoff_codes SET consumed_at = ?
-      WHERE code_hash = ? AND consumed_at IS NULL AND expires_at > ?`,
-    [nowIso(), codeHash, nowIso()],
+  const row = await spendCodeByHash<{ user_id: string; device_label: string }>(
+    sqliteDb(dbOverride),
+    'lan_handoff_codes',
+    'user_id, device_label',
+    hashHandoffCode(rawCode),
   );
-  if (result.changes !== 1) return null;
-  const rows = await db.read<{ user_id: string; device_label: string }>(
-    `SELECT user_id, device_label FROM lan_handoff_codes WHERE code_hash = ?`,
-    [codeHash],
-  );
-  const row = rows[0];
-  if (row === undefined) return null;
-  return { userId: toObjectId(row.user_id), deviceLabel: row.device_label };
+  return row === null ? null : { userId: toObjectId(row.user_id), deviceLabel: row.device_label };
 }

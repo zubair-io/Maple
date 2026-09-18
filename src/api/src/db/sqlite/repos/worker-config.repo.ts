@@ -41,14 +41,17 @@
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toBool } from './values.ts';
 import type { WorkerConfig } from '../../../workers/run-stage.ts';
+import {
+  sanitizeWorkerConfig,
+  type WorkerConfigDoc,
+} from '../../../workers/worker-config-shape.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
-/** One stage's configuration document. `name` is the row's key. */
-export interface WorkerConfigDoc extends WorkerConfig {
-  /** Stage name — the unique key for this table. */
-  name: string;
-}
+// The document shape and the wire projection are shared with the Mongo store
+// rather than redeclared: both answer `/api/workers/status`, and the fields
+// `sanitizeWorkerConfig` omits are the part that is actually on the wire.
+export { sanitizeWorkerConfig, type WorkerConfigDoc };
 
 /** The discover sweeper's two knobs. */
 export interface DiscoverConfig {
@@ -79,6 +82,29 @@ interface WorkerConfigRow {
 }
 
 /**
+ * Which column carries which document field, and how to read it back.
+ *
+ * A table rather than nine ternaries, so the row → document mapping is one
+ * branch — "is this column NULL" — applied uniformly instead of restated per
+ * field.
+ */
+const DOC_FIELDS: ReadonlyArray<{
+  column: Exclude<keyof WorkerConfigRow, 'name'>;
+  key: keyof WorkerConfig;
+  read?: (value: never) => unknown;
+}> = [
+  { column: 'concurrency', key: 'concurrency' },
+  { column: 'max_attempts', key: 'maxAttempts' },
+  { column: 'paused', key: 'paused', read: (value: number) => toBool(value) },
+  { column: 'pause_reason', key: 'pause_reason' },
+  { column: 'last_seen_target_version', key: 'last_seen_target_version' },
+  { column: 'version', key: 'version' },
+  { column: 'prompt_text', key: 'prompt_text' },
+  { column: 'ai_provider', key: 'ai_provider' },
+  { column: 'ai_model', key: 'ai_model' },
+];
+
+/**
  * A row as the document it replaces: a NULL column becomes an absent key, not
  * a `null` value.
  *
@@ -90,47 +116,13 @@ interface WorkerConfigRow {
  * missing at runtime.
  */
 function toDoc(row: WorkerConfigRow): WorkerConfigDoc {
-  return {
-    name: row.name,
-    ...(row.concurrency === null ? {} : { concurrency: row.concurrency }),
-    ...(row.max_attempts === null ? {} : { maxAttempts: row.max_attempts }),
-    ...(row.paused === null ? {} : { paused: toBool(row.paused) }),
-    ...(row.pause_reason === null ? {} : { pause_reason: row.pause_reason }),
-    ...(row.last_seen_target_version === null
-      ? {}
-      : { last_seen_target_version: row.last_seen_target_version }),
-    ...(row.version === null ? {} : { version: row.version }),
-    ...(row.prompt_text === null ? {} : { prompt_text: row.prompt_text }),
-    ...(row.ai_provider === null ? {} : { ai_provider: row.ai_provider }),
-    ...(row.ai_model === null ? {} : { ai_model: row.ai_model }),
-  } as WorkerConfigDoc;
-}
-
-/**
- * The stage fields, and only those, in the shape `/api/workers/status` puts on
- * the wire.
- *
- * Unchanged from the Mongo version down to the omissions: an optional key is
- * left out rather than surfaced as a permanent `null`, and `undefined` is what
- * a missing required field reads as — `JSON.stringify` drops both, so the
- * response body is byte-identical either way. Removed knobs that linger on an
- * older row are dropped by not being mentioned.
- */
-export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
-  return {
-    concurrency: doc.concurrency,
-    maxAttempts: doc.maxAttempts,
-    paused: doc.paused,
-    last_seen_target_version: doc.last_seen_target_version,
-    // Only present when a stage paused itself with an explanation; an
-    // operator pause carries none, so the key is omitted rather than
-    // surfaced as a permanent `null` on every row.
-    ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
-    ...(typeof doc.version === 'string' ? { version: doc.version } : {}),
-    ...(typeof doc.prompt_text === 'string' ? { prompt_text: doc.prompt_text } : {}),
-    ...(typeof doc.ai_provider === 'string' ? { ai_provider: doc.ai_provider } : {}),
-    ...(typeof doc.ai_model === 'string' ? { ai_model: doc.ai_model } : {}),
-  };
+  const present = DOC_FIELDS.flatMap(({ column, key, read }) => {
+    const value = row[column];
+    return value === null
+      ? []
+      : [[key, read === undefined ? value : read(value as never)] as const];
+  });
+  return { name: row.name, ...Object.fromEntries(present) } as WorkerConfigDoc;
 }
 
 /** Column name for each `WorkerConfig` key a write may carry. */

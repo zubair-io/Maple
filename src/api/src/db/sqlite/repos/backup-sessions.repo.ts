@@ -36,9 +36,6 @@ import { newObjectIdHex } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { nowIso, toDate, toObjectId } from './values.ts';
 
-export type { SqliteDb } from './db-handle.ts';
-export type { BackupSessionDoc };
-
 interface SessionRow {
   id: string;
   library_id: string;
