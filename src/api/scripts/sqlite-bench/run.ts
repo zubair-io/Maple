@@ -19,6 +19,7 @@
 
 import { Database } from 'bun:sqlite';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
+import { LIVE_ASSET_PREDICATE } from '../../src/db/sqlite/ddl/assets.ts';
 import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
 import { ASSETS_FTS_OPTIMIZE_SQL, ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
 import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
@@ -26,7 +27,9 @@ import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
 import { generateLibrary } from './generate.ts';
 
 const DEFAULT_SIZES = [335_377, 600_000, 1_000_000];
-const LIVE = 'deleted_at IS NULL AND live_location_count > 0';
+// The exact spelling from the schema — a partial index is only used when the
+// query WHERE provably implies the index WHERE, so this must not be paraphrased.
+const LIVE = LIVE_ASSET_PREDICATE;
 
 interface Measurement {
   name: string;
@@ -214,52 +217,62 @@ interface RunReport {
   timings: TimingReport[];
 }
 
-async function benchmark(assetCount: number, dbPath: string): Promise<RunReport> {
-  const db = new Database(dbPath, { create: true });
-  for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
-  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
-
-  const generated = generateLibrary(db, { assetCount });
-
-  // Post-load: rebuild what the bulk path deferred, then let the planner see
-  // real statistics.
+/**
+ * What the bulk load deferred: the derived location counts, the FTS5 index,
+ * and the planner statistics. The importer (#3744) does the same three things.
+ */
+function finishBulkLoad(db: Database): void {
   db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
   db.exec(ASSETS_FTS_REBUILD_SQL);
   db.exec(ASSETS_FTS_OPTIMIZE_SQL);
   db.exec('ANALYZE');
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+}
 
-  const sizes = measureSizes(db);
-  const fileBytes =
-    ((db.query('PRAGMA page_count').get() as { page_count: number }).page_count ?? 0) *
-    ((db.query('PRAGMA page_size').get() as { page_size: number }).page_size ?? 4096);
-  db.close();
+function fileBytesOf(db: Database): number {
+  const pages = db.query('PRAGMA page_count').get() as { page_count: number };
+  const pageSize = db.query('PRAGMA page_size').get() as { page_size: number };
+  return pages.page_count * pageSize.page_size;
+}
 
-  // Reopen so SQLite's own page cache starts empty for the first sample.
-  const cold = new Database(dbPath, { readonly: true });
+/** Times every measurement against a freshly opened read-only connection, so
+ * the first sample of each starts with an empty SQLite page cache. */
+function runMeasurements(dbPath: string): TimingReport[] {
+  const db = new Database(dbPath, { readonly: true });
   for (const pragma of SCHEMA_PRAGMAS) {
-    if (!pragma.includes('journal_mode')) cold.exec(pragma);
+    if (!pragma.includes('journal_mode')) db.exec(pragma);
   }
-
-  const timings: TimingReport[] = [];
-  for (const measurement of MEASUREMENTS) {
-    const first = timeQuery(cold, measurement.sql, 1);
-    const warm = timeQuery(cold, measurement.sql, 5);
+  const timings = MEASUREMENTS.map((measurement) => {
+    const first = timeQuery(db, measurement.sql, 1);
+    const warm = timeQuery(db, measurement.sql, 5);
     const plan = (
-      cold.query(`EXPLAIN QUERY PLAN ${measurement.sql}`).all() as Array<{ detail: string }>
+      db.query(`EXPLAIN QUERY PLAN ${measurement.sql}`).all() as Array<{ detail: string }>
     )
-      .map((r) => r.detail)
+      .map((row) => row.detail)
       .join(' | ');
-    timings.push({
+    return {
       name: measurement.name,
       replaces: measurement.replaces,
       coldMs: Number(first.median.toFixed(2)),
       warmMs: Number(warm.median.toFixed(2)),
       rows: warm.rows,
       plan,
-    });
-  }
-  cold.close();
+    };
+  });
+  db.close();
+  return timings;
+}
+
+async function benchmark(assetCount: number, dbPath: string): Promise<RunReport> {
+  const db = new Database(dbPath, { create: true });
+  for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
+  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
+
+  const generated = generateLibrary(db, { assetCount });
+  finishBulkLoad(db);
+  const sizes = measureSizes(db);
+  const fileBytes = fileBytesOf(db);
+  db.close();
 
   return {
     assetCount,
@@ -267,7 +280,7 @@ async function benchmark(assetCount: number, dbPath: string): Promise<RunReport>
     generateMs: generated.elapsedMs,
     fileBytes,
     sizes,
-    timings,
+    timings: runMeasurements(dbPath),
   };
 }
 
