@@ -53,12 +53,21 @@ async function readSecret(db: SqliteDb): Promise<string | null> {
  * the same key — the two ways an auto-generated secret silently rotates and
  * turns every issued token into a `bad signature` 401.
  *
- * Racing boots converge on one value, and the row being present but empty is
- * not a special case. The conflict branch writes only `WHERE value IS NULL`,
- * so it fills a half-written row and refuses to overwrite a real secret; a
- * caller whose candidate loses that test reads back the winner's. This is the
- * bug the Mongo version's comment describes `$setOnInsert` having, closed by
- * the statement rather than by a retry.
+ * Racing boots converge on one value, and a row that exists without a usable
+ * secret is filled rather than treated as settled. The conflict branch writes
+ * only where the stored value is one {@link readSecret} counts as absent —
+ * SQL NULL or the empty string — so it fills a half-written row and refuses to
+ * overwrite a real secret; a caller whose candidate loses that test reads back
+ * the winner's. This is the bug the Mongo version's comment describes
+ * `$setOnInsert` having, closed by the statement rather than by a retry.
+ *
+ * The empty string has to be in that test, not just NULL. `readSecret` already
+ * treats `''` as no secret, so without it the two halves disagree: the read
+ * says "nothing stored, mint one", the upsert's guard says "a value is already
+ * there, leave it", and the re-read says "nothing stored" again — and the
+ * function throws. That is not a transient failure; the row never changes, so
+ * every subsequent boot throws too and the server can never issue a token
+ * again.
  *
  * `created` keeps its exact meaning: true only for the caller whose own
  * candidate landed, which the caller logs at warn level because a brand-new
@@ -77,7 +86,7 @@ export async function getOrCreateJwtSecret(
   const result = await db.write(
     `INSERT INTO server_state (id, value) VALUES (?, ?)
      ON CONFLICT (id) DO UPDATE SET value = excluded.value
-     WHERE server_state.value IS NULL`,
+     WHERE server_state.value IS NULL OR server_state.value = ''`,
     [JWT_SECRET_DOC_ID, candidate],
   );
   if (result.changes === 1) return { secret: candidate, created: true };
