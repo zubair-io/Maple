@@ -70,7 +70,7 @@ enum LibrarySidebarVM {
     isSignedIn: Bool,
     hasFileAccess: Bool,
     connectedFolderCount: Int?,
-    cloudEnabled: Bool = true
+    cloudEnabled: Bool = cloudFlag
   ) -> Bool {
     guard cloudEnabled else { return false }
     guard isSignedIn else { return true }
