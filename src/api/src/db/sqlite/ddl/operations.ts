@@ -155,27 +155,54 @@ CREATE INDEX discover_frontier_claim
  * Per-stage operator configuration — the DB-backed settings surfaced on
  * Settings → Workers. The AI routing fields are columns because the settings
  * page writes them individually.
+ *
+ * Every configurable field is nullable, which is the shape the repository
+ * actually writes rather than the shape `WorkerConfig` declares.
+ * `WorkerConfigRepo.patch` upserts a *partial* config:
+ * `registerPausableWorker` (`workers/pause-control.ts`) persists `{ paused }`
+ * and nothing else, against a row that need not exist yet, so a row routinely
+ * holds a name and one field. The four fields TypeScript marks required are
+ * required of a merged, *loaded* config — `bootConfig` substitutes the stage's
+ * own default for each one it does not find — not of the stored row, and
+ * `NOT NULL` columns turn that first partial write into a constraint failure.
+ *
+ * `paused` is the subtler half of the same point. A defaulted `false` is
+ * indistinguishable from an operator resume, so a row created by a
+ * `{ concurrency }` patch would tell `bootConfig` the stage is running and
+ * suppress `pausedOnFirstBoot` — the flag `geocode` uses to stay parked until
+ * an operator has configured it. Absent has to stay distinguishable from
+ * false, which in SQL means NULL.
+ *
+ * `sweep_dir_interval_ms` is the discover worker's own knob. `discover` is not
+ * a stage; it shares this table under `name = 'discover'` and stores one field
+ * beside `paused` (`workers/discover/discover-config.repo.ts`). One nullable
+ * column rather than a JSON side-bag, because there is exactly one such field
+ * and a bag would be a schema built for a second caller that does not exist.
  */
 export const WORKER_CONFIG_TABLE_DDL = `
 CREATE TABLE worker_config (
   name TEXT NOT NULL PRIMARY KEY,
 
-  concurrency  INTEGER NOT NULL,
-  max_attempts INTEGER NOT NULL,
-  paused       INTEGER NOT NULL DEFAULT 0 CHECK (paused IN (0, 1)),
+  -- NULL means "no operator or boot has set this", which is what an absent
+  -- field meant on the document. Every reader has a default to fall back to.
+  concurrency  INTEGER,
+  max_attempts INTEGER,
+  paused       INTEGER CHECK (paused IS NULL OR paused IN (0, 1)),
   -- Why the stage paused ITSELF; NULL for an operator pause.
   pause_reason TEXT,
 
-  last_seen_target_version INTEGER NOT NULL DEFAULT 0,
+  last_seen_target_version INTEGER,
 
   version     TEXT,
   prompt_text TEXT,
   ai_provider TEXT,
-  ai_model    TEXT
+  ai_model    TEXT,
+
+  -- The discover worker's row only: gap between directory visits in a sweep.
+  sweep_dir_interval_ms INTEGER
 ) WITHOUT ROWID;
 `;
 
-/** Per-stage handler routing. Today only the `ai` stage is honoured. */
 export const STAGE_HANDLERS_TABLE_DDL = `
 CREATE TABLE stage_handlers (
   stage      TEXT NOT NULL PRIMARY KEY,
