@@ -33,10 +33,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SCHEMA_PRAGMAS } from './ddl/index.ts';
-import { fromBunSqlite, runMigrations, type MigrationDb, type SqlValue } from './migrate.ts';
+import { fromBunSqlite, runMigrations, type MigrationDb } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
 import { newObjectIdHex } from './object-id.ts';
-import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from './protocol.ts';
+// `SqlValue` is declared identically by `migrate.ts` and `protocol.ts` — the
+// migration runner keeps its own copy so it depends on no pool type. This file
+// needs both modules, so it takes the name from one of them rather than
+// importing an ambiguous pair.
+import type { SqlParams, SqlRow, SqlStatement, SqlValue, SqlWriteResult } from './protocol.ts';
 import type { SqliteDb } from './repos/db-handle.ts';
 
 /**
@@ -203,13 +207,13 @@ export function run(db: Database, sql: string, ...params: SqlValue[]): void {
 }
 
 /** Normalise bound parameters to the varargs shape `bun:sqlite` expects. */
-function args(params: SqlParams | undefined): never[] {
+function bindings(params: SqlParams | undefined): never[] {
   if (params === undefined) return [];
   return (Array.isArray(params) ? [...params] : [params]) as never[];
 }
 
 function exec(db: Database, statement: SqlStatement): SqlWriteResult {
-  const result = db.prepare(statement.sql).run(...args(statement.params));
+  const result = db.prepare(statement.sql).run(...bindings(statement.params));
   return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) };
 }
 
@@ -233,7 +237,7 @@ function exec(db: Database, statement: SqlStatement): SqlWriteResult {
 export function testSqliteDb(db: Database): SqliteDb {
   return {
     read: async <T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> =>
-      db.query(sql).all(...args(params)) as T[],
+      db.query(sql).all(...bindings(params)) as T[],
     write: async (sql: string, params?: SqlParams) => exec(db, { sql, params }),
     transaction: async (statements: readonly SqlStatement[]) => {
       db.run('BEGIN IMMEDIATE');

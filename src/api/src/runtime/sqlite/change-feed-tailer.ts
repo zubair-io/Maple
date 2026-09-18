@@ -1,3 +1,12 @@
+// The polling loop, the stop/singleton bookkeeping and the republish pass are
+// near-copies of the Mongo tailer's, because only the lines that reach the
+// database differ between them. Factoring the shared half into a base class
+// would couple the two implementations together shortly before one of them is
+// deleted, which is the opposite of what this migration's beside-then-switch
+// shape is for. The duplication ends with the Mongo tailer, at the cutover
+// (#3752).
+// fallow-ignore-file code-duplication
+
 /**
  * ChangeFeedTailer — the SQLite port of `runtime/change-feed-tailer.ts`
  * (#3747). Bridges persisted `asset_changes` rows to the in-process ChangeBus.

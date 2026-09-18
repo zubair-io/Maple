@@ -28,8 +28,17 @@
  * anything else would make `BEGIN` meaningless.
  */
 
-/** Value types SQLite can bind. */
-export type SqlValue = string | number | bigint | boolean | null | Uint8Array;
+/**
+ * Value types SQLite can bind, re-exported from the pool's wire protocol.
+ *
+ * It was declared here as well until the change-feed port (#3747) put a file in
+ * front of both modules and the two identical declarations became an ambiguous
+ * name. Taking the name from `protocol.ts` costs nothing — it is a type-only
+ * import, so the runner still pulls in no pool code and stays as independent of
+ * connection management as the header above says it is.
+ */
+export type { SqlValue } from './protocol.ts';
+import type { SqlValue } from './protocol.ts';
 
 /**
  * The slice of a SQLite connection the runner needs. Methods may be sync or
