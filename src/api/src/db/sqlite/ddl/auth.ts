@@ -206,4 +206,3 @@ CREATE INDEX native_auth_codes_expiry   ON native_auth_codes (expires_at);
 CREATE INDEX lan_handoff_codes_expiry   ON lan_handoff_codes (expires_at);
 CREATE INDEX image_access_tokens_expiry ON image_access_tokens (expires_at);
 `;
-
