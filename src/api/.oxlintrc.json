@@ -52,6 +52,12 @@
     {
       "files": [
         "scripts/ffi-contention.ts",
+        "scripts/mongo-to-sqlite.ts",
+        "src/db/sqlite/import/run.ts",
+        "src/db/sqlite/import/import.test.ts",
+        "src/db/sqlite/import/import-changes.test.ts",
+        "src/db/sqlite/import/import-fields.test.ts",
+        "src/db/sqlite/import/import-resume.test.ts",
         "src/audio/extract-audio.ts",
         "src/audio/extract-audio.test.ts",
         "src/audio/whisper-cli.ts",

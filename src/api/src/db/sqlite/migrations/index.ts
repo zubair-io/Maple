@@ -9,5 +9,6 @@
 
 import type { Migration } from '../migrate.ts';
 import { initialSchemaMigration } from './0001-initial-schema.ts';
+import { appSettingsMigration } from './0002-app-settings.ts';
 
-export const ALL_MIGRATIONS: readonly Migration[] = [initialSchemaMigration];
+export const ALL_MIGRATIONS: readonly Migration[] = [initialSchemaMigration, appSettingsMigration];
