@@ -104,6 +104,15 @@ function richAsset(ids: SeedIds): Record<string, unknown> {
       },
     ],
     description: 'A child in a red coat runs across a frozen field.',
+    // Written by the describe stage but absent from the `AssetDoc` interface,
+    // which is precisely why the importer dropped it until a review caught it.
+    description_meta: {
+      provider: 'ollama',
+      model: 'qwen2.5-vl',
+      prompt_version: 7,
+      generated_at: iso(3),
+      cost_usd: 0,
+    },
     vision: visionDoc(),
     vision_meta: {
       provider: 'ollama',

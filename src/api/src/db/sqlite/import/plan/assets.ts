@@ -311,7 +311,11 @@ function detailRow(doc: Record<string, unknown>, id: string): Row | null {
   return [
     id,
     toText(doc.description),
-    null,
+    // Written by the describe stage but NOT declared on `AssetDoc` — the field
+    // was added after that interface froze, and `assets.transform.ts` reads it
+    // through a `Record<string, unknown>` so it still reaches the wire. A
+    // mapper written from the interface alone drops it silently on every asset.
+    toJsonText(doc.description_meta),
     typeof doc.ocr_text === 'string' ? doc.ocr_text : null,
     toJsonText(doc.ocr_meta),
     toJsonText(doc.vision),
