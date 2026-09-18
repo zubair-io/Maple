@@ -24,6 +24,8 @@ import { getChangeBus } from '../runtime/change-bus.ts';
 const log = childLogger('changes-repo');
 
 const CURSOR_DOC_ID = 'asset_changes_cursor';
+/** `server_state` row holding the change-log retention floor (#3741). */
+const PRUNE_FLOOR_DOC_ID = 'asset_changes_pruned_through';
 
 // Tiny per-process cache for folder.path lookups. Folders are
 // effectively immutable at the path level (rename is not a supported
@@ -282,27 +284,75 @@ export async function currentAllocatedCursor(dbOverride?: Db): Promise<number> {
 }
 
 /**
- * Checks whether a `since` cursor is older than the retained change log.
+ * The retention floor: the highest cursor the change-log retention sweep has
+ * committed to deleting through (#3741). Zero when nothing has ever been pruned.
  *
- * Invariant mirrors `ChangeBus.isCursorReplayable`:
- * - If the collection has rows with minimum cursor `L`, then any `since + 1 < L`
- *   has had its next event pruned.
- * - If the collection is empty, the cursor is too old if `since < currentAllocatedCursor`.
+ * This is the *reason* a client is told its anchor expired, and it is the thing
+ * a plain "what is the lowest surviving row" probe cannot tell you. Cursors are
+ * monotonic but not contiguous (see the note on `recordAssetChange` above): an
+ * insert that fails after its `$inc` succeeded leaves a permanent hole. A hole
+ * at the bottom of the journal is indistinguishable from a prune if you only
+ * look at the surviving rows, so deriving staleness that way hands a spurious
+ * 409 — and a full re-enumeration — to every brand-new File Provider domain on
+ * a library where nothing has ever been pruned.
+ */
+export async function changeLogPruneFloor(dbOverride?: Db): Promise<number> {
+  const coll = dbOverride
+    ? dbOverride.collection<ServerStateDoc>('server_state')
+    : await serverStateCollection();
+  const doc = await coll.findOne({ _id: PRUNE_FLOOR_DOC_ID });
+  return doc?.seq ?? 0;
+}
+
+/**
+ * Raise the retention floor. `$max` makes it monotonic at the database, so two
+ * sweeps racing (or a sweep racing a replayed write) can never lower it.
  *
- * Returns `{ tooOld, current }` where `current` is the latest cursor watermark.
+ * The sweep calls this BEFORE it deletes anything, which is what makes the
+ * staleness check race-free: a client is warned off the doomed cursor range
+ * strictly before the rows in it start disappearing. The cost of the ordering
+ * is a spurious 409 for a client sitting in a range that a cancelled pass never
+ * got to — a re-enumeration, never a silent hole.
+ */
+export async function raiseChangeLogPruneFloor(
+  dbOverride: Db | undefined,
+  cursor: number,
+): Promise<void> {
+  if (!Number.isFinite(cursor) || cursor <= 0) return;
+  const coll = dbOverride
+    ? dbOverride.collection<ServerStateDoc>('server_state')
+    : await serverStateCollection();
+  await coll.updateOne({ _id: PRUNE_FLOOR_DOC_ID }, { $max: { seq: cursor } }, { upsert: true });
+}
+
+/**
+ * Checks whether a `since` cursor predates the retained change log — i.e.
+ * whether some row the client still needs (cursor > since) has been deleted.
+ *
+ * Two ways that can be true:
+ * - The retention sweep has pruned through a cursor above `since`.
+ * - The journal is empty while the allocator has handed out cursors above
+ *   `since`. Rows existed and are gone; without a floor to say who removed
+ *   them, assume the worst. This is the case a restarted process sees when an
+ *   older build, or something outside this codebase, emptied the collection.
+ *
+ * Deliberately NOT a check against the lowest surviving cursor: see
+ * `changeLogPruneFloor` for why a gap is not a prune.
+ *
+ * Returns `{ tooOld, current }` where `current` is the latest cursor watermark —
+ * the cursor a 409'd client should resume from.
  */
 export async function isChangeCursorTooOld(
   dbOverride: Db | undefined,
   since: number,
 ): Promise<{ tooOld: boolean; current: number }> {
-  const [lowest, top, allocated] = await Promise.all([
+  const [floor, lowest, top, allocated] = await Promise.all([
+    changeLogPruneFloor(dbOverride),
     lowestCursor(dbOverride),
     highestCursor(dbOverride),
     currentAllocatedCursor(dbOverride),
   ]);
   const current = Math.max(top, allocated);
-  if (lowest === null) {
-    return { tooOld: since < current, current };
-  }
-  return { tooOld: since + 1 < lowest, current };
+  const tooOld = since < floor || (lowest === null && since < current);
+  return { tooOld, current };
 }

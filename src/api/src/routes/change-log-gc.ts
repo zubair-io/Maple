@@ -20,6 +20,7 @@ import {
   type ChangeLogGcConfig,
 } from '../workers/change-log-gc-config.repo.ts';
 import { assetChangesCollection } from '../db/client.ts';
+import { changeLogPruneFloor } from '../db/changes.repo.ts';
 
 /** Collection metadata, not a scan — `countDocuments` on a journal this size
  * is exactly the query the ticket exists to make unnecessary. */
@@ -33,12 +34,16 @@ async function estimatedRows(): Promise<number> {
 
 export const changeLogGcRoutes = new Elysia()
   .get('/api/change-log-gc/status', async () => {
-    const config = await loadChangeLogGcConfig();
-    return {
-      config,
-      rows: await estimatedRows(),
-      pruned_through: config.last_run?.pruned_through ?? 0,
-    };
+    // `pruned_through` is the persisted retention floor, not the last pass's
+    // own figure. A quiet day that deletes nothing reports 0 for itself, and
+    // reading that as the journal's watermark made the page claim nothing had
+    // ever been pruned the morning after a sweep removed 175 million rows.
+    const [config, rows, prunedThrough] = await Promise.all([
+      loadChangeLogGcConfig(),
+      estimatedRows(),
+      changeLogPruneFloor(),
+    ]);
+    return { config, rows, pruned_through: prunedThrough };
   })
   .put(
     '/api/change-log-gc/config',

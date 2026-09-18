@@ -61,7 +61,13 @@
             />
             <span class="num-suffix">days</span>
           </div>
-          <div class="field-hint">Takes effect on the next sweep — no restart needed.</div>
+          @if (draftIsValid()) {
+            <div class="field-hint">Takes effect on the next sweep — no restart needed.</div>
+          } @else {
+            <div class="field-hint text-[var(--s-err)]" data-testid="change-log-gc-retention-hint">
+              Enter a whole number of days between 1 and 3650.
+            </div>
+          }
         </div>
 
         <div class="field set-field">
@@ -109,6 +115,7 @@
           size="sm"
           data-testid="change-log-gc-save"
           [loading]="saving()"
+          [disabled]="!draftIsValid()"
           (pressed)="save()"
         >
           Save changes

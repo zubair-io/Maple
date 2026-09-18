@@ -51,31 +51,30 @@ export function clampRetentionDays(n: number): number {
   return Math.min(MAX_RETENTION_DAYS, Math.max(MIN_RETENTION_DAYS, Math.round(n)));
 }
 
-/** Load full config document from app_settings. */
+/**
+ * Load the full config document from app_settings.
+ *
+ * "No document yet" and "could not read the document" are different answers and
+ * this returns only the first. An absent doc means the operator has never
+ * touched the setting, so the defaults ARE their config. A read that throws
+ * means we do not know what they chose, and the caller — a sweep that deletes
+ * rows for a living — has to be able to tell the difference and stand down.
+ * Swallowing the error here is how a network blip turns a deliberate 365-day
+ * window into a 30-day one.
+ */
 export async function loadChangeLogGcConfig(dbOverride?: Db): Promise<ChangeLogGcConfig> {
-  try {
-    const db = dbOverride ?? (await getDb());
-    const doc = await db.collection<ChangeLogGcDoc>(COLL).findOne({ _id: DOC_ID as never });
-    if (doc) {
-      return {
-        enabled: doc.enabled ?? true,
-        retention_days:
-          typeof doc.retention_days === 'number'
-            ? clampRetentionDays(doc.retention_days)
-            : DEFAULT_RETENTION_DAYS,
-        last_run: doc.last_run ?? null,
-      };
-    }
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : err },
-      'could not load change-log-gc config from app_settings — falling back to defaults',
-    );
+  const db = dbOverride ?? (await getDb());
+  const doc = await db.collection<ChangeLogGcDoc>(COLL).findOne({ _id: DOC_ID as never });
+  if (!doc) {
+    return { enabled: true, retention_days: DEFAULT_RETENTION_DAYS, last_run: null };
   }
   return {
-    enabled: true,
-    retention_days: DEFAULT_RETENTION_DAYS,
-    last_run: null,
+    enabled: doc.enabled ?? true,
+    retention_days:
+      typeof doc.retention_days === 'number'
+        ? clampRetentionDays(doc.retention_days)
+        : DEFAULT_RETENTION_DAYS,
+    last_run: doc.last_run ?? null,
   };
 }
 

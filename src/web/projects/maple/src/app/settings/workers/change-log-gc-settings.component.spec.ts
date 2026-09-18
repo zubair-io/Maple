@@ -135,6 +135,54 @@ describe('ChangeLogGcSettingsComponent', () => {
     put.flush({ ok: true, config: { ...status.config, enabled: false } });
   });
 
+  /**
+   * `Number('')` is 0, so clearing the box used to write a 0 straight back
+   * into it — the operator could never delete the text to retype, and saving
+   * sent `retention_days: 0`, which the route rejects with a 422.
+   */
+  it('lets the retention box be cleared, and refuses to save an empty one', async () => {
+    await load();
+    expandRow();
+    const el = fixture.nativeElement as HTMLElement;
+
+    const input = el.querySelector(
+      '[data-testid="change-log-gc-retention"] input',
+    ) as HTMLInputElement;
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    await tick();
+    fixture.detectChanges();
+
+    expect(
+      (el.querySelector('[data-testid="change-log-gc-retention"] input') as HTMLInputElement).value,
+    ).toBe('');
+    expect(el.querySelector('[data-testid="change-log-gc-retention-hint"]')).not.toBeNull();
+
+    const save = el.querySelector('[data-testid="change-log-gc-save"] button') as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    save.click();
+    await tick();
+    // No PUT — `afterEach`'s http.verify() fails if one was queued.
+  });
+
+  it('refuses to save a window outside the accepted range', async () => {
+    await load();
+    expandRow();
+    const el = fixture.nativeElement as HTMLElement;
+
+    const input = el.querySelector(
+      '[data-testid="change-log-gc-retention"] input',
+    ) as HTMLInputElement;
+    input.value = '5000';
+    input.dispatchEvent(new Event('input'));
+    await tick();
+    fixture.detectChanges();
+
+    const save = el.querySelector('[data-testid="change-log-gc-save"] button') as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(el.querySelector('[data-testid="change-log-gc-retention-hint"]')).not.toBeNull();
+  });
+
   it('reads "Not run yet" before the first sweep', async () => {
     await load({
       config: { enabled: true, retention_days: 30, last_run: null },

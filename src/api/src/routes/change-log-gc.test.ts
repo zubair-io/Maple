@@ -72,6 +72,42 @@ describe('/api/change-log-gc', () => {
     expect(body.config.enabled).toBe(false);
   });
 
+  /**
+   * `pruned_through` is the journal's watermark, not the last pass's own
+   * figure. A quiet day deletes nothing and reports 0 for itself; reading that
+   * as the watermark made the settings panel claim the journal had never been
+   * pruned the morning after a sweep removed millions of rows.
+   */
+  it('keeps reporting the watermark after a pass that deletes nothing', async () => {
+    if (!mongoReachable || !db || !app) return;
+    await saveChangeLogGcConfig({ retention_days: 30 });
+    const cursor = await allocateCursor();
+    await db.collection('asset_changes').insertOne({
+      _id: new ObjectId(),
+      cursor,
+      asset_id: new ObjectId(),
+      folder_id: null,
+      kind: 'update',
+      abs_path: '/lib/old.dng',
+      relative_path: null,
+      at: new Date(Date.now() - 90 * DAY_MS),
+    } as never);
+
+    await runChangeLogGcOnce({ pauseMs: 0 });
+    const afterSweep = await (
+      await app.handle(new Request('http://localhost/api/change-log-gc/status'))
+    ).json();
+    expect(afterSweep.pruned_through).toBe(cursor);
+
+    // Nothing left to prune; the next pass is a no-op.
+    const quiet = await runChangeLogGcOnce({ pauseMs: 0 });
+    expect(quiet.deleted).toBe(0);
+    const afterQuietPass = await (
+      await app.handle(new Request('http://localhost/api/change-log-gc/status'))
+    ).json();
+    expect(afterQuietPass.pruned_through).toBe(cursor);
+  });
+
   it('rejects a window outside the accepted range', async () => {
     if (!mongoReachable || !app) return;
     const res = await app.handle(

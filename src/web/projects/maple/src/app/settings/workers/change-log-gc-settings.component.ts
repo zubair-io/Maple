@@ -99,11 +99,26 @@ export class ChangeLogGcSettingsComponent implements OnInit {
     }
   }
 
+  /**
+   * An empty box means "I am retyping this", not "zero days".
+   *
+   * `Number('')` is 0 and passes `Number.isFinite`, so the naive read wrote 0
+   * into the draft, the `[value]` binding put "0" straight back into the box,
+   * and the operator could never clear it to type a new number. Saving that 0
+   * then failed the route's `minimum: 1` with a raw 422 string.
+   */
   protected setDraftDays(raw: string): void {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return;
-    this.draftDays.set(n);
+    const trimmed = raw.trim();
+    const parsed = trimmed === '' ? null : Number(trimmed);
+    if (parsed !== null && !Number.isFinite(parsed)) return;
+    this.draftDays.set(parsed);
     this.saved.set(false);
+  }
+
+  /** The window the route will accept: a whole number of days, 1 to 3650. */
+  protected draftIsValid(): boolean {
+    const days = this.draftDays();
+    return days !== null && Number.isFinite(days) && Math.round(days) >= 1 && days <= 3650;
   }
 
   /** Toggle `enabled` immediately — a switch, not part of the Save batch. */
@@ -122,7 +137,7 @@ export class ChangeLogGcSettingsComponent implements OnInit {
 
   protected async save(): Promise<void> {
     const days = this.draftDays();
-    if (days === null) return;
+    if (days === null || !this.draftIsValid()) return;
     this.saving.set(true);
     this.error.set(null);
     try {

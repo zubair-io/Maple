@@ -1,5 +1,7 @@
-import { describe, expect, it, beforeEach } from 'bun:test';
-import { getDb } from '../db/client.ts';
+import { describe, expect, it, beforeAll, beforeEach } from 'bun:test';
+import { closeDb, getDb } from '../db/client.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
+import type { Db } from 'mongodb';
 import {
   clampRetentionDays,
   DEFAULT_RETENTION_DAYS,
@@ -10,14 +12,18 @@ import {
   MAX_RETENTION_DAYS,
 } from './change-log-gc-config.repo.ts';
 
+// Writes to `app_settings`; keep it off the default `maple` database so a local
+// run can't overwrite the developer's real worker settings (#2783).
+withTestDb(`maple_test_change_log_gc_config_${process.pid}`);
+
 describe('change-log-gc-config.repo', () => {
+  beforeAll(async () => {
+    await closeDb();
+  });
+
   beforeEach(async () => {
-    try {
-      const db = await getDb();
-      await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' as never });
-    } catch {
-      // Ignore if DB is unreachable in pure unit runs
-    }
+    const db = await getDb();
+    await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' as never });
   });
 
   describe('clampRetentionDays', () => {
@@ -80,6 +86,20 @@ describe('change-log-gc-config.repo', () => {
 
       const cfg = await loadChangeLogGcConfig();
       expect(cfg.last_run).toEqual(run);
+    });
+
+    // "No document" and "couldn't read the document" are different answers.
+    // The first is an operator who never touched the setting, so the defaults
+    // are their config. The second must reach the caller, because the caller
+    // deletes rows for a living and has to be able to stand down.
+    it('propagates a read failure instead of answering with the defaults', async () => {
+      const unreadable = {
+        collection: () => ({
+          findOne: () => Promise.reject(new Error('connection timed out')),
+        }),
+      } as unknown as Db;
+
+      await expect(loadChangeLogGcConfig(unreadable)).rejects.toThrow('connection timed out');
     });
   });
 });

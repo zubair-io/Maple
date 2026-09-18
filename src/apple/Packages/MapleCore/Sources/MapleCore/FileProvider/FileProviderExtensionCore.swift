@@ -2472,7 +2472,14 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
                 let moreComing = page.nextCursor != nil && page.changes.count >= Self.changesPageLimit
                 observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
             } catch let e as StaleCursorError {
-                self.log.notice("folder stale cursor (server current=\(e.current)); requesting full re-enumeration")
+                // Advance the shared cursor before signalling expiry — see the
+                // note in `WorkingSetEnumerator.enumerateChanges`. Without it
+                // `currentSyncAnchor` hands the OS back the same dead cursor
+                // after every re-enumeration and the pair livelocks.
+                if e.current > 0 {
+                    self.cursorStore.save(e.current, domain: self.domainID)
+                }
+                self.log.notice("folder stale cursor (server current=\(e.current)); advancing anchor and requesting full re-enumeration")
                 observer.finishEnumeratingWithError(
                     NSError(domain: NSFileProviderErrorDomain,
                             code: NSFileProviderError.syncAnchorExpired.rawValue))

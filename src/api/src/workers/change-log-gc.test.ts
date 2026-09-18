@@ -1,25 +1,37 @@
-import { describe, expect, it, beforeEach } from 'bun:test';
+import { describe, expect, it, beforeAll, beforeEach } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { getDb, assetChangesCollection, serverStateCollection } from '../db/client.ts';
+import { closeDb, getDb, assetChangesCollection, serverStateCollection } from '../db/client.ts';
+import { withTestDb } from '../db/test-db.test-helpers.ts';
 import type { AssetChangeDoc } from '../db/schema.ts';
 import {
   findRetentionCutoffCursor,
   runChangeLogGcOnce,
   startChangeLogGc,
 } from './change-log-gc.ts';
-import { allocateCursor } from '../db/changes.repo.ts';
+import { allocateCursor, changeLogPruneFloor } from '../db/changes.repo.ts';
+
+// This suite empties `asset_changes` and `$inc`s the live cursor counter, so it
+// must never be pointed at the default `maple` database — running it on a
+// machine with the documented self-hosted stack would destroy the developer's
+// real change journal. Scope it to a throwaway database of its own, the same
+// way `trash-gc.test.ts` and `routes/change-log-gc.test.ts` do (#2783).
+withTestDb(`maple_test_change_log_gc_${process.pid}`);
 
 const DAY_MS = 86_400_000;
 
 describe('change-log-gc', () => {
+  // `withTestDb` registers its env override first, so this runs after it —
+  // dropping any connection opened against the default database before the
+  // override landed.
+  beforeAll(async () => {
+    await closeDb();
+  });
+
   beforeEach(async () => {
-    try {
-      const db = await getDb();
-      await db.collection('asset_changes').deleteMany({});
-      await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' as never });
-    } catch {
-      // Ignore if DB unreachable
-    }
+    const db = await getDb();
+    await db.collection('asset_changes').deleteMany({});
+    await db.collection('server_state').deleteMany({});
+    await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' as never });
   });
 
   describe('findRetentionCutoffCursor', () => {
@@ -223,14 +235,14 @@ describe('change-log-gc', () => {
       }
       await coll.insertMany(docs);
 
-      let batchCount = 0;
+      // `shouldStop` is polled once before the pass takes its first write, and
+      // then once per batch. Let the pass start, let one batch through, cancel
+      // at the next poll.
+      let polls = 0;
       const summary = await runChangeLogGcOnce({
         retentionDays: 30,
         batchSize: 2,
-        shouldStop: () => {
-          batchCount++;
-          return batchCount > 1; // stop after the first batch
-        },
+        shouldStop: () => ++polls > 2,
       });
 
       expect(summary.batches).toBe(1);
@@ -281,14 +293,160 @@ describe('change-log-gc', () => {
       expect(config.last_run?.batches).toBe(1);
       expect(config.last_run?.pruned_through).toBe(1);
     });
+
+    // The floor is what the poll route answers "cursor too old" from. It has to
+    // be in place before the deletes, and it has to survive a pass that is
+    // cancelled partway — otherwise a client anchored in the range this sweep
+    // half-deleted is told everything is fine.
+    it('raises the retention floor to the cutoff, before it starts deleting', async () => {
+      const coll = await assetChangesCollection();
+      const now = Date.now();
+      await coll.insertMany(
+        Array.from({ length: 6 }, (_, idx) => ({
+          cursor: idx + 1,
+          asset_id: new ObjectId(),
+          folder_id: new ObjectId(),
+          kind: 'update' as const,
+          abs_path: `/p/${idx + 1}.dng`,
+          relative_path: `${idx + 1}.dng`,
+          at: new Date(now - 40 * DAY_MS),
+        })),
+      );
+
+      const summary = await runChangeLogGcOnce({ retentionDays: 30, batchSize: 2 });
+
+      expect(summary.cutoffCursor).toBe(6);
+      expect(await changeLogPruneFloor()).toBe(6);
+    });
+
+    it('keeps the floor raised when a pass is cancelled halfway through', async () => {
+      const coll = await assetChangesCollection();
+      const now = Date.now();
+      await coll.insertMany(
+        Array.from({ length: 6 }, (_, idx) => ({
+          cursor: idx + 1,
+          asset_id: new ObjectId(),
+          folder_id: new ObjectId(),
+          kind: 'update' as const,
+          abs_path: `/p/${idx + 1}.dng`,
+          relative_path: `${idx + 1}.dng`,
+          at: new Date(now - 40 * DAY_MS),
+        })),
+      );
+
+      let polls = 0;
+      await runChangeLogGcOnce({
+        retentionDays: 30,
+        batchSize: 2,
+        shouldStop: () => ++polls > 2,
+      });
+
+      expect(await coll.countDocuments()).toBe(4);
+      expect(await changeLogPruneFloor()).toBe(6);
+    });
+
+    it('never lowers the floor on a later, smaller pass', async () => {
+      const coll = await assetChangesCollection();
+      const now = Date.now();
+      await coll.insertMany([
+        {
+          cursor: 500,
+          asset_id: new ObjectId(),
+          folder_id: new ObjectId(),
+          kind: 'update' as const,
+          abs_path: '/p/500.dng',
+          relative_path: '500.dng',
+          at: new Date(now - 40 * DAY_MS),
+        },
+      ]);
+      await runChangeLogGcOnce({ retentionDays: 30 });
+      expect(await changeLogPruneFloor()).toBe(500);
+
+      await coll.insertOne({
+        cursor: 10,
+        asset_id: new ObjectId(),
+        folder_id: new ObjectId(),
+        kind: 'update',
+        abs_path: '/p/10.dng',
+        relative_path: '10.dng',
+        at: new Date(now - 40 * DAY_MS),
+      });
+      await runChangeLogGcOnce({ retentionDays: 30 });
+      expect(await changeLogPruneFloor()).toBe(500);
+    });
+
+    // A row with no usable `at` cannot be dated, and retention must not guess.
+    // `undefined < Date` is false in JS, so the old comparison happened to keep
+    // it — this pins the behaviour so a refactor can't quietly invert it.
+    it('will not prune a row whose timestamp is unusable', async () => {
+      const coll = await assetChangesCollection();
+      await coll.insertMany([
+        {
+          cursor: 1,
+          asset_id: new ObjectId(),
+          folder_id: new ObjectId(),
+          kind: 'update' as const,
+          abs_path: '/p/1.dng',
+          relative_path: '1.dng',
+          at: undefined as unknown as Date,
+        },
+        {
+          cursor: 2,
+          asset_id: new ObjectId(),
+          folder_id: new ObjectId(),
+          kind: 'update' as const,
+          abs_path: '/p/2.dng',
+          relative_path: '2.dng',
+          at: new Date(Date.now() - 40 * DAY_MS),
+        },
+      ]);
+
+      const summary = await runChangeLogGcOnce({ retentionDays: 30 });
+      expect(summary.deleted).toBe(0);
+      expect(summary.cutoffCursor).toBeNull();
+      expect(await coll.countDocuments()).toBe(2);
+      expect(await changeLogPruneFloor()).toBe(0);
+    });
+
+    // Deleting is irreversible, so "couldn't read the operator's setting" has
+    // to mean "don't run", not "run on the 30-day default".
+    it('skips the pass when the config cannot be read', async () => {
+      const unreadable = {
+        collection: () => ({
+          findOne: () => Promise.reject(new Error('connection timed out')),
+        }),
+      } as unknown as Parameters<typeof runChangeLogGcOnce>[0]['dbOverride'];
+
+      const summary = await runChangeLogGcOnce({ dbOverride: unreadable });
+      expect(summary.skipped).toBe(true);
+      expect(summary.deleted).toBe(0);
+    });
   });
 
   describe('startChangeLogGc', () => {
-    it('returns a handle that stops the interval', () => {
+    it('returns a handle that stops the interval, leaving the startup pass a no-op', async () => {
+      const coll = await assetChangesCollection();
+      await coll.insertOne({
+        cursor: 1,
+        asset_id: new ObjectId(),
+        folder_id: new ObjectId(),
+        kind: 'update',
+        abs_path: '/p/1.dng',
+        relative_path: '1.dng',
+        at: new Date(Date.now() - 40 * DAY_MS),
+      });
+
       const handle = startChangeLogGc({ intervalMs: 10_000 });
-      expect(handle).toBeDefined();
       expect(typeof handle.stop).toBe('function');
       handle.stop();
+
+      // The worker fires one pass on startup, so `stop()` lands mid-await. Let
+      // it settle here — both to prove it wrote nothing, and so its `getDb()`
+      // resolves against this suite's scoped database instead of leaking a
+      // connection to the default one once the env override is restored.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(await coll.countDocuments()).toBe(1);
+      expect(await changeLogPruneFloor()).toBe(0);
     });
   });
 });

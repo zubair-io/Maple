@@ -12,7 +12,7 @@
 
 import { Elysia, sse, t } from 'elysia';
 import { isChangeCursorTooOld, listChangesSince } from '../db/changes.repo.ts';
-import { getChangeBus } from '../runtime/change-bus.ts';
+import { getChangeBus, type ChangeBus } from '../runtime/change-bus.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 
@@ -74,6 +74,27 @@ function asPayload(r: AssetChangeWithId): ChangePayload {
 }
 
 /**
+ * The cursor a 409 tells the client to resume from.
+ *
+ * It must be the highest cursor the server knows about, not the highest one
+ * still sitting in the ring buffer. Those differ in exactly the case that
+ * produces most 409s — a freshly restarted process, whose buffer is empty while
+ * its persisted high watermark reflects everything the previous process
+ * emitted. Reporting the buffer alone answered `current: 0` there, and 0 is the
+ * one value the Apple client cannot use: `ChangeFeedClient` treats it as "no
+ * usable cursor" and resets to `since=0`, which trips the same 409 on the next
+ * connect and loops. Retention pruning (#3741) makes the empty buffer ordinary
+ * rather than restart-only, so the difference stops being a corner case.
+ *
+ * Shared verbatim with the SQLite change-feed port (#3766), which arrived at
+ * the same expression independently — the two branches touch these lines and
+ * must land on one form.
+ */
+function resumeCursor(bus: ChangeBus): number {
+  return Math.max(bus.snapshot().at(-1)?.cursor ?? 0, bus.getPersistedHighWatermark());
+}
+
+/**
  * Build an SSE-payload object for `sse()`. Elysia's helper formats the
  * `event` / `id` / `data` lines per the SSE spec; `data` may be a string
  * or a JSON-serialisable object.
@@ -112,12 +133,25 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
         }
         limit = Math.min(parsed, 1000);
       }
+      // Read the page FIRST, then decide whether the anchor was still valid.
+      //
+      // The check and the read are two separate round trips, and a retention
+      // sweep (#3741) can land between them: a client sitting just inside the
+      // doomed range passes the floor check, the sweep deletes the next few
+      // thousand rows, and the read then serves the rows after the hole with a
+      // 200. The client saves that as its anchor and has silently lost every
+      // event in between — the exact miss the 409 exists to prevent.
+      //
+      // Checking afterwards is both sufficient and race-free. The floor only
+      // ever rises, and the sweep raises it before it deletes anything, so a
+      // floor still at or below `since` once the read has completed proves that
+      // nothing above `since` was pruned while the read was in flight.
+      const rows = await listChangesSince(undefined, { since, limit });
       const { tooOld, current } = await isChangeCursorTooOld(undefined, since);
       if (tooOld) {
         set.status = 409;
         return { error: 'cursor too old', current };
       }
-      const rows = await listChangesSince(undefined, { since, limit });
       const payload = rows.map(asPayload);
       const next_cursor = rows.length > 0 ? rows[rows.length - 1]!.cursor : undefined;
       return { changes: payload, next_cursor };
@@ -141,8 +175,7 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
       const bus = getChangeBus();
       if (!bus.isCursorReplayable(since)) {
         set.status = 409;
-        const current = bus.snapshot().at(-1)?.cursor ?? bus.getPersistedHighWatermark() ?? 0;
-        return { error: 'cursor too old', current };
+        return { error: 'cursor too old', current: resumeCursor(bus) };
       }
 
       set.headers['content-type'] = 'text/event-stream';
@@ -200,8 +233,7 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
       if (!bus.isCursorReplayable(since)) {
         unsub();
         set.status = 409;
-        const current = bus.snapshot().at(-1)?.cursor ?? bus.getPersistedHighWatermark() ?? 0;
-        return { error: 'cursor too old', current };
+        return { error: 'cursor too old', current: resumeCursor(bus) };
       }
 
       // 4. Now safe to flush headers. Yield the open frame as raw bytes
