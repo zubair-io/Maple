@@ -14,9 +14,6 @@ import {
   findDetailByAddress,
   findDetailById,
   findDetailsByIds,
-  findListItems,
-  findLiveAssetIdByMapleId,
-  findLiveAssetIdByPhassetLink,
   parseAssetId,
 } from './assets.repo.ts';
 import {
@@ -24,7 +21,6 @@ import {
   insertEnrichmentState,
   insertFace,
   insertPerson,
-  insertPhassetLink,
   testSqliteDb,
 } from './assets.test-helpers.ts';
 import {
