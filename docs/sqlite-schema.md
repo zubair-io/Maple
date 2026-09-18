@@ -83,7 +83,7 @@ aliases are used freely for the internal tables whose ids never reach a client:
 | `asset_search` + `assets_fts`                                                                                                                                          | `search_blob` + `search_blob_text`                                                                                            | FTS5 in external-content mode.                                                    |
 | `asset_phasset_links`                                                                                                                                                  | `phasset_links[]`                                                                                                             | Indexed on `(device_id, phasset_local_id)` — the index that does not exist today. |
 | `faces`                                                                                                                                                                | `faces[]`                                                                                                                     | `face_index` keeps the array position, which is on the wire.                      |
-| `stage_state`                                                                                                                                                          | `stages.<name>.*`                                                                                                             | `(asset_id, stage)`, `WITHOUT ROWID`.                                             |
+| `stage_state`                                                                                                                                                          | `stages.<name>.*`                                                                                                             | `(asset_id, stage)`, `WITHOUT ROWID`, one row per asset per stage.                |
 | `enrichment_state`                                                                                                                                                     | `enrichment.<stage>.*`                                                                                                        | The older lease-based claim for `geocode` / `face` / `describe`.                  |
 | `people`, `person_merge_dismissals`                                                                                                                                    | same                                                                                                                          | `cover_bbox` and the merge-suggestion head flattened to columns.                  |
 | `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                                                                 | same                                                                                                                          |                                                                                   |
@@ -209,7 +209,7 @@ index got from `default_language: 'english'`.
 |                                 | Mongo                                                                          | SQLite                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------- |
 | Per-stage indexes on `assets`   | 24 (12 stages × 2), plus stale ones for retired stages that were never dropped | 2, and they do not grow with the stage list             |
-| Other named indexes on `assets` | 26                                                                             | 39 across `assets` and the six tables its arrays became |
+| Other named indexes on `assets` | 26                                                                             | 33 across `assets` and the six tables its arrays became |
 | Registering a new stage         | two more index definitions, rebuilt on the next boot                           | an insert                                               |
 
 The ticket's "28 of 54" counts production's live index list, which carries
@@ -245,6 +245,15 @@ periodic `DELETE … WHERE expires_at < ?`, and each table carries an index on
 already had to check expiry at read time, because Mongo's monitor only runs once
 a minute and an expired document is fully readable until it fires.
 
+**Stage rows are seeded, not lazy.** On Mongo a missing `stages.<name>` subdoc
+is claimable, because BSON orders a missing field below any number so
+`{ version: { $lt: target } }` matches it. The SQL equivalent of that is an
+anti-join against `assets`, which cannot use an index on `stage_state` at all.
+So every asset gets one row per registered stage at `version = 0` when it is
+created, and the claim becomes a plain index range scan — 0.05 ms for 500
+candidates over 12 million rows. Registering a thirteenth stage is then one
+`INSERT … SELECT id, 'new-stage' FROM assets`.
+
 **Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
 enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
 it is off by default. Without it every `ON DELETE CASCADE` in this schema is
@@ -275,6 +284,49 @@ Connection management is not the runner's business. It talks to a `MigrationDb`
 and the worker-backed pool can satisfy with its read / write / transaction
 primitives. The only requirement is that every call lands on the same
 connection with writes serialised, or `BEGIN` means nothing.
+
+## Measured
+
+Generated libraries at three sizes, on an M-series Mac, SQLite 3.54.0 under Bun
+1.4.3. Sizes are `dbstat` byte counts per b-tree, not estimates. Timings are the
+median of five runs after re-opening the database, so SQLite's own page cache
+starts empty.
+
+| assets    | db file  | `assets` | `asset_locations` | facet + grid index set | `stage_state` + its indexes | `asset_detail` |
+| --------- | -------- | -------- | ----------------- | ---------------------- | --------------------------- | -------------- |
+| 335,377   | 1,779 MB | 310 MB   | 29 MB             | **193 MB**             | 484 MB                      | 478 MB         |
+| 600,000   | 3,175 MB | 555 MB   | 53 MB             | **346 MB**             | 865 MB                      | 852 MB         |
+| 1,000,000 | 5,289 MB | 925 MB   | 88 MB             | **577 MB**             | 1,438 MB                    | 1,422 MB       |
+
+The bolded column is the set every browse, search and facet query actually
+touches: the 18 partial indexes on `assets` plus the six on `asset_locations`.
+At production's row count it is 193 MB, against the 8.8 GB Mongo collection that
+does not fit a 1.5 GB cache. `asset_detail` is the largest object in the
+database and no hot query reads it, which is the whole reason it is a separate
+table.
+
+| query                               | 335,377   | 600,000   | 1,000,000 |
+| ----------------------------------- | --------- | --------- | --------- |
+| count live assets                   | 3.8 ms    | 6.8 ms    | 14.2 ms   |
+| facet: camera make + model          | 16.2 ms   | 30.5 ms   | 48.7 ms   |
+| facet: place country code           | 5.2 ms    | 12.4 ms   | 20.6 ms   |
+| facet: place locality + region      | 13.3 ms   | 28.6 ms   | 46.6 ms   |
+| facet: lens                         | 12.0 ms   | 22.0 ms   | 35.9 ms   |
+| facet: timeline buckets             | 9.9 ms    | 22.2 ms   | 32.6 ms   |
+| grid page, 200 rows                 | 0.4 ms    | 0.5 ms    | 0.5 ms    |
+| duplicate candidates                | 21.2 ms   | 41.4 ms   | 64.2 ms   |
+| backup sidecar lookup               | < 0.01 ms | < 0.01 ms | < 0.01 ms |
+| stage claim, 500 candidates         | 0.03 ms   | 0.05 ms   | 0.05 ms   |
+| full-text search, selective term    | 0.1 ms    | 0.3 ms    | 0.4 ms    |
+| count live assets via `EXISTS`      | 156 ms    | 283 ms    | 469 ms    |
+| full-text search, term in most rows | 223 ms    | 444 ms    | 877 ms    |
+
+The two slow rows are there deliberately. The `EXISTS` count is the version
+without the derived `live_location_count` column, and it is why that column
+stays. The broad-term search is the worst case for any inverted index — a token
+present in nearly every document, where the work is ranking the matches rather
+than finding them; a selective term, which is what a person types, is three
+orders of magnitude faster.
 
 ## Reproducing the measurements
 
