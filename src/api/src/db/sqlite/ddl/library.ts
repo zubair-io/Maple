@@ -34,13 +34,31 @@ CREATE TABLE folders (
  * The File Provider push channel. `cursor` is allocated from the
  * `asset_changes_cursor` row of `server_state` and is the ordering contract —
  * `at` is informational.
+ *
+ * ## Why `asset_id` and `folder_id` are plain TEXT with no foreign key
+ *
+ * This is an append-only ledger of things that have already happened, and the
+ * most important thing it records is a deletion. `routes/assets/trash.ts` and
+ * `routes/folders.ts` both hard-delete the asset row and then write
+ * `{ kind: 'delete', asset_id }`; `db/assets.trash.ts`'s `hardDelete` does the
+ * same after a purge. A foreign key breaks that in both available directions:
+ * `REFERENCES assets (id)` rejects the insert outright — and the change-row
+ * writer is best-effort, so the error is swallowed and the delete event is
+ * simply lost — while `ON DELETE SET NULL` accepts it and then blanks the one
+ * field the event exists to carry, leaving a File Provider client polling
+ * `listChangesSince` with `{ kind: 'delete', asset_id: null }` and no way to
+ * know which item to drop.
+ *
+ * The id here is a historical record of an identifier, not a pointer to a live
+ * row, so it carries no referential action. Found by the File Provider port
+ * (#3747) and by the review of this PR, independently.
  */
 export const ASSET_CHANGES_TABLE_DDL = `
 CREATE TABLE asset_changes (
   cursor INTEGER NOT NULL PRIMARY KEY,
 
-  asset_id  TEXT REFERENCES assets (id) ON DELETE SET NULL,
-  folder_id TEXT REFERENCES folders (id) ON DELETE SET NULL,
+  asset_id  TEXT,
+  folder_id TEXT,
   kind      TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete', 'restore')),
 
   abs_path      TEXT,
@@ -125,7 +143,12 @@ export const PRESETS_TABLE_DDL = `
 CREATE TABLE presets (
   id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
 
-  name           TEXT NOT NULL,
+  -- COLLATE on the COLUMN, not on the index expression: a collation declared
+  -- only in 'CREATE INDEX … (name COLLATE NOCASE)' builds a NOCASE index that
+  -- a BINARY 'WHERE name = ?' cannot use, so the lookup full-scans. Declared
+  -- here, the comparison and the index agree and the probe is a seek. Same
+  -- reasoning in ddl/faces.ts (people.name) and ddl/auth.ts (users.email).
+  name           TEXT NOT NULL COLLATE NOCASE,
   schema_version INTEGER NOT NULL,
   fields         TEXT NOT NULL CHECK (json_valid(fields)),
   extra          TEXT CHECK (extra IS NULL OR json_valid(extra)),
@@ -136,6 +159,6 @@ CREATE TABLE presets (
 
 export const PRESETS_INDEX_DDL = `
 -- Case-insensitive uniqueness, matching the Mongo collation
--- { locale: 'en', strength: 2 }.
-CREATE UNIQUE INDEX presets_name_unique ON presets (name COLLATE NOCASE);
+-- { locale: 'en', strength: 2 }. The collation comes from the column.
+CREATE UNIQUE INDEX presets_name_unique ON presets (name);
 `;

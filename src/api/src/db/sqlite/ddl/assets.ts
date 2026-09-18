@@ -67,7 +67,22 @@ CREATE TABLE assets (
                    OR hidden_reason IN ('manual', 'nudity', 'nudity-burst', 'folder')
                  ),
   hidden_ack     INTEGER NOT NULL DEFAULT 0 CHECK (hidden_ack IN (0, 1)),
-  is_screenshot  INTEGER NOT NULL DEFAULT 0 CHECK (is_screenshot IN (0, 1)),
+  -- Nullable on purpose, and the only tri-state in this table (#3761).
+  -- AssetDetailDto.is_screenshot is typed boolean | null and emitted as
+  -- doc.is_screenshot ?? null, so three states are already on the wire:
+  -- never classified, classified as not a screenshot, classified as one. The
+  -- describe stage is what makes that distinction — a NOT NULL DEFAULT 0
+  -- column would report "not a screenshot" for every asset the stage has not
+  -- reached yet, which is a wire-contract change dressed as a default.
+  --
+  -- hidden and hidden_ack above stay NOT NULL DEFAULT 0 although their DTO
+  -- keys are optional too, because their filter semantics are already
+  -- two-valued: every query spells the exclusion hidden: { $ne: true },
+  -- which matches absent and false identically, and an absent key reads as
+  -- false at every client. Nothing distinguishes the two states, and making
+  -- them nullable would force (hidden = 0 OR hidden IS NULL) into the
+  -- predicate of every browse, search and facet query — losing the index.
+  is_screenshot  INTEGER CHECK (is_screenshot IS NULL OR is_screenshot IN (0, 1)),
 
   -- soft delete
   deleted_at      TEXT,
@@ -81,8 +96,10 @@ CREATE TABLE assets (
   damaged_stage   TEXT,
   damaged_reason  TEXT,
 
-  -- content identity
-  maple_id   TEXT,
+  -- content identity. The empty string is refused rather than filtered out of
+  -- the index below — see assets_maple_id for why that distinction decides
+  -- whether the dedup probe uses an index at all.
+  maple_id   TEXT CHECK (maple_id IS NULL OR maple_id <> ''),
   sha1_head  TEXT,
 
   -- liveness roll-up. Number of asset_locations rows for this asset with
@@ -142,14 +159,41 @@ CREATE TABLE assets (
  */
 export const LIVE_ASSET_PREDICATE = 'deleted_at IS NULL AND live_location_count > 0';
 
+/**
+ * Why `hidden` is the last column of almost every index below.
+ *
+ * Every browse, search and facet request carries one filter nobody asked for:
+ * hidden assets are excluded unless the caller opts in, so `buildFilter` emits
+ * `hidden: { $ne: true }` on literally every query and the SQLite translation
+ * emits `hidden = 0`. An index that omits the column therefore serves the group
+ * key and then has to fetch each candidate row to test it, which turns an
+ * index-only scan into a read of the whole `assets` table — the one thing this
+ * schema exists to avoid.
+ *
+ * Measured on 60,000 generated assets (#3750), shipped queries against the
+ * indexes as first written:
+ *
+ * | query                       | without `hidden` | with it |
+ * | --------------------------- | ---------------- | ------- |
+ * | count live assets           | 18.3 ms          | 1.0 ms  |
+ * | facet: camera make + model  | 57.6 ms          | 2.5 ms  |
+ *
+ * It goes last rather than first because it is not a group key: appending it
+ * leaves the leading columns in the order each `GROUP BY` wants, so the scan
+ * stays index-only *and* streams its groups. Putting it in the partial index's
+ * `WHERE` instead would be smaller on disk and wrong — `hidden=only` and
+ * `hidden=all` are real wire values, and both would lose the index entirely.
+ */
 export const ASSETS_INDEX_DDL = `
 -- Default search/browse sort: newest capture first, id breaking ties so
 -- pagination is stable across pages of burst frames. Replaces
 -- { 'fileinfo.library_id': 1, 'exif.captured_at': -1, _id: 1 } — the library
 -- scope is now a semi-join against asset_locations, which under a LIMIT costs
 -- one index probe per returned row instead of leading the compound key.
+-- The hidden column trails the sort key so the MIN/MAX capture-range facet is
+-- index-only; a grid page reads its row anyway, for the projection.
 CREATE INDEX assets_live_captured
-  ON assets (captured_at DESC, id)
+  ON assets (captured_at DESC, id, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Plain "how many live assets" count. Keyed on live_location_count rather than
@@ -157,37 +201,41 @@ CREATE INDEX assets_live_captured
 -- index and the planner prefers a table scan to it, whereas this one answers
 -- the count as a 'live_location_count > 0' range seek over a partial index.
 CREATE INDEX assets_live
-  ON assets (live_location_count)
+  ON assets (live_location_count, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
--- Facet group-bys. Covering: the group keys ARE the index columns, so these
--- run as index-only scans and never read an asset row.
+-- Facet group-bys. The group keys ARE the index columns, and the hidden filter
+-- rides along, so these answer from the index without reading an asset row.
+-- EXPLAIN QUERY PLAN says "SCAN assets USING INDEX ..." rather than "USING
+-- COVERING INDEX", because SQLite does not label an index over a generated
+-- column as covering; measured, they behave like one (about 45 ns per row at
+-- 40,000 assets, against 1.1 us when the row has to be fetched to test hidden).
 CREATE INDEX assets_facet_camera
-  ON assets (camera_make, camera_model)
+  ON assets (camera_make, camera_model, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 CREATE INDEX assets_facet_lens
-  ON assets (lens)
+  ON assets (lens, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Country -> region -> locality, for the geographic drill-down.
 CREATE INDEX assets_facet_place
-  ON assets (place_country_code, place_region, place_locality)
+  ON assets (place_country_code, place_region, place_locality, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- The places facet groups by (locality, region) — the pair the wire label is
 -- built from — which the country-leading key above cannot serve.
 CREATE INDEX assets_facet_place_label
-  ON assets (place_locality, place_region)
+  ON assets (place_locality, place_region, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 CREATE INDEX assets_facet_screenshot
-  ON assets (is_screenshot)
+  ON assets (is_screenshot, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Timeline buckets: $group by { captured_year, captured_month }.
 CREATE INDEX assets_live_captured_ym
-  ON assets (captured_year DESC, captured_month DESC)
+  ON assets (captured_year DESC, captured_month DESC, hidden)
   WHERE ${LIVE_ASSET_PREDICATE};
 
 -- Meilisearch live-vector coverage: countDocuments(LIVE_ASSET_FILTER +
@@ -204,9 +252,28 @@ CREATE INDEX assets_trashed
 
 -- Content-dedup key. UNIQUE + partial mirrors maple_id_gt_1: skeleton rows
 -- carry a null maple_id and must not collide with each other.
+--
+-- The predicate is IS NOT NULL alone, and the non-empty half is a CHECK on
+-- the column instead, because a partial index is only used when the query's
+-- own WHERE provably implies the index's. maple_id = ? implies IS NOT NULL;
+-- it does not imply <> '', since the bound value is not known at planning
+-- time. With AND maple_id <> '' in here the dedup probe planned as
+-- SCAN assets — a full scan per discovered file, which is the exact cost
+-- this schema exists to remove.
+--
+-- Mongo learned the same lesson on the same column: maple_id_1 carried
+-- partialFilterExpression: { maple_id: { $type: 'string' } }, which the
+-- planner would not match against a literal-string equality either, and
+-- swap-maple-id-partial-filter-2026-05-23 rebuilt it as { $gt: '' } to fix
+-- it (see the comment on ensureIndexes in db/client.ts). $gt: '' is the
+-- Mongo spelling of "present and non-empty"; its SQLite equivalent is this
+-- pair, because SQLite's implication test is textual where Mongo's is
+-- value-based. The indexed set is identical either way: writers store either
+-- NULL on a skeleton row or a 32-character hex string on a hashed one, and the
+-- CHECK now makes that a schema guarantee rather than a convention.
 CREATE UNIQUE INDEX assets_maple_id
   ON assets (maple_id)
-  WHERE maple_id IS NOT NULL AND maple_id <> '';
+  WHERE maple_id IS NOT NULL;
 
 -- Secondary dedup fallback when the maple_id lookup misses. Not unique —
 -- legacy rows can share a head hash.

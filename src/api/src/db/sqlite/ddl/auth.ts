@@ -26,7 +26,15 @@ export const USERS_TABLE_DDL = `
 CREATE TABLE users (
   id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
 
-  email TEXT NOT NULL,
+  -- COLLATE on the COLUMN, not on the index expression, so that every sign-in,
+  -- invite check and account lookup is an index seek instead of a full scan of
+  -- users — a NOCASE index cannot serve a BINARY WHERE email = ?. Unlike
+  -- the two name columns this is not a behavioural fix: a Mongo collation
+  -- applies to a query only when the query asks for it and no email query does,
+  -- but every write and every lookup lowercases first (auth/webauthn.ts,
+  -- auth/invites.ts, routes/auth.ts), so the compared values were already
+  -- case-normalised and matching is unchanged either way.
+  email TEXT NOT NULL COLLATE NOCASE,
   role  TEXT NOT NULL CHECK (role IN ('owner', 'member')),
   -- Per-user file-access permission (#2893). NULL means "not set", which reads
   -- as true; owners have file access regardless.
@@ -39,8 +47,9 @@ CREATE TABLE users (
 
 export const USERS_INDEX_DDL = `
 -- Case-insensitive uniqueness, matching the Mongo collation
--- { locale: 'en', strength: 2 } on the same field.
-CREATE UNIQUE INDEX users_email_unique ON users (email COLLATE NOCASE);
+-- { locale: 'en', strength: 2 } on the same field. The collation comes from
+-- the column, which is what makes this index usable by an equality lookup.
+CREATE UNIQUE INDEX users_email_unique ON users (email);
 `;
 
 /** One user, many passkeys. `public_key` is a COSE key, stored as a blob. */
