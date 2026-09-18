@@ -78,14 +78,25 @@ export function assetCoreByIdsSql(count: number): string {
  * filters. They are interpolated as fixed SQL fragments with their values
  * bound, so the statement text stays inside the worker's prepared-statement
  * cache.
+ *
+ * `INDEXED BY` is a deliberate instruction to the planner, not a hint it may
+ * ignore, and it is here because without it a filtered page takes the wrong
+ * plan. Given `has_xmp = ?` the planner prefers `assets_live` — a range seek
+ * on `live_location_count > 0` — and then sorts the entire live set to satisfy
+ * the ORDER BY. Walking the ordered index and stopping at the limit is what
+ * makes a page cost the page rather than the library. The directive is applied
+ * only when the live predicate is present, because the index is partial and
+ * would be unusable otherwise; SQLite fails the statement outright if the
+ * named index ever stops existing, which is the failure worth having.
  */
 export function listItemsSql(residuals: readonly string[], liveOnly: boolean): string {
   const live = liveOnly ? [LIVE_ASSET_PREDICATE] : [];
   const clauses = [...live, ...residuals];
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+  const indexedBy = liveOnly ? 'INDEXED BY assets_live_captured' : '';
   return `
     SELECT id, mtime, rating, has_xmp, hidden, hidden_reason, hidden_ack
-      FROM assets
+      FROM assets ${indexedBy}
       ${where}
      ORDER BY captured_at DESC, id
      LIMIT ?`;
@@ -172,10 +183,17 @@ export const ASSET_ID_BY_ADDRESS_SQL = `
  * `assets_maple_id` answers the first predicate; the library scope is an
  * `EXISTS` rather than a join so the planner probes one location per candidate
  * instead of leading with the location table.
+ *
+ * The two guards after the equality are not redundant. `assets_maple_id` is a
+ * UNIQUE partial index over `maple_id IS NOT NULL AND maple_id <> ''` —
+ * skeleton rows carry no dedup key and must not collide with each other — and
+ * SQLite only uses a partial index when the query's own `WHERE` provably
+ * implies the index's. `maple_id = ?` alone does not, because the bound value
+ * could be the empty string, so without them this lookup is a table scan.
  */
 export const ASSET_ID_BY_MAPLE_ID_SQL = `
   SELECT a.id FROM assets a
-   WHERE a.maple_id = ?
+   WHERE a.maple_id = ? AND a.maple_id IS NOT NULL AND a.maple_id <> ''
      AND EXISTS (
        SELECT 1 FROM asset_locations l
         WHERE l.asset_id = a.id AND l.library_id = ? AND l.deleted_at IS NULL)
