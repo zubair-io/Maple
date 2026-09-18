@@ -194,7 +194,7 @@ describe('the nested arrays', () => {
          FROM faces WHERE asset_id = ? ORDER BY face_index`,
       ids.assets.rich.toHexString(),
     );
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
 
     // Compared as one object so a shifted `face_index` — which would renumber
     // every face a person is tagged in — shows up as a whole-row diff rather
@@ -215,6 +215,10 @@ describe('the nested arrays', () => {
       { x: 0.2, y: 0.1 },
     ]);
     expect(JSON.parse(String(rows[0]?.embedding))).toEqual([0.01, -0.02, 0.03]);
+
+    // The third face's person was never in the collection, so the repair pass
+    // nulled the reference — which is what ON DELETE SET NULL declares.
+    expect(rows[2]?.person_id).toBeNull();
 
     expect({ ...rows[1], bbox_x: 0.5, bbox_h: 0.1 }).toEqual({
       face_index: 1,

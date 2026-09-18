@@ -82,6 +82,14 @@ function richAsset(ids: SeedIds): Record<string, unknown> {
         confidence: 0.61,
         hidden: true,
       },
+      // Assigned to a person who is no longer in the collection. The column's
+      // own ON DELETE SET NULL says this becomes null, and the repair pass is
+      // what makes that true.
+      {
+        bbox: { x: 0.7, y: 0.7, w: 0.05, h: 0.05 },
+        person_id: '0'.repeat(24),
+        confidence: 0.55,
+      },
     ],
     phasset_links: [
       {

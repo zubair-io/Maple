@@ -125,7 +125,8 @@ describe('mongo → sqlite import', () => {
     if (client === null) return;
     // 1 + 2 + 0 + 1 + 1 + 2, minus the one under an unregistered library root.
     expect(count('asset_locations')).toBe(6);
-    expect(count('faces')).toBe(2);
+    // Two on the rich asset plus the one whose person no longer exists.
+    expect(count('faces')).toBe(3);
     // Three links, two of which are the same (device, local id) pair.
     expect(count('asset_phasset_links')).toBe(2);
   });
