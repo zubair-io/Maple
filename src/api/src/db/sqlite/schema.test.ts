@@ -10,29 +10,30 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
+  createTestDatabase,
   insertAsset,
   insertFolder,
   insertLocation,
   liveLocationCount,
-  openMigratedDatabase,
   run,
 } from './test-sqlite.test-helpers.ts';
 import { newObjectIdHex } from './object-id.ts';
 
 describe('assets', () => {
   test('rejects an id that is not a 24-character hex string', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     expect(() =>
       run(
         db,
         `INSERT INTO assets (id, size, mtime, indexed_at) VALUES ('short', 1, 1, '2026-01-01')`,
       ),
     ).toThrow(/CHECK constraint failed/);
-    db.close();
   });
 
   test('rejects out-of-range rating and flag values', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const id = newObjectIdHex();
     expect(() =>
       run(
@@ -48,11 +49,11 @@ describe('assets', () => {
         id,
       ),
     ).toThrow(/CHECK constraint failed/);
-    db.close();
   });
 
   test('rejects malformed JSON in a payload column', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     // Two guards catch this, and the generated column gets there first: its
     // json_extract refuses the text before the json_valid CHECK is evaluated.
     // Either way the row does not land.
@@ -61,11 +62,11 @@ describe('assets', () => {
     );
     const rows = db.query(`SELECT COUNT(*) AS n FROM assets`).get() as { n: number };
     expect(rows.n).toBe(0);
-    db.close();
   });
 
   test('generated columns expose the queried EXIF and place paths', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const id = insertAsset(db, {
       exif: JSON.stringify({
         captured_at: '2024-06-01T10:00:00.000Z',
@@ -106,11 +107,11 @@ describe('assets', () => {
       place_locality: 'Albany',
       geocoder_version: 3,
     });
-    db.close();
   });
 
   test('generated columns are null when the JSON payload is absent', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const id = insertAsset(db);
     const row = db
       .query(
@@ -123,11 +124,11 @@ describe('assets', () => {
       gps_lat: null,
       place_country_code: null,
     });
-    db.close();
   });
 
   test('the facet aggregation reads an index, not the table', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const plan = (
       db
         .query(
@@ -143,13 +144,13 @@ describe('assets', () => {
 
     expect(plan).toContain('assets_facet_camera');
     expect(plan).not.toContain('SCAN assets\n');
-    db.close();
   });
 });
 
 describe('asset_locations', () => {
   test('two assets cannot claim the same file', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const library = insertFolder(db);
     const first = insertAsset(db);
     const second = insertAsset(db);
@@ -158,11 +159,11 @@ describe('asset_locations', () => {
     expect(() =>
       insertLocation(db, { assetId: second, libraryId: library, path: 'a', filename: 'IMG_1.dng' }),
     ).toThrow(/UNIQUE constraint failed/);
-    db.close();
   });
 
   test('one asset cannot list the same array position twice', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const library = insertFolder(db);
     const asset = insertAsset(db);
 
@@ -170,11 +171,11 @@ describe('asset_locations', () => {
     expect(() =>
       insertLocation(db, { assetId: asset, libraryId: library, ordinal: 0, filename: 'b.dng' }),
     ).toThrow(/UNIQUE constraint failed/);
-    db.close();
   });
 
   test('deleting an asset cascades to its locations', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const library = insertFolder(db);
     const asset = insertAsset(db);
     insertLocation(db, { assetId: asset, libraryId: library });
@@ -184,22 +185,22 @@ describe('asset_locations', () => {
       .query(`SELECT COUNT(*) AS n FROM asset_locations WHERE asset_id = ?`)
       .get(asset) as { n: number };
     expect(remaining.n).toBe(0);
-    db.close();
   });
 
   test('a location cannot point at a library that does not exist', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const asset = insertAsset(db);
     expect(() => insertLocation(db, { assetId: asset, libraryId: newObjectIdHex() })).toThrow(
       /FOREIGN KEY constraint failed/,
     );
-    db.close();
   });
 });
 
 describe('live_location_count', () => {
   test('counts live locations and follows every liveness change', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const library = insertFolder(db);
     const asset = insertAsset(db);
     expect(liveLocationCount(db, asset)).toBe(0);
@@ -238,11 +239,11 @@ describe('live_location_count', () => {
 
     run(db, `DELETE FROM asset_locations WHERE asset_id = ? AND ordinal = 1`, asset);
     expect(liveLocationCount(db, asset)).toBe(0);
-    db.close();
   });
 
   test('a location moving between assets updates both counts', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const library = insertFolder(db);
     const loser = insertAsset(db);
     const survivor = insertAsset(db);
@@ -256,13 +257,13 @@ describe('live_location_count', () => {
 
     expect(liveLocationCount(db, loser)).toBe(0);
     expect(liveLocationCount(db, survivor)).toBe(1);
-    db.close();
   });
 });
 
 describe('same-entry (ANY location) matching', () => {
   test('conditions satisfied by different entries no longer match', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const library = insertFolder(db);
     const asset = insertAsset(db);
 
@@ -293,11 +294,11 @@ describe('same-entry (ANY location) matching', () => {
       )
       .get(asset) as { n: number };
     expect(live.n).toBe(0);
-    db.close();
   });
 
   test('a phasset link pairs a device with its own local id', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const asset = insertAsset(db);
     const first = new Date().toISOString();
     run(
@@ -327,13 +328,13 @@ describe('same-entry (ANY location) matching', () => {
       )
       .get() as { asset_id: string };
     expect(matched.asset_id).toBe(asset);
-    db.close();
   });
 });
 
 describe('stage_state', () => {
   test('holds one row per asset and stage', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const asset = insertAsset(db);
     run(db, `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'exif', 3)`, asset);
     run(db, `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'thumb', 1)`, asset);
@@ -348,11 +349,11 @@ describe('stage_state', () => {
       .query(`SELECT COUNT(*) AS n FROM stage_state WHERE asset_id = ?`)
       .get(asset) as { n: number };
     expect(rows.n).toBe(3);
-    db.close();
   });
 
   test('the claim scan uses stage_claim', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const plan = (
       db
         .query(
@@ -365,13 +366,13 @@ describe('stage_state', () => {
       .map((r) => r.detail)
       .join(' | ');
     expect(plan).toContain('stage_claim');
-    db.close();
   });
 });
 
 describe('full-text search', () => {
   test('a blob inserted into asset_search becomes matchable, and stays in step', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const asset = insertAsset(db);
     run(
       db,
@@ -418,22 +419,22 @@ describe('full-text search', () => {
       n: number;
     };
     expect(gone.n).toBe(0);
-    db.close();
   });
 
   test('refuses an empty blob, which the Mongo partial text index excluded', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const asset = insertAsset(db);
     expect(() =>
       run(db, `INSERT INTO asset_search (asset_id, search_blob) VALUES (?, '')`, asset),
     ).toThrow(/CHECK constraint failed/);
-    db.close();
   });
 });
 
 describe('people and faces', () => {
   test('a person name is unique, case-insensitively, among live rows', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const now = new Date().toISOString();
     const first = newObjectIdHex();
     run(
@@ -463,11 +464,11 @@ describe('people and faces', () => {
       now,
       now,
     );
-    db.close();
   });
 
   test('person lookup is a join, and deleting a person unassigns its faces', async () => {
-    const { db } = await openMigratedDatabase();
+    using handle = await createTestDatabase();
+    const { db } = handle;
     const now = new Date().toISOString();
     const person = newObjectIdHex();
     run(
@@ -499,6 +500,5 @@ describe('people and faces', () => {
       person_id: string | null;
     };
     expect(orphan.person_id).toBeNull();
-    db.close();
   });
 });

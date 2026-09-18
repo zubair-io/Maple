@@ -250,7 +250,9 @@
         "src/workers/stages/thumb.test.ts",
         "src/workers/stages/thumb.ts",
         "src/workers/trash-gc.test.ts",
-        "src/workers/trash-gc.ts"
+        "src/workers/trash-gc.ts",
+        "src/db/sqlite/test-sqlite.test-helpers.ts",
+        "src/db/sqlite/test-sqlite.test-helpers.test.ts"
       ],
       "rules": {
         "eslint/no-restricted-imports": "off"
