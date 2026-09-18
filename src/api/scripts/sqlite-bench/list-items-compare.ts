@@ -18,51 +18,32 @@
  * runs and the comparison rows say so.
  */
 
-import { Database } from 'bun:sqlite';
-import { MongoClient } from 'mongodb';
+import type { Database } from 'bun:sqlite';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
 import { LIVE_ASSET_PREDICATE } from '../../src/db/sqlite/ddl/assets.ts';
-import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
 import { ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
-import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
-import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
 import { findListItems as mongoFindListItems } from '../../src/db/assets.repo.ts';
 import { findListItems as sqliteFindListItems } from '../../src/db/sqlite/repos/assets.repo.ts';
 import { testSqliteDb } from '../../src/db/sqlite/repos/assets.test-helpers.ts';
 import { listItemsSql, locationsByAssetIdsSql } from '../../src/db/sqlite/repos/assets.sql.ts';
+import {
+  BENCH_DIR,
+  openBenchDatabase,
+  removeDatabase,
+  size,
+  timed,
+  withMongoDatabase,
+} from './compare-helpers.ts';
 import { generateLibrary } from './generate.ts';
 import { buildMongoLibrary } from './mongo-library.ts';
 
 const DEFAULT_ASSETS = 60_000;
 const PAGE = 1000;
-const RUNS = 5;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const BENCH_DIR = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
 const DB_PATH = `${BENCH_DIR}/list-items-compare.db`;
-/** WAL leaves two sidecars beside the database; all three go together. */
-const DB_SUFFIXES = ['', '-wal', '-shm'];
 
 /** The fallback lookup the ticket calls a defect, bound the same way on both engines. */
 const PHASSET_DEVICE = 'device-1';
 const PHASSET_LOCAL_ID = 'no-such-id';
-
-async function timed<T>(fn: () => Promise<T>): Promise<{ ms: number; value: T }> {
-  const samples: number[] = [];
-  let value = await fn();
-  for (let i = 0; i < RUNS; i += 1) {
-    const startedAt = performance.now();
-    value = await fn();
-    samples.push(performance.now() - startedAt);
-  }
-  samples.sort((a, b) => a - b);
-  return { ms: samples[Math.floor(samples.length / 2)]!, value };
-}
-
-function size(bytes: number): string {
-  return bytes < 1_000_000
-    ? `${(bytes / 1024).toFixed(1)} KB`
-    : `${(bytes / 1_048_576).toFixed(2)} MB`;
-}
 
 // ---------------------------------------------------------------------------
 // SQLite side
@@ -73,26 +54,8 @@ interface SqliteLibrary {
   libraryId: string;
 }
 
-/**
- * Removes a previous run's database.
- *
- * `Bun.file().delete()` rather than `node:fs` because the API's lint config
- * restricts raw filesystem imports — the same workaround `./run.ts` uses, and
- * for the same reason.
- */
-async function removeDatabase(): Promise<void> {
-  for (const suffix of DB_SUFFIXES) {
-    await Bun.file(`${DB_PATH}${suffix}`)
-      .delete()
-      .catch(() => {});
-  }
-}
-
 async function buildSqlite(assetCount: number): Promise<SqliteLibrary> {
-  await removeDatabase();
-  const db = new Database(DB_PATH, { create: true });
-  for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
-  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
+  const db = await openBenchDatabase(DB_PATH);
   generateLibrary(db, { assetCount });
   db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
   db.exec(ASSETS_FTS_REBUILD_SQL);
@@ -150,41 +113,40 @@ const MONGO_UNAVAILABLE: MongoRows = {
 };
 
 async function measureMongo(assetCount: number): Promise<MongoRows> {
-  let client: MongoClient | null = null;
-  try {
-    client = await MongoClient.connect(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
-    const db = client.db(`maple_listcompare_${Date.now()}`);
-    await buildMongoLibrary(db, assetCount);
+  return withMongoDatabase(
+    'maple_listcompare',
+    async (db) => {
+      await buildMongoLibrary(db, assetCount);
 
-    const page = await timed(() => mongoFindListItems({ liveOnly: true }, PAGE, db));
-    const fetched = await db.collection('assets').find({ deleted_at: null }).limit(PAGE).toArray();
+      const page = await timed(() => mongoFindListItems({ liveOnly: true }, PAGE, db));
+      const fetched = await db
+        .collection('assets')
+        .find({ deleted_at: null })
+        .limit(PAGE)
+        .toArray();
 
-    // The current filter, verbatim: two dotted paths with no index behind them.
-    const explain = await db
-      .collection('assets')
-      .find({
-        'phasset_links.device_id': PHASSET_DEVICE,
-        'phasset_links.phasset_local_id': PHASSET_LOCAL_ID,
-      })
-      .explain('executionStats');
-    const stats = (
-      explain as { executionStats: { executionTimeMillis: number; totalDocsExamined: number } }
-    ).executionStats;
-    const stage = JSON.stringify(explain).includes('"COLLSCAN"') ? 'COLLSCAN' : 'indexed';
+      // The current filter, verbatim: two dotted paths with no index behind them.
+      const explain = await db
+        .collection('assets')
+        .find({
+          'phasset_links.device_id': PHASSET_DEVICE,
+          'phasset_links.phasset_local_id': PHASSET_LOCAL_ID,
+        })
+        .explain('executionStats');
+      const stats = (
+        explain as { executionStats: { executionTimeMillis: number; totalDocsExamined: number } }
+      ).executionStats;
+      const stage = JSON.stringify(explain).includes('"COLLSCAN"') ? 'COLLSCAN' : 'indexed';
 
-    await db.dropDatabase();
-    return {
-      page: `${page.ms.toFixed(1)} ms | fetched ${size(JSON.stringify(fetched).length)} | DTO ${size(
-        JSON.stringify(page.value).length,
-      )}`,
-      lookup: `${stage}, ${stats.totalDocsExamined.toLocaleString()} docs examined, ${stats.executionTimeMillis} ms`,
-    };
-  } catch (err) {
-    console.log(`  (mongo half skipped: ${err instanceof Error ? err.message : String(err)})\n`);
-    return MONGO_UNAVAILABLE;
-  } finally {
-    await client?.close();
-  }
+      return {
+        page: `${page.ms.toFixed(1)} ms | fetched ${size(
+          JSON.stringify(fetched).length,
+        )} | DTO ${size(JSON.stringify(page.value).length)}`,
+        lookup: `${stage}, ${stats.totalDocsExamined.toLocaleString()} docs examined, ${stats.executionTimeMillis} ms`,
+      };
+    },
+    MONGO_UNAVAILABLE,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +200,7 @@ async function main(): Promise<void> {
   reportGridShape(sqlite, semi.ms, inner.ms);
 
   sqlite.db.close();
-  await removeDatabase();
+  await removeDatabase(DB_PATH);
 }
 
 await main();
