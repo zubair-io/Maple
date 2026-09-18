@@ -43,8 +43,12 @@ export function seasonForMonth(month: number | null | undefined): string | null 
 }
 
 export interface ComposeSearchBlobInput {
-  /** Reverse-geocoded place. `null`/`undefined` ⇒ contributes no tokens. */
-  place?: Place | null;
+  /** Reverse-geocoded place. `null`/`undefined` ⇒ contributes no tokens.
+   * Only `search_blob` is read, so a caller that has the blob but not the
+   * whole `Place` — the SQLite repo, which reads it straight out of the
+   * `place` JSON column — can pass just that field rather than rebuilding a
+   * `Place` it does not have. */
+  place?: Pick<Place, 'search_blob'> | null;
   /** `exif.captured_month` (1-12), used to derive a season token (#2992).
    * Month NAMES are deliberately never indexed here — `may`/`march`/`august`
    * are ordinary English words, and the date parser already serves an
