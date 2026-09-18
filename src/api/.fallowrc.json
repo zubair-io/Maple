@@ -15,5 +15,21 @@
     "src/runtime/__fixtures__/stderr-crash-harness.ts",
     "src/__fixtures__/otel-crash-child.ts"
   ],
-  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"]
+  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"],
+  // The SQLite pool (#3742) is the first slice of the MongoDB-to-SQLite epic
+  // (#3753), which sequences the pool ahead of the schema, the importer and
+  // the repository ports. Until a port calls it, its only consumers are its
+  // own tests, which fallow does not count — so every primitive reads as dead
+  // code. Reported but not gating for now; the API's startup path wires the
+  // pool at the cutover (#3752) and this block is deleted in that PR.
+  "overrides": [
+    {
+      "files": ["src/db/sqlite/**"],
+      "rules": {
+        "unused-exports": "warn",
+        "unused-types": "warn",
+        "unused-class-members": "warn"
+      }
+    }
+  ]
 }
