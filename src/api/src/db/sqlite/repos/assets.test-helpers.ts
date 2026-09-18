@@ -14,6 +14,7 @@
 import type { Database } from 'bun:sqlite';
 import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from '../protocol.ts';
 import type { SqliteDb } from './db-handle.ts';
+import { caseFoldKey } from '../case-fold.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { run } from '../test-sqlite.test-helpers.ts';
 
@@ -97,9 +98,10 @@ export function insertPerson(db: Database, name: string, id = newObjectIdHex()):
   const now = new Date().toISOString();
   run(
     db,
-    `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+    `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
     id,
     name,
+    caseFoldKey(name),
     now,
     now,
   );

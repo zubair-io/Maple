@@ -65,8 +65,8 @@ describe('createWorkerDb', () => {
     // `read` is the only path that touches the worker's own connection. Sending
     // a write down it is how a future change would accidentally reintroduce a
     // second writer, and SQLite is what refuses — not a check in our code.
-    const attempt = db.read(`INSERT INTO people (id, name, created_at, updated_at)
-                             VALUES ('aaaaaaaaaaaaaaaaaaaaaaaa', 'Nope', '', '')`);
+    const attempt = db.read(`INSERT INTO people (id, name, name_key, created_at, updated_at)
+                             VALUES ('aaaaaaaaaaaaaaaaaaaaaaaa', 'Nope', 'nope', '', '')`);
     await expect(attempt).rejects.toThrow(/readonly|read-only/i);
 
     const rows = handle.db.query('SELECT COUNT(*) AS n FROM people').get() as { n: number };
@@ -96,8 +96,8 @@ describe('createWorkerDb', () => {
     const db = createWorkerDb(handle.path, worker);
 
     const result = await db.write(
-      `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-      ['bbbbbbbbbbbbbbbbbbbbbbbb', 'Ada', 'now', 'now'],
+      `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      ['bbbbbbbbbbbbbbbbbbbbbbbb', 'Ada', 'ada', 'now', 'now'],
     );
 
     expect(result.changes).toBe(1);
@@ -119,12 +119,10 @@ describe('createWorkerDb', () => {
     // the write lands through the host, and the very next query on the worker's
     // own read-only connection has to see it. If it did not, the clustering
     // pass would seed from stale centroids and produce different assignments.
-    await db.write(`INSERT INTO people (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`, [
-      'cccccccccccccccccccccccc',
-      'Grace',
-      'now',
-      'now',
-    ]);
+    await db.write(
+      `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+      ['cccccccccccccccccccccccc', 'Grace', 'grace', 'now', 'now'],
+    );
     const seen = await db.read<{ name: string }>('SELECT name FROM people WHERE id = ?', [
       'cccccccccccccccccccccccc',
     ]);
@@ -148,12 +146,13 @@ describe('createWorkerDb', () => {
     serveWorkerDbRequests(host, recording);
     const db = createWorkerDb(handle.path, worker);
 
-    const insert = `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, ?, 'n', 'n')`;
+    const insert = `INSERT INTO people (id, name, name_key, created_at, updated_at)
+                    VALUES (?, ?, ?, 'n', 'n')`;
     // The second statement violates the case-insensitive unique name index, so
     // the batch must roll back whole rather than leave the first row behind.
     const rejected = db.transaction([
-      { sql: insert, params: ['dddddddddddddddddddddddd', 'Alan'] },
-      { sql: insert, params: ['eeeeeeeeeeeeeeeeeeeeeeee', 'ALAN'] },
+      { sql: insert, params: ['dddddddddddddddddddddddd', 'Alan', 'alan'] },
+      { sql: insert, params: ['eeeeeeeeeeeeeeeeeeeeeeee', 'ALAN', 'alan'] },
     ]);
     await expect(rejected).rejects.toThrow();
 
@@ -191,8 +190,8 @@ describe('createWorkerDb', () => {
     const changes: number[] = [];
     for (const [index, name] of names.entries()) {
       const result = await db.write(
-        `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, ?, 'n', 'n')`,
-        [`${index}`.repeat(24), name],
+        `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, ?, ?, 'n', 'n')`,
+        [`${index}`.repeat(24), name, name],
       );
       changes.push(result.changes);
     }
@@ -213,7 +212,7 @@ describe('the worker connection is a reader, not a writer', () => {
     // stops it, so the guarantee has to come from opening read-only instead.
     const rogue = new Database(handle.path);
     rogue.run(
-      `INSERT INTO people (id, name, created_at, updated_at) VALUES ('ffffffffffffffffffffffff', 'Rogue', 'n', 'n')`,
+      `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES ('ffffffffffffffffffffffff', 'Rogue', 'rogue', 'n', 'n')`,
     );
     rogue.close();
     const afterRogue = handle.db.query('SELECT COUNT(*) AS n FROM people').get() as { n: number };
@@ -225,7 +224,7 @@ describe('the worker connection is a reader, not a writer', () => {
     const db = createWorkerDb(handle.path, worker);
     await expect(
       db.read(
-        `INSERT INTO people (id, name, created_at, updated_at) VALUES ('111111111111111111111111', 'Nope', 'n', 'n')`,
+        `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES ('111111111111111111111111', 'Nope', 'nope', 'n', 'n')`,
       ),
     ).rejects.toThrow(/readonly|read-only/i);
     db.close();

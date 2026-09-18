@@ -74,6 +74,11 @@ CREATE TABLE people (
   id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
 
   name       TEXT NOT NULL,
+  -- The case-insensitive identity of the name, and the only thing uniqueness
+  -- is ever checked against. NOT NULL with no default on purpose: a write path
+  -- that sets the name without it fails loudly instead of quietly creating a
+  -- second person the lookup cannot find. caseFoldKey in db/sqlite mints it.
+  name_key   TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
 
@@ -115,11 +120,14 @@ CREATE TABLE people (
 
 export const PEOPLE_INDEX_DDL = `
 -- Name uniqueness is what makes "tag two clusters with the same name" a merge.
--- Case-insensitive to match the Mongo collation { locale: 'en', strength: 2 },
--- and scoped to live rows so a merged-away person does not hold its old name
+-- Built over name_key, not over the name under COLLATE NOCASE: NOCASE folds
+-- ASCII A-Z and nothing else, so under it josé and JOSÉ are two names and
+-- the merge silently does not happen — which is not what the Mongo collation
+-- { locale: 'en', strength: 2 } this replaces does. See db/sqlite/case-fold.ts.
+-- Scoped to live rows so a merged-away person does not hold its old name
 -- hostage.
 CREATE UNIQUE INDEX people_name_unique
-  ON people (name COLLATE NOCASE)
+  ON people (name_key)
   WHERE merged_into IS NULL;
 
 -- Audit trail walk: "which rows merged into this one".

@@ -27,6 +27,7 @@ import { ObjectId } from 'mongodb';
 import { child as childLogger } from '../../../log.ts';
 import { DEFAULT_SIMILARITY_THRESHOLD } from '../../../people/cluster-embeddings.ts';
 import { sortedPairKey, type MergeSuggestion } from '../../../people/people-merge-suggestions.ts';
+import { caseFoldKey } from '../case-fold.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
@@ -116,11 +117,13 @@ function materialise(pass: PreparedClusteringPass, when: string): Materialised {
     const personHex = newObjectIdHex();
     newPersonIds.set(cluster, personHex);
     nextAutoIndex += 1;
+    const autoName = `Person ${nextAutoIndex}`;
     inserts.push({
       sql: INSERT_CLUSTER_PERSON_SQL,
       params: [
         personHex,
-        `Person ${nextAutoIndex}`,
+        autoName,
+        caseFoldKey(autoName),
         when,
         when,
         JSON.stringify(pass.clusters[cluster]!.centroid),

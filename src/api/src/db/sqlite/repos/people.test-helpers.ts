@@ -13,6 +13,7 @@ import type { Database } from 'bun:sqlite';
 import { ObjectId } from 'mongodb';
 import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from '../protocol.ts';
 import type { SqliteDb } from './db-handle.ts';
+import { caseFoldKey } from '../case-fold.ts';
 import { insertAsset, insertFolder, insertLocation, run } from '../test-sqlite.test-helpers.ts';
 import { EMBEDDING_DIM } from '../../../people/cluster-embeddings.ts';
 
@@ -73,17 +74,19 @@ export interface PersonFixture {
 /** Inserts one person and returns its id. */
 export function insertPerson(db: Database, overrides: PersonFixture = {}): string {
   const id = overrides.id ?? new ObjectId().toHexString();
+  const name = overrides.name ?? `Person of ${id.slice(-6)}`;
   const when = new Date().toISOString();
   const head = overrides.suggestedMergeHead ?? null;
   run(
     db,
     `INSERT INTO people
-       (id, name, created_at, updated_at, merged_into, hidden, excluded,
+       (id, name, name_key, created_at, updated_at, merged_into, hidden, excluded,
         centroid, centroid_face_count, cover_asset_id,
         suggested_merge_person_id, suggested_merge_score, suggested_merges)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
-    overrides.name ?? `Person of ${id.slice(-6)}`,
+    name,
+    caseFoldKey(name),
     when,
     when,
     overrides.mergedInto ?? null,

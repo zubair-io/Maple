@@ -4,6 +4,7 @@
  */
 
 import { safeObjectId } from '../../safe-object-id.ts';
+import { caseFoldKey } from '../case-fold.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { livePersonIdsForNamesSql, personNamesByIdsSql } from './people.sql.ts';
 
@@ -24,7 +25,10 @@ export async function personIdsForNames(
 ): Promise<string[] | null> {
   if (names.length === 0) return null;
   const db = peopleDb(dbOverride);
-  const rows = await db.read<{ id: string }>(livePersonIdsForNamesSql(names.length), names);
+  const rows = await db.read<{ id: string }>(
+    livePersonIdsForNamesSql(names.length),
+    names.map(caseFoldKey),
+  );
   return rows.map((row) => row.id);
 }
 

@@ -439,7 +439,7 @@ describe('people and faces', () => {
     const first = newObjectIdHex();
     run(
       db,
-      `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'Ada', ?, ?)`,
+      `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, 'Ada', 'ada', ?, ?)`,
       first,
       now,
       now,
@@ -448,7 +448,7 @@ describe('people and faces', () => {
     expect(() =>
       run(
         db,
-        `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'ada', ?, ?)`,
+        `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, 'ada', 'ada', ?, ?)`,
         newObjectIdHex(),
         now,
         now,
@@ -459,7 +459,7 @@ describe('people and faces', () => {
     run(db, `UPDATE people SET merged_into = ? WHERE id = ?`, first, first);
     run(
       db,
-      `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'Ada', ?, ?)`,
+      `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, 'Ada', 'ada', ?, ?)`,
       newObjectIdHex(),
       now,
       now,
@@ -473,7 +473,7 @@ describe('people and faces', () => {
     const person = newObjectIdHex();
     run(
       db,
-      `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'Grace', ?, ?)`,
+      `INSERT INTO people (id, name, name_key, created_at, updated_at) VALUES (?, 'Grace', 'grace', ?, ?)`,
       person,
       now,
       now,

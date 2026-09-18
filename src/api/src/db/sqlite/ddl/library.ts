@@ -135,7 +135,12 @@ CREATE TABLE presets (
 `;
 
 export const PRESETS_INDEX_DDL = `
--- Case-insensitive uniqueness, matching the Mongo collation
--- { locale: 'en', strength: 2 }.
+-- Case-insensitive uniqueness, standing in for the Mongo collation
+-- { locale: 'en', strength: 2 } — but only over ASCII, because NOCASE folds
+-- A-Z and nothing else. Two presets can still hold the same accented name.
+-- people carried the same gap and fixed it with a stored folded key
+-- (db/sqlite/case-fold.ts); this one waits for the slice that ports the
+-- presets repo, since a NOT NULL key column with no writer is untestable.
+-- Tracked by #3781.
 CREATE UNIQUE INDEX presets_name_unique ON presets (name COLLATE NOCASE);
 `;

@@ -13,10 +13,13 @@
  * the implication test is textual enough that an equivalent rewrite loses the
  * index — `docs/sqlite-schema.md` § the live-asset predicate has the argument.
  *
- * `name COLLATE NOCASE` appears in every name comparison because the Mongo
- * index it replaces is declared with `{ locale: 'en', strength: 2 }`, and the
- * merge-on-duplicate-name behaviour is only correct if "alice" and "Alice"
- * collide here exactly as they collide there.
+ * `name_key` appears in every name comparison and never `name` itself. The
+ * Mongo index it replaces is declared with `{ locale: 'en', strength: 2 }`, and
+ * the merge-on-duplicate-name behaviour is only correct if two spellings that
+ * collide there collide here — which rules out `COLLATE NOCASE`, since that
+ * folds ASCII and leaves "josé" and "JOSÉ" as two people. Every parameter
+ * compared against `name_key`, and every value written to it, comes from
+ * `caseFoldKey`. See `db/sqlite/case-fold.ts`.
  */
 
 import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
@@ -50,15 +53,13 @@ export function peopleByIdsSql(count: number): string {
  * The live person holding this name, case-insensitively — the lookup that makes
  * "rename onto an existing name" a merge.
  *
- * `COLLATE NOCASE` sits on the column rather than on the parameter. Both work,
- * because SQLite prefers an explicit collation on either operand over the
- * column's implicit one, but only this spelling matches the expression
- * `people_name_unique` is declared over, and an index on an expression is used
- * only when the query names that expression.
+ * The parameter is a folded key, not a display name. This is the query
+ * `people_name_unique` is declared over, so the lookup and the constraint
+ * behind it agree by construction: whatever this misses, the index permits.
  */
 export const LIVE_PERSON_BY_NAME_SQL = `
   SELECT ${PERSON_COLUMNS} FROM people
-   WHERE name COLLATE NOCASE = ? AND merged_into IS NULL
+   WHERE name_key = ? AND merged_into IS NULL
    LIMIT 1`;
 
 /**
@@ -76,27 +77,28 @@ const AUTO_NAME_PREDICATE = `(name GLOB 'Person [0-9]*' AND NOT name GLOB 'Perso
  * One visibility-scoped listing, name-sorted.
  *
  * `predicate` is assembled by the caller from a fixed set of fragments, never
- * from request input. The sort repeats `COLLATE NOCASE` so the order matches
- * the Mongo collation's rather than SQLite's default byte order, which would
- * put every capitalised name ahead of every lowercase one.
+ * from request input. The sort is on the folded key so the order ignores case
+ * the way the Mongo collation does, rather than SQLite's default byte order,
+ * which would put every capitalised name ahead of every lowercase one. `id`
+ * breaks the remaining ties, so a page is stable across calls — two people
+ * whose names differ only in case sort in a fixed order rather than an
+ * arbitrary one.
  */
 export function listPeopleSql(predicate: string): string {
   return `SELECT ${PERSON_COLUMNS} FROM people
            WHERE ${predicate}
-           ORDER BY name COLLATE NOCASE`;
+           ORDER BY name_key, id`;
 }
 
 /**
  * Live, visible people holding any of these exact names.
  *
- * `COLLATE NOCASE` goes on the left operand because that is where `IN` takes
- * its comparison collation from — a trailing `COLLATE` would attach to the last
- * value in the list instead and quietly compare the rest case-sensitively.
+ * The parameters are folded keys, like every other name comparison here.
  * Deliberately not filtered on `excluded`, matching the Mongo filter.
  */
 export function livePersonIdsForNamesSql(count: number): string {
   return `SELECT id FROM people
-           WHERE name COLLATE NOCASE IN (${placeholders(count)})
+           WHERE name_key IN (${placeholders(count)})
              AND merged_into IS NULL
              AND hidden = 0`;
 }
@@ -323,8 +325,8 @@ export const UNASSIGNED_FACES_SQL = `
 // ---------------------------------------------------------------------------
 
 export const INSERT_PERSON_SQL = `
-  INSERT INTO people (id, name, created_at, updated_at, merged_into)
-  VALUES (?, ?, ?, ?, NULL)`;
+  INSERT INTO people (id, name, name_key, created_at, updated_at, merged_into)
+  VALUES (?, ?, ?, ?, ?, NULL)`;
 
 /**
  * A person the clustering pass just discovered: named, seeded with the cluster's
@@ -336,10 +338,10 @@ export const INSERT_PERSON_SQL = `
  */
 export const INSERT_CLUSTER_PERSON_SQL = `
   INSERT INTO people
-    (id, name, created_at, updated_at, merged_into,
+    (id, name, name_key, created_at, updated_at, merged_into,
      centroid, centroid_face_count,
      cover_asset_id, cover_bbox_x, cover_bbox_y, cover_bbox_w, cover_bbox_h)
-  VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`;
+  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`;
 
 /** Live people with no usable cover yet — no asset, or an asset with no crop. */
 export const PEOPLE_MISSING_COVER_SQL = `
@@ -347,7 +349,9 @@ export const PEOPLE_MISSING_COVER_SQL = `
    WHERE merged_into IS NULL
      AND (cover_asset_id IS NULL OR cover_bbox_x IS NULL)`;
 
-export const RENAME_PERSON_SQL = `UPDATE people SET name = ?, updated_at = ? WHERE id = ?`;
+/** A rename writes both spellings together: the key can never lag the name. */
+export const RENAME_PERSON_SQL = `
+  UPDATE people SET name = ?, name_key = ?, updated_at = ? WHERE id = ?`;
 
 /** Touch a person and force its centroid to be recomputed on the next pass. */
 export const DIRTY_CENTROID_SQL = `
@@ -381,7 +385,9 @@ export const CLEAR_SUGGESTIONS_POINTING_AT_SQL = `
 
 /** Name the survivor and dirty its centroid, in one statement. */
 export const CLAIM_SURVIVOR_SQL = `
-  UPDATE people SET name = ?, updated_at = ?, centroid_face_count = -1 WHERE id = ?`;
+  UPDATE people
+     SET name = ?, name_key = ?, updated_at = ?, centroid_face_count = -1
+   WHERE id = ?`;
 
 export const SET_SUGGESTION_SQL = `
   UPDATE people
