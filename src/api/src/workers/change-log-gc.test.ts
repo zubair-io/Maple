@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, beforeEach } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type Db } from 'mongodb';
 import { closeDb, getDb, assetChangesCollection, serverStateCollection } from '../db/client.ts';
 import { withTestDb } from '../db/test-db.test-helpers.ts';
 import type { AssetChangeDoc } from '../db/schema.ts';
@@ -415,7 +415,7 @@ describe('change-log-gc', () => {
         collection: () => ({
           findOne: () => Promise.reject(new Error('connection timed out')),
         }),
-      } as unknown as Parameters<typeof runChangeLogGcOnce>[0]['dbOverride'];
+      } as unknown as Db;
 
       const summary = await runChangeLogGcOnce({ dbOverride: unreadable });
       expect(summary.skipped).toBe(true);
