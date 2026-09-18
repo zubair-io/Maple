@@ -19,18 +19,18 @@
 
 #if os(iOS)
 
-import SwiftUI
-import MapleCore
-import MapleUI
+  import SwiftUI
+  import MapleCore
+  import MapleUI
 
-/// The sub-screen pushed by one `PhoneSettingsView` row, driving
-/// `.navigationDestination(item:)` below.
-private enum SettingsDestination: String, Identifiable {
+  /// The sub-screen pushed by one `PhoneSettingsView` row, driving
+  /// `.navigationDestination(item:)` below.
+  private enum SettingsDestination: String, Identifiable {
     case general, backup, cloud, pano, observability, sources, files, about, mapleUIGallery
     var id: String { rawValue }
-}
+  }
 
-struct PhoneSettingsView: View {
+  struct PhoneSettingsView: View {
     /// Threaded down to `SelfHostedSettingsTab` so ServerAdmin (#2766)
     /// observes the app's shared per-server `AuthSession`. The default is
     /// the preview fallback, which is not cached across calls.
@@ -44,98 +44,145 @@ struct PhoneSettingsView: View {
     @State private var destination: SettingsDestination?
 
     var body: some View {
-        List {
-            Section("General") {
-                MuiListRow(icon: "gear", label: "General", pressed: { destination = .general }, trailing: chevron)
-                MuiListRow(icon: "icloud.and.arrow.up", label: "Backup", pressed: { destination = .backup }, trailing: chevron)
-                MuiListRow(icon: "cloud", label: "Cloud", pressed: { destination = .cloud }, trailing: chevron)
-                MuiListRow(icon: "photo.stack", label: "Pano", pressed: { destination = .pano }, trailing: chevron)
-                    .accessibilityIdentifier("settings.tab.pano")
-            }
-
-            Section("Observability") {
-                MuiListRow(icon: "waveform.path.ecg", label: "Observability", pressed: { destination = .observability }, trailing: chevron)
-            }
-
-            Section("Files") {
-                // #2925: the sidebar hides source sections with nothing
-                // connected, which takes their "+" buttons with them. This
-                // page is where sources are registered and removed instead
-                // — and the phone keeps the sidebar behind a drawer, so it
-                // matters more here than anywhere.
-                MuiListRow(icon: "externaldrive", label: "Sources", pressed: { destination = .sources }, trailing: chevron)
-                    .accessibilityIdentifier("settings.tab.sources")
-                MuiListRow(icon: "folder", label: "Files", pressed: { destination = .files }, trailing: chevron)
-            }
-
-            Section("App") {
-                MuiListRow(icon: "info.circle", label: "About", pressed: { destination = .about }, trailing: chevron)
-                // Maple UI design-system Apple phase — dev-facing catalog
-                // of shipped tokens/atoms; hung off "App" alongside About
-                // rather than a new section for one row.
-                MuiListRow(icon: "square.grid.2x2", label: "Maple UI Gallery", pressed: { destination = .mapleUIGallery }, trailing: chevron)
-            }
+      List {
+        Section("General") {
+          MuiListRow(
+            icon: "gear", label: "General", pressed: { destination = .general }, trailing: chevron)
+          if FeatureFlags.isMapleCloudEnabled {
+            MuiListRow(
+              icon: "icloud.and.arrow.up", label: "Backup", pressed: { destination = .backup },
+              trailing: chevron)
+            MuiListRow(
+              icon: "cloud", label: "Cloud", pressed: { destination = .cloud }, trailing: chevron)
+          }
+          if FeatureFlags.isPanoramaEnabled {
+            MuiListRow(
+              icon: "photo.stack", label: "Pano", pressed: { destination = .pano },
+              trailing: chevron
+            )
+            .accessibilityIdentifier("settings.tab.pano")
+          }
         }
-        .listStyle(.insetGrouped)
-        .mapleSettingsBackground()
-        .navigationDestination(item: $destination) { destination in
-            screen(for: destination)
+
+        Section("Observability") {
+          MuiListRow(
+            icon: "waveform.path.ecg", label: "Observability",
+            pressed: { destination = .observability }, trailing: chevron)
         }
+
+        Section("Files") {
+          // #2925: the sidebar hides source sections with nothing
+          // connected, which takes their "+" buttons with them. This
+          // page is where sources are registered and removed instead
+          // — and the phone keeps the sidebar behind a drawer, so it
+          // matters more here than anywhere.
+          MuiListRow(
+            icon: "externaldrive", label: "Sources", pressed: { destination = .sources },
+            trailing: chevron
+          )
+          .accessibilityIdentifier("settings.tab.sources")
+          if FeatureFlags.isMapleCloudEnabled {
+            MuiListRow(
+              icon: "folder", label: "Files", pressed: { destination = .files }, trailing: chevron)
+          }
+        }
+
+        Section("App") {
+          MuiListRow(
+            icon: "info.circle", label: "About", pressed: { destination = .about },
+            trailing: chevron)
+          // Maple UI design-system Apple phase — dev-facing catalog
+          // of shipped tokens/atoms; hung off "App" alongside About
+          // rather than a new section for one row.
+          MuiListRow(
+            icon: "square.grid.2x2", label: "Maple UI Gallery",
+            pressed: { destination = .mapleUIGallery }, trailing: chevron)
+        }
+      }
+      .listStyle(.insetGrouped)
+      .mapleSettingsBackground()
+      .navigationDestination(item: $destination) { destination in
+        screen(for: destination)
+      }
     }
 
     private func chevron() -> some View {
-        MuiIcon(name: "chevron.right", size: .sm, color: MuiTokens.textMuted)
+      MuiIcon(name: "chevron.right", size: .sm, color: MuiTokens.textMuted)
     }
 
     @ViewBuilder
     private func screen(for destination: SettingsDestination) -> some View {
-        switch destination {
-        case .general:
-            GeneralSettingsTab()
-                .navigationTitle("General")
-                .navigationBarTitleDisplayMode(.inline)
-        case .backup:
-            BackupSettingsView()
-                .navigationTitle("Backup")
-                .navigationBarTitleDisplayMode(.inline)
-        case .cloud:
-            SelfHostedSettingsTab(sessionFor: sessionFor)
-                .navigationTitle("Cloud")
-                .navigationBarTitleDisplayMode(.inline)
-        case .pano:
-            PanoSettingsView()
-                .navigationTitle("Pano")
-                .navigationBarTitleDisplayMode(.inline)
-        case .observability:
-            ObservabilitySettingsTab()
-                .navigationTitle("Observability")
-                .navigationBarTitleDisplayMode(.inline)
-        case .sources:
-            LibrarySourcesSettingsView()
-                .navigationTitle("Sources")
-                .navigationBarTitleDisplayMode(.inline)
-        case .files:
-            FileProviderSettingsViewIOS()
-                .navigationTitle("Files")
-                .navigationBarTitleDisplayMode(.inline)
-        case .about:
-            AboutView()
-                .navigationTitle("About")
-                .navigationBarTitleDisplayMode(.inline)
-        case .mapleUIGallery:
-            MapleUIGalleryView()
-                .navigationTitle("Maple UI Gallery")
-                .navigationBarTitleDisplayMode(.inline)
+      switch destination {
+      case .general:
+        GeneralSettingsTab()
+          .navigationTitle("General")
+          .navigationBarTitleDisplayMode(.inline)
+      case .backup:
+        if FeatureFlags.isMapleCloudEnabled {
+          BackupSettingsView()
+            .navigationTitle("Backup")
+            .navigationBarTitleDisplayMode(.inline)
+        } else {
+          GeneralSettingsTab()
+            .navigationTitle("General")
+            .navigationBarTitleDisplayMode(.inline)
         }
+      case .cloud:
+        if FeatureFlags.isMapleCloudEnabled {
+          SelfHostedSettingsTab(sessionFor: sessionFor)
+            .navigationTitle("Cloud")
+            .navigationBarTitleDisplayMode(.inline)
+        } else {
+          GeneralSettingsTab()
+            .navigationTitle("General")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+      case .pano:
+        if FeatureFlags.isPanoramaEnabled {
+          PanoSettingsView()
+            .navigationTitle("Pano")
+            .navigationBarTitleDisplayMode(.inline)
+        } else {
+          GeneralSettingsTab()
+            .navigationTitle("General")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+      case .observability:
+        ObservabilitySettingsTab()
+          .navigationTitle("Observability")
+          .navigationBarTitleDisplayMode(.inline)
+      case .sources:
+        LibrarySourcesSettingsView()
+          .navigationTitle("Sources")
+          .navigationBarTitleDisplayMode(.inline)
+      case .files:
+        if FeatureFlags.isMapleCloudEnabled {
+          FileProviderSettingsViewIOS()
+            .navigationTitle("Files")
+            .navigationBarTitleDisplayMode(.inline)
+        } else {
+          GeneralSettingsTab()
+            .navigationTitle("General")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+      case .about:
+        AboutView()
+          .navigationTitle("About")
+          .navigationBarTitleDisplayMode(.inline)
+      case .mapleUIGallery:
+        MapleUIGalleryView()
+          .navigationTitle("Maple UI Gallery")
+          .navigationBarTitleDisplayMode(.inline)
+      }
     }
-}
+  }
 
-#Preview {
+  #Preview {
     NavigationStack {
-        PhoneSettingsView()
-            .navigationTitle("Settings")
+      PhoneSettingsView()
+        .navigationTitle("Settings")
     }
     .preferredColorScheme(.dark)
-}
+  }
 
 #endif

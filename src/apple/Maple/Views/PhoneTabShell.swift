@@ -37,11 +37,11 @@
 
 #if os(iOS)
 
-import SwiftUI
-import MapleCore
-import UIKit
+  import SwiftUI
+  import MapleCore
+  import UIKit
 
-struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
+  struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
     /// Cold-start tab restoration. Distinct from any Detail-panel tab
     /// key (see file header). Default `"library"` matches the spec.
     @AppStorage("cm.tab.shell") private var activeTab: String = "library"
@@ -193,190 +193,204 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// `Tab` matches — `TabView` shows no selected tab, and the drawer
     /// `mode:` below (which treats any non-"library" value as `.preview`)
     /// would also misfire. `normalizeActiveTabIfNeeded()` resets that case.
-    private static var validTabs: Set<String> { ["library", "search", "settings"] }
+    private static var validTabs: Set<String> {
+      if FeatureFlags.isMapleCloudEnabled {
+        return ["library", "search", "settings"]
+      } else {
+        return ["library", "settings"]
+      }
+    }
 
     var body: some View {
-        // The LIBRARY drawer wraps the whole tab view so it overlays the
-        // footer tab bar AND the per-tab top bars at full device height
-        // (#692). The Library tab's hamburger writes `isDrawerOpen`; the
-        // drawer reads it, slides over everything, and dims the tab view.
-        AppShellIPhoneDrawer(
-            isDrawerOpen: $isDrawerOpen,
-            // The drawer owns the edge swipe only at the root. Deeper screens
-            // leave it to NavigationStack, producing Edit → Preview → Browse.
-            mode: activeTab == "library" && libraryPath.isEmpty ? .browse : .preview,
-            mainContent: { tabView },
-            sidebarContent: sidebar
-        )
-        .onAppear { normalizeActiveTabIfNeeded() }
+      // The LIBRARY drawer wraps the whole tab view so it overlays the
+      // footer tab bar AND the per-tab top bars at full device height
+      // (#692). The Library tab's hamburger writes `isDrawerOpen`; the
+      // drawer reads it, slides over everything, and dims the tab view.
+      AppShellIPhoneDrawer(
+        isDrawerOpen: $isDrawerOpen,
+        // The drawer owns the edge swipe only at the root. Deeper screens
+        // leave it to NavigationStack, producing Edit → Preview → Browse.
+        mode: activeTab == "library" && libraryPath.isEmpty ? .browse : .preview,
+        mainContent: { tabView },
+        sidebarContent: sidebar
+      )
+      .onAppear { normalizeActiveTabIfNeeded() }
     }
 
     private func normalizeActiveTabIfNeeded() {
-        guard !Self.validTabs.contains(activeTab) else { return }
-        activeTab = "library"
+      guard !Self.validTabs.contains(activeTab) else { return }
+      activeTab = "library"
     }
 
     private var tabView: some View {
-        TabView(selection: $activeTab) {
-            Tab("Library", systemImage: "photo.on.rectangle.angled", value: "library") {
-              // The stack pushes everything in `libraryPath` EXCEPT
-              // `.preview`: Preview is drawn by `PhoneLibraryView`'s hero
-              // overlay with the grid live beneath it (a pushed destination
-              // would cover the grid), while `libraryPath` keeps the
-              // `.preview` entry as the source of truth — Edit pushes on top
-              // of it, deep links seed it, the drawer gates on it.
-              NavigationStack(path: pushedLibraryPath) {
-                PhoneLibraryView(
-                    isDrawerOpen: $isDrawerOpen,
-                    mode: mode,
-                    selectedSession: selectedSession,
-                    libraryTitle: libraryTitle,
-                    cloudTimelineVM: cloudTimelineVM,
-                    cloudTimelineThumbClient: cloudTimelineThumbClient,
-                    cloudTimelineThumbCache: cloudTimelineThumbCache,
-                    allSourcesTimelineVM: allSourcesTimelineVM,
-                    allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
-                    mapVM: mapVM,
-                    mapThumbClient: mapThumbClient,
-                    mapThumbCache: mapThumbCache,
-                    mapUnavailableReason: mapUnavailableReason,
-                    browseDisplayMode: $browseDisplayMode,
-                    browseVM: browseVM,
-                    sessions: $sessions,
-                    libraryPath: $libraryPath,
-                    toolbarContent: toolbarContent,
-                    // Cloud Timeline / Search taps: resolve the asset's session
-                    // (returns its AssetRef) and push the S5 Editor onto THIS
-                    // tab's NavigationStack — same target as a LibraryGrid cell
-                    // tap (`onOpenEditor` below), not the legacy fullImage mode
-                    // flip (#809). `PhoneLibraryView`'s
-                    // `.navigationDestination(for: LibraryDestination)` resolves
-                    // the pushed `.preview` to PreviewDestination, reusing the
-                    // session (incl. its CloudSidecarStore) created during
-                    // resolution.
-                    //
-                    // The resolved `CloudSource` is stashed alongside the push:
-                    // the browse VM holds no source for a Timeline tap, and
-                    // without one Preview downloads the whole RAW (#2376).
-                    onSelectCloudAsset: { asset, server in
-                        if let resolved = onSelectCloudAsset(asset, server) {
-                            pushPreview(resolved.ref, cloudSource: resolved.source)
-                        }
-                    },
-                    cloudPreviewSource: cloudPreviewSource,
-                    onSelectMapPlace: onSelectMapPlace,
-                    // Merged-PhotoKit (local-only) timeline cells: same S5
-                    // push as cloud assets (#809).
-                    onSelectLocalAsset: { ref in
-                        if let assetRef = onSelectLocalAsset(ref) {
-                            pushPreview(assetRef)
-                        }
-                    },
-                    onGrantPhotosAccess: onGrantPhotosAccess,
-                    onNavigateFolder: onNavigateFolder,
-                    // Phone Library tap pushes the fast Preview surface onto
-                    // THIS tab's NavigationStack (Fast Preview §1) — NOT the
-                    // editor directly. Preview's Edit button pushes `.edit`
-                    // from inside PhoneLibraryView's resolved destination. The
-                    // tab bar is hidden on push (#791). The AppShell-provided
-                    // `onOpenEditor` (mode flip) stays in use by the
-                    // tablet/desktop pane shell, which has no NavigationStack.
-                    // Explicit closure, not a bare `pushPreview` reference:
-                    // Swift can't apply the defaulted `cloudSource:` when a
-                    // function is used as a value. A local library cell is
-                    // never a cloud asset, so nil is right — and it clears any
-                    // source from a previous push.
-                    onOpenEditor: { pushPreview($0) },
-                    onOpenTile: { asset, frame in pushPreview(asset, tileFrame: frame) },
-                    onSelectedTileFrameChange: { selectedTileFrame = $0 },
-                    hiddenTileID: hero == nil || heroPhase == .open ? nil : hero?.asset.id,
-                    onPrimeSession: onPrimeSession,
-                    onFullImageFallback: onFullImageFallback,
-                    timelinePreviewSiblingAssets: timelinePreviewSiblingAssets,
-                    onMergePanorama: onMergePanorama,
-                    onEditMetadata: onEditMetadata,
-                    onBatchRename: onBatchRename,
-                    onTrashAssets: onTrashAssets,
-                    clipboard: clipboard
-                )
-              }
-              .overlay {
-                  if let hero {
-                      PreviewHero(
-                          subject: hero,
-                          tileFrame: selectedTileFrame ?? heroTileFrame,
-                          tileCornerRadius: ThumbnailImage.cornerRadius,
-                          content: { previewContent(for: hero.asset) },
-                          onClosed: {
-                              // Show the tile again in the same frame the
-                              // still disappears — no blank tile between.
-                              heroPhase = .open
-                              self.hero = nil
-                              heroClose = nil
-                              popPreview()
-                          },
-                          closeRequest: $heroClose,
-                          onPhaseChange: { heroPhase = $0 }
-                      )
-                      .zIndex(1)
-                  }
-              }
-              // The tab bar hides for the whole life of the hero (the
-              // `.edit` destination hides it itself once pushed on top).
-              .toolbar(hero == nil ? .visible : .hidden, for: .tabBar)
-              .onChange(of: previewEntry, initial: true) { _, entry in
-                  // Follow the path: a new `.preview` entry opens the hero;
-                  // the entry going away (back from a popped editor, a
-                  // reset) drops it.
-                  guard let entry else { hero = nil; heroClose = nil; return }
-                  guard hero?.asset.id != entry.id else { return }
-                  selectedTileFrame = nil
-                  heroPhase = .opening
-                  hero = PreviewHeroSubject(
-                      asset: entry,
-                      image: ThumbnailDecoder.cachedImage(forKey: entry.stableID ?? entry.id.uuidString))
-              }
-            }
-
-            Tab("Search", systemImage: "magnifyingglass", value: "search", role: .search) {
-                PhoneSearchTab(
-                    sessions: $sessions,
-                    query: $searchQuery,
-                    pendingSeed: $pendingSearchSeed,
-                    serverKey: phoneSearchServerKey,
-                    makeSession: makePhoneSearchSession,
-                    resolveAsset: resolveSearchAsset,
-                    loadSiblingAssets: searchPreviewSiblingAssets,
-                    onPrimeSession: onPrimeSession
-                )
-            }
-
-            Tab("Settings", systemImage: "gearshape", value: "settings") {
-                NavigationStack {
-                    // S8 (#1903): grouped List + push, replacing the S1a
-                    // placeholder that embedded SettingsView (itself a
-                    // TabView) and produced a nested footer tab bar.
-                    PhoneSettingsView(sessionFor: sessionFor)
-                        .navigationTitle("Settings")
-                        .navigationBarTitleDisplayMode(.inline)
+      TabView(selection: $activeTab) {
+        Tab("Library", systemImage: "photo.on.rectangle.angled", value: "library") {
+          // The stack pushes everything in `libraryPath` EXCEPT
+          // `.preview`: Preview is drawn by `PhoneLibraryView`'s hero
+          // overlay with the grid live beneath it (a pushed destination
+          // would cover the grid), while `libraryPath` keeps the
+          // `.preview` entry as the source of truth — Edit pushes on top
+          // of it, deep links seed it, the drawer gates on it.
+          NavigationStack(path: pushedLibraryPath) {
+            PhoneLibraryView(
+              isDrawerOpen: $isDrawerOpen,
+              mode: mode,
+              selectedSession: selectedSession,
+              libraryTitle: libraryTitle,
+              cloudTimelineVM: cloudTimelineVM,
+              cloudTimelineThumbClient: cloudTimelineThumbClient,
+              cloudTimelineThumbCache: cloudTimelineThumbCache,
+              allSourcesTimelineVM: allSourcesTimelineVM,
+              allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+              mapVM: mapVM,
+              mapThumbClient: mapThumbClient,
+              mapThumbCache: mapThumbCache,
+              mapUnavailableReason: mapUnavailableReason,
+              browseDisplayMode: $browseDisplayMode,
+              browseVM: browseVM,
+              sessions: $sessions,
+              libraryPath: $libraryPath,
+              toolbarContent: toolbarContent,
+              // Cloud Timeline / Search taps: resolve the asset's session
+              // (returns its AssetRef) and push the S5 Editor onto THIS
+              // tab's NavigationStack — same target as a LibraryGrid cell
+              // tap (`onOpenEditor` below), not the legacy fullImage mode
+              // flip (#809). `PhoneLibraryView`'s
+              // `.navigationDestination(for: LibraryDestination)` resolves
+              // the pushed `.preview` to PreviewDestination, reusing the
+              // session (incl. its CloudSidecarStore) created during
+              // resolution.
+              //
+              // The resolved `CloudSource` is stashed alongside the push:
+              // the browse VM holds no source for a Timeline tap, and
+              // without one Preview downloads the whole RAW (#2376).
+              onSelectCloudAsset: { asset, server in
+                if let resolved = onSelectCloudAsset(asset, server) {
+                  pushPreview(resolved.ref, cloudSource: resolved.source)
                 }
+              },
+              cloudPreviewSource: cloudPreviewSource,
+              onSelectMapPlace: onSelectMapPlace,
+              // Merged-PhotoKit (local-only) timeline cells: same S5
+              // push as cloud assets (#809).
+              onSelectLocalAsset: { ref in
+                if let assetRef = onSelectLocalAsset(ref) {
+                  pushPreview(assetRef)
+                }
+              },
+              onGrantPhotosAccess: onGrantPhotosAccess,
+              onNavigateFolder: onNavigateFolder,
+              // Phone Library tap pushes the fast Preview surface onto
+              // THIS tab's NavigationStack (Fast Preview §1) — NOT the
+              // editor directly. Preview's Edit button pushes `.edit`
+              // from inside PhoneLibraryView's resolved destination. The
+              // tab bar is hidden on push (#791). The AppShell-provided
+              // `onOpenEditor` (mode flip) stays in use by the
+              // tablet/desktop pane shell, which has no NavigationStack.
+              // Explicit closure, not a bare `pushPreview` reference:
+              // Swift can't apply the defaulted `cloudSource:` when a
+              // function is used as a value. A local library cell is
+              // never a cloud asset, so nil is right — and it clears any
+              // source from a previous push.
+              onOpenEditor: { pushPreview($0) },
+              onOpenTile: { asset, frame in pushPreview(asset, tileFrame: frame) },
+              onSelectedTileFrameChange: { selectedTileFrame = $0 },
+              hiddenTileID: hero == nil || heroPhase == .open ? nil : hero?.asset.id,
+              onPrimeSession: onPrimeSession,
+              onFullImageFallback: onFullImageFallback,
+              timelinePreviewSiblingAssets: timelinePreviewSiblingAssets,
+              onMergePanorama: onMergePanorama,
+              onEditMetadata: onEditMetadata,
+              onBatchRename: onBatchRename,
+              onTrashAssets: onTrashAssets,
+              clipboard: clipboard
+            )
+          }
+          .overlay {
+            if let hero {
+              PreviewHero(
+                subject: hero,
+                tileFrame: selectedTileFrame ?? heroTileFrame,
+                tileCornerRadius: ThumbnailImage.cornerRadius,
+                content: { previewContent(for: hero.asset) },
+                onClosed: {
+                  // Show the tile again in the same frame the
+                  // still disappears — no blank tile between.
+                  heroPhase = .open
+                  self.hero = nil
+                  heroClose = nil
+                  popPreview()
+                },
+                closeRequest: $heroClose,
+                onPhaseChange: { heroPhase = $0 }
+              )
+              .zIndex(1)
             }
+          }
+          // The tab bar hides for the whole life of the hero (the
+          // `.edit` destination hides it itself once pushed on top).
+          .toolbar(hero == nil ? .visible : .hidden, for: .tabBar)
+          .onChange(of: previewEntry, initial: true) { _, entry in
+            // Follow the path: a new `.preview` entry opens the hero;
+            // the entry going away (back from a popped editor, a
+            // reset) drops it.
+            guard let entry else {
+              hero = nil
+              heroClose = nil
+              return
+            }
+            guard hero?.asset.id != entry.id else { return }
+            selectedTileFrame = nil
+            heroPhase = .opening
+            hero = PreviewHeroSubject(
+              asset: entry,
+              image: ThumbnailDecoder.cachedImage(forKey: entry.stableID ?? entry.id.uuidString))
+          }
         }
-        // iOS 26 floating tab bar that minimizes on scroll — the collapse
-        // behaviour the Search screen used to fake with a custom pill.
-        .tabBarMinimizeBehavior(.onScrollDown)
-        .tint(MapleTokens.primary)
-        // Face chips in the info pane → prefill the Search tab and run it
-        // (#2518). Overrides the AppShell-root (mac/iPad) `searchForText` for
-        // the iPhone global Search tab. Re-injected across the info sheet by
-        // `PreviewView` / `EditorDestination`.
-        .environment(\.searchForText, SearchTextAction { text in searchFor(text) })
-        // Folder row → reveal the containing folder. Wrap the root action so
-        // it ALSO switches to the Library tab, where the folder was loaded —
-        // otherwise the user stays on the Search tab (#2518).
-        .environment(\.revealFolderAction, RevealFolderAction { asset in
-            rootRevealFolder?(asset)
-            activeTab = "library"
+
+        if FeatureFlags.isMapleCloudEnabled {
+          Tab("Search", systemImage: "magnifyingglass", value: "search", role: .search) {
+            PhoneSearchTab(
+              sessions: $sessions,
+              query: $searchQuery,
+              pendingSeed: $pendingSearchSeed,
+              serverKey: phoneSearchServerKey,
+              makeSession: makePhoneSearchSession,
+              resolveAsset: resolveSearchAsset,
+              loadSiblingAssets: searchPreviewSiblingAssets,
+              onPrimeSession: onPrimeSession
+            )
+          }
+        }
+
+        Tab("Settings", systemImage: "gearshape", value: "settings") {
+          NavigationStack {
+            // S8 (#1903): grouped List + push, replacing the S1a
+            // placeholder that embedded SettingsView (itself a
+            // TabView) and produced a nested footer tab bar.
+            PhoneSettingsView(sessionFor: sessionFor)
+              .navigationTitle("Settings")
+              .navigationBarTitleDisplayMode(.inline)
+          }
+        }
+      }
+      // iOS 26 floating tab bar that minimizes on scroll — the collapse
+      // behaviour the Search screen used to fake with a custom pill.
+      .tabBarMinimizeBehavior(.onScrollDown)
+      .tint(MapleTokens.primary)
+      // Face chips in the info pane → prefill the Search tab and run it
+      // (#2518). Overrides the AppShell-root (mac/iPad) `searchForText` for
+      // the iPhone global Search tab. Re-injected across the info sheet by
+      // `PreviewView` / `EditorDestination`.
+      .environment(\.searchForText, SearchTextAction { text in searchFor(text) })
+      // Folder row → reveal the containing folder. Wrap the root action so
+      // it ALSO switches to the Library tab, where the folder was loaded —
+      // otherwise the user stays on the Search tab (#2518).
+      .environment(
+        \.revealFolderAction,
+        RevealFolderAction { asset in
+          rootRevealFolder?(asset)
+          activeTab = "library"
         })
     }
 
@@ -385,9 +399,9 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// Clearing `libraryPath` pops any open editor/preview (and its info
     /// sheet) so the user lands cleanly on the results.
     private func searchFor(_ text: String) {
-        searchQuery = text
-        libraryPath = []
-        activeTab = "search"
+      searchQuery = text
+      libraryPath = []
+      activeTab = "search"
     }
 
     /// Preview supplies its own non-interactive scale/fade presentation. Turn
@@ -398,68 +412,78 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// cannot silently inherit the last asset's source.
     /// The `.preview` entry currently in the path, if any.
     private var previewEntry: AssetRef? {
-        for case .preview(let ref) in libraryPath { return ref }
-        return nil
+      for case .preview(let ref) in libraryPath { return ref }
+      return nil
     }
 
     /// The Preview the hero shows once open.
     @ViewBuilder
     private func previewContent(for ref: AssetRef) -> some View {
-        PreviewDestination(
-            asset: ref,
-            // The current folder's assets for the filmstrip + prev/next; a
-            // Timeline tap (#2299) leaves `browseVM` empty, so fall back to
-            // that Timeline VM's ordered cells (`timelinePreviewSiblingAssets`
-            // splices `ref` in at its position; a search result degrades to
-            // the single-asset `[ref]`).
-            assets: browseVM.assets.contains(ref) ? browseVM.assets : timelinePreviewSiblingAssets(ref),
-            source: browseVM.currentSource ?? cloudPreviewSource,
-            sessions: $sessions,
-            onClose: { heroClose = PreviewHeroCloseRequest(fromRect: nil) },
-            onPullDownCommitted: { rect in heroClose = PreviewHeroCloseRequest(fromRect: rect) },
-            chromeRevealed: heroPhase == .open,
-            onEdit: { asset in libraryPath.append(.edit(asset)) },
-            onSelectionChanged: { asset in
-                browseVM.selectedID = asset.id
-                // Prime the real session the moment a lazily-built sibling
-                // becomes the shown asset, so a later Edit tap reuses it
-                // (idempotent, matches `onPrimeSession`'s BrowseGrid contract).
-                onPrimeSession(asset)
-            }
-        )
+      PreviewDestination(
+        asset: ref,
+        // The current folder's assets for the filmstrip + prev/next; a
+        // Timeline tap (#2299) leaves `browseVM` empty, so fall back to
+        // that Timeline VM's ordered cells (`timelinePreviewSiblingAssets`
+        // splices `ref` in at its position; a search result degrades to
+        // the single-asset `[ref]`).
+        assets: browseVM.assets.contains(ref) ? browseVM.assets : timelinePreviewSiblingAssets(ref),
+        source: browseVM.currentSource ?? cloudPreviewSource,
+        sessions: $sessions,
+        onClose: { heroClose = PreviewHeroCloseRequest(fromRect: nil) },
+        onPullDownCommitted: { rect in heroClose = PreviewHeroCloseRequest(fromRect: rect) },
+        chromeRevealed: heroPhase == .open,
+        onEdit: { asset in libraryPath.append(.edit(asset)) },
+        onSelectionChanged: { asset in
+          browseVM.selectedID = asset.id
+          // Prime the real session the moment a lazily-built sibling
+          // becomes the shown asset, so a later Edit tap reuses it
+          // (idempotent, matches `onPrimeSession`'s BrowseGrid contract).
+          onPrimeSession(asset)
+        }
+      )
     }
 
     /// Remove the `.preview` entry once the hero has closed. Everything
     /// above it (an editor) is already gone by then.
     private func popPreview() {
-        guard case .preview? = libraryPath.last else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { _ = libraryPath.removeLast() }
+      guard case .preview? = libraryPath.last else { return }
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) { _ = libraryPath.removeLast() }
     }
 
     /// `libraryPath` without its `.preview` entry — what the Library tab's
     /// NavigationStack actually pushes. Writes (a pop) remove from the tail
     /// of the full path, so a popped editor lands back on Preview.
     private var pushedLibraryPath: Binding<[LibraryDestination]> {
-        Binding(
-            get: { libraryPath.filter { if case .preview = $0 { return false }; return true } },
-            set: { pushed in
-                let previews = libraryPath.filter { if case .preview = $0 { return true }; return false }
-                libraryPath = previews + pushed
-            }
-        )
+      Binding(
+        get: {
+          libraryPath.filter {
+            if case .preview = $0 { return false }
+            return true
+          }
+        },
+        set: { pushed in
+          let previews = libraryPath.filter {
+            if case .preview = $0 { return true }
+            return false
+          }
+          libraryPath = previews + pushed
+        }
+      )
     }
 
-    private func pushPreview(_ asset: AssetRef, tileFrame: CGRect? = nil, cloudSource: (any ImageSource)? = nil) {
-        cloudPreviewSource = cloudSource
-        heroTileFrame = tileFrame
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            libraryPath.append(.preview(asset))
-        }
+    private func pushPreview(
+      _ asset: AssetRef, tileFrame: CGRect? = nil, cloudSource: (any ImageSource)? = nil
+    ) {
+      cloudPreviewSource = cloudSource
+      heroTileFrame = tileFrame
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        libraryPath.append(.preview(asset))
+      }
     }
-}
+  }
 
 #endif
