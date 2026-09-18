@@ -86,17 +86,24 @@ export async function findCachedPlace(key: string, dbOverride?: SqliteDb): Promi
  *
  * Idempotent, exactly as the Mongo upsert was: a worker that re-runs after a
  * partial crash replaces the entry cleanly rather than duplicating it.
+ *
+ * `fetchedAt` is a parameter rather than a call to the clock because
+ * `CoordinateCache` already owns an injectable `now` and a test pins it. The
+ * column is diagnostic — nothing in production reads it — but taking the
+ * instant keeps that test meaningful across the cutover instead of asking it
+ * to accept whatever the wall clock said.
  */
 export async function setCachedPlace(
   key: string,
   place: Place,
   geocoderVersion: number,
+  fetchedAt: string = nowIso(),
   dbOverride?: SqliteDb,
 ): Promise<void> {
   await sqliteDb(dbOverride).write(UPSERT_SQL, [
     key,
     JSON.stringify(place),
-    nowIso(),
+    fetchedAt,
     geocoderVersion,
   ]);
 }
