@@ -110,14 +110,13 @@ export class SqlitePool {
 
   /** Run one statement on a reader and return its rows. */
   read<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> {
-    this.assertOpen();
-    return this.leastBusyReader().read(sql, params) as Promise<T[]>;
+    const closed = this.rejectIfClosed();
+    return (closed ?? this.leastBusyReader().read(sql, params)) as Promise<T[]>;
   }
 
   /** Run one statement on the writer. Writes are executed in call order. */
   write(sql: string, params?: SqlParams): Promise<SqlWriteResult> {
-    this.assertOpen();
-    return this.writer.write(sql, params);
+    return this.rejectIfClosed() ?? this.writer.write(sql, params);
   }
 
   /**
@@ -126,8 +125,7 @@ export class SqlitePool {
    * from the batch is visible to readers afterwards.
    */
   transaction(statements: readonly SqlStatement[]): Promise<SqlWriteResult[]> {
-    this.assertOpen();
-    return this.writer.transaction(statements);
+    return this.rejectIfClosed() ?? this.writer.transaction(statements);
   }
 
   stats(): SqlitePoolStats {
@@ -160,7 +158,14 @@ export class SqlitePool {
     return rotated.reduce((best, reader) => (reader.inFlight < best.inFlight ? reader : best));
   }
 
-  private assertOpen(): void {
-    if (this.closed) throw new Error(`sqlite pool: pool for ${this.path} is closed`);
+  /**
+   * A rejected promise when the pool is closed, otherwise null. Rejecting
+   * rather than throwing synchronously keeps every failure in this module on
+   * the promise channel, so a caller's `.catch()` sees a closed pool the same
+   * way it sees a constraint violation.
+   */
+  private rejectIfClosed(): Promise<never> | null {
+    if (!this.closed) return null;
+    return Promise.reject(new Error(`sqlite pool: pool for ${this.path} is closed`));
   }
 }
