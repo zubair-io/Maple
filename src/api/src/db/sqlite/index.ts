@@ -130,6 +130,22 @@ export function processSqliteHandle(): SqliteHandle {
   return testHandle ?? sqlitePool();
 }
 
+/**
+ * Whether a query would find a database to run against, without throwing if it
+ * would not.
+ *
+ * The health endpoint reports it, and one preview path uses it to skip a
+ * catalogue lookup it can do without. Both used to ask the same question of
+ * MongoDB (`isDbConnected`), where the honest answer could be "not right now,
+ * ask again" — a remote server can be unreachable for a while and come back.
+ * Here it is very nearly a constant: startup opens the pool before it listens
+ * and refuses to serve if it cannot, so `false` after boot means the pool was
+ * closed, which happens during shutdown.
+ */
+export function isSqliteOpen(): boolean {
+  return testHandle !== null || (pool !== null && !pool.isClosed);
+}
+
 /** Close the process-wide pool, if any. Idempotent. */
 export function closeSqlitePool(): void {
   pool?.close();
