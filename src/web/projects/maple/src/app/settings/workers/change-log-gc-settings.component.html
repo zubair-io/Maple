@@ -1,0 +1,102 @@
+<mui-settings-row
+  [customSummary]="true"
+  label="Change log GC"
+  [open]="expanded()"
+  (openChange)="toggleExpanded()"
+  [showDivider]="false"
+  data-testid="change-log-gc-row"
+>
+  <div class="wrow-summary set-wrow-summary" summary>
+    <span class="wrow-id set-wrow-id">
+      <maple-settings-icon name="pipe" [size]="14" [color]="'#a8a29e'" />
+      <span class="set-mono">change-log-gc</span>
+    </span>
+    <span class="status-pill set-wrow-status-pill">
+      <span class="status-dot" [style.background]="statusColor()"></span>
+      <span class="status-label" data-testid="change-log-gc-status">{{ statusLabel() }}</span>
+    </span>
+    <span class="wrow-readout set-wrow-readout" data-testid="change-log-gc-summary">{{
+      summaryLine()
+    }}</span>
+    <span class="wrow-spacer set-wrow-spacer"></span>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      data-testid="change-log-gc-run-now"
+      [loading]="running()"
+      (pressed)="runNow()"
+    >
+      Run now
+    </mui-button>
+  </div>
+
+  <div class="flex flex-col gap-3.5 px-4 pt-1 pb-3">
+    <p class="m-0 text-[12.5px] leading-[1.5] text-[var(--s-text-muted)] max-w-[60ch]">
+      Prunes asset change history older than the retention floor in bounded batches to keep the
+      database compact. Clients holding sync cursors older than the retention floor receive HTTP 409
+      and re-enumerate the working set.
+    </p>
+
+    @if (error(); as msg) {
+      <div class="text-[12.5px] text-[var(--s-err)]" data-testid="change-log-gc-error">
+        {{ msg }}
+      </div>
+    }
+
+    @if (loading()) {
+      <p class="text-[12.5px] text-[var(--s-text-muted)]">Loading…</p>
+    } @else {
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4 gap-x-6">
+        <div class="field set-field">
+          <label class="field-label" for="change-log-gc-retention-input">Retention window</label>
+          <div class="num-input set-num-input">
+            <mui-input
+              inputId="change-log-gc-retention-input"
+              variant="numeric"
+              [min]="1"
+              [max]="3650"
+              data-testid="change-log-gc-retention-input"
+              ariaLabel="Retention window (days)"
+              [value]="draftDays().toString()"
+              (valueChange)="onDraftChange($event)"
+            />
+            <span class="num-suffix">days</span>
+          </div>
+          <div class="field-hint">
+            Changes older than this are pruned. Takes effect on next pass (no restart).
+          </div>
+        </div>
+      </div>
+
+      @if (lastRunResult(); as res) {
+        <div
+          class="flex flex-wrap items-center gap-1.5 text-[12px] text-[var(--s-text-dim)]"
+          data-testid="change-log-gc-last-run"
+        >
+          <span>Last sweep:</span>
+          <span
+            class="py-0.5 px-[7px] rounded-[4px] bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border)] [font-variant-numeric:tabular-nums]"
+          >
+            {{ res.deleted }} deleted in {{ res.batches }} batches ({{ res.durationMs }}ms)
+          </span>
+        </div>
+      }
+
+      <div class="flex items-center justify-end gap-2.5">
+        @if (saved()) {
+          <span class="text-[11.5px] text-[var(--s-ok)]" role="status">Saved.</span>
+        }
+        <mui-button
+          variant="primary"
+          size="sm"
+          data-testid="change-log-gc-save"
+          [disabled]="!hasChanges()"
+          [loading]="saving()"
+          (pressed)="save()"
+        >
+          Save changes
+        </mui-button>
+      </div>
+    }
+  </div>
+</mui-settings-row>
