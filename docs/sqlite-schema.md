@@ -222,6 +222,7 @@ search, people and backup call sites those files' helpers serve.
 | `name` sort                          | `fileinfo_filename_1`                                          | `ORDER BY filename`                                                    | `asset_locations_filename`                               |
 | library scope                        | `'fileinfo.library_id'` dotted                                 | `EXISTS (… l.library_id = ?)`                                          | `asset_locations_library_live`                           |
 | free-text `q` regex on filename/path | `$or` of two regexes over `fileinfo`                           | `LIKE` over `asset_locations`                                          | `asset_locations_filename` (prefix only)                 |
+| timeline subtree scope               | `^prefix(\/\|$)` anchored regex, case-sensitive                | `l.path = ?` or `substr(l.path, 1, length(?)) = ?`                     | `UNIQUE(asset_id, ordinal)`, `path` a residual           |
 | `scope=people`                       | `'faces.0': { $exists: true }`                                 | `EXISTS (SELECT 1 FROM faces …)`                                       | `faces_person` / `faces_unassigned`                      |
 | person filter                        | `faces.$elemMatch{person_id ∈ …}`                              | `EXISTS (… f.person_id IN (…))`                                        | `faces_person`                                           |
 | excluded people                      | `faces: { $not: { $elemMatch … } }`                            | `NOT EXISTS (…)`                                                       | `faces_person`                                           |
@@ -244,6 +245,14 @@ regress into leading with `asset_locations` when statistics shift, not because
 it measures faster today. The withdrawn number is called out rather than
 quietly deleted: it was the kind of claim this document exists to make
 checkable.
+
+The subtree scope reads `substr` rather than a prefix `LIKE`, because SQLite's
+`LIKE` is case-insensitive for ASCII whatever the column's collation while `=`
+is not — so the two arms of the predicate disagreed with each other, and the
+descendant arm disagreed with the regex it replaces. `substr` compares under the
+column's own collation, and it costs nothing: the plans are identical and, over
+335,377 generated assets, a 200-row page scoped to a subtree measures 55.1 ms
+against 59.4 ms.
 
 ### Facets and counts
 
@@ -350,6 +359,20 @@ Measured against `$text` over an identical 14,429-document corpus, eleven query
 shapes matched the same number of documents on both engines; the orderings
 differ, because BM25 weighs document length and term rarity more strongly than
 MongoDB's text score does.
+
+The translation answers one of three things, and the third is the one that is
+easy to get wrong. A blank query carries no text filter. A query with terms
+becomes an expression. A query whose terms all cancel — `???`, `-boat`, `((((`
+— is a filter that matches nothing, which is not the same as having no filter:
+collapsing the two would answer the whole live library for a query the user
+typed to narrow it. `$text` returns zero documents for every one of those
+inputs, measured rather than assumed, so the port does too. There is no length
+cap here; the term cap bounds the cost, and refusing a long query outright was
+itself a way of answering the whole library for a pasted caption. An unmatchable
+query becomes the constant `0`, which SQLite folds before planning — the
+statements cost 0.01 ms against 6.51 ms for the same count over 335,377 assets —
+and the statements that would otherwise name an index drop the hint, because an
+`INDEXED BY` over a folded `WHERE` fails to prepare at all.
 
 ### Index count
 
