@@ -101,11 +101,14 @@ CREATE TABLE people (
   hidden   INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1)),
   excluded INTEGER NOT NULL DEFAULT 0 CHECK (excluded IN (0, 1)),
 
-  -- Denormalised count of live assigned faces. Not trigger-maintained: the
-  -- definition spans three tables (a face must be unhidden, on a live asset,
-  -- and its person un-merged), so it stays the clustering pass's job exactly
-  -- as it is today.
-  face_count INTEGER NOT NULL DEFAULT 0,
+  -- No face_count column, by design (#3749). On Mongo the live-face count is a
+  -- denormalised field maintained by hand at every membership change — assign,
+  -- unassign, hide, merge — plus an authoritative rewrite each clustering pass
+  -- whose comment says it exists to heal the drift the incremental sites cause.
+  -- The reason it had to be denormalised is that counting meant unwinding the
+  -- faces array of every asset. As rows it is one COUNT(*) over faces_person,
+  -- joined to assets for liveness, so the count is derived at read time and
+  -- there is nothing left to drift. See repos/people.face-count.ts.
 
   -- Mean of assigned face embeddings, and the count it was computed at.
   centroid            TEXT CHECK (centroid IS NULL OR json_valid(centroid)),
