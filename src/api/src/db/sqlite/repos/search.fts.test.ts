@@ -187,11 +187,11 @@ describe('what a translated query actually finds', () => {
     // comment. A quoted string with no tokens in it is not an error and not a
     // match-all; it is a phrase with nothing in it. Harmless in an OR, fatal in
     // an AND — so `kyoto "???"` has to drop the punctuation rather than emit it.
-    const matches = (expression: string): number =>
+    const matches = (fts5: string): number =>
       (
         handle.db
           .query('SELECT COUNT(*) AS n FROM assets_fts WHERE assets_fts MATCH ?')
-          .get(expression) as { n: number }
+          .get(fts5) as { n: number }
       ).n;
     expect(matches('"harbour"')).toBe(2);
     expect(matches('"!!"')).toBe(0);
