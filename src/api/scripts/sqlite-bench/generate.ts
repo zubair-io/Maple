@@ -38,7 +38,7 @@ import {
  * Deterministic 32-bit PRNG (mulberry32). Seeded so two runs of the benchmark
  * compare like for like.
  */
-function makeRandom(seed: number): () => number {
+export function makeRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6d2b79f5) >>> 0;
