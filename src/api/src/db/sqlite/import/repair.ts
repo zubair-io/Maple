@@ -31,7 +31,7 @@
 import type { Database } from 'bun:sqlite';
 
 /** One foreign-key column and the table it points at. */
-export interface ForeignKey {
+interface ForeignKey {
   table: string;
   column: string;
   parent: string;
@@ -39,7 +39,7 @@ export interface ForeignKey {
 }
 
 /** Nullable references — a dangling one is nulled, as `ON DELETE SET NULL` says. */
-export const NULLABLE_FOREIGN_KEYS: readonly ForeignKey[] = [
+const NULLABLE_FOREIGN_KEYS: readonly ForeignKey[] = [
   { table: 'faces', column: 'person_id', parent: 'people', parentKey: 'id' },
   { table: 'people', column: 'cover_asset_id', parent: 'assets', parentKey: 'id' },
   { table: 'people', column: 'merged_into', parent: 'people', parentKey: 'id' },
@@ -88,7 +88,7 @@ export interface RepairResult {
  * the library. That is precisely the failure mode this whole pass exists to
  * avoid, so it is worth a sentence.
  */
-export function danglingPredicate(fk: ForeignKey): string {
+function danglingPredicate(fk: ForeignKey): string {
   return `${fk.column} IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM ${fk.parent} AS fk_parent
              WHERE fk_parent.${fk.parentKey} = ${fk.table}.${fk.column}

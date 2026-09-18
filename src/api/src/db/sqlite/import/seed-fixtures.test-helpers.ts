@@ -12,7 +12,7 @@ import { ObjectId } from 'mongodb';
 export const TEST_MONGO_URI = 'mongodb://localhost:27077';
 
 /** The twelve canonical per-asset stage names, as of this schema. */
-export const STAGE_NAMES = [
+const STAGE_NAMES = [
   'exif',
   'thumb',
   'preview',

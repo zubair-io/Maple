@@ -42,6 +42,7 @@ import type {
   ImportOptions,
   MapContext,
   Row,
+  TableRows,
   VerifyReport,
 } from './types.ts';
 import { verifyAssetFields } from './verify-assets.ts';
@@ -85,7 +86,7 @@ function rowCount(sqlite: Database, table: string): number {
 }
 
 /** Per-table row counts, source against destination. */
-export async function verifyCounts(
+async function verifyCounts(
   mongo: Db,
   sqlite: Database,
   plans: readonly CollectionPlan[] = IMPORT_PLAN,
@@ -152,10 +153,49 @@ function absentByDesign(
 }
 
 /**
+ * Every row one sampled document should have produced, checked for presence.
+ *
+ * A document the mapper refuses is skipped rather than reported: it is already
+ * on the reject list, which fails the verdict on its own, and reporting it a
+ * second time here would only add noise to the failure output.
+ */
+function checkDocument(
+  sqlite: Database,
+  plan: CollectionPlan,
+  doc: Record<string, unknown>,
+): FieldCheck[] {
+  const sourceId = String(doc._id);
+  const batches = mapQuietly(plan, doc);
+  return batches.flatMap((batch) =>
+    batch.rows.map((row, index) => {
+      const present = rowPresent(sqlite, batch.table, batch.columns, row);
+      const excuse = present ? null : absentByDesign(sqlite, batch.table, batch.columns, row);
+      return {
+        source: plan.source,
+        sourceId,
+        field: `${batch.table}[${index}]`,
+        expected: 'present',
+        actual: present ? 'present' : (excuse ?? 'missing'),
+        ok: present || excuse !== null,
+      };
+    }),
+  );
+}
+
+/** The rows a document maps to, or none when the mapper refuses it. */
+function mapQuietly(plan: CollectionPlan, doc: Record<string, unknown>): TableRows[] {
+  try {
+    return plan.map(doc, VERIFY_CONTEXT);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Re-maps a sample of every collection and confirms each produced row is
  * present verbatim.
  */
-export async function verifyRowsPresent(
+async function verifyRowsPresent(
   mongo: Db,
   sqlite: Database,
   sample: number,
@@ -163,36 +203,12 @@ export async function verifyRowsPresent(
 ): Promise<FieldCheck[]> {
   const out: FieldCheck[] = [];
   for (const plan of plans) {
-    const filter = storedFilter(sqlite, plan);
     const docs = await mongo
       .collection(plan.source)
-      .find(filter, { sort: { _id: 1 }, limit: sample })
+      .find(storedFilter(sqlite, plan), { sort: { _id: 1 }, limit: sample })
       .toArray();
     for (const doc of docs) {
-      const record = doc as unknown as Record<string, unknown>;
-      const sourceId = String(record._id);
-      let batches;
-      try {
-        batches = plan.map(record, VERIFY_CONTEXT);
-      } catch {
-        // Documents the mapper rejects are already on the reject list, which
-        // fails the verdict on its own; re-reporting them here adds noise.
-        continue;
-      }
-      for (const batch of batches) {
-        for (const [index, row] of batch.rows.entries()) {
-          const present = rowPresent(sqlite, batch.table, batch.columns, row);
-          const excuse = present ? null : absentByDesign(sqlite, batch.table, batch.columns, row);
-          out.push({
-            source: plan.source,
-            sourceId,
-            field: `${batch.table}[${index}]`,
-            expected: 'present',
-            actual: present ? 'present' : (excuse ?? 'missing'),
-            ok: present || excuse !== null,
-          });
-        }
-      }
+      out.push(...checkDocument(sqlite, plan, doc as unknown as Record<string, unknown>));
     }
   }
   return out;

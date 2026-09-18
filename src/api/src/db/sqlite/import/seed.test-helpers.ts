@@ -23,7 +23,7 @@ import {
   seedOperational,
 } from './seed-ops.test-helpers.ts';
 
-export { TEST_MONGO_URI, STAGE_NAMES, type SeedIds } from './seed-fixtures.test-helpers.ts';
+export { TEST_MONGO_URI, type SeedIds } from './seed-fixtures.test-helpers.ts';
 
 /**
  * Connects to the throwaway instance, or returns null when it is not running.

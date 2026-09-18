@@ -60,7 +60,7 @@ const HIDDEN_REASONS = ['manual', 'nudity', 'nudity-burst', 'folder'] as const;
 const MEDIA_KINDS = ['image', 'video', 'audio'] as const;
 const GEO_SKIPS = ['no-donor', 'skip'] as const;
 
-export const ASSETS_COLUMNS = [
+const ASSETS_COLUMNS = [
   'id',
   'size',
   'mtime',
@@ -370,8 +370,8 @@ function enrichmentRows(doc: Record<string, unknown>, id: string): Row[] {
   return rows;
 }
 
-/** Turns one asset document into every row it becomes. Exported for tests. */
-export function mapAsset(doc: Record<string, unknown>, ctx: MapContext): TableRows[] {
+/** Turns one asset document into every row it becomes. */
+function mapAsset(doc: Record<string, unknown>, ctx: MapContext): TableRows[] {
   const id = docId(doc);
   const out: TableRows[] = [
     { table: 'assets', columns: ASSETS_COLUMNS, rows: [assetRow(doc, id, ctx)] },

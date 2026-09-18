@@ -14,6 +14,10 @@
  * in the same transaction as the rows it describes. `--restart` deletes the
  * destination and begins again.
  *
+ * This file is only the part that needs a database. Argument parsing and report
+ * rendering are pure functions in `src/db/sqlite/import/cli.ts`, where they are
+ * tested.
+ *
  * `bun:sqlite` is used directly and on purpose. This script owns its process and
  * has no event loop to protect, so the worker-backed pool the API runs through
  * would only add a message hop per statement.
@@ -21,243 +25,95 @@
 
 import { Database } from 'bun:sqlite';
 import {
-  closeImportSession,
-  openImportSession,
-  runImportOn,
-  verifyImport,
-  DEFAULT_CHANGES_WINDOW,
-  SKIPPED_COLLECTIONS,
-  type ImportOptions,
-  type ImportReport,
-  type VerifyReport,
-} from '../src/db/sqlite/import/index.ts';
-
-const USAGE = `
-Usage: bun scripts/mongo-to-sqlite.ts --out <file.db> [options]
-
-  --out <path>            Destination SQLite file. Required.
-  --mongo-uri <uri>       Source connection string.
-                          Default: $MAPLE_MONGO_URI or mongodb://localhost:27017
-  --mongo-db <name>       Source database. Default: $MAPLE_MONGO_DB or "maple"
-  --batch <n>             Documents per transaction. Default: 500
-  --changes-window <n>    Newest asset_changes rows to carry, or "all".
-                          Default: ${DEFAULT_CHANGES_WINDOW}
-  --verify-sample <n>     Documents sampled per collection for the field checks.
-                          Default: 200
-  --no-verify             Import without running the verification pass.
-  --restart               Delete the destination and import from scratch.
-  --help                  Print this message.
-`.trim();
-
-interface Cli extends ImportOptions {
-  verify: boolean;
-}
-
-function parseArgs(argv: readonly string[]): Cli | null {
-  const args = new Map<string, string>();
-  const flags = new Set<string>();
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index] ?? '';
-    if (!arg.startsWith('--')) continue;
-    const name = arg.slice(2);
-    const next = argv[index + 1];
-    if (next !== undefined && !next.startsWith('--')) {
-      args.set(name, next);
-      index += 1;
-    } else {
-      flags.add(name);
-    }
-  }
-  if (flags.has('help') || args.has('help')) return null;
-
-  const out = args.get('out');
-  if (out === undefined) {
-    process.stderr.write('--out is required\n\n');
-    return null;
-  }
-
-  const rawWindow = args.get('changes-window');
-  const changesWindow =
-    rawWindow === undefined
-      ? DEFAULT_CHANGES_WINDOW
-      : rawWindow === 'all'
-        ? ('all' as const)
-        : Number.parseInt(rawWindow, 10);
-  if (typeof changesWindow === 'number' && !Number.isFinite(changesWindow)) {
-    process.stderr.write('--changes-window must be a number or "all"\n\n');
-    return null;
-  }
-
-  return {
-    mongoUri: args.get('mongo-uri') ?? process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017',
-    mongoDb: args.get('mongo-db') ?? process.env.MAPLE_MONGO_DB ?? 'maple',
-    sqlitePath: out,
-    batchSize: Number.parseInt(args.get('batch') ?? '500', 10),
-    changesWindow,
-    verifySample: Number.parseInt(args.get('verify-sample') ?? '200', 10),
-    restart: flags.has('restart'),
-    verify: !flags.has('no-verify'),
-  };
-}
+  isCliError,
+  parseArgs,
+  renderRun,
+  USAGE,
+  type CliOptions,
+} from '../src/db/sqlite/import/cli.ts';
+import { closeImportSession, openImportSession, runImportOn } from '../src/db/sqlite/import/run.ts';
+import type { ImportProgress, ImportReport, VerifyReport } from '../src/db/sqlite/import/types.ts';
+import { verifyImport } from '../src/db/sqlite/import/verify.ts';
 
 function write(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms} ms`;
-  const seconds = ms / 1000;
-  if (seconds < 90) return `${seconds.toFixed(1)} s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${Math.round(seconds - minutes * 60)}s`;
-}
-
-function reportImport(report: ImportReport): void {
-  write('');
-  write('Imported');
-  write('  collection                 documents   rejected      time');
-  for (const entry of report.collections) {
-    const suffix = entry.skipped ? '  (already complete)' : '';
-    write(
-      `  ${entry.source.padEnd(26)}${String(entry.documents).padStart(9)}` +
-        `${String(entry.rejected).padStart(11)}${formatDuration(entry.elapsedMs).padStart(10)}` +
-        suffix,
-    );
-  }
-  write(
-    `  ${'total'.padEnd(26)}${''.padStart(20)}${formatDuration(report.totalElapsedMs).padStart(10)}`,
-  );
-
-  if (report.changesCursorFloor !== null) {
-    write('');
-    write(
-      `Change log imported from cursor ${report.changesCursorFloor} upward. Older cursors ` +
-        're-enumerate, which clients already handle.',
-    );
-  }
-
-  const noteSections: Array<[string, Record<string, number>]> = [
-    ['Dangling references nulled', report.danglingNulled],
-    ['Rows dropped for a missing required reference', report.danglingDropped],
-    ['Values substituted to satisfy a constraint', report.substitutions],
-  ];
-  for (const [title, entries] of noteSections) {
-    const keys = Object.keys(entries);
-    if (keys.length === 0) continue;
-    write('');
-    write(title);
-    for (const key of keys.sort()) write(`  ${key}: ${entries[key]}`);
-  }
-
-  if (report.unknownStages.length > 0) {
-    write('');
-    write(`Retired stage names carried over: ${report.unknownStages.join(', ')}`);
-  }
-
-  if (report.rejects.length > 0) {
-    write('');
-    write(`${report.rejects.length} document(s) could not be imported:`);
-    for (const reject of report.rejects.slice(0, 20)) {
-      write(`  ${reject.source} ${reject.sourceId}: ${reject.reason}`);
+/**
+ * A progress reporter for the terminal, or for a log file.
+ *
+ * The live counter rewrites one line, which only reads as progress on a
+ * terminal. Redirected to a file it would be tens of thousands of carriage
+ * returns on one unreadable line, so a non-interactive run reports once per
+ * collection instead — which is what an operator piping this to a log wants.
+ */
+function makeProgressReporter(interactive: boolean): (progress: ImportProgress) => void {
+  let lastSource = '';
+  return (progress) => {
+    if (interactive) {
+      const line = `${progress.source}: ${progress.documentsDone}/${progress.documentsTotal}`;
+      process.stderr.write(`\r${line.padEnd(60)}`);
+      return;
     }
-    if (report.rejects.length > 20) write(`  … and ${report.rejects.length - 20} more`);
-  }
+    if (progress.source === lastSource) return;
+    lastSource = progress.source;
+    process.stderr.write(`${progress.source}: ${progress.documentsTotal} documents\n`);
+  };
+}
 
-  write('');
-  write('Not imported, deliberately:');
-  for (const [collection, reason] of Object.entries(SKIPPED_COLLECTIONS)) {
-    write(`  ${collection.padEnd(26)}${reason}`);
+/** Imports, then verifies unless the operator asked not to. */
+async function importAndVerify(
+  options: CliOptions,
+): Promise<{ report: ImportReport; verified: VerifyReport | null }> {
+  const interactive = process.stderr.isTTY === true;
+  const session = await openImportSession(options);
+  try {
+    const onProgress = makeProgressReporter(interactive);
+    const report = await runImportOn(session, { ...options, onProgress });
+    if (interactive) process.stderr.write('\r'.padEnd(62));
+    const verified = options.verify
+      ? await verifyImport(session.mongo, session.sqlite, options)
+      : null;
+    return { report, verified };
+  } finally {
+    await closeImportSession(session);
   }
 }
 
-function reportVerify(report: VerifyReport): void {
-  write('');
-  write('Verification');
-  write('  table                          expected      actual');
-  for (const entry of report.counts) {
-    const mark = entry.ok ? ' ' : '!';
-    write(
-      `${mark} ${entry.table.padEnd(30)}${String(entry.expected).padStart(9)}` +
-        `${String(entry.actual).padStart(12)}`,
-    );
-  }
+/** The size of what the operator now owns, and that the file opens cleanly. */
+function databaseSize(path: string): string {
+  const db = new Database(path, { readonly: true });
+  const pages = (db.query(`PRAGMA page_count`).get() as { page_count: number }).page_count;
+  const pageSize = (db.query(`PRAGMA page_size`).get() as { page_size: number }).page_size;
+  db.close();
+  return `${((pages * pageSize) / 1_000_000).toFixed(1)} MB`;
+}
 
-  const badFields = report.fields.filter((entry) => !entry.ok);
-  write('');
-  write(
-    `  field checks: ${report.fields.length - badFields.length}/${report.fields.length} passed`,
-  );
-  for (const entry of badFields.slice(0, 20)) {
-    write(`  ! ${entry.source} ${entry.sourceId} ${entry.field}`);
-    write(`      expected ${entry.expected}`);
-    write(`      actual   ${entry.actual}`);
-  }
-  if (badFields.length > 20) write(`  … and ${badFields.length - 20} more`);
+/** Prints the complaint, if there is one, and the usage text. Always exit 1. */
+function reportUsage(error: string): number {
+  if (error !== '') process.stderr.write(`${error}\n\n`);
+  write(USAGE);
+  return 1;
+}
 
-  const violations = Object.entries(report.foreignKeyViolations);
-  write(
-    violations.length === 0
-      ? '  foreign keys: clean'
-      : `  ! foreign keys: ${violations.map(([t, n]) => `${t}=${n}`).join(', ')}`,
-  );
-
-  write('');
-  write(report.ok ? 'VERIFIED — the import is complete and correct.' : 'FAILED verification.');
+/** A skipped verification is not a failed one. */
+function verificationFailed(verified: VerifyReport | null): boolean {
+  return verified !== null && !verified.ok;
 }
 
 async function main(): Promise<number> {
-  const options = parseArgs(process.argv.slice(2));
-  if (options === null) {
-    write(USAGE);
-    return 1;
-  }
+  const options = parseArgs(process.argv.slice(2), process.env);
+  if (isCliError(options)) return reportUsage(options.error);
 
   write(`Source: ${options.mongoUri} / ${options.mongoDb}`);
   write(`Destination: ${options.sqlitePath}`);
   write('');
 
-  // The live counter rewrites one line, which is only readable on a terminal.
-  // Redirected to a file it would be tens of thousands of carriage returns on
-  // one unreadable line, so a non-interactive run reports once per collection
-  // instead — which is what an operator piping this to a log actually wants.
-  const interactive = process.stderr.isTTY === true;
-  const session = await openImportSession(options);
-  let report: ImportReport;
-  let verified: VerifyReport | null = null;
-  try {
-    let lastSource = '';
-    report = await runImportOn(session, {
-      ...options,
-      onProgress(progress) {
-        const line = `${progress.source}: ${progress.documentsDone}/${progress.documentsTotal}`;
-        if (interactive) {
-          process.stderr.write(`\r${line.padEnd(60)}`);
-          return;
-        }
-        if (progress.source === lastSource) return;
-        lastSource = progress.source;
-        process.stderr.write(`${progress.source}: ${progress.documentsTotal} documents\n`);
-      },
-    });
-    if (interactive) process.stderr.write('\r'.padEnd(62));
-    if (options.verify) verified = await verifyImport(session.mongo, session.sqlite, options);
-  } finally {
-    await closeImportSession(session);
-  }
-
-  reportImport(report);
-  if (verified !== null) reportVerify(verified);
-
-  // Reopen briefly to hand the operator the size of what they now own, and to
-  // confirm the file opens cleanly with the pragmas the server will use.
-  const check = new Database(options.sqlitePath, { readonly: true });
-  const page = check.query(`PRAGMA page_count`).get() as { page_count: number };
-  const size = check.query(`PRAGMA page_size`).get() as { page_size: number };
-  check.close();
+  const { report, verified } = await importAndVerify(options);
+  for (const line of renderRun(report, verified)) write(line);
   write('');
-  write(`Database: ${((page.page_count * size.page_size) / 1_000_000).toFixed(1)} MB`);
-
-  return verified === null || verified.ok ? 0 : 1;
+  write(`Database: ${databaseSize(options.sqlitePath)}`);
+  return verificationFailed(verified) ? 1 : 0;
 }
 
 process.exitCode = await main();

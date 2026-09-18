@@ -21,14 +21,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MongoClient } from 'mongodb';
-import {
-  closeImportSession,
-  openImportSession,
-  readCheckpoint,
-  runImportOn,
-  verifyImport,
-  type ImportOptions,
-} from './index.ts';
+import { readCheckpoint } from './bookkeeping.ts';
+import { closeImportSession, openImportSession, runImportOn } from './run.ts';
+import type { ImportOptions } from './types.ts';
+import { verifyImport } from './verify.ts';
 import { connectTestMongo, seedLibrary, TEST_MONGO_URI } from './seed.test-helpers.ts';
 
 const DB_NAME = `maple_import_resume_${process.pid}`;

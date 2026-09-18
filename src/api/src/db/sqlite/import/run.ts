@@ -38,7 +38,7 @@
 
 import { Database } from 'bun:sqlite';
 import { existsSync, unlinkSync } from 'node:fs';
-import { MongoClient, ObjectId, type Db, type Document, type Filter } from 'mongodb';
+import { MongoClient, type Db, type Document, type Filter, type ObjectId } from 'mongodb';
 import { ALL_STAGE_NAMES } from '../../../workers/stages/stage-names.ts';
 import {
   ASSET_LOCATIONS_TRIGGER_DDL,
@@ -57,6 +57,7 @@ import {
   clearBookkeeping,
   ensureBookkeeping,
   readCheckpoint,
+  type Checkpoint,
   readMeta,
   readRejects,
   writeCheckpoint,
@@ -65,7 +66,7 @@ import {
 } from './bookkeeping.ts';
 import { CHANGES_FLOOR_KEY } from './plan/library.ts';
 import { IMPORT_PLAN } from './plan/index.ts';
-import { foreignKeyViolations, REPAIR_META_KEY, repairForeignKeys } from './repair.ts';
+import { REPAIR_META_KEY, repairForeignKeys } from './repair.ts';
 import type {
   CollectionPlan,
   CollectionResult,
@@ -73,7 +74,7 @@ import type {
   ImportReport,
   MapContext,
 } from './types.ts';
-import { RowWriter, writeBatch, type MappedDocument } from './writer.ts';
+import { RowWriter, writeBatch, type MappedDocument, type WriteFailure } from './writer.ts';
 
 /**
  * Pragmas for the load. `foreign_keys` is deliberately absent — see the module
@@ -168,6 +169,49 @@ function resumeFrom(filter: Filter<Document>, lastId: ResumeCursor): Filter<Docu
   return { $and: [filter, after] };
 }
 
+/** How far one collection has got. */
+interface Progress {
+  lastId: ResumeCursor;
+  documents: number;
+  rejected: number;
+}
+
+/** Where a collection resumes from, or a clean start when it has never run. */
+function startingProgress(checkpoint: Checkpoint | null): Progress {
+  if (checkpoint === null) return { lastId: null, documents: 0, rejected: 0 };
+  return {
+    lastId: (checkpoint.lastId ?? null) as ResumeCursor,
+    documents: checkpoint.documents,
+    rejected: checkpoint.rejected,
+  };
+}
+
+/** One batch of source documents, turned into rows. */
+interface MappedBatch {
+  mapped: MappedDocument[];
+  failures: WriteFailure[];
+}
+
+/**
+ * Maps a batch, collecting the documents the mapper refuses rather than
+ * throwing on the first one. They join the writer's own failures on the reject
+ * list, which is what keeps a six-hour import from dying on one bad row.
+ */
+function mapBatch(docs: readonly unknown[], plan: CollectionPlan, ctx: MapContext): MappedBatch {
+  const mapped: MappedDocument[] = [];
+  const failures: WriteFailure[] = [];
+  for (const doc of docs) {
+    const record = doc as Record<string, unknown>;
+    const sourceId = String(record._id);
+    try {
+      mapped.push({ sourceId, batches: plan.map(record, ctx) });
+    } catch (err) {
+      failures.push({ sourceId, reason: errorMessage(err) });
+    }
+  }
+  return { mapped, failures };
+}
+
 /** Imports one collection, resuming from wherever it stopped. */
 async function importCollection(
   session: ImportSession,
@@ -193,14 +237,8 @@ async function importCollection(
 
   const writer = new RowWriter(sqlite);
   const startedAt = performance.now();
-  // The resume cursor. Typed as the driver's own alias rather than as `unknown`
-  // because it is bound straight into a `$gt` comparison: a collection's `_id`
-  // is an ObjectId for most collections and a natural-key string for the
-  // handful keyed by one, and the driver's `Filter` type accepts either.
-  let lastId: ResumeCursor = (checkpoint?.lastId ?? null) as ResumeCursor;
-  let documents = checkpoint?.documents ?? 0;
-  let rejected = checkpoint?.rejected ?? 0;
   const carriedMs = checkpoint?.elapsedMs ?? 0;
+  let { lastId, documents, rejected } = startingProgress(checkpoint);
 
   try {
     for (;;) {
@@ -210,18 +248,7 @@ async function importCollection(
         .toArray();
       if (docs.length === 0) break;
 
-      const mapped: MappedDocument[] = [];
-      const mapFailures: Array<{ sourceId: string; reason: string }> = [];
-      for (const doc of docs) {
-        const record = doc as unknown as Record<string, unknown>;
-        const sourceId = String(record._id);
-        try {
-          mapped.push({ sourceId, batches: plan.map(record, ctx) });
-        } catch (err) {
-          mapFailures.push({ sourceId, reason: errorMessage(err) });
-        }
-      }
-
+      const { mapped, failures: mapFailures } = mapBatch(docs, plan, ctx);
       const batchLastId = (docs.at(-1) as unknown as Record<string, unknown>)._id;
       const batchDocuments = documents + docs.length;
       const elapsedSoFar = carriedMs + Math.round(performance.now() - startedAt);
@@ -336,19 +363,6 @@ export async function runImportOn(
     totalElapsedMs: Math.round(performance.now() - startedAt),
   };
 }
-
-/** Opens a session, imports, and closes it. */
-export async function runImport(options: ImportOptions): Promise<ImportReport> {
-  const session = await openImportSession(options);
-  try {
-    return await runImportOn(session, options);
-  } finally {
-    await closeImportSession(session);
-  }
-}
-
-/** Re-exported so a caller can confirm the destination is clean. */
-export { foreignKeyViolations };
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
