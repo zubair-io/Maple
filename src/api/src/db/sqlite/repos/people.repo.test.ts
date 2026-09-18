@@ -57,6 +57,56 @@ describe('listPeople', () => {
     expect(listed[0]?.coverAbsPath).toBe('/library/trips/a.dng');
     expect(listed[0]?.coverAddress).toBe('lib:trips/a.dng');
   });
+
+  test('prefers a live location over a dead one at a lower ordinal', async () => {
+    using handle = await createTestDatabase();
+    const db = handle.db;
+    const library = insertFolderAt(handle, '/library', 'lib');
+    const asset = insertAsset(db);
+    insertLocation(db, {
+      assetId: asset,
+      libraryId: library,
+      ordinal: 0,
+      filename: 'gone.dng',
+      deletedAt: '2025-01-01T00:00:00Z',
+    });
+    insertLocation(db, { assetId: asset, libraryId: library, ordinal: 1, filename: 'here.dng' });
+    insertPerson(db, { name: 'Ada', coverAssetId: asset });
+
+    const listed = await listPeople({}, testDb(db));
+
+    expect(listed[0]?.coverAddress).toBe('lib:vacation/2024/here.dng');
+  });
+
+  test('a cover whose every file is gone resolves to no cover at all', async () => {
+    using handle = await createTestDatabase();
+    const db = handle.db;
+    const library = insertFolderAt(handle, '/library', 'lib');
+    const asset = insertAsset(db);
+    insertLocation(db, {
+      assetId: asset,
+      libraryId: library,
+      filename: 'deleted.dng',
+      deletedAt: '2025-01-01T00:00:00Z',
+    });
+    insertLocation(db, {
+      assetId: asset,
+      libraryId: library,
+      ordinal: 1,
+      filename: 'missing.dng',
+      missingSince: '2025-02-01T00:00:00Z',
+    });
+    insertPerson(db, { name: 'Ada', coverAssetId: asset });
+
+    const listed = await listPeople({}, testDb(db));
+
+    // Mongo's assetPrimaryFileInfo answers null unless some entry is live, and
+    // the grid turns that into the no-cover placeholder. Falling back to the
+    // lowest-ordinal dead entry hands it a path that 404s instead.
+    expect(listed[0]?.person.name).toBe('Ada');
+    expect(listed[0]?.coverAbsPath).toBeNull();
+    expect(listed[0]?.coverAddress).toBeNull();
+  });
 });
 
 /** A library root with a known path and slug, for the address assertions. */
