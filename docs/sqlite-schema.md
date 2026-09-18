@@ -255,6 +255,12 @@ created, and the claim becomes a plain index range scan — 0.05 ms for 500
 candidates over 12 million rows. Registering a thirteenth stage is then one
 `INSERT … SELECT id, 'new-stage' FROM assets`.
 
+**Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
+enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
+it is off by default. Without it every `ON DELETE CASCADE` in this schema is
+decoration. `SCHEMA_PRAGMAS` in `ddl/index.ts` is the list a connection owner
+applies.
+
 **A stage claim holds a lease, and the lease is in the row.** The Mongo runner
 keeps the set of assets it is working on in process memory and excludes them
 from its next filter, which protects one process from itself and nothing from a
@@ -276,12 +282,6 @@ the proof that this caller won, and the whole batch goes in one
 assumed: `bun scripts/sqlite-bench/stage-claim-roundtrip.ts` puts it at 0.018 ms
 of a 0.224 ms claim on 60,000 assets, against 0.05 ms of scan — small enough
 that a returning-capable primitive is not worth adding to the pool for it.
-
-**Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
-enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
-it is off by default. Without it every `ON DELETE CASCADE` in this schema is
-decoration. `SCHEMA_PRAGMAS` in `ddl/index.ts` is the list a connection owner
-applies.
 
 ## The migration runner
 

@@ -11,6 +11,10 @@
     "scripts/seed-fake-workers.ts",
     "scripts/sqlite-bench/run.ts",
     "scripts/sqlite-bench/list-items-compare.ts",
+    // #3748 — the stage-runtime comparison benchmarks. Entry points, run by
+    // hand, so their exports have no importer and read as dead code without
+    // this. Appended rather than merged into the line above so a sibling port
+    // branch adding its own script conflicts on one line, not on this block.
     "scripts/sqlite-bench/stage-claim-compare.ts",
     "scripts/sqlite-bench/stage-claim-roundtrip.ts",
     "src/people/clustering-quality-harness.ts",
