@@ -24,6 +24,27 @@
  * all. A seeded row makes the claim a plain index range scan instead —
  * measured at 0.05 ms for 500 candidates over 12 million rows.
  *
+ * ## Defaults here say "nobody has chosen yet", and that is checked
+ *
+ * `version`, `attempts` and `dead` all default to 0, and none of them has the
+ * ambiguity that forced `worker_config`'s scalars to be relaxed to nullable in
+ * #3751's migration `0003`: there, `paused = 0` by default is indistinguishable
+ * from an operator actively resuming a worker, which would silently defeat
+ * `pausedOnFirstBoot`. Nothing like that applies to these three. Zero means "not
+ * processed", "no attempts spent" and "not parked", and every writer that sets
+ * one back to zero means exactly that — a re-arm, a retry reset, a cleared
+ * dead-letter. There is no second sense an operator could intend.
+ *
+ * "Registered but unprocessed" and "not registered for this stage" stay
+ * distinguishable too, because the row's existence carries that: dense seeding
+ * is what makes a missing row mean the stage was never registered for the asset
+ * rather than that it has nothing to do.
+ *
+ * The one column carrying two meanings is `next_attempt_at`, which holds both a
+ * claim lease and a retry backoff — deliberately, since they are the same gate.
+ * They remain tellable apart if anything ever needs to: only the failure path
+ * writes `failed_at`.
+ *
  * ## Counts stay persisted by the worker
  *
  * {@link countStageBacklog} is cheap: `stage_dead` answers the dead count from
