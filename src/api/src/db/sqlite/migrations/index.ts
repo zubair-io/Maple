@@ -9,5 +9,9 @@
 
 import type { Migration } from '../migrate.ts';
 import { initialSchemaMigration } from './0001-initial-schema.ts';
+import { assetChangesNoForeignKeysMigration } from './0002-asset-changes-no-foreign-keys.ts';
 
-export const ALL_MIGRATIONS: readonly Migration[] = [initialSchemaMigration];
+export const ALL_MIGRATIONS: readonly Migration[] = [
+  initialSchemaMigration,
+  assetChangesNoForeignKeysMigration,
+];

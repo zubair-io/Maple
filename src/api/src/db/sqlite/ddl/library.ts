@@ -46,6 +46,12 @@ CREATE TABLE folders (
  * silently. The same argument applies to a library that gets deregistered while
  * a client is mid-sync. Referential integrity here would destroy exactly the
  * events the feed exists to deliver.
+ *
+ * The keys were here when `0001-initial-schema` shipped, so removing them from
+ * this constant is only half the change: the migration runner skips a recorded
+ * id without looking at what it declares, and a database already at 0001 would
+ * keep them forever. `migrations/0002-asset-changes-no-foreign-keys.ts` is the
+ * other half, and rebuilds the table on any database that still carries them.
  */
 export const ASSET_CHANGES_TABLE_DDL = `
 CREATE TABLE asset_changes (
