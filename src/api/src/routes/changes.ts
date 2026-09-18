@@ -103,6 +103,132 @@ function sseChangeFrame(ev: AssetChangeWithId): ReturnType<typeof sse> {
   });
 }
 
+/**
+ * The `since` query parameter as a cursor, or null when it is not one.
+ *
+ * Both handlers take the same parameter with the same meaning and rejected it
+ * with the same 400, so they now read it the same way too. Absent means zero —
+ * a client that has never synced starts from the beginning of the journal.
+ */
+function parseSince(raw: string | undefined): number | null {
+  const since = Number.parseInt(raw ?? '0', 10);
+  return Number.isFinite(since) && since >= 0 ? since : null;
+}
+
+/** What ended a wait: an event arrived, the client left, or nothing happened. */
+type WaitOutcome = 'event' | 'abort' | 'keepalive';
+
+/**
+ * The buffered events a reconnecting client is owed, and the highest cursor
+ * among them — which is the mark the live loop dedupes against, and is `since`
+ * itself when the buffer had nothing to replay.
+ */
+function replaySnapshot(
+  bus: ChangeBus,
+  since: number,
+): { events: AssetChangeWithId[]; replayMax: number } {
+  const events = bus.replay({ since });
+  return { events, replayMax: events.at(-1)?.cursor ?? since };
+}
+
+/**
+ * The bounded backlog behind one SSE connection.
+ *
+ * This is the bookkeeping half of the streaming handler — subscribe, buffer,
+ * park until something happens — and it is separable from the generator in a
+ * way the replay/subscribe handshake is not: the handshake's ordering is the
+ * thing the comments in the route guard, while this is a queue with a lid on
+ * it. Pulling it out is what lets the generator read as the sequence of yields
+ * it is.
+ *
+ * The lid matters. A client that cannot keep up with 10k buffered events is
+ * already past the point where the bus could replay for it on reconnect, so the
+ * backlog is dropped and the stream closed; the client's persisted cursor then
+ * falls below the bus floor and the 409 path re-enumerates it. Growing the queue
+ * instead would trade a bounded recovery for an unbounded one in the API
+ * process's heap.
+ */
+class SseBacklog {
+  private readonly queue: AssetChangeWithId[] = [];
+  private readonly unsubscribe: () => void;
+  private waiter: ((outcome: 'event') => void) | null = null;
+  /** Set once the cap is hit. The stream is finished; the client reconnects. */
+  overflowed = false;
+
+  constructor(bus: ChangeBus) {
+    this.unsubscribe = bus.subscribe((ev) => this.accept(ev));
+  }
+
+  get empty(): boolean {
+    return this.queue.length === 0;
+  }
+
+  /** Whether this stream should still be serving its client. */
+  live(signal: AbortSignal): boolean {
+    return !signal.aborted && !this.overflowed;
+  }
+
+  /**
+   * The next queued event the client has not already been sent, or undefined
+   * when the backlog holds none — either because it is empty or because it was
+   * dropped on overflow while the caller was parked.
+   *
+   * Skipping past `replayMax` here rather than in the caller is what closes the
+   * replay/subscribe race: an event that landed between subscribing and
+   * snapshotting is in both the snapshot and the queue, and was already sent.
+   */
+  shiftAbove(replayMax: number): AssetChangeWithId | undefined {
+    for (let ev = this.queue.shift(); ev !== undefined; ev = this.queue.shift()) {
+      if (ev.cursor > replayMax) return ev;
+    }
+    return undefined;
+  }
+
+  /**
+   * Park until there is something to do: an event, the client leaving, the
+   * keepalive falling due, or the connection's lifetime running out. The last
+   * two are one outcome from the loop's point of view — `stop` means return,
+   * `keepalive` means write a comment frame and go round again.
+   */
+  async park(signal: AbortSignal, deadline: number): Promise<'stop' | 'keepalive' | 'event'> {
+    const remainingLifetime = deadline - Date.now();
+    if (remainingLifetime <= 0) return 'stop';
+    const outcome = await this.wait(signal, Math.min(SSE_KEEPALIVE_MS, remainingLifetime));
+    return outcome === 'abort' ? 'stop' : outcome;
+  }
+
+  /** Resolves when an event arrives, the request aborts, or `ms` elapses. */
+  private wait(signal: AbortSignal, ms: number): Promise<WaitOutcome> {
+    const event = new Promise<'event'>((resolve) => {
+      this.waiter = resolve;
+    });
+    const aborted = new Promise<'abort'>((resolve) => {
+      signal.addEventListener('abort', () => resolve('abort'), { once: true });
+    });
+    const keepalive = new Promise<'keepalive'>((resolve) =>
+      setTimeout(() => resolve('keepalive'), ms),
+    );
+    return Promise.race<WaitOutcome>([event, aborted, keepalive]);
+  }
+
+  close(): void {
+    this.unsubscribe();
+  }
+
+  private accept(ev: AssetChangeWithId): void {
+    if (this.overflowed) return;
+    if (this.queue.length >= SSE_QUEUE_LIMIT) {
+      this.overflowed = true;
+      this.queue.length = 0;
+    } else {
+      this.queue.push(ev);
+    }
+    const waiter = this.waiter;
+    this.waiter = null;
+    waiter?.('event');
+  }
+}
+
 // The change feed exists for the File Provider extension — a filesystem
 // surface, so file-access-gated (#2893).
 export const changesRoutes = new Elysia({ prefix: '/api/changes' })
@@ -110,8 +236,8 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
   .get(
     '/',
     async ({ query, set }) => {
-      const since = Number.parseInt(query.since ?? '0', 10);
-      if (!Number.isFinite(since) || since < 0) {
+      const since = parseSince(query.since);
+      if (since === null) {
         set.status = 400;
         return { error: 'since must be a non-negative integer' };
       }
@@ -143,16 +269,22 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
   )
   .get(
     '/subscribe',
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    // The SSE generator has been over the complexity threshold since it was
-    // written — the replay/subscribe handshake, the keepalive race and the
-    // overflow guard are one state machine and splitting them is what the
-    // seam comments above warn against. This change touches two lines inside
-    // it, which is enough to re-fingerprint the finding as new.
+    // Tracked by #3780, which is what retires this line rather than leaving it
+    // open-ended. The handler is at 10 cyclomatic / 15 cognitive after the
+    // backlog, the park-and-wait race, the `since` parsing and the replay
+    // snapshot came out into named helpers — both inside fallow's limits. What
+    // still trips the gate is CRAP 31.6 against a ceiling of 30, and CRAP is
+    // the one metric fallow *estimates* when no coverage file is supplied,
+    // which the API's audit job does not supply. This generator is covered by
+    // the seven tests in `changes.sse.test.ts` and the four in
+    // `change-feed.delta-sync.test.ts`; at its real coverage the score is
+    // nowhere near the ceiling. Splitting further would mean cutting the
+    // replay/subscribe handshake, whose ordering is exactly what the numbered
+    // comments below exist to protect.
     // fallow-ignore-next-line complexity
     async function* ({ query, set, request }) {
-      const since = Number.parseInt(query.since ?? '0', 10);
-      if (!Number.isFinite(since) || since < 0) {
+      const since = parseSince(query.since);
+      if (since === null) {
         set.status = 400;
         return { error: 'since must be a non-negative integer' };
       }
@@ -177,37 +309,13 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
       //    `bus.replay({ since })` would silently omit them. We do all
       //    the bookkeeping synchronously before any await/yield so the
       //    seam window is empty.
-      const queue: AssetChangeWithId[] = [];
-      let queueOverflow = false;
-      let waiter: ((v: 'event') => void) | null = null;
-      const unsub = bus.subscribe((ev) => {
-        if (queueOverflow) return;
-        if (queue.length >= SSE_QUEUE_LIMIT) {
-          // Stuck client — bound the backlog and force a reconnect.
-          // Dropping the queue means the client's persisted cursor will
-          // likely be below the bus floor on reconnect, which triggers
-          // the existing 409 path → working-set re-enumeration.
-          queueOverflow = true;
-          queue.length = 0;
-          if (waiter) {
-            waiter('event');
-            waiter = null;
-          }
-          return;
-        }
-        queue.push(ev);
-        if (waiter) {
-          waiter('event');
-          waiter = null;
-        }
-      });
+      const backlog = new SseBacklog(bus);
 
       // 2. Snapshot the replay. Do this AFTER subscribe so a publish
       //    that lands between subscribe and snapshot will be in both
       //    the live queue AND the snapshot — the `cursor <= replayMax`
       //    dedupe in the live loop drops the duplicate.
-      const snapshot = bus.replay({ since });
-      const replayMax = snapshot.at(-1)?.cursor ?? since;
+      const { events: snapshot, replayMax } = replaySnapshot(bus, since);
 
       // 3. Re-validate the floor: while we were setting up the
       //    subscription the buffer floor could have advanced past
@@ -215,7 +323,7 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
       //    would otherwise silently miss events between
       //    `since + 1` and `floor - 1`. We unsubscribe and close 409.
       if (!bus.isCursorReplayable(since)) {
-        unsub();
+        backlog.close();
         set.status = 409;
         return { error: 'cursor too old', current: resumeCursor(bus) };
       }
@@ -234,41 +342,27 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
       const deadline = Date.now() + SSE_MAX_LIFETIME_MS;
 
       try {
-        while (!request.signal.aborted) {
-          if (queueOverflow) break;
-          if (queue.length === 0) {
-            const remainingLifetime = deadline - Date.now();
-            if (remainingLifetime <= 0) break;
-            const lifetimeMs = Math.min(SSE_KEEPALIVE_MS, remainingLifetime);
+        while (backlog.live(request.signal)) {
+          if (backlog.empty) {
             // Race keepalive vs next event vs abort vs lifetime.
-            const aborted = new Promise<'abort'>((resolve) => {
-              const onAbort = (): void => resolve('abort');
-              request.signal.addEventListener('abort', onAbort, { once: true });
-            });
-            const event = new Promise<'event'>((resolve) => {
-              waiter = resolve;
-            });
-            const keepalive = new Promise<'keepalive'>((resolve) =>
-              setTimeout(() => resolve('keepalive'), lifetimeMs),
-            );
-            const result = await Promise.race([event, keepalive, aborted]);
-            if (result === 'abort') break;
-            if (result === 'keepalive') {
+            const outcome = await backlog.park(request.signal, deadline);
+            if (outcome === 'stop') break;
+            if (outcome === 'keepalive') {
               // Raw SSE comment frame — Uint8Array bypasses Elysia's
               // `data:` wrapping (see SSE_KEEPALIVE_FRAME comment).
               yield SSE_KEEPALIVE_FRAME;
               continue;
             }
           }
-          if (queueOverflow) break;
-          const ev = queue.shift()!;
-          // Drop anything we already replayed — closes the
-          // replay/subscribe race window.
-          if (ev.cursor <= replayMax) continue;
+          // Undefined when everything queued was already replayed, or when the
+          // backlog overflowed while we were parked and dropped its queue —
+          // `live()` ends the stream on the way round in that case.
+          const ev = backlog.shiftAbove(replayMax);
+          if (ev === undefined) continue;
           yield sseChangeFrame(ev);
         }
       } finally {
-        unsub();
+        backlog.close();
       }
     },
     {
