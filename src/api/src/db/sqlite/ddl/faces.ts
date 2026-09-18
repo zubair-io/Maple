@@ -73,7 +73,16 @@ export const PEOPLE_TABLE_DDL = `
 CREATE TABLE people (
   id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
 
-  name       TEXT NOT NULL,
+  -- COLLATE on the COLUMN, not on the index expression. This is the lookup
+  -- that decides whether renaming a person merges into an existing cluster:
+  -- people.repo.ts's findByNameCI runs findOne({ name, merged_into: null })
+  -- with collation { locale: 'en', strength: 2 }. Declared only on the index,
+  -- the NOCASE index would be unusable by a BINARY WHERE name = ? — worse
+  -- than slow, because the probe would MISS a differently-cased name, the
+  -- caller would proceed to insert, and the NOCASE unique index below would
+  -- then reject it with a constraint error where the product contract is
+  -- "merge". On the column, the comparison and the index agree.
+  name       TEXT NOT NULL COLLATE NOCASE,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
 
@@ -112,11 +121,11 @@ CREATE TABLE people (
 
 export const PEOPLE_INDEX_DDL = `
 -- Name uniqueness is what makes "tag two clusters with the same name" a merge.
--- Case-insensitive to match the Mongo collation { locale: 'en', strength: 2 },
--- and scoped to live rows so a merged-away person does not hold its old name
+-- Case-insensitive via the column's declared collation (see the table), and
+-- scoped to live rows so a merged-away person does not hold its old name
 -- hostage.
 CREATE UNIQUE INDEX people_name_unique
-  ON people (name COLLATE NOCASE)
+  ON people (name)
   WHERE merged_into IS NULL;
 
 -- Audit trail walk: "which rows merged into this one".
