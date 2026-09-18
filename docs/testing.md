@@ -233,7 +233,7 @@ Real hardware — locally, and through the Apple UITest harness — remains the 
 ## Apple
 
 ```bash
-# Prerequisite in any fresh clone: the xcframework's .a files are gitignored.
+# Prerequisite in any fresh clone: the xcframework's .a files and headers are gitignored.
 ./src/apple/scripts/build-xcframework.sh          # --debug for fast iteration
 
 # Package unit tests (the substantive Apple test surface).
