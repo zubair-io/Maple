@@ -67,10 +67,13 @@ export interface RunOnlineClusteringResult {
  * A first pass over a large library assigns tens of thousands of faces, and
  * sending them as a single message would mean holding the whole batch in memory
  * on both sides of the boundary and taking the write lock for its entire
- * duration. Chunking bounds both. The chunks are not individually meaningful —
- * a pass that dies half-way leaves some faces assigned and the rest to be
- * picked up by the next run, which is exactly what the Mongo version's
- * successive `bulkWrite` calls do.
+ * duration. Chunking bounds both. A chunk boundary is a place the pass can stop
+ * and be resumed from: a run that dies half-way leaves some faces assigned and
+ * the rest for the next run, which is what the Mongo version's successive
+ * `bulkWrite` calls do too.
+ *
+ * What a chunk boundary is *not* is a place a person can exist without the face
+ * that justified it — see `writeAssignments`.
  */
 const WRITE_CHUNK = 1000;
 
@@ -81,10 +84,22 @@ async function writeChunked(db: SqliteDb, statements: readonly SqlStatement[]): 
   }
 }
 
-/** The person each face ends up with, and the rows any new people need. */
+/** One face's outcome: the person it lands on, and that person's row if new. */
+interface Assignment {
+  assetId: string;
+  faceIndex: number;
+  personHex: string;
+  /**
+   * The `people` row this face's person needs, when this is the face that
+   * opened the cluster. Null for every other face, including later faces of
+   * the same new cluster.
+   */
+  insert: SqlStatement | null;
+}
+
+/** The person each face ends up with, and how many people that invented. */
 interface Materialised {
-  assignments: Array<{ assetId: string; faceIndex: number; personHex: string }>;
-  inserts: SqlStatement[];
+  assignments: Assignment[];
   newPeople: number;
 }
 
@@ -98,8 +113,8 @@ interface Materialised {
  */
 function materialise(pass: PreparedClusteringPass, when: string): Materialised {
   const newPersonIds = new Map<number, string>();
-  const inserts: SqlStatement[] = [];
   let nextAutoIndex = pass.maxAutoIndex;
+  let newPeople = 0;
 
   const assignments = pass.faces.map((face, index) => {
     const cluster = pass.assignments[index]!;
@@ -108,37 +123,78 @@ function materialise(pass: PreparedClusteringPass, when: string): Materialised {
         assetId: face.asset_id_hex,
         faceIndex: face.face_index,
         personHex: pass.seedPersonIds[cluster]!,
+        insert: null,
       };
     }
     const cached = newPersonIds.get(cluster);
     if (cached !== undefined) {
-      return { assetId: face.asset_id_hex, faceIndex: face.face_index, personHex: cached };
+      return {
+        assetId: face.asset_id_hex,
+        faceIndex: face.face_index,
+        personHex: cached,
+        insert: null,
+      };
     }
     const personHex = newObjectIdHex();
     newPersonIds.set(cluster, personHex);
     nextAutoIndex += 1;
+    newPeople += 1;
     const autoName = `Person ${nextAutoIndex}`;
-    inserts.push({
-      sql: INSERT_CLUSTER_PERSON_SQL,
-      params: [
-        personHex,
-        autoName,
-        caseFoldKey(autoName),
-        when,
-        when,
-        JSON.stringify(pass.clusters[cluster]!.centroid),
-        pass.clusters[cluster]!.face_count,
-        face.asset_id_hex,
-        face.bbox.x,
-        face.bbox.y,
-        face.bbox.w,
-        face.bbox.h,
-      ],
-    });
-    return { assetId: face.asset_id_hex, faceIndex: face.face_index, personHex };
+    return {
+      assetId: face.asset_id_hex,
+      faceIndex: face.face_index,
+      personHex,
+      insert: {
+        sql: INSERT_CLUSTER_PERSON_SQL,
+        params: [
+          personHex,
+          autoName,
+          caseFoldKey(autoName),
+          when,
+          when,
+          JSON.stringify(pass.clusters[cluster]!.centroid),
+          pass.clusters[cluster]!.face_count,
+          face.asset_id_hex,
+          face.bbox.x,
+          face.bbox.y,
+          face.bbox.w,
+          face.bbox.h,
+        ],
+      },
+    };
   });
 
-  return { assignments, inserts, newPeople: inserts.length };
+  return { assignments, newPeople };
+}
+
+/**
+ * Apply the assignments, each new person's row in the same transaction as the
+ * face that opened its cluster.
+ *
+ * The two used to be separate passes — every person inserted, then every face
+ * assigned — which leaves a window where a person exists with a centroid, a
+ * cover crop and no faces at all. A run interrupted there shows that person in
+ * the grid with a count of zero and a cover showing a face that still belongs
+ * to nobody, and nothing later cleans it up. Mongo stages it the same way and
+ * has the same gap; here there is a transaction to put them both in, which is
+ * the same argument the merge path already makes.
+ *
+ * The insert has to lead within the transaction — a face may not point at a row
+ * that does not exist yet, and the foreign key would say so.
+ */
+async function writeAssignments(db: SqliteDb, assignments: readonly Assignment[]): Promise<void> {
+  for (let start = 0; start < assignments.length; start += WRITE_CHUNK) {
+    const slice = assignments.slice(start, start + WRITE_CHUNK);
+    await db.transaction(
+      slice.flatMap((assignment) => [
+        ...(assignment.insert === null ? [] : [assignment.insert]),
+        {
+          sql: SET_FACE_PERSON_SQL,
+          params: [assignment.personHex, assignment.assetId, assignment.faceIndex],
+        },
+      ]),
+    );
+  }
 }
 
 /**
@@ -230,18 +286,9 @@ export async function runOnlineClustering(
   // updated centroids and per-face envelopes come back — never an embedding.
   const { pass } = await prepareClusteringPassOffThread(threshold, dbOverride);
   const when = new Date().toISOString();
-  const { assignments, inserts, newPeople } = materialise(pass, when);
+  const { assignments, newPeople } = materialise(pass, when);
 
-  // People first: a face may not point at a row that does not exist yet, and
-  // the foreign key would say so.
-  await writeChunked(db, inserts);
-  await writeChunked(
-    db,
-    assignments.map((assignment) => ({
-      sql: SET_FACE_PERSON_SQL,
-      params: [assignment.personHex, assignment.assetId, assignment.faceIndex],
-    })),
-  );
+  await writeAssignments(db, assignments);
   await writeChunked(db, centroidStatements(pass));
   await persistMergeSuggestions(db, pass.seedPersonIds, pass.mergeSuggestions);
 
@@ -327,4 +374,9 @@ async function doBackfillCoverAssets(dbOverride?: SqliteDb): Promise<void> {
 }
 
 /** Kept for the test suite, mirroring the Mongo module's escape hatch. */
-export const _internals = { materialise, centroidStatements, persistMergeSuggestions };
+export const _internals = {
+  materialise,
+  writeAssignments,
+  centroidStatements,
+  persistMergeSuggestions,
+};
