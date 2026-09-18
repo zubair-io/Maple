@@ -16,13 +16,12 @@
 import type { ObjectId } from 'mongodb';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
-import { rankedCandidates, toPerson, type PersonRow } from './people.rows.ts';
+import { rankedCandidates, readPerson, toPerson, type PersonRow } from './people.rows.ts';
 import {
   ALL_DISMISSALS_SQL,
   dismissalsForPairsSql,
   INSERT_DISMISSAL_SQL,
   peopleByIdsSql,
-  PERSON_BY_ID_SQL,
   SET_SUGGESTION_SQL,
 } from './people.sql.ts';
 import { sortedPairKey } from '../../../people/people-merge-suggestions.ts';
@@ -37,12 +36,6 @@ export interface SuggestedMergeInfo {
   coverAssetId: string | null;
   coverBbox: Bbox | null;
   score: number;
-}
-
-async function readPerson(db: SqliteDb, hex: string): Promise<PersonWithId | null> {
-  const rows = await db.read<PersonRow>(PERSON_BY_ID_SQL, [hex]);
-  const row = rows[0];
-  return row ? toPerson(row) : null;
 }
 
 /** Which of these pair keys have already been dismissed. */

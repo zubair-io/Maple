@@ -1,3 +1,11 @@
+// The blocks this shares with `db/assets.transform.ts` are the ones that do not
+// touch a database at all — the same DTO assembled from rows instead of from a
+// document. Factoring them into a shared helper would couple the two
+// implementations together shortly before one of them is deleted, which is the
+// opposite of what this migration's beside-then-switch shape is for. The
+// duplication ends when the Mongo module goes (#3785).
+// fallow-ignore-file code-duplication
+
 /**
  * The rows the assets queries return, and the small conversions between a
  * SQLite column and the value a DTO carries.
@@ -29,6 +37,9 @@
 import { ObjectId } from 'mongodb';
 import * as path from 'node:path';
 import type { AssetFaceDoc, EnrichmentStageState, FileInfo } from '../../schema.ts';
+// Type-only, so the `bool`/`json` import in the other direction stays the only
+// runtime edge between these two modules.
+import type { PersonFaceRow } from './people.rows.ts';
 
 /** The `assets` columns behind the detail and core-info DTOs. */
 export interface AssetCoreRow {
@@ -77,20 +88,14 @@ export interface LocationRow {
   keep: number;
 }
 
-/** One `faces` row with its person's display name already joined in. */
-export interface FaceRow {
-  asset_id: string;
-  face_index: number;
-  person_id: string | null;
-  confidence: number;
-  bbox_x: number;
-  bbox_y: number;
-  bbox_w: number;
-  bbox_h: number;
-  hidden: number;
-  landmarks: string | null;
-  embedding: string | null;
-  embedding_version: string | null;
+/**
+ * One `faces` row with its person's display name already joined in.
+ *
+ * The columns themselves are `PersonFaceRow`'s — `people.rows.ts` owns the
+ * faces table's shape, because that is where the people surfaces read it — and
+ * this adds the one column the asset detail's join brings with it.
+ */
+export interface FaceRow extends PersonFaceRow {
   person_name: string | null;
 }
 

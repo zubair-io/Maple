@@ -1,3 +1,11 @@
+// The blocks this shares with `people/people.repo.ts` are the ones that do not
+// touch a database at all — the same DTO assembled from rows instead of from a
+// document. Factoring them into a shared helper would couple the two
+// implementations together shortly before one of them is deleted, which is the
+// opposite of what this migration's beside-then-switch shape is for. The
+// duplication ends when the Mongo module goes (#3785).
+// fallow-ignore-file code-duplication
+
 /**
  * People repository — the SQLite port of `people/people.repo.ts` (#3749).
  *

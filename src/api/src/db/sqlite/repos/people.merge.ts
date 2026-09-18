@@ -30,14 +30,13 @@ import type { ObjectId } from 'mongodb';
 import { caseFoldKey } from '../case-fold.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
-import { toPerson, type PersonRow } from './people.rows.ts';
+import { readPerson, type PersonRow } from './people.rows.ts';
 import { markAssetsForMeiliReindexBestEffort } from './people.search-reindex.ts';
 import {
   CLAIM_SURVIVOR_SQL,
   CLEAR_SUGGESTIONS_POINTING_AT_SQL,
   MARK_MERGED_SQL,
   peopleByIdsSql,
-  PERSON_BY_ID_SQL,
   REPOINT_FACES_SQL,
 } from './people.sql.ts';
 import type { PersonWithId } from '../../schema.ts';
@@ -45,13 +44,6 @@ import type { PersonWithId } from '../../schema.ts';
 export interface MergePeopleResult {
   survivor: PersonWithId;
   mergedCount: number;
-}
-
-/** One person by id, or null. */
-async function readPerson(db: SqliteDb, hex: string): Promise<PersonWithId | null> {
-  const rows = await db.read<PersonRow>(PERSON_BY_ID_SQL, [hex]);
-  const row = rows[0];
-  return row ? toPerson(row) : null;
 }
 
 /**

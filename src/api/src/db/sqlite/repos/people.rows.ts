@@ -39,6 +39,8 @@
 import { ObjectId } from 'mongodb';
 import type { AssetFaceDoc, Bbox, PersonDoc, PersonWithId } from '../../schema.ts';
 import { bool, json } from './assets.rows.ts';
+import type { SqliteDb } from './db-handle.ts';
+import { PERSON_BY_ID_SQL } from './people.sql.ts';
 
 /** One `people` row, exactly as the columns come back. */
 export interface PersonRow {
@@ -136,6 +138,19 @@ export function toPerson(row: PersonRow): PersonWithId {
  * One `faces` row as the subdocument `readFaces` used to return straight out of
  * the asset. Optional fields are omitted where the array entries omitted them.
  */
+/**
+ * One person by id, or null.
+ *
+ * Here rather than in each caller because the merge and the merge-suggestion
+ * modules both need exactly this, and a second spelling of "read a person" is
+ * how the two would drift apart on what a missing row means.
+ */
+export async function readPerson(db: SqliteDb, hex: string): Promise<PersonWithId | null> {
+  const rows = await db.read<PersonRow>(PERSON_BY_ID_SQL, [hex]);
+  const row = rows[0];
+  return row ? toPerson(row) : null;
+}
+
 export function toAssetFace(row: PersonFaceRow): AssetFaceDoc {
   const landmarks = json<Array<{ x: number; y: number }>>(row.landmarks);
   const embedding = json<number[]>(row.embedding);

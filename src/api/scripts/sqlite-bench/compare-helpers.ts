@@ -11,23 +11,17 @@
  * rounded differently, would report a difference it had invented.
  */
 
-import { Database } from 'bun:sqlite';
 import { MongoClient, type Db } from 'mongodb';
-import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
-import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
-import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
+import { BENCH_DIR, median, openBenchDatabase, removeDatabase } from './bench-db.ts';
 
 /** Samples taken per measurement. Every script uses the same count, on purpose. */
 const RUNS = 5;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-export const BENCH_DIR = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
-/** WAL leaves two sidecars beside the database; all three go together. */
-const DB_SUFFIXES = ['', '-wal', '-shm'];
 
-export function median(samples: readonly number[]): number {
-  const sorted = [...samples].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)] ?? 0;
-}
+// The scratch directory, the sampler's median and the database removal are
+// `./bench-db.ts`'s — one implementation, two entry points, because the two
+// halves of this directory were extracted in parallel slices and met here.
+export { BENCH_DIR, median, openBenchDatabase, removeDatabase };
 
 /**
  * Median wall time over five samples, after one untimed warm-up.
@@ -53,40 +47,6 @@ export function size(bytes: number): string {
   return bytes < 1_000_000
     ? `${(bytes / 1024).toFixed(1)} KB`
     : `${(bytes / 1_048_576).toFixed(2)} MB`;
-}
-
-/**
- * Removes a scratch database and its WAL sidecars.
- *
- * `Bun.file().delete()` rather than `node:fs` because the API's lint config
- * restricts raw filesystem imports — the same workaround `./run.ts` uses, and
- * for the same reason.
- */
-export async function removeDatabase(path: string): Promise<void> {
-  for (const suffix of DB_SUFFIXES) {
-    await Bun.file(`${path}${suffix}`)
-      .delete()
-      .catch(() => {});
-  }
-}
-
-/**
- * A fresh scratch database with the pragmas and the full schema applied.
- *
- * `create: true` creates the FILE, not the directory above it, so on a machine
- * that has never run these scripts — or with `SQLITE_BENCH_DIR` pointed
- * somewhere new — the open fails with `unable to open database file`. Writing a
- * marker first is what creates the directory: `Bun.write` makes missing parents,
- * and it avoids the raw `node:fs` import the API's lint config restricts, for
- * the same reason {@link removeDatabase} uses `Bun.file().delete()`.
- */
-export async function openBenchDatabase(path: string): Promise<Database> {
-  await Bun.write(`${path.slice(0, path.lastIndexOf('/'))}/.keep`, '');
-  await removeDatabase(path);
-  const db = new Database(path, { create: true });
-  for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
-  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
-  return db;
 }
 
 /**

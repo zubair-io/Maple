@@ -14,6 +14,13 @@
  * `countDocuments` rather than a pipeline, and the caller issues it directly.
  */
 
+// Every pipeline below is a deliberate, line-for-line mirror of the one in
+// routes/search/facets.ts: the benchmark has to time the shape that ships, and
+// importing it is not an option because the route builds these inside its
+// Elysia handler. The duplication is the point, so it is declared for the whole
+// file rather than three times inside it.
+// fallow-ignore-file code-duplication
+
 import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../src/db/schema.ts';
 import { applyLiveFilter, buildFilter } from '../../src/routes/search/query.ts';
@@ -45,10 +52,6 @@ export const MONGO_FACET_PIPELINES: Record<string, object[]> = {
     { $sort: { count: -1 } },
     { $limit: 50 },
   ],
-  // fallow-ignore-next-line duplicates -- deliberate mirror of the pipeline
-  // in routes/search/facets.ts, so the benchmark times the shape that ships.
-  // Importing it is not an option: the route builds these inside its Elysia
-  // handler, and this slice leaves the Mongo path untouched.
   extensions: [
     {
       $project: {
@@ -103,10 +106,6 @@ export const MONGO_FACET_PIPELINES: Record<string, object[]> = {
     },
     { $group: { _id: '$bucket', count: { $sum: 1 } } },
   ],
-  // fallow-ignore-next-line duplicates -- deliberate mirror of the pipeline
-  // in routes/search/facets.ts, so the benchmark times the shape that ships.
-  // Importing it is not an option: the route builds these inside its Elysia
-  // handler, and this slice leaves the Mongo path untouched.
   people: [
     {
       $project: {
@@ -124,10 +123,6 @@ export const MONGO_FACET_PIPELINES: Record<string, object[]> = {
     { $sort: { count: -1 } },
     { $limit: 100 },
   ],
-  // fallow-ignore-next-line duplicates -- deliberate mirror of the pipeline
-  // in routes/search/facets.ts, so the benchmark times the shape that ships.
-  // Importing it is not an option: the route builds these inside its Elysia
-  // handler, and this slice leaves the Mongo path untouched.
   places: [
     {
       $match: {

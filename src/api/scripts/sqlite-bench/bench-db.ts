@@ -17,7 +17,7 @@ import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
 import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
 import { generateLibrary } from './generate.ts';
 
-const BENCH_DIR = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
+export const BENCH_DIR = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
 
 /** WAL leaves two sidecars beside the database; all three go together. */
 const DB_SUFFIXES = ['', '-wal', '-shm'];
@@ -68,13 +68,25 @@ function finishBulkLoad(db: Database): void {
   db.exec('ANALYZE');
 }
 
-/** A fresh database at `path`, migrated and filled with `assetCount` assets. */
-export async function buildLibrary(path: string, assetCount: number): Promise<Database> {
+/**
+ * A fresh scratch database with the pragmas and the full schema applied.
+ *
+ * Empty: the schema and nothing in it. {@link buildLibrary} is this plus a
+ * generated library, and the comparison scripts that bring their own fixtures
+ * want the empty one.
+ */
+export async function openBenchDatabase(path: string): Promise<Database> {
   await ensureBenchDir();
   await removeDatabase(path);
   const db = new Database(path, { create: true });
   for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
   await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
+  return db;
+}
+
+/** A fresh database at `path`, migrated and filled with `assetCount` assets. */
+export async function buildLibrary(path: string, assetCount: number): Promise<Database> {
+  const db = await openBenchDatabase(path);
   generateLibrary(db, { assetCount });
   finishBulkLoad(db);
   return db;
@@ -94,7 +106,7 @@ export function reopenReadOnly(db: Database, path: string): Database {
   return reopened;
 }
 
-function median(samples: readonly number[]): number {
+export function median(samples: readonly number[]): number {
   const sorted = [...samples].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
