@@ -9,17 +9,21 @@
  *
  *  1. Concurrent tests get genuinely separate databases, proven by making them
  *     all insert the SAME primary key while all of them are in flight at once.
- *  2. Disposal happens even when the test body throws.
+ *  2. Disposal happens even when the test body throws, and even when the
+ *     connection itself refuses to close.
  *  3. A handle that is never disposed at all still leaves nothing behind once
- *     the process exits.
+ *     the process is over — whether it exited or was killed by a signal.
  *
  * No external service, no mocks: these run against real SQLite databases,
- * in-memory and on disk.
+ * in-memory and on disk. Every assertion here is one that has been made to
+ * fail on purpose; an assertion about isolation that cannot fail is worse than
+ * none, because it reports a confidence nothing earned.
  */
 
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   createBlankTestDatabase,
@@ -29,6 +33,22 @@ import {
   run,
 } from './test-sqlite.test-helpers.ts';
 
+interface Barrier {
+  /** Blocks until every participant has arrived, or the barrier is abandoned. */
+  arrive(): Promise<void>;
+  /** Releases everyone still waiting with a failure that names `cause`. */
+  abandon(cause: unknown): void;
+}
+
+/**
+ * Under bun's default `--max-concurrency` of 20 the eight tests are all in
+ * flight within milliseconds, so this only ever expires on a run that is not
+ * concurrent. It is deliberately below bun's 5s default per-test timeout: at
+ * or above it the runner kills the test first and the barrier's own diagnostic
+ * is reported as a stray unhandled error instead of as the failure.
+ */
+const BARRIER_TIMEOUT_MS = 4000;
+
 /**
  * Blocks until `size` callers have arrived, then releases all of them.
  *
@@ -37,30 +57,57 @@ import {
  * never come and the barrier would time out with a message naming how many
  * actually made it — a serialised run fails loudly instead of passing while
  * proving nothing.
+ *
+ * {@link Barrier.abandon} is the other half of that: a peer that dies *before*
+ * arriving is never coming either, and without a way to say so, one failure
+ * becomes `size` failures — the real one plus a full timeout each for everyone
+ * left waiting, all reporting the barrier rather than the cause.
  */
-function createBarrier(size: number, timeoutMs = 5000): () => Promise<void> {
+function createBarrier(size: number, timeoutMs = BARRIER_TIMEOUT_MS): Barrier {
   let arrived = 0;
   let release!: () => void;
+  let abandon!: (reason: Error) => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
+  const abandoned = new Promise<never>((_, reject) => {
+    abandon = reject;
+  });
+  // Every test may well pass, in which case nothing ever awaits this promise;
+  // an unobserved rejection must not be reported as an unhandled error.
+  abandoned.catch(() => {});
 
-  return async function arrive(): Promise<void> {
-    arrived += 1;
-    if (arrived >= size) release();
+  return {
+    async arrive(): Promise<void> {
+      arrived += 1;
+      if (arrived >= size) release();
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expiry = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error(`barrier timed out: ${arrived} of ${size} tests were in flight`)),
-        timeoutMs,
-      );
-    });
-    try {
-      await Promise.race([gate, expiry]);
-    } finally {
-      clearTimeout(timer);
-    }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expiry = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `barrier timed out: ${arrived} of ${size} tests were in flight. ` +
+                  `These tests have to run concurrently to mean anything — a runner ` +
+                  `limited below ${size} (bun test --max-concurrency) cannot pass them.`,
+              ),
+            ),
+          timeoutMs,
+        );
+      });
+      try {
+        // `gate` first: once it has resolved, an abandonment that arrives
+        // afterwards must not fail the tests it was never about.
+        await Promise.race([gate, abandoned, expiry]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    abandon(cause: unknown): void {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      abandon(new Error(`a peer test failed before reaching the barrier: ${detail}`, { cause }));
+    },
   };
 }
 
@@ -75,35 +122,106 @@ describe('parallel safety', () => {
    */
   const SHARED_ASSET_ID = '0123456789abcdef01234567';
 
-  const arrive = createBarrier(CONCURRENCY);
+  const barrier = createBarrier(CONCURRENCY);
   const paths = new Set<string>();
 
   for (let index = 0; index < CONCURRENCY; index += 1) {
     test.concurrent(`test ${index} sees only its own rows`, async () => {
-      using handle = await createTestDatabase('file');
-      const db = handle.db;
+      // A test that throws before it reaches the barrier would otherwise
+      // strand its seven peers there, and the run would report eight failures
+      // — seven of them timeouts naming the barrier — for one cause. Handing
+      // the failure to the barrier keeps the peers' failures pointing at it.
+      try {
+        using handle = await createTestDatabase('file');
+        const db = handle.db;
 
-      expect(paths.has(handle.path)).toBe(false);
-      paths.add(handle.path);
+        expect(paths.has(handle.path)).toBe(false);
+        paths.add(handle.path);
 
-      insertAsset(db, { id: SHARED_ASSET_ID });
-      insertFolder(db, { slug: `lib-${index}`, path: `/libraries/${index}` });
+        insertAsset(db, { id: SHARED_ASSET_ID });
+        insertFolder(db, { slug: `lib-${index}`, path: `/libraries/${index}` });
 
-      // Past this line every one of the tests is inside its `using` block,
-      // holding an open database with an identical asset id in it.
-      await arrive();
-      expect(paths.size).toBe(CONCURRENCY);
+        // Past this line every one of the tests is inside its `using` block,
+        // holding an open database with an identical asset id in it.
+        await barrier.arrive();
+        expect(paths.size).toBe(CONCURRENCY);
 
-      const assets = db.query(`SELECT id FROM assets`).all() as Array<{ id: string }>;
-      expect(assets).toEqual([{ id: SHARED_ASSET_ID }]);
+        const assets = db.query(`SELECT id FROM assets`).all() as Array<{ id: string }>;
+        expect(assets).toEqual([{ id: SHARED_ASSET_ID }]);
 
-      const slugs = (db.query(`SELECT slug FROM folders`).all() as Array<{ slug: string }>).map(
-        (row) => row.slug,
-      );
-      expect(slugs).toEqual([`lib-${index}`]);
+        const slugs = (db.query(`SELECT slug FROM folders`).all() as Array<{ slug: string }>).map(
+          (row) => row.slug,
+        );
+        expect(slugs).toEqual([`lib-${index}`]);
+      } catch (err) {
+        barrier.abandon(err);
+        throw err;
+      }
     });
   }
 });
+
+/**
+ * How a child process tells this file which database it made.
+ *
+ * A prefix rather than "whatever the child printed": `existsSync` of a
+ * two-line string is `false` no matter what the sweep did, so treating all of
+ * stdout as a path made "the directory is gone" pass whenever anything else
+ * reached stdout — including if the sweep had been deleted outright. bun
+ * prints to a child's stdout of its own accord (a `bun -e` that installs a
+ * package, for one), so that is not hypothetical.
+ */
+const DB_PATH_PREFIX = 'db-path:';
+
+/** Runs `body` in a child process with the harness imported as `m`. */
+function spawnHarnessChild(body: string) {
+  const helpers = join(import.meta.dir, 'test-sqlite.test-helpers.ts');
+  return Bun.spawn(
+    [
+      'bun',
+      '-e',
+      `const m = await import(${JSON.stringify(helpers)});
+       const announce = (p) => console.log(${JSON.stringify(DB_PATH_PREFIX)} + ' ' + p);
+       const handle = await m.createTestDatabase('file');
+       ${body}`,
+    ],
+    { stdout: 'pipe', stderr: 'pipe' },
+  );
+}
+
+/** The one announced path among `lines`, checked before it is used. */
+function announcedDatabasePath(lines: string[]): string {
+  const announced = lines
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith(DB_PATH_PREFIX));
+  expect(announced).toHaveLength(1);
+  const path = (announced[0] ?? '').slice(DB_PATH_PREFIX.length).trim();
+  expect(path).toStartWith(tmpdir());
+  expect(path).toContain('maple-api-testdb-');
+  return path;
+}
+
+/** Reads a child's stdout only as far as the announcement, for a child that never exits. */
+async function readAnnouncedPath(child: ReturnType<typeof spawnHarnessChild>): Promise<string> {
+  const reader = child.stdout.getReader();
+  const decoder = new TextDecoder();
+  let buffered = '';
+  try {
+    for (;;) {
+      // Only whole lines: a path cut in half by a chunk boundary would fail
+      // the prefix check for the wrong reason.
+      const complete = buffered.split('\n').slice(0, -1);
+      if (complete.some((line) => line.trim().startsWith(DB_PATH_PREFIX))) {
+        return announcedDatabasePath(complete);
+      }
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error(`child exited without announcing a path: ${buffered}`);
+      buffered += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 describe('disposal', () => {
   test('removes the database file when the test body throws', async () => {
@@ -130,30 +248,55 @@ describe('disposal', () => {
     expect(existsSync(handle.path)).toBe(false);
   });
 
+  test('a failing close still gives up the files, and can be retried', async () => {
+    const handle = await createTestDatabase('file');
+    const directory = dirname(handle.path);
+    const realClose = handle.db.close.bind(handle.db);
+    let refuseToClose = true;
+    handle.db.close = (): void => {
+      if (refuseToClose) throw new Error('connection refused to close');
+      realClose();
+    };
+
+    // The cleanup has to survive the throw. It is also what `using` runs, so a
+    // close that both throws and skips the cleanup would surface from a test
+    // as a SuppressedError hiding that test's real assertion failure.
+    expect(() => handle.close()).toThrow('connection refused to close');
+    expect(existsSync(directory)).toBe(false);
+
+    refuseToClose = false;
+    expect(() => handle.close()).not.toThrow();
+  });
+
   test('a handle that is never disposed leaves nothing behind after the process exits', async () => {
-    const helpers = join(import.meta.dir, 'test-sqlite.test-helpers.ts');
-    const child = Bun.spawn(
-      [
-        'bun',
-        '-e',
-        `const m = await import(${JSON.stringify(helpers)});
-         const handle = await m.createTestDatabase('file');
-         console.log(handle.path);`,
-      ],
-      { stdout: 'pipe', stderr: 'pipe' },
-    );
-    const stdout = (await new Response(child.stdout).text()).trim();
-    const stderr = await new Response(child.stderr).text();
+    const child = spawnHarnessChild(`announce(handle.path);`);
+    const [stdout, stderr] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
     const exitCode = await child.exited;
     // Surface the child's own diagnostics rather than a bare exit code, and
     // don't assert stderr is empty — a bun warning there is not this test's
     // subject.
     if (exitCode !== 0) throw new Error(`child exited ${exitCode}: ${stderr}`);
-    expect(stdout).toContain('maple-api-testdb-');
+    const path = announcedDatabasePath(stdout.split('\n'));
 
     // The child never called close(); the exit sweep did.
-    expect(existsSync(stdout)).toBe(false);
-    expect(existsSync(dirname(stdout))).toBe(false);
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(dirname(path))).toBe(false);
+  });
+
+  test('a run killed by a signal leaves nothing behind either', async () => {
+    // Ctrl-C on a hung suite is how a real run skips `process.on('exit')`, and
+    // it is also when a handle is most likely to still be open.
+    const child = spawnHarnessChild(`announce(handle.path); await new Promise(() => {});`);
+    const path = await readAnnouncedPath(child);
+    expect(existsSync(path)).toBe(true);
+
+    child.kill('SIGTERM');
+    await child.exited;
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(dirname(path))).toBe(false);
   });
 });
 
