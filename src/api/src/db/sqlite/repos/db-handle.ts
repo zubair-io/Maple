@@ -24,7 +24,7 @@
  * assignability is pinned by a test rather than asserted here.
  */
 
-import { sqlitePool } from '../index.ts';
+import { processSqliteHandle } from '../index.ts';
 import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from '../protocol.ts';
 
 /**
@@ -64,7 +64,7 @@ export function assetsDb(dbOverride?: SqliteDb): SqliteDb {
  * repository reads as a mistake even though it does the right thing.
  */
 export function sqliteDb(dbOverride?: SqliteDb): SqliteDb {
-  return dbOverride ?? sqlitePool();
+  return dbOverride ?? processSqliteHandle();
 }
 
 /**
@@ -76,7 +76,7 @@ export function sqliteDb(dbOverride?: SqliteDb): SqliteDb {
  * accessor would then look wrong at a glance.
  */
 export function peopleDb(dbOverride?: SqliteDb): SqliteDb {
-  return dbOverride ?? sqlitePool();
+  return dbOverride ?? processSqliteHandle();
 }
 
 /**

@@ -21,6 +21,8 @@ export { SqlitePool, type SqlitePoolOptions, type SqlitePoolStats } from './pool
 export type { SqliteWorkerStats } from './worker-handle.ts';
 export type { SqlParams, SqlRow, SqlStatement, SqlValue, SqlWriteResult } from './protocol.ts';
 
+import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from './protocol.ts';
+
 /**
  * The open pool, and the open that is still spawning its workers. Both are
  * needed: the guard below has to reject a second caller while the first one is
@@ -80,6 +82,52 @@ export function sqlitePool(): SqlitePool {
     throw new Error('sqlite pool: not open — openSqlitePool() must run during startup');
   }
   return pool;
+}
+
+/**
+ * The three primitives a repository needs, which `SqlitePool` satisfies
+ * structurally. Declared here rather than imported from `repos/db-handle.ts`
+ * because that module imports this one; the two shapes are pinned equal by a
+ * test rather than by a shared declaration.
+ */
+export interface SqliteHandle {
+  read<T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]>;
+  write(sql: string, params?: SqlParams): Promise<SqlWriteResult>;
+  transaction(statements: readonly SqlStatement[]): Promise<SqlWriteResult[]>;
+}
+
+/**
+ * A handle installed in place of the pool, for tests only.
+ *
+ * The cutover (#3787) moved every route, worker and enrichment path onto the
+ * repositories, so a test that exercises a handler no longer seeds a database
+ * it also holds a reference to — the handler reaches the process-wide handle on
+ * its own, the same way it does in production. Without a seam for that, every
+ * such test would have to open a real worker-backed pool against a temp file,
+ * which costs two spawned threads per suite and cannot be an in-memory
+ * database at all (each pool worker opens the file by path).
+ *
+ * Production never sets this: `openSqlitePool` is the only thing startup calls,
+ * and it does not touch this binding.
+ */
+let testHandle: SqliteHandle | null = null;
+
+/**
+ * Point the process-wide handle at a test's own connection, and return the
+ * previous one so a suite can restore it. Passing `null` clears it.
+ */
+export function setSqliteHandleForTests(handle: SqliteHandle | null): SqliteHandle | null {
+  const previous = testHandle;
+  testHandle = handle;
+  return previous;
+}
+
+/**
+ * What {@link sqliteDb} resolves to when a caller supplies no override: the
+ * test handle when one is installed, otherwise the open pool.
+ */
+export function processSqliteHandle(): SqliteHandle {
+  return testHandle ?? sqlitePool();
 }
 
 /** Close the process-wide pool, if any. Idempotent. */

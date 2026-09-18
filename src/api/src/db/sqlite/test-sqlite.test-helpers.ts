@@ -35,6 +35,7 @@ import { join } from 'node:path';
 import { SCHEMA_PRAGMAS } from './ddl/index.ts';
 import { fromBunSqlite, runMigrations, type MigrationDb } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
+import { setSqliteHandleForTests } from './index.ts';
 import { newObjectIdHex } from './object-id.ts';
 // `protocol.ts` is where `SqlValue` is declared; `migrate.ts` re-exports it so
 // the migration runner's public surface does not depend on a pool type. Taking
@@ -367,4 +368,53 @@ export function liveLocationCount(db: Database, assetId: string): number {
     n: number;
   } | null;
   return row?.n ?? -1;
+}
+
+/**
+ * A migrated database that is also the process-wide handle, for the duration of
+ * the block that opened it.
+ *
+ * {@link createTestDatabase} is the right tool when the test calls a repository
+ * function directly and can hand it `testSqliteDb(handle.db)` as its override.
+ * That stops working the moment the test drives a route handler or a worker
+ * tick instead: those reach `sqliteDb()` with no override, which after the
+ * cutover (#3787) resolves to whatever the process has installed. This
+ * installs it, and puts back whatever was there before on disposal, so nesting
+ * and a suite that opens one per test both behave.
+ *
+ * ```ts
+ * test('GET /api/folders lists roots', async () => {
+ *   using live = await createLiveTestDatabase();
+ *   insertFolder(live.db, { slug: 'main' });
+ *   const res = await app.handle(new Request('http://x/api/folders'));
+ * });
+ * ```
+ */
+export interface LiveTestDatabase extends TestDatabase {
+  /** The adapter installed as the process-wide handle. */
+  readonly handle: SqliteDb;
+}
+
+export async function createLiveTestDatabase(
+  storage: TestStorage = 'memory',
+): Promise<LiveTestDatabase> {
+  const database = await createTestDatabase(storage);
+  const handle = testSqliteDb(database.db);
+  const previous = setSqliteHandleForTests(handle);
+  let restored = false;
+  const close = (): void => {
+    if (!restored) {
+      restored = true;
+      setSqliteHandleForTests(previous);
+    }
+    database.close();
+  };
+  return {
+    db: database.db,
+    migrationDb: database.migrationDb,
+    path: database.path,
+    handle,
+    close,
+    [Symbol.dispose]: close,
+  };
 }
