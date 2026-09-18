@@ -85,7 +85,7 @@ aliases are used freely for the internal tables whose ids never reach a client:
 | `faces`                                                                                                                                                                | `faces[]`                                                                                                                     | `face_index` keeps the array position, which is on the wire.                      |
 | `stage_state`                                                                                                                                                          | `stages.<name>.*`                                                                                                             | `(asset_id, stage)`, `WITHOUT ROWID`, one row per asset per stage.                |
 | `enrichment_state`                                                                                                                                                     | `enrichment.<stage>.*`                                                                                                        | The older lease-based claim for `geocode` / `face` / `describe`.                  |
-| `people`, `person_merge_dismissals`                                                                                                                                    | same                                                                                                                          | `cover_bbox` and the merge-suggestion head flattened to columns.                  |
+| `people`, `person_merge_dismissals`                                                                                                                                    | same                                                                                                                          | `cover_bbox` and the merge-suggestion head flattened to columns. No `face_count`. |
 | `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                                                                 | same                                                                                                                          |                                                                                   |
 | `jobs`, `imports`, `import_files`, `indexer_queue`, `discover_frontier`, `worker_config`, `stage_handlers`, `backup_sessions`, `upload_sessions`, `apns_device_tokens` | same                                                                                                                          | Queues and configuration.                                                         |
 | `users`, `credentials`, `invites`, `refresh_tokens`, `service_api_keys`, `challenges`, `native_auth_codes`, `lan_handoff_codes`, `image_access_tokens`                 | same                                                                                                                          |                                                                                   |
@@ -254,6 +254,27 @@ So every asset gets one row per registered stage at `version = 0` when it is
 created, and the claim becomes a plain index range scan — 0.05 ms for 500
 candidates over 12 million rows. Registering a thirteenth stage is then one
 `INSERT … SELECT id, 'new-stage' FROM assets`.
+
+**A person's face count is derived, not stored.** `PersonDoc.face_count` is a
+denormalised number adjusted by hand at every membership change — assign,
+unassign, hide, merge — and then rewritten wholesale once per clustering pass by
+a block whose own comment says it is there to heal the drift those incremental
+sites cause. It has to be denormalised on Mongo because counting means
+`$unwind`-ing the faces array of every asset that mentions the person. As rows
+it is one `COUNT(*)` over `faces_person` joined to `assets` for liveness, so the
+column does not exist and neither do the adjust and heal helpers. The count is
+computed where it is read, in `repos/people.face-count.ts`, and the drift cannot
+be reintroduced by a write path forgetting to call something.
+
+**The clustering worker gets a path, not a connection.** The clustering pass runs
+on its own thread and writes — `recomputeCentroids` persists refreshed centroids
+before the seeds are read back. The Mongo worker opens its own database handle
+from parameters in the dispatch message, and reproducing that here would mean a
+second SQLite writer, which is exactly what the pool exists to prevent. Instead
+the worker opens the file `readonly` for its own queries, so the embeddings stay
+on its thread, and sends every write to the host, which runs it on the pool's
+single writer. `db/sqlite/worker-db.ts` carries the argument, including why the
+write-then-reload path in the clustering pass still observes its own write.
 
 **Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
 enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
