@@ -26,8 +26,14 @@
  * by the time this runs) for the stale-`.maple`-cache-drop +
  * empty-folder-reclaim housekeeping `moveBackupAsset` also performed, so
  * switching the copy/verify/repoint mechanics onto the generic primitive
- * does not regress that side effect. `dedupeLiveFileinfo` (also reused from
- * `move-backup-asset.ts`) reconciles a discover-watcher race the same way.
+ * does not regress that side effect.
+ *
+ * This used to end with `dedupeLiveFileinfo`, which collapsed the duplicate
+ * live entry a concurrent discover sweep could append for the new path
+ * mid-move. There is no such call any more and nothing replaced it: on SQLite
+ * the UNIQUE index over `(library_id, path, filename)` means the second entry
+ * cannot be written in the first place, so the race is prevented rather than
+ * repaired. See `db/sqlite/repos/assets.refile.ts`.
  */
 import type { Collection, WithId } from 'mongodb';
 import * as path from 'node:path';
@@ -40,7 +46,6 @@ import { relocateAsset } from './relocate-asset.ts';
 import { relocateCacheStageResetSet, liveFileinfoMatchFilter } from '../db/relocate-cache-reset.ts';
 import { MEILI_REARM_SET } from '../people/people-search-reindex.ts';
 import { finalize } from '../workers/migration/restructure-fs.ts';
-import { dedupeLiveFileinfo } from '../workers/migration/move-backup-asset.ts';
 
 const log = childLogger('library/relocate-geo');
 
@@ -109,7 +114,6 @@ async function dedupeAt(
     filename: primary.filename,
     sourcesToDelete: [],
   });
-  await dedupeLiveFileinfo(c, doc._id);
   return 'moved';
 }
 
@@ -190,6 +194,5 @@ export async function relocateGeoAsset(
     filename: primary.filename,
     sourcesToDelete: [],
   });
-  await dedupeLiveFileinfo(c, doc._id);
   return 'moved';
 }

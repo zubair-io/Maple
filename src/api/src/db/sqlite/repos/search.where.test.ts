@@ -155,6 +155,23 @@ describe('buildSearchWhere — the clause list', () => {
     expect(clause('only')).toEqual(['assets.hidden = 1']);
   });
 
+  test('isScreenshot=false matches the unclassified, not only the classified', () => {
+    // is_screenshot is tri-state: NULL means the describe stage has not looked
+    // at this asset yet. `= 0` would exclude those, so on a library that is
+    // mid-enrichment the photographs filter would return almost nothing — and
+    // the generated-search worker forces isScreenshot: 'false' on every query
+    // it evaluates, so it would have scored every collection it proposed at
+    // zero. `IS NOT 1` is the direct equivalent of the `$ne: true` it replaces.
+    const where = buildSearchWhere({ isScreenshot: 'false' });
+    if ('error' in where) throw new Error(where.error);
+    expect(where.clauses).toContain('assets.is_screenshot IS NOT 1');
+    expect(where.clauses).not.toContain('assets.is_screenshot = 0');
+
+    const only = buildSearchWhere({ isScreenshot: 'true' });
+    if ('error' in only) throw new Error(only.error);
+    expect(only.clauses).toContain('assets.is_screenshot = 1');
+  });
+
   test('an out-of-range month is dropped rather than matching nothing', () => {
     // A filter that matches nothing is worse than no filter here: the
     // generated-search worker reads the result count as a quality signal.

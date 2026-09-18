@@ -132,7 +132,7 @@ export function extensionTerm(extensions: readonly string[]): Term {
 /**
  * The place label the facets endpoint emits, inverted back into a rollup tuple.
  *
- * The inverse of `placeLabel` in `routes/search/facets.ts`, and it has to stay
+ * The inverse of `placeLabel` in `search.facets.ts`, and it has to stay
  * the inverse: a label that does not parse back into the tuple it was built
  * from is a filter chip that returns nothing. "locality, region" splits on the
  * last `", "`; a bare label is either half, with the other blank, so it matches
@@ -291,12 +291,21 @@ export function exifTerms(q: SearchQuery): Term[] {
 /**
  * The scalar grid filters: month, rating, flag, colour, screenshot, hidden.
  *
- * `isScreenshot=false` is `is_screenshot = 0` rather than Mongo's `$ne: true`.
- * The column is `NOT NULL DEFAULT 0`, so "classified as not a screenshot" and
- * "never classified" are the same value and the two forms select the same rows.
- * That collapse is tracked as #3761; whichever way it is resolved, this clause
- * keeps matching everything that is not a screenshot, because a nullable column
- * would need `IS NOT 1` and this file would change with it.
+ * `isScreenshot=false` is `IS NOT 1`, not `= 0`, and the difference is the whole
+ * result set rather than an edge case. `is_screenshot` is deliberately tri-state
+ * — `CHECK (is_screenshot IS NULL OR is_screenshot IN (0, 1))` — where NULL
+ * means the describe stage has not classified this asset yet. `= 0` excludes
+ * NULL, so it would have matched only assets already classified as
+ * not-a-screenshot and silently hidden every unclassified one. On a library
+ * mid-enrichment that is most of it, and the generated-search worker forces
+ * `isScreenshot: 'false'` on every query it evaluates, so it would have measured
+ * zero results for every collection it proposed.
+ *
+ * `IS NOT 1` is the direct equivalent of the `$ne: true` this replaces: it
+ * matches 0 and NULL alike, which is what "not a screenshot" means to a client.
+ *
+ * `hidden` keeps `= 0` because that column really is `NOT NULL DEFAULT 0` — the
+ * asymmetry is in the schema, not an oversight here.
  */
 export function gradeTerms(q: SearchQuery, flag: -1 | 0 | 1 | undefined): Term[] {
   // An out-of-range or non-integer month is dropped rather than passed through:
@@ -315,10 +324,15 @@ export function gradeTerms(q: SearchQuery, flag: -1 | 0 | 1 | undefined): Term[]
 
 /** What the caller is allowed to see: screenshots, and hidden assets. */
 export function visibilityTerms(q: SearchQuery): Term[] {
-  const screenshot = q.isScreenshot === 'true' ? 1 : q.isScreenshot === 'false' ? 0 : null;
+  const screenshot =
+    q.isScreenshot === 'true'
+      ? `assets.is_screenshot = 1`
+      : q.isScreenshot === 'false'
+        ? `assets.is_screenshot IS NOT 1`
+        : null;
   const hidden = q.hidden === 'only' ? 1 : q.hidden === 'all' ? null : 0;
   return [
-    ...(screenshot === null ? [] : [{ sql: `assets.is_screenshot = ${screenshot}`, params: [] }]),
+    ...(screenshot === null ? [] : [{ sql: screenshot, params: [] }]),
     ...(hidden === null ? [] : [{ sql: `assets.hidden = ${hidden}`, params: [] }]),
   ];
 }
