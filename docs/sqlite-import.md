@@ -143,6 +143,22 @@ so a client below the floor would be told it is up to date instead of being sent
 to re-enumerate. The SSE path does return 409. Closing that on the polling route
 belongs with the repository port that rewrites it.
 
+### A field the types do not mention is the one a mapper drops
+
+`description_meta` is written by the describe stage and read back by
+`assets.transform.ts` through a `Record<string, unknown>`, so it reaches
+clients — but it is not declared on the `AssetDoc` interface, because it was
+added after that interface froze. The first version of this importer was
+written from the interface and discarded the field for the whole library,
+silently, until review caught it.
+
+That is why the field-level probes in `verify-assets.ts` read the source
+document rather than going through the mapper, and why `DETAIL_SOURCE_FIELDS`
+is a list the mapper and the expected-count query both read. The other two
+undeclared reads in the API (`toCoreInfo`'s `maple_id` and `original_path`,
+and the browse listing's `deleted_at`) are all declared fields accessed
+loosely, so they were already covered.
+
 ### Identifiers are preserved, never remapped
 
 `db/assets.transform.ts` emits `doc._id.toHexString()` into the DTOs the HTTP API
