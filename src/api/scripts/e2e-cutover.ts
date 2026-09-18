@@ -46,6 +46,19 @@ const record = (step: string, ok: boolean, detail: string): void => {
 const dir = mkdtempSync(join(tmpdir(), 'maple-e2e-cutover-'));
 const sqlitePath = join(dir, 'maple.sqlite');
 
+function countSqlite(): Record<string, number> {
+  const sq = new Database(sqlitePath, { readonly: true });
+  try {
+    const counts: Record<string, number> = {};
+    for (const table of ['assets', 'folders', 'asset_changes']) {
+      counts[table] = (sq.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    }
+    return counts;
+  } finally {
+    sq.close();
+  }
+}
+
 let client: MongoClient | null = null;
 let server: ReturnType<typeof Bun.spawn> | null = null;
 
@@ -138,6 +151,15 @@ async function main(): Promise<void> {
 
   record('sqlite file written', existsSync(sqlitePath), sqlitePath);
 
+  const afterMigration = countSqlite();
+  record(
+    'migration carried every row',
+    afterMigration.assets === 6 &&
+      afterMigration.folders === 2 &&
+      afterMigration.asset_changes === 3,
+    JSON.stringify(afterMigration),
+  );
+
   const token = await login();
 
   const browse = await get('/api/folders', token);
@@ -150,12 +172,21 @@ async function main(): Promise<void> {
 
   const before = await get('/api/changes?since=0', token);
   const beforeRaw = await before.text();
-  const beforeBody = JSON.parse(beforeRaw) as { items?: unknown[]; changes?: unknown[] };
-  const beforeCount = (beforeBody.items ?? beforeBody.changes ?? []).length;
+  const beforeBody = JSON.parse(beforeRaw) as {
+    changes?: Array<{ cursor: number }>;
+    current?: number;
+  };
+  // Either the journal serves from the bottom, or it has been swept and the
+  // 409 names where to resume. Both are correct answers; only a 500 or a 200
+  // that skips a row would not be.
+  const baseline =
+    before.status === 409
+      ? (beforeBody.current ?? 0)
+      : Math.max(0, ...(beforeBody.changes ?? []).map((row) => row.cursor));
   record(
-    'change feed (before edit)',
-    before.ok && beforeCount > 0,
-    `${before.status} n=${beforeCount} ${beforeRaw.slice(0, 200)}`,
+    'change feed answers',
+    before.ok || before.status === 409,
+    `${before.status} resume-from=${baseline} ${beforeRaw.slice(0, 160)}`,
   );
 
   // An edit: set a rating on the first asset the search returned.
@@ -174,15 +205,27 @@ async function main(): Promise<void> {
     });
     record('edit', edit.ok, `${edit.status} ${(await edit.text()).slice(0, 220)}`);
 
-    const after = await get('/api/changes?since=0', token);
-    const afterBody = (await after.json()) as { items?: unknown[]; changes?: unknown[] };
-    const afterCount = (afterBody.items ?? afterBody.changes ?? []).length;
+    const after = await get(`/api/changes?since=${baseline}`, token);
+    const afterRaw = await after.text();
+    const afterBody = JSON.parse(afterRaw) as { changes?: unknown[] };
+    const afterCount = (afterBody.changes ?? []).length;
     record(
       'change feed records the edit',
-      after.ok && afterCount > beforeCount,
-      `${after.status} n ${beforeCount} -> ${afterCount}`,
+      after.ok && afterCount > 0,
+      `${after.status} since=${baseline} n=${afterCount}`,
     );
   }
+
+  // The worker tier is a separate child process that opens its own pool. A
+  // cutover that left it on MongoDB would look fine from the API's routes and
+  // then quietly write every stage result to the store nothing reads.
+  const workers = await get('/api/workers/status', token);
+  const workersBody = await workers.text();
+  record(
+    'worker tier reports on SQLite',
+    workers.ok,
+    `${workers.status} ${workersBody.slice(0, 220)}`,
+  );
 
   // Nothing may have been written to MongoDB while the server served.
   const db = client!.db(DB_NAME);
@@ -192,14 +235,12 @@ async function main(): Promise<void> {
   }
   record('mongo untouched after boot', true, JSON.stringify(mongoAfter));
 
-  // And the SQLite file is the one holding the library.
-  const sq = new Database(sqlitePath, { readonly: true });
-  const counts: Record<string, number> = {};
-  for (const table of ['assets', 'folders', 'asset_changes']) {
-    counts[table] = (sq.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
-  }
-  sq.close();
-  record('sqlite holds the library', counts.assets! > 0, JSON.stringify(counts));
+  // And the SQLite file is the one holding the library. The counts can differ
+  // from the migration's by now: the worker tier is live, and these fixtures
+  // name files that do not exist on disk, so the reaper and the retention sweep
+  // act on them. That is the workers working, which is itself worth seeing.
+  const counts = countSqlite();
+  record('sqlite holds the library', counts.assets > 0, JSON.stringify(counts));
 }
 
 try {
