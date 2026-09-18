@@ -25,6 +25,7 @@ import {
   ASSET_ID_BY_ADDRESS_SQL,
   ASSET_ID_BY_MAPLE_ID_SQL,
   ASSET_ID_BY_PHASSET_LINK_SQL,
+  bucketedIds,
   detailByAssetIdsSql,
   facesByAssetIdsSql,
   listItemsSql,
@@ -105,6 +106,17 @@ describe('every by-id read is a seek', () => {
     );
     expect(plan(db, facesByAssetIdsSql(1), 'id')).toContain('SEARCH f USING INDEX');
     expect(plan(db, detailByAssetIdsSql(1), 'id')).toContain('SEARCH asset_detail USING');
+  });
+
+  test('a bucket-padded id list seeks the same index as an exact-sized one', async () => {
+    using handle = await createTestDatabase();
+    // Three ids bind as four — the padding is a repeat of one of them, so the
+    // planner sees an ordinary `IN` list and the probe shape is unchanged.
+    const padded = bucketedIds(['a', 'b', 'c']);
+    expect(padded).toHaveLength(4);
+    expect(plan(handle.db, locationsByAssetIdsSql(padded.length), ...padded)).toContain(
+      'SEARCH asset_locations USING INDEX',
+    );
   });
 
   test('an address resolves through the unique (library, path, filename) index', async () => {

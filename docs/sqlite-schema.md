@@ -105,6 +105,27 @@ The repetition is deliberate. SQLite only uses a partial index when the query's
 own `WHERE` provably implies the index's, and the implication test is textual
 enough that a paraphrase loses the index. Repo modules must use this spelling.
 
+One Mongo call site does not mean this by "live", and the port changes it.
+`findListItems` — the `GET /api/assets` working-set enumerator — filters on
+`deleted_at: null` alone, so it also returns assets whose every location has
+been tagged `missing_since`. Every other live surface, via `LIVE_ASSET_FILTER`
+in `enrichment/meilisearch-vector-coverage.ts`, requires the `$elemMatch` as
+well. The SQLite port uses the predicate above, which brings that endpoint into
+line with the rest of the product and is what makes `assets_live_captured`
+usable; `assets.list.test.ts` pins the exact row the two disagree about.
+
+### What the list page's sort costs
+
+`findListItems` orders by `captured_at DESC, id`, replacing a Mongo `find` with
+no sort at all. That is what lets the ordered partial index serve the page, and
+it makes the endpoint pageable and stable across calls, which an unsorted
+limited find is not. It also means an asset with no EXIF capture date — the
+generated column is NULL, since `indexer/exif.ts` derives it from
+`DateTimeOriginal ?? CreateDate` with no fallback — sorts behind every dated
+row, so a page smaller than the live set never reaches one. #3779 carries the
+fix: a `COALESCE(captured_at, indexed_at)` generated column and a partial index
+over it, which is DDL rather than a repo change.
+
 ## Every query pattern in `src/api/src/db/`, and the index that serves it
 
 Sources: `assets.repo.ts`, `assets.trash.ts`, `changes.repo.ts`, `media-kind.ts`,
