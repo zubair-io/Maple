@@ -207,16 +207,3 @@ CREATE INDEX lan_handoff_codes_expiry   ON lan_handoff_codes (expires_at);
 CREATE INDEX image_access_tokens_expiry ON image_access_tokens (expires_at);
 `;
 
-/**
- * Tables whose rows expire, and the column that says when. The periodic sweep
- * is a `DELETE FROM <table> WHERE <column> < ?` per entry.
- */
-export const EXPIRING_TABLES = [
-  { table: 'invites', column: 'expires_at' },
-  { table: 'refresh_tokens', column: 'expires_at' },
-  { table: 'challenges', column: 'expires_at' },
-  { table: 'native_auth_codes', column: 'expires_at' },
-  { table: 'lan_handoff_codes', column: 'expires_at' },
-  { table: 'image_access_tokens', column: 'expires_at' },
-  { table: 'upload_sessions', column: 'expires_at' },
-] as const;
