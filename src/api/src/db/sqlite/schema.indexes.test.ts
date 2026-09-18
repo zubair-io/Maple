@@ -22,6 +22,7 @@ import {
   run,
 } from './test-sqlite.test-helpers.ts';
 import { newObjectIdHex } from './object-id.ts';
+import { caseFoldKey } from './case-fold.ts';
 import type { Database } from 'bun:sqlite';
 
 function planOf(db: Database, sql: string, ...params: Array<string | number>): string {
@@ -89,22 +90,31 @@ describe('case-insensitive name lookups', () => {
     const id = newObjectIdHex();
     run(
       db,
-      `INSERT INTO people (id, name, created_at, updated_at) VALUES (?, 'Ada', ?, ?)`,
+      `INSERT INTO people (id, name, name_key, created_at, updated_at)
+         VALUES (?, 'Ada', ?, ?, ?)`,
       id,
+      caseFoldKey('Ada'),
       now,
       now,
     );
 
-    const plan = planOf(db, `SELECT id FROM people WHERE name = ? AND merged_into IS NULL`, 'ada');
+    // The comparison is against the stored folded key, not against the name
+    // under a collation: NOCASE folds A-Z and nothing else, so a name outside
+    // ASCII would not match itself.
+    const plan = planOf(
+      db,
+      `SELECT id FROM people WHERE name_key = ? AND merged_into IS NULL`,
+      caseFoldKey('ada'),
+    );
     expect(plan).toContain('people_name_unique');
-    expect(plan).toContain('name=?');
+    expect(plan).toContain('name_key=?');
 
     // The lookup that decides "rename into an existing cluster" is a MERGE.
     // Missing here is what would send the caller into an insert that the
     // unique index then rejects.
     const found = db
-      .query(`SELECT id FROM people WHERE name = ? AND merged_into IS NULL`)
-      .get('ada') as { id: string } | null;
+      .query(`SELECT id FROM people WHERE name_key = ? AND merged_into IS NULL`)
+      .get(caseFoldKey('ADA')) as { id: string } | null;
     expect(found?.id).toBe(id);
   });
 

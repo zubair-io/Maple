@@ -119,10 +119,10 @@ describe('the rest of the library', () => {
       centroid: string;
       suggested_merge_person_id: string;
       suggested_merges: string;
-      face_count: number;
+      name_key: string;
     }>(
       `SELECT name, cover_asset_id, cover_bbox_x, cover_bbox_h, centroid,
-              suggested_merge_person_id, suggested_merges, face_count
+              suggested_merge_person_id, suggested_merges, name_key
          FROM people WHERE id = ?`,
       ids.person.toHexString(),
     );
@@ -135,7 +135,9 @@ describe('the rest of the library', () => {
     expect(JSON.parse(row.suggested_merges)).toEqual([
       { person_id: ids.mergedPerson.toHexString(), score: 0.91 },
     ]);
-    expect(row.face_count).toBe(2);
+    // The face count is derived from the faces table rather than stored, so
+    // there is nothing to carry; the folded name key is stored and is.
+    expect(row.name_key).toBe('alice example');
   });
 
   it('keeps a folder mirror list as JSON', () => {

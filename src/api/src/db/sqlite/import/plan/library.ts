@@ -56,6 +56,7 @@ import {
   textOr,
 } from '../values.ts';
 import { docId, docKey, onePerDocument } from './shared.ts';
+import { caseFoldKey } from '../../case-fold.ts';
 
 /** Newest change rows carried over by default. */
 export const DEFAULT_CHANGES_WINDOW = 100_000;
@@ -88,6 +89,7 @@ const peoplePlan = onePerDocument({
   columns: [
     'id',
     'name',
+    'name_key',
     'created_at',
     'updated_at',
     'cover_asset_id',
@@ -98,7 +100,6 @@ const peoplePlan = onePerDocument({
     'merged_into',
     'hidden',
     'excluded',
-    'face_count',
     'centroid',
     'centroid_face_count',
     'suggested_merge_person_id',
@@ -111,6 +112,11 @@ const peoplePlan = onePerDocument({
     return [
       docId(doc),
       textOr(doc.name, ''),
+      // The schema derives the face count rather than storing it, but the
+      // folded name key is stored and NOT NULL — it is what uniqueness and
+      // every rename-merge lookup compare, so the import mints it here rather
+      // than leaving the first rename to discover it is missing.
+      caseFoldKey(textOr(doc.name, '')),
       toIso(doc.created_at) ?? now,
       toIso(doc.updated_at) ?? now,
       idToHex(doc.cover_asset_id),
@@ -121,7 +127,6 @@ const peoplePlan = onePerDocument({
       idToHex(doc.merged_into),
       toBit(doc.hidden),
       toBit(doc.excluded),
-      intOr(doc.face_count, 0),
       toJsonText(doc.centroid),
       toNumber(doc.centroid_face_count),
       idToHex(doc.suggested_merge_person_id),
