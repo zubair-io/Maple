@@ -42,6 +42,7 @@ import {
   type SpawnWorker,
   type SqliteWorkerStats,
 } from './worker-handle.ts';
+import { retryOnBusy } from './busy-retry.ts';
 
 export interface SqlitePoolOptions {
   /** Path to the database file. Created by the writer if it does not exist. */
@@ -131,18 +132,35 @@ export class SqlitePool {
     return reader.read(sql, params) as Promise<T[]>;
   }
 
-  /** Run one statement on the writer. Writes are executed in call order. */
+  /**
+   * Run one statement on the writer. Writes are executed in call order.
+   *
+   * Call order is a guarantee about *this* process. Since the cutover (#3752)
+   * there is a second one — the worker child — holding its own writer on the
+   * same file, and between processes it is SQLite's file lock that arbitrates.
+   * A write that loses that race is retried rather than surfaced; see
+   * `busy-retry.ts` for why that is safe and what the ladder is sized against.
+   */
   write(sql: string, params?: SqlParams): Promise<SqlWriteResult> {
-    return this.rejectIfClosed() ?? this.writer.write(sql, params);
+    return (
+      this.rejectIfClosed() ?? retryOnBusy('write', () => this.writer.write(sql, params))
+    );
   }
 
   /**
    * Run every statement inside one `BEGIN IMMEDIATE` / `COMMIT` on the writer.
    * A statement that throws rolls the whole batch back and rejects; nothing
    * from the batch is visible to readers afterwards.
+   *
+   * That roll-back is what makes the cross-process retry safe: a batch that
+   * lost the file lock left nothing behind, so re-running it starts from the
+   * state the first attempt started from.
    */
   transaction(statements: readonly SqlStatement[]): Promise<SqlWriteResult[]> {
-    return this.rejectIfClosed() ?? this.writer.transaction(statements);
+    return (
+      this.rejectIfClosed() ??
+      retryOnBusy('transaction', () => this.writer.transaction(statements))
+    );
   }
 
   stats(): SqlitePoolStats {

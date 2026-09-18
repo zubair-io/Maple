@@ -5,7 +5,13 @@
  *
  * Env vars:
  *   PORT               — listen port (default: 3000)
- *   MAPLE_MONGO_URI    — MongoDB connection string (default: mongodb://localhost:27017)
+ *   MAPLE_SQLITE_PATH  — the library database file (default: ./data/maple.sqlite).
+ *                        Read before anything else, since it names the database
+ *                        the settings themselves live in. See
+ *                        `db/sqlite/boot-migration.ts`.
+ *   MAPLE_MONGO_URI    — MongoDB connection string (default: mongodb://localhost:27017).
+ *                        Only read on a boot that still has to migrate (#3752);
+ *                        once the cutover is recorded it is never contacted.
  *   MAPLE_MONGO_DB     — MongoDB database name (default: maple)
  *   MAPLE_ROOTS        — colon-separated allowed FS roots for browsing &
  *                        registered-folder access. Defaults to '/' (Docker
@@ -74,6 +80,8 @@ import { uploadSessions } from './backup/upload-session.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { authedApi } from './routes/authed-api.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
+import { openSqlitePool, closeSqlitePool } from './db/sqlite/index.ts';
+import { migrateAtBoot, sqliteDatabasePath } from './db/sqlite/boot-migration.ts';
 import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { installMirrorQueueSink } from './workers/mirror/sink.ts';
@@ -261,7 +269,32 @@ let _workerChild: ChildProcessWorker | null = null;
  * re-spawn a worker that we intentionally terminated. */
 let shuttingDown = false;
 
+/**
+ * The cutover, and the pool every repository reads through afterwards (#3752).
+ *
+ * Runs before anything else in `start()`, because everything else in `start()`
+ * — beginning with `ensureJwtSecret` on the next line — reads a database. And
+ * it runs to completion before the server listens or the worker child is
+ * spawned, which is what makes the downtime one bounded window rather than a
+ * period of serving an empty library.
+ *
+ * Exiting is deliberate, and is the one place in this boot that does it. Every
+ * other phase logs and continues, because a degraded subsystem beats no server;
+ * an unmigrated library is the case where continuing is worse, since the File
+ * Provider clients cannot tell it from a deleted one.
+ */
+async function startSqlite(): Promise<void> {
+  try {
+    await migrateAtBoot();
+  } catch (err) {
+    log.fatal({ err }, 'SQLite migration failed — refusing to serve');
+    process.exit(1);
+  }
+  await openSqlitePool({ path: sqliteDatabasePath() });
+}
+
 async function start(): Promise<void> {
+  await startSqlite();
   await ensureJwtSecret();
   log.info(
     {
@@ -505,6 +538,13 @@ async function shutdown(signal: string): Promise<void> {
   }
   try {
     await closeDb();
+  } catch {
+    /* ignore */
+  }
+  // Terminates the pool's writer and reader threads. Last, so anything above
+  // that still wanted a query got one.
+  try {
+    closeSqlitePool();
   } catch {
     /* ignore */
   }

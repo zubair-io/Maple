@@ -60,6 +60,7 @@ import { child as childLogger } from '../../../log.ts';
 import { getChangeBus } from '../../../runtime/change-bus.ts';
 import type { AssetChangeKind, AssetChangeWithId } from '../../schema.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
+import { retryOnBusy } from '../busy-retry.ts';
 
 const log = childLogger('changes-repo-sqlite');
 
@@ -149,39 +150,6 @@ const folderPathCache: Map<string, string> = new Map();
 export function __resetFolderPathCacheForTests(): void {
   folderPathCache.clear();
 }
-
-/**
- * Backoff between attempts when the writer is busy. Three retries spanning
- * ~525ms, which is the shape of the contention this is for: SQLite serialises
- * every writer in every child process through one `RESERVED` lock, so a change
- * row emitted in the middle of a discover/index batch queues behind that
- * batch's writes rather than behind a slow query. The pool's own
- * `BUSY_TIMEOUT_MS` (5s) already absorbs the common case; this covers the tail
- * where a batch holds the lock for longer than that.
- */
-const BUSY_RETRY_DELAYS_MS = [25, 100, 400] as const;
-
-/**
- * Whether a failed write is worth attempting again.
- *
- * Only lock contention is — it is transient by definition and the batch is
- * atomic, so a retry starts from the same state the first attempt did and
- * allocates a fresh cursor rather than reusing the one that rolled back. A
- * constraint violation or a closed pool would fail identically every time, and
- * retrying those turns one log line into four.
- *
- * Matching on the message rather than a code is what the pool leaves available:
- * `worker-handle.ts` flattens the driver's error into text with the SQLite code
- * appended, because an `Error` does not clone across the worker boundary. Both
- * spellings are checked — the code for the pool path, the driver's own wording
- * for a test or importer driving `bun:sqlite` directly.
- */
-function isBusyError(err: unknown): boolean {
-  const text = err instanceof Error ? err.message : String(err);
-  return /SQLITE_BUSY|SQLITE_LOCKED|database is locked|database table is locked/i.test(text);
-}
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function lookupFolderPath(db: SqliteDb, folderId: ObjectId): Promise<string | null> {
   const key = folderId.toHexString();
@@ -299,24 +267,13 @@ export async function recordAssetChangeRow(
 ): Promise<AssetChangeWithId> {
   const db = sqliteDb(dbOverride);
   const relativePath = input.relative_path ?? null;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await writeChangeRow(db, input, relativePath);
-    } catch (err) {
-      const delay = isBusyError(err) ? BUSY_RETRY_DELAYS_MS[attempt] : undefined;
-      if (delay === undefined) {
-        log.error(
-          { err, kind: input.kind, attempts: attempt + 1 },
-          'recordAssetChange: write failed',
-        );
-        throw err;
-      }
-      log.warn(
-        { err, kind: input.kind, attempt: attempt + 1 },
-        'recordAssetChange: writer busy, retrying',
-      );
-      await sleep(delay);
-    }
+  try {
+    return await retryOnBusy(`change:${input.kind}`, () =>
+      writeChangeRow(db, input, relativePath),
+    );
+  } catch (err) {
+    log.error({ err, kind: input.kind }, 'recordAssetChange: write failed');
+    throw err;
   }
 }
 

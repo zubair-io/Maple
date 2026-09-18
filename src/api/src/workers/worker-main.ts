@@ -5,6 +5,8 @@
  */
 import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { getDb, ensureIndexes, closeDb } from '../db/client.ts';
+import { closeSqlitePool, openSqlitePool } from '../db/sqlite/index.ts';
+import { sqliteDatabasePath } from '../db/sqlite/boot-migration.ts';
 import { startWorkers, stopWorkers } from './start-workers.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { flushOtelBeforeExit, initOtel, installOtelFatalFlush } from '../otel.ts';
@@ -23,6 +25,12 @@ installOtelFatalFlush();
 const log = childLogger('worker-main');
 
 async function main(): Promise<void> {
+  // This tier opens the database and never migrates it. The cutover (#3752)
+  // belongs to the API process alone, which does not spawn this child until it
+  // has finished — so by the time anything here runs, the library is complete.
+  // A second migrator would be a second writer against a half-built file, and
+  // the importer's resume checkpoints assume one.
+  await openSqlitePool({ path: sqliteDatabasePath() });
   await getDb();
   try {
     await ensureIndexes();
@@ -66,6 +74,7 @@ async function main(): Promise<void> {
     // process (#2196). The API process does the same in its own shutdown.
     await flushOtelBeforeExit();
     await closeDb();
+    closeSqlitePool();
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown());

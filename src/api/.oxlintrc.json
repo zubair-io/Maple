@@ -59,6 +59,8 @@
         "src/db/sqlite/import/import-changes.test.ts",
         "src/db/sqlite/import/import-resume.test.ts",
         "src/db/sqlite/import/import-guards.test.ts",
+        "src/db/sqlite/boot-migration.test.ts",
+        "src/workers/worker-main.migration.test.ts",
         "src/audio/extract-audio.ts",
         "src/audio/extract-audio.test.ts",
         "src/audio/whisper-cli.ts",
