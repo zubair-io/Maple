@@ -1,0 +1,332 @@
+/**
+ * Schema benchmark for #3743.
+ *
+ * Builds a synthetic library at one or more sizes, measures how much space each
+ * table and index occupies, and times the queries the migration is supposed to
+ * make fast — including the three facet aggregations that take about five
+ * seconds on production MongoDB today.
+ *
+ * Everything is generated. Nothing here connects to production.
+ *
+ *   bun scripts/sqlite-bench/run.ts                    # 335k, 600k, 1M
+ *   bun scripts/sqlite-bench/run.ts 50000              # one size
+ *   bun scripts/sqlite-bench/run.ts 335377 --keep      # leave the .db behind
+ *
+ * `bun:sqlite` is used directly and on purpose: this script owns its process
+ * and has no event loop to protect, so the worker pool (#3742) is irrelevant
+ * here. The schema and the migration runner make no assumption either way.
+ */
+
+import { Database } from 'bun:sqlite';
+import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
+import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
+import { ASSETS_FTS_OPTIMIZE_SQL, ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
+import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
+import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
+import { generateLibrary } from './generate.ts';
+
+const DEFAULT_SIZES = [335_377, 600_000, 1_000_000];
+const LIVE = 'deleted_at IS NULL AND live_location_count > 0';
+
+interface Measurement {
+  name: string;
+  /** What this stands in for on the Mongo side. */
+  replaces: string;
+  sql: string;
+  /** Rows the query is expected to return, for a sanity check. */
+  expectRows?: (rows: unknown[]) => boolean;
+}
+
+const MEASUREMENTS: Measurement[] = [
+  {
+    name: 'count live assets',
+    replaces: 'countDocuments(applyLiveFilter({})) — facets.ts total',
+    sql: `SELECT COUNT(*) AS n FROM assets WHERE ${LIVE}`,
+  },
+  {
+    name: 'facet: camera make + model',
+    replaces: '$group by { exif.camera_make, exif.camera_model } — facets.ts',
+    sql: `SELECT camera_make, camera_model, COUNT(*) AS n FROM assets
+           WHERE ${LIVE} GROUP BY camera_make, camera_model ORDER BY n DESC LIMIT 50`,
+  },
+  {
+    name: 'facet: place country code',
+    replaces: 'the place_rollups drill-down the country index was built for',
+    sql: `SELECT place_country_code, COUNT(*) AS n FROM assets
+           WHERE ${LIVE} AND place_country_code IS NOT NULL
+           GROUP BY place_country_code ORDER BY n DESC LIMIT 100`,
+  },
+  {
+    name: 'facet: place locality + region',
+    replaces: '$group by { place.rollups.locality, place.rollups.region } — facets.ts',
+    sql: `SELECT place_locality, place_region, COUNT(*) AS n FROM assets
+           WHERE ${LIVE} AND (place_locality IS NOT NULL OR place_region IS NOT NULL)
+           GROUP BY place_locality, place_region ORDER BY n DESC LIMIT 100`,
+  },
+  {
+    name: 'facet: lens',
+    replaces: "$group by '$exif.lens' — facets.ts",
+    sql: `SELECT lens, COUNT(*) AS n FROM assets WHERE ${LIVE}
+           GROUP BY lens ORDER BY n DESC LIMIT 50`,
+  },
+  {
+    name: 'facet: timeline buckets (year, month)',
+    replaces: '$group by { exif.captured_year, exif.captured_month } — buckets.ts',
+    sql: `SELECT captured_year, captured_month, COUNT(*) AS n FROM assets WHERE ${LIVE}
+           GROUP BY captured_year, captured_month ORDER BY captured_year DESC, captured_month DESC`,
+  },
+  {
+    name: 'count live assets via EXISTS (no roll-up column)',
+    replaces: 'the same count with liveness as a per-row sub-select',
+    sql: `SELECT COUNT(*) AS n FROM assets a WHERE a.deleted_at IS NULL
+           AND EXISTS (SELECT 1 FROM asset_locations l WHERE l.asset_id = a.id
+                        AND l.deleted_at IS NULL AND l.missing_since IS NULL)`,
+  },
+  {
+    name: 'grid page: library + newest first, 200 rows',
+    replaces: 'find(library scope).sort({ captured_at: -1, _id: 1 }).limit(200)',
+    // Written as a semi-join rather than an inner join on purpose. An inner
+    // join lets the planner lead with asset_locations, scan a whole library
+    // and sort 300,000 rows to find 200; EXISTS keeps assets as the outer
+    // loop, so the ordered partial index terminates at the limit.
+    sql: `SELECT a.id, a.mtime, a.rating, a.has_xmp, a.hidden,
+                 (SELECT path FROM asset_locations
+                   WHERE asset_id = a.id AND ordinal = 0) AS path,
+                 (SELECT filename FROM asset_locations
+                   WHERE asset_id = a.id AND ordinal = 0) AS filename
+            FROM assets a
+           WHERE a.${LIVE}
+             AND EXISTS (SELECT 1 FROM asset_locations l
+                          WHERE l.asset_id = a.id AND l.ordinal = 0
+                            AND l.library_id = (SELECT id FROM folders LIMIT 1))
+           ORDER BY a.captured_at DESC, a.id LIMIT 200`,
+  },
+  {
+    name: 'duplicate candidates: 2+ live locations',
+    replaces: 'fileinfo.1 partial index + $expr/$filter live count',
+    sql: `SELECT COUNT(*) AS n FROM (
+            SELECT asset_id FROM asset_locations
+             WHERE deleted_at IS NULL AND missing_since IS NULL
+             GROUP BY asset_id HAVING COUNT(*) >= 2)`,
+  },
+  {
+    name: 'backup sidecar lookup by (device, phasset local id)',
+    replaces: 'the unindexed dotted-path lookup: 3-6 s over 288k documents',
+    sql: `SELECT asset_id FROM asset_phasset_links
+           WHERE device_id = 'device-1' AND phasset_local_id = 'no-such-id'`,
+  },
+  {
+    name: 'stage claim: 500 below target, not dead',
+    replaces: 'stage_<name>_version index + dead/backoff residuals',
+    sql: `SELECT asset_id FROM stage_state
+           WHERE stage = 'describe' AND version < 4 AND dead = 0
+             AND (next_attempt_at IS NULL OR next_attempt_at <= '9999')
+           LIMIT 500`,
+  },
+  {
+    name: 'full-text search: selective term, top 50 by bm25',
+    replaces: '$text over the search_blob text index',
+    sql: `SELECT s.asset_id FROM assets_fts f
+            JOIN asset_search s ON s.rowid = f.rowid
+           WHERE assets_fts MATCH 'zephyrhold'
+           ORDER BY bm25(assets_fts) LIMIT 50`,
+  },
+  {
+    name: 'full-text search: broad term matching most rows',
+    replaces: 'the worst case for $text — a term in nearly every document',
+    sql: `SELECT s.asset_id FROM assets_fts f
+            JOIN asset_search s ON s.rowid = f.rowid
+           WHERE assets_fts MATCH 'lighthouse'
+           ORDER BY bm25(assets_fts) LIMIT 50`,
+  },
+];
+
+interface SizeRow {
+  name: string;
+  bytes: number;
+  kind: 'table' | 'index' | 'other';
+}
+
+function measureSizes(db: Database): SizeRow[] {
+  const objects = db
+    .query(`SELECT type, name, tbl_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'`)
+    .all() as Array<{ type: string; name: string; tbl_name: string }>;
+  const kindOf = new Map(objects.map((o) => [o.name, o.type] as const));
+
+  // dbstat(main, 1) aggregates per b-tree instead of per page, which is orders
+  // of magnitude faster on a multi-gigabyte file.
+  db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS temp.dbstat_agg USING dbstat(main, 1)`);
+  const rows = db
+    .query(`SELECT name, SUM(pgsize) AS bytes FROM temp.dbstat_agg GROUP BY name`)
+    .all() as Array<{ name: string; bytes: number }>;
+
+  return rows
+    .map((row) => ({
+      name: row.name,
+      bytes: row.bytes,
+      kind: (kindOf.get(row.name) === 'index'
+        ? 'index'
+        : kindOf.get(row.name) === 'table'
+          ? 'table'
+          : 'other') as SizeRow['kind'],
+    }))
+    .sort((a, b) => b.bytes - a.bytes);
+}
+
+function timeQuery(db: Database, sql: string, runs: number): { median: number; rows: number } {
+  const statement = db.query(sql);
+  const samples: number[] = [];
+  let rows = 0;
+  for (let i = 0; i < runs; i += 1) {
+    const startedAt = performance.now();
+    rows = statement.all().length;
+    samples.push(performance.now() - startedAt);
+  }
+  samples.sort((a, b) => a - b);
+  return { median: samples[Math.floor(samples.length / 2)], rows };
+}
+
+function mb(bytes: number): string {
+  return (bytes / 1_048_576).toFixed(1);
+}
+
+interface SizeReport {
+  name: string;
+  bytes: number;
+  kind: SizeRow['kind'];
+}
+
+interface TimingReport {
+  name: string;
+  replaces: string;
+  coldMs: number;
+  warmMs: number;
+  rows: number;
+  plan: string;
+}
+
+interface RunReport {
+  assetCount: number;
+  rowCounts: Record<string, number>;
+  generateMs: number;
+  fileBytes: number;
+  sizes: SizeReport[];
+  timings: TimingReport[];
+}
+
+async function benchmark(assetCount: number, dbPath: string): Promise<RunReport> {
+  const db = new Database(dbPath, { create: true });
+  for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
+  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
+
+  const generated = generateLibrary(db, { assetCount });
+
+  // Post-load: rebuild what the bulk path deferred, then let the planner see
+  // real statistics.
+  db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
+  db.exec(ASSETS_FTS_REBUILD_SQL);
+  db.exec(ASSETS_FTS_OPTIMIZE_SQL);
+  db.exec('ANALYZE');
+  db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+
+  const sizes = measureSizes(db);
+  const fileBytes =
+    ((db.query('PRAGMA page_count').get() as { page_count: number }).page_count ?? 0) *
+    ((db.query('PRAGMA page_size').get() as { page_size: number }).page_size ?? 4096);
+  db.close();
+
+  // Reopen so SQLite's own page cache starts empty for the first sample.
+  const cold = new Database(dbPath, { readonly: true });
+  for (const pragma of SCHEMA_PRAGMAS) {
+    if (!pragma.includes('journal_mode')) cold.exec(pragma);
+  }
+
+  const timings: TimingReport[] = [];
+  for (const measurement of MEASUREMENTS) {
+    const first = timeQuery(cold, measurement.sql, 1);
+    const warm = timeQuery(cold, measurement.sql, 5);
+    const plan = (
+      cold.query(`EXPLAIN QUERY PLAN ${measurement.sql}`).all() as Array<{ detail: string }>
+    )
+      .map((r) => r.detail)
+      .join(' | ');
+    timings.push({
+      name: measurement.name,
+      replaces: measurement.replaces,
+      coldMs: Number(first.median.toFixed(2)),
+      warmMs: Number(warm.median.toFixed(2)),
+      rows: warm.rows,
+      plan,
+    });
+  }
+  cold.close();
+
+  return {
+    assetCount,
+    rowCounts: generated.rowCounts,
+    generateMs: generated.elapsedMs,
+    fileBytes,
+    sizes,
+    timings,
+  };
+}
+
+function printReport(report: RunReport): void {
+  const perAsset = report.fileBytes / report.assetCount;
+  console.log(`\n## ${report.assetCount.toLocaleString()} assets`);
+  console.log(
+    `\nDatabase file: ${mb(report.fileBytes)} MB (${Math.round(perAsset)} bytes per asset). ` +
+      `Generated in ${(report.generateMs / 1000).toFixed(1)} s.`,
+  );
+  console.log(
+    `Rows: ${Object.entries(report.rowCounts)
+      .map(([k, v]) => `${k} ${v.toLocaleString()}`)
+      .join(', ')}`,
+  );
+
+  console.log('\n| object | kind | MB |');
+  console.log('| --- | --- | --- |');
+  for (const size of report.sizes.slice(0, 18)) {
+    console.log(`| \`${size.name}\` | ${size.kind} | ${mb(size.bytes)} |`);
+  }
+
+  console.log('\n| query | cold ms | warm ms | rows |');
+  console.log('| --- | --- | --- | --- |');
+  for (const timing of report.timings) {
+    console.log(`| ${timing.name} | ${timing.coldMs} | ${timing.warmMs} | ${timing.rows} |`);
+  }
+}
+
+const args = Bun.argv.slice(2);
+const keep = args.includes('--keep');
+const sizes = args
+  .filter((a) => !a.startsWith('--'))
+  .map(Number)
+  .filter((n) => Number.isFinite(n) && n > 0);
+const targets = sizes.length > 0 ? sizes : DEFAULT_SIZES;
+const outDir = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
+
+const reports: RunReport[] = [];
+for (const assetCount of targets) {
+  const dbPath = `${outDir}/bench-${assetCount}.db`;
+  // Bun.file().delete() removes a previous run without importing node:fs,
+  // which the API's lint config restricts.
+  for (const suffix of ['', '-wal', '-shm']) {
+    await Bun.file(`${dbPath}${suffix}`)
+      .delete()
+      .catch(() => {});
+  }
+  const report = await benchmark(assetCount, dbPath);
+  reports.push(report);
+  printReport(report);
+  if (!keep) {
+    for (const suffix of ['', '-wal', '-shm']) {
+      await Bun.file(`${dbPath}${suffix}`)
+        .delete()
+        .catch(() => {});
+    }
+  }
+}
+
+await Bun.write(`${outDir}/report.json`, JSON.stringify(reports, null, 2));
+console.log(`\nJSON report: ${outDir}/report.json`);
