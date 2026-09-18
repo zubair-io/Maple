@@ -52,6 +52,18 @@ export interface SqliteDb {
  * condition a request handler can recover from.
  */
 export function assetsDb(dbOverride?: SqliteDb): SqliteDb {
+  return sqliteDb(dbOverride);
+}
+
+/**
+ * {@link assetsDb} under a name that does not claim a table.
+ *
+ * The remaining-collections port (#3751) needs the same "override, else the
+ * process-wide pool" resolution for `folders`, `users`, `imports` and the
+ * couple of dozen other tables it covers, and `assetsDb()` inside a folders
+ * repository reads as a mistake even though it does the right thing.
+ */
+export function sqliteDb(dbOverride?: SqliteDb): SqliteDb {
   return dbOverride ?? sqlitePool();
 }
 

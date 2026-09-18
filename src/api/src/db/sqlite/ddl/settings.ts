@@ -1,49 +1,163 @@
 /**
- * Settings, server-side singletons and the worker bookkeeping that belongs to
- * no single queue: `app_settings`, `worker_status`, `indexer_checkpoints`,
- * `managed_certificates`, `generated_searches`, `video_geo_backfill_audit` and
- * the three `meilisearch_backfill_*` collections.
+ * Settings, operational singletons and the audit rows: the collections that
+ * are neither the library nor its people, and that no other DDL module owns.
  *
- * These are the nine collections the first draft of this schema left out. None
- * of them is on the hot path — most are one row — but leaving them undeclared
- * would have meant the table list read as complete while the settings system
- * CLAUDE.md mandates had nowhere to live.
+ * Two slices met here. #3743 enumerated the collections `src/api` opens and
+ * modelled nine of them from their call sites; #3751 ported six to real
+ * repositories and, in doing so, read what the stored documents actually
+ * contain. Where the two disagreed the port's shape is the one kept, because
+ * it is the one with a repository and tests behind it — `indexer_checkpoints`
+ * needs defaults, because an in-flight marker upserts on the folder id alone
+ * and creates a row holding nothing else; `video_geo_backfill_audit` names its
+ * donor columns the way the writer does. The four the port never touched —
+ * `worker_status` and the three Meilisearch backfill tables — keep the
+ * schema's version, which is the only one there is.
  *
- * Two shape rules are worth stating, because they differ from the asset side:
+ * ## Why `app_settings` is one JSON column and nothing else
  *
- *  1. **A settings document stays a document.** `app_settings` is read by id
- *     and written back with `$set`; nothing filters on a field inside it, and
- *     the sixteen documents have almost nothing in common. Columns would buy
- *     nothing and would have to be migrated every time a config gains a knob.
- *  2. **A singleton says so in a CHECK.** `worker_status`, the Meilisearch
- *     backfill state and its lease are one row by construction, so the id is
- *     pinned to the literal the code uses. A second row is a bug, and the
- *     constraint is where that gets caught.
+ * Every other table in this schema follows the rule that a field a query
+ * filters on is a column. `app_settings` is the one place that rule does not
+ * apply, because nothing ever filters it: all twenty-odd call sites read one
+ * document by its id and write a flat `$set` back. The documents themselves
+ * have nothing in common — the observability row holds an OTLP endpoint, the
+ * describe row holds a model name and a daily spend cap, the migration row
+ * holds a map of per-migration enable flags — so columns would mean either one
+ * table per settings domain or a wide table of mutually exclusive nullable
+ * fields that every new knob has to migrate.
+ *
+ * A single JSON document per id keeps the storage as boring as the access
+ * pattern, and SQLite's `json_set` makes the partial update atomic rather than
+ * a read-modify-write: `json_set(doc, '$.migrations.refile.enabled', json(?))`
+ * creates the intermediate objects it needs, which is exactly what a dotted
+ * Mongo `$set` path did.
  */
 
 /**
- * Every DB-backed setting, one JSON document per domain, keyed by the same
- * string id the Mongo `_id` carries: `enrichment`, `cloudflare`, `map`,
- * `network`, `managed_https`, `apns`, `render`, `pano`, `observability`,
- * `performance`, `display`, `deduplicate`, `derivative-audit`,
- * `generated_search`, `migration`, `missing-reaper`.
+ * Operator-tunable configuration, one JSON document per settings domain.
  *
- * This is the table behind the settings pages, which is where Maple's
- * operator-toggleable configuration lives by policy rather than by accident —
- * a DB-backed setting is changeable at runtime and visible in the UI, where an
- * environment variable is neither.
- *
- * `doc` is the whole document minus its id. Eleven of the sixteen are already
- * shaped `{ _id, config: {...} }` and the rest are a flat bag of optional
- * fields; every call site is `findOne({ _id })` plus an upsert of a `$set`,
- * with `json_set` covering the one partial-update case (`migration`'s
- * per-migration sub-keys). Nothing queries this table by anything but its id,
- * so it has no secondary index and needs none.
+ * The id is the same string the Mongo `_id` held — `enrichment`, `network`,
+ * `observability`, `migration`, `missing-reaper` and so on — so a row keeps
+ * the name the settings page, the route and the repo module already use.
  */
 export const APP_SETTINGS_TABLE_DDL = `
 CREATE TABLE app_settings (
   id  TEXT NOT NULL PRIMARY KEY,
   doc TEXT NOT NULL CHECK (json_valid(doc))
+) WITHOUT ROWID;
+`;
+
+/**
+ * Per-library indexer resume point.
+ *
+ * `path` and `last_walked_at` carry defaults because the in-flight marker
+ * upserts on `folder_id` alone: a job claimed before the first full walk
+ * finishes creates the row, and on Mongo that row simply had no `path` field.
+ * A default is the closest honest equivalent to an absent one.
+ */
+export const INDEXER_CHECKPOINTS_TABLE_DDL = `
+CREATE TABLE indexer_checkpoints (
+  folder_id TEXT NOT NULL PRIMARY KEY CHECK (length(folder_id) = 24),
+
+  path           TEXT    NOT NULL DEFAULT '',
+  last_walked_at INTEGER NOT NULL DEFAULT 0,
+  -- maple:id hex strings picked up but not finished, as a JSON array.
+  inflight_ids   TEXT    NOT NULL DEFAULT '[]' CHECK (json_valid(inflight_ids)),
+  sweep_gen      INTEGER,
+  updated_at     INTEGER NOT NULL
+) WITHOUT ROWID;
+`;
+
+/**
+ * ACME account key, issued certificate and in-flight DNS challenges for the
+ * managed LAN HTTPS listener. Exactly one row, id `lan`.
+ *
+ * `lease_until` is a column rather than part of a payload because the lease
+ * claim is a conditional `UPDATE … WHERE lease_until <= ?`, which is the whole
+ * mechanism that stops two instances renewing the same certificate at once.
+ * It defaults to 0 so a freshly inserted row is immediately claimable, the same
+ * thing the Mongo version's `$setOnInsert: { lease_until: 0 }` arranged.
+ */
+export const MANAGED_CERTIFICATES_TABLE_DDL = `
+CREATE TABLE managed_certificates (
+  id TEXT NOT NULL PRIMARY KEY,
+
+  account_key TEXT,
+  -- { hostname, key, cert, not_before, not_after }, read back whole.
+  certificate TEXT CHECK (certificate IS NULL OR json_valid(certificate)),
+  -- [{ id, zone_id }] — appended to and removed from as challenges resolve.
+  challenges  TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(challenges)),
+
+  lease_owner        TEXT,
+  lease_until        INTEGER NOT NULL DEFAULT 0,
+  retry_after        INTEGER,
+  attempted_revision TEXT
+) WITHOUT ROWID;
+`;
+
+/**
+ * The daily themed collections the generated-search worker invents.
+ *
+ * `library_id` is TEXT with no foreign key on purpose: the worker stores the
+ * library's hex id as a plain string and compares it as one, and a row whose
+ * library has since been unregistered should age out through the retention
+ * sweep rather than vanish mid-read.
+ *
+ * `query` stays JSON because it is a search parameter bag replayed through the
+ * same `buildFilter` as `/api/search`; nothing ever filters into it.
+ */
+export const GENERATED_SEARCHES_TABLE_DDL = `
+CREATE TABLE generated_searches (
+  id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
+
+  library_id    TEXT NOT NULL,
+  -- Local day this run targeted, YYYY-MM-DD.
+  generated_for TEXT NOT NULL,
+  generated_at  TEXT NOT NULL,
+  model         TEXT NOT NULL,
+  attempts      INTEGER NOT NULL,
+
+  theme    TEXT NOT NULL,
+  title    TEXT NOT NULL,
+  subtitle TEXT,
+  query    TEXT NOT NULL CHECK (json_valid(query)),
+
+  result_count   INTEGER NOT NULL,
+  cover_asset_id TEXT
+);
+`;
+
+export const GENERATED_SEARCHES_INDEX_DDL = `
+-- Latest day for a library, then that day's rows: one index serves both.
+CREATE INDEX generated_searches_day ON generated_searches (library_id, generated_for DESC);
+-- Retention sweep: DELETE WHERE generated_at < cutoff.
+CREATE INDEX generated_searches_age ON generated_searches (generated_at);
+`;
+
+/**
+ * One decision per candidate video for the report-only geo-backfill pass.
+ *
+ * Keyed by the video's own asset id, which is what makes the pass idempotent —
+ * re-running it overwrites a row rather than appending a second verdict, and
+ * "how much is left" is the candidate count minus the row count.
+ *
+ * The donor's coordinates are two columns rather than a JSON pair so the
+ * operator review query can range over them without parsing.
+ */
+export const VIDEO_GEO_BACKFILL_AUDIT_TABLE_DDL = `
+CREATE TABLE video_geo_backfill_audit (
+  asset_id TEXT NOT NULL PRIMARY KEY CHECK (length(asset_id) = 24),
+
+  maple_id    TEXT,
+  captured_at TEXT NOT NULL,
+  decision    TEXT NOT NULL CHECK (decision IN ('match', 'no-donor', 'skip')),
+
+  donor_id       TEXT,
+  donor_maple_id TEXT,
+  donor_lat      REAL,
+  donor_lng      REAL,
+  delta_ms       INTEGER,
+
+  at TEXT NOT NULL
 ) WITHOUT ROWID;
 `;
 
@@ -73,141 +187,6 @@ CREATE TABLE worker_status (
   -- badges, and what computing them cost.
   counts              TEXT CHECK (counts IS NULL OR json_valid(counts)),
   counts_wanted_until INTEGER
-) WITHOUT ROWID;
-`;
-
-/**
- * Where the discover sweeper left off in one library root.
- *
- * `folder_id` is the key — the Mongo collection carries a generated `_id` that
- * nothing ever reads and a `folderId` that every query uses, with a unique
- * index declared on it by a function that is never called. Here the real key
- * is the primary key and the accidental one is gone.
- *
- * The foreign key cascades, unlike the one on `asset_changes`: a checkpoint is
- * a pointer to a live library root rather than a record of something that
- * happened, so when the root is deregistered its resume position is garbage.
- */
-export const INDEXER_CHECKPOINTS_TABLE_DDL = `
-CREATE TABLE indexer_checkpoints (
-  folder_id TEXT NOT NULL PRIMARY KEY REFERENCES folders (id) ON DELETE CASCADE,
-
-  -- Absolute path walked, denormalised from the folder for log readability.
-  path            TEXT    NOT NULL,
-  -- Epoch ms of the last completed full walk.
-  last_walked_at  INTEGER NOT NULL,
-  -- maple ids picked up by a sweep and not yet finished. Written whole by the
-  -- sweeper on every checkpoint, never filtered into.
-  inflight_ids    TEXT    NOT NULL DEFAULT '[]' CHECK (json_valid(inflight_ids)),
-  -- Generation of the discover sweep currently in flight.
-  sweep_gen       INTEGER,
-  updated_at      INTEGER NOT NULL
-) WITHOUT ROWID;
-`;
-
-/**
- * The ACME account key and the issued LAN certificate, plus the lease that
- * stops two processes renewing at once.
- *
- * One row, id `lan`. `lease_owner` and `lease_until` are columns rather than
- * payload because they are the compare-and-swap predicate: claiming is an
- * `UPDATE … WHERE id = 'lan' AND lease_until <= ?` whose row count decides the
- * winner, and renewing and releasing both carry `AND lease_owner = ?`.
- */
-export const MANAGED_CERTIFICATES_TABLE_DDL = `
-CREATE TABLE managed_certificates (
-  id TEXT NOT NULL PRIMARY KEY,
-
-  -- ACME account key (PEM).
-  account_key TEXT,
-  -- { hostname, key, cert, not_before, not_after }, read whole by the HTTPS
-  -- listener when it loads the certificate.
-  certificate TEXT CHECK (certificate IS NULL OR json_valid(certificate)),
-  -- In-flight DNS-01 records: [{ id, zone_id }], added and removed whole.
-  challenges  TEXT CHECK (challenges IS NULL OR json_valid(challenges)),
-
-  -- Renewal lease. Epoch ms, 0 when free.
-  lease_owner       TEXT,
-  lease_until       INTEGER NOT NULL DEFAULT 0,
-  -- Epoch ms before which a failed issuance must not be retried.
-  retry_after       INTEGER,
-  attempted_revision TEXT
-) WITHOUT ROWID;
-`;
-
-/**
- * The generated-search worker's output: one saved collection per theme per
- * day, per library.
- *
- * The id reaches clients — `/api/generated-searches/:id` looks a row up by it
- * — so it keeps the 24-character hex shape.
- */
-export const GENERATED_SEARCHES_TABLE_DDL = `
-CREATE TABLE generated_searches (
-  id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
-
-  library_id    TEXT NOT NULL REFERENCES folders (id) ON DELETE CASCADE,
-  -- Local day this collection was generated for, as YYYY-MM-DD.
-  generated_for TEXT NOT NULL,
-  -- ISO 8601 write time. Retention and the "themes used recently" prompt
-  -- digest both range over this.
-  generated_at  TEXT NOT NULL,
-
-  model    TEXT    NOT NULL,
-  attempts INTEGER NOT NULL DEFAULT 0,
-
-  theme    TEXT NOT NULL,
-  title    TEXT NOT NULL,
-  subtitle TEXT,
-
-  -- The saved search itself: { placeQuery?, from?, to?, month?, people?,
-  -- sceneType? }. Replayed against the search route as a whole; no field of it
-  -- is ever a predicate here.
-  query TEXT NOT NULL CHECK (json_valid(query)),
-
-  result_count   INTEGER NOT NULL DEFAULT 0,
-  cover_asset_id TEXT
-);
-`;
-
-export const GENERATED_SEARCHES_INDEX_DDL = `
--- "Latest day generated for this library", and then that day's rows.
-CREATE INDEX generated_searches_library_day
-  ON generated_searches (library_id, generated_for DESC);
-
--- Retention sweep (generated_at < cutoff) and the recent-themes digest.
-CREATE INDEX generated_searches_generated_at
-  ON generated_searches (generated_at);
-`;
-
-/**
- * One decision per video from the apply-video-geo-backfill pass: whether a
- * donor photo's GPS was borrowed, and from which one.
- *
- * `asset_id` is the key, reused from the audited asset so a re-run overwrites
- * its own row instead of appending a second opinion. It carries no foreign
- * key, for the same reason `asset_changes` carries none: this is a record that
- * a decision was taken about an id at a point in time, not a pointer to a live
- * row, and it has to survive the asset it describes.
- */
-export const VIDEO_GEO_BACKFILL_AUDIT_TABLE_DDL = `
-CREATE TABLE video_geo_backfill_audit (
-  asset_id TEXT NOT NULL PRIMARY KEY,
-
-  maple_id    TEXT,
-  -- ISO capture time of the audited video; empty for a 'skip'.
-  captured_at TEXT NOT NULL,
-  decision    TEXT NOT NULL CHECK (decision IN ('match', 'no-donor', 'skip')),
-
-  -- The donor photo, when one was found.
-  donor_id        TEXT,
-  donor_maple_id  TEXT,
-  donor_gps_lat   REAL,
-  donor_gps_lng   REAL,
-  -- Signed milliseconds between the two capture times.
-  delta_ms        INTEGER,
-
-  at TEXT NOT NULL
 ) WITHOUT ROWID;
 `;
 
