@@ -205,6 +205,82 @@ describe('change-log-gc', () => {
       expect(summary2.deleted).toBe(0);
       expect(await coll.countDocuments()).toBe(1);
     });
+
+    it('stops mid-sweep when shouldStop signals cooperative cancellation', async () => {
+      const coll = await assetChangesCollection();
+      const now = Date.now();
+      const docs: AssetChangeDoc[] = [];
+      for (let i = 1; i <= 6; i++) {
+        docs.push({
+          cursor: i,
+          asset_id: new ObjectId(),
+          folder_id: new ObjectId(),
+          kind: 'update',
+          abs_path: `/p/${i}.dng`,
+          relative_path: `${i}.dng`,
+          at: new Date(now - 40 * DAY_MS),
+        });
+      }
+      await coll.insertMany(docs);
+
+      let batchCount = 0;
+      const summary = await runChangeLogGcOnce({
+        retentionDays: 30,
+        batchSize: 2,
+        shouldStop: () => {
+          batchCount++;
+          return batchCount > 1; // stop after the first batch
+        },
+      });
+
+      expect(summary.batches).toBe(1);
+      expect(summary.deleted).toBe(2);
+      expect(await coll.countDocuments()).toBe(4);
+    });
+
+    it('skips sweep when enabled is false in config', async () => {
+      const { saveChangeLogGcConfig } = await import('./change-log-gc-config.repo.ts');
+      await saveChangeLogGcConfig({ enabled: false });
+
+      const coll = await assetChangesCollection();
+      await coll.insertOne({
+        cursor: 1,
+        asset_id: new ObjectId(),
+        folder_id: new ObjectId(),
+        kind: 'update',
+        abs_path: '/p/1.dng',
+        relative_path: '1.dng',
+        at: new Date(Date.now() - 40 * DAY_MS),
+      });
+
+      const summary = await runChangeLogGcOnce();
+      expect(summary.skipped).toBe(true);
+      expect(summary.deleted).toBe(0);
+      expect(await coll.countDocuments()).toBe(1);
+    });
+
+    it('persists last_run telemetry after pass', async () => {
+      const { loadChangeLogGcConfig } = await import('./change-log-gc-config.repo.ts');
+      const coll = await assetChangesCollection();
+      await coll.insertOne({
+        cursor: 1,
+        asset_id: new ObjectId(),
+        folder_id: new ObjectId(),
+        kind: 'update',
+        abs_path: '/p/1.dng',
+        relative_path: '1.dng',
+        at: new Date(Date.now() - 40 * DAY_MS),
+      });
+
+      const summary = await runChangeLogGcOnce({ retentionDays: 30 });
+      expect(summary.deleted).toBe(1);
+
+      const config = await loadChangeLogGcConfig();
+      expect(config.last_run).not.toBeNull();
+      expect(config.last_run?.deleted).toBe(1);
+      expect(config.last_run?.batches).toBe(1);
+      expect(config.last_run?.pruned_through).toBe(1);
+    });
   });
 
   describe('startChangeLogGc', () => {

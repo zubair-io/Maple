@@ -1,6 +1,6 @@
 <mui-settings-row
   [customSummary]="true"
-  label="Change log GC"
+  label="Change log retention"
   [open]="expanded()"
   (openChange)="toggleExpanded()"
   [showDivider]="false"
@@ -8,7 +8,7 @@
 >
   <div class="wrow-summary set-wrow-summary" summary>
     <span class="wrow-id set-wrow-id">
-      <maple-settings-icon name="pipe" [size]="14" [color]="'#a8a29e'" />
+      <maple-settings-icon name="hash" [size]="14" [color]="'#a8a29e'" />
       <span class="set-mono">change-log-gc</span>
     </span>
     <span class="status-pill set-wrow-status-pill">
@@ -19,22 +19,14 @@
       summaryLine()
     }}</span>
     <span class="wrow-spacer set-wrow-spacer"></span>
-    <mui-button
-      variant="ghost"
-      size="sm"
-      data-testid="change-log-gc-run-now"
-      [loading]="running()"
-      (pressed)="runNow()"
-    >
-      Run now
-    </mui-button>
   </div>
 
   <div class="flex flex-col gap-3.5 px-4 pt-1 pb-3">
     <p class="m-0 text-[12.5px] leading-[1.5] text-[var(--s-text-muted)] max-w-[60ch]">
-      Prunes asset change history older than the retention floor in bounded batches to keep the
-      database compact. Clients holding sync cursors older than the retention floor receive HTTP 409
-      and re-enumerate the working set.
+      Every file change is journalled so the macOS and iOS file providers can sync a delta instead
+      of re-reading the library. The journal is not needed forever: this sweep deletes entries older
+      than the window below, in small batches so it never blocks a request. A device that has been
+      offline for longer than the window re-reads the library once instead of applying a delta.
     </p>
 
     @if (error(); as msg) {
@@ -45,40 +37,66 @@
 
     @if (loading()) {
       <p class="text-[12.5px] text-[var(--s-text-muted)]">Loading…</p>
-    } @else {
+    } @else if (config(); as cfg) {
+      <mui-checkbox
+        label="Enabled — prune automatically in the background"
+        [checked]="cfg.enabled"
+        data-testid="change-log-gc-enabled"
+        (checkedChange)="toggleEnabled($event)"
+      />
+
       <div class="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4 gap-x-6">
         <div class="field set-field">
-          <label class="field-label" for="change-log-gc-retention-input">Retention window</label>
+          <label class="field-label" for="change-log-gc-retention-input">Keep entries for</label>
           <div class="num-input set-num-input">
             <mui-input
               inputId="change-log-gc-retention-input"
               variant="numeric"
               [min]="1"
               [max]="3650"
-              data-testid="change-log-gc-retention-input"
-              ariaLabel="Retention window (days)"
-              [value]="draftDays().toString()"
-              (valueChange)="onDraftChange($event)"
+              data-testid="change-log-gc-retention"
+              ariaLabel="Keep entries for"
+              [value]="numToStr(draftDays())"
+              (valueChange)="setDraftDays($event)"
             />
             <span class="num-suffix">days</span>
           </div>
-          <div class="field-hint">
-            Changes older than this are pruned. Takes effect on next pass (no restart).
+          <div class="field-hint">Takes effect on the next sweep — no restart needed.</div>
+        </div>
+
+        <div class="field set-field">
+          <div class="field-label">Journal size</div>
+          <div
+            class="text-[13px] [font-variant-numeric:tabular-nums]"
+            data-testid="change-log-gc-rows"
+          >
+            {{ formatRows(rows()) }} entries
           </div>
+          <div class="field-hint">Estimated from collection metadata.</div>
         </div>
       </div>
 
-      @if (lastRunResult(); as res) {
+      @if (lastRun(); as run) {
         <div
-          class="flex flex-wrap items-center gap-1.5 text-[12px] text-[var(--s-text-dim)]"
+          class="flex flex-wrap items-center gap-1.5 text-[12px]"
           data-testid="change-log-gc-last-run"
         >
-          <span>Last sweep:</span>
+          <span class="text-[var(--s-text-dim)]">Last sweep:</span>
           <span
             class="py-0.5 px-[7px] rounded-[4px] bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border)] [font-variant-numeric:tabular-nums]"
+            >removed {{ formatRows(run.deleted) }}</span
           >
-            {{ res.deleted }} deleted in {{ res.batches }} batches ({{ res.durationMs }}ms)
-          </span>
+          <span
+            class="py-0.5 px-[7px] rounded-[4px] bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border)] [font-variant-numeric:tabular-nums]"
+            >{{ run.batches }} batches</span
+          >
+          <span
+            class="py-0.5 px-[7px] rounded-[4px] bg-[var(--s-surface)] border-[0.5px] border-[var(--s-border)] [font-variant-numeric:tabular-nums]"
+            >{{ run.duration_ms }} ms</span
+          >
+          @if (lastRunAt(); as when) {
+            <span class="text-[var(--s-text-dim)]">{{ when }}</span>
+          }
         </div>
       }
 
@@ -90,7 +108,6 @@
           variant="primary"
           size="sm"
           data-testid="change-log-gc-save"
-          [disabled]="!hasChanges()"
           [loading]="saving()"
           (pressed)="save()"
         >

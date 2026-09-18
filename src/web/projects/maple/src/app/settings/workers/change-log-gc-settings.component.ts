@@ -1,24 +1,19 @@
-// ChangeLogGcSettingsComponent — the "Change log GC" panel on the Workers
-// settings page (#3741). Operates the change log retention and pruning worker:
-// configures the retention window (days kept before pruning), triggers on-demand
-// sweeps via "Run now", and reports the last sweep result.
-//
-// Backed by GET/PATCH /api/workers/change-log-gc/retention-window and
-// POST /api/workers/change-log-gc/run.
+// ChangeLogGcSettingsComponent — the change-log-gc row in the "Maintenance"
+// group on the Workers settings page (#3741). Surfaces the retention window for
+// the asset_changes journal, an enable toggle, the current row count, and the
+// last sweep's readout. Backed by GET /api/change-log-gc/status and
+// PUT /api/change-log-gc/config. Modeled on DerivativeAuditSettingsComponent,
+// minus the polling — this job runs on a daily interval, not on demand.
 
-import {
-  ChangeDetectionStrategy,
-  Component,
-  OnInit,
-  computed,
-  inject,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import {
-  WorkersApiService,
+  BunApiBackendService,
+  type ChangeLogGcConfigDto,
+  type ChangeLogGcRunDto,
   errorMessage,
   MuiButtonComponent,
+  MuiCheckboxComponent,
   MuiInputComponent,
   MuiSettingsRowComponent,
 } from '@maple-common';
@@ -27,66 +22,76 @@ import { SettingsIconComponent } from '../settings-icon.component';
 @Component({
   selector: 'maple-change-log-gc-settings',
   standalone: true,
-  imports: [MuiSettingsRowComponent, MuiButtonComponent, MuiInputComponent, SettingsIconComponent],
+  imports: [
+    MuiSettingsRowComponent,
+    MuiButtonComponent,
+    MuiCheckboxComponent,
+    MuiInputComponent,
+    SettingsIconComponent,
+  ],
   templateUrl: './change-log-gc-settings.component.html',
   host: { class: 'set-vars set-workers-embedded-panel-host' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChangeLogGcSettingsComponent implements OnInit {
-  private readonly api = inject(WorkersApiService);
+  private readonly backend = inject(BunApiBackendService);
 
-  protected readonly retentionDays = signal<number>(30);
-  protected readonly draftDays = signal<number>(30);
-  protected readonly loading = signal<boolean>(true);
-  protected readonly saving = signal<boolean>(false);
-  protected readonly saved = signal<boolean>(false);
-  protected readonly running = signal<boolean>(false);
+  protected readonly config = signal<ChangeLogGcConfigDto | null>(null);
+  protected readonly rows = signal(0);
+  protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
-  protected readonly expanded = signal<boolean>(false);
-  protected readonly lastRunResult = signal<{
-    deleted: number;
-    batches: number;
-    durationMs: number;
-  } | null>(null);
+  protected readonly saving = signal(false);
+  protected readonly saved = signal(false);
 
-  protected readonly hasChanges = computed(() => this.draftDays() !== this.retentionDays());
-  protected readonly statusColor = computed(() =>
-    this.running() ? 'var(--s-accent)' : 'var(--s-ok)',
-  );
-  protected readonly statusLabel = computed(() => (this.running() ? 'running' : 'active'));
+  /** Editable copy of the window; committed via Save. */
+  protected readonly draftDays = signal<number | null>(null);
 
-  protected readonly summaryLine = computed(() => {
-    const days = this.retentionDays();
-    const run = this.lastRunResult();
-    if (run) {
-      return `${days}d retention · Last sweep: ${run.deleted} pruned (${run.durationMs}ms)`;
-    }
-    return `${days} days retention`;
-  });
-
-  async ngOnInit(): Promise<void> {
-    await this.reload();
-  }
-
+  /** Collapsed by default, matching every other row on this page. */
+  protected readonly expanded = signal(false);
   protected toggleExpanded(): void {
     this.expanded.update((v) => !v);
   }
 
-  protected onDraftChange(raw: string): void {
-    const val = Number(raw);
-    if (Number.isFinite(val)) {
-      this.draftDays.set(val);
-      this.saved.set(false);
-    }
+  protected statusLabel(): string {
+    return this.config()?.enabled ? 'Enabled' : 'Off';
+  }
+  protected statusColor(): string {
+    return this.config()?.enabled ? 'var(--s-ok)' : 'var(--s-text-dim)';
   }
 
-  protected async reload(): Promise<void> {
-    this.loading.set(true);
-    this.error.set(null);
+  /** mui-input carries every variant's value as a string. */
+  protected numToStr(n: number | null): string {
+    return n === null ? '' : String(n);
+  }
+
+  /** Thousands separators — this readout is routinely eight digits. */
+  protected formatRows(n: number): string {
+    return n.toLocaleString();
+  }
+
+  /** One-line last-sweep readout for the panel header. */
+  protected summaryLine(): string {
+    const run = this.lastRun();
+    if (!run) return this.config()?.enabled ? 'Not run yet' : '';
+    if (run.error) return `Last sweep failed: ${run.error}`;
+    return `${this.formatRows(this.rows())} rows · last sweep removed ${this.formatRows(run.deleted)}`;
+  }
+
+  protected lastRun(): ChangeLogGcRunDto | null {
+    return this.config()?.last_run ?? null;
+  }
+
+  /** Localised wall-clock time of the last sweep, or '' when it has never run. */
+  protected lastRunAt(): string {
+    const at = this.lastRun()?.finished_at;
+    if (!at) return '';
+    const d = new Date(at);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+  }
+
+  async ngOnInit(): Promise<void> {
     try {
-      const res = await firstValueFrom(this.api.getChangeLogRetentionWindow());
-      this.retentionDays.set(res.days);
-      this.draftDays.set(res.days);
+      await this.refresh();
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {
@@ -94,15 +99,38 @@ export class ChangeLogGcSettingsComponent implements OnInit {
     }
   }
 
-  protected async save(): Promise<void> {
-    const days = Math.min(3650, Math.max(1, Math.round(this.draftDays())));
-    this.saving.set(true);
+  protected setDraftDays(raw: string): void {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    this.draftDays.set(n);
     this.saved.set(false);
+  }
+
+  /** Toggle `enabled` immediately — a switch, not part of the Save batch. */
+  protected async toggleEnabled(next: boolean): Promise<void> {
+    const prev = this.config();
+    if (!prev) return;
+    this.config.set({ ...prev, enabled: next });
+    try {
+      const res = await firstValueFrom(this.backend.setChangeLogGcConfig({ enabled: next }));
+      this.config.set(res.config);
+    } catch (e) {
+      this.config.set(prev); // revert on failure
+      this.error.set(errorMessage(e));
+    }
+  }
+
+  protected async save(): Promise<void> {
+    const days = this.draftDays();
+    if (days === null) return;
+    this.saving.set(true);
     this.error.set(null);
     try {
-      const res = await firstValueFrom(this.api.setChangeLogRetentionWindow(days));
-      this.retentionDays.set(res.days);
-      this.draftDays.set(res.days);
+      const res = await firstValueFrom(
+        this.backend.setChangeLogGcConfig({ retention_days: Math.round(days) }),
+      );
+      this.config.set(res.config);
+      this.draftDays.set(res.config.retention_days);
       this.saved.set(true);
     } catch (e) {
       this.error.set(errorMessage(e));
@@ -111,16 +139,10 @@ export class ChangeLogGcSettingsComponent implements OnInit {
     }
   }
 
-  protected async runNow(): Promise<void> {
-    this.running.set(true);
-    this.error.set(null);
-    try {
-      const res = await firstValueFrom(this.api.runChangeLogGcNow());
-      this.lastRunResult.set(res);
-    } catch (e) {
-      this.error.set(errorMessage(e));
-    } finally {
-      this.running.set(false);
-    }
+  private async refresh(): Promise<void> {
+    const res = await firstValueFrom(this.backend.getChangeLogGcStatus());
+    this.config.set(res.config);
+    this.rows.set(res.rows);
+    this.draftDays.set(res.config.retention_days);
   }
 }

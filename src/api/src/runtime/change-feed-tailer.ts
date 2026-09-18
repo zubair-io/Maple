@@ -22,13 +22,13 @@
  * the in-memory buffer hasn't been populated yet.
  */
 
-import { child as childLogger } from "../log.ts";
-import { assetChangesCollection } from "../db/client.ts";
-import { highestCursor } from "../db/changes.repo.ts";
-import { getChangeBus } from "./change-bus.ts";
-import type { AssetChangeWithId } from "../db/schema.ts";
+import { child as childLogger } from '../log.ts';
+import { assetChangesCollection } from '../db/client.ts';
+import { currentAllocatedCursor, highestCursor } from '../db/changes.repo.ts';
+import { getChangeBus } from './change-bus.ts';
+import type { AssetChangeWithId } from '../db/schema.ts';
 
-const log = childLogger("change-feed-tailer");
+const log = childLogger('change-feed-tailer');
 
 export interface ChangeFeedTailerOptions {
   /** Polling interval in ms. Default 500ms — keeps SSE latency under
@@ -63,13 +63,17 @@ export class ChangeFeedTailer {
     this.running = true;
     this.stopped = false;
     try {
-      this.localMax = await highestCursor();
+      // Take the allocated watermark into account (#3741). If change-log-gc has
+      // pruned the whole journal, `highestCursor()` reads 0 and the bus would
+      // declare every stale cursor replayable — handing a client that missed
+      // real, since-deleted events an empty stream instead of a 409.
+      this.localMax = Math.max(await highestCursor(), await currentAllocatedCursor());
       getChangeBus().setPersistedHighWatermark(this.localMax);
-      log.info({ localMax: this.localMax }, "tailer started");
+      log.info({ localMax: this.localMax }, 'tailer started');
     } catch (err) {
       log.error(
         { err: err instanceof Error ? err.message : err },
-        "tailer boot: highestCursor failed; starting from 0",
+        'tailer boot: highestCursor failed; starting from 0',
       );
       this.localMax = 0;
     }
@@ -114,10 +118,7 @@ export class ChangeFeedTailer {
     this.timer = setTimeout(() => {
       void this.tickOnce()
         .catch((err) => {
-          log.error(
-            { err: err instanceof Error ? err.message : err },
-            "tick failed",
-          );
+          log.error({ err: err instanceof Error ? err.message : err }, 'tick failed');
         })
         .finally(() => this.scheduleNext());
     }, this.intervalMs);

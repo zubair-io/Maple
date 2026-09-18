@@ -3,10 +3,9 @@ import { getDb } from '../db/client.ts';
 import {
   clampRetentionDays,
   DEFAULT_RETENTION_DAYS,
-  loadChangeLogRetentionDays,
-  saveChangeLogRetentionDays,
   loadChangeLogGcConfig,
   saveChangeLogGcConfig,
+  recordChangeLogGcRun,
   MIN_RETENTION_DAYS,
   MAX_RETENTION_DAYS,
 } from './change-log-gc-config.repo.ts';
@@ -43,30 +42,44 @@ describe('change-log-gc-config.repo', () => {
 
   describe('persistence', () => {
     it('returns default when no doc exists', async () => {
-      const days = await loadChangeLogRetentionDays();
-      expect(days).toBe(DEFAULT_RETENTION_DAYS);
-
       const cfg = await loadChangeLogGcConfig();
+      expect(cfg.enabled).toBe(true);
       expect(cfg.retention_days).toBe(DEFAULT_RETENTION_DAYS);
+      expect(cfg.last_run).toBeNull();
     });
 
     it('saves and loads configured retention window', async () => {
-      const saved = await saveChangeLogRetentionDays(60);
-      expect(saved).toBe(60);
-
-      const loaded = await loadChangeLogRetentionDays();
-      expect(loaded).toBe(60);
+      const saved = await saveChangeLogGcConfig({ retention_days: 60 });
+      expect(saved.retention_days).toBe(60);
 
       const cfg = await loadChangeLogGcConfig();
       expect(cfg.retention_days).toBe(60);
     });
 
-    it('patches config via saveChangeLogGcConfig', async () => {
-      const updated = await saveChangeLogGcConfig({ retention_days: 90 });
-      expect(updated.retention_days).toBe(90);
+    it('patches enabled flag and preserves retention_days', async () => {
+      await saveChangeLogGcConfig({ retention_days: 45 });
+      const updated = await saveChangeLogGcConfig({ enabled: false });
+      expect(updated.enabled).toBe(false);
+      expect(updated.retention_days).toBe(45);
 
       const cfg = await loadChangeLogGcConfig();
-      expect(cfg.retention_days).toBe(90);
+      expect(cfg.enabled).toBe(false);
+      expect(cfg.retention_days).toBe(45);
+    });
+
+    it('records and loads last_run summary', async () => {
+      const run = {
+        deleted: 1500,
+        batches: 3,
+        duration_ms: 120,
+        pruned_through: 5000,
+        remaining: 200,
+        finished_at: new Date().toISOString(),
+      };
+      await recordChangeLogGcRun(run);
+
+      const cfg = await loadChangeLogGcConfig();
+      expect(cfg.last_run).toEqual(run);
     });
   });
 });
