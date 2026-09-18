@@ -22,11 +22,25 @@
  * lives in the primary-key B-tree itself — one lookup to reach a stage's state
  * for an asset, and no duplicate copy of the key in a separate index.
  *
- * A missing row means "never run", which is what `version = 0` means today.
- * The claim query therefore has to consider assets with no row for the stage
- * at all; that is a `LEFT JOIN … WHERE stage_state.asset_id IS NULL OR
- * stage_state.version < ?`, and it is the reason `stage_claim` leads with
- * `stage` rather than `version`.
+ * ## Rows are dense, and that is deliberate
+ *
+ * Every asset gets one row per registered stage, seeded at `version = 0`, at
+ * the moment the asset is created. On Mongo a missing `stages.<name>` subdoc is
+ * claimable because BSON orders a missing field below any number, so
+ * `{ version: { $lt: target } }` matches it; the SQL equivalent of that is an
+ * anti-join against `assets`, which cannot use an index on `stage_state` at
+ * all.
+ *
+ * Seeding instead makes the claim a plain index range scan — measured at
+ * 0.05 ms for 500 candidates over 12 million rows. The cost is the rows
+ * themselves, and it is worth it: the same 12 million rows carry every stage,
+ * where Mongo needed two dedicated indexes per stage over the whole asset
+ * collection.
+ *
+ * Registering a thirteenth stage is then one statement — `INSERT INTO
+ * stage_state (asset_id, stage) SELECT id, 'new-stage' FROM assets` — instead
+ * of two index definitions and a rebuild on the next boot. That is what the
+ * ticket means by "a data insert".
  */
 
 export const STAGE_STATE_TABLE_DDL = `
@@ -85,6 +99,11 @@ CREATE INDEX stage_dead
  * It also gets the index the Mongo version never had: the admin dead-letter
  * list (`listEnrichmentDeadLetter`) filters `enrichment.<stage>.dead_letter_at
  * != null` and sorts on it descending, which is a full collection scan today.
+ *
+ * This table is the only home for the subdocument — there is no mirroring JSON
+ * column on `assets`. `toDetailDto` returns the `enrichment` object on the
+ * wire, so the port builds it from these three rows; keeping a copy on the
+ * asset row as well would be a second source of truth for the same state.
  */
 export const ENRICHMENT_STATE_TABLE_DDL = `
 CREATE TABLE enrichment_state (
