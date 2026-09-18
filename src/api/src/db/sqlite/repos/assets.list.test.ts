@@ -63,6 +63,68 @@ describe('findListItems', () => {
     );
   });
 
+  test('excludes an asset whose every location is gone from disk, where Mongo keeps it', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    const sql = testSqliteDb(db);
+    const libraryId = insertFolder(db);
+    const present = insertAsset(db);
+    // Not soft-deleted at the asset level — only its one location is tagged
+    // missing. This is the exact row the two repos disagree about: the Mongo
+    // `findListItems` filters on `deleted_at: null` alone and returns it,
+    // while `LIVE_ASSET_FILTER` — what the search index, the facets and the
+    // coverage counts all mean by "live" — excludes it, and so does this.
+    const gone = insertAsset(db);
+    insertLocation(db, { assetId: present, libraryId, filename: 'present.dng' });
+    insertLocation(db, {
+      assetId: gone,
+      libraryId,
+      filename: 'gone.dng',
+      missingSince: '2026-03-01T00:00:00Z',
+    });
+
+    expect(db.query(`SELECT deleted_at AS v FROM assets WHERE id = ?`).get(gone)).toEqual({
+      v: null,
+    });
+    expect((await findListItems({}, 10, sql)).map((i) => i.id)).toEqual([present]);
+    // `liveOnly: false` drops the predicate entirely, so the same row is
+    // reachable — the exclusion is the filter's, not the query's.
+    expect((await findListItems({ liveOnly: false }, 10, sql)).map((i) => i.id).sort()).toEqual(
+      [present, gone].sort(),
+    );
+  });
+
+  test('sorts an asset with no capture date behind every dated one (#3779)', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    const sql = testSqliteDb(db);
+    const libraryId = insertFolder(db);
+    const dated2020 = insertAsset(db, {
+      exif: JSON.stringify({ captured_at: '2020-01-01T00:00:00Z' }),
+    });
+    // A scan: EXIF with no DateTimeOriginal and no CreateDate, so
+    // `indexer/exif.ts` derives no `captured_at` at all.
+    const undated = insertAsset(db, { exif: JSON.stringify({ iso: 100 }) });
+    const dated2026 = insertAsset(db, {
+      exif: JSON.stringify({ captured_at: '2026-01-01T00:00:00Z' }),
+    });
+    for (const [i, assetId] of [dated2020, undated, dated2026].entries()) {
+      insertLocation(db, { assetId, libraryId, filename: `f${i}.dng` });
+    }
+
+    // SQLite sorts NULL lowest, so a DESC page reaches the undated row last.
+    expect((await findListItems({}, 10, sql)).map((i) => i.id)).toEqual([
+      dated2026,
+      dated2020,
+      undated,
+    ]);
+    // Which means a page smaller than the live set never returns it, where
+    // the Mongo repo's unsorted `find().limit()` gave it a chance. Pinned
+    // here so the gap is asserted rather than incidental; #3779 carries the
+    // generated column and index that close it.
+    expect((await findListItems({}, 2, sql)).map((i) => i.id)).toEqual([dated2026, dated2020]);
+  });
+
   test('applies the has_xmp, rating and captured_after residuals', async () => {
     using handle = await createTestDatabase();
     const { db } = handle;

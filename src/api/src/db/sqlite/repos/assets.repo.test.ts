@@ -16,6 +16,7 @@ import {
   findDetailsByIds,
   parseAssetId,
 } from './assets.repo.ts';
+import { bucketedIds, locationsByAssetIdsSql } from './assets.sql.ts';
 import {
   insertDetail,
   insertEnrichmentState,
@@ -201,6 +202,58 @@ describe('findDetailsByIds', () => {
 
   test('returns an empty array for an empty id list without touching the database', async () => {
     expect(await findDetailsByIds([])).toEqual([]);
+  });
+});
+
+describe('a batch binds a bucketed id list', () => {
+  test('pads to a power of two, so one statement text serves a range of sizes', () => {
+    const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `id-${i}`);
+
+    expect(bucketedIds([])).toEqual([]);
+    expect(bucketedIds(ids(1))).toHaveLength(1);
+    expect(bucketedIds(ids(2))).toHaveLength(2);
+    expect(bucketedIds(ids(3))).toHaveLength(4);
+    expect(bucketedIds(ids(5))).toHaveLength(8);
+    expect(bucketedIds(ids(1000))).toHaveLength(1024);
+    expect(bucketedIds(ids(20_000))).toHaveLength(32_768);
+
+    // Every size in a bucket produces one statement text — what keeps the
+    // worker's prepared-statement cache holding these rather than churning
+    // them. Sizes 5 through 8 share the text an unbucketed list would split
+    // into four.
+    const sizes = [5, 6, 7, 8];
+    const texts = new Set(sizes.map((n) => locationsByAssetIdsSql(bucketedIds(ids(n)).length)));
+    expect(texts.size).toBe(1);
+    // Contrast: binding the list as it stands prepares one statement per size.
+    expect(new Set(sizes.map((n) => locationsByAssetIdsSql(n))).size).toBe(sizes.length);
+
+    // The padding repeats an id already in the list, so it is set membership
+    // that changes, and set membership is what `IN` tests.
+    expect(new Set(bucketedIds(ids(3)))).toEqual(new Set(ids(3)));
+  });
+
+  test('padding never duplicates a returned row', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    const libraryId = insertFolder(db);
+    // Three ids bucket to four, so the last id is bound twice.
+    const assets = ['a.dng', 'b.dng', 'c.dng'].map((filename) => {
+      const assetId = insertAsset(db);
+      insertLocation(db, { assetId, libraryId, filename });
+      return assetId;
+    });
+
+    const dtos = await findDetailsByIds(
+      assets.map((id) => oid(id)),
+      testSqliteDb(db),
+    );
+    expect(dtos.map((d) => d.id).sort()).toEqual([...assets].sort());
+    expect(
+      dtos
+        .flatMap((d) => d.fileinfo ?? [])
+        .map((f) => f.filename)
+        .sort(),
+    ).toEqual(['a.dng', 'b.dng', 'c.dng']);
   });
 });
 

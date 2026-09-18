@@ -160,6 +160,15 @@ export function groupByAsset<T extends { asset_id: string }>(rows: T[]): Map<str
  * The rows arrive ordered by `ordinal`, which is the array position the
  * entries had. Optional fields are omitted rather than nulled where the Mongo
  * documents omitted them, so the JSON a client receives is unchanged.
+ *
+ * Two of those fields are asymmetric, and deliberately so. `deleted_at` is
+ * emitted unconditionally because every writer that creates an entry writes it
+ * explicitly as `null` — `indexer/images.repo.ts`, the discover handlers and
+ * `discover/folder-hidden.ts` all do — so a live entry on Mongo carries the
+ * key today and dropping it here is what would be the change. `keep` is
+ * emitted only when true because no writer in the codebase ever stores
+ * `false`, and `FileInfo.keep`'s own contract is that absent and false mean
+ * the same thing ("ordinary keeper ranking applies").
  */
 export function toFileInfo(rows: readonly LocationRow[]): FileInfo[] {
   return rows.map((row) => {

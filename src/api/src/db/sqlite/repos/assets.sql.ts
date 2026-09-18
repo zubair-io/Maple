@@ -43,6 +43,30 @@ export function placeholders(count: number): string {
 }
 
 /**
+ * The id list a batch loader binds, padded so its length is a power of two.
+ *
+ * A positional `IN (…)` puts the id count into the SQL *text*, so a loader
+ * called with 37 ids and then 38 prepares two statements. The worker keeps
+ * `STATEMENT_CACHE_LIMIT` of them (`../protocol.ts`) and finalises the rest,
+ * so a change-batch endpoint whose page size varies with the data would churn
+ * the cache and re-prepare a statement per call — including, at the list
+ * query's ceiling, one holding 20,000 placeholders.
+ *
+ * Rounding the count up to a power of two caps each loader at sixteen distinct
+ * texts over the whole 1-to-32,768 range, which fits the cache with room for
+ * every other statement in the module. The padding repeats the last id, and `IN` is set
+ * membership, so neither the rows returned nor their order changes — the
+ * loaders group by `asset_id` afterwards regardless. `bun:sqlite` binds well
+ * past the 32,768 the largest bucket needs (checked at 40,000).
+ */
+export function bucketedIds(ids: readonly string[]): string[] {
+  const last = ids.at(-1);
+  if (last === undefined) return [];
+  const size = 2 ** Math.ceil(Math.log2(ids.length));
+  return [...ids, ...Array.from({ length: size - ids.length }, () => last)];
+}
+
+/**
  * The asset row behind the detail and core-info DTOs.
  *
  * `exif` and `place` come last because the table declares them last: SQLite
@@ -73,6 +97,12 @@ export function assetCoreByIdsSql(count: number): string {
  * Mongo query has no sort at all and therefore returns documents in whatever
  * order the storage engine hands them over, so imposing this one makes the
  * endpoint's output stable across calls as well as cheaper.
+ *
+ * It also costs something, and the cost is not obvious: SQLite sorts NULL
+ * lowest, so an asset whose EXIF carries no capture date sits behind every
+ * dated row and a page smaller than the live set never reaches it. #3779
+ * tracks the fix — a `COALESCE(captured_at, indexed_at)` generated column and
+ * a partial index over it, which is DDL and so belongs to the schema PR.
  *
  * `residuals` carries the optional `has_xmp` / `rating` / `captured_at`
  * filters. They are interpolated as fixed SQL fragments with their values

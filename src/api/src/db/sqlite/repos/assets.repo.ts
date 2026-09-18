@@ -49,6 +49,7 @@ import {
   ASSET_ID_BY_MAPLE_ID_SQL,
   ASSET_ID_BY_PHASSET_LINK_SQL,
   assetCoreByIdsSql,
+  bucketedIds,
   listItemsSql,
 } from './assets.sql.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
@@ -114,7 +115,7 @@ export async function findDetailsByIds(
 ): Promise<AssetDetailDto[]> {
   if (ids.length === 0) return [];
   const db = assetsDb(dbOverride);
-  const hexes = ids.map((id) => id.toHexString());
+  const hexes = bucketedIds(ids.map((id) => id.toHexString()));
   const rows = await db.read<AssetCoreRow>(assetCoreByIdsSql(hexes.length), hexes);
   if (rows.length === 0) return [];
   const found = rows.map((row) => row.id);
@@ -164,9 +165,12 @@ export async function findDetailByAddress(
  * Single asset, minimal info used by routes that drive filesystem or
  * change-feed side effects rather than shipping the full DTO.
  *
- * Reads three tables rather than five: this shape carries no faces and no
- * enrichment, and it is the hottest read here — every `/api/assets/:id`
- * sub-route resolves through it before it touches disk.
+ * Reads four tables rather than seven: `assets`, `asset_locations`,
+ * `asset_detail` and `folders`, where {@link findDetailById} adds `faces`,
+ * the `people` it joins for the display name, and `enrichment_state`. This
+ * shape carries neither faces nor enrichment, and it is the hottest read
+ * here — every `/api/assets/:id` sub-route resolves through it before it
+ * touches disk.
  */
 export async function findCoreInfoById(
   id: ObjectId,
@@ -183,10 +187,45 @@ export async function findCoreInfoById(
 /**
  * Filter shape accepted by {@link findListItems}. All fields are optional —
  * routes assemble the subset they need and the repo defaults the rest.
+ *
+ * ## Two fields mean something different here than on Mongo
+ *
+ * Both are deliberate and both are pinned by tests in `assets.list.test.ts`;
+ * they are written down because an identical signature returning a different
+ * set of rows is the worst way to find this out.
  */
 export interface ListFilter {
-  /** When true, exclude soft-deleted rows. Default `true`. */
+  /**
+   * When true (the default), return only *live* assets: not soft-deleted, and
+   * holding at least one location that is neither replaced in place
+   * (`deleted_at`) nor gone from disk (`missing_since`).
+   *
+   * The Mongo repo's `findListItems` filters on `deleted_at: null` alone, so
+   * it also returns assets whose every location has been tagged missing. That
+   * is the outlier, not this: `LIVE_ASSET_FILTER` in
+   * `enrichment/meilisearch-vector-coverage.ts` — the definition the search
+   * index, the facets and the coverage counts all use — is
+   * `deleted_at: null` PLUS `fileinfo: { $elemMatch: { deleted_at: null,
+   * missing_since: null } }`, which is exactly the predicate here. The list
+   * endpoint was the one live surface disagreeing with the rest of the
+   * product, and a working-set enumerator that hands the File Provider files
+   * confirmed gone from disk cannot materialise them anyway.
+   *
+   * The predicate is also load-bearing for the plan: `assets_live_captured` is
+   * partial over it, and SQLite only uses a partial index when the query's own
+   * `WHERE` provably implies the index's. Relaxing it to `deleted_at IS NULL`
+   * costs the ordered index scan, not just the extra rows.
+   */
   liveOnly?: boolean;
+  /**
+   * `has_xmp = 1` or `has_xmp = 0`. `false` matches more rows than Mongo's
+   * `{ has_xmp: false }` does, which does not match a document missing the key
+   * at all; the column is `NOT NULL DEFAULT 0`, so an asset that never had the
+   * field reads as `0` and now matches. That is the more useful answer to "no
+   * sidecar", and the schema cannot express the third state without a nullable
+   * column — an instance of the tri-state pattern audited in #3778. No route
+   * passes `false` today.
+   */
   hasXmp?: boolean;
   ratingGte?: number;
   capturedAfterIso?: string;
@@ -228,6 +267,17 @@ function listResiduals(filter: ListFilter): { clauses: string[]; params: Array<s
  * the bounds check, and a non-finite `limit` falls back to the default before
  * clamping — `Math.min(Math.max(NaN, 1), 20000)` is NaN, which would otherwise
  * reach the statement as a bind parameter.
+ *
+ * **A truncated page does not reach an asset with no capture date (#3779).**
+ * The page is ordered newest capture first, and `captured_at` is NULL for an
+ * asset whose EXIF carries no `DateTimeOriginal` or `CreateDate` — a scan, or
+ * a video from a camera that writes neither. SQLite sorts NULL lowest, so
+ * those rows sit behind every dated row and a page smaller than the live set
+ * never includes them, where the Mongo repo's unsorted `find().limit()` gave
+ * them a chance. Fixing it needs a sort key that is never NULL, which is a
+ * generated column and an index rather than a change here; #3779 carries the
+ * proposal and its query plans. The sort itself stays: an unsorted limited
+ * find returns a different subset on every call and cannot be paged at all.
  */
 export async function findListItems(
   filter: ListFilter,

@@ -16,6 +16,7 @@
 
 import { type SqliteDb } from './db-handle.ts';
 import {
+  bucketedIds,
   detailByAssetIdsSql,
   enrichmentByAssetIdsSql,
   facesByAssetIdsSql,
@@ -38,6 +39,17 @@ import { EMPTY_BUNDLE, type AssetBundle } from './assets.dto.ts';
  * A transient failure must not break a transform path: the Mongo repo falls
  * back to an empty map, which resolves every `abs_path` to `""`, and every
  * route handler already tolerates that. Same contract here.
+ *
+ * Deliberately uncached, where the Mongo repo goes through the process-wide
+ * map in `indexer/libraries.cache.ts`. That cache has no TTL — it is emptied
+ * by an explicit `invalidateLibraryRoots()` from every path that writes the
+ * folders collection — so a SQLite copy of it needs the SQLite folders writer
+ * to exist first, and that lands with the folders port (#3751). A cache no
+ * writer invalidates would serve a stale root after a library is renamed or
+ * removed, which is worse than the read it saves. The read costs one pooled
+ * round trip over a table with tens of rows, and every caller here issues it
+ * inside the same `Promise.all` as its bundle loads, so it adds no latency to
+ * a request — only throughput.
  */
 export async function loadLibraries(db: SqliteDb): Promise<ReadonlyMap<string, string>> {
   try {
@@ -54,7 +66,8 @@ export async function loadLocations(
   ids: readonly string[],
 ): Promise<Map<string, LocationRow[]>> {
   if (ids.length === 0) return new Map();
-  const rows = await db.read<LocationRow>(locationsByAssetIdsSql(ids.length), [...ids]);
+  const bound = bucketedIds(ids);
+  const rows = await db.read<LocationRow>(locationsByAssetIdsSql(bound.length), bound);
   return groupByAsset(rows);
 }
 
@@ -93,12 +106,12 @@ export async function loadBundles(
   ids: readonly string[],
 ): Promise<Map<string, AssetBundle>> {
   if (ids.length === 0) return new Map();
-  const params = [...ids];
+  const params = bucketedIds(ids);
   const [locations, faces, details, enrichment] = await Promise.all([
-    db.read<LocationRow>(locationsByAssetIdsSql(ids.length), params),
-    db.read<FaceRow>(facesByAssetIdsSql(ids.length), params),
-    db.read<DetailRow>(detailByAssetIdsSql(ids.length), params),
-    db.read<EnrichmentRow>(enrichmentByAssetIdsSql(ids.length), params),
+    db.read<LocationRow>(locationsByAssetIdsSql(params.length), params),
+    db.read<FaceRow>(facesByAssetIdsSql(params.length), params),
+    db.read<DetailRow>(detailByAssetIdsSql(params.length), params),
+    db.read<EnrichmentRow>(enrichmentByAssetIdsSql(params.length), params),
   ]);
 
   const locationsByAsset = groupByAsset(locations);
