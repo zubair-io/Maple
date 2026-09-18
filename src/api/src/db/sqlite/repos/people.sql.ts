@@ -416,26 +416,37 @@ export function dismissalsForPairsSql(count: number): string {
 /**
  * The primary location of each named asset, with its library root and slug.
  *
- * "Primary" is the first fully live entry by `ordinal`, falling back to entry
- * zero — the same rule `resolvePrimary` applies to a rebuilt `fileinfo[]`, and
- * the same one `assetAbsPath` applies on Mongo. Expressed as a window function
- * rather than a correlated sub-select so it stays one pass over the rows.
+ * "Primary" is the first **live** entry by `ordinal`, and there is no fallback:
+ * an asset whose every location is deleted or missing yields no row at all.
+ * That is `assetPrimaryFileInfo` on Mongo, which returns null unless some entry
+ * is live, and it is the difference between a cover tile rendering the
+ * no-cover placeholder and rendering a path that 404s. Preferring a live entry
+ * but taking a dead one when there is none — the shape this had — is
+ * `resolvePrimary`'s rule, which rebuilds an array and is a different question.
+ *
+ * The library is resolved after the choice rather than before it. Ranking over
+ * the join would silently skip an entry whose library is unregistered and
+ * promote the next one, which is a location `assetAbsPath` would never pick:
+ * Mongo takes the first live entry and then returns null if that entry's
+ * library is gone. The foreign key on `library_id` means an unregistered
+ * library cannot arise in this schema today, so this is about the query saying
+ * what it means rather than about a reachable bug.
  *
  * Shared by the people grid's cover thumbnails and the person detail page's
  * face list — both need "where does this asset live" for a batch of ids, and
- * an asset whose library is no longer registered yields no row from the join,
- * which is what both callers read as "unresolvable, drop it".
+ * both read an absent row as "unresolvable, drop it".
  */
 export function primaryLocationsSql(count: number): string {
-  return `SELECT asset_id, path, filename, root, slug FROM (
-            SELECT l.asset_id AS asset_id, l.path AS path, l.filename AS filename,
-                   d.path AS root, d.slug AS slug,
-                   ROW_NUMBER() OVER (
-                     PARTITION BY l.asset_id
-                     ORDER BY (l.deleted_at IS NULL AND l.missing_since IS NULL) DESC,
-                              l.ordinal ASC) AS rank
-              FROM asset_locations l
-              JOIN folders d ON d.id = l.library_id
-             WHERE l.asset_id IN (${placeholders(count)})
-          ) WHERE rank = 1`;
+  return `SELECT l.asset_id AS asset_id, l.path AS path, l.filename AS filename,
+                 d.path AS root, d.slug AS slug
+            FROM (
+              SELECT asset_id, path, filename, library_id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY asset_id ORDER BY ordinal ASC) AS rank
+                FROM asset_locations
+               WHERE asset_id IN (${placeholders(count)})
+                 AND deleted_at IS NULL AND missing_since IS NULL
+            ) l
+            JOIN folders d ON d.id = l.library_id
+           WHERE l.rank = 1`;
 }
