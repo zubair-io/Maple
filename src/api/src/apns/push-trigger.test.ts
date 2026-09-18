@@ -5,9 +5,13 @@
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { ObjectId, type Db } from 'mongodb';
-import { closeDb, getDb, isDbConnected } from '../db/client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import { ObjectId } from 'mongodb';
+import {
+  createLiveTestDatabase,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { newObjectIdHex } from '../db/sqlite/object-id.ts';
 import { getChangeBus, __resetChangeBusForTests } from '../runtime/change-bus.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { registerDeviceToken, listAllDeviceTokens } from './apns-devices.repo.ts';
@@ -15,23 +19,17 @@ import { saveApnsSettingsConfig } from './apns-config.repo.ts';
 import { ApnsPushTrigger } from './push-trigger.ts';
 import type { ApnsSendResult } from './apns-sender.ts';
 
-withTestDb(`maple_test_apns_push_trigger_${process.pid}`);
-
-let db: Db | null = null;
-let mongoReachable = false;
+let live: LiveTestDatabase;
 const savedEnv: Record<string, string | undefined> = {};
 const ENV_KEYS = ['MAPLE_APNS_KEY_ID', 'MAPLE_APNS_TEAM_ID', 'MAPLE_APNS_PRIVATE_KEY'] as const;
 
-beforeAll(async () => {
-  await closeDb();
+beforeAll(() => {
   for (const k of ENV_KEYS) {
     savedEnv[k] = process.env[k];
   }
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
+afterAll(() => {
   for (const k of ENV_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];
@@ -39,24 +37,44 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  await db.collection('apns_device_tokens').deleteMany({});
-  await db
-    .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-    .deleteMany({ _id: 'apns' });
+  // The trigger reads its settings document and its device list through the
+  // process-wide handle, so the database has to be installed as that handle
+  // rather than handed in.
+  live = await createLiveTestDatabase();
   __resetChangeBusForTests();
   for (const k of ENV_KEYS) delete process.env[k];
 });
 
 afterEach(() => {
   __resetChangeBusForTests();
+  live.close();
 });
+
+/**
+ * A registered device, and the user row its foreign key needs. Every case here
+ * registers at least one; none of them cares which user owns it, because a wake
+ * fans out to every device on the server rather than to one user's.
+ */
+async function registerDevice(
+  deviceToken: string,
+  platform: 'ios' | 'macos' = 'ios',
+  environment: 'sandbox' | 'production' = 'sandbox',
+): Promise<void> {
+  const userId = newObjectIdHex();
+  run(
+    live.db,
+    `INSERT INTO users (id, email, role, created_at) VALUES (?, ?, 'member', ?)`,
+    userId,
+    `${userId}@example.test`,
+    new Date().toISOString(),
+  );
+  await registerDeviceToken({
+    userId: new ObjectId(userId),
+    deviceToken,
+    platform,
+    environment,
+  });
+}
 
 function fakeChange(folderId: ObjectId | null, cursor: number): AssetChangeWithId {
   return {
@@ -83,14 +101,8 @@ async function wait(ms: number): Promise<void> {
 
 describe('ApnsPushTrigger', () => {
   it('does nothing when the DB setting is disabled', async () => {
-    if (!mongoReachable || !db) return;
     setEnvCreds();
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
+    await registerDevice('tok');
     let calls = 0;
     const trigger = new ApnsPushTrigger({
       coalesceMs: 10,
@@ -109,14 +121,8 @@ describe('ApnsPushTrigger', () => {
   });
 
   it('does nothing when enabled but credentials are unset', async () => {
-    if (!mongoReachable || !db) return;
     await saveApnsSettingsConfig({ enabled: true });
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
+    await registerDevice('tok');
     let calls = 0;
     const trigger = new ApnsPushTrigger({
       coalesceMs: 10,
@@ -135,15 +141,9 @@ describe('ApnsPushTrigger', () => {
   });
 
   it('coalesces a burst of changes — even across different libraries — into a single wake per device', async () => {
-    if (!mongoReachable || !db) return;
     await saveApnsSettingsConfig({ enabled: true });
     setEnvCreds();
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok-1',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
+    await registerDevice('tok-1');
     const sent: string[] = [];
     const trigger = new ApnsPushTrigger({
       coalesceMs: 20,
@@ -168,15 +168,9 @@ describe('ApnsPushTrigger', () => {
   });
 
   it('is a true debounce — a burst whose TOTAL duration exceeds the window (but whose per-change gaps stay under it) still fires exactly once, after the burst quiets', async () => {
-    if (!mongoReachable || !db) return;
     await saveApnsSettingsConfig({ enabled: true });
     setEnvCreds();
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok-1',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
+    await registerDevice('tok-1');
     let calls = 0;
     const trigger = new ApnsPushTrigger({
       coalesceMs: 30,
@@ -204,21 +198,10 @@ describe('ApnsPushTrigger', () => {
   });
 
   it('wakes every registered device, across every user', async () => {
-    if (!mongoReachable || !db) return;
     await saveApnsSettingsConfig({ enabled: true });
     setEnvCreds();
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok-a',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok-b',
-      platform: 'macos',
-      environment: 'production',
-    });
+    await registerDevice('tok-a');
+    await registerDevice('tok-b', 'macos', 'production');
     const sent: string[] = [];
     const trigger = new ApnsPushTrigger({
       coalesceMs: 20,
@@ -242,15 +225,9 @@ describe('ApnsPushTrigger', () => {
     // TooManyProviderTokenUpdates footgun the cache exists to avoid.
     // `senderFactory` must therefore be invoked once total here, not once
     // per burst.
-    if (!mongoReachable || !db) return;
     await saveApnsSettingsConfig({ enabled: true });
     setEnvCreds();
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok-1',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
+    await registerDevice('tok-1');
     let factoryCalls = 0;
     const trigger = new ApnsPushTrigger({
       coalesceMs: 15,
@@ -271,21 +248,10 @@ describe('ApnsPushTrigger', () => {
   });
 
   it('one device rejecting the send does not block others in the same burst, and only prunes the rejected one', async () => {
-    if (!mongoReachable || !db) return;
     await saveApnsSettingsConfig({ enabled: true });
     setEnvCreds();
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok-throws',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok-fine',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
+    await registerDevice('tok-throws');
+    await registerDevice('tok-fine');
     const sent: string[] = [];
     const trigger = new ApnsPushTrigger({
       coalesceMs: 10,
@@ -310,15 +276,9 @@ describe('ApnsPushTrigger', () => {
   });
 
   it('prunes a device token APNs reports as permanently invalid', async () => {
-    if (!mongoReachable || !db) return;
     await saveApnsSettingsConfig({ enabled: true });
     setEnvCreds();
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'dead-tok',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
+    await registerDevice('dead-tok');
     const trigger = new ApnsPushTrigger({
       coalesceMs: 10,
       senderFactory: () => ({
@@ -338,15 +298,9 @@ describe('ApnsPushTrigger', () => {
   });
 
   it('still wakes for a change with no folder_id (e.g. a folder rescan)', async () => {
-    if (!mongoReachable || !db) return;
     await saveApnsSettingsConfig({ enabled: true });
     setEnvCreds();
-    await registerDeviceToken({
-      userId: new ObjectId(),
-      deviceToken: 'tok-1',
-      platform: 'ios',
-      environment: 'sandbox',
-    });
+    await registerDevice('tok-1');
     let calls = 0;
     const trigger = new ApnsPushTrigger({
       coalesceMs: 10,

@@ -9,7 +9,8 @@
 import { readdir, realpath, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { OpResult } from './root.ts';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
+import { findListingAssetsByFilenames } from '../db/sqlite/repos/assets.by-filename.ts';
+import { listFolders } from '../db/sqlite/repos/folders.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
@@ -19,7 +20,7 @@ import {
   SHARP_EXTENSIONS,
   STUB_IMAGE_EXTENSIONS,
 } from '../indexer/media-types.ts';
-import type { AssetExif, FileInfo } from '../db/schema.ts';
+import type { AssetExif } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/browse');
@@ -610,7 +611,7 @@ export async function listDirContents(
   //
   // Fix: in paged mode, pre-walk ALL visible image filenames (cheap —
   // just an extension test + path join, no realpath/stat) and look up
-  // the full set of indexed asset IDs in one Mongo `$in` query. That
+  // the full set of indexed asset IDs in one batched query. That
   // map is then consulted by the per-slice sidecar loop below so a
   // sidecar resolves its assetID regardless of which page its paired
   // image fell on. In unpaged mode the slice == visible, so the global
@@ -634,22 +635,18 @@ export async function listDirContents(
     }
     if (allImageBases.size > 0) {
       try {
-        const coll = await assetsCollection();
-        // Query by filename via fileinfo[]. The legacy `abs_path` field was
-        // retired in the drop-abs-path-2026-05-21 migration; we resolve each
-        // hit's on-disk path from `assetAbsPath(doc, libs)` and match against
-        // the candidate paths in code.
+        // Query by filename via the locations table. The legacy `abs_path`
+        // field was retired in the drop-abs-path-2026-05-21 migration; we
+        // resolve each hit's on-disk path from `assetAbsPath(doc, libs)` and
+        // match against the candidate paths in code.
         const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
         const filenames = new Set<string>();
         for (const [, p] of allImageBases) filenames.add(p.split('/').pop()!);
-        const cursor = coll.find(
-          { 'fileinfo.filename': { $in: Array.from(filenames) } },
-          { projection: { _id: 1, fileinfo: 1 } },
-        );
+        const docs = await findListingAssetsByFilenames(Array.from(filenames));
         const pathToBase = new Map<string, string>();
         for (const [b, p] of allImageBases) pathToBase.set(p, b);
-        for await (const doc of cursor) {
-          const resolved = assetAbsPath(doc as unknown as { fileinfo?: FileInfo[] }, libs);
+        for (const doc of docs) {
+          const resolved = assetAbsPath(doc, libs);
           if (!resolved) continue;
           const b = pathToBase.get(resolved);
           if (b) globalImageBaseToAsset.set(b, doc._id.toHexString());
@@ -729,32 +726,27 @@ export async function listDirContents(
     }
   }
 
-  // Bulk-attach indexed EXIF for the images in this listing. Single round-
-  // trip with `$in` rather than per-image lookups. If the indexer hasn't
-  // touched this folder yet, the find returns nothing and `exif` stays
-  // undefined on each entry — the client renders "—" gracefully.
+  // Bulk-attach indexed EXIF for the images in this listing. One batched
+  // lookup rather than per-image queries. If the indexer hasn't touched this
+  // folder yet, it returns nothing and `exif` stays undefined on each entry —
+  // the client renders "—" gracefully.
   const indexedPaths = new Set<string>();
   const trashedPaths = new Set<string>();
   if (images.length > 0) {
     try {
-      const coll = await assetsCollection();
       const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
       const imageFilenames = new Set(images.map((i) => i.path.split('/').pop()!));
-      const cursor = coll.find(
-        { 'fileinfo.filename': { $in: Array.from(imageFilenames) } },
-        { projection: { _id: 1, fileinfo: 1, exif: 1, deleted_at: 1 } },
-      );
+      const docs = await findListingAssetsByFilenames(Array.from(imageFilenames));
       const byPath = new Map<string, { id: string; exif: AssetExif | null | undefined }>();
-      for await (const doc of cursor) {
-        const resolved = assetAbsPath(doc as unknown as { fileinfo?: FileInfo[] }, libs);
+      for (const doc of docs) {
+        const resolved = assetAbsPath(doc, libs);
         if (!resolved) continue;
-        const raw = doc as unknown as Record<string, unknown>;
-        // Files whose asset doc is soft-deleted must not appear under their
+        // Files whose asset row is soft-deleted must not appear under their
         // pre-trash directory listing — the file has either moved to
         // .maple/trash/<rel> (File-Provider DELETE) or vanished from disk
         // (watcher); either way, hiding it from /api/fs/dir matches what
         // the user expects after a delete.
-        if (raw.deleted_at != null) {
+        if (doc.deleted_at != null) {
           trashedPaths.add(resolved);
           continue;
         }
@@ -1008,11 +1000,10 @@ export async function listDirFast(
  * registered) so a full scan here is fine.
  *
  * The returned `root` is passed straight through to `handleEvent` so the
- * discover producer doesn't pay a second Mongo round-trip per file.
+ * discover producer doesn't pay a second database round-trip per file.
  */
 async function findOwningFolder(absPath: string): Promise<{ id: string; root: string } | null> {
-  const coll = await foldersCollection();
-  const folders = await coll.find({}).toArray();
+  const folders = await listFolders();
   let best: { id: string; root: string } | null = null;
   let bestLen = -1;
   for (const f of folders) {

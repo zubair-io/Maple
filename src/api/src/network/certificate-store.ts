@@ -1,68 +1,30 @@
-/** Internal certificate/account state. No HTTP route serializes this row. */
-import { getDb } from '../db/client.ts';
+/**
+ * Internal certificate/account state. No HTTP route serializes this row.
+ *
+ * The ACME account key, the issued LAN certificate and any in-flight DNS-01
+ * challenges live in one row of `managed_certificates`. Every query moved to
+ * `db/sqlite/repos/managed-certificates.repo.ts` (#3787) and is re-exported
+ * below one name at a time, so a signature that changed on the SQLite side
+ * breaks the build here instead of being substituted silently.
+ *
+ * {@link renewalTime} stays: it is arithmetic over a certificate's validity
+ * window with no database in it.
+ */
 
-export interface StoredCertificate {
-  hostname: string;
-  key: string;
-  cert: string;
-  not_before: number;
-  not_after: number;
-}
-export interface DnsChallengeRecord {
-  id: string;
-  zone_id: string;
-}
-interface CertificateState {
-  _id: string;
-  account_key?: string;
-  certificate?: StoredCertificate;
-  challenges?: DnsChallengeRecord[];
-  lease_owner?: string;
-  lease_until?: number;
-  retry_after?: number;
-  attempted_revision?: string;
-}
-async function collection() {
-  return (await getDb()).collection<CertificateState>('managed_certificates');
-}
-export async function readCertificateState() {
-  return (await collection()).findOne({ _id: 'lan' });
-}
-export async function writeCertificateState(patch: Partial<Omit<CertificateState, '_id'>>) {
-  await (await collection()).updateOne({ _id: 'lan' }, { $set: patch }, { upsert: true });
-}
-export async function claimCertificateLease(owner: string): Promise<boolean> {
-  const coll = await collection();
-  await coll.updateOne({ _id: 'lan' }, { $setOnInsert: { lease_until: 0 } }, { upsert: true });
-  const result = await coll.updateOne(
-    {
-      _id: 'lan',
-      $or: [{ lease_until: { $lte: Date.now() } }, { lease_until: { $exists: false } }],
-    },
-    { $set: { lease_owner: owner, lease_until: Date.now() + 10 * 60_000 } },
-  );
-  return result.modifiedCount === 1;
-}
-export async function renewCertificateLease(owner: string): Promise<boolean> {
-  const result = await (
-    await collection()
-  ).updateOne(
-    { _id: 'lan', lease_owner: owner },
-    { $set: { lease_until: Date.now() + 10 * 60_000 } },
-  );
-  return result.matchedCount === 1;
-}
-export async function releaseCertificateLease(owner: string) {
-  await (
-    await collection()
-  ).updateOne({ _id: 'lan', lease_owner: owner }, { $set: { lease_until: 0 } });
-}
-export async function rememberChallenge(record: DnsChallengeRecord) {
-  await (await collection()).updateOne({ _id: 'lan' }, { $push: { challenges: record } });
-}
-export async function forgetChallenge(record: DnsChallengeRecord) {
-  await (await collection()).updateOne({ _id: 'lan' }, { $pull: { challenges: record } });
-}
+import type { StoredCertificate } from '../db/sqlite/repos/managed-certificates.repo.ts';
+
+export {
+  claimCertificateLease,
+  forgetChallenge,
+  readCertificateState,
+  releaseCertificateLease,
+  rememberChallenge,
+  renewCertificateLease,
+  writeCertificateState,
+  type CertificateState,
+  type DnsChallengeRecord,
+  type StoredCertificate,
+} from '../db/sqlite/repos/managed-certificates.repo.ts';
 
 /** Renew at two thirds of the actual lifetime, at most 30 days before expiry.
  * Does not assume Let's Encrypt certificates always last 90 days. */
