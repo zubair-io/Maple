@@ -131,6 +131,21 @@ describe('WorkerConfigRepo', () => {
     expect(await repo.load('describe')).toMatchObject({ concurrency: 9, pause_reason: 'policy' });
   });
 
+  test('an explicitly undefined field is "not supplied", not "clear it"', async () => {
+    using handle = await createTestDatabase();
+    const repo = new WorkerConfigRepo(testSqliteDb(handle.db));
+    await repo.upsert('describe', { ...SEEDED, ai_model: 'qwen2.5-vl' });
+
+    // What a caller spreading an optional field produces. The driver drops
+    // these; a column write would silently clear a knob nobody touched.
+    await repo.patch('describe', { concurrency: 9, ai_model: undefined });
+
+    expect(await repo.load('describe')).toMatchObject({
+      concurrency: 9,
+      ai_model: 'qwen2.5-vl',
+    });
+  });
+
   test('the AI knobs and the operator label survive a round trip', async () => {
     using handle = await createTestDatabase();
     const repo = new WorkerConfigRepo(testSqliteDb(handle.db));

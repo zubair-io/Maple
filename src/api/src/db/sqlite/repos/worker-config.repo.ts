@@ -180,8 +180,11 @@ export class WorkerConfigRepo {
    */
   async patch(name: string, partial: Partial<WorkerConfig>): Promise<void> {
     const fields = partial.paused === false ? { ...partial, pause_reason: null } : partial;
+    // `undefined` means "not supplied", which is how the driver reads it too —
+    // a caller spreading an optional field must not silently clear the column.
+    // `null` is kept: clearing `pause_reason` is a real instruction.
     const columns = (Object.keys(fields) as Array<keyof WorkerConfig>).filter(
-      (key) => key in PATCHABLE,
+      (key) => key in PATCHABLE && fields[key] !== undefined,
     );
     if (columns.length === 0) return;
 
