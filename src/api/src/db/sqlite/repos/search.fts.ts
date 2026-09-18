@@ -102,43 +102,24 @@ function splitBareTerm(text: string): string[] {
 }
 
 /**
- * Split a search string into terms, honouring quotes and leading `-`.
+ * One term of a search string: an optional leading `-`, then either a quoted
+ * run or a run of non-space.
  *
- * Written as a single scan rather than a regex split because the two features
- * interact: `-"cat dog"` is one negated phrase, and a quote can contain the
- * spaces the split would otherwise happen on. An unterminated quote runs to the
- * end of the string, which is what a person half-way through typing a phrase
- * means by it.
+ * The quote alternative comes first and its closing `"` is optional, which is
+ * what makes an unterminated quote run to the end of the string — what a person
+ * half-way through typing a phrase means by it. A lone `-` backtracks into the
+ * bare-word branch and is then dropped for having no token characters.
  */
+const TERM = /(-?)(?:"([^"]*)"?|(\S+))/g;
+
+/** Split a search string into terms, honouring quotes and leading `-`. */
 function parseTerms(input: string): ParsedTerm[] {
-  const terms: ParsedTerm[] = [];
-  let index = 0;
-
-  while (index < input.length) {
-    const char = input[index]!;
-    if (char === ' ' || char === '\t' || char === '\n' || char === '\r') {
-      index += 1;
-      continue;
-    }
-
-    const negated = char === '-';
-    const afterSign = negated ? index + 1 : index;
-    if (input[afterSign] === '"') {
-      const closing = input.indexOf('"', afterSign + 1);
-      const end = closing === -1 ? input.length : closing;
-      terms.push({ text: input.slice(afterSign + 1, end), phrase: true, negated });
-      index = end + 1;
-      continue;
-    }
-
-    const next = input.slice(afterSign).search(/\s/);
-    const end = next === -1 ? input.length : afterSign + next;
-    for (const part of splitBareTerm(input.slice(afterSign, end))) {
-      terms.push({ text: part, phrase: false, negated });
-    }
-    index = end;
-  }
-
+  const terms = [...input.matchAll(TERM)].flatMap((match): ParsedTerm[] => {
+    const negated = match[1] === '-';
+    const phrase = match[2];
+    if (phrase !== undefined) return [{ text: phrase, phrase: true, negated }];
+    return splitBareTerm(match[3] ?? '').map((text) => ({ text, phrase: false, negated }));
+  });
   return terms.filter((term) => HAS_TOKEN_CHARS.test(term.text)).slice(0, MAX_TERMS);
 }
 

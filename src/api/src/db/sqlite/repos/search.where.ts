@@ -309,22 +309,28 @@ function exifTerms(q: SearchQuery): Term[] {
  * keeps matching everything that is not a screenshot, because a nullable column
  * would need `IS NOT 1` and this file would change with it.
  */
-function scalarTerms(q: SearchQuery, flag: -1 | 0 | 1 | undefined): Term[] {
+function gradeTerms(q: SearchQuery, flag: -1 | 0 | 1 | undefined): Term[] {
+  // An out-of-range or non-integer month is dropped rather than passed through:
+  // a filter matching nothing is worse than no filter, because the
+  // generated-search worker reads the result count as a quality signal.
   const month = asNumber(q.month);
+  const usableMonth = month !== undefined && Number.isInteger(month) && month >= 1 && month <= 12;
   const rating = asNumber(q.rating);
   return [
-    ...(month !== undefined && Number.isInteger(month) && month >= 1 && month <= 12
-      ? [{ sql: 'assets.captured_month = ?', params: [month] }]
-      : []),
+    ...(usableMonth ? [{ sql: 'assets.captured_month = ?', params: [month!] }] : []),
     ...(rating === undefined ? [] : [{ sql: 'assets.rating >= ?', params: [rating] }]),
     ...(flag === undefined ? [] : [{ sql: 'assets.flag = ?', params: [flag] }]),
     ...(q.color === undefined ? [] : [{ sql: 'assets.color_label = ?', params: [q.color] }]),
-    ...(q.isScreenshot === 'true' ? [{ sql: 'assets.is_screenshot = 1', params: [] }] : []),
-    ...(q.isScreenshot === 'false' ? [{ sql: 'assets.is_screenshot = 0', params: [] }] : []),
-    ...(q.hidden === 'only' ? [{ sql: 'assets.hidden = 1', params: [] }] : []),
-    ...(q.hidden === 'only' || q.hidden === 'all'
-      ? []
-      : [{ sql: 'assets.hidden = 0', params: [] }]),
+  ];
+}
+
+/** What the caller is allowed to see: screenshots, and hidden assets. */
+function visibilityTerms(q: SearchQuery): Term[] {
+  const screenshot = q.isScreenshot === 'true' ? 1 : q.isScreenshot === 'false' ? 0 : null;
+  const hidden = q.hidden === 'only' ? 1 : q.hidden === 'all' ? null : 0;
+  return [
+    ...(screenshot === null ? [] : [{ sql: `assets.is_screenshot = ${screenshot}`, params: [] }]),
+    ...(hidden === null ? [] : [{ sql: `assets.hidden = ${hidden}`, params: [] }]),
   ];
 }
 
@@ -370,21 +376,26 @@ function parseExtensions(raw: string | undefined): string[] | { error: string } 
  * `search.where.test.ts` runs both builders over the same malformed queries and
  * compares their answers, so this ordering cannot rot silently.
  */
+const VALIDATIONS: ReadonlyArray<(q: SearchQuery) => string | null> = [
+  (q) => (q.libraryId && !ObjectId.isValid(q.libraryId) ? 'Invalid libraryId' : null),
+  (q) =>
+    q.flag !== undefined && q.flag !== '' && FLAG_BY_NAME[q.flag] === undefined
+      ? `Invalid flag: ${q.flag}`
+      : null,
+  (q) =>
+    q.color !== undefined && !SEARCHABLE_COLOR_LABELS.has(q.color)
+      ? `Invalid color: ${q.color}`
+      : null,
+  (q) => (q.pathPrefix !== undefined && q.pathPrefix.length > 1024 ? 'pathPrefix too long' : null),
+  (q) =>
+    q.sceneType !== undefined && q.sceneType !== '' && !SCENE_TYPES.has(q.sceneType)
+      ? `Invalid sceneType: ${q.sceneType}`
+      : null,
+];
+
 function validate(q: SearchQuery): { error: string } | null {
-  if (q.libraryId && !ObjectId.isValid(q.libraryId)) return { error: 'Invalid libraryId' };
-  if (q.flag !== undefined && q.flag !== '' && FLAG_BY_NAME[q.flag] === undefined) {
-    return { error: `Invalid flag: ${q.flag}` };
-  }
-  if (q.color !== undefined && !SEARCHABLE_COLOR_LABELS.has(q.color)) {
-    return { error: `Invalid color: ${q.color}` };
-  }
-  if (q.pathPrefix !== undefined && q.pathPrefix.length > 1024) {
-    return { error: 'pathPrefix too long' };
-  }
-  if (q.sceneType !== undefined && q.sceneType !== '' && !SCENE_TYPES.has(q.sceneType)) {
-    return { error: `Invalid sceneType: ${q.sceneType}` };
-  }
-  return null;
+  const error = VALIDATIONS.reduce<string | null>((found, check) => found ?? check(q), null);
+  return error === null ? null : { error };
 }
 
 /**
@@ -409,20 +420,29 @@ export function buildSearchWhere(
     return { error: `Invalid scope: ${q.scope}` };
   }
 
-  const freeText = text(q.q);
+  const terms: Term[] = [
+    ...cameraAndLensTerms(q),
+    ...placeAndPeopleTerms(q, excludedPersonIds, peoplePersonIds),
+    ...exifTerms(q),
+    ...gradeTerms(q, q.flag === undefined || q.flag === '' ? undefined : FLAG_BY_NAME[q.flag]),
+    ...visibilityTerms(q),
+    ...visionTerms(q),
+    ...fileTerms(q, extensions),
+    ...scopeTerms(q.scope),
+  ];
+
+  return {
+    clauses: terms.map((term) => term.sql),
+    params: terms.flatMap((term) => term.params),
+    match: toMatchExpression(text(q.placeQuery) ?? ''),
+  };
+}
+
+/** The two substring filters over EXIF text. */
+function cameraAndLensTerms(q: SearchQuery): Term[] {
   const camera = text(q.camera);
   const lens = text(q.lens);
-  const activity = text(q.activity);
-  const pathPrefix = (q.pathPrefix ?? '').replace(/^\/+/, '').replace(/\/+$/, '');
-  const subjects = (text(q.subjects) ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  const placeLabels = parsePlaceLabels(q.place);
-
-  const terms: Term[] = [
-    ...(freeText === undefined ? [] : [freeTextTerm(freeText)]),
-    ...(q.libraryId ? [libraryTerm(q.libraryId)] : []),
+  return [
     ...(camera === undefined
       ? []
       : [
@@ -431,29 +451,52 @@ export function buildSearchWhere(
             params: [contains(camera), contains(camera)],
           },
         ]),
-    ...(placeLabels.length === 0 ? [] : [orGroup(placeLabels.map(placeLabelTerm))]),
-    ...(peoplePersonIds === null ? [] : [peopleTerm(peoplePersonIds)]),
     ...(lens === undefined
       ? []
       : [{ sql: `assets.lens LIKE ? ESCAPE '\\'`, params: [contains(lens)] }]),
-    ...exifTerms(q),
-    ...scalarTerms(q, q.flag === undefined || q.flag === '' ? undefined : FLAG_BY_NAME[q.flag]),
-    ...(pathPrefix.length === 0 ? [] : [pathPrefixTerm(pathPrefix)]),
+  ];
+}
+
+/** The place chips, the person picker, and the people to drop. */
+function placeAndPeopleTerms(
+  q: SearchQuery,
+  excludedPersonIds: readonly string[],
+  peoplePersonIds: readonly string[] | null,
+): Term[] {
+  const placeLabels = parsePlaceLabels(q.place);
+  return [
+    ...(placeLabels.length === 0 ? [] : [orGroup(placeLabels.map(placeLabelTerm))]),
+    ...(peoplePersonIds === null ? [] : [peopleTerm(peoplePersonIds)]),
+    ...(excludedPersonIds.length === 0 ? [] : [excludedPeopleTerm(excludedPersonIds)]),
+  ];
+}
+
+/** The three filters over the describe stage's output. */
+function visionTerms(q: SearchQuery): Term[] {
+  const activity = text(q.activity);
+  const subjects = (text(q.subjects) ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return [
     ...(q.sceneType === undefined || q.sceneType === ''
       ? []
       : [visionTerm('vision_scene_type', q.sceneType)]),
     ...(activity === undefined ? [] : [visionTerm('vision_activity', activity)]),
     ...(subjects.length === 0 ? [] : [subjectsTerm(subjects)]),
-    ...(extensions.length === 0 ? [] : [extensionTerm(extensions)]),
-    ...scopeTerms(q.scope),
-    ...(excludedPersonIds.length === 0 ? [] : [excludedPeopleTerm(excludedPersonIds)]),
   ];
+}
 
-  return {
-    clauses: terms.map((term) => term.sql),
-    params: terms.flatMap((term) => term.params),
-    match: toMatchExpression(text(q.placeQuery) ?? ''),
-  };
+/** Everything that reaches `asset_locations`: free text, library, path, type. */
+function fileTerms(q: SearchQuery, extensions: readonly string[]): Term[] {
+  const freeText = text(q.q);
+  const pathPrefix = (q.pathPrefix ?? '').replace(/^\/+/, '').replace(/\/+$/, '');
+  return [
+    ...(freeText === undefined ? [] : [freeTextTerm(freeText)]),
+    ...(q.libraryId ? [libraryTerm(q.libraryId)] : []),
+    ...(pathPrefix.length === 0 ? [] : [pathPrefixTerm(pathPrefix)]),
+    ...(extensions.length === 0 ? [] : [extensionTerm(extensions)]),
+  ];
 }
 
 /** A predicate and its bound values, ready to splice into a statement. */

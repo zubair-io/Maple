@@ -27,7 +27,7 @@
 
 import { ObjectId } from 'mongodb';
 import type { AssetDoc, AssetExif, Place } from '../../schema.ts';
-import { json, toFileInfo, type LocationRow } from './assets.rows.ts';
+import { groupByAsset, json, toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';
 import {
   countSql,
@@ -83,17 +83,6 @@ export interface PageOptions {
   cursor?: SeekPosition | null;
 }
 
-/** Groups rows of a side table by the asset they belong to. */
-function byAsset<T extends { asset_id: string }>(rows: T[]): Map<string, T[]> {
-  const grouped = new Map<string, T[]>();
-  for (const row of rows) {
-    const existing = grouped.get(row.asset_id);
-    if (existing) existing.push(row);
-    else grouped.set(row.asset_id, [row]);
-  }
-  return grouped;
-}
-
 /**
  * How many assets match — the `total` on the response.
  *
@@ -131,8 +120,8 @@ export async function searchPage(
     db.read<LinkRow>(phassetLinksByAssetIdsSql(ids.length), ids),
   ]);
 
-  const locationsByAsset = byAsset(locations);
-  const linksByAsset = byAsset(links);
+  const locationsByAsset = groupByAsset(locations);
+  const linksByAsset = groupByAsset(links);
   const captions = new Map(descriptions.map((row) => [row.asset_id, row.description] as const));
 
   return rows.map((row) => toAssetDoc(row, locationsByAsset, linksByAsset, captions));

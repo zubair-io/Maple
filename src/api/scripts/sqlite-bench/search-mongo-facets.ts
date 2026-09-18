@@ -45,6 +45,10 @@ export const MONGO_FACET_PIPELINES: Record<string, object[]> = {
     { $sort: { count: -1 } },
     { $limit: 50 },
   ],
+  // fallow-ignore-next-line duplicates -- deliberate mirror of the pipeline
+  // in routes/search/facets.ts, so the benchmark times the shape that ships.
+  // Importing it is not an option: the route builds these inside its Elysia
+  // handler, and this slice leaves the Mongo path untouched.
   extensions: [
     {
       $project: {
@@ -99,6 +103,10 @@ export const MONGO_FACET_PIPELINES: Record<string, object[]> = {
     },
     { $group: { _id: '$bucket', count: { $sum: 1 } } },
   ],
+  // fallow-ignore-next-line duplicates -- deliberate mirror of the pipeline
+  // in routes/search/facets.ts, so the benchmark times the shape that ships.
+  // Importing it is not an option: the route builds these inside its Elysia
+  // handler, and this slice leaves the Mongo path untouched.
   people: [
     {
       $project: {
@@ -116,6 +124,10 @@ export const MONGO_FACET_PIPELINES: Record<string, object[]> = {
     { $sort: { count: -1 } },
     { $limit: 100 },
   ],
+  // fallow-ignore-next-line duplicates -- deliberate mirror of the pipeline
+  // in routes/search/facets.ts, so the benchmark times the shape that ships.
+  // Importing it is not an option: the route builds these inside its Elysia
+  // handler, and this slice leaves the Mongo path untouched.
   places: [
     {
       $match: {

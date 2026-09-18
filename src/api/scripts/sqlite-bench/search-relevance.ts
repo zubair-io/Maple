@@ -49,16 +49,11 @@
  * dropped at the end.
  */
 
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import { MongoClient, ObjectId, type Collection, type Db } from 'mongodb';
-import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
-import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
-import { ASSETS_FTS_OPTIMIZE_SQL, ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
-import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
-import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
-import { toMatchExpression } from '../../src/db/sqlite/repos/search.fts.ts';
+import { toMatchExpression } from '../../src/db/sqlite/repos/search.repo.ts';
 import { createTestDatabase, run } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { generateLibrary } from './generate.ts';
+import { benchDbPath, buildLibrary, removeDatabase, sizeArgument } from './bench-db.ts';
 import { agreementPrefix, RANKING_CORPUS, RANKING_PROBES } from './search-ranking-corpus.ts';
 
 const DEFAULT_ASSETS = 20_000;
@@ -72,9 +67,7 @@ const TOP_K = 10;
  */
 const SET_CAP = 500;
 const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const BENCH_DIR = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
-const DB_PATH = `${BENCH_DIR}/search-relevance.db`;
-const DB_SUFFIXES = ['', '-wal', '-shm'];
+const DB_PATH = benchDbPath('search-relevance');
 
 /** One query shape, and why it is in the list. */
 interface Probe {
@@ -110,27 +103,6 @@ function jaccard(a: readonly string[], b: readonly string[]): number {
   const right = new Set(b);
   const shared = [...left].filter((id) => right.has(id)).length;
   return shared / (left.size + right.size - shared);
-}
-
-async function removeDatabase(): Promise<void> {
-  for (const suffix of DB_SUFFIXES) {
-    await Bun.file(`${DB_PATH}${suffix}`)
-      .delete()
-      .catch(() => {});
-  }
-}
-
-async function buildSqlite(assetCount: number): Promise<Database> {
-  await removeDatabase();
-  const db = new Database(DB_PATH, { create: true });
-  for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
-  await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
-  generateLibrary(db, { assetCount });
-  db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
-  db.exec(ASSETS_FTS_REBUILD_SQL);
-  db.exec(ASSETS_FTS_OPTIMIZE_SQL);
-  db.exec('ANALYZE');
-  return db;
 }
 
 /** The corpus, exactly as the FTS5 index holds it. */
@@ -251,55 +223,65 @@ function compare(
   full: { mongo: string[]; sqlite: string[] },
   cap: number,
 ): Comparison {
-  const complete = counts.mongo <= cap && counts.sqlite <= cap;
+  const complete = Math.max(counts.mongo, counts.sqlite) <= cap;
+  const bothAnswered = Math.min(top.mongo.length, top.sqlite.length) > 0;
   return {
     probe,
     mongoCount: counts.mongo,
     sqliteCount: counts.sqlite,
     topKOverlap: overlap(top.mongo, top.sqlite),
     jaccard: complete ? jaccard(full.mongo, full.sqlite) : null,
-    sameBest:
-      top.mongo.length === 0 || top.sqlite.length === 0 ? null : top.mongo[0] === top.sqlite[0],
+    sameBest: bothAnswered ? top.mongo[0] === top.sqlite[0] : null,
   };
 }
 
-function printReport(rows: Comparison[], corpusSize: number): void {
-  console.log(
-    `\n| query | why | Mongo matches | SQLite matches | top-${TOP_K} shared | set agreement | same best |`,
+/** One row of the recall-and-ranking table. */
+function formatComparison(row: Comparison): string {
+  const best = row.sameBest === null ? '—' : row.sameBest ? 'yes' : 'no';
+  const agreement = row.jaccard === null ? 'capped' : row.jaccard.toFixed(2);
+  return (
+    `| \`${row.probe.query}\` | ${row.probe.why} | ${row.mongoCount} | ${row.sqliteCount} | ` +
+    `${row.topKOverlap}/${TOP_K} | ${agreement} | ${best} |`
   );
-  console.log('| --- | --- | --- | --- | --- | --- | --- |');
-  for (const row of rows) {
-    const best = row.sameBest === null ? '—' : row.sameBest ? 'yes' : 'no';
-    const agreement = row.jaccard === null ? 'capped' : row.jaccard.toFixed(2);
-    console.log(
-      `| \`${row.probe.query}\` | ${row.probe.why} | ${row.mongoCount} | ${row.sqliteCount} | ` +
-        `${row.topKOverlap}/${TOP_K} | ${agreement} | ${best} |`,
-    );
-  }
+}
 
-  const answering = rows.filter((row) => row.mongoCount > 0 || row.sqliteCount > 0);
+/** The two sentences under the table: how recall and ranking compared. */
+function summarise(rows: readonly Comparison[], corpusSize: number): string {
+  const answering = rows.filter((row) => Math.max(row.mongoCount, row.sqliteCount) > 0);
   const sameRecall = answering.filter((row) => row.mongoCount === row.sqliteCount).length;
   const sameBest = answering.filter((row) => row.sameBest === true).length;
   const rankable = answering.filter((row) => row.sameBest !== null).length;
-  const overlapTotal = answering.reduce((sum, row) => sum + row.topKOverlap, 0);
-  console.log(
-    `\nCorpus: ${corpusSize.toLocaleString()} indexed blobs.\n` +
-      `Recall: ${sameRecall}/${answering.length} queries matched the same number of documents.\n` +
-      `Ranking: ${overlapTotal}/${answering.length * TOP_K} of the top-${TOP_K} slots are shared; ` +
+  const shared = answering.reduce((sum, row) => sum + row.topKOverlap, 0);
+  const gaps = answering.filter((row) => row.mongoCount !== row.sqliteCount);
+  const detail =
+    gaps.length === 0
+      ? ['', 'No query found documents on one engine and not the other.']
+      : [
+          '',
+          'Queries whose match counts differ:',
+          ...gaps.map(
+            (row) =>
+              `  - \`${row.probe.query}\`: Mongo ${row.mongoCount}, ` +
+              `SQLite ${row.sqliteCount} (${row.probe.why})`,
+          ),
+        ];
+  return [
+    '',
+    `Corpus: ${corpusSize.toLocaleString()} indexed blobs.`,
+    `Recall: ${sameRecall}/${answering.length} queries matched the same number of documents.`,
+    `Ranking: ${shared}/${answering.length * TOP_K} of the top-${TOP_K} slots are shared; ` +
       `${sameBest}/${rankable} agreed on the single best match.`,
-  );
-  const recallGaps = answering.filter((row) => row.mongoCount !== row.sqliteCount);
-  if (recallGaps.length === 0) {
-    console.log('\nNo query found documents on one engine and not the other.');
-    return;
-  }
-  console.log('\nQueries whose match counts differ:');
-  for (const row of recallGaps) {
-    console.log(
-      `  - \`${row.probe.query}\`: Mongo ${row.mongoCount}, SQLite ${row.sqliteCount} ` +
-        `(${row.probe.why})`,
-    );
-  }
+    ...detail,
+  ].join('\n');
+}
+
+function printReport(rows: readonly Comparison[], corpusSize: number): void {
+  const header = [
+    `\n| query | why | Mongo matches | SQLite matches | top-${TOP_K} shared | set agreement | same best |`,
+    '| --- | --- | --- | --- | --- | --- | --- |',
+  ];
+  console.log([...header, ...rows.map(formatComparison)].join('\n'));
+  console.log(summarise(rows, corpusSize));
 }
 
 /**
@@ -372,16 +354,11 @@ async function rankingReport(db: Db): Promise<void> {
   console.log(`\n${detail.join('\n')}`);
 }
 
-const args = Bun.argv.slice(2);
-const sizes = args
-  .filter((a) => !a.startsWith('--'))
-  .map(Number)
-  .filter((n) => Number.isFinite(n) && n > 0);
-const assetCount = sizes[0] ?? DEFAULT_ASSETS;
+const assetCount = sizeArgument(Bun.argv.slice(2), DEFAULT_ASSETS);
 
 console.log(`\n# Full-text relevance: $text vs FTS5, ${assetCount.toLocaleString()} assets\n`);
 console.log('Building the SQLite library…');
-const sqlite = await buildSqlite(assetCount);
+const sqlite = await buildLibrary(DB_PATH, assetCount);
 const corpus = readCorpus(sqlite);
 
 const client = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 2000 });
@@ -394,7 +371,7 @@ try {
       'nothing to compare FTS5 against without one.',
   );
   sqlite.close();
-  await removeDatabase();
+  await removeDatabase(DB_PATH);
   process.exit(1);
 }
 
@@ -425,5 +402,5 @@ try {
 } finally {
   await client.close().catch(() => {});
   sqlite.close();
-  await removeDatabase();
+  await removeDatabase(DB_PATH);
 }
