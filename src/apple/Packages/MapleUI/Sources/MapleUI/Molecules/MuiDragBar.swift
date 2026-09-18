@@ -56,6 +56,11 @@ public struct MuiDragBar: View {
               .frame(height: 8)
               .overlay(Capsule().strokeBorder(MuiTokens.borderHi.opacity(0.5), lineWidth: 0.5))
               .frame(maxHeight: .infinity, alignment: .center)
+          } else {
+            Rectangle()
+              .fill(MuiTokens.border)
+              .frame(height: 1)
+              .frame(maxHeight: .infinity, alignment: .center)
           }
 
           ForEach(0..<Self.tickCount, id: \.self) { i in

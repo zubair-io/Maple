@@ -114,19 +114,24 @@ public struct LivingSlider: View {
               Capsule().fill(gradient).frame(height: 8)
                 .overlay(Capsule().strokeBorder(ProTokens.borderHi.opacity(0.5), lineWidth: 0.5))
                 .frame(maxHeight: .infinity, alignment: .center)
+            } else {
+              Rectangle()
+                .fill(ProTokens.border)
+                .frame(height: 1)
+                .frame(maxHeight: .infinity, alignment: .center)
             }
 
             ForEach(0..<Self.tickCount, id: \.self) { i in
               let x = width * CGFloat(i) / CGFloat(Self.tickCount - 1)
               let emphasized = i == Self.centerTickIndex
               Rectangle()
-                .fill(emphasized ? MapleTokens.borderHi : MapleTokens.border)
+                .fill(emphasized ? ProTokens.borderHi : ProTokens.border)
                 .frame(width: 1, height: emphasized ? 14 : 6)
                 .position(x: x, y: 15)
             }
 
             Rectangle()
-              .fill(MapleTokens.primary)
+              .fill(ProTokens.accent)
               .frame(width: 2, height: 22)
               .position(x: width * pct, y: 15)
           }
