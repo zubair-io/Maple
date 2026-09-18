@@ -165,13 +165,6 @@ export const INITIAL_INDEXES_SQL = INDEX_DDL.join('\n');
 /** Every `CREATE TRIGGER` of the initial schema. */
 export const INITIAL_TRIGGERS_SQL = TRIGGER_DDL.join('\n');
 
-/** The whole initial schema as one script. */
-export const INITIAL_SCHEMA_SQL = [
-  INITIAL_TABLES_SQL,
-  INITIAL_INDEXES_SQL,
-  INITIAL_TRIGGERS_SQL,
-].join('\n');
-
 /**
  * Connection settings the schema assumes, applied per connection by whoever
  * owns the handle — the worker pool in the API process, the importer and the
