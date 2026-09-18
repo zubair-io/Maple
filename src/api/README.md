@@ -208,6 +208,8 @@ bun run lint            # oxlint (correctness + fs-import guardrail)
 
 CI (`.github/workflows/api.yml`) runs the suite against real MongoDB 7 and Meilisearch services. To run the Mongo-backed tests locally, start a mongod and export `MAPLE_MONGO_URI` (for example `mongodb://localhost:27017`) before `bun test`. See [`docs/testing.md`](../../docs/testing.md).
 
+Tests of code that has already moved to the SQLite backend need no database process at all: `src/db/sqlite/test-sqlite.test-helpers.ts` gives each test its own schema-applied database and disposes of it when the test ends. The mongod requirement above shrinks as the repository ports (#3746–#3751) land and disappears when the last one does.
+
 ## Managed local HTTPS and IP fallback
 
 Settings → Network → **Local HTTPS hostname** provisions a separate Bun HTTPS
