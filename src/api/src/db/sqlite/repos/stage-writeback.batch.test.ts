@@ -13,9 +13,8 @@
 import { describe, expect, test } from 'bun:test';
 import { StageWritebackBatch } from './stage-writeback.batch.ts';
 import { stageResultStatements, type StageAttempt } from './stage-writeback.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
 import { seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import type { SqlStatement } from '../protocol.ts';
 
 const STAGE = 'describe';

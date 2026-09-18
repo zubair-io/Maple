@@ -12,14 +12,14 @@
 
 import { describe, expect, test } from 'bun:test';
 import { claimStageBatch } from './stage-claim.ts';
-import { insertStageState, testSqliteDb } from './assets.test-helpers.ts';
+import { insertStageState } from './assets.test-helpers.ts';
 import {
   damagedTag,
   seedClaimableAsset,
   seedClaimableAssets,
   stageRow,
 } from './stage-runtime.test-helpers.ts';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 
 const STAGE = 'thumb';
 

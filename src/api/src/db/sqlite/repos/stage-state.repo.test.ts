@@ -14,9 +14,8 @@ import {
   versionBumpReset,
 } from './stage-state.repo.ts';
 import { claimStageBatch } from './stage-claim.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
 import { seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
-import { createTestDatabase, type TestDatabase } from '../test-sqlite.test-helpers.ts';
+import { createTestDatabase, testSqliteDb, type TestDatabase } from '../test-sqlite.test-helpers.ts';
 
 const STAGES = ['exif', 'thumb', 'preview', 'describe'] as const;
 

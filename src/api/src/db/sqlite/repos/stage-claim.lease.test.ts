@@ -17,9 +17,8 @@
 import { describe, expect, test } from 'bun:test';
 import { claimStageBatch, renewStageLease } from './stage-claim.ts';
 import { stageResultStatements } from './stage-writeback.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
 import { seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 
 const STAGE = 'thumb';
 

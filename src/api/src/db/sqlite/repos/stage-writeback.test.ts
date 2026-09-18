@@ -20,9 +20,8 @@ import {
   type StageAttempt,
 } from './stage-writeback.ts';
 import { renewStageLease } from './stage-claim.ts';
-import { testSqliteDb } from './assets.test-helpers.ts';
 import { damagedTag, seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
-import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
+import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 
 const STAGE = 'describe';
 const AT = new Date('2026-06-01T12:00:00.000Z');
