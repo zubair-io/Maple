@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { withTestEnv } from '../db/test-db.test-helpers.ts';
+import { withTestEnv } from '../test-support/env.test-helpers.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
