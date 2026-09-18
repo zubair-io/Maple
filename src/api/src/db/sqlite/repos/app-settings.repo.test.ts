@@ -88,6 +88,30 @@ describe('patchAppSettings', () => {
     expect(doc?.servers).toEqual([{ url: 'http://a', enabled: true }]);
   });
 
+  test('a key carrying a quote or a backslash addresses the field it names', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    // Inside a quoted path segment SQLite parses a JSON string, so these two
+    // characters escape with a backslash. Doubling the quote — the SQL
+    // convention — makes SQLite reject the whole path, so the write would not
+    // land at all.
+    await patchAppSettings('odd', { 'say "hi"': 1, 'back\\slash': 2 }, db);
+    const doc = await readAppSettings<Record<string, number>>('odd', db);
+    expect(doc?.['say "hi"']).toBe(1);
+    expect(doc?.['back\\slash']).toBe(2);
+    // And nothing was written under a truncated name.
+    expect(Object.keys(doc ?? {}).sort()).toEqual(['_id', 'back\\slash', 'say "hi"']);
+  });
+
+  test('an unset reaches a key carrying a quote', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    await patchAppSettings('odd', { 'say "hi"': 1, keep: 2 }, db);
+    await unsetAppSettings('odd', ['say "hi"'], db);
+    const doc = await readAppSettings<Record<string, number>>('odd', db);
+    expect(Object.keys(doc ?? {}).sort()).toEqual(['_id', 'keep']);
+  });
+
   test('an empty patch neither inserts nor throws', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);

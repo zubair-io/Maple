@@ -64,12 +64,20 @@ const SELECT_SQL = `SELECT doc FROM app_settings WHERE id = ?`;
  *
  * Each segment is quoted, so a settings key containing a space or a dash — and
  * every migration id is kebab-case — addresses the field it names rather than
- * tripping the path parser. A literal `"` in a key would end the quoted
- * segment, so it is escaped; no key in the codebase has one, and a silently
- * mis-targeted write is a worse outcome than a slightly defensive line.
+ * tripping the path parser.
+ *
+ * Inside those quotes SQLite reads the segment as a JSON string, so `"` and `\`
+ * are escaped the way JSON escapes them, with a backslash. Doubling the quote
+ * instead — the SQL convention, and the wrong one here — does not produce a
+ * differently-targeted write but a hard `bad JSON path` error, which would make
+ * such a key unwritable rather than mis-written. No key in the codebase
+ * contains either character, so this is defence rather than a fix for a live
+ * call site.
  */
 function jsonPath(dotted: string): string {
-  const segments = dotted.split('.').map((segment) => `"${segment.replace(/"/g, '""')}"`);
+  const segments = dotted
+    .split('.')
+    .map((segment) => `"${segment.replace(/[\\"]/g, (char) => `\\${char}`)}"`);
   return `$.${segments.join('.')}`;
 }
 
