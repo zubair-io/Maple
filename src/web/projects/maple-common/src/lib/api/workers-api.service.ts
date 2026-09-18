@@ -278,34 +278,6 @@ export class WorkersApiService {
     );
   }
 
-  /** Read the change log GC retention window (days of change history kept before pruning, #3741). */
-  getChangeLogRetentionWindow(): Observable<{ days: number }> {
-    return this.http.get<{ days: number }>(`${this.base}/workers/change-log-gc/retention-window`);
-  }
-
-  /** Update the change log GC retention window. Takes effect on the worker's next tick (no restart). */
-  setChangeLogRetentionWindow(days: number): Observable<{ ok: boolean; days: number }> {
-    return this.http.patch<{ ok: boolean; days: number }>(
-      `${this.base}/workers/change-log-gc/retention-window`,
-      { days },
-    );
-  }
-
-  /** Trigger an on-demand change log GC sweep pass. */
-  runChangeLogGcNow(): Observable<{
-    ok: boolean;
-    deleted: number;
-    batches: number;
-    durationMs: number;
-  }> {
-    return this.http.post<{
-      ok: boolean;
-      deleted: number;
-      batches: number;
-      durationMs: number;
-    }>(`${this.base}/workers/change-log-gc/run`, {});
-  }
-
   /** Read the effective FFI decode-pool size + live pool stats. */
   getPerformanceConfig(): Observable<PerformanceConfig> {
     return this.http.get<PerformanceConfig>(`${this.base}/workers/performance`);

@@ -466,45 +466,4 @@ describe('PATCH /api/workers/:name/config', () => {
   });
 });
 
-describe('change-log-gc routes (#3741)', () => {
-  it('GET /api/workers/change-log-gc/retention-window returns days', async () => {
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request('http://localhost/api/workers/change-log-gc/retention-window'),
-    );
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(typeof json.days).toBe('number');
-  });
-
-  it('PATCH /api/workers/change-log-gc/retention-window validates and updates days', async () => {
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request('http://localhost/api/workers/change-log-gc/retention-window', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ days: 45 }),
-      }),
-    );
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.ok).toBe(true);
-    expect(json.days).toBe(45);
-  });
-
-  it('POST /api/workers/change-log-gc/run runs on-demand sweep', async () => {
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request('http://localhost/api/workers/change-log-gc/run', {
-        method: 'POST',
-      }),
-    );
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.ok).toBe(true);
-    expect(typeof json.deleted).toBe('number');
-    expect(typeof json.batches).toBe('number');
-  });
-});
-
 // --- #1290: deduplicate ready/pending count must be live-aware ---

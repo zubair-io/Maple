@@ -273,7 +273,7 @@ async function lowestCursor(dbOverride?: Db): Promise<number | null> {
 }
 
 /** Returns the most recently allocated cursor sequence from server_state, or 0 if uninitialized. */
-async function currentAllocatedCursor(dbOverride?: Db): Promise<number> {
+export async function currentAllocatedCursor(dbOverride?: Db): Promise<number> {
   const coll = dbOverride
     ? dbOverride.collection<ServerStateDoc>('server_state')
     : await serverStateCollection();

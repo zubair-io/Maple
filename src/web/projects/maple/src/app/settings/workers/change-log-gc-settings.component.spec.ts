@@ -2,13 +2,30 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { API_BASE_URL } from '@maple-common';
+import { API_BASE_URL, type ChangeLogGcStatusDto } from '@maple-common';
 import { ChangeLogGcSettingsComponent } from './change-log-gc-settings.component';
 
-const RETENTION_URL = '/api/workers/change-log-gc/retention-window';
-const RUN_URL = '/api/workers/change-log-gc/run';
+const STATUS_URL = '/api/change-log-gc/status';
+const CONFIG_URL = '/api/change-log-gc/config';
 
-describe('ChangeLogGcSettingsComponent (#3741)', () => {
+const status: ChangeLogGcStatusDto = {
+  config: {
+    enabled: true,
+    retention_days: 30,
+    last_run: {
+      deleted: 1_200_000,
+      batches: 240,
+      duration_ms: 18_400,
+      pruned_through: 175_000_000,
+      remaining: 820_000,
+      finished_at: '2026-09-17T03:00:00.000Z',
+    },
+  },
+  rows: 820_000,
+  pruned_through: 175_000_000,
+};
+
+describe('ChangeLogGcSettingsComponent', () => {
   let fixture: ComponentFixture<ChangeLogGcSettingsComponent>;
   let http: HttpTestingController;
 
@@ -30,111 +47,103 @@ describe('ChangeLogGcSettingsComponent (#3741)', () => {
 
   const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
+  /** Expand the collapsible row so its body renders. */
   const expandRow = (): void => {
     (fixture.nativeElement.querySelector('.header') as HTMLElement).click();
     fixture.detectChanges();
   };
 
-  it('fetches retention window on init and renders summary readout', async () => {
-    const req = http.expectOne(RETENTION_URL);
+  const load = async (payload: ChangeLogGcStatusDto = status): Promise<void> => {
+    const req = http.expectOne(STATUS_URL);
     expect(req.request.method).toBe('GET');
-    req.flush({ days: 30 });
+    req.flush(payload);
     await tick();
     fixture.detectChanges();
+  };
 
+  it('shows the journal size and last sweep while collapsed, and the window on expand', async () => {
+    await load();
     const el = fixture.nativeElement as HTMLElement;
+
     expect(el.querySelector('[data-testid="change-log-gc-status"]')?.textContent).toContain(
-      'active',
+      'Enabled',
     );
     expect(el.querySelector('[data-testid="change-log-gc-summary"]')?.textContent).toContain(
-      '30 days retention',
+      'rows',
     );
-  });
-
-  it('updates retention window on Save changes', async () => {
-    http.expectOne(RETENTION_URL).flush({ days: 30 });
-    await tick();
-    fixture.detectChanges();
+    expect(el.querySelector('.content-wrapper')?.className).not.toContain('open');
 
     expandRow();
-    const el = fixture.nativeElement as HTMLElement;
-    const input = el.querySelector(
-      '[data-testid="change-log-gc-retention-input"] input',
-    ) as HTMLInputElement;
-    expect(input.value).toBe('30');
-
-    // Change input to 60 days
-    input.value = '60';
-    input.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-
-    const saveBtn = el.querySelector(
-      '[data-testid="change-log-gc-save"] button',
-    ) as HTMLButtonElement;
-    expect(saveBtn.disabled).toBe(false);
-    saveBtn.click();
-    fixture.detectChanges();
-
-    const patchReq = http.expectOne(RETENTION_URL);
-    expect(patchReq.request.method).toBe('PATCH');
-    expect(patchReq.request.body).toEqual({ days: 60 });
-    patchReq.flush({ ok: true, days: 60 });
-    await tick();
-    fixture.detectChanges();
-
-    expect(el.querySelector('[data-testid="change-log-gc-summary"]')?.textContent).toContain(
-      '60 days retention',
-    );
-  });
-
-  it('triggers on-demand sweep via Run now and updates last sweep readout', async () => {
-    http.expectOne(RETENTION_URL).flush({ days: 30 });
-    await tick();
-    fixture.detectChanges();
-
-    const el = fixture.nativeElement as HTMLElement;
-    const runBtn = el.querySelector(
-      '[data-testid="change-log-gc-run-now"] button',
-    ) as HTMLButtonElement;
-    runBtn.click();
-    fixture.detectChanges();
-
-    const runReq = http.expectOne(RUN_URL);
-    expect(runReq.request.method).toBe('POST');
-    runReq.flush({ ok: true, deleted: 1500, batches: 2, durationMs: 45 });
-    await tick();
-    fixture.detectChanges();
-
-    expect(el.querySelector('[data-testid="change-log-gc-summary"]')?.textContent).toContain(
-      '1500 pruned (45ms)',
-    );
-
-    expandRow();
+    expect(el.querySelector('.content-wrapper')?.className).toContain('open');
+    expect(
+      (el.querySelector('[data-testid="change-log-gc-retention"] input') as HTMLInputElement).value,
+    ).toBe('30');
     expect(el.querySelector('[data-testid="change-log-gc-last-run"]')?.textContent).toContain(
-      '1500 deleted in 2 batches (45ms)',
+      '240 batches',
     );
   });
 
-  it('displays error message when run fails', async () => {
-    http.expectOne(RETENTION_URL).flush({ days: 30 });
-    await tick();
-    fixture.detectChanges();
-
-    const el = fixture.nativeElement as HTMLElement;
-    const runBtn = el.querySelector(
-      '[data-testid="change-log-gc-run-now"] button',
-    ) as HTMLButtonElement;
-    runBtn.click();
-    fixture.detectChanges();
-
-    http.expectOne(RUN_URL).flush('Internal server error', {
-      status: 500,
-      statusText: 'Server Error',
-    });
-    await tick();
-    fixture.detectChanges();
-
+  it('saving the retention window PUTs it and keeps the response value', async () => {
+    await load();
     expandRow();
-    expect(el.querySelector('[data-testid="change-log-gc-error"]')?.textContent).toBeTruthy();
+
+    const input = fixture.nativeElement.querySelector(
+      '[data-testid="change-log-gc-retention"] input',
+    ) as HTMLInputElement;
+    input.value = '7';
+    input.dispatchEvent(new Event('input'));
+    await tick();
+    fixture.detectChanges();
+
+    (
+      fixture.nativeElement.querySelector(
+        '[data-testid="change-log-gc-save"] button',
+      ) as HTMLElement
+    ).click();
+    await tick();
+
+    const put = http.expectOne(CONFIG_URL);
+    expect(put.request.method).toBe('PUT');
+    expect(put.request.body).toEqual({ retention_days: 7 });
+    put.flush({ ok: true, config: { ...status.config, retention_days: 7 } });
+    await tick();
+    fixture.detectChanges();
+
+    expect(
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="change-log-gc-retention"] input',
+        ) as HTMLInputElement
+      ).value,
+    ).toBe('7');
+  });
+
+  it('toggling enabled PUTs the flag on its own', async () => {
+    await load();
+    expandRow();
+
+    const box = fixture.nativeElement.querySelector(
+      '[data-testid="change-log-gc-enabled"] input[type="checkbox"]',
+    ) as HTMLInputElement;
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    await tick();
+
+    const put = http.expectOne(CONFIG_URL);
+    expect(put.request.method).toBe('PUT');
+    expect(put.request.body).toEqual({ enabled: false });
+    put.flush({ ok: true, config: { ...status.config, enabled: false } });
+  });
+
+  it('reads "Not run yet" before the first sweep', async () => {
+    await load({
+      config: { enabled: true, retention_days: 30, last_run: null },
+      rows: 0,
+      pruned_through: 0,
+    });
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="change-log-gc-summary"]')
+        ?.textContent,
+    ).toContain('Not run yet');
   });
 });

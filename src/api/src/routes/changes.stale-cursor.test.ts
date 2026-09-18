@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { changesRoutes } from './changes.ts';
 import { getChangeBus, __resetChangeBusForTests } from '../runtime/change-bus.ts';
+import { __resetChangeFeedTailerForTests } from '../runtime/change-feed-tailer.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { getDb, assetChangesCollection, serverStateCollection } from '../db/client.ts';
@@ -21,6 +22,7 @@ function evt(cursor: number): AssetChangeWithId {
 
 beforeEach(async () => {
   __resetChangeBusForTests();
+  __resetChangeFeedTailerForTests();
   try {
     const db = await getDb();
     await db.collection('asset_changes').deleteMany({});
@@ -32,6 +34,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   __resetChangeBusForTests();
+  __resetChangeFeedTailerForTests();
 });
 
 describe('GET /api/changes/subscribe (stale cursor)', () => {
