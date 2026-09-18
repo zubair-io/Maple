@@ -59,7 +59,7 @@ The hero currently reads `selectedTileFrame`, which is only published by the sel
 **Interfaces:**
 - Produces: `PhotoThumbnailCell.onTap: (CGRect) -> Void` — the tile's window-space frame at the moment of the tap. `PhotoGrid.onTap: (Element, CGRect) -> Void`. `LibraryGrid.onOpenEditor: (AssetRef, CGRect) -> Void`. Every layer up to `PhoneTabShell` carries the rect; `PhoneTabShell.pushPreview(_:tileFrame:cloudSource:)` stores it.
 
-- [ ] **Step 1: Give the cell a frame at tap time.** In `PhotoThumbnailCell.swift` replace the `FrameReporter` modifier + the plain tap with one modifier that keeps the latest frame and reports it on tap:
+- [x] **Step 1: Give the cell a frame at tap time.** In `PhotoThumbnailCell.swift` replace the `FrameReporter` modifier + the plain tap with one modifier that keeps the latest frame and reports it on tap:
 
 ```swift
   /// Cell tap handler. Receives the cell's frame in the window's
@@ -96,11 +96,11 @@ private struct TapWithFrame: ViewModifier {
 ```
 Keep `onFrameChange` as is (the selected cell still publishes live frames for paging).
 
-- [ ] **Step 2: Thread the rect through `PhotoGrid`.** `let onTap: (Element, CGRect) -> Void`; in the init `onTap: @escaping (Element, CGRect) -> Void`; in the `ForEach`: `onTap: { frame in onTap(element, frame) },`. Update the four `#Preview` blocks in `PhotoGrid.swift` and the five in `PhotoThumbnailCell.swift`: `onTap: { _ in }` / `onTap: { _, _ in }`.
+- [x] **Step 2: Thread the rect through `PhotoGrid`.** `let onTap: (Element, CGRect) -> Void`; in the init `onTap: @escaping (Element, CGRect) -> Void`; in the `ForEach`: `onTap: { frame in onTap(element, frame) },`. Update the four `#Preview` blocks in `PhotoGrid.swift` and the five in `PhotoThumbnailCell.swift`: `onTap: { _ in }` / `onTap: { _, _ in }`.
 
-- [ ] **Step 3: Thread it through `LibraryGrid`.** `let onOpenEditor: (AssetRef, CGRect) -> Void`; the grid's `onTap: { asset, frame in … onOpenEditor(asset, frame) }`. In `pinchOverlay` the overlay cells use `onTap: { _ in }`.
+- [x] **Step 3: Thread it through `LibraryGrid`.** `let onOpenEditor: (AssetRef, CGRect) -> Void`; the grid's `onTap: { asset, frame in … onOpenEditor(asset, frame) }`. In `pinchOverlay` the overlay cells use `onTap: { _ in }`.
 
-- [ ] **Step 4: Thread it through the shell layers.** `AppShellCenterColumn.onOpenEditor` and `AppShellIPhoneShell.onOpenEditor` become `(AssetRef, CGRect) -> Void` only for the phone `LibraryGrid` call site — add a NEW property `onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }` to both (so `BrowseGrid` and the Mac call sites keep `onOpenEditor`), wire `LibraryGrid(onOpenEditor: onOpenTile)`, and in `PhoneLibraryView` add `let onOpenTile: (AssetRef, CGRect) -> Void` passed through. In `PhoneTabShell` pass `onOpenTile: { asset, frame in pushPreview(asset, tileFrame: frame) }` and change `pushPreview`:
+- [x] **Step 4: Thread it through the shell layers.** `AppShellCenterColumn.onOpenEditor` and `AppShellIPhoneShell.onOpenEditor` become `(AssetRef, CGRect) -> Void` only for the phone `LibraryGrid` call site — add a NEW property `onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }` to both (so `BrowseGrid` and the Mac call sites keep `onOpenEditor`), wire `LibraryGrid(onOpenEditor: onOpenTile)`, and in `PhoneLibraryView` add `let onOpenTile: (AssetRef, CGRect) -> Void` passed through. In `PhoneTabShell` pass `onOpenTile: { asset, frame in pushPreview(asset, tileFrame: frame) }` and change `pushPreview`:
 
 ```swift
     private func pushPreview(_ asset: AssetRef, tileFrame: CGRect? = nil, cloudSource: (any ImageSource)? = nil) {
@@ -115,9 +115,9 @@ Keep `onFrameChange` as is (the selected cell still publishes live frames for pa
 ```
 (`heroTileFrame` is declared in Task 2. All other `pushPreview` callers — Timeline, Search, Map — pass no frame and get the centre-grow fallback.)
 
-- [ ] **Step 5: Build.** `xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath <scratchpad>/dd build` → `BUILD SUCCEEDED`, then the macOS destination too (`BrowseGrid` call sites are shared).
+- [x] **Step 5: Build.** `xcodebuild -project Maple.xcodeproj -scheme Maple -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath <scratchpad>/dd build` → `BUILD SUCCEEDED`, then the macOS destination too (`BrowseGrid` call sites are shared).
 
-- [ ] **Step 6: Commit.** `git add` the seven touched files; message `fix(apple): capture the tapped tile's frame in the tap itself`.
+- [x] **Step 6: Commit.** `git add` the seven touched files; message `fix(apple): capture the tapped tile's frame in the tap itself`.
 
 ---
 
@@ -134,7 +134,7 @@ The overlay currently lives on `PhoneLibraryView` (inside the stack's root), so 
 - Consumes: `heroTileFrame: CGRect?` (Task 1). `PreviewHero(subject:tileFrame:tileCornerRadius:content:onClosed:closeRequest:)` (existing).
 - Produces: `PhoneTabShell.previewContent(for:)` builds `PreviewDestination` exactly as `PhoneLibraryView.previewContent` does today (move the code verbatim, including `onClose`/`onPullDownCommitted` → `heroClose`).
 
-- [ ] **Step 1: Move the hero state and overlay into `PhoneTabShell`.** Add:
+- [x] **Step 1: Move the hero state and overlay into `PhoneTabShell`.** Add:
 
 ```swift
     /// The photo the Preview hero is showing. Follows `libraryPath`'s
@@ -153,7 +153,7 @@ The overlay currently lives on `PhoneLibraryView` (inside the stack's root), so 
 ```
 Wrap the Library tab's `NavigationStack(path: pushedLibraryPath) { PhoneLibraryView(…) }` in the `.overlay { if let hero { PreviewHero(...) .zIndex(1) } }` + `.onChange(of: previewEntry, initial: true) { … }` moved from `PhoneLibraryView` (same bodies; `tileFrame: heroTileFrame ?? selectedTileFrame` on open, and the hero's close uses `selectedTileFrame` — see Step 3). Pass `onSelectedTileFrameChange: { selectedTileFrame = $0 }` into `PhoneLibraryView` (it already threads it down).
 
-- [ ] **Step 2: Fix safe areas in `PreviewHero`.** Replace the `body` so the overlay fills the full window but Preview is laid out as a normal full-screen view (it applies its own safe-area handling exactly as it did when pushed):
+- [x] **Step 2: Fix safe areas in `PreviewHero`.** Replace the `body` so the overlay fills the full window but Preview is laid out as a normal full-screen view (it applies its own safe-area handling exactly as it did when pushed):
 
 ```swift
     var body: some View {
@@ -182,13 +182,13 @@ Wrap the Library tab's `NavigationStack(path: pushedLibraryPath) { PhoneLibraryV
 ```
 `geometry` here is the safe-area-ignoring overlay, so `bounds` is in window space — the same space `tileFrame` (from `.global`) and the pager's `photoRectInWindow` use. **Do not** apply `safeAreaPadding` to `content()`: `PreviewView` already lays its header pill against the safe area via `.padding(.top, 8)` under `ignoresSafeArea` on its own ground only. Add `static let dimAtOpen: Double = 0.92` to `PreviewHeroMotion` — Photos leaves the grid faintly visible at full open.
 
-- [ ] **Step 3: Close lands on the current tile.** In the `.onChange(of: closeRequest)` handler the hero already springs `progress → 0` against `tile`. Since `tile` reads `tileFrame` and `PhoneTabShell` passes `heroTileFrame ?? selectedTileFrame` — after paging `selectedTileFrame` is newer — change the pass to prefer the selected tile whenever it exists: `tileFrame: selectedTileFrame ?? heroTileFrame`. `LibraryGrid` already scrolls the selected tile into view while covered.
+- [x] **Step 3: Close lands on the current tile.** In the `.onChange(of: closeRequest)` handler the hero already springs `progress → 0` against `tile`. Since `tile` reads `tileFrame` and `PhoneTabShell` passes `heroTileFrame ?? selectedTileFrame` — after paging `selectedTileFrame` is newer — change the pass to prefer the selected tile whenever it exists: `tileFrame: selectedTileFrame ?? heroTileFrame`. `LibraryGrid` already scrolls the selected tile into view while covered.
 
-- [ ] **Step 4: Blank the source tile while its photo is in flight** (Photos does this). In `PhoneTabShell` derive `let heroInFlightID: AssetRef.ID? = hero == nil ? nil : hero?.asset.id` — pass it down as a new `PhoneLibraryView`/`AppShellIPhoneShell`/`AppShellCenterColumn`/`LibraryGrid` parameter `hiddenTileID: AssetRef.ID?` and in `LibraryGrid` apply `.opacity(asset.id == hiddenTileID ? 0 : 1)` on the cell (inside `PhotoGrid`'s cell closure via a new `PhotoGrid.isHidden: ((Element) -> Bool)?` — one line). Set it non-nil only while `phase != .open` — expose `PreviewHero`'s phase via an `onPhaseChange: (PreviewHeroPhase) -> Void` callback and keep `@State private var heroPhase` in `PhoneTabShell`.
+- [x] **Step 4: Blank the source tile while its photo is in flight** (Photos does this). In `PhoneTabShell` derive `let heroInFlightID: AssetRef.ID? = hero == nil ? nil : hero?.asset.id` — pass it down as a new `PhoneLibraryView`/`AppShellIPhoneShell`/`AppShellCenterColumn`/`LibraryGrid` parameter `hiddenTileID: AssetRef.ID?` and in `LibraryGrid` apply `.opacity(asset.id == hiddenTileID ? 0 : 1)` on the cell (inside `PhotoGrid`'s cell closure via a new `PhotoGrid.isHidden: ((Element) -> Bool)?` — one line). Set it non-nil only while `phase != .open` — expose `PreviewHero`'s phase via an `onPhaseChange: (PreviewHeroPhase) -> Void` callback and keep `@State private var heroPhase` in `PhoneTabShell`.
 
-- [ ] **Step 5: Build (sim + macOS), then verify on the simulator.** Run `<scratchpad>/relaunch.sh`, start `<scratchpad>/rec.sh start heroC`, tap a tile at (200,183), wait 1.5 s, pull down (touch_path from y=420 to y=690), wait 1.5 s, stop. Cut `ffmpeg -ss <tap-0.1> -t 1.0 -vf "fps=40,scale=150:-1,tile=8x5"` for the open and the same around the pull. **Pass criteria:** the open sheet shows the still growing out of the tile over ~14 frames with the grid visible and dimming behind it, no second copy of the photo; the header pill is visible at the top after open; the close sheet shows the still shrinking into the same tile with the grid brightening. Screenshot the opened state and confirm the photo is vertically centred between the header pill and the filmstrip (not pushed down).
+- [x] **Step 5: Build (sim + macOS), then verify on the simulator.** Run `<scratchpad>/relaunch.sh`, start `<scratchpad>/rec.sh start heroC`, tap a tile at (200,183), wait 1.5 s, pull down (touch_path from y=420 to y=690), wait 1.5 s, stop. Cut `ffmpeg -ss <tap-0.1> -t 1.0 -vf "fps=40,scale=150:-1,tile=8x5"` for the open and the same around the pull. **Pass criteria:** the open sheet shows the still growing out of the tile over ~14 frames with the grid visible and dimming behind it, no second copy of the photo; the header pill is visible at the top after open; the close sheet shows the still shrinking into the same tile with the grid brightening. Screenshot the opened state and confirm the photo is vertically centred between the header pill and the filmstrip (not pushed down).
 
-- [ ] **Step 6: Commit.** `fix(apple): host the Preview hero above the Library stack with correct safe areas`.
+- [x] **Step 6: Commit.** `fix(apple): host the Preview hero above the Library stack with correct safe areas`.
 
 ---
 
@@ -202,7 +202,7 @@ The Photos recording shows square cells at every tier and more tiers than `[1,2,
 - Modify: `Maple/Views/Grid/ThumbnailImage.swift`, `Grid/PhotoThumbnailCell.swift`, `Grid/PhotoGrid.swift` (delete `ThumbnailShape`, `shape`, `cellShape`, `contentMode` computed var; restore `.aspectRatio(1, contentMode: .fit)` and `displayMode.contentMode`)
 - Test: `MapleTests/LibraryGridZoomTests.swift`
 
-- [ ] **Step 1: Update the tests first.** Replace `testFullWidthRowsTakeEachPhotosAspect` and `testSquareGeometryMatchesTheStaticFunctions` with:
+- [x] **Step 1: Update the tests first.** Replace `testFullWidthRowsTakeEachPhotosAspect` and `testSquareGeometryMatchesTheStaticFunctions` with:
 
 ```swift
   func testTiersAreDenseAndSquare() {
@@ -218,15 +218,15 @@ The Photos recording shows square cells at every tier and more tiers than `[1,2,
 ```
 Update `testPinchOutWalksTowardFewerColumns` / `testPinchInWalksTowardMoreColumns` / `testNearestTierAndStoredValidation` for the new neighbours: 3→2 and 2→1 still hold; 3's pinch-in neighbour is now **4** (not 5) — change `to: 5` to `to: 4` and recompute `m` against `cellSize(columns: 4)`; `validatedColumns(4)` now returns 4 — assert `validatedColumns(6) == 3` instead.
 
-- [ ] **Step 2: Run the tests → expect the tier assertions to FAIL** (`xcodebuild test … -only-testing:MapleTests/LibraryGridZoomTests` on `iPhone 17`).
+- [x] **Step 2: Run the tests → expect the tier assertions to FAIL** (`xcodebuild test … -only-testing:MapleTests/LibraryGridZoomTests` on `iPhone 17`).
 
-- [ ] **Step 3: Implement.** Tier list; delete the aspect machinery listed above.
+- [x] **Step 3: Implement.** Tier list; delete the aspect machinery listed above.
 
-- [ ] **Step 4: Run the tests → PASS.** Build iOS + macOS.
+- [x] **Step 4: Run the tests → PASS.** Build iOS + macOS.
 
-- [ ] **Step 5: Verify pinch on the simulator** (`relaunch.sh`, record, pinch in from 3 with fingers at (130,500)/(270,500) closing to (185,500)/(215,500) over 8 steps, then pinch out). Pass: tiles stay square at every intermediate frame; the focal photo does not move; the settled grid matches the last overlay frame.
+- [x] **Step 5: Verify pinch on the simulator** (`relaunch.sh`, record, pinch in from 3 with fingers at (130,500)/(270,500) closing to (185,500)/(215,500) over 8 steps, then pinch out). Pass: tiles stay square at every intermediate frame; the focal photo does not move; the settled grid matches the last overlay frame.
 
-- [ ] **Step 6: Commit.** `feat(apple): Photos' square tiers 1/2/3/4/5/7 for the iPhone grid`.
+- [x] **Step 6: Commit.** `feat(apple): Photos' square tiers 1/2/3/4/5/7 for the iPhone grid`.
 
 ---
 
@@ -244,17 +244,17 @@ Update `testPinchOutWalksTowardFewerColumns` / `testPinchInWalksTowardMoreColumn
 - Modify: `Maple/Views/PhoneSearchTab.swift` (`PreviewDestination` call drops nothing — it never passed the namespace; confirm it compiles)
 - Test: `MapleTests/PreviewViewVMTests.swift` (delete the three `testZoom…` tests)
 
-- [ ] **Step 1: Delete the tests, run → the suite must still compile** (they only referenced removed helpers).
-- [ ] **Step 2: Delete the code above.** Build iOS + macOS: `0 errors`.
-- [ ] **Step 3: Run both unit suites → PASS.**
-- [ ] **Step 4: Re-run the Task 2 Step 5 simulator check** (open + pull-down) — behaviour unchanged.
-- [ ] **Step 5: Commit.** `refactor(apple): drop the unused system zoom transition path from Preview`.
+- [x] **Step 1: Delete the tests, run → the suite must still compile** (they only referenced removed helpers).
+- [x] **Step 2: Delete the code above.** Build iOS + macOS: `0 errors`.
+- [x] **Step 3: Run both unit suites → PASS.**
+- [x] **Step 4: Re-run the Task 2 Step 5 simulator check** (open + pull-down) — behaviour unchanged.
+- [x] **Step 5: Commit.** `refactor(apple): drop the unused system zoom transition path from Preview`.
 
 ---
 
 ### Task 5: Device verification and PR update
 
-- [ ] **Step 1: Build for Artemis** (`-destination 'platform=iOS,name=Artemis' -allowProvisioningUpdates -derivedDataPath <scratchpad>/dd-device`), install with `xcrun devicectl device install app --device DF4C2BA9-5520-5A8D-B521-CD6B46B49132 <app>`, launch with `… process launch --terminate-existing … app.justmaple.aperture`.
-- [ ] **Step 2: Ask the user for a screen recording** of tap-open → page twice → pull-down, and pinch in/out. Extract sheets with `ffmpeg -vf "fps=30,scale=150:-1,tile=8x6"` and compare against `photos-open.png` / `photos-close.png` / `photos-pinch.png`. Pass: no duplicate image during open; header pill visible; grid visible and dimming beneath the open; close lands on the *paged-to* tile; square tiles through the pinch.
-- [ ] **Step 3: Run `bash tools/check-file-budget.sh`, `bash tools/check-budget-headroom.sh`** from the repo root; both clean.
-- [ ] **Step 4: Push**, wait for CI on PR #3740 (26 checks), read the Jules review comment, address any finding, and update the PR description's "What this does" paragraph: replace the "`.navigationTransition(.zoom)`" sentence with "a hand-rolled hero overlay above the Library stack (the system zoom transition does not run on iOS 27)". Update `docs/features.md`'s iPhone sentence to drop the "1-column tiles take each photo's aspect" claim.
+- [x] **Step 1: Build for Artemis** (`-destination 'platform=iOS,name=Artemis' -allowProvisioningUpdates -derivedDataPath <scratchpad>/dd-device`), install with `xcrun devicectl device install app --device DF4C2BA9-5520-5A8D-B521-CD6B46B49132 <app>`, launch with `… process launch --terminate-existing … app.justmaple.aperture`.
+- [x] **Step 2: Ask the user for a screen recording** of tap-open → page twice → pull-down, and pinch in/out. Extract sheets with `ffmpeg -vf "fps=30,scale=150:-1,tile=8x6"` and compare against `photos-open.png` / `photos-close.png` / `photos-pinch.png`. Pass: no duplicate image during open; header pill visible; grid visible and dimming beneath the open; close lands on the *paged-to* tile; square tiles through the pinch.
+- [x] **Step 3: Run `bash tools/check-file-budget.sh`, `bash tools/check-budget-headroom.sh`** from the repo root; both clean.
+- [x] **Step 4: Push**, wait for CI on PR #3740 (26 checks), read the Jules review comment, address any finding, and update the PR description's "What this does" paragraph: replace the "`.navigationTransition(.zoom)`" sentence with "a hand-rolled hero overlay above the Library stack (the system zoom transition does not run on iOS 27)". Update `docs/features.md`'s iPhone sentence to drop the "1-column tiles take each photo's aspect" claim.
