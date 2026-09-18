@@ -30,6 +30,30 @@ const DEFAULT_SIZES = [335_377, 600_000, 1_000_000];
 // The exact spelling from the schema — a partial index is only used when the
 // query WHERE provably implies the index WHERE, so this must not be paraphrased.
 const LIVE = LIVE_ASSET_PREDICATE;
+// Every browse, search and facet request carries this too: `buildFilter` emits
+// `hidden: { $ne: true }` unless the caller asks for hidden assets, so a
+// measurement without it is measuring a query the product never issues.
+const VISIBLE = `${LIVE} AND hidden = 0`;
+// The generator spreads assets over four library roots; 'bench-1' holds about
+// a fifth of them, so a library-scoped query has to discriminate rather than
+// matching everything.
+const SCOPED_LIBRARY = `(SELECT id FROM folders WHERE slug = 'bench-1')`;
+
+/**
+ * The same predicate with every column qualified by a table alias, for the
+ * queries that name more than one table.
+ *
+ * Deriving it beats writing `a.${VISIBLE}`, which only qualifies the FIRST
+ * column and leaves the rest bare — harmless while `assets` is the only table
+ * in scope, a silent wrong-column bind the moment it is not. Splitting on
+ * ' AND ' is safe because the predicate is a flat conjunction of column terms,
+ * by the same rule that keeps it usable by a partial index.
+ */
+function visible(alias: string): string {
+  return VISIBLE.split(' AND ')
+    .map((term) => `${alias}.${term}`)
+    .join(' AND ');
+}
 
 interface Measurement {
   name: string;
@@ -44,38 +68,38 @@ const MEASUREMENTS: Measurement[] = [
   {
     name: 'count live assets',
     replaces: 'countDocuments(applyLiveFilter({})) — facets.ts total',
-    sql: `SELECT COUNT(*) AS n FROM assets WHERE ${LIVE}`,
+    sql: `SELECT COUNT(*) AS n FROM assets WHERE ${VISIBLE}`,
   },
   {
     name: 'facet: camera make + model',
     replaces: '$group by { exif.camera_make, exif.camera_model } — facets.ts',
     sql: `SELECT camera_make, camera_model, COUNT(*) AS n FROM assets
-           WHERE ${LIVE} GROUP BY camera_make, camera_model ORDER BY n DESC LIMIT 50`,
+           WHERE ${VISIBLE} GROUP BY camera_make, camera_model ORDER BY n DESC LIMIT 50`,
   },
   {
     name: 'facet: place country code',
     replaces: 'the place_rollups drill-down the country index was built for',
     sql: `SELECT place_country_code, COUNT(*) AS n FROM assets
-           WHERE ${LIVE} AND place_country_code IS NOT NULL
+           WHERE ${VISIBLE} AND place_country_code IS NOT NULL
            GROUP BY place_country_code ORDER BY n DESC LIMIT 100`,
   },
   {
     name: 'facet: place locality + region',
     replaces: '$group by { place.rollups.locality, place.rollups.region } — facets.ts',
     sql: `SELECT place_locality, place_region, COUNT(*) AS n FROM assets
-           WHERE ${LIVE} AND (place_locality IS NOT NULL OR place_region IS NOT NULL)
+           WHERE ${VISIBLE} AND (place_locality IS NOT NULL OR place_region IS NOT NULL)
            GROUP BY place_locality, place_region ORDER BY n DESC LIMIT 100`,
   },
   {
     name: 'facet: lens',
     replaces: "$group by '$exif.lens' — facets.ts",
-    sql: `SELECT lens, COUNT(*) AS n FROM assets WHERE ${LIVE}
+    sql: `SELECT lens, COUNT(*) AS n FROM assets WHERE ${VISIBLE}
            GROUP BY lens ORDER BY n DESC LIMIT 50`,
   },
   {
     name: 'facet: timeline buckets (year, month)',
     replaces: '$group by { exif.captured_year, exif.captured_month } — buckets.ts',
-    sql: `SELECT captured_year, captured_month, COUNT(*) AS n FROM assets WHERE ${LIVE}
+    sql: `SELECT captured_year, captured_month, COUNT(*) AS n FROM assets WHERE ${VISIBLE}
            GROUP BY captured_year, captured_month ORDER BY captured_year DESC, captured_month DESC`,
   },
   {
@@ -91,18 +115,51 @@ const MEASUREMENTS: Measurement[] = [
     // Written as a semi-join rather than an inner join on purpose. An inner
     // join lets the planner lead with asset_locations, scan a whole library
     // and sort 300,000 rows to find 200; EXISTS keeps assets as the outer
-    // loop, so the ordered partial index terminates at the limit.
+    // loop, so the ordered partial index terminates at the limit. The pair
+    // below measures the difference; 'bench-1' is a library holding about a
+    // fifth of the assets, so the scope has something to discriminate.
     sql: `SELECT a.id, a.mtime, a.rating, a.has_xmp, a.hidden,
                  (SELECT path FROM asset_locations
                    WHERE asset_id = a.id AND ordinal = 0) AS path,
                  (SELECT filename FROM asset_locations
                    WHERE asset_id = a.id AND ordinal = 0) AS filename
             FROM assets a
-           WHERE a.${LIVE}
+           WHERE ${visible('a')}
              AND EXISTS (SELECT 1 FROM asset_locations l
                           WHERE l.asset_id = a.id AND l.ordinal = 0
-                            AND l.library_id = (SELECT id FROM folders LIMIT 1))
+                            AND l.library_id = ${SCOPED_LIBRARY})
            ORDER BY a.captured_at DESC, a.id LIMIT 200`,
+  },
+  {
+    name: 'grid page as an inner join (the shape to avoid)',
+    replaces: 'the same page with the library scope joined instead of EXISTS',
+    sql: `SELECT a.id, a.mtime, a.rating, a.has_xmp, a.hidden, l.path, l.filename
+            FROM assets a
+            JOIN asset_locations l ON l.asset_id = a.id AND l.ordinal = 0
+           WHERE ${visible('a')} AND l.library_id = ${SCOPED_LIBRARY}
+           ORDER BY a.captured_at DESC, a.id LIMIT 200`,
+  },
+  {
+    name: 'facet: vision scene type',
+    replaces: "$match(live) + $group by '$vision.scene_type' — facets.ts",
+    // The route excludes null AND the empty string, which is what lets the
+    // partial index serve it at all — a bare GROUP BY implies neither and
+    // plans as a full scan of the largest table in the database.
+    sql: `SELECT d.vision_scene_type, COUNT(*) AS n
+            FROM asset_detail d JOIN assets a ON a.id = d.asset_id
+           WHERE d.vision_scene_type IS NOT NULL AND d.vision_scene_type <> ''
+             AND ${visible('a')}
+           GROUP BY d.vision_scene_type ORDER BY n DESC LIMIT 20`,
+  },
+  {
+    name: 'facet: vision scene type, without the liveness join',
+    replaces: 'the same facet over the whole table — what the index alone costs',
+    // The pair is here because the difference between them is the finding:
+    // grouping the index is nearly free, and joining assets for liveness is
+    // what the facet actually pays. See docs/sqlite-schema.md.
+    sql: `SELECT vision_scene_type, COUNT(*) AS n FROM asset_detail
+           WHERE vision_scene_type IS NOT NULL AND vision_scene_type <> ''
+           GROUP BY vision_scene_type ORDER BY n DESC LIMIT 20`,
   },
   {
     name: 'duplicate candidates: 2+ live locations',
@@ -235,14 +292,31 @@ function fileBytesOf(db: Database): number {
   return pages.page_count * pageSize.page_size;
 }
 
-/** Times every measurement against a freshly opened read-only connection, so
- * the first sample of each starts with an empty SQLite page cache. */
-function runMeasurements(dbPath: string): TimingReport[] {
+function openReader(dbPath: string): Database {
   const db = new Database(dbPath, { readonly: true });
   for (const pragma of SCHEMA_PRAGMAS) {
     if (!pragma.includes('journal_mode')) db.exec(pragma);
   }
-  const timings = MEASUREMENTS.map((measurement) => {
+  return db;
+}
+
+/**
+ * Times every measurement on its OWN freshly opened read-only connection.
+ *
+ * One connection for the whole list would only give the first query of the
+ * list a cold cache; every one after it would inherit the pages its
+ * predecessors pulled in, so twelve of the thirteen numbers would be warm
+ * while the report called them cold. `coldMs` is the first run on a connection
+ * that has read nothing, and `warmMs` the median of five after it.
+ *
+ * SQLite's page cache is what this empties; the operating system's file cache
+ * is not, and cannot be from inside the process. So `coldMs` is "a query this
+ * server has not run before", not "a query against a disk that has not been
+ * touched" — the honest ceiling is somewhere above it.
+ */
+function runMeasurements(dbPath: string): TimingReport[] {
+  return MEASUREMENTS.map((measurement) => {
+    const db = openReader(dbPath);
     const first = timeQuery(db, measurement.sql, 1);
     const warm = timeQuery(db, measurement.sql, 5);
     const plan = (
@@ -250,6 +324,7 @@ function runMeasurements(dbPath: string): TimingReport[] {
     )
       .map((row) => row.detail)
       .join(' | ');
+    db.close();
     return {
       name: measurement.name,
       replaces: measurement.replaces,
@@ -259,8 +334,6 @@ function runMeasurements(dbPath: string): TimingReport[] {
       plan,
     };
   });
-  db.close();
-  return timings;
 }
 
 async function benchmark(assetCount: number, dbPath: string): Promise<RunReport> {
@@ -318,6 +391,14 @@ const sizes = args
   .filter((n) => Number.isFinite(n) && n > 0);
 const targets = sizes.length > 0 ? sizes : DEFAULT_SIZES;
 const outDir = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
+
+// Create the output directory before anything opens a database inside it.
+// SQLite's `create: true` creates the database FILE, not its parent, so
+// without this the first run on a machine that has never run the benchmark
+// dies with SQLITE_CANTOPEN instead of producing numbers. Writing a file is
+// how a directory gets created recursively without importing node:fs, which
+// the API's lint config restricts.
+await Bun.write(`${outDir}/.keep`, '');
 
 const reports: RunReport[] = [];
 for (const assetCount of targets) {
