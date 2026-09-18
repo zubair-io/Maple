@@ -180,6 +180,25 @@ describe('what a translated query actually finds', () => {
     }
   });
 
+  test('an empty phrase matches nothing and empties an AND, which is why terms drop', async () => {
+    using handle = await createTestDatabase();
+    seedSearchLibrary(handle.db);
+    // The reason `HAS_TOKEN_CHARS` exists, pinned rather than asserted in a
+    // comment. A quoted string with no tokens in it is not an error and not a
+    // match-all; it is a phrase with nothing in it. Harmless in an OR, fatal in
+    // an AND — so `kyoto "???"` has to drop the punctuation rather than emit it.
+    const matches = (expression: string): number =>
+      (
+        handle.db
+          .query('SELECT COUNT(*) AS n FROM assets_fts WHERE assets_fts MATCH ?')
+          .get(expression) as { n: number }
+      ).n;
+    expect(matches('"harbour"')).toBe(2);
+    expect(matches('"!!"')).toBe(0);
+    expect(matches('("!!" AND "harbour")')).toBe(0);
+    expect(matches('("harbour" OR "!!")')).toBe(2);
+  });
+
   test('a query that cannot match returns nothing, not everything', async () => {
     using handle = await createTestDatabase();
     seedSearchLibrary(handle.db);
