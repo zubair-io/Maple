@@ -61,6 +61,26 @@ describe('the detail payloads', () => {
     });
   });
 
+  it('carries description_meta, which the AssetDoc interface does not declare', () => {
+    const { client, ids } = fixture.state;
+    if (client === null || ids === null) return;
+    // The describe stage writes this field and `assets.transform.ts` reads it
+    // through a `Record<string, unknown>` so it still reaches clients — it was
+    // simply added after the interface froze. A mapper written from the
+    // interface alone drops it on every asset in the library, silently.
+    const row = one<{ description_meta: string }>(
+      `SELECT description_meta FROM asset_detail WHERE asset_id = ?`,
+      ids.assets.rich.toHexString(),
+    );
+    expect(JSON.parse(row.description_meta)).toEqual({
+      provider: 'ollama',
+      model: 'qwen2.5-vl',
+      prompt_version: 7,
+      generated_at: iso(3),
+      cost_usd: 0,
+    });
+  });
+
   it('converts an ObjectId nested inside a JSON payload to its hex', () => {
     const { client, ids } = fixture.state;
     if (client === null || ids === null) return;

@@ -15,6 +15,8 @@
  */
 export const DETAIL_SOURCE_FIELDS = [
   'description',
+  // Not on `AssetDoc`; see the note in `plan/assets.ts`.
+  'description_meta',
   'ocr_text',
   'ocr_meta',
   'vision',

@@ -235,7 +235,10 @@ function probeLinks(sqlite: Database, doc: Record<string, unknown>, id: string):
 
 function probeDetail(sqlite: Database, doc: Record<string, unknown>, id: string): FieldCheck[] {
   const detail = sqlite
-    .query(`SELECT vision, ocr_text, vision_scene_type FROM asset_detail WHERE asset_id = ?`)
+    .query(
+      `SELECT vision, ocr_text, description, description_meta, vision_scene_type
+         FROM asset_detail WHERE asset_id = ?`,
+    )
     .get(id) as Row;
   const search = sqlite
     .query(`SELECT search_blob FROM asset_search WHERE asset_id = ?`)
@@ -247,6 +250,13 @@ function probeDetail(sqlite: Database, doc: Record<string, unknown>, id: string)
 
   return checks(id, {
     'asset_detail.vision': [vision, json(detail, 'vision')],
+    'asset_detail.description': [from(doc, 'description'), at(detail, 'description')],
+    // Not on `AssetDoc` — see the note in `plan/assets.ts`. Probed here because
+    // a field the types do not mention is exactly the one a mapper drops.
+    'asset_detail.description_meta': [
+      from(doc, 'description_meta'),
+      json(detail, 'description_meta'),
+    ],
     'asset_detail.ocr_text': [from(doc, 'ocr_text'), at(detail, 'ocr_text')],
     'asset_detail.vision_scene_type': [
       asRecord(vision).scene_type ?? null,
