@@ -97,21 +97,21 @@ under Bun 1.4.3, with MongoDB on the same machine.
 | Phase                                  | Wall clock |
 | -------------------------------------- | ---------- |
 | Everything before the assets           | 0.9 s      |
-| Assets and their seven fan-out tables  | 46.4 s     |
-| Import total                           | 51.6 s     |
-| Import plus the full verification pass | 64.4 s     |
+| Assets and their seven fan-out tables  | 42.3 s     |
+| Import total                           | 46.3 s     |
+| Import plus the full verification pass | 58.9 s     |
 
 That is the operator's downtime, and it produced a 2,136 MB database holding
 335,377 asset rows, 335,377 locations, 151,117 faces, 335,377 detail and search
 rows, 4,024,524 stage rows and 1,006,131 enrichment rows, with every table count
-matching the source, 16,066 field checks passing and `foreign_key_check` clean.
+matching the source, 16,466 field checks passing and `foreign_key_check` clean.
 
 Resumption was measured the same way: the same import was `kill -9`ed 25 seconds
-in, having committed 190,000 of the 335,377 assets, and re-run with the same
+in, having committed 187,500 of the 335,377 assets, and re-run with the same
 command. The second run skipped the nine already-complete collections, finished
-the assets in 42 seconds, and produced an `assets` table byte-identical to the
-uninterrupted import — same SHA-256 over every row, and no difference in any of
-the 35 table counts.
+the assets in 42.6 seconds, passed the same verification, and produced an
+`assets` table byte-identical to the uninterrupted import — same SHA-256 over
+every row, and no difference in any of the 35 table counts.
 
 ## Decisions worth knowing
 
