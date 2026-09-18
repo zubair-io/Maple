@@ -17,11 +17,12 @@
 // Selection state is UI-only (`@Binding var selection: LibrarySelection`).
 // Callbacks fire when a row is activated; the shell does the actual work.
 
-import SwiftUI
-import Photos
 import MapleCore
+import Photos
+import SwiftUI
+
 #if os(macOS)
-import AppKit
+  import AppKit
 #endif
 
 // The `LibrarySidebar` is rendered both as the leading column of the
@@ -31,788 +32,801 @@ import AppKit
 // MARK: - LibrarySidebar
 
 struct LibrarySidebar: View {
-    @Binding var selection: LibrarySelection
+  @Binding var selection: LibrarySelection
 
-    // Row-activation callbacks — the shell owns the actual source-load logic.
-    let onAddFolder: () -> Void
-    let onPickFolder: (SavedFolder) -> Void
-    let onRemoveFolder: (SavedFolder) -> Void
-    /// Invoked when the user taps a breadcrumb ancestor inside a saved
-    /// folder. The shell resolves the passed bookmark for security scope
-    /// and loads that URL's immediate contents into the grid.
-    let onPickAncestor: (URL, Data) -> Void
-    /// Source-tree context menu (#2645) — New Folder inside `url`, Rename
-    /// `url` in place, Move to Trash `url` (recursive). `rootBookmark` is
-    /// the nearest saved ancestor's security-scope bookmark, threaded down
-    /// `FolderTreeRow` at every depth already.
-    let onCreateFolder: (URL, Data, String) -> Void
-    let onRenameFolder: (URL, Data, String) -> Void
-    let onTrashFolder: (URL, Data) -> Void
-    /// "Move Folder to…" (#2847) on a local descendant row — `(url,
-    /// rootBookmark)`; the shell presents the destination picker.
-    var onMoveFolder: ((URL, Data) -> Void)? = nil
-    /// Drag-onto-source-tree (#2646), local folder rows. `ids == nil` means
-    /// "use the current grid selection" — the "Move/Copy Selected Here"
-    /// context-menu item's path; non-nil is the literal drag payload.
-    /// `Bool` is `isCopy` (platform copy-modifier, or the explicit "Copy"
-    /// menu item).
-    var onDropAssets: (URL, Data, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _ in }
-    /// How many assets are currently selected in the grid — gates whether
-    /// "Move/Copy Selected Here" appears in a folder row's context menu at
-    /// all (no point offering it with nothing selected).
-    var selectedAssetCount: Int = 0
-    /// Bumped after any of the three actions above commits — re-triggers
-    /// child enumeration on expanded rows (#2454-style generation counter;
-    /// see `AppShell.folderRefreshGeneration`'s doc comment).
-    var folderRefreshGeneration: Int = 0
-    let onPickPhotosFilter: (PhotoKitFilter) -> Void
-    let onRequestPhotosAccess: () -> Void
-    /// Bumped by `AppShell` after the user grants PhotoKit access from the
-    /// permission panel. The sidebar can't observe authorization directly —
-    /// PhotoKit has no such publisher — and it deliberately does not touch
-    /// PhotoKit while undecided, so this counter is what tells it to re-read
-    /// the status, load albums, and subscribe to library changes (#2454).
-    var photosAuthGeneration: Int = 0
-    let onAddSMB: () -> Void
-    let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
-    /// Source-tree context menu (#2645) — New Folder inside `parentPath`
-    /// (share-relative, `"/"` for the share root or a subfolder path from
-    /// the tree). SMB's sidebar tree (`SMBFolderTreeRow`, #2697) mirrors
-    /// the local/Cloud trees' shape.
-    let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String, String) -> Void
-    /// Rename an SMB subfolder in place (#2697). Subfolder rows only —
-    /// see `SMBFolderTreeRow`'s doc comment for why the share root itself
-    /// doesn't offer Rename.
-    var onRenameSMBFolder: (SMBCredentialStore.SavedShare, String, String) -> Void = { _, _, _ in }
-    /// Recursively move an SMB subfolder into `.maple/trash` (#2697).
-    /// Subfolder rows only, same reasoning as Rename.
-    var onTrashSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void = { _, _ in }
-    /// "Move Folder to…" (#2847) on an SMB subfolder row — `(share, path)`.
-    var onMoveSMBFolder: ((SMBCredentialStore.SavedShare, String) -> Void)? = nil
-    /// Lazy-fetch a non-recursive subfolder listing for the SMB sidebar
-    /// tree drill-down (#2697). Returns nil on auth/network failure.
-    var onListSMBDir: (SMBCredentialStore.SavedShare, String) async -> [SMBFileOperations.DirEntry]? = { _, _ in nil }
-    /// Drag-onto-source-tree (#2646) onto the connected SMB share's root —
-    /// the only SMB drop target today (`AssetDropDestination.smb` carries
-    /// only a `SavedShare`, no path — see `AssetDropTypes.swift`).
-    /// Same `ids == nil` ⇒ "use the current grid selection" contract as
-    /// `onDropAssets` above.
-    var onDropAssetsSMB: (SMBCredentialStore.SavedShare, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _ in }
-    /// Open the AddMapleCloudSheet (no prefilled domain).
-    let onAddCloudServer: () -> Void
-    /// User clicked a library row inside a cloud server section.
-    let onPickCloudLibrary: (URL, String, String) -> Void
-    /// Lazy-fetch a directory listing for the cloud sidebar tree
-    /// drill-down. Returns nil on auth/network failure.
-    let onListCloudDir: (URL, String) async -> FsDirListing?
-    /// Absolute server-side path the user is currently browsing inside
-    /// a cloud library, or nil when no cloud library is selected. Used
-    /// by CloudFolderTreeRow to (a) auto-expand its ancestor chain on
-    /// cold start and (b) highlight the matching tree row.
-    let cloudCurrentPath: String?
-    /// Right-click → Sign out on a cloud server header.
-    let onSignOutCloudServer: (URL) -> Void
-    /// Present sign-in for a cloud server — the sidebar "Sign in" affordance /
-    /// signed-out state (#1381). Prefilled re-auth.
-    let onSignInCloudServer: (URL) -> Void
-    /// Resolve the AuthSession for a server URL so each CloudServerSection can
-    /// observe its signed-in state and surface "Sign in" when de-authed (#1381).
-    let sessionFor: @MainActor (URL) -> AuthSession
-    /// Right-click → Remove server on a cloud server header.
-    let onRemoveCloudServer: (URL) -> Void
-    /// Lazily load the folders for a server (called from CloudServerSection's
-    /// .task on first appearance).
-    let onLoadCloudFolders: (URL) async -> [CloudFolder]
-    /// Source-tree context menu (#2645) — New Folder / Rename for a Cloud
-    /// library or subfolder. `libraryRootPath` is the owning library's
-    /// server-absolute path (`CloudFolder.path`), needed to derive the
-    /// relative path `RemoteCatalog.makeDir`/`moveFolder` expect. Move to
-    /// Trash for Cloud folders is `onTrashCloudFolder` below (#2696).
-    let onCreateCloudFolder: (URL, String, String, String, String) -> Void
-    let onRenameCloudFolder: (URL, String, String, String, String) -> Void
-    /// Source-tree context menu — recursive Move to Trash for a Cloud
-    /// subfolder (#2696), via `POST /api/folders/:id/trash-folder`.
-    /// `(server, libraryFolderID, libraryRootPath, absPath)`.
-    var onTrashCloudFolder: (URL, String, String, String) -> Void = { _, _, _, _ in }
-    /// Drag-onto-source-tree (#2646) onto a Cloud library/subfolder row.
-    /// `(server, libraryFolderID, libraryRootPath, absPath, ids, isCopy)` —
-    /// same `ids == nil` ⇒ "use the current grid selection" contract as
-    /// `onDropAssets` above.
-    var onDropAssetsCloud: (URL, String, String, String, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _, _, _ in }
-    /// TIMELINE row tap (#2271/#2273) — opens the unified cross-source
-    /// Timeline (every library on every connected server, unioned with
-    /// PhotoKit). A navigating row, not a disclosure: it has no children of
-    /// its own, so tapping it just selects `.allSources` and lets the shell
-    /// load the aggregating view model.
-    /// "Show Trash…" (#2653) — see `FolderTreeRow.onShowTrash`'s doc
-    /// comment. `nil` on macOS (no in-app trash for local sources there).
-    var onShowLocalTrash: ((URL, Data, String) -> Void)? = nil
-    /// "Show Trash…" for a connected SMB share.
-    var onShowSMBTrash: ((SMBCredentialStore.SavedShare) -> Void)? = nil
-    /// "Show Trash…" for a Cloud library (`serverID`, `libraryFolderID`,
-    /// `displayName`).
-    var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
-    let onSelectTimeline: () -> Void
-    /// MAP row (#2830) tap — opens the native MapKit map view. Sits right
-    /// below TIMELINE, same navigating-row (not disclosure) shape.
-    let onSelectMap: () -> Void
-    /// OS file/folder drop-to-mount (#2649). Every row below that already
-    /// installs a `.dropDestination(for: DraggedAssetPayload.self, …)`
-    /// (`FolderTreeRow`, `SMBFolderTreeRow`, `CloudFolderTreeRow`) ALSO installs
-    /// this as a second, same-view `.dropDestination(for: URL.self, …)` —
-    /// SwiftUI does not fall a non-matching drop through to an ANCESTOR
-    /// view's differently-typed `dropDestination` (a nested typed drop
-    /// target claims-and-rejects a Finder drag rather than letting it
-    /// bubble), so a window-level-only handler would leave every sidebar
-    /// row dead to Finder drops — the single most intuitive drop target.
-    /// Returns whether the drop was accepted, same contract as
-    /// `AppShell.handleWindowDrop`. Default no-op keeps the preview/other
-    /// call sites compiling.
-    var onDropURLs: ([URL]) -> Bool = { _ in false }
+  // Row-activation callbacks — the shell owns the actual source-load logic.
+  let onAddFolder: () -> Void
+  let onPickFolder: (SavedFolder) -> Void
+  let onRemoveFolder: (SavedFolder) -> Void
+  /// Invoked when the user taps a breadcrumb ancestor inside a saved
+  /// folder. The shell resolves the passed bookmark for security scope
+  /// and loads that URL's immediate contents into the grid.
+  let onPickAncestor: (URL, Data) -> Void
+  /// Source-tree context menu (#2645) — New Folder inside `url`, Rename
+  /// `url` in place, Move to Trash `url` (recursive). `rootBookmark` is
+  /// the nearest saved ancestor's security-scope bookmark, threaded down
+  /// `FolderTreeRow` at every depth already.
+  let onCreateFolder: (URL, Data, String) -> Void
+  let onRenameFolder: (URL, Data, String) -> Void
+  let onTrashFolder: (URL, Data) -> Void
+  /// "Move Folder to…" (#2847) on a local descendant row — `(url,
+  /// rootBookmark)`; the shell presents the destination picker.
+  var onMoveFolder: ((URL, Data) -> Void)? = nil
+  /// Drag-onto-source-tree (#2646), local folder rows. `ids == nil` means
+  /// "use the current grid selection" — the "Move/Copy Selected Here"
+  /// context-menu item's path; non-nil is the literal drag payload.
+  /// `Bool` is `isCopy` (platform copy-modifier, or the explicit "Copy"
+  /// menu item).
+  var onDropAssets: (URL, Data, Set<AssetRef.ID>?, Bool) -> Void = { _, _, _, _ in }
+  /// How many assets are currently selected in the grid — gates whether
+  /// "Move/Copy Selected Here" appears in a folder row's context menu at
+  /// all (no point offering it with nothing selected).
+  var selectedAssetCount: Int = 0
+  /// Bumped after any of the three actions above commits — re-triggers
+  /// child enumeration on expanded rows (#2454-style generation counter;
+  /// see `AppShell.folderRefreshGeneration`'s doc comment).
+  var folderRefreshGeneration: Int = 0
+  let onPickPhotosFilter: (PhotoKitFilter) -> Void
+  let onRequestPhotosAccess: () -> Void
+  /// Bumped by `AppShell` after the user grants PhotoKit access from the
+  /// permission panel. The sidebar can't observe authorization directly —
+  /// PhotoKit has no such publisher — and it deliberately does not touch
+  /// PhotoKit while undecided, so this counter is what tells it to re-read
+  /// the status, load albums, and subscribe to library changes (#2454).
+  var photosAuthGeneration: Int = 0
+  let onAddSMB: () -> Void
+  let onPickSMB: (SMBCredentialStore.SavedShare) -> Void
+  /// Source-tree context menu (#2645) — New Folder inside `parentPath`
+  /// (share-relative, `"/"` for the share root or a subfolder path from
+  /// the tree). SMB's sidebar tree (`SMBFolderTreeRow`, #2697) mirrors
+  /// the local/Cloud trees' shape.
+  let onCreateSMBFolder: (SMBCredentialStore.SavedShare, String, String) -> Void
+  /// Rename an SMB subfolder in place (#2697). Subfolder rows only —
+  /// see `SMBFolderTreeRow`'s doc comment for why the share root itself
+  /// doesn't offer Rename.
+  var onRenameSMBFolder: (SMBCredentialStore.SavedShare, String, String) -> Void = { _, _, _ in }
+  /// Recursively move an SMB subfolder into `.maple/trash` (#2697).
+  /// Subfolder rows only, same reasoning as Rename.
+  var onTrashSMBFolder: (SMBCredentialStore.SavedShare, String) -> Void = { _, _ in }
+  /// "Move Folder to…" (#2847) on an SMB subfolder row — `(share, path)`.
+  var onMoveSMBFolder: ((SMBCredentialStore.SavedShare, String) -> Void)? = nil
+  /// Lazy-fetch a non-recursive subfolder listing for the SMB sidebar
+  /// tree drill-down (#2697). Returns nil on auth/network failure.
+  var onListSMBDir: (SMBCredentialStore.SavedShare, String) async -> [SMBFileOperations.DirEntry]? =
+    { _, _ in nil }
+  /// Drag-onto-source-tree (#2646) onto the connected SMB share's root —
+  /// the only SMB drop target today (`AssetDropDestination.smb` carries
+  /// only a `SavedShare`, no path — see `AssetDropTypes.swift`).
+  /// Same `ids == nil` ⇒ "use the current grid selection" contract as
+  /// `onDropAssets` above.
+  var onDropAssetsSMB: (SMBCredentialStore.SavedShare, Set<AssetRef.ID>?, Bool) -> Void = {
+    _, _, _ in
+  }
+  /// Open the AddMapleCloudSheet (no prefilled domain).
+  let onAddCloudServer: () -> Void
+  /// User clicked a library row inside a cloud server section.
+  let onPickCloudLibrary: (URL, String, String) -> Void
+  /// Lazy-fetch a directory listing for the cloud sidebar tree
+  /// drill-down. Returns nil on auth/network failure.
+  let onListCloudDir: (URL, String) async -> FsDirListing?
+  /// Absolute server-side path the user is currently browsing inside
+  /// a cloud library, or nil when no cloud library is selected. Used
+  /// by CloudFolderTreeRow to (a) auto-expand its ancestor chain on
+  /// cold start and (b) highlight the matching tree row.
+  let cloudCurrentPath: String?
+  /// Right-click → Sign out on a cloud server header.
+  let onSignOutCloudServer: (URL) -> Void
+  /// Present sign-in for a cloud server — the sidebar "Sign in" affordance /
+  /// signed-out state (#1381). Prefilled re-auth.
+  let onSignInCloudServer: (URL) -> Void
+  /// Resolve the AuthSession for a server URL so each CloudServerSection can
+  /// observe its signed-in state and surface "Sign in" when de-authed (#1381).
+  let sessionFor: @MainActor (URL) -> AuthSession
+  /// Right-click → Remove server on a cloud server header.
+  let onRemoveCloudServer: (URL) -> Void
+  /// Lazily load the folders for a server (called from CloudServerSection's
+  /// .task on first appearance).
+  let onLoadCloudFolders: (URL) async -> [CloudFolder]
+  /// Source-tree context menu (#2645) — New Folder / Rename for a Cloud
+  /// library or subfolder. `libraryRootPath` is the owning library's
+  /// server-absolute path (`CloudFolder.path`), needed to derive the
+  /// relative path `RemoteCatalog.makeDir`/`moveFolder` expect. Move to
+  /// Trash for Cloud folders is `onTrashCloudFolder` below (#2696).
+  let onCreateCloudFolder: (URL, String, String, String, String) -> Void
+  let onRenameCloudFolder: (URL, String, String, String, String) -> Void
+  /// Source-tree context menu — recursive Move to Trash for a Cloud
+  /// subfolder (#2696), via `POST /api/folders/:id/trash-folder`.
+  /// `(server, libraryFolderID, libraryRootPath, absPath)`.
+  var onTrashCloudFolder: (URL, String, String, String) -> Void = { _, _, _, _ in }
+  /// Drag-onto-source-tree (#2646) onto a Cloud library/subfolder row.
+  /// `(server, libraryFolderID, libraryRootPath, absPath, ids, isCopy)` —
+  /// same `ids == nil` ⇒ "use the current grid selection" contract as
+  /// `onDropAssets` above.
+  var onDropAssetsCloud: (URL, String, String, String, Set<AssetRef.ID>?, Bool) -> Void = {
+    _, _, _, _, _, _ in
+  }
+  /// TIMELINE row tap (#2271/#2273) — opens the unified cross-source
+  /// Timeline (every library on every connected server, unioned with
+  /// PhotoKit). A navigating row, not a disclosure: it has no children of
+  /// its own, so tapping it just selects `.allSources` and lets the shell
+  /// load the aggregating view model.
+  /// "Show Trash…" (#2653) — see `FolderTreeRow.onShowTrash`'s doc
+  /// comment. `nil` on macOS (no in-app trash for local sources there).
+  var onShowLocalTrash: ((URL, Data, String) -> Void)? = nil
+  /// "Show Trash…" for a connected SMB share.
+  var onShowSMBTrash: ((SMBCredentialStore.SavedShare) -> Void)? = nil
+  /// "Show Trash…" for a Cloud library (`serverID`, `libraryFolderID`,
+  /// `displayName`).
+  var onShowCloudTrash: ((URL, String, String) -> Void)? = nil
+  let onSelectTimeline: () -> Void
+  /// MAP row (#2830) tap — opens the native MapKit map view. Sits right
+  /// below TIMELINE, same navigating-row (not disclosure) shape.
+  let onSelectMap: () -> Void
+  /// OS file/folder drop-to-mount (#2649). Every row below that already
+  /// installs a `.dropDestination(for: DraggedAssetPayload.self, …)`
+  /// (`FolderTreeRow`, `SMBFolderTreeRow`, `CloudFolderTreeRow`) ALSO installs
+  /// this as a second, same-view `.dropDestination(for: URL.self, …)` —
+  /// SwiftUI does not fall a non-matching drop through to an ANCESTOR
+  /// view's differently-typed `dropDestination` (a nested typed drop
+  /// target claims-and-rejects a Finder drag rather than letting it
+  /// bubble), so a window-level-only handler would leave every sidebar
+  /// row dead to Finder drops — the single most intuitive drop target.
+  /// Returns whether the drop was accepted, same contract as
+  /// `AppShell.handleWindowDrop`. Default no-op keeps the preview/other
+  /// call sites compiling.
+  var onDropURLs: ([URL]) -> Bool = { _ in false }
 
-    // Section-open state (mockup: chevron open/closed).
-    @State private var showFolders = true
-    @State private var showPhotos = true
-    @State private var showConnections = true
+  // Section-open state (mockup: chevron open/closed).
+  @State private var showFolders = true
+  @State private var showPhotos = true
+  @State private var showConnections = true
 
-    // Cached PhotoKit state. Re-read in `.task`; PhotoKit authorization cannot
-    // be observed directly so we poll on appearance.
-    @State private var photosStatus: PHAuthorizationStatus = .notDetermined
-    @State private var albums: [PhotoKitAlbum] = []
+  // Cached PhotoKit state. Re-read in `.task`; PhotoKit authorization cannot
+  // be observed directly so we poll on appearance.
+  @State private var photosStatus: PHAuthorizationStatus = .notDetermined
+  @State private var albums: [PhotoKitAlbum] = []
 
-    // Saved folders + connections are read from UserDefaults/Keychain on
-    // appearance. UserDefaults changes trigger a reload via `refreshFolders()`
-    // which the shell can invoke through `NotificationCenter` if needed.
-    @State private var savedFolders: [SavedFolder] = []
-    @State private var savedShares: [SMBCredentialStore.SavedShare] = []
-    @State private var cloudServersExpanded: [URL: Bool] = [:]
-    @State private var cloudFoldersByServer: [URL: [CloudFolder]] = [:]
+  // Saved folders + connections are read from UserDefaults/Keychain on
+  // appearance. UserDefaults changes trigger a reload via `refreshFolders()`
+  // which the shell can invoke through `NotificationCenter` if needed.
+  @State private var savedFolders: [SavedFolder] = []
+  @State private var savedShares: [SMBCredentialStore.SavedShare] = []
+  @State private var cloudServersExpanded: [URL: Bool] = [:]
+  @State private var cloudFoldersByServer: [URL: [CloudFolder]] = [:]
 
-    /// Observable singleton; sidebar re-renders when the registry mutates.
-    @State private var registry = CloudServerRegistry.shared
+  /// Observable singleton; sidebar re-renders when the registry mutates.
+  @State private var registry = CloudServerRegistry.shared
 
-    /// Token returned by `PhotoKitChangeObserver.subscribe` — held for the
-    /// view's lifetime so we can unsubscribe in `.task`'s cancellation.
-    @State private var photosChangeToken: UUID?
+  /// Token returned by `PhotoKitChangeObserver.subscribe` — held for the
+  /// view's lifetime so we can unsubscribe in `.task`'s cancellation.
+  @State private var photosChangeToken: UUID?
 
-    var body: some View {
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ScrollView {
+        // Source sections with nothing connected are omitted
+        // entirely, separators included (#2925) — Settings →
+        // Sources is where they're registered and recovered.
+        // Photos is the deliberate exception; see
+        // `LibrarySidebarVM.showsPhotosSection`.
         VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                // Source sections with nothing connected are omitted
-                // entirely, separators included (#2925) — Settings →
-                // Sources is where they're registered and recovered.
-                // Photos is the deliberate exception; see
-                // `LibrarySidebarVM.showsPhotosSection`.
-                VStack(alignment: .leading, spacing: 0) {
-                    timelineRow
-                    mapRow
-                    separator
-                    cloudServersSection
-                    if hasVisibleCloudServers { separator }
-                    if shouldRenderFoldersSection {
-                        foldersSection
-                        separator
-                    }
-                    photosSection
-                    if shouldRenderConnectionsSection {
-                        separator
-                        connectionsSection
-                    }
-                }
-                .padding(.vertical, 4)
-            }
+          timelineRow
+          if LibrarySidebarVM.showsMapRow() {
+            mapRow
+          }
+          separator
+          if LibrarySidebarVM.showsCloudServers() {
+            cloudServersSection
+            if hasVisibleCloudServers { separator }
+          }
+          if shouldRenderFoldersSection {
+            foldersSection
+            separator
+          }
+          photosSection
+          if shouldRenderConnectionsSection {
+            separator
+            connectionsSection
+          }
         }
-        .background(MapleTokens.sidebar)
-        .task {
-            await refreshAll()
-            subscribeToPhotoLibraryChangesIfAuthorized()
-        }
-        // Re-run once the user grants access from the permission panel: this
-        // is the appearance-time work that was skipped while undecided.
-        .onChange(of: photosAuthGeneration) { _, _ in
-            Task { @MainActor in
-                await refreshAll()
-                subscribeToPhotoLibraryChangesIfAuthorized()
-            }
-        }
-        // `.task` is implicitly cancelled when the view leaves the hierarchy;
-        // unsubscribe alongside it. Without explicit cleanup the singleton
-        // would accumulate dead handler references on every view rebuild.
-        .onDisappear {
-            if let token = photosChangeToken {
-                PhotoKitChangeObserver.shared.unsubscribe(token)
-                photosChangeToken = nil
-            }
-        }
-        // Refresh the saved-folders list the moment the store changes — so a
-        // folder just picked via .fileImporter shows up without a restart.
-        .onReceive(
-            NotificationCenter.default.publisher(for: SavedFolderStore.changedNotification)
-        ) { _ in
-            savedFolders = SavedFolderStore.load()
-        }
+        .padding(.vertical, 4)
+      }
     }
-
-    // MARK: - Section visibility (#2925)
-    //
-    // `shouldRender…`, deliberately not `shows…`: `showFolders` /
-    // `showConnections` already exist a few lines up as the section
-    // headers' expand/collapse state. A user can collapse a section that
-    // has content, and a section with no content isn't drawn at all —
-    // different questions, and near-identical names would invite reading
-    // one as the other.
-
-    private var shouldRenderFoldersSection: Bool {
-        LibrarySidebarVM.showsFoldersSection(savedFolderCount: savedFolders.count)
+    .background(MapleTokens.sidebar)
+    .task {
+      await refreshAll()
+      subscribeToPhotoLibraryChangesIfAuthorized()
     }
-
-    private var shouldRenderConnectionsSection: Bool {
-        LibrarySidebarVM.showsConnectionsSection(savedShareCount: savedShares.count)
+    // Re-run once the user grants access from the permission panel: this
+    // is the appearance-time work that was skipped while undecided.
+    .onChange(of: photosAuthGeneration) { _, _ in
+      Task { @MainActor in
+        await refreshAll()
+        subscribeToPhotoLibraryChangesIfAuthorized()
+      }
     }
-
-    /// Whether a given server's section renders. `cloudFoldersByServer[url]`
-    /// being absent means "not loaded yet", which the rule treats as visible
-    /// — so the `nil` here is meaningful and must not be flattened to `[]`.
-    private func showsCloudServer(_ url: URL, session: AuthSession) -> Bool {
-        LibrarySidebarVM.showsCloudServerSection(
-            isSignedIn: session.isSignedIn,
-            hasFileAccess: session.hasFileAccess,
-            connectedFolderCount: cloudFoldersByServer[url]?.filter(\.isConnected).count
-        )
+    // `.task` is implicitly cancelled when the view leaves the hierarchy;
+    // unsubscribe alongside it. Without explicit cleanup the singleton
+    // would accumulate dead handler references on every view rebuild.
+    .onDisappear {
+      if let token = photosChangeToken {
+        PhotoKitChangeObserver.shared.unsubscribe(token)
+        photosChangeToken = nil
+      }
     }
-
-    /// Drives the separator below the cloud block. Counts servers, not
-    /// folders: with every server hidden the block renders nothing (or just
-    /// the add-a-server button, which brings its own spacing).
-    private var hasVisibleCloudServers: Bool {
-        registry.servers.contains { showsCloudServer($0, session: sessionFor($0)) }
+    // Refresh the saved-folders list the moment the store changes — so a
+    // folder just picked via .fileImporter shows up without a restart.
+    .onReceive(
+      NotificationCenter.default.publisher(for: SavedFolderStore.changedNotification)
+    ) { _ in
+      savedFolders = SavedFolderStore.load()
     }
+  }
 
-    // MARK: - Sections
+  // MARK: - Section visibility (#2925)
+  //
+  // `shouldRender…`, deliberately not `shows…`: `showFolders` /
+  // `showConnections` already exist a few lines up as the section
+  // headers' expand/collapse state. A user can collapse a section that
+  // has content, and a section with no content isn't drawn at all —
+  // different questions, and near-identical names would invite reading
+  // one as the other.
 
-    private var foldersSection: some View {
-        Section {
-            if showFolders {
-                ForEach(savedFolders) { folder in
-                    FolderTreeRow(
-                        url: URL(fileURLWithPath: folder.path),
-                        displayName: folder.displayName,
-                        rootBookmark: folder.bookmark,
-                        depth: 0,
-                        selectedPath: selectedPathBinding,
-                        refreshGeneration: folderRefreshGeneration,
-                        onPick: { url in
-                            if url.path == folder.path {
-                                selection = .folder(path: folder.path)
-                                onPickFolder(folder)
-                            } else {
-                                selection = .folder(path: url.path)
-                                onPickAncestor(url, folder.bookmark)
-                            }
-                        },
-                        onRemove: {
-                            onRemoveFolder(folder)
-                            refreshFolders()
-                        },
-                        onCreateFolder: onCreateFolder,
-                        onRenameFolder: onRenameFolder,
-                        onTrashFolder: onTrashFolder,
-                        onMoveFolder: onMoveFolder,
-                        onShowTrash: onShowLocalTrash,
-                        onDropAssets: onDropAssets,
-                        onDropURLs: onDropURLs,
-                        selectedAssetCount: selectedAssetCount
-                    )
-                }
-            }
-        } header: {
-            SectionHeaderRow(
-                title: "Folders",
-                isOpen: $showFolders,
-                trailing: {
-                    AddButton(action: onAddFolder)
-                        .accessibilityLabel("Add folder")
-                }
-            )
-        }
-    }
+  private var shouldRenderFoldersSection: Bool {
+    LibrarySidebarVM.showsFoldersSection(savedFolderCount: savedFolders.count)
+  }
 
-    // `emptyFolders` — the "No local folders / Add one" placeholder — was
-    // removed with #2925. The section it lived in no longer renders when
-    // there are no folders, and Settings → Sources took over adding the
-    // first one.
+  private var shouldRenderConnectionsSection: Bool {
+    LibrarySidebarVM.showsConnectionsSection(savedShareCount: savedShares.count)
+  }
 
-    @ViewBuilder
-    private var photosSection: some View {
-        // The sidebar always shows the Photos Library filters, regardless of
-        // authorisation status. Clicking one selects the filter but does NOT
-        // trigger `PHPhotoLibrary.requestAuthorization` — the permission prompt
-        // is fired only from the grid's empty-state "Grant Access" button, so
-        // a first-time user isn't ambushed by a permission dialog just from
-        // navigating the sidebar.
-        Section {
-            if showPhotos {
-                NavItem(
-                    icon: "photo.on.rectangle",
-                    label: "All Photos",
-                    isSelected: selection == .photosFilter(.all)
-                ) {
-                    selection = .photosFilter(.all)
-                    onPickPhotosFilter(.all)
-                }
-                // Favorites / Picks / Rejects smart-collection rows were
-                // removed (#782): cull state belongs to the editor, not a
-                // sidebar shortcut. `PhotoKitFilter` keeps those cases —
-                // `PhotoKitSource` still filters on them — but they're no
-                // longer surfaced here or as grid filter chips.
-                if photosStatus == .authorized || photosStatus == .limited {
-                    albumsSubsection
-                }
-            }
-        } header: {
-            SectionHeaderRow(title: "Photos Library", isOpen: $showPhotos) {
-                if PhotosAccessMemory.lostAccess(current: photosStatus) {
-                    // Access was granted in an earlier session but the grant
-                    // is gone (revoked in Settings, TCC reset by a re-signed
-                    // build, device restore). Warn passively — never re-prompt
-                    // without user input (#2851). Tapping routes to the grid's
-                    // permission panel, which owns the request/Settings flow.
-                    Button {
-                        selection = .photosFilter(.all)
-                        onPickPhotosFilter(.all)
-                    } label: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(MapleTokens.warn)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Photos access was removed. Click to reconnect.")
-                    .accessibilityLabel("Photos access was removed. Reconnect.")
-                }
-            }
-        }
-    }
+  /// Whether a given server's section renders. `cloudFoldersByServer[url]`
+  /// being absent means "not loaded yet", which the rule treats as visible
+  /// — so the `nil` here is meaningful and must not be flattened to `[]`.
+  private func showsCloudServer(_ url: URL, session: AuthSession) -> Bool {
+    LibrarySidebarVM.showsCloudServerSection(
+      isSignedIn: session.isSignedIn,
+      hasFileAccess: session.hasFileAccess,
+      connectedFolderCount: cloudFoldersByServer[url]?.filter(\.isConnected).count,
+      cloudEnabled: LibrarySidebarVM.showsCloudServers()
+    )
+  }
 
-    @ViewBuilder
-    private var albumsSubsection: some View {
-        // Thin separator + small-caps "Albums" subheader, per the mockup.
-        Rectangle()
-            .fill(MapleTokens.border)
-            .frame(height: 0.5)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
-        Text("ALBUMS")
-            .font(MapleTokens.Typography.eyebrow)
-            .foregroundStyle(MapleTokens.textMuted)
-            .tracking(1.4)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 4)
-        if albums.isEmpty {
-            Text("No albums")
-                .font(MapleTokens.Typography.body)
-                .foregroundStyle(MapleTokens.textMuted)
-                .padding(.horizontal, 24)
-                .padding(.vertical, MapleTokens.Spacing.rowVertical)
-        } else {
-            ForEach(albums) { album in
-                NavItem(
-                    icon: "square.stack",
-                    label: album.title,
-                    isSelected: selection == .photosFilter(.album(id: album.id, title: album.title))
-                ) {
-                    let f = PhotoKitFilter.album(id: album.id, title: album.title)
-                    selection = .photosFilter(f)
-                    onPickPhotosFilter(f)
-                }
-            }
-        }
-    }
+  /// Drives the separator below the cloud block. Counts servers, not
+  /// folders: with every server hidden the block renders nothing (or just
+  /// the add-a-server button, which brings its own spacing).
+  private var hasVisibleCloudServers: Bool {
+    guard LibrarySidebarVM.showsCloudServers() else { return false }
+    return registry.servers.contains { showsCloudServer($0, session: sessionFor($0)) }
+  }
 
-    @ViewBuilder
-    private var connectionsSection: some View {
-        Section {
-            if showConnections {
-                // SMB group
-                DisclosureRow(
-                    icon: "network",
-                    label: "Network (SMB)",
-                    hasChildren: !savedShares.isEmpty,
-                    onAdd: onAddSMB
-                ) {
-                    ForEach(savedShares, id: \.self) { share in
-                        SMBShareSection(
-                            share: share,
-                            isSelected: selection == .smbShare(share),
-                            onPick: {
-                                selection = .smbShare(share)
-                                onPickSMB(share)
-                            },
-                            onListDir: onListSMBDir,
-                            onCreateFolder: { path, name in onCreateSMBFolder(share, path, name) },
-                            onRenameFolder: { path, newName in onRenameSMBFolder(share, path, newName) },
-                            onTrashFolder: { path in onTrashSMBFolder(share, path) },
-                            onMoveFolder: onMoveSMBFolder.map { callback in { path in callback(share, path) } },
-                            onDropAssets: { ids, isCopy in onDropAssetsSMB(share, ids, isCopy) },
-                            onDropURLs: onDropURLs,
-                            selectedAssetCount: selectedAssetCount,
-                            refreshGeneration: folderRefreshGeneration,
-                            onShowTrash: onShowSMBTrash.map { callback in { callback(share) } }
-                        )
-                    }
-                }
-            }
-        } header: {
-            SectionHeaderRow(title: "Connections", isOpen: $showConnections)
-        }
-    }
+  // MARK: - Sections
 
-    // MARK: - Timeline
-
-    /// TIMELINE — the first row in the sidebar (#2271), above the per-server
-    /// cloud sections. Unlike every other section header it's a NAVIGATING
-    /// row (tap selects `.allSources` directly) rather than a disclosure
-    /// group — Timeline has no children to expand, so a chevron would be
-    /// misleading. Styled to match `SectionHeaderRow` (uppercased eyebrow,
-    /// `textMuted`, same fixed height) with a calendar glyph standing in for
-    /// the chevron, and an active/highlighted background when it's the
-    /// current selection.
-    private var timelineRow: some View {
-        let isActive = selection == .allSources
-        return Button(action: onSelectTimeline) {
-            HStack(spacing: 6) {
-                Image(systemName: "calendar")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
-                Text("Timeline".uppercased())
-                    .font(MapleTokens.Typography.eyebrow)
-                    .tracking(1.4)
-                    .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
-                Spacer()
-            }
-            .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
-            .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
-            .background(isActive ? MapleTokens.bgActive : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Timeline")
-        .accessibilityAddTraits(isActive ? [.isSelected] : [])
-    }
-
-    // MARK: - Map
-
-    /// MAP — the native MapKit map view (#2830), right below TIMELINE.
-    /// Same navigating-row shape: no children, so a tap selects `.map`
-    /// directly rather than expanding a disclosure group.
-    private var mapRow: some View {
-        let isActive = selection == .map
-        return Button(action: onSelectMap) {
-            HStack(spacing: 6) {
-                Image(systemName: "map")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
-                Text("Map".uppercased())
-                    .font(MapleTokens.Typography.eyebrow)
-                    .tracking(1.4)
-                    .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
-                Spacer()
-            }
-            .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
-            .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
-            .background(isActive ? MapleTokens.bgActive : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Map")
-        .accessibilityIdentifier("sidebar-map-row")
-        .accessibilityAddTraits(isActive ? [.isSelected] : [])
-    }
-
-    // MARK: - Cloud servers
-
-    @ViewBuilder
-    private var cloudServersSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(registry.servers, id: \.self) { url in
-                // Resolve once and reuse for both the rendered `session:` and the
-                // `.task(id:)` below. The default resolver isn't cached, so two
-                // `sessionFor(url)` calls could hand back different AuthSession
-                // instances and the task's id would track a different object than
-                // the UI renders.
-                let session = sessionFor(url)
-                Group {
-                    if showsCloudServer(url, session: session) {
-                        cloudServerSection(url: url, session: session)
-                    } else {
-                        // Nothing this member can browse on this server
-                        // (#2925): either they lack the file-access
-                        // permission (#2899), or every root is unreachable.
-                        // Either way the section would be a header over an
-                        // empty tree. The load task below still has to run
-                        // so a re-mounted share brings the section back,
-                        // hence a zero-height stand-in rather than nothing.
-                        Color.clear.frame(height: 0)
-                    }
-                }
-                // Keyed on the server's signed-in state so the load RE-RUNS when
-                // auth flips — most importantly false→true after the user signs
-                // in. The old identity-only `.task` ran once and cached whatever
-                // it got; a signed-out load returns [], which is non-nil, so the
-                // empty list stuck around forever and the folder tree never
-                // appeared after sign-in. On the signed-out tick
-                // `loadCloudFoldersFor` short-circuits to a cached/empty list, so
-                // re-running it is cheap and never fires a tokenless request.
-                .task(id: session.isSignedIn) {
-                    cloudFoldersByServer[url] = await onLoadCloudFolders(url)
-                }
-            }
-            // Drop folder caches for servers that have been removed from
-            // the registry — otherwise re-adding the same URL shows a
-            // stale list. Triggered by registry.servers mutations via
-            // Observation.
-            .onChange(of: registry.servers) { _, current in
-                let currentSet = Set(current)
-                cloudFoldersByServer = cloudFoldersByServer.filter { currentSet.contains($0.key) }
-                cloudServersExpanded = cloudServersExpanded.filter { currentSet.contains($0.key) }
-            }
-            // Empty-state entry point only — once a server is connected
-            // the user manages servers (add another, sign out, rename,
-            // remove) from Settings, NOT this inline button. Keeps the
-            // sidebar lean and gives Settings the single source of truth
-            // for server management.
-            if registry.servers.isEmpty {
-                Button {
-                    onAddCloudServer()
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle")
-                        Text("Add Maple Cloud server")
-                            .font(.callout)
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 4)
-    }
-
-    /// One registered server's tree. Extracted from the `ForEach` body so
-    /// the #2925 visibility branch above reads as a branch rather than as
-    /// forty lines of arguments wrapped in an `if`.
-    private func cloudServerSection(url: URL, session: AuthSession) -> some View {
-        CloudServerSection(
-            serverURL: url,
-            // Two independent render-time gates, same rules as the
-            // web sidebar:
-            //   - a member without the file-access permission (#2899)
-            //     gets no folder tree at all for this server —
-            //     browsing is 403'd server-side, and hiding the rows
-            //     also removes every folder-mutation context menu;
-            //   - disconnected roots (unmounted share, unplugged
-            //     drive) stay out of the tree (#2898), surfacing on
-            //     the server-admin Sources page instead.
-            // Both are deliberately render-time filters: the
-            // unfiltered list keeps feeding the all-sources timeline
-            // and the Imports picker.
-            folders: session.hasFileAccess
-                ? (cloudFoldersByServer[url] ?? []).filter(\.isConnected)
-                : [],
-            displayName: registry.displayName(for: url)
-                         ?? url.host
-                         ?? url.absoluteString,
-            isExpanded: Binding(
-                get: { cloudServersExpanded[url] ?? true },
-                set: { cloudServersExpanded[url] = $0 }
-            ),
-            selection: $selection,
-            onPickPath: onPickCloudLibrary,
-            onListDir: onListCloudDir,
-            cloudCurrentPath: pathFor(server: url),
-            onSignOut: { onSignOutCloudServer(url) },
-            onRemoveServer: { onRemoveCloudServer(url) },
-            onRename: { newName in
-                registry.setDisplayName(newName, for: url)
+  private var foldersSection: some View {
+    Section {
+      if showFolders {
+        ForEach(savedFolders) { folder in
+          FolderTreeRow(
+            url: URL(fileURLWithPath: folder.path),
+            displayName: folder.displayName,
+            rootBookmark: folder.bookmark,
+            depth: 0,
+            selectedPath: selectedPathBinding,
+            refreshGeneration: folderRefreshGeneration,
+            onPick: { url in
+              if url.path == folder.path {
+                selection = .folder(path: folder.path)
+                onPickFolder(folder)
+              } else {
+                selection = .folder(path: url.path)
+                onPickAncestor(url, folder.bookmark)
+              }
             },
-            session: session,
-            onSignIn: { onSignInCloudServer(url) },
-            folderRefreshGeneration: folderRefreshGeneration,
-            onCreateFolder: { libraryFolderID, libraryRootPath, parentAbsPath, name in
-                onCreateCloudFolder(url, libraryFolderID, libraryRootPath, parentAbsPath, name)
+            onRemove: {
+              onRemoveFolder(folder)
+              refreshFolders()
             },
-            onRenameFolder: { libraryFolderID, libraryRootPath, absPath, newName in
-                onRenameCloudFolder(url, libraryFolderID, libraryRootPath, absPath, newName)
-            },
-            onTrashFolder: { libraryFolderID, libraryRootPath, absPath in
-                onTrashCloudFolder(url, libraryFolderID, libraryRootPath, absPath)
-            },
-            onShowTrash: onShowCloudTrash.map { callback in
-                { libraryFolderID, displayName in callback(url, libraryFolderID, displayName) }
-            },
-            onDropAssets: { libraryFolderID, libraryRootPath, absPath, ids, isCopy in
-                onDropAssetsCloud(url, libraryFolderID, libraryRootPath, absPath, ids, isCopy)
-            },
+            onCreateFolder: onCreateFolder,
+            onRenameFolder: onRenameFolder,
+            onTrashFolder: onTrashFolder,
+            onMoveFolder: onMoveFolder,
+            onShowTrash: onShowLocalTrash,
+            onDropAssets: onDropAssets,
             onDropURLs: onDropURLs,
             selectedAssetCount: selectedAssetCount
-        )
-    }
-
-    private var separator: some View {
-        Rectangle()
-            .fill(MapleTokens.border)
-            .frame(height: 0.5)
-            .padding(.vertical, 4)
-    }
-
-    // MARK: - Refresh
-
-    /// Subscribe to PhotoKit library-change notifications so albums refresh
-    /// the moment the user adds or removes one in another app.
-    ///
-    /// Gated on already having access, and that gate is the whole point: the
-    /// subscription registers a `PHPhotoLibraryChangeObserver`, and
-    /// registering one while authorization is `.notDetermined` IS an
-    /// authorization request — it raised the system permission dialog at
-    /// launch, before the user had touched anything (#2454). Nothing in this
-    /// sidebar may reach PhotoKit until the user has opted in from the
-    /// permission panel; `photosAuthGeneration` re-drives this afterwards.
-    ///
-    /// Subscriptions live on a process-wide singleton observer that PhotoKit
-    /// registers exactly once per process, so calling this on every
-    /// appearance is safe once the gate passes.
-    @MainActor
-    private func subscribeToPhotoLibraryChangesIfAuthorized() {
-        guard photosStatus == .authorized || photosStatus == .limited else { return }
-        guard photosChangeToken == nil else { return }
-        photosChangeToken = PhotoKitChangeObserver.shared.subscribe {
-            Task { @MainActor in
-                await refreshAll()
-            }
+          )
         }
+      }
+    } header: {
+      SectionHeaderRow(
+        title: "Folders",
+        isOpen: $showFolders,
+        trailing: {
+          AddButton(action: onAddFolder)
+            .accessibilityLabel("Add folder")
+        }
+      )
     }
+  }
 
-    /// Re-read persistent stores. Called on `.task` appearance.
-    private func refreshAll() async {
-        photosStatus = PhotoKitLibrary.authorizationStatus()
-        refreshFolders()
-        savedShares = await SMBCredentialStore.shared.savedShares()
+  // `emptyFolders` — the "No local folders / Add one" placeholder — was
+  // removed with #2925. The section it lived in no longer renders when
+  // there are no folders, and Settings → Sources took over adding the
+  // first one.
+
+  @ViewBuilder
+  private var photosSection: some View {
+    // The sidebar always shows the Photos Library filters, regardless of
+    // authorisation status. Clicking one selects the filter but does NOT
+    // trigger `PHPhotoLibrary.requestAuthorization` — the permission prompt
+    // is fired only from the grid's empty-state "Grant Access" button, so
+    // a first-time user isn't ambushed by a permission dialog just from
+    // navigating the sidebar.
+    Section {
+      if showPhotos {
+        NavItem(
+          icon: "photo.on.rectangle",
+          label: "All Photos",
+          isSelected: selection == .photosFilter(.all)
+        ) {
+          selection = .photosFilter(.all)
+          onPickPhotosFilter(.all)
+        }
+        // Favorites / Picks / Rejects smart-collection rows were
+        // removed (#782): cull state belongs to the editor, not a
+        // sidebar shortcut. `PhotoKitFilter` keeps those cases —
+        // `PhotoKitSource` still filters on them — but they're no
+        // longer surfaced here or as grid filter chips.
         if photosStatus == .authorized || photosStatus == .limited {
-            albums = PhotoKitLibrary.userAlbums()
+          albumsSubsection
         }
-    }
-
-    /// Returns the cloud-current-path only if it belongs to the given
-    /// server — so two connected servers' trees don't both highlight
-    /// based on a path that's only meaningful to one of them. We
-    /// determine ownership by checking the LibrarySelection's server.
-    private func pathFor(server url: URL) -> String? {
-        if case .cloudLibrary(let s, _) = selection, s == url {
-            return cloudCurrentPath
+      }
+    } header: {
+      SectionHeaderRow(title: "Photos Library", isOpen: $showPhotos) {
+        if PhotosAccessMemory.lostAccess(current: photosStatus) {
+          // Access was granted in an earlier session but the grant
+          // is gone (revoked in Settings, TCC reset by a re-signed
+          // build, device restore). Warn passively — never re-prompt
+          // without user input (#2851). Tapping routes to the grid's
+          // permission panel, which owns the request/Settings flow.
+          Button {
+            selection = .photosFilter(.all)
+            onPickPhotosFilter(.all)
+          } label: {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .font(.system(size: 12, weight: .semibold))
+              .foregroundStyle(MapleTokens.warn)
+              .frame(width: 28, height: 28)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .help("Photos access was removed. Click to reconnect.")
+          .accessibilityLabel("Photos access was removed. Reconnect.")
         }
-        return nil
+      }
     }
+  }
 
-    private func refreshFolders() {
-        savedFolders = SavedFolderStore.load()
+  @ViewBuilder
+  private var albumsSubsection: some View {
+    // Thin separator + small-caps "Albums" subheader, per the mockup.
+    Rectangle()
+      .fill(MapleTokens.border)
+      .frame(height: 0.5)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 4)
+    Text("ALBUMS")
+      .font(MapleTokens.Typography.eyebrow)
+      .foregroundStyle(MapleTokens.textMuted)
+      .tracking(1.4)
+      .padding(.horizontal, 24)
+      .padding(.vertical, 4)
+    if albums.isEmpty {
+      Text("No albums")
+        .font(MapleTokens.Typography.body)
+        .foregroundStyle(MapleTokens.textMuted)
+        .padding(.horizontal, 24)
+        .padding(.vertical, MapleTokens.Spacing.rowVertical)
+    } else {
+      ForEach(albums) { album in
+        NavItem(
+          icon: "square.stack",
+          label: album.title,
+          isSelected: selection == .photosFilter(.album(id: album.id, title: album.title))
+        ) {
+          let f = PhotoKitFilter.album(id: album.id, title: album.title)
+          selection = .photosFilter(f)
+          onPickPhotosFilter(f)
+        }
+      }
     }
+  }
 
-    /// Extract the currently-selected folder path (top-level or sub-folder)
-    /// so `FolderTreeRow` can highlight the right row at any depth.
-    private var selectedPathBinding: String? {
-        if case .folder(let path) = selection { return path }
-        return nil
+  @ViewBuilder
+  private var connectionsSection: some View {
+    Section {
+      if showConnections {
+        // SMB group
+        DisclosureRow(
+          icon: "network",
+          label: "Network (SMB)",
+          hasChildren: !savedShares.isEmpty,
+          onAdd: onAddSMB
+        ) {
+          ForEach(savedShares, id: \.self) { share in
+            SMBShareSection(
+              share: share,
+              isSelected: selection == .smbShare(share),
+              onPick: {
+                selection = .smbShare(share)
+                onPickSMB(share)
+              },
+              onListDir: onListSMBDir,
+              onCreateFolder: { path, name in onCreateSMBFolder(share, path, name) },
+              onRenameFolder: { path, newName in onRenameSMBFolder(share, path, newName) },
+              onTrashFolder: { path in onTrashSMBFolder(share, path) },
+              onMoveFolder: onMoveSMBFolder.map { callback in { path in callback(share, path) } },
+              onDropAssets: { ids, isCopy in onDropAssetsSMB(share, ids, isCopy) },
+              onDropURLs: onDropURLs,
+              selectedAssetCount: selectedAssetCount,
+              refreshGeneration: folderRefreshGeneration,
+              onShowTrash: onShowSMBTrash.map { callback in { callback(share) } }
+            )
+          }
+        }
+      }
+    } header: {
+      SectionHeaderRow(title: "Connections", isOpen: $showConnections)
     }
+  }
+
+  // MARK: - Timeline
+
+  /// TIMELINE — the first row in the sidebar (#2271), above the per-server
+  /// cloud sections. Unlike every other section header it's a NAVIGATING
+  /// row (tap selects `.allSources` directly) rather than a disclosure
+  /// group — Timeline has no children to expand, so a chevron would be
+  /// misleading. Styled to match `SectionHeaderRow` (uppercased eyebrow,
+  /// `textMuted`, same fixed height) with a calendar glyph standing in for
+  /// the chevron, and an active/highlighted background when it's the
+  /// current selection.
+  private var timelineRow: some View {
+    let isActive = selection == .allSources
+    return Button(action: onSelectTimeline) {
+      HStack(spacing: 6) {
+        Image(systemName: "calendar")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
+        Text("Timeline".uppercased())
+          .font(MapleTokens.Typography.eyebrow)
+          .tracking(1.4)
+          .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
+        Spacer()
+      }
+      .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+      .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
+      .background(isActive ? MapleTokens.bgActive : Color.clear)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Timeline")
+    .accessibilityAddTraits(isActive ? [.isSelected] : [])
+  }
+
+  // MARK: - Map
+
+  /// MAP — the native MapKit map view (#2830), right below TIMELINE.
+  /// Same navigating-row shape: no children, so a tap selects `.map`
+  /// directly rather than expanding a disclosure group.
+  private var mapRow: some View {
+    let isActive = selection == .map
+    return Button(action: onSelectMap) {
+      HStack(spacing: 6) {
+        Image(systemName: "map")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
+        Text("Map".uppercased())
+          .font(MapleTokens.Typography.eyebrow)
+          .tracking(1.4)
+          .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
+        Spacer()
+      }
+      .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+      .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
+      .background(isActive ? MapleTokens.bgActive : Color.clear)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Map")
+    .accessibilityIdentifier("sidebar-map-row")
+    .accessibilityAddTraits(isActive ? [.isSelected] : [])
+  }
+
+  // MARK: - Cloud servers
+
+  @ViewBuilder
+  private var cloudServersSection: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      ForEach(registry.servers, id: \.self) { url in
+        // Resolve once and reuse for both the rendered `session:` and the
+        // `.task(id:)` below. The default resolver isn't cached, so two
+        // `sessionFor(url)` calls could hand back different AuthSession
+        // instances and the task's id would track a different object than
+        // the UI renders.
+        let session = sessionFor(url)
+        Group {
+          if showsCloudServer(url, session: session) {
+            cloudServerSection(url: url, session: session)
+          } else {
+            // Nothing this member can browse on this server
+            // (#2925): either they lack the file-access
+            // permission (#2899), or every root is unreachable.
+            // Either way the section would be a header over an
+            // empty tree. The load task below still has to run
+            // so a re-mounted share brings the section back,
+            // hence a zero-height stand-in rather than nothing.
+            Color.clear.frame(height: 0)
+          }
+        }
+        // Keyed on the server's signed-in state so the load RE-RUNS when
+        // auth flips — most importantly false→true after the user signs
+        // in. The old identity-only `.task` ran once and cached whatever
+        // it got; a signed-out load returns [], which is non-nil, so the
+        // empty list stuck around forever and the folder tree never
+        // appeared after sign-in. On the signed-out tick
+        // `loadCloudFoldersFor` short-circuits to a cached/empty list, so
+        // re-running it is cheap and never fires a tokenless request.
+        .task(id: session.isSignedIn) {
+          cloudFoldersByServer[url] = await onLoadCloudFolders(url)
+        }
+      }
+      // Drop folder caches for servers that have been removed from
+      // the registry — otherwise re-adding the same URL shows a
+      // stale list. Triggered by registry.servers mutations via
+      // Observation.
+      .onChange(of: registry.servers) { _, current in
+        let currentSet = Set(current)
+        cloudFoldersByServer = cloudFoldersByServer.filter { currentSet.contains($0.key) }
+        cloudServersExpanded = cloudServersExpanded.filter { currentSet.contains($0.key) }
+      }
+      // Empty-state entry point only — once a server is connected
+      // the user manages servers (add another, sign out, rename,
+      // remove) from Settings, NOT this inline button. Keeps the
+      // sidebar lean and gives Settings the single source of truth
+      // for server management.
+      if registry.servers.isEmpty {
+        Button {
+          onAddCloudServer()
+        } label: {
+          HStack {
+            Image(systemName: "plus.circle")
+            Text("Add Maple Cloud server")
+              .font(.callout)
+          }
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(.horizontal, 4)
+  }
+
+  /// One registered server's tree. Extracted from the `ForEach` body so
+  /// the #2925 visibility branch above reads as a branch rather than as
+  /// forty lines of arguments wrapped in an `if`.
+  private func cloudServerSection(url: URL, session: AuthSession) -> some View {
+    CloudServerSection(
+      serverURL: url,
+      // Two independent render-time gates, same rules as the
+      // web sidebar:
+      //   - a member without the file-access permission (#2899)
+      //     gets no folder tree at all for this server —
+      //     browsing is 403'd server-side, and hiding the rows
+      //     also removes every folder-mutation context menu;
+      //   - disconnected roots (unmounted share, unplugged
+      //     drive) stay out of the tree (#2898), surfacing on
+      //     the server-admin Sources page instead.
+      // Both are deliberately render-time filters: the
+      // unfiltered list keeps feeding the all-sources timeline
+      // and the Imports picker.
+      folders: session.hasFileAccess
+        ? (cloudFoldersByServer[url] ?? []).filter(\.isConnected)
+        : [],
+      displayName: registry.displayName(for: url)
+        ?? url.host
+        ?? url.absoluteString,
+      isExpanded: Binding(
+        get: { cloudServersExpanded[url] ?? true },
+        set: { cloudServersExpanded[url] = $0 }
+      ),
+      selection: $selection,
+      onPickPath: onPickCloudLibrary,
+      onListDir: onListCloudDir,
+      cloudCurrentPath: pathFor(server: url),
+      onSignOut: { onSignOutCloudServer(url) },
+      onRemoveServer: { onRemoveCloudServer(url) },
+      onRename: { newName in
+        registry.setDisplayName(newName, for: url)
+      },
+      session: session,
+      onSignIn: { onSignInCloudServer(url) },
+      folderRefreshGeneration: folderRefreshGeneration,
+      onCreateFolder: { libraryFolderID, libraryRootPath, parentAbsPath, name in
+        onCreateCloudFolder(url, libraryFolderID, libraryRootPath, parentAbsPath, name)
+      },
+      onRenameFolder: { libraryFolderID, libraryRootPath, absPath, newName in
+        onRenameCloudFolder(url, libraryFolderID, libraryRootPath, absPath, newName)
+      },
+      onTrashFolder: { libraryFolderID, libraryRootPath, absPath in
+        onTrashCloudFolder(url, libraryFolderID, libraryRootPath, absPath)
+      },
+      onShowTrash: onShowCloudTrash.map { callback in
+        { libraryFolderID, displayName in callback(url, libraryFolderID, displayName) }
+      },
+      onDropAssets: { libraryFolderID, libraryRootPath, absPath, ids, isCopy in
+        onDropAssetsCloud(url, libraryFolderID, libraryRootPath, absPath, ids, isCopy)
+      },
+      onDropURLs: onDropURLs,
+      selectedAssetCount: selectedAssetCount
+    )
+  }
+
+  private var separator: some View {
+    Rectangle()
+      .fill(MapleTokens.border)
+      .frame(height: 0.5)
+      .padding(.vertical, 4)
+  }
+
+  // MARK: - Refresh
+
+  /// Subscribe to PhotoKit library-change notifications so albums refresh
+  /// the moment the user adds or removes one in another app.
+  ///
+  /// Gated on already having access, and that gate is the whole point: the
+  /// subscription registers a `PHPhotoLibraryChangeObserver`, and
+  /// registering one while authorization is `.notDetermined` IS an
+  /// authorization request — it raised the system permission dialog at
+  /// launch, before the user had touched anything (#2454). Nothing in this
+  /// sidebar may reach PhotoKit until the user has opted in from the
+  /// permission panel; `photosAuthGeneration` re-drives this afterwards.
+  ///
+  /// Subscriptions live on a process-wide singleton observer that PhotoKit
+  /// registers exactly once per process, so calling this on every
+  /// appearance is safe once the gate passes.
+  @MainActor
+  private func subscribeToPhotoLibraryChangesIfAuthorized() {
+    guard photosStatus == .authorized || photosStatus == .limited else { return }
+    guard photosChangeToken == nil else { return }
+    photosChangeToken = PhotoKitChangeObserver.shared.subscribe {
+      Task { @MainActor in
+        await refreshAll()
+      }
+    }
+  }
+
+  /// Re-read persistent stores. Called on `.task` appearance.
+  private func refreshAll() async {
+    photosStatus = PhotoKitLibrary.authorizationStatus()
+    refreshFolders()
+    savedShares = await SMBCredentialStore.shared.savedShares()
+    if photosStatus == .authorized || photosStatus == .limited {
+      albums = PhotoKitLibrary.userAlbums()
+    }
+  }
+
+  /// Returns the cloud-current-path only if it belongs to the given
+  /// server — so two connected servers' trees don't both highlight
+  /// based on a path that's only meaningful to one of them. We
+  /// determine ownership by checking the LibrarySelection's server.
+  private func pathFor(server url: URL) -> String? {
+    if case .cloudLibrary(let s, _) = selection, s == url {
+      return cloudCurrentPath
+    }
+    return nil
+  }
+
+  private func refreshFolders() {
+    savedFolders = SavedFolderStore.load()
+  }
+
+  /// Extract the currently-selected folder path (top-level or sub-folder)
+  /// so `FolderTreeRow` can highlight the right row at any depth.
+  private var selectedPathBinding: String? {
+    if case .folder(let path) = selection { return path }
+    return nil
+  }
 }
 
 // MARK: - SectionHeaderRow
 
 private struct SectionHeaderRow<Trailing: View>: View {
-    let title: String
-    @Binding var isOpen: Bool
-    @ViewBuilder let trailing: () -> Trailing
+  let title: String
+  @Binding var isOpen: Bool
+  @ViewBuilder let trailing: () -> Trailing
 
-    init(title: String, isOpen: Binding<Bool>,
-         @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() }) {
-        self.title = title
-        self._isOpen = isOpen
-        self.trailing = trailing
-    }
+  init(
+    title: String, isOpen: Binding<Bool>,
+    @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() }
+  ) {
+    self.title = title
+    self._isOpen = isOpen
+    self.trailing = trailing
+  }
 
-    var body: some View {
-        Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isOpen.toggle() } }) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(MapleTokens.textMuted)
-                    .rotationEffect(.degrees(isOpen ? 0 : -90))
-                Text(title.uppercased())
-                    .font(MapleTokens.Typography.eyebrow)
-                    .tracking(1.4)
-                    .foregroundStyle(MapleTokens.textMuted)
-                Spacer()
-                trailing()
-            }
-            .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
-            .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+  var body: some View {
+    Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isOpen.toggle() } }) {
+      HStack(spacing: 6) {
+        Image(systemName: "chevron.down")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(MapleTokens.textMuted)
+          .rotationEffect(.degrees(isOpen ? 0 : -90))
+        Text(title.uppercased())
+          .font(MapleTokens.Typography.eyebrow)
+          .tracking(1.4)
+          .foregroundStyle(MapleTokens.textMuted)
+        Spacer()
+        trailing()
+      }
+      .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
+      .frame(height: MapleTokens.Spacing.sectionHeaderHeight, alignment: .leading)
+      .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+  }
 }
 
 // MARK: - AddButton
 
 private struct AddButton: View {
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "plus")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(MapleTokens.textMuted)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+  let action: () -> Void
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: "plus")
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(MapleTokens.textMuted)
+        .frame(width: 28, height: 28)
+        .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+  }
 }
 
 // MARK: - NavItem
 
 private struct NavItem: View {
-    let icon: String
-    let label: String
-    let isSelected: Bool
-    var indent: CGFloat = 28
-    let action: () -> Void
+  let icon: String
+  let label: String
+  let isSelected: Bool
+  var indent: CGFloat = 28
+  let action: () -> Void
 
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
-                Image(systemName: icon)
-                    .font(.system(size: 16))
-                    .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
-                    .frame(width: 22)
-                Text(label)
-                    .font(MapleTokens.Typography.rowLabel)
-                    .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-            }
-            .padding(.leading, indent)
-            .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
-            .padding(.vertical, MapleTokens.Spacing.rowVertical)
-            .background(isSelected ? MapleTokens.bgActive : Color.clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
+        Image(systemName: icon)
+          .font(.system(size: 16))
+          .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
+          .frame(width: 22)
+        Text(label)
+          .font(MapleTokens.Typography.rowLabel)
+          .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
+          .lineLimit(1)
+          .truncationMode(.middle)
+        Spacer()
+      }
+      .padding(.leading, indent)
+      .padding(.trailing, MapleTokens.Spacing.rowHorizontal)
+      .padding(.vertical, MapleTokens.Spacing.rowVertical)
+      .background(isSelected ? MapleTokens.bgActive : Color.clear)
+      .contentShape(Rectangle())
     }
+    .buttonStyle(.plain)
+    .accessibilityLabel(label)
+    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+  }
 }
 
 // MARK: - SMBShareSection
@@ -823,52 +837,52 @@ private struct NavItem: View {
 /// disclosure state and fetched listings survive sibling re-renders —
 /// same reasoning as `CloudServerSection`'s identical pair of `@State`.
 private struct SMBShareSection: View {
-    let share: SMBCredentialStore.SavedShare
-    let isSelected: Bool
-    let onPick: () -> Void
-    let onListDir: (SMBCredentialStore.SavedShare, String) async -> [SMBFileOperations.DirEntry]?
-    let onCreateFolder: (String, String) -> Void
-    let onRenameFolder: (String, String) -> Void
-    let onTrashFolder: (String) -> Void
-    /// "Move Folder to…" (#2847), subfolder rows only.
-    var onMoveFolder: ((String) -> Void)? = nil
-    /// Drag-onto-source-tree (#2646), onto the share ROOT — SMB has no
-    /// per-subfolder drop target yet (`AssetDropDestination.smb` carries
-    /// only a `SavedShare`, no path; see `AssetDropTypes.swift`).
-    var onDropAssets: (Set<AssetRef.ID>?, Bool) -> Void = { _, _ in }
-    /// OS file/folder drop-to-mount (#2649). See `LibrarySidebar.onDropURLs`.
-    var onDropURLs: ([URL]) -> Bool = { _ in false }
-    var selectedAssetCount: Int = 0
-    var refreshGeneration: Int = 0
-    /// "Show Trash…" (#2653) — SMB always uses `.maple/trash` (no OS
-    /// recycle bin over a network share). `nil` suppresses the menu item.
-    var onShowTrash: (() -> Void)? = nil
+  let share: SMBCredentialStore.SavedShare
+  let isSelected: Bool
+  let onPick: () -> Void
+  let onListDir: (SMBCredentialStore.SavedShare, String) async -> [SMBFileOperations.DirEntry]?
+  let onCreateFolder: (String, String) -> Void
+  let onRenameFolder: (String, String) -> Void
+  let onTrashFolder: (String) -> Void
+  /// "Move Folder to…" (#2847), subfolder rows only.
+  var onMoveFolder: ((String) -> Void)? = nil
+  /// Drag-onto-source-tree (#2646), onto the share ROOT — SMB has no
+  /// per-subfolder drop target yet (`AssetDropDestination.smb` carries
+  /// only a `SavedShare`, no path; see `AssetDropTypes.swift`).
+  var onDropAssets: (Set<AssetRef.ID>?, Bool) -> Void = { _, _ in }
+  /// OS file/folder drop-to-mount (#2649). See `LibrarySidebar.onDropURLs`.
+  var onDropURLs: ([URL]) -> Bool = { _ in false }
+  var selectedAssetCount: Int = 0
+  var refreshGeneration: Int = 0
+  /// "Show Trash…" (#2653) — SMB always uses `.maple/trash` (no OS
+  /// recycle bin over a network share). `nil` suppresses the menu item.
+  var onShowTrash: (() -> Void)? = nil
 
-    @State private var listingCache: [String: [SMBFileOperations.DirEntry]] = [:]
-    @State private var expanded: Set<String> = []
+  @State private var listingCache: [String: [SMBFileOperations.DirEntry]] = [:]
+  @State private var expanded: Set<String> = []
 
-    var body: some View {
-        SMBFolderTreeRow(
-            share: share,
-            path: "/",
-            displayName: "\(share.host) / \(share.share)",
-            depth: 0,
-            onListDir: onListDir,
-            onPick: { _ in onPick() },
-            isSelected: isSelected,
-            listingCache: $listingCache,
-            expanded: $expanded,
-            refreshGeneration: refreshGeneration,
-            onCreateFolder: { _, path, name in onCreateFolder(path, name) },
-            onRenameFolder: { _, path, newName in onRenameFolder(path, newName) },
-            onTrashFolder: { _, path in onTrashFolder(path) },
-            onMoveFolder: onMoveFolder.map { callback in { _, path in callback(path) } },
-            onShowTrash: onShowTrash.map { callback in { _ in callback() } },
-            onDropAssets: { _, ids, isCopy in onDropAssets(ids, isCopy) },
-            onDropURLs: onDropURLs,
-            selectedAssetCount: selectedAssetCount
-        )
-    }
+  var body: some View {
+    SMBFolderTreeRow(
+      share: share,
+      path: "/",
+      displayName: "\(share.host) / \(share.share)",
+      depth: 0,
+      onListDir: onListDir,
+      onPick: { _ in onPick() },
+      isSelected: isSelected,
+      listingCache: $listingCache,
+      expanded: $expanded,
+      refreshGeneration: refreshGeneration,
+      onCreateFolder: { _, path, name in onCreateFolder(path, name) },
+      onRenameFolder: { _, path, newName in onRenameFolder(path, newName) },
+      onTrashFolder: { _, path in onTrashFolder(path) },
+      onMoveFolder: onMoveFolder.map { callback in { _, path in callback(path) } },
+      onShowTrash: onShowTrash.map { callback in { _ in callback() } },
+      onDropAssets: { _, ids, isCopy in onDropAssets(ids, isCopy) },
+      onDropURLs: onDropURLs,
+      selectedAssetCount: selectedAssetCount
+    )
+  }
 }
 
 // MARK: - SavedFolderRow (unused — kept for reference, legacy breadcrumb)
@@ -880,146 +894,146 @@ private struct SMBShareSection: View {
 // is browsing the saved root itself, only one row shows.
 
 private struct SavedFolderRow: View {
-    let folder: SavedFolder
-    /// Absolute path of the currently-selected folder. May be a descendant
-    /// of `folder.path`, the root itself, or unrelated (in which case we
-    /// render only the saved root row).
-    let selectedPath: String?
-    /// Tap on the saved root row.
-    let onTap: () -> Void
-    /// Tap on a breadcrumb ancestor row (a folder inside the saved root).
-    let onTapAncestor: (URL) -> Void
-    let onRemove: () -> Void
+  let folder: SavedFolder
+  /// Absolute path of the currently-selected folder. May be a descendant
+  /// of `folder.path`, the root itself, or unrelated (in which case we
+  /// render only the saved root row).
+  let selectedPath: String?
+  /// Tap on the saved root row.
+  let onTap: () -> Void
+  /// Tap on a breadcrumb ancestor row (a folder inside the saved root).
+  let onTapAncestor: (URL) -> Void
+  let onRemove: () -> Void
 
-    /// URLs from the saved root down to `selectedPath`, inclusive of both
-    /// ends. If `selectedPath` is not a descendant of the saved root, the
-    /// chain collapses to just the root.
-    private var chain: [URL] {
-        let root = URL(fileURLWithPath: folder.path)
-        guard let selected = selectedPath, selected != folder.path else {
-            return [root]
-        }
-        let rootComponents = root.pathComponents
-        let selectedURL = URL(fileURLWithPath: selected)
-        let selectedComponents = selectedURL.pathComponents
-        // Must be strictly a descendant of root; otherwise collapse.
-        guard selectedComponents.count > rootComponents.count,
-              Array(selectedComponents.prefix(rootComponents.count)) == rootComponents
-        else {
-            return [root]
-        }
-        var urls: [URL] = [root]
-        for i in rootComponents.count..<selectedComponents.count {
-            urls.append(urls.last!.appendingPathComponent(selectedComponents[i]))
-        }
-        return urls
+  /// URLs from the saved root down to `selectedPath`, inclusive of both
+  /// ends. If `selectedPath` is not a descendant of the saved root, the
+  /// chain collapses to just the root.
+  private var chain: [URL] {
+    let root = URL(fileURLWithPath: folder.path)
+    guard let selected = selectedPath, selected != folder.path else {
+      return [root]
     }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(chain.indices, id: \.self) { i in
-                let url = chain[i]
-                let depth = i
-                row(url: url, depth: depth, isRoot: depth == 0)
-            }
-        }
+    let rootComponents = root.pathComponents
+    let selectedURL = URL(fileURLWithPath: selected)
+    let selectedComponents = selectedURL.pathComponents
+    // Must be strictly a descendant of root; otherwise collapse.
+    guard selectedComponents.count > rootComponents.count,
+      Array(selectedComponents.prefix(rootComponents.count)) == rootComponents
+    else {
+      return [root]
     }
-
-    @ViewBuilder
-    private func row(url: URL, depth: Int, isRoot: Bool) -> some View {
-        let isSelected = (selectedPath == url.path) || (selectedPath == nil && isRoot)
-        let label = isRoot ? folder.displayName : url.lastPathComponent
-
-        Button {
-            if isRoot { onTap() } else { onTapAncestor(url) }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "folder")
-                    .font(.system(size: 10))
-                    .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
-                Text(label)
-                    .font(.system(size: 11))
-                    .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.leading, 12 + CGFloat(depth) * 14)
-        .padding(.trailing, 10)
-        .padding(.vertical, 5)
-        .background(isSelected ? MapleTokens.bgActive : Color.clear)
-        .contextMenu {
-            if isRoot {
-                Button("Remove from list", role: .destructive, action: onRemove)
-            }
-        }
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    var urls: [URL] = [root]
+    for i in rootComponents.count..<selectedComponents.count {
+      urls.append(urls.last!.appendingPathComponent(selectedComponents[i]))
     }
+    return urls
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(chain.indices, id: \.self) { i in
+        let url = chain[i]
+        let depth = i
+        row(url: url, depth: depth, isRoot: depth == 0)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func row(url: URL, depth: Int, isRoot: Bool) -> some View {
+    let isSelected = (selectedPath == url.path) || (selectedPath == nil && isRoot)
+    let label = isRoot ? folder.displayName : url.lastPathComponent
+
+    Button {
+      if isRoot { onTap() } else { onTapAncestor(url) }
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "folder")
+          .font(.system(size: 10))
+          .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
+        Text(label)
+          .font(.system(size: 11))
+          .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
+          .lineLimit(1)
+          .truncationMode(.middle)
+        Spacer()
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .padding(.leading, 12 + CGFloat(depth) * 14)
+    .padding(.trailing, 10)
+    .padding(.vertical, 5)
+    .background(isSelected ? MapleTokens.bgActive : Color.clear)
+    .contextMenu {
+      if isRoot {
+        Button("Remove from list", role: .destructive, action: onRemove)
+      }
+    }
+    .accessibilityLabel(label)
+    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+  }
 }
 
 // MARK: - DisclosureRow (connections)
 
 private struct DisclosureRow<Content: View>: View {
-    let icon: String
-    let label: String
-    let hasChildren: Bool
-    /// When nil, the trailing "+" button is suppressed — used for read-only
-    /// groups (e.g. Self Hosted, which gains new servers only via Settings).
-    let onAdd: (() -> Void)?
-    @ViewBuilder let content: () -> Content
+  let icon: String
+  let label: String
+  let hasChildren: Bool
+  /// When nil, the trailing "+" button is suppressed — used for read-only
+  /// groups (e.g. Self Hosted, which gains new servers only via Settings).
+  let onAdd: (() -> Void)?
+  @ViewBuilder let content: () -> Content
 
-    @State private var expanded = true
+  @State private var expanded = true
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 4) {
-                if hasChildren {
-                    Button(action: { withAnimation(.easeInOut(duration: 0.12)) { expanded.toggle() } }) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(MapleTokens.textMuted)
-                            .opacity(0.5)
-                            .rotationEffect(.degrees(expanded ? 90 : 0))
-                            .frame(width: 10, height: 10)
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Spacer().frame(width: 10)
-                }
-
-                Button(action: { onAdd?() }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: icon)
-                            .font(.system(size: 10))
-                            .foregroundStyle(MapleTokens.textMuted)
-                        Text(label)
-                            .font(.system(size: 11))
-                            .foregroundStyle(MapleTokens.textMain)
-                        Spacer()
-                        if onAdd != nil {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10))
-                                .foregroundStyle(MapleTokens.textMuted)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(onAdd == nil)
-            }
-            .padding(.leading, 10)
-            .padding(.trailing, 10)
-            .padding(.vertical, 4)
-
-            if expanded {
-                content()
-            }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 4) {
+        if hasChildren {
+          Button(action: { withAnimation(.easeInOut(duration: 0.12)) { expanded.toggle() } }) {
+            Image(systemName: "chevron.right")
+              .font(.system(size: 8, weight: .semibold))
+              .foregroundStyle(MapleTokens.textMuted)
+              .opacity(0.5)
+              .rotationEffect(.degrees(expanded ? 90 : 0))
+              .frame(width: 10, height: 10)
+          }
+          .buttonStyle(.plain)
+        } else {
+          Spacer().frame(width: 10)
         }
+
+        Button(action: { onAdd?() }) {
+          HStack(spacing: 6) {
+            Image(systemName: icon)
+              .font(.system(size: 10))
+              .foregroundStyle(MapleTokens.textMuted)
+            Text(label)
+              .font(.system(size: 11))
+              .foregroundStyle(MapleTokens.textMain)
+            Spacer()
+            if onAdd != nil {
+              Image(systemName: "plus")
+                .font(.system(size: 10))
+                .foregroundStyle(MapleTokens.textMuted)
+            }
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(onAdd == nil)
+      }
+      .padding(.leading, 10)
+      .padding(.trailing, 10)
+      .padding(.vertical, 4)
+
+      if expanded {
+        content()
+      }
     }
+  }
 }
 
 // MARK: - Previews
