@@ -22,7 +22,7 @@
  * is pinned by equality — least-processed assets first, with no sort step.
  * Adding `asset_id` as a tie-break would NOT be free: `dead` and
  * `next_attempt_at` sit between them in the index, so the planner would have to
- * materialise and sort. `assets.query-plan.test.ts`'s sibling suite pins this.
+ * materialise and sort. `stage-claim.query-plan.test.ts` pins this.
  *
  * **Everything about an asset is a semi-join.** The liveness and damaged gates
  * are an `EXISTS` over `assets`, so `stage_state` stays the outer loop and the
