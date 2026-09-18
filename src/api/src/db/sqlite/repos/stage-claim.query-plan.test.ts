@@ -24,7 +24,6 @@ import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import {
   STAGE_CLAIM_SQL,
-  STAGE_CRASH_EXHAUSTED_SQL,
   STAGE_DEAD_COUNT_SQL,
   stageClaimCandidatesSql,
   stagePendingCountSql,
@@ -125,13 +124,23 @@ describe('the claim and its bookkeeping', () => {
     expect(detail).not.toContain('SCAN');
   });
 
-  test('the crash-exhausted sweep shares the claim index', async () => {
+  test('the candidate scan reads the attempt count the reconciliation needs', async () => {
     using handle = await createTestDatabase();
 
-    const detail = plan(handle.db, STAGE_CRASH_EXHAUSTED_SQL, 'thumb', 2, NOW, 3, 20);
+    // There is no separate crash-exhausted sweep, and this is why: `attempts`
+    // is not a column of `stage_claim`, so a `WHERE attempts >= ?` query walks
+    // the stage's whole backlog. The claim reads it with the candidates it was
+    // already fetching and partitions in memory instead.
+    const detail = plan(handle.db, stageClaimCandidatesSql(0, 0), 'thumb', 2, NOW, 20);
+    const sweep = plan(
+      handle.db,
+      `SELECT asset_id FROM stage_state WHERE stage = ? AND dead = 0 AND attempts >= ?`,
+      'thumb',
+      3,
+    );
 
-    expect(detail).toContain('USING INDEX stage_claim');
-    expect(detail).not.toContain('TEMP B-TREE');
+    expect(detail).toContain('stage_claim');
+    expect(sweep).not.toContain('COVERING INDEX');
   });
 });
 

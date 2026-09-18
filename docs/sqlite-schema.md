@@ -428,6 +428,28 @@ created, and the claim becomes a plain index range scan — 0.06 ms for 500
 candidates over 12 million rows. Registering a thirteenth stage is then one
 `INSERT … SELECT id, 'new-stage' FROM assets`.
 
+**A stage claim holds a lease, and the lease is in the row.** The Mongo runner
+keeps the set of assets it is working on in process memory and excludes them
+from its next filter, which protects one process from itself and nothing from a
+second one — another API process, the importer, or the same process across a
+restart. The claim writes `next_attempt_at` a fixed interval ahead instead, so
+the exclusion travels with the data. That column already means "the earliest
+this row may be claimed again", so the claim and the retry backoff share one
+gate rather than needing a second column, and the writeback overwrites it on
+every terminal path: cleared on success, replaced by the real backoff on
+failure. A lease therefore only outlives its attempt when the process died
+holding it, which is exactly when the row should become claimable again.
+
+**A claim reports which rows it won through `changes`, not `RETURNING`.** The
+natural spelling is `UPDATE … RETURNING`, and SQLite supports it, but the
+pool's transaction primitive carries back `changes` and `lastInsertRowid`
+rather than rows — so a `RETURNING` clause would execute and its output would
+be discarded. The claim issues one `UPDATE` per candidate inside a single
+transaction and reads identity off each statement's `changes` instead. It is
+one round trip to the writer either way, and every statement is a primary-key
+probe into a `WITHOUT ROWID` table. Widening the pool's protocol to return rows
+from a write would be the alternative, and it is not worth doing for one caller.
+
 **Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
 enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
 it is off by default. Without it every `ON DELETE CASCADE` in this schema is

@@ -45,7 +45,6 @@ import type { SqlStatement } from '../protocol.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
 import {
   STAGE_CLAIM_SQL,
-  STAGE_CRASH_EXHAUSTED_SQL,
   STAGE_MARK_DEAD_SQL,
   stageClaimCandidatesSql,
 } from './stage-runtime.sql.ts';
@@ -173,45 +172,32 @@ function crashReason(attempts: number): string {
 }
 
 /**
- * Park every candidate whose attempts already reached `maxAttempts`.
+ * Split the candidate batch into the rows to claim and the rows to park.
  *
- * Runs before the claim and in its own transaction, so the rows it marks dead
- * are gone from the claim's own candidate set. Bounded by the same limit as
- * the claim, so a backlog of poison assets drains a batch at a time instead of
- * one transaction trying to rewrite the whole stage.
+ * Reconciliation reads no extra rows, and that is a deliberate correction
+ * rather than a shortcut. `attempts` is not in `stage_claim` — the index
+ * carries `stage, version, dead, next_attempt_at, asset_id` — so a separate
+ * `WHERE attempts >= ?` sweep cannot be answered from the index and walks the
+ * stage's whole backlog, reading a row body per candidate, on every poll tick
+ * of every stage. Measured on 20,000 assets it made a claim 10.4 ms against
+ * Mongo's 2.8 ms, which is the opposite of this port's entire argument. The
+ * Mongo runner filters the batch it already fetched, and doing the same here
+ * costs nothing: the candidates are in hand, with their attempt counts.
  */
-async function reconcileCrashExhausted(
-  db: SqliteDb,
-  request: StageClaimRequest,
-  nowIso: string,
-): Promise<StageClaimOutcome['crashExhausted']> {
-  const rows = await db.read<{ asset_id: string; attempts: number }>(STAGE_CRASH_EXHAUSTED_SQL, [
-    request.stage,
-    request.targetVersion,
-    nowIso,
-    request.maxAttempts,
-    request.limit,
-  ]);
-  if (rows.length === 0) return [];
-
-  const parked = rows.map((row) => ({
-    assetId: row.asset_id,
-    attempts: row.attempts,
-    reason: crashReason(row.attempts),
-  }));
-  await db.transaction(
-    parked.map(
-      (row): SqlStatement => ({
-        sql: STAGE_MARK_DEAD_SQL,
-        params: [row.reason, row.assetId, request.stage],
-      }),
-    ),
-  );
-  log.warn(
-    { stage: request.stage, count: parked.length },
-    `${request.stage}: parked crash-exhausted assets`,
-  );
-  return parked;
+function partitionCandidates(
+  candidates: readonly ClaimedStageRow[],
+  maxAttempts: number,
+): { claimable: ClaimedStageRow[]; exhausted: StageClaimOutcome['crashExhausted'] } {
+  return {
+    claimable: candidates.filter((row) => row.attempts < maxAttempts),
+    exhausted: candidates
+      .filter((row) => row.attempts >= maxAttempts)
+      .map((row) => ({
+        assetId: row.asset_id,
+        attempts: row.attempts,
+        reason: crashReason(row.attempts),
+      })),
+  };
 }
 
 /**
@@ -221,7 +207,8 @@ async function reconcileCrashExhausted(
  *
  *  1. Scan the `stage_claim` index for candidates. A read, so it runs on a
  *     reader worker and never queues behind a write.
- *  2. Take them, in one transaction, one `UPDATE` per candidate. Each
+ *  2. Take them, in one transaction, one `UPDATE` per candidate — alongside the
+ *     mark-dead for any candidate whose budget was already spent. Each claim
  *     statement re-asks the gates the scan asked; the ones that still hold are
  *     this caller's, and `changes` says which.
  *  3. Return the rows that were won, carrying the state the claim wrote — so
@@ -233,6 +220,11 @@ async function reconcileCrashExhausted(
  * candidate simply loses at step 2. Taking the write lock for the scan as well
  * would serialise every stage's poll tick against every other stage's, on a
  * single-writer database, for no correctness gain.
+ *
+ * A batch that is all crash-exhausted rows therefore claims nothing this tick
+ * and drains a batch at a time, which is exactly what the Mongo runner does —
+ * and the point of not re-dispatching them, since one poison asset re-claiming
+ * on every respawn is how a whole tier stops draining (#897).
  */
 export async function claimStageBatch(
   request: StageClaimRequest,
@@ -241,7 +233,6 @@ export async function claimStageBatch(
   const db = assetsDb(dbOverride);
   const now = request.now ?? new Date();
   const nowIso = now.toISOString();
-  const crashExhausted = await reconcileCrashExhausted(db, request, nowIso);
 
   const sql = stageClaimCandidatesSql(
     request.dependsOn.length,
@@ -249,28 +240,42 @@ export async function claimStageBatch(
     request.residual?.sql,
   );
   const candidates = await db.read<ClaimedStageRow>(sql, candidateParams(request, nowIso));
-  if (candidates.length === 0) return { claimed: [], crashExhausted, contended: 0 };
+  if (candidates.length === 0) return { claimed: [], crashExhausted: [], contended: 0 };
 
+  const { claimable, exhausted } = partitionCandidates(candidates, request.maxAttempts);
   const leaseUntil = new Date(now.getTime() + (request.leaseMs ?? CLAIM_LEASE_MS)).toISOString();
-  const results = await db.transaction(
-    candidates.map(
+  const results = await db.transaction([
+    ...exhausted.map(
+      (row): SqlStatement => ({
+        sql: STAGE_MARK_DEAD_SQL,
+        params: [row.reason, row.assetId, request.stage],
+      }),
+    ),
+    ...claimable.map(
       (row): SqlStatement => ({
         sql: STAGE_CLAIM_SQL,
         params: [leaseUntil, row.asset_id, request.stage, request.targetVersion, nowIso],
       }),
     ),
-  );
+  ]);
 
-  const claimed = candidates
-    .filter((_, index) => (results[index]?.changes ?? 0) > 0)
+  const claimed = claimable
+    // The claim statements start after the mark-dead ones in the same batch.
+    .filter((_, index) => (results[exhausted.length + index]?.changes ?? 0) > 0)
     // The row as the claim left it: the attempt is spent and the lease is on.
     .map((row) => ({ ...row, attempts: row.attempts + 1, next_attempt_at: leaseUntil }));
-  const contended = candidates.length - claimed.length;
+  const contended = claimable.length - claimed.length;
+  if (exhausted.length > 0) {
+    log.warn(
+      { stage: request.stage, count: exhausted.length },
+      `${request.stage}: parked crash-exhausted assets`,
+    );
+  }
   if (contended > 0) {
     log.info(
       { stage: request.stage, contended, claimed: claimed.length },
       `${request.stage}: candidates lost to a concurrent claimer`,
     );
   }
-  return { claimed, crashExhausted, contended };
+  return { claimed, crashExhausted: exhausted, contended };
 }
