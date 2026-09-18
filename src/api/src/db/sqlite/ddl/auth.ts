@@ -191,14 +191,18 @@ CREATE TABLE lan_handoff_codes (
 );
 `;
 
-/** Short-lived bearer tokens for direct image URLs. */
+/**
+ * Short-lived capability grants for direct image URLs.
+ *
+ * Modelled from the document `auth/image-capability.ts` writes, not from the
+ * collection's name — the two do not line up, and the name is the misleading
+ * one. The id **is** the SHA-256 hex of the opaque URL token, 64 characters,
+ * and the token itself is never stored. The row carries the exact request path
+ * the grant authorises and a purpose discriminator, and it names no user at
+ * all: the point of a capability is that it authorises one URL rather than one
+ * principal.
+ */
 export const IMAGE_ACCESS_TOKENS_TABLE_DDL = `
--- Modelled from the document `auth/image-capability.ts` writes, not from the
--- collection's name. Its id **is** the SHA-256 hex of the opaque URL token
--- (64 characters, and the token itself is never stored), it carries the exact
--- request path the grant is bound to and a purpose discriminator, and it names
--- no user at all — the point of a capability is that it authorises one URL
--- rather than one principal.
 CREATE TABLE image_access_tokens (
   id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 64),
 

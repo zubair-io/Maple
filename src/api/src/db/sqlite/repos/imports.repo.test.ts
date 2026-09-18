@@ -335,7 +335,11 @@ describe('assetExistsForHash', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const skeleton = insertAsset(handle.db);
-    run(handle.db, `UPDATE assets SET maple_id = '' WHERE id = ?`, skeleton);
+
+    // A skeleton row carries no dedup key at all. The empty string is not an
+    // alternative spelling of that — the schema's CHECK refuses it outright —
+    // so the row this probe must not match is the NULL one.
+    run(handle.db, `UPDATE assets SET maple_id = NULL WHERE id = ?`, skeleton);
 
     expect(await assetExistsForHash('', 'no-such-sha', db)).toBe(false);
   });
