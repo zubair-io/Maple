@@ -24,6 +24,7 @@ import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
 import { ASSETS_FTS_OPTIMIZE_SQL, ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
 import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
 import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
+import { ensureBenchDir } from './bench-db.ts';
 import { generateLibrary } from './generate.ts';
 
 const DEFAULT_SIZES = [335_377, 600_000, 1_000_000];
@@ -318,6 +319,11 @@ const sizes = args
   .filter((n) => Number.isFinite(n) && n > 0);
 const targets = sizes.length > 0 ? sizes : DEFAULT_SIZES;
 const outDir = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
+
+// Same reason as in `bench-db.ts`: `create: true` creates the file, not the
+// directory above it, so a machine that has never run this dies with
+// SQLITE_CANTOPEN before it reaches the report write that would have made it.
+await ensureBenchDir();
 
 const reports: RunReport[] = [];
 for (const assetCount of targets) {

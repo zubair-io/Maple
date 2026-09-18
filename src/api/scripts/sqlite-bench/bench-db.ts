@@ -42,6 +42,22 @@ export async function removeDatabase(path: string): Promise<void> {
 }
 
 /**
+ * Makes sure the scratch directory exists before SQLite is asked to create a
+ * file in it.
+ *
+ * `bun:sqlite`'s `create: true` creates the *file*, not the directory above
+ * it, so on a machine that has never run one of these benchmarks the first one
+ * dies with `SQLITE_CANTOPEN` — which is every reviewer following the commands
+ * in the PR body. `Bun.write` creates the parent directories on the way,
+ * which is why this is a written marker file rather than a `mkdir`: the API's
+ * lint config restricts raw filesystem imports, and `removeDatabase` above
+ * avoids them for the same reason.
+ */
+export async function ensureBenchDir(): Promise<void> {
+  await Bun.write(`${BENCH_DIR}/.keep`, '');
+}
+
+/**
  * What the bulk load deferred: the derived location counts, the FTS5 index and
  * the planner statistics. The importer (#3744) does the same three things.
  */
@@ -54,6 +70,7 @@ function finishBulkLoad(db: Database): void {
 
 /** A fresh database at `path`, migrated and filled with `assetCount` assets. */
 export async function buildLibrary(path: string, assetCount: number): Promise<Database> {
+  await ensureBenchDir();
   await removeDatabase(path);
   const db = new Database(path, { create: true });
   for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
