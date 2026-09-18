@@ -48,7 +48,12 @@ import { assertValidPersonName } from '../../../people/person-name.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
-import { LIVE_VISIBLE_PREDICATE, listPeopleByFilter } from './people.list.ts';
+import {
+  LIVE_VISIBLE_PREDICATE,
+  listPeopleByFilter,
+  type ListPeopleOptions,
+  type PersonWithCount,
+} from './people.list.ts';
 import { mergeInto } from './people.merge.ts';
 import { loadSuggestedMergeInfo, type SuggestedMergeInfo } from './people.merge-suggestions.ts';
 import { toAssetFace, toPerson, type PersonFaceRow, type PersonRow } from './people.rows.ts';
@@ -250,9 +255,9 @@ export async function renamePerson(
  * cluster — see `people.cluster-load.ts`.
  */
 export function listPeople(
-  options: Parameters<typeof listPeopleByFilter>[1] = {},
+  options: ListPeopleOptions = {},
   dbOverride?: SqliteDb,
-): ReturnType<typeof listPeopleByFilter> {
+): Promise<PersonWithCount[]> {
   return listPeopleByFilter(LIVE_VISIBLE_PREDICATE, options, dbOverride);
 }
 
