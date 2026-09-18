@@ -1,5 +1,5 @@
 /**
- * How a ported repository reaches SQLite, and what a write reports back.
+ * How a repository reaches SQLite, and what a write reports back.
  *
  * Two small things live here, and both exist to keep the repository modules
  * from growing their own opinions about either.
@@ -7,21 +7,20 @@
  * **The handle.** {@link SqliteDb} is the three primitives the worker-backed
  * pool exposes — read, write, transaction — and nothing else. `SqlitePool`
  * satisfies it structurally, so production code passes no handle at all and
- * {@link sqliteDb} reaches the process-wide pool, exactly the way the Mongo
- * repo reaches `assetsCollection()` today. The optional override is what tests
- * use, and it is the same override parameter the Mongo repo already had; the
- * only difference is the type it accepts.
+ * {@link sqliteDb} reaches the process-wide handle. The optional override is
+ * what tests use.
  *
  * Production code on the request path must go through the pool. Every
  * in-process SQLite call blocks Bun's event loop, so a repository that reached
  * for `bun:sqlite` directly would stall every concurrent request for the
  * duration of its query. See `../pool.ts` for the measurements.
  *
- * **The write outcomes.** The Mongo repo returns driver result objects, and
- * routes read `matchedCount` / `deletedCount` off them. {@link UpdateOutcome}
- * and {@link DeleteOutcome} carry the same fields with the same meanings, so
- * the cutover (#3752) swaps an import rather than rewriting call sites; the
- * assignability is pinned by a test rather than asserted here.
+ * **The write outcomes.** {@link UpdateOutcome} and {@link DeleteOutcome} carry
+ * `matchedCount`, `modifiedCount` and `deletedCount`, which is what routes
+ * branch on. The names are the MongoDB driver's, kept when the repositories
+ * were ported (#3746–#3751) so the cutover could swap an import rather than
+ * rewrite forty call sites. They are now simply this repository's vocabulary
+ * for what a write touched; nothing else remains of the driver.
  */
 
 import { processSqliteHandle } from '../index.ts';
@@ -47,9 +46,9 @@ export interface SqliteDb {
  * The handle a repository function should use: the caller's override when it
  * supplied one, otherwise the process-wide pool.
  *
- * Throws when neither exists, which is the same failure the Mongo repo has
- * when the client was never connected: a programming error at startup, not a
- * condition a request handler can recover from.
+ * Throws when neither exists. That is a programming error at startup — the
+ * process never opened its pool — not a condition a request handler can
+ * recover from.
  */
 export function assetsDb(dbOverride?: SqliteDb): SqliteDb {
   return sqliteDb(dbOverride);
@@ -80,19 +79,17 @@ export function peopleDb(dbOverride?: SqliteDb): SqliteDb {
 }
 
 /**
- * What an update reports, shaped like the driver's `UpdateResult` so callers
- * that read `matchedCount` keep compiling.
+ * What an update reports.
  *
- * `matchedCount` and `modifiedCount` are always equal here, and that is a real
- * difference worth knowing about: MongoDB distinguishes "the filter matched a
- * document" from "the document's bytes actually changed", while SQLite's
- * `changes()` counts every row the statement touched whether or not the new
- * value differs from the old. Every call site in this repository's routes
- * branches on `matchedCount === 0` ("no such asset"), which both engines answer
- * identically.
+ * `matchedCount` and `modifiedCount` are always equal, which is worth knowing
+ * if you are reading a call site that treats them as distinct: SQLite's
+ * `changes()` counts every row the statement touched, whether or not the new
+ * value differs from the old. Nothing here branches on the difference — every
+ * caller asks `matchedCount === 0`, meaning "no such asset".
  *
  * `upsertedId` is always null: nothing in this repository upserts through a
- * filter, so there is never a generated id to report.
+ * filter, so there is never a generated id to report. It is kept because the
+ * shape is what the routes were written against.
  */
 export interface UpdateOutcome {
   acknowledged: boolean;
@@ -102,7 +99,7 @@ export interface UpdateOutcome {
   upsertedId: null;
 }
 
-/** What a delete reports, shaped like the driver's `DeleteResult`. */
+/** What a delete reports. */
 export interface DeleteOutcome {
   acknowledged: boolean;
   deletedCount: number;

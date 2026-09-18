@@ -2,8 +2,8 @@
  * Public surface of the SQLite pool, plus the process-wide handle.
  *
  * Callers get one pool per process, opened once during startup and closed on
- * shutdown — the same shape the Mongo client has today, so repository modules
- * can reach a connection without threading it through every signature.
+ * shutdown, so repository modules can reach a connection without threading it
+ * through every signature.
  *
  * `openSqlitePool` is deliberately the only way to get a pool, and it throws
  * rather than degrading when a worker cannot start. Whoever calls it during
@@ -135,12 +135,13 @@ export function processSqliteHandle(): SqliteHandle {
  * would not.
  *
  * The health endpoint reports it, and one preview path uses it to skip a
- * catalogue lookup it can do without. Both used to ask the same question of
- * MongoDB (`isDbConnected`), where the honest answer could be "not right now,
- * ask again" — a remote server can be unreachable for a while and come back.
- * Here it is very nearly a constant: startup opens the pool before it listens
- * and refuses to serve if it cannot, so `false` after boot means the pool was
- * closed, which happens during shutdown.
+ * catalogue lookup it can do without.
+ *
+ * Worth knowing if you are reading either call site: the question is very
+ * nearly a constant now. Startup opens the pool before it listens and refuses
+ * to serve if it cannot, so `false` after boot means the pool was closed, which
+ * happens during shutdown. Neither caller should grow a retry around it — there
+ * is no remote server here that might come back.
  */
 export function isSqliteOpen(): boolean {
   return testHandle !== null || (pool !== null && !pool.isClosed);

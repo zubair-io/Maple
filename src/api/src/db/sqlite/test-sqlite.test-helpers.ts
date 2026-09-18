@@ -2,13 +2,13 @@
  * The shared SQLite test harness: one database per test, schema applied,
  * disposed when the test ends (#3745).
  *
- * This is the SQLite-era counterpart to `db/test-db.test-helpers.ts`, and it
- * exists as one file for the same reason that one did — the cross-test
- * pollution the Mongo suite spent #2491 and #2783 chasing started because each
- * file invented its own setup. There is exactly one way to get a database here,
- * and it is isolated by construction.
+ * It is one file on purpose. The cross-test pollution that #2491 and #2783 spent
+ * two investigations on began because each suite invented its own setup, so
+ * there is exactly one way to get a database here and it is isolated by
+ * construction.
  *
- * Three properties the Mongo harness could only approximate:
+ * Three properties that a per-suite, service-backed harness could only
+ * approximate, and that this gets for free:
  *
  *  1. **Per test, not per suite.** `withTestDb` could only name a database for
  *     a whole file, so every test in that file shared one namespace and had to
@@ -80,7 +80,7 @@ export interface TestDatabase extends Disposable {
  *
  * The backstop for a handle that never gets disposed — a test that forgets
  * `using`, or a file that dies partway through. #2491 measured 11,375 leaked
- * Mongo test databases accumulated exactly this way, from suites that were each
+ * test databases accumulated exactly this way, from suites that were each
  * individually expected to clean up after themselves. Temp directories are
  * cheaper to leak than databases on a shared server, but the lesson is the
  * same: the cleanup belongs to the harness, not to every caller's good manners.
@@ -385,8 +385,8 @@ export function liveLocationCount(db: Database, assetId: string): number {
  * **Not safe under `test.concurrent`**, and that is the one way it differs from
  * {@link createTestDatabase}. The handle it installs is process state, not a
  * local binding, so two concurrent tests would each install one and the second
- * would serve the first's queries — the per-suite-namespace collision the Mongo
- * harness spent #2491 and #2783 on, reproduced exactly. A test that needs to run
+ * would serve the first's queries — the per-suite-namespace collision behind
+ * #2491 and #2783, reproduced exactly. A test that needs to run
  * concurrently should call the repository with an explicit `dbOverride` from
  * {@link createTestDatabase} instead, which is private to its own block.
  *
