@@ -255,8 +255,14 @@ created, and the claim becomes a plain index range scan — 0.05 ms for 500
 candidates over 12 million rows. Registering a thirteenth stage is then one
 `INSERT … SELECT id, 'new-stage' FROM assets`.
 
-**A person's face count is derived, not stored.** `PersonDoc.face_count` is a
-denormalised number adjusted by hand at every membership change — assign,
+**Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
+enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
+it is off by default. Without it every `ON DELETE CASCADE` in this schema is
+decoration. `SCHEMA_PRAGMAS` in `ddl/index.ts` is the list a connection owner
+applies.
+
+**A person's face count is derived, not stored** (#3749). `PersonDoc.face_count`
+is a denormalised number adjusted by hand at every membership change — assign,
 unassign, hide, merge — and then rewritten wholesale once per clustering pass by
 a block whose own comment says it is there to heal the drift those incremental
 sites cause. It has to be denormalised on Mongo because counting means
@@ -266,21 +272,16 @@ column does not exist and neither do the adjust and heal helpers. The count is
 computed where it is read, in `repos/people.face-count.ts`, and the drift cannot
 be reintroduced by a write path forgetting to call something.
 
-**The clustering worker gets a path, not a connection.** The clustering pass runs
-on its own thread and writes — `recomputeCentroids` persists refreshed centroids
-before the seeds are read back. The Mongo worker opens its own database handle
-from parameters in the dispatch message, and reproducing that here would mean a
-second SQLite writer, which is exactly what the pool exists to prevent. Instead
-the worker opens the file `readonly` for its own queries, so the embeddings stay
-on its thread, and sends every write to the host, which runs it on the pool's
-single writer. `db/sqlite/worker-db.ts` carries the argument, including why the
-write-then-reload path in the clustering pass still observes its own write.
-
-**Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
-enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
-it is off by default. Without it every `ON DELETE CASCADE` in this schema is
-decoration. `SCHEMA_PRAGMAS` in `ddl/index.ts` is the list a connection owner
-applies.
+**The clustering worker gets a path, not a connection** (#3749). The clustering
+pass runs on its own thread and writes — `recomputeCentroids` persists refreshed
+centroids before the seeds are read back. The Mongo worker opens its own database
+handle from parameters in the dispatch message, and reproducing that here would
+mean a second SQLite writer, which is exactly what the pool exists to prevent.
+Instead the worker opens the file `readonly` for its own queries, so the
+embeddings stay on its thread, and sends every write to the host, which runs it
+on the pool's single writer. `db/sqlite/worker-db.ts` carries the argument,
+including why the write-then-reload path in the clustering pass still observes
+its own write.
 
 ## The migration runner
 
