@@ -12,6 +12,8 @@ import {
   runMigrations,
   SCHEMA_MIGRATIONS_TABLE,
   type Migration,
+  type MigrationDb,
+  type SqlValue,
 } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
 import { openMigratedDatabase, openTestDatabase } from './test-sqlite.test-helpers.ts';
@@ -51,6 +53,38 @@ describe('runMigrations', () => {
     // And exactly one sentinel row per migration, not two.
     const rows = await appliedMigrations(migrationDb);
     expect(rows.length).toBe(ALL_MIGRATIONS.length);
+    db.close();
+  });
+
+  test('a no-op second run takes no write lock at all', async () => {
+    const { db, migrationDb } = openTestDatabase();
+    await runMigrations(migrationDb, ALL_MIGRATIONS);
+
+    // Every statement the second run issues, in order.
+    const statements: string[] = [];
+    const spy: MigrationDb = {
+      exec: (sql) => {
+        statements.push(sql.trim());
+        return migrationDb.exec(sql);
+      },
+      run: (sql, params) => {
+        statements.push(sql.trim());
+        return migrationDb.run(sql, params);
+      },
+      all: <T>(sql: string, params?: readonly SqlValue[]) => {
+        statements.push(sql.trim());
+        return migrationDb.all<T>(sql, params);
+      },
+    };
+
+    const second = await runMigrations(spy, ALL_MIGRATIONS);
+    expect(second.applied).toEqual([]);
+
+    // The point: the runner reads what has been applied and stops. Taking the
+    // write lock per migration would cost one exclusive lock and one fsync per
+    // migration per process role on every boot, for nothing.
+    expect(statements.filter((sql) => sql.startsWith('BEGIN'))).toEqual([]);
+    expect(statements.filter((sql) => sql.startsWith('COMMIT'))).toEqual([]);
     db.close();
   });
 
