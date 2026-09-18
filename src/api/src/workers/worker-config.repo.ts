@@ -13,11 +13,13 @@
 import type { Collection } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import type { WorkerConfig } from './run-stage.ts';
+import { sanitizeWorkerConfig, type WorkerConfigDoc } from './worker-config-shape.ts';
 
-export interface WorkerConfigDoc extends WorkerConfig {
-  /** Stage name — the unique key for this collection. */
-  name: string;
-}
+// The document shape and the wire projection moved to
+// `./worker-config-shape.ts` when the SQLite port (#3751) became a second
+// owner of this collection — both have to answer `/api/workers/status` with
+// the same body, and the omissions are the part that is on the wire.
+export { sanitizeWorkerConfig, type WorkerConfigDoc } from './worker-config-shape.ts';
 
 export async function loadWorkerConfigSafe(workerName: string): Promise<WorkerConfig | null> {
   try {
@@ -30,23 +32,6 @@ export async function loadWorkerConfigSafe(workerName: string): Promise<WorkerCo
     }
     return null;
   }
-}
-
-export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
-  return {
-    concurrency: doc.concurrency,
-    maxAttempts: doc.maxAttempts,
-    paused: doc.paused,
-    last_seen_target_version: doc.last_seen_target_version,
-    // Only present when a stage paused itself with an explanation; an
-    // operator pause carries none, so the key is omitted rather than
-    // surfaced as a permanent `null` on every row.
-    ...(typeof doc.pause_reason === 'string' ? { pause_reason: doc.pause_reason } : {}),
-    ...(typeof doc.version === 'string' ? { version: doc.version } : {}),
-    ...(typeof doc.prompt_text === 'string' ? { prompt_text: doc.prompt_text } : {}),
-    ...(typeof doc.ai_provider === 'string' ? { ai_provider: doc.ai_provider } : {}),
-    ...(typeof doc.ai_model === 'string' ? { ai_model: doc.ai_model } : {}),
-  };
 }
 
 export class WorkerConfigRepo {

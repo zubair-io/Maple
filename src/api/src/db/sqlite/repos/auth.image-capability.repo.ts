@@ -39,13 +39,6 @@ export type { SqliteDb } from './db-handle.ts';
 /** The only purpose the schema admits today. */
 const PURPOSE = 'image-read';
 
-/** What a capability authorises: one path, until one instant. */
-export interface ImageCapability {
-  path: string;
-  created_at: string;
-  expires_at: string;
-}
-
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }

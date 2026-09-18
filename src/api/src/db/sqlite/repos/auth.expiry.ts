@@ -38,7 +38,7 @@ export type { SqliteDb } from './db-handle.ts';
  * minutes each — and `refresh_tokens` last because its rows live ninety days
  * and there is rarely anything to remove.
  */
-export const EXPIRING_TABLES = [
+const EXPIRING_TABLES = [
   'challenges',
   'native_auth_codes',
   'lan_handoff_codes',

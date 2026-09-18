@@ -7,27 +7,19 @@
 // freshly-minted, device-scoped tokens. A raw refresh token therefore never
 // rides in a redirect URL.
 import type { ObjectId } from 'mongodb';
-import { randomBytes } from 'node:crypto';
-import { sha256 } from '@noble/hashes/sha2.js';
 import { nativeAuthCodesCollection } from '../db/client.ts';
+import {
+  hashHandoffCode as hashCode,
+  HANDOFF_CODE_TTL_MS as NATIVE_CODE_TTL_MS,
+  newHandoffCode,
+  pkceS256,
+} from './handoff-code.ts';
 
-const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
-const b64url = (b: Uint8Array): string => Buffer.from(b).toString('base64url');
-
-/** One-time code TTL — short by design; the native app redeems immediately
- * after the ASWebAuthenticationSession redirect. */
-const NATIVE_CODE_TTL_MS = 60_000;
-
-/** PKCE S256 transform: `base64url(sha256(verifier))`. The native app sends
- * this challenge when it launches the web flow and keeps the verifier private,
- * proving possession at redeem. */
-export function pkceS256(codeVerifier: string): string {
-  return b64url(sha256(utf8(codeVerifier)));
-}
-
-function hashCode(rawCode: string): string {
-  return Buffer.from(sha256(utf8(rawCode))).toString('hex');
-}
+// The hashing, the code generator and the PKCE transform are shared with the
+// LAN handoff store and with the SQLite port (#3751) — see `./handoff-code.ts`
+// for why one definition matters. `pkceS256` is re-exported because the native
+// auth routes import it from here.
+export { pkceS256 };
 
 export interface IssuedNativeCode {
   code: string;
@@ -42,7 +34,7 @@ export async function issueNativeCode(args: {
   state: string;
   deviceLabel: string;
 }): Promise<IssuedNativeCode> {
-  const code = b64url(randomBytes(32));
+  const code = newHandoffCode();
   const c = await nativeAuthCodesCollection();
   await c.insertOne({
     code_hash: hashCode(code),
@@ -72,14 +64,26 @@ export async function redeemNativeCode(
   rawCode: string,
   codeVerifier: string,
 ): Promise<RedeemedNativeCode | null> {
+  return await consumePending({
+    code_hash: hashCode(rawCode),
+    code_challenge: pkceS256(codeVerifier),
+  });
+}
+
+/**
+ * The CAS both redeem paths share: consume the single row matching `identity`
+ * that is also unconsumed and unexpired, and return what it proves.
+ *
+ * `identity` is whatever names the code — its hash, or its `state` — plus the
+ * PKCE challenge, which is in the filter rather than checked afterwards so a
+ * wrong verifier neither succeeds nor burns the code.
+ */
+async function consumePending(
+  identity: Record<string, unknown>,
+): Promise<RedeemedNativeCode | null> {
   const c = await nativeAuthCodesCollection();
   const row = await c.findOneAndUpdate(
-    {
-      code_hash: hashCode(rawCode),
-      code_challenge: pkceS256(codeVerifier),
-      consumed_at: null,
-      expires_at: { $gt: new Date() },
-    },
+    { ...identity, consumed_at: null, expires_at: { $gt: new Date() } },
     { $set: { consumed_at: new Date().toISOString() } },
   );
   if (!row) return null;
@@ -99,16 +103,5 @@ export async function claimNativeCode(
   state: string,
   codeVerifier: string,
 ): Promise<RedeemedNativeCode | null> {
-  const c = await nativeAuthCodesCollection();
-  const row = await c.findOneAndUpdate(
-    {
-      state,
-      code_challenge: pkceS256(codeVerifier),
-      consumed_at: null,
-      expires_at: { $gt: new Date() },
-    },
-    { $set: { consumed_at: new Date().toISOString() } },
-  );
-  if (!row) return null;
-  return { userId: row.user_id, deviceLabel: row.device_label, state: row.state };
+  return await consumePending({ state, code_challenge: pkceS256(codeVerifier) });
 }

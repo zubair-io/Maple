@@ -3,60 +3,25 @@ import { refreshTokensCollection } from '../db/client.ts';
 import type { RefreshTokenDoc } from '../db/schema.ts';
 import { generateRefreshToken, hashRefreshToken, refreshExpiresAt } from './tokens.ts';
 
-export interface IssuedRefresh {
-  raw: string;
-  userId: ObjectId;
-  familyId: ObjectId;
-  /** Whether the caller's cookie for this token must be `Secure`. See
-   * `RefreshTokenDoc.secure`. */
-  secure: boolean;
-}
+// The error class, its codes, the grace window and the option/result shapes
+// moved to `./refresh-contract.ts` when the SQLite store (#3751) became a
+// second implementation. `routes/auth.ts` picks a status code with
+// `err instanceof RefreshError`, so both stores have to throw the one class —
+// two classes of the same name would make that check depend on which store
+// answered. Re-exported here so every existing importer is unaffected.
+export {
+  RefreshError,
+  REFRESH_GRACE_MS,
+  type IssuedRefresh,
+  type IssueRefreshTokenOptions,
+} from './refresh-contract.ts';
 
-export type RefreshErrorCode =
-  | 'unknown_token'
-  | 'token_expired'
-  | 'rotation_conflict'
-  | 'reuse_detected';
-
-export class RefreshError extends Error {
-  constructor(
-    public readonly code: RefreshErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'RefreshError';
-  }
-}
-
-/**
- * Lost-response / concurrent-rotation grace window (#858).
- *
- * A just-rotated (revoked) token replayed within this window — *while its
- * family still has a live token* — is treated as a benign retry and re-minted,
- * NOT as theft. This is what stops the original "refresh token reuse detected —
- * chain revoked" logout: a refresh whose response was lost (or a concurrent
- * multi-tab/in-flight refresh) replays the old token and recovers instead of
- * nuking the session.
- *
- * It bounds the theft-detection gap to ~this window and pairs with the
- * short-access-TTL pivot (#860). It covers concurrent refreshes and quick
- * reloads; a lost response followed by a delayed return (minutes later) still
- * lands outside the window and requires a re-login — an acceptable, safe
- * outcome for a long-dormant tab.
- */
-export const REFRESH_GRACE_MS = 60_000;
-
-export interface IssueRefreshTokenOptions {
-  /** Rotation lineage. Omitting starts a NEW family (a fresh login / device);
-   * a rotation passes the parent token's family so the whole lineage is
-   * tracked together and can be revoked as a unit. */
-  familyId?: ObjectId;
-  platform?: string;
-  /** Whether the caller's cookie for this token must be `Secure`. Defaults to
-   * `true` — pass `false` only for the LAN-handoff redeem, whose cookie
-   * answers on a plain-HTTP LAN origin. */
-  secure?: boolean;
-}
+import {
+  RefreshError,
+  REFRESH_GRACE_MS,
+  type IssuedRefresh,
+  type IssueRefreshTokenOptions,
+} from './refresh-contract.ts';
 
 /** Issue a refresh token. See `IssueRefreshTokenOptions` for the optional lineage/platform/secure knobs. */
 export async function issueRefreshToken(
@@ -220,15 +185,6 @@ export async function revokeChain(userId: ObjectId): Promise<void> {
   const revokedAt = new Date().toISOString();
   await c.updateMany({ user_id: userId }, { $set: { family_revoked_at: revokedAt } });
   await c.updateMany({ user_id: userId, revoked_at: null }, { $set: { revoked_at: revokedAt } });
-}
-
-/** Revoke a single token by its raw value. */
-export async function revokeOne(rawToken: string): Promise<void> {
-  const c = await refreshTokensCollection();
-  await c.updateOne(
-    { token_hash: hashRefreshToken(rawToken), revoked_at: null },
-    { $set: { revoked_at: new Date().toISOString() } },
-  );
 }
 
 export interface DeviceSession {

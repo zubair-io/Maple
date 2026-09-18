@@ -19,7 +19,7 @@ import {
   findFolderById,
   findFolderByPath,
   folderPath,
-  insertFolder,
+  registerFolder,
   isSlugConflict,
   listFolders,
   listFolderSlugs,
@@ -39,14 +39,14 @@ function library(n: number) {
 }
 
 async function seed(db: SqliteDb, n: number, createdAt?: string) {
-  return await insertFolder({ ...library(n), ...(createdAt ? { createdAt } : {}) }, db);
+  return await registerFolder({ ...library(n), ...(createdAt ? { createdAt } : {}) }, db);
 }
 
 describe('registration', () => {
   test('a registered library round-trips its fields', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const id = await insertFolder(
+    const id = await registerFolder(
       { path: '/photos', label: 'Photos', slug: 'photos', createdAt: '2026-01-01T00:00:00.000Z' },
       db,
     );
@@ -77,8 +77,8 @@ describe('registration', () => {
   test('registering the same path twice is refused', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    await insertFolder({ path: '/photos', label: 'A', slug: 'a' }, db);
-    const error = await insertFolder({ path: '/photos', label: 'B', slug: 'b' }, db).catch(
+    await registerFolder({ path: '/photos', label: 'A', slug: 'a' }, db);
+    const error = await registerFolder({ path: '/photos', label: 'B', slug: 'b' }, db).catch(
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(Error);
@@ -90,8 +90,8 @@ describe('registration', () => {
   test('a duplicate slug is recognised as the collision worth retrying', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    await insertFolder({ path: '/a', label: 'A', slug: 'shared' }, db);
-    const error = await insertFolder({ path: '/b', label: 'B', slug: 'shared' }, db).catch(
+    await registerFolder({ path: '/a', label: 'A', slug: 'shared' }, db);
+    const error = await registerFolder({ path: '/b', label: 'B', slug: 'shared' }, db).catch(
       (e: unknown) => e,
     );
     expect(isSlugConflict(error)).toBe(true);
@@ -226,8 +226,12 @@ describe('the folder-path cache', () => {
     // would make a cached path go stale, so this list is where the
     // invalidation gets remembered — a new writer fails here first.
     const writers = Object.keys(foldersRepo).filter(
-      (name) => name.startsWith('set') || name.startsWith('insert') || name.startsWith('delete'),
+      (name) =>
+        name.startsWith('set') ||
+        name.startsWith('register') ||
+        name.startsWith('insert') ||
+        name.startsWith('delete'),
     );
-    expect(writers.sort()).toEqual(['insertFolder', 'setFolderLastScan', 'setFolderMirrors']);
+    expect(writers.sort()).toEqual(['registerFolder', 'setFolderLastScan', 'setFolderMirrors']);
   });
 });
