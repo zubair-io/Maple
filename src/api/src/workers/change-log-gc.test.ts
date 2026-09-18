@@ -16,7 +16,7 @@ describe('change-log-gc', () => {
     try {
       const db = await getDb();
       await db.collection('asset_changes').deleteMany({});
-      await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' });
+      await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' as never });
     } catch {
       // Ignore if DB unreachable
     }

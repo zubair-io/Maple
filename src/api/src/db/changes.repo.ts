@@ -264,7 +264,7 @@ export async function highestCursor(dbOverride?: Db): Promise<number> {
 }
 
 /** Returns the lowest cursor currently in the collection, or null if empty. */
-export async function lowestCursor(dbOverride?: Db): Promise<number | null> {
+async function lowestCursor(dbOverride?: Db): Promise<number | null> {
   const coll = dbOverride
     ? dbOverride.collection<AssetChangeDoc>('asset_changes')
     : await assetChangesCollection();
@@ -273,7 +273,7 @@ export async function lowestCursor(dbOverride?: Db): Promise<number | null> {
 }
 
 /** Returns the most recently allocated cursor sequence from server_state, or 0 if uninitialized. */
-export async function currentAllocatedCursor(dbOverride?: Db): Promise<number> {
+async function currentAllocatedCursor(dbOverride?: Db): Promise<number> {
   const coll = dbOverride
     ? dbOverride.collection<ServerStateDoc>('server_state')
     : await serverStateCollection();
