@@ -73,14 +73,22 @@ describe('SqlitePool primitives', () => {
     }
   });
 
-  test('a read on a closed pool throws instead of hanging', async () => {
+  test('a call on a closed pool rejects instead of hanging', async () => {
     const pool = await openTestPool();
     await pool.write('CREATE TABLE t (id INTEGER PRIMARY KEY)');
     pool.close();
 
-    expect(() => pool.read('SELECT 1')).toThrow(/is closed/);
-    expect(() => pool.write('SELECT 1')).toThrow(/is closed/);
-    expect(() => pool.transaction([{ sql: 'SELECT 1' }])).toThrow(/is closed/);
+    const errors = await Promise.all(
+      [pool.read('SELECT 1'), pool.write('SELECT 1'), pool.transaction([{ sql: 'SELECT 1' }])].map(
+        (call) =>
+          call.then(
+            () => null,
+            (e: Error) => e.message,
+          ),
+      ),
+    );
+
+    expect(errors.every((message) => message?.includes('is closed'))).toBe(true);
   });
 });
 
