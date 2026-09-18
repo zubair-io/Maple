@@ -1,6 +1,14 @@
 /**
  * Per-suite scoping of the environment overrides Mongo-backed tests rely on.
  *
+ * SUPERSEDED for anything on the SQLite backend (#3745). Code that reads
+ * SQLite gets its database from `db/sqlite/test-sqlite.test-helpers.ts`, which
+ * isolates per test rather than per suite, needs no external service, and
+ * disposes of its database even when an assertion throws. This file stays
+ * because most of the repository layer is still Mongo-backed and will be until
+ * the ports (#3746–#3751) land; it should not gain new callers in the
+ * meantime, and it goes away with the last of them.
+ *
  * Bun evaluates every module body during the import phase, before any test
  * runs. A suite that assigns `process.env.MAPLE_MONGO_DB` at module scope
  * therefore renames the database for the whole process at import time: when
