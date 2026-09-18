@@ -56,6 +56,18 @@ export function assetsDb(dbOverride?: SqliteDb): SqliteDb {
 }
 
 /**
+ * The same resolution for the people and faces repositories (#3749).
+ *
+ * A separate name rather than a shared `db()` because the call sites read as
+ * prose — `peopleDb(dbOverride)` in a people repo, `assetsDb(dbOverride)` in an
+ * assets one — and because a repository that reached for the other domain's
+ * accessor would then look wrong at a glance.
+ */
+export function peopleDb(dbOverride?: SqliteDb): SqliteDb {
+  return dbOverride ?? sqlitePool();
+}
+
+/**
  * What an update reports, shaped like the driver's `UpdateResult` so callers
  * that read `matchedCount` keep compiling.
  *
