@@ -1,0 +1,225 @@
+/**
+ * "The import finished" and "the import is correct" are different claims with
+ * different evidence. This module produces the second one.
+ *
+ * Four pieces of evidence, and each covers a failure the others cannot see:
+ *
+ *  1. **Row counts, per table, against the source.** The source side is an
+ *    aggregation rather than a document count wherever one document fans out —
+ *    `asset_locations` is the sum of the `fileinfo` array lengths, `stage_state`
+ *    the union of the canonical stage names with whatever the document carries.
+ *    This catches a whole batch lost to a rolled-back transaction, and a mapper
+ *    that quietly skips a row shape.
+ *  2. **Row presence, per sampled document.** Every row the mapper produces for
+ *    a sampled document is looked up with null-safe equality on all of its
+ *    columns, so the row has to be present verbatim. This catches a misaligned
+ *    column list, a value SQLite coerced on the way in, and a row that landed
+ *    in the right table with the wrong contents.
+ *  3. **Field-level probes on sampled assets**, stated independently of the
+ *    mapper. See `verify-assets.ts` — a check that uses the mapper as its own
+ *    definition of correctness cannot catch a mapper that is wrong.
+ *  4. **`PRAGMA foreign_key_check` and the reject list.** The first confirms
+ *    the destination is safe to open with foreign keys on; the second is the
+ *    list of documents that could not be written at all, and a single entry is
+ *    enough to fail the verdict.
+ */
+
+import type { Database } from 'bun:sqlite';
+import type { Db, Document, Filter } from 'mongodb';
+import { ALL_STAGE_NAMES } from '../../../workers/stages/stage-names.ts';
+import { readMeta, readRejects } from './bookkeeping.ts';
+import { IMPORT_PLAN } from './plan/index.ts';
+import {
+  foreignKeyViolations,
+  REPAIR_META_KEY,
+  REQUIRED_FOREIGN_KEYS,
+  type RepairResult,
+} from './repair.ts';
+import type {
+  CollectionPlan,
+  CountCheck,
+  FieldCheck,
+  ImportOptions,
+  MapContext,
+  Row,
+  VerifyReport,
+} from './types.ts';
+import { verifyAssetFields } from './verify-assets.ts';
+
+/** A context that discards notes — verification does not re-count them. */
+const VERIFY_CONTEXT: MapContext = {
+  stageNames: ALL_STAGE_NAMES,
+  note: () => {},
+};
+
+/** Reads back the filter a plan's import actually used. */
+function storedFilter(sqlite: Database, plan: CollectionPlan): Filter<Document> {
+  if (plan.bound === undefined) return {};
+  const remembered = readMeta(sqlite, `bound:${plan.source}`);
+  return remembered === null ? {} : (JSON.parse(remembered) as Filter<Document>);
+}
+
+/**
+ * Rows the repair pass dropped, per table.
+ *
+ * A location under a library root the operator unregistered is a row the source
+ * counts and the destination correctly does not hold, so the expected count has
+ * to be the source count minus what was dropped. Without this the count check
+ * would report a failure for a library that is in fact imported exactly right.
+ */
+function droppedByTable(sqlite: Database): Record<string, number> {
+  const stored = readMeta(sqlite, REPAIR_META_KEY);
+  if (stored === null) return {};
+  const repair = JSON.parse(stored) as RepairResult;
+  const out: Record<string, number> = {};
+  for (const [key, count] of Object.entries(repair.dropped ?? {})) {
+    const table = key.split('.')[0] ?? key;
+    out[table] = (out[table] ?? 0) + count;
+  }
+  return out;
+}
+
+function rowCount(sqlite: Database, table: string): number {
+  const row = sqlite.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
+  return row.n;
+}
+
+/** Per-table row counts, source against destination. */
+export async function verifyCounts(
+  mongo: Db,
+  sqlite: Database,
+  plans: readonly CollectionPlan[] = IMPORT_PLAN,
+): Promise<CountCheck[]> {
+  const dropped = droppedByTable(sqlite);
+  const out: CountCheck[] = [];
+  for (const plan of plans) {
+    const filter = storedFilter(sqlite, plan);
+    const expected = await plan.expected(mongo, filter, VERIFY_CONTEXT);
+    for (const table of plan.tables) {
+      const want = (expected[table] ?? 0) - (dropped[table] ?? 0);
+      const got = rowCount(sqlite, table);
+      out.push({ table, expected: want, actual: got, ok: want === got });
+    }
+  }
+  return out;
+}
+
+/**
+ * Null-safe exact lookup: every column of a mapped row has to match, with `IS`
+ * rather than `=` so a null column compares equal to a null column instead of
+ * to nothing at all.
+ */
+function rowPresent(
+  sqlite: Database,
+  table: string,
+  columns: readonly string[],
+  row: Row,
+): boolean {
+  const predicate = columns.map((column) => `${column} IS ?`).join(' AND ');
+  const found = sqlite
+    .query(`SELECT 1 AS present FROM ${table} WHERE ${predicate} LIMIT 1`)
+    .get(...(row as never[])) as { present: number } | null;
+  return found !== null;
+}
+
+/**
+ * Why a mapped row is legitimately absent, or null when it should be there.
+ *
+ * The repair pass drops a row whose NOT NULL foreign key does not resolve — a
+ * location under a library root that was unregistered, say — so the mapper
+ * producing a row the database does not hold is the correct outcome, not a
+ * failure. Re-asking the same question the repair asked is what tells the two
+ * cases apart.
+ */
+function absentByDesign(
+  sqlite: Database,
+  table: string,
+  columns: readonly string[],
+  row: Row,
+): string | null {
+  for (const fk of REQUIRED_FOREIGN_KEYS) {
+    if (fk.table !== table) continue;
+    const index = columns.indexOf(fk.column);
+    if (index < 0) continue;
+    const value = row[index];
+    if (value === null || value === undefined) continue;
+    const parent = sqlite
+      .query(`SELECT 1 AS present FROM ${fk.parent} WHERE ${fk.parentKey} IS ? LIMIT 1`)
+      .get(value as never);
+    if (parent === null) return `dropped: ${fk.column} does not resolve`;
+  }
+  return null;
+}
+
+/**
+ * Re-maps a sample of every collection and confirms each produced row is
+ * present verbatim.
+ */
+export async function verifyRowsPresent(
+  mongo: Db,
+  sqlite: Database,
+  sample: number,
+  plans: readonly CollectionPlan[] = IMPORT_PLAN,
+): Promise<FieldCheck[]> {
+  const out: FieldCheck[] = [];
+  for (const plan of plans) {
+    const filter = storedFilter(sqlite, plan);
+    const docs = await mongo
+      .collection(plan.source)
+      .find(filter, { sort: { _id: 1 }, limit: sample })
+      .toArray();
+    for (const doc of docs) {
+      const record = doc as unknown as Record<string, unknown>;
+      const sourceId = String(record._id);
+      let batches;
+      try {
+        batches = plan.map(record, VERIFY_CONTEXT);
+      } catch {
+        // Documents the mapper rejects are already on the reject list, which
+        // fails the verdict on its own; re-reporting them here adds noise.
+        continue;
+      }
+      for (const batch of batches) {
+        for (const [index, row] of batch.rows.entries()) {
+          const present = rowPresent(sqlite, batch.table, batch.columns, row);
+          const excuse = present ? null : absentByDesign(sqlite, batch.table, batch.columns, row);
+          out.push({
+            source: plan.source,
+            sourceId,
+            field: `${batch.table}[${index}]`,
+            expected: 'present',
+            actual: present ? 'present' : (excuse ?? 'missing'),
+            ok: present || excuse !== null,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Runs every check and returns the verdict. */
+export async function verifyImport(
+  mongo: Db,
+  sqlite: Database,
+  options: Pick<ImportOptions, 'verifySample'>,
+): Promise<VerifyReport> {
+  const counts = await verifyCounts(mongo, sqlite);
+  const rows = await verifyRowsPresent(mongo, sqlite, options.verifySample);
+  const assetFields = await verifyAssetFields(mongo, sqlite, options.verifySample);
+  const violations = foreignKeyViolations(sqlite);
+  const rejects = readRejects(sqlite);
+  const fields = [...rows, ...assetFields];
+
+  return {
+    counts,
+    fields,
+    foreignKeyViolations: violations,
+    rejects,
+    ok:
+      counts.every((entry) => entry.ok) &&
+      fields.every((entry) => entry.ok) &&
+      Object.keys(violations).length === 0 &&
+      rejects.length === 0,
+  };
+}
