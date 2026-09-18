@@ -109,11 +109,6 @@ CREATE TABLE assets (
                                      OR geo_backfill_skipped IN ('no-donor', 'skip')
                                    ),
 
-  -- Legacy per-stage bookkeeping for the three Phase-2 stages, kept verbatim
-  -- because toDetailDto returns it on the wire. The queryable half lives in
-  -- enrichment_state; this is the DTO mirror.
-  enrichment TEXT CHECK (enrichment IS NULL OR json_valid(enrichment)),
-
   -- JSON payloads, declared last so a narrow SELECT stops reading before them.
   exif   TEXT CHECK (exif IS NULL OR json_valid(exif)),
   place  TEXT CHECK (place IS NULL OR json_valid(place)),
