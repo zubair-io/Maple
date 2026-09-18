@@ -8,6 +8,7 @@
 // to breathe. Text always sits on a scrim over the image so a bright photo
 // can't render it unreadable.
 
+import MapleCloudKit
 import SwiftUI
 import WidgetKit
 
@@ -100,6 +101,11 @@ struct GeneratedSearchWidget: Widget {
     }
     .configurationDisplayName("Rediscover")
     .description("A photo from one of today's collections.")
-    .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+    // #3773: Generated Search is a Maple Cloud feature. `WidgetBundleBuilder`
+    // allows no control flow, so the gate lives here: with the flag off the
+    // widget supports no family and the gallery does not offer it. Tiles
+    // placed before a flag flip are covered by `WidgetSession.current()`.
+    .supportedFamilies(
+      FeatureFlags.isMapleCloudEnabled ? [.systemSmall, .systemMedium, .systemLarge] : [])
   }
 }

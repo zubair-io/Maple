@@ -171,13 +171,18 @@ extension AppShell {
       return
     }
 
-    // 4. Maple Cloud libraries (cached lookup)
-    for serverURL in CloudServerRegistry.shared.servers {
-      if let folders = CloudFoldersCache.load(server: serverURL),
-        let folder = folders.first(where: { $0.id == id })
-      {
-        loadCloudLibrary(serverID: serverURL, folderID: folder.id, libraryPath: folder.path)
-        return
+    // 4. Maple Cloud libraries (cached lookup). Skipped with Maple Cloud off
+    //    (#3773) so a saved link or shared URL can't open a cloud grid the
+    //    sidebar no longer lists — the id falls through to the SMB lookup
+    //    and then logs as not found.
+    if FeatureFlags.isMapleCloudEnabled {
+      for serverURL in CloudServerRegistry.shared.servers {
+        if let folders = CloudFoldersCache.load(server: serverURL),
+          let folder = folders.first(where: { $0.id == id })
+        {
+          loadCloudLibrary(serverID: serverURL, folderID: folder.id, libraryPath: folder.path)
+          return
+        }
       }
     }
 

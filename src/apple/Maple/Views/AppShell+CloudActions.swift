@@ -131,6 +131,11 @@ extension AppShell {
 
     @MainActor
     func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
+        // #3773: the single chokepoint every route into a cloud grid passes
+        // through — sidebar row, cold-start restore, `autoPickInitialSource`,
+        // `maple://source/{id}`. Each caller also checks the flag so it can
+        // fall back somewhere sensible; this guard is the backstop.
+        guard FeatureFlags.isMapleCloudEnabled else { return }
         librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
         cloudCurrentPath = libraryPath
         SourceSelectionStore.save(.cloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath))
@@ -354,6 +359,7 @@ extension AppShell {
     /// anyway.
     @MainActor
     func activateSearch() {
+        guard FeatureFlags.isMapleCloudEnabled else { return }
         guard case .cloudLibrary(let serverID, let folderID) = librarySelection else { return }
         activateSearch(server: serverID, libraryID: folderID)
     }
