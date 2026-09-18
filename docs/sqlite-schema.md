@@ -233,8 +233,8 @@ hand-maintained version — a denormalised number updated at every liveness
 mutation site, which could drift. Triggers on `asset_locations` derive it now, so
 it cannot. It survives because "live" is the base predicate of every facet, and
 written as an `EXISTS` sub-select it costs one B-tree probe per candidate row.
-Measured on 600,000 generated assets, the same count is 0.9 ms against the
-roll-up column and 279 ms via `EXISTS`. As a column it folds into the partial
+Measured on 600,000 generated assets, the same count is 7.3 ms against the
+roll-up column and 285 ms via `EXISTS`. As a column it folds into the partial
 index's `WHERE`; as a sub-select it cannot.
 
 **TTL indexes become a sweep.** Six collections rely on Mongo's TTL monitor to
@@ -295,32 +295,32 @@ starts empty.
 
 | assets    | db file  | `assets` | `asset_locations` | facet + grid index set | `stage_state` + its indexes | `asset_detail` |
 | --------- | -------- | -------- | ----------------- | ---------------------- | --------------------------- | -------------- |
-| 335,377   | 1,779 MB | 310 MB   | 29 MB             | **193 MB**             | 484 MB                      | 478 MB         |
-| 600,000   | 3,175 MB | 555 MB   | 53 MB             | **346 MB**             | 865 MB                      | 852 MB         |
-| 1,000,000 | 5,289 MB | 925 MB   | 88 MB             | **577 MB**             | 1,438 MB                    | 1,422 MB       |
+| 335,377   | 1,777 MB | 307 MB   | 29 MB             | **194 MB**             | 484 MB                      | 477 MB         |
+| 600,000   | 3,173 MB | 549 MB   | 53 MB             | **347 MB**             | 866 MB                      | 852 MB         |
+| 1,000,000 | 5,280 MB | 914 MB   | 88 MB             | **578 MB**             | 1,440 MB                    | 1,418 MB       |
 
 The bolded column is the set every browse, search and facet query actually
 touches: the 18 partial indexes on `assets` plus the six on `asset_locations`.
-At production's row count it is 193 MB, against the 8.8 GB Mongo collection that
+At production's row count it is 194 MB, against the 8.8 GB Mongo collection that
 does not fit a 1.5 GB cache. `asset_detail` is the largest object in the
 database and no hot query reads it, which is the whole reason it is a separate
 table.
 
 | query                               | 335,377   | 600,000   | 1,000,000 |
 | ----------------------------------- | --------- | --------- | --------- |
-| count live assets                   | 3.8 ms    | 6.8 ms    | 14.2 ms   |
-| facet: camera make + model          | 16.2 ms   | 30.5 ms   | 48.7 ms   |
-| facet: place country code           | 5.2 ms    | 12.4 ms   | 20.6 ms   |
-| facet: place locality + region      | 13.3 ms   | 28.6 ms   | 46.6 ms   |
-| facet: lens                         | 12.0 ms   | 22.0 ms   | 35.9 ms   |
-| facet: timeline buckets             | 9.9 ms    | 22.2 ms   | 32.6 ms   |
-| grid page, 200 rows                 | 0.4 ms    | 0.5 ms    | 0.5 ms    |
-| duplicate candidates                | 21.2 ms   | 41.4 ms   | 64.2 ms   |
+| count live assets                   | 3.7 ms    | 7.3 ms    | 13.4 ms   |
+| facet: camera make + model          | 15.5 ms   | 29.3 ms   | 47.1 ms   |
+| facet: place country code           | 5.5 ms    | 12.7 ms   | 20.2 ms   |
+| facet: place locality + region      | 12.9 ms   | 26.9 ms   | 45.2 ms   |
+| facet: lens                         | 12.7 ms   | 22.3 ms   | 36.7 ms   |
+| facet: timeline buckets             | 10.0 ms   | 20.3 ms   | 34.4 ms   |
+| grid page, 200 rows                 | 0.4 ms    | 0.4 ms    | 0.5 ms    |
+| duplicate candidates                | 21.1 ms   | 38.3 ms   | 63.2 ms   |
 | backup sidecar lookup               | < 0.01 ms | < 0.01 ms | < 0.01 ms |
 | stage claim, 500 candidates         | 0.03 ms   | 0.05 ms   | 0.05 ms   |
-| full-text search, selective term    | 0.1 ms    | 0.3 ms    | 0.4 ms    |
-| count live assets via `EXISTS`      | 156 ms    | 283 ms    | 469 ms    |
-| full-text search, term in most rows | 223 ms    | 444 ms    | 877 ms    |
+| full-text search, selective term    | 0.1 ms    | 0.3 ms    | 0.5 ms    |
+| count live assets via `EXISTS`      | 151 ms    | 285 ms    | 460 ms    |
+| full-text search, term in most rows | 226 ms    | 431 ms    | 896 ms    |
 
 The two slow rows are there deliberately. The `EXISTS` count is the version
 without the derived `live_location_count` column, and it is why that column
