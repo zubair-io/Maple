@@ -27,7 +27,7 @@
  *
  * ## The active-batch fence has no index behind it any more
  *
- * `ensureBatchActiveLibraryIndex` (`job-runner/batch-active-index.ts`) creates a
+ * `ensureBatchActiveLibraryIndex`, on MongoDB, created a
  * UNIQUE partial index over `batch_scopes` at first use, and "another settings
  * batch is active in this library" is that index rejecting a duplicate key. The
  * SQLite schema is frozen at the cutover and declares no such index, so the

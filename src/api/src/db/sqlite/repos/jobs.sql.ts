@@ -14,7 +14,7 @@
  * **The active-batch fence is a `NOT EXISTS`, not an index.** On Mongo, "only
  * one settings batch may be active per library" is a UNIQUE partial index over
  * the multikey `batch_scopes` array, created lazily at first use
- * (`job-runner/batch-active-index.ts`). The SQLite schema declares no such
+ * (a lazily-created MongoDB index, now deleted). The SQLite schema declares no such
  * index and is frozen for the cutover, so the fence moves into the statements:
  * {@link insertJobSql} inserts through a `WHERE NOT EXISTS` over the scopes of
  * every *active* batch, and {@link RESUME_BATCH_JOB_SQL} repeats it. Both are

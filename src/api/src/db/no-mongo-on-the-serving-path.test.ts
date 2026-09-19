@@ -26,12 +26,12 @@
  *    suite has to. `bun test` is expected to pass with no mongod running, and
  *    those suites skip when they cannot reach one.
  *
- * `db/client.ts` itself is what this is really about. After the cutover it has
- * no production consumer at all: everything that used to call it now calls a
- * repository, and the importer never used it. So the rule is the simple one —
- * outside tests, nothing imports it. It stays in the tree because reverting
- * this merge has to put the service back on MongoDB (#3752); deleting it is
- * #3785.
+ * `db/client.ts` itself is what this is really about, and it is gone: after the
+ * cutover it had no production consumer at all — everything that used to call
+ * it now calls a repository, and the importer never used it. The first rule
+ * below therefore reads as trivially true today, and that is the point. It is a
+ * ratchet: the module comes back the moment someone writes one import of it,
+ * and this is what fails when they do.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -147,8 +147,8 @@ describe('#3787 — the serving path does not reach MongoDB', () => {
         importsOf(file).some(
           (site) =>
             site.specifier.includes(harness) ||
-            // `db/client.ts` is deleted by this change, so a suite still
-            // naming it does not merely reach MongoDB — it will not resolve.
+            // `db/client.ts` is deleted, so a suite still naming it does not
+            // merely reach MongoDB — it will not resolve.
             site.specifier.includes('db/client.ts') ||
             // A suite that opens its own client reaches MongoDB just as surely
             // as one that goes through the harness, and pointing the test run's

@@ -15,12 +15,11 @@
  *  - **The kind check that decides whether to resolve them at all.** Only
  *    `batch_adjustment_sync` holds a library exclusively.
  *
- * `ensureBatchActiveLibraryIndex` is no longer called from here. It existed to
- * create, lazily and fail-closed, the UNIQUE partial index that made "only one
+ * `ensureBatchActiveLibraryIndex` is gone with the module that held it. It
+ * created, lazily and fail-closed, the UNIQUE partial index that made "only one
  * settings batch per library" true on MongoDB; the SQLite fence is part of the
- * insert statement itself and cannot be absent. `batch-active-index.ts` stays in
- * the tree because `db/client.ts` still reaches for it on the MongoDB side that
- * the boot migration reads; #3785 removes both together.
+ * insert statement itself and cannot be absent, and the only caller of the
+ * lazy creator was the MongoDB client this change deletes.
  */
 
 import { batchScopes } from './batch-scope.ts';
