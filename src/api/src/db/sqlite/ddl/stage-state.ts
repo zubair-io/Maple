@@ -149,7 +149,7 @@ ALTER TABLE stage_state ADD COLUMN media_kind TEXT NOT NULL DEFAULT 'image';
 -- media_kind is repeated as a trailing column although the partial WHERE
 -- already implies it, so a stage narrower than the index — video-describe takes
 -- video and not audio — can reject the rest without also probing assets for
--- each one: 8.5 ms a tick against 19 ms, measured at production shape.
+-- each one: 7 ms a tick against 19, measured at production shape.
 --
 -- Trailing rather than in front of the version column, measured both ways.
 -- In front, the kind becomes a seek and video-describe drops to 0.002 ms — but
@@ -184,7 +184,7 @@ export const STAGE_STATE_MEDIA_NARROWING = `stage_state.media_kind IN ('video', 
  * the same thing `assets.migrations.ts` spells out for `assets_media_kind_av`
  * — and the equality is what rejects the audio rows the index still holds,
  * from the index entry rather than after two keyed probes into `assets`.
- * Dropping the equality costs `video-describe` 19 ms a tick instead of 8.5 at
+ * Dropping the equality costs `video-describe` 19 ms a tick instead of 7 at
  * production shape; dropping the `IN` costs it the index and puts the whole
  * outage back.
  */
