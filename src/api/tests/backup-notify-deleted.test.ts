@@ -1,16 +1,32 @@
+/**
+ * POST /api/libraries/:id/backup/notify-deleted — the device reporting photos
+ * it no longer sees in Apple Photos.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * (#3787). The suite shares one database across the block on purpose: the
+ * second test asserts that the first test's update left an asset linked to a
+ * different device alone, which only means something if the update already ran.
+ */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { foldersCollection, assetsCollection } from '../src/db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { readAsset, seedBackupAsset, seedLibrary } from './helpers/sqlite-fixtures.ts';
+import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const libId = new ObjectId();
 const deviceId = 'test-device-notify-deleted';
 const phid1 = 'DEL/L0/001';
 const phid2 = 'DEL/L0/002';
 const phid3 = 'DEL/L0/003';
+
+let live: LiveTestDatabase;
+let libId: ObjectId;
 let tmpLib: string;
 let assetId1: ObjectId;
 let assetId2: ObjectId;
@@ -18,126 +34,37 @@ let assetId3: ObjectId;
 
 beforeAll(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-notify-del-test-'));
-  const f = await foldersCollection();
-  await f.insertOne({
-    _id: libId,
-    path: tmpLib,
-    label: 'test',
-    created_at: new Date(),
-    file_count: 0,
-  } as any);
+  live = await createLiveTestDatabase();
+  libId = seedLibrary(live.db, { path: tmpLib, label: 'notify-deleted-test' });
+  invalidateLibraryRoots();
 
-  const a = await assetsCollection();
-  await a.deleteMany({ 'fileinfo.library_id': libId });
-
-  assetId1 = new ObjectId();
-  assetId2 = new ObjectId();
-  assetId3 = new ObjectId();
-
-  // Asset rows carry the on-disk pointer on `fileinfo[].library_id` (the
-  // top-level `folder_id`/`abs_path`/`filename` fields were retired in the
-  // drop-abs-path-2026-05-21 migration). Mirror the shape backup-ingest
-  // actually inserts so the route's `fileinfo.library_id` scoping matches.
-  const base = {
+  // The route scopes by a location in this library plus a device link, so each
+  // asset carries both — the shape backup-ingest leaves behind.
+  assetId1 = seedBackupAsset(live.db, {
+    mapleId: 'del-maple-1',
     size: 64,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    deleted_from_photos: false,
-  };
-
-  await a.insertMany([
-    {
-      _id: assetId1,
-      ...base,
-      fileinfo: [
-        {
-          path: '',
-          filename: 'IMG_DEL_1.HEIC',
-          library_id: libId,
-          deleted_at: null,
-        },
-      ],
-      maple_id: 'del-maple-1',
-      phasset_links: [
-        {
-          device_id: deviceId,
-          phasset_local_id: phid1,
-          first_seen: new Date(),
-        },
-      ],
-    },
-    {
-      _id: assetId2,
-      ...base,
-      fileinfo: [
-        {
-          path: '',
-          filename: 'IMG_DEL_2.HEIC',
-          library_id: libId,
-          deleted_at: null,
-        },
-      ],
-      maple_id: 'del-maple-2',
-      phasset_links: [
-        {
-          device_id: deviceId,
-          phasset_local_id: phid2,
-          first_seen: new Date(),
-        },
-      ],
-    },
-    {
-      _id: assetId3,
-      ...base,
-      fileinfo: [
-        {
-          path: '',
-          filename: 'IMG_DEL_3.HEIC',
-          library_id: libId,
-          deleted_at: null,
-        },
-      ],
-      maple_id: 'del-maple-3',
-      // Linked to a DIFFERENT device only — should NOT be updated.
-      phasset_links: [
-        {
-          device_id: 'other-device',
-          phasset_local_id: phid3,
-          first_seen: new Date(),
-        },
-      ],
-    },
-  ] as any[]);
+    locations: [{ libraryId: libId, relPath: 'IMG_DEL_1.HEIC' }],
+    links: [{ deviceId, phassetLocalId: phid1 }],
+  });
+  assetId2 = seedBackupAsset(live.db, {
+    mapleId: 'del-maple-2',
+    size: 64,
+    locations: [{ libraryId: libId, relPath: 'IMG_DEL_2.HEIC' }],
+    links: [{ deviceId, phassetLocalId: phid2 }],
+  });
+  assetId3 = seedBackupAsset(live.db, {
+    mapleId: 'del-maple-3',
+    size: 64,
+    locations: [{ libraryId: libId, relPath: 'IMG_DEL_3.HEIC' }],
+    // Linked to a DIFFERENT device only — should NOT be updated.
+    links: [{ deviceId: 'other-device', phassetLocalId: phid3 }],
+  });
 });
 
 afterAll(async () => {
-  // Drop the asset + folder rows this suite seeded so they don't leak into the
-  // shared Mongo for later test files (KTLO #895) — beforeAll only cleared its
-  // own prior run, never tore down afterward. Scoped to this suite's
-  // libId/deviceId to stay parallel-safe with the sibling backup suites.
-  try {
-    const a = await assetsCollection();
-    await a.deleteMany({
-      $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': deviceId }],
-    });
-    const f = await foldersCollection();
-    await f.deleteMany({ _id: libId });
-  } catch {
-    // Best-effort teardown — never mask a test failure with a cleanup error.
-  }
-  // Guard tmpLib: beforeAll can throw before assigning it, and an unguarded
-  // fs.rm(undefined) would throw and mask the original failure (mirrors the
-  // guard in setupBackupIngestSuite).
-  if (tmpLib) {
-    try {
-      await fs.rm(tmpLib, { recursive: true, force: true });
-    } catch {
-      // Teardown is best-effort; the OS will reclaim the tmpdir.
-    }
-  }
+  live.close();
+  invalidateLibraryRoots();
+  await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
 function notifyDeleted(
@@ -162,18 +89,13 @@ describe('POST /api/libraries/:id/backup/notify-deleted', () => {
     const body = await res.json();
     expect(body.updated).toBe(2);
 
-    const a = await assetsCollection();
-    const doc1 = await a.findOne({ _id: assetId1 });
-    const doc2 = await a.findOne({ _id: assetId2 });
-    expect(doc1?.deleted_from_photos).toBe(true);
-    expect(doc2?.deleted_from_photos).toBe(true);
+    expect(readAsset(live.db, assetId1)?.deleted_from_photos).toBe(1);
+    expect(readAsset(live.db, assetId2)?.deleted_from_photos).toBe(1);
   });
 
   test('does not affect assets linked only to a different device', async () => {
-    const a = await assetsCollection();
-    const doc3 = await a.findOne({ _id: assetId3 });
     // assetId3 is linked to "other-device", not to deviceId.
-    expect(doc3?.deleted_from_photos).toBe(false);
+    expect(readAsset(live.db, assetId3)?.deleted_from_photos).toBe(0);
   });
 
   test('empty phasset_local_ids → 200 with updated:0', async () => {
@@ -203,7 +125,7 @@ describe('POST /api/libraries/:id/backup/notify-deleted', () => {
 
   test('missing phasset_local_ids field → 400', async () => {
     const res = await authedHandle(
-      notifyDeleted({ ids: [phid1] } as any, { 'X-Maple-Device-Id': deviceId }),
+      notifyDeleted({ ids: [phid1] }, { 'X-Maple-Device-Id': deviceId }),
     );
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -212,9 +134,7 @@ describe('POST /api/libraries/:id/backup/notify-deleted', () => {
 
   test('phasset_local_ids is not an array → 400', async () => {
     const res = await authedHandle(
-      notifyDeleted({ phasset_local_ids: 'not-an-array' } as any, {
-        'X-Maple-Device-Id': deviceId,
-      }),
+      notifyDeleted({ phasset_local_ids: 'not-an-array' }, { 'X-Maple-Device-Id': deviceId }),
     );
     expect(res.status).toBe(400);
   });

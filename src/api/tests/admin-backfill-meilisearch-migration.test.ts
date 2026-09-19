@@ -1,44 +1,33 @@
 /**
  * Migration-adapter surface of the Meilisearch backfill (durable progress,
  * reset, dead-letter backlog count). Split from
- * `admin-backfill-meilisearch.test.ts` for the file-size budget — these
- * tests drive `backfillMeilisearchVectors` directly and never touch the
- * HTTP route, so the route/auth boilerplate stays behind.
+ * `admin-backfill-meilisearch.test.ts` for the file-size budget — these tests
+ * drive `backfillMeilisearchVectors` directly and never touch the HTTP route,
+ * so the route/auth boilerplate stays behind.
+ *
+ * The adapter reaches `sqliteDb()` with no override, so each test installs a
+ * private database for its block (#3787) and reads the stored resume point
+ * back through `readBackfillState` rather than by querying the table.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { afterEach, describe, expect, it } from 'bun:test';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchAssetDoc,
 } from '../src/enrichment/meilisearch-client.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { createLiveTestDatabase, insertFolder } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { readBackfillState } from '../src/db/sqlite/repos/meilisearch-backfill.repo.ts';
+import { BROKEN_PLACE, seedIndexableAsset } from './helpers/meili-backfill-fixtures.ts';
+import { backfillMeilisearchVectors } from '../src/workers/migration/backfill-meilisearch-vectors.ts';
+import { resetMigrationState } from '../src/workers/migration-config.repo.ts';
+import { BACKFILL_MEILISEARCH_VECTORS_ID } from '../src/workers/migration/ids.ts';
 
-const TEST_DB = withTestDb(`maple_test_meili_backfill_mig_${process.pid}`);
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+afterEach(() => {
+  setMeilisearchClientForTests(null);
+});
 
 interface CapturedMeili {
   client: MeilisearchClient;
@@ -88,102 +77,15 @@ function makeCapturingMeili(configured = true): CapturedMeili {
   return c;
 }
 
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[admin-backfill-meilisearch-migration.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-  await db!.collection('people').deleteMany({});
-  await db!.collection('meilisearch_backfill_state').deleteMany({});
-  await db!.collection('meilisearch_backfill_failures').deleteMany({});
-  await db!.collection('meilisearch_backfill_leases').deleteMany({});
-  setMeilisearchClientForTests(null);
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-  setMeilisearchClientForTests(null);
-});
-
-const FOLDER = new ObjectId();
-
-function makeRow(mapleId: string, blob: string | null, opts: { deletedAt?: string | null } = {}) {
-  return {
-    folder_id: FOLDER,
-    maple_id: mapleId,
-    abs_path: `/lib/${mapleId}.dng`,
-    filename: `${mapleId}.dng`,
-    size: 1024,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    exif: {
-      captured_at: '2024-06-01T12:00:00.000Z',
-      captured_year: 2024,
-      captured_month: 6,
-      camera_make: null,
-      camera_model: null,
-      lens: null,
-      iso: null,
-      aperture: null,
-      shutter: null,
-      focal_length: null,
-      gps: null,
-    },
-    // Top-level unified blob — what the meili stage persists and what the
-    // backfill cursor filters on. Empty/absent ⇒ filtered out.
-    search_blob: blob ?? '',
-    place:
-      blob === null
-        ? null
-        : {
-            source: 'nominatim',
-            geocoder_version: 1,
-            geocoded_at: '2026-05-08T00:00:00.000Z',
-            lat: 0,
-            lon: 0,
-            display_name: blob,
-            address: {},
-            pois: [],
-            rollups: { locality: null, region: null, country_code: null },
-            search_blob: blob,
-          },
-    deleted_at: opts.deletedAt ?? null,
-  };
-}
-
 describe('Meilisearch backfill migration adapter', () => {
   it('exposes durable progress and reset through the migration adapter', async () => {
-    if (!mongoReachable) return;
-    await db!
-      .collection('assets')
-      .insertMany([
-        makeRow('migration-a', 'boiler installation'),
-        makeRow('migration-b', 'heat pump'),
-        makeRow('migration-c', 'air handler'),
-      ]);
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/library' });
+    for (const mapleId of ['migration-a', 'migration-b', 'migration-c']) {
+      seedIndexableAsset(live.db, { mapleId, placeSearchBlob: 'heat pump' });
+    }
     const meili = makeCapturingMeili();
     setMeilisearchClientForTests(meili.client);
-    const { backfillMeilisearchVectors } =
-      await import('../src/workers/migration/backfill-meilisearch-vectors.ts');
     expect(backfillMeilisearchVectors.preferredBatchSize).toBe(50);
 
     expect(await backfillMeilisearchVectors.countRemaining()).toBe(3);
@@ -202,9 +104,7 @@ describe('Meilisearch backfill migration adapter', () => {
       complete: true,
     });
     expect(await backfillMeilisearchVectors.countRemaining()).toBe(0);
-    const state = await db!
-      .collection<{ _id: string; completed_at?: string | null }>('meilisearch_backfill_state')
-      .findOne({ _id: 'assets' });
+    const state = await readBackfillState();
     expect(state?.completed_at).not.toBeNull();
 
     // A confirming poll after completion is idempotent. Only an explicit
@@ -216,36 +116,25 @@ describe('Meilisearch backfill migration adapter', () => {
       complete: true,
     });
     expect(meili.upserts).toHaveLength(upsertCount);
-    expect(
-      await db!
-        .collection<{ _id: string }>('meilisearch_backfill_state')
-        .findOne({ _id: 'assets' }),
-    ).toEqual(state);
+    expect(await readBackfillState()).toEqual(state);
 
-    const { resetMigrationState } = await import('../src/workers/migration-config.repo.ts');
-    const { BACKFILL_MEILISEARCH_VECTORS_ID } = await import('../src/workers/migration/ids.ts');
     await resetMigrationState(BACKFILL_MEILISEARCH_VECTORS_ID);
     expect(await backfillMeilisearchVectors.countRemaining()).toBe(3);
   });
 
   it('surfaces the live dead-letter backlog through the migration adapter', async () => {
-    if (!mongoReachable) return;
-    await db!.collection('assets').insertOne({
-      ...makeRow('status-broken', 'bad folder id'),
-      folder_id: 'not-an-object-id',
-    });
-    const meili = makeCapturingMeili();
-    setMeilisearchClientForTests(meili.client);
-    const { backfillMeilisearchVectors } =
-      await import('../src/workers/migration/backfill-meilisearch-vectors.ts');
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/library' });
+    seedIndexableAsset(live.db, { mapleId: 'status-broken', placeSearchBlob: BROKEN_PLACE });
+    setMeilisearchClientForTests(makeCapturingMeili().client);
 
     // A migration without a dead-letter queue omits the field entirely; this
     // one always implements it.
     expect(backfillMeilisearchVectors.countFailedPermanently).toBeDefined();
     expect(await backfillMeilisearchVectors.countFailedPermanently!()).toBe(0);
 
-    // The row's folder_id never becomes valid, so both the initial compose
-    // failure and the same-run redrive re-attempt fail — the row stays
+    // The row's place blob never becomes composable, so both the initial
+    // compose failure and the same-run redrive re-attempt fail — the row stays
     // dead-lettered and the live count reflects it.
     await backfillMeilisearchVectors.runBatch(10);
     expect(await backfillMeilisearchVectors.countFailedPermanently!()).toBe(1);

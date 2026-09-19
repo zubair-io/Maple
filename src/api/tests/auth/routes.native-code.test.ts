@@ -1,18 +1,27 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+/**
+ * Native PKCE code exchange (#856): a signed-in web page mints a one-time code
+ * bound to a PKCE challenge, and the Apple shell redeems it — with the
+ * verifier — for its own device-scoped tokens.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), so the refresh token counted after a redeem is the one
+ * that redeem minted.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { authRoutes } from '../../src/routes/auth.ts';
 import {
   nativeCodeRedeemRoutes,
   nativeCodeIssueRoutes,
 } from '../../src/routes/auth-native-code.ts';
-import {
-  usersCollection,
-  nativeAuthCodesCollection,
-  refreshTokensCollection,
-} from '../../src/db/client.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
 import { pkceS256 } from '../../src/auth/native_code_store.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedUser } from '../helpers/sqlite-fixtures.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const app = new Elysia()
@@ -22,27 +31,30 @@ const app = new Elysia()
   // scoped-derive stays contained and doesn't gate the public redeem.
   .use(new Elysia().use(nativeCodeIssueRoutes));
 
+let live: LiveTestDatabase;
 let userId: ObjectId;
 let bearer: string;
 
 beforeEach(async () => {
-  for (const c of [usersCollection, nativeAuthCodesCollection, refreshTokensCollection]) {
-    await (await c()).deleteMany({});
-  }
-  const ins = await (
-    await usersCollection()
-  ).insertOne({
-    email: 'owner@maple.local',
-    role: 'owner',
-    created_at: new Date().toISOString(),
-    last_seen_at: null,
-  });
-  userId = ins.insertedId;
+  live = await createLiveTestDatabase();
+  userId = seedUser(live.db, { email: 'owner@maple.local', role: 'owner' });
   bearer = await signAccessToken(
     { file_access: true, sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
     process.env.MAPLE_JWT_SECRET!,
   );
 });
+
+afterEach(() => {
+  live.close();
+});
+
+/** How many refresh tokens this account holds. */
+function refreshTokenCount(): number {
+  const row = live.db
+    .query(`SELECT count(*) AS n FROM refresh_tokens WHERE user_id = ?`)
+    .get(userId.toHexString()) as { n: number };
+  return row.n;
+}
 
 const issue = (headers: Record<string, string>, challenge: string, state = 'state-abcdef') =>
   app.handle(
@@ -74,22 +86,24 @@ describe('native code exchange (#856)', () => {
     const verifier = 'the-verifier-value-1234567890';
     const issueRes = await issue({ authorization: `Bearer ${bearer}` }, pkceS256(verifier));
     expect(issueRes.status).toBe(200);
-    const { code } = await issueRes.json();
+    const { code } = (await issueRes.json()) as { code: string };
     expect(typeof code).toBe('string');
 
     const redeemRes = await redeem(code, verifier);
     expect(redeemRes.status).toBe(200);
-    const body = await redeemRes.json();
+    const body = (await redeemRes.json()) as {
+      access_token: string;
+      refresh_token: string;
+      user: { id: string };
+      state: string;
+    };
     expect(typeof body.access_token).toBe('string');
     expect(typeof body.refresh_token).toBe('string');
     expect(body.user.id).toBe(userId.toHexString());
     expect(body.state).toBe('state-abcdef');
 
     // A fresh device-scoped refresh token was minted (not the webview's token).
-    const refreshCount = await (
-      await refreshTokensCollection()
-    ).countDocuments({ user_id: userId });
-    expect(refreshCount).toBe(1);
+    expect(refreshTokenCount()).toBe(1);
 
     // Single-use: a replay of the same code fails.
     const reuse = await redeem(code, verifier);
@@ -101,7 +115,7 @@ describe('native code exchange (#856)', () => {
       { authorization: `Bearer ${bearer}` },
       pkceS256('right-verifier-xyz'),
     );
-    const { code } = await issueRes.json();
+    const { code } = (await issueRes.json()) as { code: string };
     const r = await redeem(code, 'wrong-verifier-xyz');
     expect(r.status).toBe(400);
   });

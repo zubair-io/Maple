@@ -1,98 +1,52 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { ObjectId } from 'mongodb';
+/**
+ * GET /api/libraries/:id/backup/state — the device reconciliation feed.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787). Each test gets its own, so there is nothing to clean
+ * up between them and nothing for a sibling suite to inherit.
+ */
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import type { ObjectId } from 'mongodb';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { assetsCollection, foldersCollection } from '../src/db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedBackupAsset, seedLibrary } from './helpers/sqlite-fixtures.ts';
+import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const libId = new ObjectId();
 const deviceId = 'test-device-state';
+
+let live: LiveTestDatabase;
+let libId: ObjectId;
 let tmpLib: string;
 
-beforeAll(async () => {
+beforeEach(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-state-test-'));
-  await (
-    await foldersCollection()
-  ).insertOne({
-    _id: libId,
-    path: tmpLib,
-    label: 'state-test',
-    created_at: new Date(),
-    file_count: 0,
-  } as any);
-  const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+  live = await createLiveTestDatabase();
+  libId = seedLibrary(live.db, { path: tmpLib, label: 'state-test' });
   invalidateLibraryRoots();
-  const a = await assetsCollection();
-  await a.deleteMany({ 'phasset_links.device_id': deviceId });
-  // Post drop-abs-path-2026-05-21: persisted on-disk pointer is on
-  // `fileinfo[]`. The backup-state route reads `fileinfo[]` to
-  // compose rel_path; library root resolution comes from the folder
-  // seeded above. Each asset's `fileinfo[0].filename` is its on-disk
-  // basename, and `path: ""` puts it at the library root.
-  await a.insertMany([
-    {
-      fileinfo: [{ library_id: libId, path: '', filename: 'a.heic', deleted_at: null }],
-      size: 1,
-      mtime: 0,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-05-11T00:00:00Z',
-      maple_id: 'hash-a',
-      phasset_links: [
-        {
-          device_id: deviceId,
-          phasset_local_id: 'P1',
-          first_seen: new Date('2026-05-10T00:00:00Z'),
-        },
-      ],
-    },
-    {
-      fileinfo: [{ library_id: libId, path: '', filename: 'b.heic', deleted_at: null }],
-      size: 1,
-      mtime: 0,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-05-11T00:00:00Z',
-      maple_id: 'hash-b',
-      phasset_links: [
-        {
-          device_id: deviceId,
-          phasset_local_id: 'P2',
-          first_seen: new Date('2026-05-11T01:00:00Z'),
-        },
-      ],
-    },
-  ] as any);
+  // `path: ''` puts each file at the library root, so `rel_path` is the bare
+  // filename — which is what the route composes from the asset's location.
+  seedBackupAsset(live.db, {
+    mapleId: 'hash-a',
+    locations: [{ libraryId: libId, relPath: 'a.heic' }],
+    links: [{ deviceId, phassetLocalId: 'P1', firstSeen: new Date('2026-05-10T00:00:00Z') }],
+  });
+  seedBackupAsset(live.db, {
+    mapleId: 'hash-b',
+    locations: [{ libraryId: libId, relPath: 'b.heic' }],
+    links: [{ deviceId, phassetLocalId: 'P2', firstSeen: new Date('2026-05-11T01:00:00Z') }],
+  });
 });
 
-afterAll(async () => {
-  // Drop the asset + folder rows this suite seeded so they don't leak into the
-  // shared Mongo for later test files (KTLO #895) — beforeAll only cleared its
-  // own prior run, never tore down afterward. Scoped to this suite's
-  // libId/deviceId to stay parallel-safe with the sibling backup suites.
-  try {
-    const a = await assetsCollection();
-    await a.deleteMany({
-      $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': deviceId }],
-    });
-    const f = await foldersCollection();
-    await f.deleteMany({ _id: libId });
-  } catch {
-    // Best-effort teardown — never mask a test failure with a cleanup error.
-  }
-  // Guard tmpLib: beforeAll can throw before assigning it, and an unguarded
-  // fs.rm(undefined) would throw and mask the original failure (mirrors the
-  // guard in setupBackupIngestSuite).
-  if (tmpLib) {
-    try {
-      await fs.rm(tmpLib, { recursive: true, force: true });
-    } catch {
-      // Teardown is best-effort; the OS will reclaim the tmpdir.
-    }
-  }
+afterEach(async () => {
+  live.close();
+  invalidateLibraryRoots();
+  await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
 describe('GET /api/libraries/:id/backup/state', () => {
@@ -143,5 +97,17 @@ describe('GET /api/libraries/:id/backup/state', () => {
       // Must be a bare relative path — no '..' escaping the root
       expect(asset.rel_path.startsWith('..')).toBe(false);
     }
+  });
+
+  test('an asset whose only location in this library is trashed is left out', async () => {
+    seedBackupAsset(live.db, {
+      mapleId: 'hash-c',
+      locations: [{ libraryId: libId, relPath: 'c.heic', deletedAt: '2026-05-12T00:00:00Z' }],
+      links: [{ deviceId, phassetLocalId: 'P3', firstSeen: new Date('2026-05-11T02:00:00Z') }],
+    });
+    const url = `http://localhost/api/libraries/${libId.toHexString()}/backup/state?device_id=${deviceId}`;
+    const res = await authedHandle(new Request(url));
+    const body = await res.json();
+    expect(body.assets.map((a: any) => a.phasset_local_id).sort()).toEqual(['P1', 'P2']);
   });
 });

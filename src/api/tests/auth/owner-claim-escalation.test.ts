@@ -10,47 +10,38 @@
  * even consuming their invite.
  *
  * Drives the real assembled app over the soft-authenticator ceremony,
- * mirroring auth-flow-e2e.test.ts. Real Mongo required (skips when
- * unreachable via the shared harness convention: collections just fail).
+ * mirroring auth-flow-e2e.test.ts. Storage is a private SQLite database
+ * installed as the process-wide handle for each test (#3787) — which is what
+ * makes "users exist but the sentinel does not" a state each test can simply
+ * seed, instead of one it has to carve out of a shared database.
  */
-import { describe, it, expect, beforeEach } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import type { ObjectId } from 'mongodb';
 import { buildApp } from '../../src/index.ts';
-import {
-  usersCollection,
-  credentialsCollection,
-  invitesCollection,
-  challengesCollection,
-  serverStateCollection,
-} from '../../src/db/client.ts';
 import { OWNER_CLAIM_ID, backfillOwnershipClaim } from '../../src/auth/server_claim.ts';
-import { withTestDb, withTestEnv } from '../../src/db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedInvite, seedUser } from '../helpers/sqlite-fixtures.ts';
 import { buildRegistrationResponse } from './helpers/soft-authn.ts';
 
-// Suite-scoped env + per-file database (#2900/#2904 convention): claimed in
-// beforeAll, restored in afterAll — standalone runs must never touch the dev
-// DB, and the WebAuthn/JWT settings must not leak into sibling suites. The
-// auth stack reads these at request time, so `buildApp` at module scope is
-// fine.
-withTestEnv('MAPLE_RP_ID', 'localhost');
-withTestEnv('MAPLE_ORIGIN', 'http://localhost:3000');
-withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
-withTestDb(`maple_test_owner_claim_${process.pid}`);
+process.env.MAPLE_RP_ID = 'localhost';
+process.env.MAPLE_ORIGIN = 'http://localhost:3000';
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
 const RP_ID = 'localhost';
 const ORIGIN = 'http://localhost:3000';
 const app = buildApp({ stageNames: [] });
 
+let live: LiveTestDatabase;
+
 beforeEach(async () => {
-  for (const c of [
-    usersCollection,
-    credentialsCollection,
-    invitesCollection,
-    challengesCollection,
-  ]) {
-    await (await c()).deleteMany({});
-  }
-  await (await serverStateCollection()).deleteOne({ _id: OWNER_CLAIM_ID });
+  live = await createLiveTestDatabase();
+});
+
+afterEach(() => {
+  live.close();
 });
 
 function post(path: string, body: unknown, ip: string): Promise<Response> {
@@ -64,30 +55,13 @@ function post(path: string, body: unknown, ip: string): Promise<Response> {
 }
 
 /** Seed an owner the way dev-login does: user row only, NO sentinel. */
-async function seedDevLoginStyleOwner(): Promise<ObjectId> {
-  const ins = await (
-    await usersCollection()
-  ).insertOne({
-    email: 'operator@maple.test',
-    role: 'owner',
-    created_at: new Date().toISOString(),
-    last_seen_at: null,
-  });
-  return ins.insertedId;
+function seedDevLoginStyleOwner(): ObjectId {
+  return seedUser(live.db, { email: 'operator@maple.test', role: 'owner' });
 }
 
-async function seedInvite(email: string, invitedBy: ObjectId): Promise<string> {
-  const code = 'INVITE01';
-  await (
-    await invitesCollection()
-  ).insertOne({
-    code,
-    email,
-    invited_by: invitedBy,
-    expires_at: new Date(Date.now() + 60 * 60 * 1000),
-    consumed_at: null,
-  });
-  return code;
+/** True when the ownership sentinel row is planted. */
+function sentinelPlanted(): boolean {
+  return live.db.query(`SELECT id FROM server_state WHERE id = ?`).get(OWNER_CLAIM_ID) !== null;
 }
 
 /** The invited-member registration ceremony (options → soft-authn → verify). */
@@ -106,8 +80,14 @@ async function registerInvited(email: string, inviteCode: string, ip: string) {
 
 describe('owner-claim escalation (#2920)', () => {
   it('an invited registrant is a MEMBER even when the sentinel is missing', async () => {
-    const ownerID = await seedDevLoginStyleOwner();
-    const code = await seedInvite('invitee@maple.test', ownerID);
+    const ownerID = seedDevLoginStyleOwner();
+    const code = 'INVITE01';
+    seedInvite(live.db, {
+      code,
+      email: 'invitee@maple.test',
+      invitedBy: ownerID,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
 
     const res = await registerInvited('invitee@maple.test', code, '203.0.113.10');
     expect(res.status).toBe(200);
@@ -115,11 +95,15 @@ describe('owner-claim escalation (#2920)', () => {
     expect(body.user?.role).toBe('member');
 
     // The invite was consumed on the member path.
-    const invite = await (await invitesCollection()).findOne({ code });
+    const invite = live.db.query(`SELECT consumed_at FROM invites WHERE code = ?`).get(code) as {
+      consumed_at: string | null;
+    } | null;
     expect(invite?.consumed_at).not.toBeNull();
 
     // And the stored row agrees with the response.
-    const stored = await (await usersCollection()).findOne({ email: 'invitee@maple.test' });
+    const stored = live.db
+      .query(`SELECT role FROM users WHERE email = ?`)
+      .get('invitee@maple.test') as { role: string } | null;
     expect(stored?.role).toBe('member');
   });
 
@@ -140,19 +124,20 @@ describe('owner-claim escalation (#2920)', () => {
     expect(verifyRes.status).toBe(200);
     const body = (await verifyRes.json()) as { user?: { role: string } };
     expect(body.user?.role).toBe('owner');
-    expect(await (await serverStateCollection()).findOne({ _id: OWNER_CLAIM_ID })).not.toBeNull();
+    expect(sentinelPlanted()).toBe(true);
   });
 
   it('backfillOwnershipClaim plants the sentinel only when users exist', async () => {
     // Fresh install: no users → no sentinel (first registration must claim).
     await backfillOwnershipClaim();
-    expect(await (await serverStateCollection()).findOne({ _id: OWNER_CLAIM_ID })).toBeNull();
+    expect(sentinelPlanted()).toBe(false);
 
     // Pre-sentinel install: users exist → sentinel planted, idempotently.
-    await seedDevLoginStyleOwner();
+    seedDevLoginStyleOwner();
     await backfillOwnershipClaim();
-    expect(await (await serverStateCollection()).findOne({ _id: OWNER_CLAIM_ID })).not.toBeNull();
+    expect(sentinelPlanted()).toBe(true);
     await backfillOwnershipClaim();
+    expect(sentinelPlanted()).toBe(true);
   });
 
   it('dev-login plants the sentinel alongside the owner it creates', async () => {
@@ -160,7 +145,7 @@ describe('owner-claim escalation (#2920)', () => {
     try {
       const res = await post('/api/auth/dev-login', { email: 'dev@maple.local' }, '203.0.113.12');
       expect(res.status).toBe(200);
-      expect(await (await serverStateCollection()).findOne({ _id: OWNER_CLAIM_ID })).not.toBeNull();
+      expect(sentinelPlanted()).toBe(true);
     } finally {
       delete process.env.MAPLE_DEV_AUTH;
     }

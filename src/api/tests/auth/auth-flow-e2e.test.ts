@@ -4,8 +4,8 @@
  *
  * Drives the REAL assembled app (`buildApp` — the same mount as production
  * `index.ts`: the `requireAuth` sub-app containment and the wrapped native-code
- * issue route) over HTTP against a real Mongo. This proves the pieces COMPOSE,
- * not just that each unit works in isolation:
+ * issue route) over HTTP. This proves the pieces COMPOSE, not just that each
+ * unit works in isolation:
  *
  *  - claim issues an access token + httpOnly refresh cookie, with NO
  *    `refresh_token` in the JSON body (#857)
@@ -26,47 +26,39 @@
  * Each scenario uses a distinct `x-forwarded-for` so the shared `auth:${ip}`
  * 10/min limiter (register/login verify + refresh + redeem all share it) never
  * trips across scenarios.
+ *
+ * Storage is a private SQLite database installed as the process-wide handle for
+ * each test (#3787): every scenario starts from an unclaimed server — ownership
+ * sentinel included — with no delete pass to get it there.
  */
 process.env.MAPLE_RP_ID = 'localhost';
 process.env.MAPLE_ORIGIN = 'http://localhost:3000';
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { buildApp } from '../../src/index.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
 import { pkceS256 } from '../../src/auth/native_code_store.ts';
 import {
-  usersCollection,
-  credentialsCollection,
-  invitesCollection,
-  refreshTokensCollection,
-  challengesCollection,
-  nativeAuthCodesCollection,
-  lanHandoffCodesCollection,
-  serverStateCollection,
-} from '../../src/db/client.ts';
-import { OWNER_CLAIM_ID } from '../../src/auth/server_claim.ts';
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedUser } from '../helpers/sqlite-fixtures.ts';
 import { buildRegistrationResponse, type SoftAuthenticator } from './helpers/soft-authn.ts';
 
 const RP_ID = 'localhost';
 const ORIGIN = 'http://localhost:3000';
 const app = buildApp({ stageNames: [] });
 
+let live: LiveTestDatabase;
+
 beforeEach(async () => {
-  for (const c of [
-    usersCollection,
-    credentialsCollection,
-    invitesCollection,
-    refreshTokensCollection,
-    challengesCollection,
-    nativeAuthCodesCollection,
-    lanHandoffCodesCollection,
-  ]) {
-    await (await c()).deleteMany({});
-  }
-  // #865: clear the ownership-claim sentinel so each scenario can claim fresh.
-  await (await serverStateCollection()).deleteOne({ _id: OWNER_CLAIM_ID });
+  live = await createLiveTestDatabase();
+});
+
+afterEach(() => {
+  live.close();
 });
 
 // --- HTTP helpers -----------------------------------------------------------
@@ -196,16 +188,9 @@ describe('auth lifecycle e2e (#852 stack)', () => {
   it('native PKCE: authed issue → public redeem → device-scoped tokens; the code is single-use', async () => {
     const ip = '198.51.100.4';
     const email = 'native@maple.test';
-    const ins = await (
-      await usersCollection()
-    ).insertOne({
-      email,
-      role: 'owner',
-      created_at: new Date().toISOString(),
-      last_seen_at: null,
-    });
+    const userId = seedUser(live.db, { email, role: 'owner' });
     const bearer = await signAccessToken(
-      { file_access: true, sub: ins.insertedId.toHexString(), email, role: 'owner' },
+      { file_access: true, sub: userId.toHexString(), email, role: 'owner' },
       process.env.MAPLE_JWT_SECRET!,
     );
     const verifier = 'v'.repeat(64);

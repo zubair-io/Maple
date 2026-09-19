@@ -3,6 +3,12 @@
  * `app.handle` (no auth — we mount the route without `requireAuth` for tests,
  * mirroring the enrichment-route + search-route patterns).
  *
+ * Real SQLite, installed as the process-wide handle for the length of each
+ * test, because the route reaches `sqliteDb()` with no override. A fresh
+ * database per test replaces the `deleteMany({})` on `app_settings` the Mongo
+ * version ran between tests, and the settings document is both seeded and read
+ * back through `app-settings.repo.ts` rather than by hand.
+ *
  * The SigNoz `/v1/traces` probe is faked by stubbing `globalThis.fetch` for
  * the duration of each test — no network calls.
  *
@@ -13,57 +19,15 @@
  * process. `shutdownOtel` runs in afterAll as belt-and-braces.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
+import { describe, it, expect, afterAll, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, type Db } from 'mongodb';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { observabilityRoutes } from '../src/routes/observability.ts';
+import { patchAppSettings, readAppSettings } from '../src/db/sqlite/repos/app-settings.repo.ts';
+import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_observability_route_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let app: Pick<Elysia, 'handle'> | null = null;
+const app = new Elysia().use(observabilityRoutes);
 
 const realFetch = globalThis.fetch;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[observability-route.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-  const { observabilityRoutes } = await import('../src/routes/observability.ts');
-  app = new Elysia().use(observabilityRoutes);
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
-});
 
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -72,13 +36,13 @@ afterEach(() => {
 afterAll(async () => {
   const { shutdownOtel } = await import('../src/otel.ts');
   await shutdownOtel();
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
 });
+
+/** The persisted config document — including the key the wire never echoes. */
+async function savedConfig(): Promise<{ ingestion_key?: string | null } | undefined> {
+  const doc = await readAppSettings<{ config: { ingestion_key?: string | null } }>('observability');
+  return doc?.config;
+}
 
 function stubFetch(handler: (url: string) => { status?: number; body?: unknown } | Error): void {
   globalThis.fetch = (async (input: string | URL | Request) => {
@@ -92,7 +56,7 @@ function stubFetch(handler: (url: string) => { status?: number; body?: unknown }
 }
 
 async function get(path: string): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(new Request(`http://localhost${path}`));
+  const res = await app.handle(new Request(`http://localhost${path}`));
   return {
     status: res.status,
     body: res.status === 204 ? null : await res.json(),
@@ -103,7 +67,7 @@ async function put(
   path: string,
   body: Record<string, unknown>,
 ): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(
+  const res = await app.handle(
     new Request(`http://localhost${path}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -120,7 +84,7 @@ async function post(
   path: string,
   body: Record<string, unknown>,
 ): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(
+  const res = await app.handle(
     new Request(`http://localhost${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -135,7 +99,7 @@ async function post(
 
 describe('GET /api/observability/config', () => {
   it('returns defaults when no DB row exists', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await get('/api/observability/config');
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({
@@ -147,15 +111,14 @@ describe('GET /api/observability/config', () => {
   });
 
   it('returns the saved DB row but REDACTS the ingestion key', async () => {
-    if (!mongoReachable) return;
-    await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').insertOne({
-      _id: 'observability',
+    using live = await createLiveTestDatabase();
+    await patchAppSettings('observability', {
       config: {
         endpoint: 'https://from-db.test:4318',
         ingestion_key: 'db-secret-key',
         updated_at: 1,
       },
-    } as never);
+    });
     const r = await get('/api/observability/config');
     expect(r.status).toBe(200);
     const body = r.body as {
@@ -175,14 +138,14 @@ describe('GET /api/observability/config', () => {
 
 describe('PUT /api/observability/config — endpoint validation', () => {
   it('rejects a malformed endpoint with 400', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/observability/config', { endpoint: 'not-a-url' });
     expect(r.status).toBe(400);
     expect((r.body as { error: string }).error).toMatch(/Invalid endpoint/);
   });
 
   it('rejects a file:// endpoint with 400', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/observability/config', {
       endpoint: 'file:///etc/passwd',
     });
@@ -191,7 +154,7 @@ describe('PUT /api/observability/config — endpoint validation', () => {
   });
 
   it('saves and strips the trailing slash, reporting source db', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/observability/config', {
       endpoint: 'https://ingest.signoz.test:4318/',
       enabled: false,
@@ -203,7 +166,7 @@ describe('PUT /api/observability/config — endpoint validation', () => {
   });
 
   it('clears the endpoint when null is supplied', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await put('/api/observability/config', {
       endpoint: 'https://x.test',
       enabled: false,
@@ -216,20 +179,20 @@ describe('PUT /api/observability/config — endpoint validation', () => {
 
 describe('PUT /api/observability/config — sample_ratio validation', () => {
   it('rejects a ratio above 1', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/observability/config', { sample_ratio: 1.5 });
     expect(r.status).toBe(400);
     expect((r.body as { error: string }).error).toMatch(/sample_ratio/);
   });
 
   it('rejects a ratio below 0', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/observability/config', { sample_ratio: -0.1 });
     expect(r.status).toBe(400);
   });
 
   it('accepts a valid ratio and reflects it with source db', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/observability/config', { sample_ratio: 0.3 });
     expect(r.status).toBe(200);
     const body = r.body as {
@@ -241,7 +204,7 @@ describe('PUT /api/observability/config — sample_ratio validation', () => {
   });
 
   it('accepts the boundary values 0 and 1', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     expect((await put('/api/observability/config', { sample_ratio: 0 })).status).toBe(200);
     expect((await put('/api/observability/config', { sample_ratio: 1 })).status).toBe(200);
   });
@@ -249,7 +212,7 @@ describe('PUT /api/observability/config — sample_ratio validation', () => {
 
 describe('PUT/GET /api/observability/config — ingestion_key write semantics', () => {
   it('a non-empty string sets the key, persists it, but never echoes it', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/observability/config', {
       ingestion_key: 'set-me',
     });
@@ -263,42 +226,27 @@ describe('PUT/GET /api/observability/config — ingestion_key write semantics', 
     expect((got.body as { ingestion_key?: string }).ingestion_key).toBeUndefined();
     expect((got.body as { ingestion_key_set: boolean }).ingestion_key_set).toBe(true);
     // Persisted in the DB even though it's never returned.
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne<{ config: { ingestion_key?: string } }>({
-        _id: 'observability',
-      } as never);
-    expect(saved!.config.ingestion_key).toBe('set-me');
+    expect((await savedConfig())!.ingestion_key).toBe('set-me');
   });
 
   it('a blank/empty-string key leaves the saved key unchanged', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await put('/api/observability/config', { ingestion_key: 'keep-me' });
     await put('/api/observability/config', { ingestion_key: '' });
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne<{ config: { ingestion_key?: string } }>({
-        _id: 'observability',
-      } as never);
-    expect(saved!.config.ingestion_key).toBe('keep-me');
+    expect((await savedConfig())!.ingestion_key).toBe('keep-me');
   });
 
   it('an explicit null clears the saved key', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await put('/api/observability/config', { ingestion_key: 'delete-me' });
     await put('/api/observability/config', { ingestion_key: null });
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne<{ config: { ingestion_key?: string | null } }>({
-        _id: 'observability',
-      } as never);
-    expect(saved!.config.ingestion_key).toBeNull();
+    expect((await savedConfig())!.ingestion_key).toBeNull();
   });
 });
 
 describe('POST /api/observability/test', () => {
   it('returns ok:true on a 2xx OTLP (application/json) response', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     let calledUrl = '';
     let sawToken = false;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -324,7 +272,7 @@ describe('POST /api/observability/test', () => {
   });
 
   it('returns ok:false + a :4318 recommendation when a 2xx is HTML (wrong UI port)', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     // SigNoz UI/query port (8080) answers 200 with an HTML SPA page, NOT OTLP.
     globalThis.fetch = (async () =>
       new Response('<!doctype html><html></html>', {
@@ -346,7 +294,7 @@ describe('POST /api/observability/test', () => {
   });
 
   it('returns ok:false with the status on a non-2xx', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(() => ({ status: 401 }));
     const r = await post('/api/observability/test', {
       endpoint: 'https://ingest.signoz.test:4318',
@@ -358,7 +306,7 @@ describe('POST /api/observability/test', () => {
   });
 
   it('flags a 404 on a non-OTLP port with a :4318 recommendation', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(() => ({ status: 404 }));
     const r = await post('/api/observability/test', {
       endpoint: 'http://signoz.test:8080',
@@ -377,7 +325,7 @@ describe('POST /api/observability/test', () => {
   });
 
   it('returns ok:false with an error when the fetch throws', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(() => new Error('ECONNREFUSED'));
     const r = await post('/api/observability/test', {
       endpoint: 'https://unreachable.test:4318',
@@ -389,7 +337,7 @@ describe('POST /api/observability/test', () => {
   });
 
   it('returns 400 for an invalid endpoint', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await post('/api/observability/test', { endpoint: 'not-a-url' });
     expect(r.status).toBe(400);
   });
@@ -399,24 +347,18 @@ describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', (
   /** Seed an enabled DB config so the proxy forwards. Signals default on
    * except metrics; override per test. */
   async function seedConfig(over: Record<string, unknown> = {}): Promise<void> {
-    await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').updateOne(
-      { _id: 'observability' } as never,
-      {
-        $set: {
-          config: {
-            enabled: true,
-            endpoint: 'https://signoz.test:4318',
-            ingestion_key: 'server-key',
-            traces_enabled: true,
-            logs_enabled: true,
-            metrics_enabled: false,
-            updated_at: 1,
-            ...over,
-          },
-        },
+    await patchAppSettings('observability', {
+      config: {
+        enabled: true,
+        endpoint: 'https://signoz.test:4318',
+        ingestion_key: 'server-key',
+        traces_enabled: true,
+        logs_enabled: true,
+        metrics_enabled: false,
+        updated_at: 1,
+        ...over,
       },
-      { upsert: true },
-    );
+    });
   }
 
   /** POST raw bytes (the proxy uses `parse: 'arrayBuffer'`). */
@@ -425,7 +367,7 @@ describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', (
     bytes: Uint8Array,
     contentType = 'application/x-protobuf',
   ): Promise<{ status: number; bodyText: string; res: Response }> {
-    const res = await app!.handle(
+    const res = await app.handle(
       new Request(`http://localhost${path}`, {
         method: 'POST',
         headers: { 'content-type': contentType },
@@ -438,7 +380,7 @@ describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', (
   }
 
   it('forwards the body to ${endpoint}/v1/<signal>, injecting the server key, mirroring status', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await seedConfig();
     let calledUrl = '';
     let sawToken = false;
@@ -469,7 +411,7 @@ describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', (
   });
 
   it('returns 503 when the requested signal is disabled', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await seedConfig({ logs_enabled: false });
     let forwarded = false;
     globalThis.fetch = (async () => {
@@ -483,14 +425,14 @@ describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', (
   });
 
   it('returns 503 when telemetry is disabled entirely', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await seedConfig({ enabled: false });
     const r = await postRaw('/api/observability/otlp/v1/traces', new Uint8Array([0]));
     expect(r.status).toBe(503);
   });
 
   it('returns 502 when the upstream forward throws', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await seedConfig();
     globalThis.fetch = (async () => {
       throw new Error('ECONNREFUSED');
@@ -500,7 +442,7 @@ describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', (
   });
 
   it('mirrors a non-2xx upstream status (e.g. 429) so the client retries', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await seedConfig();
     globalThis.fetch = (async () =>
       new Response('rate limited', { status: 429 })) as unknown as typeof fetch;
@@ -509,7 +451,7 @@ describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', (
   });
 
   it('returns 404 for an unknown signal', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     await seedConfig();
     const r = await postRaw('/api/observability/otlp/v1/bogus', new Uint8Array([0]));
     expect(r.status).toBe(404);

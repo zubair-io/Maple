@@ -188,7 +188,11 @@ export function seedBackupAsset(
     opts.mapleId ?? null,
     opts.deletedFromPhotos ? 1 : 0,
     opts.appleRenderedPath ?? null,
-    opts.isScreenshot === undefined || opts.isScreenshot === null ? null : opts.isScreenshot ? 1 : 0,
+    opts.isScreenshot === undefined || opts.isScreenshot === null
+      ? null
+      : opts.isScreenshot
+        ? 1
+        : 0,
   );
   const assetId = new ObjectId(id);
   opts.locations.forEach((location, ordinal) => {
@@ -219,8 +223,10 @@ export function seedBackupAsset(
 
 /** The asset row, for an assertion. `null` when there is no such asset. */
 export function readAsset(db: Database, id: ObjectId): Record<string, unknown> | null {
-  return (db.query(`SELECT * FROM assets WHERE id = ?`).get(id.toHexString()) ??
-    null) as Record<string, unknown> | null;
+  return (db.query(`SELECT * FROM assets WHERE id = ?`).get(id.toHexString()) ?? null) as Record<
+    string,
+    unknown
+  > | null;
 }
 
 /** One asset's locations, in array order. */
@@ -243,4 +249,35 @@ export function findAssetsByMapleId(db: Database, mapleId: string): Record<strin
     string,
     unknown
   >[];
+}
+
+/**
+ * The one asset carrying this content id, or `null`.
+ *
+ * `assets_maple_id` is unique over non-null ids, so "the row with this
+ * maple_id" is a single answer — this is the id an assertion then reads
+ * locations or links for.
+ */
+export function findAssetIdByMapleId(db: Database, mapleId: string): ObjectId | null {
+  const row = db.query(`SELECT id FROM assets WHERE maple_id = ?`).get(mapleId) as {
+    id: string;
+  } | null;
+  return row === null ? null : new ObjectId(row.id);
+}
+
+/**
+ * Every PHAsset link carrying this local id, whichever asset or device it
+ * belongs to.
+ *
+ * Stands in for the `findOne({ 'phasset_links.phasset_local_id': … })` the
+ * backup suites used to assert an upload was recorded: the link row IS the
+ * record, so its presence is the assertion and its columns are the detail.
+ */
+export function findPhassetLinksByLocalId(
+  db: Database,
+  phassetLocalId: string,
+): Record<string, unknown>[] {
+  return db
+    .query(`SELECT * FROM asset_phasset_links WHERE phasset_local_id = ? ORDER BY id`)
+    .all(phassetLocalId) as Record<string, unknown>[];
 }

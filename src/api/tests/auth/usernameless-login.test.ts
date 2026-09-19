@@ -5,37 +5,35 @@
  * allowCredentials), the authenticator asserts a resident passkey, and
  * login/verify identifies the account from the asserted credential id. The
  * email-scoped path is kept as a fallback.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), so every test claims an unclaimed server — sentinel
+ * included — without a delete pass in between.
  */
 process.env.MAPLE_RP_ID = 'localhost';
 process.env.MAPLE_ORIGIN = 'http://localhost:3000';
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { buildApp } from '../../src/index.ts';
 import {
-  usersCollection,
-  credentialsCollection,
-  challengesCollection,
-  refreshTokensCollection,
-  serverStateCollection,
-} from '../../src/db/client.ts';
-import { OWNER_CLAIM_ID } from '../../src/auth/server_claim.ts';
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { buildRegistrationResponse, type SoftAuthenticator } from './helpers/soft-authn.ts';
 
 const RP_ID = 'localhost';
 const ORIGIN = 'http://localhost:3000';
 const app = buildApp({ stageNames: [] });
 
+let live: LiveTestDatabase;
+
 beforeEach(async () => {
-  for (const c of [
-    usersCollection,
-    credentialsCollection,
-    challengesCollection,
-    refreshTokensCollection,
-  ]) {
-    await (await c()).deleteMany({});
-  }
-  await (await serverStateCollection()).deleteOne({ _id: OWNER_CLAIM_ID });
+  live = await createLiveTestDatabase();
+});
+
+afterEach(() => {
+  live.close();
 });
 
 function post(path: string, body: unknown, ip: string): Promise<Response> {

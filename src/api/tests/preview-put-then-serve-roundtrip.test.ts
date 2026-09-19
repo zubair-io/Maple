@@ -13,22 +13,25 @@
  *
  * Deliberately does NOT also exercise `GET /api/preview/:slug/*` (the
  * indexed-asset route) here: that route resolves an asset via the
- * `libraries.cache.ts` in-memory slug map AND the app's `getDb()` singleton
- * (`db/client.ts`) — both process-wide, non-isolated caches shared by every
- * test file `bun test` runs concurrently in this process (default
- * `--max-concurrency=20`, ~300 files). A PUT-then-GET test does enough real
- * async work (AVIF encode, fs I/O, a Mongo round trip) between setup and
- * assertion that another concurrently-running file's own
- * `setLibraryRootsForTests` / `closeDb()` calls reliably land in the window
- * and resolve against a different file's registered library or database —
- * confirmed empirically while developing this test (consistent 202
- * "indexing" responses despite a correctly-inserted asset row, traced to
- * `getDb()`'s single memoized `_db` picking up whichever file's
- * `MAPLE_MONGO_DB` won the race to connect first). That's a pre-existing
+ * `libraries.cache.ts` in-memory slug map AND the process-wide database
+ * handle — both non-isolated, and shared by every test file `bun test` runs
+ * concurrently in this process (default `--max-concurrency=20`, ~300 files).
+ * A PUT-then-GET test does enough real async work (AVIF encode, fs I/O, a
+ * database round trip) between setup and assertion that another
+ * concurrently-running file's own `setLibraryRootsForTests` /
+ * `createLiveTestDatabase()` calls reliably land in the window and resolve
+ * against a different file's registered library or database — confirmed
+ * empirically while developing this test (consistent 202 "indexing"
+ * responses despite a correctly-inserted asset row). That's a pre-existing
  * trait of this suite's shared test seams, not a gap in the route itself;
- * fixing it needs per-file DB/process isolation (`bun test --parallel`) which
- * is out of scope here. `GET /api/preview/:slug/*`'s OWN dedicated test file
+ * fixing it needs per-file process isolation (`bun test --parallel`) which is
+ * out of scope here. `GET /api/preview/:slug/*`'s OWN dedicated test file
  * (`src/routes/library/preview.test.ts`) already covers it in isolation.
+ *
+ * This file therefore needs no database at all: `setLibraryRootsForTests`
+ * supplies the jail, and `fs-previews.ts` skips its catalogue lookup when no
+ * database is open. The only reason it ever imported from `mongodb` was to
+ * mint a library id, which `newObjectIdHex()` now does (#3787).
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -36,7 +39,7 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ObjectId } from 'mongodb';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
 import { maple } from 'maple';
 import { solidAvif } from '../src/test-support/synth-image.ts';
 
@@ -71,7 +74,7 @@ describe('PUT /api/preview → GET /api/fs/preview round-trips byte-identically 
 
   beforeEach(async () => {
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-preview-roundtrip-')));
-    setLibraryRootsForTests(new Map([[new ObjectId().toHexString(), tmp]]));
+    setLibraryRootsForTests(new Map([[newObjectIdHex(), tmp]]));
     process.env.MAPLE_ROOTS = tmp;
   });
 

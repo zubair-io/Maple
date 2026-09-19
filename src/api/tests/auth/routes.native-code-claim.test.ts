@@ -1,50 +1,59 @@
-// POST /api/auth/native-code/claim (#3063) — device-flow-style completion for
-// the native sign-in ceremony. Chromium blocks the web app's script-initiated
-// maple-app:// redirect when the browser was already signed in (no user
-// gesture), so the native app polls this endpoint with its private PKCE
-// verifier + state instead of waiting on a redirect that may never launch.
-import { describe, it, expect, beforeEach } from 'bun:test';
+/**
+ * POST /api/auth/native-code/claim (#3063) — device-flow-style completion for
+ * the native sign-in ceremony. Chromium blocks the web app's script-initiated
+ * maple-app:// redirect when the browser was already signed in (no user
+ * gesture), so the native app polls this endpoint with its private PKCE
+ * verifier + state instead of waiting on a redirect that may never launch.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), so the pending-code row a claim consumes is read back
+ * from the same database the route wrote it to.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { nativeCodeIssueRoutes, nativeCodeClaimRoutes } from '../../src/routes/auth-native-code.ts';
-import {
-  usersCollection,
-  nativeAuthCodesCollection,
-  refreshTokensCollection,
-} from '../../src/db/client.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
 import { pkceS256 } from '../../src/auth/native_code_store.ts';
-import { withTestEnv } from '../../src/db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedUser } from '../helpers/sqlite-fixtures.ts';
 
-withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
 const JWT_SECRET = 'x'.repeat(32);
+process.env.MAPLE_JWT_SECRET = JWT_SECRET;
+
 const app = new Elysia()
   .use(nativeCodeClaimRoutes)
   // Mirror index.ts: wrap the self-gating issue route so its `requireAuth`
   // scoped-derive stays contained and doesn't gate the public claim.
   .use(new Elysia().use(nativeCodeIssueRoutes));
 
+let live: LiveTestDatabase;
 let userId: ObjectId;
 let bearer: string;
 
 beforeEach(async () => {
-  for (const c of [usersCollection, nativeAuthCodesCollection, refreshTokensCollection]) {
-    await (await c()).deleteMany({});
-  }
-  const ins = await (
-    await usersCollection()
-  ).insertOne({
-    email: 'owner@maple.local',
-    role: 'owner',
-    created_at: new Date().toISOString(),
-    last_seen_at: null,
-  });
-  userId = ins.insertedId;
+  live = await createLiveTestDatabase();
+  userId = seedUser(live.db, { email: 'owner@maple.local', role: 'owner' });
   bearer = await signAccessToken(
     { file_access: true, sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
     JWT_SECRET,
   );
 });
+
+afterEach(() => {
+  live.close();
+});
+
+/** How many refresh tokens this account holds. */
+function refreshTokenCount(): number {
+  const row = live.db
+    .query(`SELECT count(*) AS n FROM refresh_tokens WHERE user_id = ?`)
+    .get(userId.toHexString()) as { n: number };
+  return row.n;
+}
 
 const issue = (challenge: string, state: string) =>
   app.handle(
@@ -81,17 +90,19 @@ describe('native code claim (#3063)', () => {
     // Next poll completes the ceremony with the same payload as /redeem.
     const r = await claim(state, verifier);
     expect(r.status).toBe(200);
-    const body = await r.json();
+    const body = (await r.json()) as {
+      access_token: string;
+      refresh_token: string;
+      user: { id: string };
+      state: string;
+    };
     expect(typeof body.access_token).toBe('string');
     expect(typeof body.refresh_token).toBe('string');
     expect(body.user.id).toBe(userId.toHexString());
     expect(body.state).toBe(state);
 
     // Device-scoped refresh token minted for the claim.
-    const refreshCount = await (
-      await refreshTokensCollection()
-    ).countDocuments({ user_id: userId });
-    expect(refreshCount).toBe(1);
+    expect(refreshTokenCount()).toBe(1);
 
     // Single-use: the row is consumed — a replayed claim fails.
     const replay = await claim(state, verifier);
@@ -130,7 +141,9 @@ describe('native code claim (#3063)', () => {
     const claimed = await claim(state, verifier);
     expect(claimed.status).toBe(200);
 
-    const row = await (await nativeAuthCodesCollection()).findOne({ state });
+    const row = live.db
+      .query(`SELECT consumed_at FROM native_auth_codes WHERE state = ?`)
+      .get(state) as { consumed_at: string | null } | null;
     expect(row?.consumed_at).not.toBeNull();
   });
 

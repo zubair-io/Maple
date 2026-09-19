@@ -1,63 +1,56 @@
 /**
- * Tests POST /api/admin/enrichment/backfill-meilisearch — sweeps every
- * asset with a populated `place.search_blob` and upserts to Meilisearch.
- * The route is owner-gated (#2353) — a `?reset=true` call discards backfill
- * progress and re-scans the whole library, so every request below carries an
- * owner bearer. The member/no-bearer rejection paths are covered in
+ * Tests POST /api/admin/enrichment/backfill-meilisearch — sweeps every asset
+ * carrying a content-dedup id and upserts it to Meilisearch. The route is
+ * owner-gated (#2353) — a `?reset=true` call discards backfill progress and
+ * re-scans the whole library, so every request below carries an owner bearer.
+ * The member/no-bearer rejection paths are covered in
  * `admin-backfill-meilisearch-owner-gate.test.ts` (split for the file-size
  * budget).
+ *
+ * Seeding is SQLite (#3787). Two things read differently from the Mongo era
+ * and are worth naming:
+ *
+ *  - The cursor filters on `maple_id IS NOT NULL` alone, so the legacy row
+ *    below never enters a batch. That was already true of the Mongo cursor's
+ *    observed behaviour — `scanned` was 7, not 8 — so the counts are unchanged.
+ *  - A row that cannot be composed is made by giving it a numeric place search
+ *    blob (`BROKEN_PLACE`), not a malformed folder id: `asset_locations`
+ *    declares a real foreign key, so a library id that is not an id cannot be
+ *    stored in the first place.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchAssetDoc,
 } from '../src/enrichment/meilisearch-client.ts';
 import { signAccessToken } from '../src/auth/tokens.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  run,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { insertFace, insertPerson } from '../src/db/sqlite/repos/assets.test-helpers.ts';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import {
+  BROKEN_PLACE,
+  failuresByMapleId,
+  seedIndexableAsset,
+} from './helpers/meili-backfill-fixtures.ts';
+import { meilisearchBackfillRoutes } from '../src/routes/admin-backfill-meilisearch.ts';
 
-const TEST_DB = withTestDb(`maple_test_meili_backfill_${process.pid}`);
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
 
 const ownerJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: newObjectIdHex(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 
-function ownerAuthed(init: RequestInit = {}): RequestInit {
-  return {
-    ...init,
-    headers: {
-      ...(init.headers as Record<string, string> | undefined),
-      authorization: `Bearer ${ownerJwt}`,
-    },
-  };
-}
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+afterEach(() => {
+  setMeilisearchClientForTests(null);
+});
 
 interface CapturedMeili {
   client: MeilisearchClient;
@@ -107,202 +100,78 @@ function makeCapturingMeili(configured = true): CapturedMeili {
   return c;
 }
 
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[admin-backfill-meilisearch.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-  await db!.collection('people').deleteMany({});
-  await db!
-    .collection<{ _id: string; [key: string]: unknown }>('meilisearch_backfill_state')
-    .deleteMany({});
-  await db!.collection('meilisearch_backfill_failures').deleteMany({});
-  await db!.collection('meilisearch_backfill_leases').deleteMany({});
-  setMeilisearchClientForTests(null);
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-  setMeilisearchClientForTests(null);
-});
-
-const FOLDER = new ObjectId();
-
-function makeRow(mapleId: string, blob: string | null, opts: { deletedAt?: string | null } = {}) {
-  return {
-    folder_id: FOLDER,
-    maple_id: mapleId,
-    abs_path: `/lib/${mapleId}.dng`,
-    filename: `${mapleId}.dng`,
-    size: 1024,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    exif: {
-      captured_at: '2024-06-01T12:00:00.000Z',
-      captured_year: 2024,
-      captured_month: 6,
-      camera_make: null,
-      camera_model: null,
-      lens: null,
-      iso: null,
-      aperture: null,
-      shutter: null,
-      focal_length: null,
-      gps: null,
-    },
-    // Top-level unified blob — what the meili stage persists and what the
-    // backfill cursor now filters on. Empty/absent ⇒ filtered out.
-    search_blob: blob ?? '',
-    place:
-      blob === null
-        ? null
-        : {
-            source: 'nominatim',
-            geocoder_version: 1,
-            geocoded_at: '2026-05-08T00:00:00.000Z',
-            lat: 0,
-            lon: 0,
-            display_name: blob,
-            address: {},
-            pois: [],
-            rollups: { locality: null, region: null, country_code: null },
-            search_blob: blob,
-          },
-    deleted_at: opts.deletedAt ?? null,
-  };
+/** The backfill POST, as an owner, with whatever query string the test needs. */
+function backfill(query = ''): Promise<Response> {
+  return new Elysia().use(meilisearchBackfillRoutes).handle(
+    new Request(`http://localhost/api/admin/enrichment/backfill-meilisearch${query}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ownerJwt}` },
+    }),
+  );
 }
+
+/** A 24-character hex id whose ordering the cursor tests can rely on. */
+const orderedId = (n: number): string => String(n).repeat(24);
 
 describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
   it('returns 400 when semantic search is not configured', async () => {
-    if (!mongoReachable) return;
-    const meili = makeCapturingMeili(false);
-    setMeilisearchClientForTests(meili.client);
+    using live = await createLiveTestDatabase();
+    setMeilisearchClientForTests(makeCapturingMeili(false).client);
 
-    const { meilisearchBackfillRoutes } =
-      await import('../src/routes/admin-backfill-meilisearch.ts');
-    const app = new Elysia().use(meilisearchBackfillRoutes);
-    const r = await app.handle(
-      new Request(
-        'http://localhost/api/admin/enrichment/backfill-meilisearch',
-        ownerAuthed({ method: 'POST' }),
-      ),
-    );
-    expect(r.status).toBe(400);
-    const body = (await r.json()) as { error: string };
-    expect(body.error).toContain('not enabled');
+    const response = await backfill();
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toContain('not enabled');
   });
 
   it('upserts enriched and filename-only assets and reports counts', async () => {
-    if (!mongoReachable) return;
-    await db!.collection('assets').insertMany([
-      makeRow('a', 'albany ny'),
-      makeRow('b', 'new york ny park'),
-      makeRow('c', 'san francisco ca'),
-      // Filename-only assets are still indexed for exact identifier search.
-      makeRow('d', ''),
-      // A missing place is also valid when the filename is searchable.
-      makeRow('e', null),
-    ]);
-    // Skipped: missing maple_id (legacy row).
-    await db!.collection('assets').insertOne({
-      folder_id: FOLDER,
-      abs_path: '/lib/legacy.dng',
-      filename: 'legacy.dng',
-      size: 1024,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      exif: null,
-      // Non-empty top-level blob so it enters the cursor — but no maple_id,
-      // so the per-row skip fires (exercising that path).
-      search_blob: 'boston ma',
-      place: {
-        source: 'nominatim',
-        geocoder_version: 1,
-        geocoded_at: '',
-        lat: 0,
-        lon: 0,
-        display_name: null,
-        address: {},
-        pois: [],
-        rollups: { locality: null, region: null, country_code: null },
-        search_blob: 'boston ma',
-      },
-      deleted_at: null,
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db, { path: '/library' });
+    seedIndexableAsset(live.db, { mapleId: 'a', placeSearchBlob: 'albany ny' });
+    seedIndexableAsset(live.db, { mapleId: 'b', placeSearchBlob: 'new york ny park' });
+    seedIndexableAsset(live.db, { mapleId: 'c', placeSearchBlob: 'san francisco ca' });
+    // Filename-only assets are still indexed for exact identifier search.
+    seedIndexableAsset(live.db, { mapleId: 'd', placeSearchBlob: '' });
+    // A missing place is also valid when the filename is searchable.
+    seedIndexableAsset(live.db, { mapleId: 'e' });
+    // Skipped before it is ever scanned: no content-dedup id (legacy row).
+    seedIndexableAsset(live.db, { mapleId: null });
+    // Soft-deleted — the pass tombstones it so Meilisearch drops the document.
+    seedIndexableAsset(live.db, {
+      mapleId: 'g',
+      placeSearchBlob: 'denver co',
+      deletedAt: new Date().toISOString(),
     });
-    // Soft-deleted but populated — should still be upserted (the route
-    // pushes deletedAt through so Meilisearch knows the doc is tombstoned).
-    await db!
-      .collection('assets')
-      .insertOne(makeRow('g', 'denver co', { deletedAt: new Date().toISOString() }));
-    await db!.collection('assets').insertOne({
-      ...makeRow('h', 'stale modern location'),
-      fileinfo: [
-        {
-          library_id: FOLDER,
-          path: '',
-          filename: 'h.dng',
-          deleted_at: null,
-          missing_since: new Date().toISOString(),
-        },
-      ],
+    // Its only location has gone missing, which is the same answer.
+    seedIndexableAsset(live.db, {
+      mapleId: 'h',
+      placeSearchBlob: 'stale modern location',
+      missingSince: new Date().toISOString(),
     });
 
     const meili = makeCapturingMeili();
     setMeilisearchClientForTests(meili.client);
 
-    const { meilisearchBackfillRoutes } =
-      await import('../src/routes/admin-backfill-meilisearch.ts');
-    const app = new Elysia().use(meilisearchBackfillRoutes);
-    const r = await app.handle(
-      new Request(
-        'http://localhost/api/admin/enrichment/backfill-meilisearch',
-        ownerAuthed({ method: 'POST' }),
-      ),
-    );
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as {
+    const response = await backfill();
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
       scanned: number;
       upserted: number;
       tombstoned: number;
       skipped: number;
       errors: number;
     };
-    // All seven stable assets are scanned; the legacy row without maple_id is
-    // excluded by the cursor query.
-    expect(body.scanned).toBe(7);
-    expect(body.upserted).toBe(5);
-    expect(body.tombstoned).toBe(2);
-    expect(body.skipped).toBe(2);
-    expect(body.errors).toBe(0);
+    // All seven assets carrying a maple_id are scanned; the legacy row is
+    // excluded by the cursor query itself.
+    expect(body).toMatchObject({
+      scanned: 7,
+      upserted: 5,
+      tombstoned: 2,
+      skipped: 2,
+      errors: 0,
+    });
 
-    // Confirm the captured upserts include the right ids and folderId.
-    const ids = meili.upserts.map((u) => u.id).sort();
-    expect(ids).toEqual(['a', 'b', 'c', 'd', 'e']);
-    for (const u of meili.upserts) {
-      expect(u.folderId).toBe(FOLDER.toHexString());
-    }
+    expect(meili.upserts.map((doc) => doc.id).sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+    for (const doc of meili.upserts) expect(doc.folderId).toBe(libraryId);
     expect(meili.tombstones.sort()).toEqual(['g', 'h']);
 
     // ensureIndex was called once at the start.
@@ -310,32 +179,18 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
   });
 
   it('pushes the FULL doc shape (description / vision / people / searchBlob)', async () => {
-    if (!mongoReachable) return;
-    // A row with a description, vision fields, and an assigned named person.
-    const PERSON = new ObjectId();
-    await db!.collection('people').insertOne({
-      _id: PERSON,
-      name: 'Greyson',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      merged_into: null,
-    } as never);
-    await db!.collection('assets').insertOne({
-      folder_id: FOLDER,
-      maple_id: 'full',
-      filename: 'full.dng',
-      size: 1024,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      exif: { captured_at: '2024-06-01T12:00:00.000Z' },
-      search_blob: 'albany ny kids playing lacrosse greyson',
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/library' });
+    const personId = insertPerson(live.db, 'Greyson');
+    const assetId = seedIndexableAsset(live.db, {
+      mapleId: 'full',
       description: 'kids playing lacrosse',
-      ocr_text: null,
-      is_screenshot: false,
-      vision: {
+      placeSearchBlob: 'albany ny',
+    });
+    run(
+      live.db,
+      `UPDATE asset_detail SET vision = ? WHERE asset_id = ?`,
+      JSON.stringify({
         caption: 'kids playing lacrosse',
         subjects: ['child', 'athlete'],
         scene_type: 'outdoor',
@@ -343,40 +198,17 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
         activity: 'lacrosse',
         notable_objects: ['lacrosse stick'],
         is_screenshot: false,
-      },
-      faces: [
-        { bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, person_id: PERSON.toHexString(), confidence: 0.9 },
-      ],
-      place: {
-        source: 'nominatim',
-        geocoder_version: 1,
-        geocoded_at: '2026-05-08T00:00:00.000Z',
-        lat: 0,
-        lon: 0,
-        display_name: 'albany ny',
-        address: {},
-        pois: [],
-        rollups: { locality: null, region: null, country_code: null },
-        search_blob: 'albany ny',
-      },
-      deleted_at: null,
-    } as never);
+      }),
+      assetId,
+    );
+    run(live.db, `UPDATE assets SET is_screenshot = 0 WHERE id = ?`, assetId);
+    insertFace(live.db, { assetId, personId, confidence: 0.9 });
 
     const meili = makeCapturingMeili();
     setMeilisearchClientForTests(meili.client);
+    expect((await backfill()).status).toBe(200);
 
-    const { meilisearchBackfillRoutes } =
-      await import('../src/routes/admin-backfill-meilisearch.ts');
-    const app = new Elysia().use(meilisearchBackfillRoutes);
-    const r = await app.handle(
-      new Request(
-        'http://localhost/api/admin/enrichment/backfill-meilisearch',
-        ownerAuthed({ method: 'POST' }),
-      ),
-    );
-    expect(r.status).toBe(200);
-
-    const doc = meili.upserts.find((u) => u.id === 'full');
+    const doc = meili.upserts.find((entry) => entry.id === 'full');
     expect(doc).toBeDefined();
     expect(doc!.description).toBe('kids playing lacrosse');
     expect(doc!.visionSceneType).toBe('outdoor');
@@ -392,42 +224,26 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
   });
 
   it('resumes from a durable cursor in bounded batches', async () => {
-    if (!mongoReachable) return;
-    await db!
-      .collection('assets')
-      .insertMany([
-        makeRow('batch-a', 'hvac installation'),
-        makeRow('batch-b', 'heat pump'),
-        makeRow('batch-c', 'air conditioning'),
-      ]);
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/library' });
+    // Explicit ids: the cursor is a keyed range over `assets.id`, so the batch
+    // boundary is only predictable when the ids sort the way the test reads.
+    seedIndexableAsset(live.db, { id: orderedId(1), mapleId: 'batch-a' });
+    seedIndexableAsset(live.db, { id: orderedId(2), mapleId: 'batch-b' });
+    seedIndexableAsset(live.db, { id: orderedId(3), mapleId: 'batch-c' });
     const meili = makeCapturingMeili();
     setMeilisearchClientForTests(meili.client);
-    const { meilisearchBackfillRoutes } =
-      await import('../src/routes/admin-backfill-meilisearch.ts');
-    const app = new Elysia().use(meilisearchBackfillRoutes);
 
-    const first = await app.handle(
-      new Request(
-        'http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=2',
-        ownerAuthed({ method: 'POST' }),
-      ),
-    );
-    const firstBody = (await first.json()) as {
+    const firstBody = (await (await backfill('?batchSize=2')).json()) as {
       complete: boolean;
       nextCursor: string | null;
       cumulative: { scanned: number };
     };
     expect(firstBody.complete).toBe(false);
-    expect(firstBody.nextCursor).not.toBeNull();
+    expect(firstBody.nextCursor).toBe(orderedId(2));
     expect(firstBody.cumulative.scanned).toBe(2);
 
-    const second = await app.handle(
-      new Request(
-        'http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=2',
-        ownerAuthed({ method: 'POST' }),
-      ),
-    );
-    const secondBody = (await second.json()) as {
+    const secondBody = (await (await backfill('?batchSize=2')).json()) as {
       complete: boolean;
       nextCursor: string | null;
       cumulative: { scanned: number; upserted: number };
@@ -440,24 +256,12 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
   });
 
   it('dead-letters a deterministic row error and advances the cursor', async () => {
-    if (!mongoReachable) return;
-    await db!.collection('assets').insertOne({
-      ...makeRow('broken-row', 'bad folder id'),
-      folder_id: 'not-an-object-id',
-    });
-    const meili = makeCapturingMeili();
-    setMeilisearchClientForTests(meili.client);
-    const { meilisearchBackfillRoutes } =
-      await import('../src/routes/admin-backfill-meilisearch.ts');
-    const app = new Elysia().use(meilisearchBackfillRoutes);
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/library' });
+    seedIndexableAsset(live.db, { mapleId: 'broken-row', placeSearchBlob: BROKEN_PLACE });
+    setMeilisearchClientForTests(makeCapturingMeili().client);
 
-    const response = await app.handle(
-      new Request(
-        'http://localhost/api/admin/enrichment/backfill-meilisearch',
-        ownerAuthed({ method: 'POST' }),
-      ),
-    );
-    const body = (await response.json()) as {
+    const body = (await (await backfill()).json()) as {
       complete: boolean;
       errors: number;
       nextCursor: string | null;
@@ -466,32 +270,21 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(body.errors).toBe(1);
     expect(body.nextCursor).toBeNull();
     // `complete` in this same call also runs the end-of-run redrive pass. The
-    // row's folder_id is still malformed, so the immediate re-attempt fails
-    // the same way and `attempts` reflects both tries.
-    const failure = await db!
-      .collection('meilisearch_backfill_failures')
-      .findOne({ maple_id: 'broken-row' });
-    expect(failure?.attempts).toBe(2);
+    // row's place blob is still a number, so the immediate re-attempt fails the
+    // same way and `attempts` reflects both tries.
+    expect(failuresByMapleId(live.db).get('broken-row')).toEqual({ attempts: 2 });
   });
 
   it('retains the cursor and retries an idempotent batch after a write failure', async () => {
-    if (!mongoReachable) return;
-    await db!
-      .collection('assets')
-      .insertMany([
-        makeRow('retry-a', 'compressor installation'),
-        makeRow('retry-b', 'heat pump installed'),
-      ]);
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/library' });
+    seedIndexableAsset(live.db, { id: orderedId(1), mapleId: 'retry-a' });
+    seedIndexableAsset(live.db, { id: orderedId(2), mapleId: 'retry-b' });
     const meili = makeCapturingMeili();
     meili.failBatch = true;
     setMeilisearchClientForTests(meili.client);
-    const { meilisearchBackfillRoutes } =
-      await import('../src/routes/admin-backfill-meilisearch.ts');
-    const app = new Elysia().use(meilisearchBackfillRoutes);
-    const url = 'http://localhost/api/admin/enrichment/backfill-meilisearch?batchSize=10';
 
-    const failed = await app.handle(new Request(url, ownerAuthed({ method: 'POST' })));
-    const failedBody = (await failed.json()) as {
+    const failedBody = (await (await backfill('?batchSize=10')).json()) as {
       complete: boolean;
       nextCursor: string | null;
       errors: number;
@@ -506,14 +299,13 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
     expect(meili.upserts).toHaveLength(0);
 
     const { backfillMeilisearchVectors } =
-      await import('../src/workers/migration/backfill-meilisearch-vectors');
+      await import('../src/workers/migration/backfill-meilisearch-vectors.ts');
     await expect(backfillMeilisearchVectors.runBatch(10)).rejects.toThrow(
       'Cause: temporary batch failure',
     );
 
     meili.failBatch = false;
-    const retried = await app.handle(new Request(url, ownerAuthed({ method: 'POST' })));
-    const retriedBody = (await retried.json()) as {
+    const retriedBody = (await (await backfill('?batchSize=10')).json()) as {
       complete: boolean;
       upserted: number;
       cumulative: { scanned: number; upserted: number; skipped: number; errors: number };

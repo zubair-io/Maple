@@ -9,91 +9,60 @@
  *
  * The Nominatim health-check is faked by stubbing `globalThis.fetch` for
  * the duration of each test — no network calls.
+ *
+ * Storage is SQLite (#3787): the saved config is one row of `app_settings`,
+ * and each test gets a private database installed as the process-wide handle,
+ * which is what replaces the old per-test `deleteMany`.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { signAccessToken } from '../src/auth/tokens.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
+import { readEnrichmentConfig, seedEnrichmentConfig } from './helpers/enrichment-route-fixtures.ts';
 
-const TEST_DB = withTestDb(`maple_test_enrichment_route_${process.pid}`);
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+// Keep every worker dormant for the duration of this file: their health-checks
+// would otherwise trip the global fetch stub or spawn poll loops. An empty
+// Nominatim URL reads as unset, which is what the env-fallback test asserts.
+withTestEnv('MAPLE_NOMINATIM_URL', '');
+withTestEnv('MAPLE_GEOCODE_WORKER_ENABLED', 'false');
+withTestEnv('MAPLE_DESCRIBE_WORKER_ENABLED', 'false');
+withTestEnv('MAPLE_FACE_WORKER_ENABLED', 'false');
+withTestEnv('MAPLE_OCR_WORKER_ENABLED', 'false');
+
+let live: LiveTestDatabase;
 let app: Pick<Elysia, 'handle'> | null = null;
 
 const realFetch = globalThis.fetch;
 
 const ownerJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: newObjectIdHex(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 const memberJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  { file_access: true, sub: newObjectIdHex(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
 beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[enrichment-route.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-  // Ensure the worker doesn't auto-start during route tests — set env so the
-  // resolved config gives us a dormant worker.
-  delete process.env.MAPLE_NOMINATIM_URL;
-  process.env.MAPLE_GEOCODE_WORKER_ENABLED = 'false';
-  // Suppress slow-tier workers from auto-starting during these tests so
-  // their health-checks don't trip the global fetch stub or spawn loops.
-  process.env.MAPLE_DESCRIBE_WORKER_ENABLED = 'false';
-  process.env.MAPLE_FACE_WORKER_ENABLED = 'false';
-  process.env.MAPLE_OCR_WORKER_ENABLED = 'false';
   const { enrichmentRoutes } = await import('../src/routes/enrichment.ts');
   app = new Elysia().use(enrichmentRoutes);
 });
 
 beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
+  live = await createLiveTestDatabase();
 });
 
 afterEach(() => {
   globalThis.fetch = realFetch;
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
+  live.close();
 });
 
 function stubFetch(handler: (url: string) => { status?: number; body?: unknown } | Error): void {
@@ -151,7 +120,6 @@ async function post(
 
 describe('GET /api/enrichment/config', () => {
   it('returns env fallback when no DB row exists', async () => {
-    if (!mongoReachable) return;
     const r = await get('/api/enrichment/config');
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({
@@ -165,15 +133,11 @@ describe('GET /api/enrichment/config', () => {
   });
 
   it('returns the saved DB row when present', async () => {
-    if (!mongoReachable) return;
-    await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').insertOne({
-      _id: 'enrichment',
-      config: {
-        nominatim_url: 'http://from-db.test:8080',
-        geocode_worker_enabled: true,
-        updated_at: 1,
-      },
-    } as never);
+    seedEnrichmentConfig(live.db, {
+      nominatim_url: 'http://from-db.test:8080',
+      geocode_worker_enabled: true,
+      updated_at: 1,
+    });
     const r = await get('/api/enrichment/config');
     expect(r.status).toBe(200);
     expect((r.body as { nominatim_url: string }).nominatim_url).toBe('http://from-db.test:8080');
@@ -183,7 +147,6 @@ describe('GET /api/enrichment/config', () => {
 
 describe('PUT /api/enrichment/config', () => {
   it('rejects malformed URL with 400', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: 'not-a-url',
       geocode_worker_enabled: true,
@@ -193,7 +156,6 @@ describe('PUT /api/enrichment/config', () => {
   });
 
   it('rejects file:// URL', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: 'file:///etc/passwd',
       geocode_worker_enabled: true,
@@ -203,7 +165,6 @@ describe('PUT /api/enrichment/config', () => {
   });
 
   it('returns 502 when health-check fails (worker enabled + URL set)', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 503 }));
     const r = await put('/api/enrichment/config', {
       nominatim_url: 'http://broken.test',
@@ -211,15 +172,11 @@ describe('PUT /api/enrichment/config', () => {
     });
     expect(r.status).toBe(502);
     expect((r.body as { error: string }).error).toMatch(/health check failed/);
-    // DB row was NOT saved.
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne({ _id: 'enrichment' });
-    expect(saved).toBeNull();
+    // Nothing was saved.
+    expect(readEnrichmentConfig(live.db)).toBeNull();
   });
 
   it('saves and returns the resolved config on success', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 200 }));
     const r = await put('/api/enrichment/config', {
       nominatim_url: 'http://nominatim.test:8080/',
@@ -230,14 +187,12 @@ describe('PUT /api/enrichment/config', () => {
     // Trailing slash is stripped on save.
     expect(body.nominatim_url).toBe('http://nominatim.test:8080');
     expect(body.source.nominatim_url).toBe('db');
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne({ _id: 'enrichment' });
-    expect(saved).toBeTruthy();
+    expect(readEnrichmentConfig(live.db)).toMatchObject({
+      nominatim_url: 'http://nominatim.test:8080',
+    });
   });
 
   it('saves without health-check when geocode_worker_enabled=false', async () => {
-    if (!mongoReachable) return;
     let fetchCalled = false;
     stubFetch(() => {
       fetchCalled = true;
@@ -252,7 +207,6 @@ describe('PUT /api/enrichment/config', () => {
   });
 
   it('saves null URL without health-check', async () => {
-    if (!mongoReachable) return;
     let fetchCalled = false;
     stubFetch(() => {
       fetchCalled = true;
@@ -269,7 +223,6 @@ describe('PUT /api/enrichment/config', () => {
   });
 
   it('rejects rate limit below the minimum', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -280,7 +233,6 @@ describe('PUT /api/enrichment/config', () => {
   });
 
   it('rejects rate limit above the maximum', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -290,7 +242,6 @@ describe('PUT /api/enrichment/config', () => {
   });
 
   it('rejects negative rate limit', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -300,7 +251,6 @@ describe('PUT /api/enrichment/config', () => {
   });
 
   it('saves and reflects rate limit on a valid value', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -316,7 +266,6 @@ describe('PUT /api/enrichment/config', () => {
   });
 
   it('clears rate limit back to default when null is supplied', async () => {
-    if (!mongoReachable) return;
     // Save a value first.
     await put('/api/enrichment/config', {
       nominatim_url: null,
@@ -341,7 +290,6 @@ describe('PUT /api/enrichment/config', () => {
 
 describe('PUT /api/enrichment/config — describe servers', () => {
   it('saves the list and mirrors the first entry onto describe_provider_url', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -365,7 +313,6 @@ describe('PUT /api/enrichment/config — describe servers', () => {
   });
 
   it('defaults a missing per-server concurrency', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -378,7 +325,6 @@ describe('PUT /api/enrichment/config — describe servers', () => {
   });
 
   it('rejects a bad url, a bad concurrency and a duplicate endpoint', async () => {
-    if (!mongoReachable) return;
     for (const servers of [
       [{ url: 'not-a-url' }],
       [{ url: 'http://gpu-a:11434', concurrency: 0 }],
@@ -393,15 +339,10 @@ describe('PUT /api/enrichment/config — describe servers', () => {
       expect((r.body as { error: string }).error).toMatch(/Invalid describe_servers/);
     }
     // Nothing was persisted by the rejected writes.
-    expect(
-      await db!
-        .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-        .findOne({ _id: 'enrichment' }),
-    ).toBeNull();
+    expect(readEnrichmentConfig(live.db)).toBeNull();
   });
 
   it('clears back to the single-server fallback on null', async () => {
-    if (!mongoReachable) return;
     await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -422,7 +363,6 @@ describe('PUT /api/enrichment/config — describe servers', () => {
 
 describe('GET /api/enrichment/config — rate limit projection', () => {
   it('includes the resolved value + source on a fresh DB', async () => {
-    if (!mongoReachable) return;
     const r = await get('/api/enrichment/config');
     expect(r.status).toBe(200);
     const body = r.body as {
@@ -436,7 +376,6 @@ describe('GET /api/enrichment/config — rate limit projection', () => {
 
 describe('POST /api/enrichment/test', () => {
   it('returns ok:true on successful health-check', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 200 }));
     const r = await post('/api/enrichment/test', {
       nominatim_url: 'http://nominatim.test',
@@ -446,7 +385,6 @@ describe('POST /api/enrichment/test', () => {
   });
 
   it('returns ok:false with detail on 5xx', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 500 }));
     const r = await post('/api/enrichment/test', {
       nominatim_url: 'http://nominatim.test',
@@ -458,7 +396,6 @@ describe('POST /api/enrichment/test', () => {
   });
 
   it('returns 400 for invalid URL', async () => {
-    if (!mongoReachable) return;
     const r = await post('/api/enrichment/test', {
       nominatim_url: 'not-a-url',
     });
@@ -468,7 +405,6 @@ describe('POST /api/enrichment/test', () => {
 
 describe('POST /api/enrichment/test-meili', () => {
   it('returns ok:true when Meilisearch /health is reachable', async () => {
-    if (!mongoReachable) return;
     stubFetch((url) =>
       url.endsWith('/health') ? { status: 200, body: { status: 'available' } } : { status: 200 },
     );
@@ -481,7 +417,6 @@ describe('POST /api/enrichment/test-meili', () => {
   });
 
   it('returns ok:false when the health check fails', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 503, body: { status: 'unavailable' } }));
     const r = await post('/api/enrichment/test-meili', {
       meilisearch_url: 'http://meili.test:7700',
@@ -491,7 +426,6 @@ describe('POST /api/enrichment/test-meili', () => {
   });
 
   it('returns 400 for an invalid URL', async () => {
-    if (!mongoReachable) return;
     const r = await post('/api/enrichment/test-meili', {
       meilisearch_url: 'not-a-url',
     });

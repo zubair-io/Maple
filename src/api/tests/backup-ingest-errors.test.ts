@@ -1,24 +1,27 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+/**
+ * POST /api/libraries/:id/backup/ingest — errors and edge cases.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), with the library rooted at a per-test tmp directory.
+ * The happy paths live in `backup-ingest.test.ts`; the cloud-id /
+ * spec-form-dedup tests in `backup-ingest-cloud-dedup.test.ts`. Split to keep
+ * each file under the file-size budget (#114).
+ */
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authedHandle } from './helpers/authed-handle.ts';
+import { BACKUP_CHUNK_DIR } from '../src/backup/config.ts';
+import { findAssetIdByMapleId, readLocations } from './helpers/sqlite-fixtures.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
-// Error / edge-case slice of the `POST /api/libraries/:id/backup/ingest` suite.
-// The happy paths live in `backup-ingest.test.ts`; the cloud-id / spec-form-dedup
-// tests in `backup-ingest-cloud-dedup.test.ts`. Split to keep each file under
-// the file-size budget (#114).
-//
-// Pick a deviceId distinct from the happy-path suite so this file can run in
-// parallel without wiping the other suite's `assetsCollection` rows during
-// its beforeAll cleanup.
 const deviceId = 'test-device-ingest-errors';
 
-const suite = setupBackupIngestSuite({ deviceId });
-beforeAll(suite.beforeAll);
-afterAll(suite.afterAll);
+const suite = setupBackupIngestSuite();
+beforeEach(suite.setup);
+afterEach(suite.teardown);
 
-const ingest = makeIngestRequest(suite.handle.libId);
+const ingest = makeIngestRequest(suite.handle);
 
 describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => {
   test('Content-Range end < start → 400', async () => {
@@ -52,8 +55,6 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
 
   test('tmp file deleted between chunks → 409 with expected_offset 0', async () => {
     const phidTmp = 'ABC/L0/TMP1';
-    const backupTmpDir = process.env.MAPLE_BACKUP_TMP ?? '/tmp/maple-backup-chunks';
-    const { uploadSessionsCollection } = await import('../src/db/client.ts');
 
     // First chunk — establishes session
     const r1 = await authedHandle(
@@ -69,15 +70,13 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     expect(r1.status).toBe(202);
 
     // Find the session id and delete the .part file
-    const u = await uploadSessionsCollection();
-    const sess = await u.findOne({
-      device_id: deviceId,
-      phasset_local_id: phidTmp,
-    });
-    expect(sess).toBeTruthy();
-    const partFile = `${backupTmpDir}/${sess!._id.toHexString()}.part`;
+    const sess = suite.handle.db
+      .query(`SELECT id FROM upload_sessions WHERE device_id = ? AND phasset_local_id = ?`)
+      .get(deviceId, phidTmp) as { id: string } | null;
+    expect(sess).not.toBeNull();
+    const partFile = path.join(BACKUP_CHUNK_DIR, `${sess!.id}.part`);
     try {
-      await import('node:fs/promises').then((f) => f.unlink(partFile));
+      await fs.unlink(partFile);
     } catch {
       /* already gone */
     }
@@ -168,6 +167,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     // lands at the next free sibling path instead.
     const captureDate = '2024-07-04T12:00:00Z';
     const fname = 'IMG_COLLISION.HEIC';
+    const mapleId = '020db9773e5f839256c49efb15f64047';
     const targetDir = path.join(suite.handle.tmpLib, '2024/Misc');
     await fs.mkdir(targetDir, { recursive: true });
     const preExistingPath = path.join(targetDir, fname);
@@ -180,29 +180,29 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Capture-Date': captureDate,
         'X-Maple-Filename': fname,
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': '020db9773e5f839256c49efb15f64047',
+        'X-Maple-Maple-Id': mapleId,
         'Content-Range': 'bytes 0-63/64',
       }),
     );
     expect(rCollide.status).toBe(200);
     const b = await rCollide.json();
     expect(b.target_rel_path).toBe('2024/Misc/IMG_COLLISION-1.HEIC');
-    expect(b.maple_id).toBe('020db9773e5f839256c49efb15f64047');
+    expect(b.maple_id).toBe(mapleId);
 
     // The pre-existing file is untouched; our bytes landed at the sibling path.
     expect((await fs.readFile(preExistingPath)).equals(Buffer.alloc(64, 0))).toBe(true);
     const siblingPath = path.join(targetDir, 'IMG_COLLISION-1.HEIC');
     expect((await fs.readFile(siblingPath)).equals(Buffer.alloc(64, 11))).toBe(true);
 
-    // The asset row's fileinfo points at the DISAMBIGUATED basename, not the
+    // The asset's location points at the DISAMBIGUATED basename, not the
     // original colliding header name — otherwise downstream abs_path
     // reconstruction would resolve back to the other file.
-    const { assetsCollection } = await import('../src/db/client.ts');
-    const assets = await assetsCollection();
-    const row = await assets.findOne({ maple_id: '020db9773e5f839256c49efb15f64047' });
-    expect(row).not.toBeNull();
-    expect(row!.fileinfo?.[0].path).toBe('2024/Misc');
-    expect(row!.fileinfo?.[0].filename).toBe('IMG_COLLISION-1.HEIC');
+    const assetId = findAssetIdByMapleId(suite.handle.db, mapleId);
+    expect(assetId).not.toBeNull();
+    const locations = readLocations(suite.handle.db, assetId!);
+    expect(locations).toHaveLength(1);
+    expect(locations[0].path).toBe('2024/Misc');
+    expect(locations[0].filename).toBe('IMG_COLLISION-1.HEIC');
 
     // A retry after a downstream (sidecar/rendered) failure must short-circuit
     // to the RESOLVED sibling path, not the original colliding one — so the
@@ -214,34 +214,26 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Capture-Date': captureDate,
         'X-Maple-Filename': fname,
         'X-Maple-Total-Bytes': '64',
-        'X-Maple-Maple-Id': '020db9773e5f839256c49efb15f64047',
+        'X-Maple-Maple-Id': mapleId,
         'Content-Range': 'bytes 0-63/64',
       }),
     );
     expect(rRetry.status).toBe(200);
     expect((await rRetry.json()).target_rel_path).toBe('2024/Misc/IMG_COLLISION-1.HEIC');
-
-    // Clean up
-    await assets.deleteMany({ maple_id: '020db9773e5f839256c49efb15f64047' });
-    await fs.unlink(preExistingPath);
-    await fs.unlink(siblingPath);
   });
 
-  test('path collision, IDENTICAL bytes on disk + no Mongo row → adopted, 200', async () => {
+  test('path collision, IDENTICAL bytes on disk + no asset row → adopted, 200', async () => {
     // An interrupted prior attempt moved the bytes into place but died before
     // inserting the asset row. The retry must recover — adopt the file already
     // on disk and create the missing row — not 500.
     const captureDate = '2024-08-09T12:00:00Z';
     const fname = 'IMG_RECOVER.HEIC';
+    const mapleId = '021818a50385f713fc2eef7b8298ca92';
     const bytes = Buffer.alloc(96, 7);
     const targetDir = path.join(suite.handle.tmpLib, '2024/Misc');
     await fs.mkdir(targetDir, { recursive: true });
     const preExistingPath = path.join(targetDir, fname);
     await fs.writeFile(preExistingPath, bytes);
-
-    const { assetsCollection } = await import('../src/db/client.ts');
-    const assets = await assetsCollection();
-    await assets.deleteMany({ maple_id: '021818a50385f713fc2eef7b8298ca92' });
 
     const rRecover = await authedHandle(
       ingest(bytes, {
@@ -250,30 +242,23 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
         'X-Maple-Capture-Date': captureDate,
         'X-Maple-Filename': fname,
         'X-Maple-Total-Bytes': String(bytes.byteLength),
-        'X-Maple-Maple-Id': '021818a50385f713fc2eef7b8298ca92',
+        'X-Maple-Maple-Id': mapleId,
         'Content-Range': `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
       }),
     );
     expect(rRecover.status).toBe(200);
     const b = await rRecover.json();
     expect(b.target_rel_path).toBe('2024/Misc/IMG_RECOVER.HEIC');
-    expect(b.maple_id).toBe('021818a50385f713fc2eef7b8298ca92');
+    expect(b.maple_id).toBe(mapleId);
 
     // The original file is still there (no spurious sibling), and the missing
     // asset row was created.
     expect((await fs.readFile(preExistingPath)).equals(bytes)).toBe(true);
-    let siblingExists = true;
-    try {
-      await fs.stat(path.join(targetDir, 'IMG_RECOVER-1.HEIC'));
-    } catch {
-      siblingExists = false;
-    }
+    const siblingExists = await fs
+      .stat(path.join(targetDir, 'IMG_RECOVER-1.HEIC'))
+      .then(() => true)
+      .catch(() => false);
     expect(siblingExists).toBe(false);
-    const row = await assets.findOne({ maple_id: '021818a50385f713fc2eef7b8298ca92' });
-    expect(row).not.toBeNull();
-
-    // Clean up
-    await assets.deleteMany({ maple_id: '021818a50385f713fc2eef7b8298ca92' });
-    await fs.unlink(preExistingPath);
+    expect(findAssetIdByMapleId(suite.handle.db, mapleId)).not.toBeNull();
   });
 });

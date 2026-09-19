@@ -1,16 +1,25 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+/**
+ * Web-to-web LAN session handoff: an authenticated page on the public origin
+ * mints a one-time code, and the page on the server's plain-HTTP LAN address
+ * spends it for a session of its own.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), so the counted refresh token is the one this test
+ * caused rather than whatever a sibling suite left behind.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import {
   lanHandoffIssueRoutes,
   lanHandoffRedeemRoutes,
 } from '../../src/routes/auth-lan-handoff.ts';
-import {
-  usersCollection,
-  lanHandoffCodesCollection,
-  refreshTokensCollection,
-} from '../../src/db/client.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedUser } from '../helpers/sqlite-fixtures.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const app = new Elysia()
@@ -19,27 +28,30 @@ const app = new Elysia()
   // scoped-derive stays contained and doesn't gate the public redeem.
   .use(new Elysia().use(lanHandoffIssueRoutes));
 
+let live: LiveTestDatabase;
 let userId: ObjectId;
 let bearer: string;
 
 beforeEach(async () => {
-  for (const c of [usersCollection, lanHandoffCodesCollection, refreshTokensCollection]) {
-    await (await c()).deleteMany({});
-  }
-  const ins = await (
-    await usersCollection()
-  ).insertOne({
-    email: 'owner@maple.local',
-    role: 'owner',
-    created_at: new Date().toISOString(),
-    last_seen_at: null,
-  });
-  userId = ins.insertedId;
+  live = await createLiveTestDatabase();
+  userId = seedUser(live.db, { email: 'owner@maple.local', role: 'owner' });
   bearer = await signAccessToken(
     { file_access: true, sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
     process.env.MAPLE_JWT_SECRET!,
   );
 });
+
+afterEach(() => {
+  live.close();
+});
+
+/** How many refresh tokens this account holds. */
+function refreshTokenCount(): number {
+  const row = live.db
+    .query(`SELECT count(*) AS n FROM refresh_tokens WHERE user_id = ?`)
+    .get(userId.toHexString()) as { n: number };
+  return row.n;
+}
 
 const issue = (headers: Record<string, string>) =>
   app.handle(
@@ -68,12 +80,16 @@ describe('web-to-web-LAN session handoff', () => {
   it('issues a code (authed) and redeems it for a fresh session', async () => {
     const issueRes = await issue({ authorization: `Bearer ${bearer}` });
     expect(issueRes.status).toBe(200);
-    const { code } = await issueRes.json();
+    const { code } = (await issueRes.json()) as { code: string };
     expect(typeof code).toBe('string');
 
     const redeemRes = await redeem(code);
     expect(redeemRes.status).toBe(200);
-    const body = await redeemRes.json();
+    const body = (await redeemRes.json()) as {
+      access_token: string;
+      refresh_token?: string;
+      user: { id: string };
+    };
     expect(typeof body.access_token).toBe('string');
     expect(body.user.id).toBe(userId.toHexString());
     // The refresh token rides ONLY in the cookie — never in the JSON body
@@ -88,10 +104,7 @@ describe('web-to-web-LAN session handoff', () => {
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie.toLowerCase()).not.toContain('secure');
 
-    const refreshCount = await (
-      await refreshTokensCollection()
-    ).countDocuments({ user_id: userId });
-    expect(refreshCount).toBe(1);
+    expect(refreshTokenCount()).toBe(1);
 
     // Single-use: a replay of the same code fails.
     const reuse = await redeem(code, '203.0.113.21');

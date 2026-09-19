@@ -1,202 +1,126 @@
+/**
+ * `GET /api/folders/:id/trash` — the File Provider's Trash listing: one page of
+ * a library's soft-deleted assets, newest-deleted first.
+ *
+ * Real files in a tmp directory, real SQLite installed as the process-wide
+ * handle for the file (#3787).
+ */
+
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { signAccessToken } from '../src/auth/tokens.ts';
+import { Elysia } from 'elysia';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { seedIndexedAsset } from './helpers/fs-route-fixtures.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 
-process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const BEARER =
-  'Bearer ' +
-  (await signAccessToken(
-    {
-      file_access: true,
-      sub: '00000000000000000000000a',
-      email: 'tester@maple.local',
-      role: 'owner',
-    },
-    process.env.MAPLE_JWT_SECRET!,
-  ));
+const ROOT = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'maple-fp3-tlist-')));
+withTestEnv('MAPLE_ROOTS', ROOT);
 
-const TEST_DB = `maple_test_fp3_trash_list_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+interface TrashItem {
+  filename: string;
+  original_relative_path: string;
+  deleted_at: string;
+  mtime: string;
+}
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let tmpRoot: string;
-let realTmpRoot: string;
-let folderId: ObjectId;
+interface TrashPage {
+  items: TrashItem[];
+  next_cursor: string | null;
+}
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
+let live: LiveTestDatabase;
+let folderId: string;
+
+async function trash(qs = ''): Promise<{ status: number; body: TrashPage }> {
+  const { foldersRoutes } = await import('../src/routes/folders.ts');
+  const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+  const res = await app.handle(new Request(`http://localhost/api/folders/${folderId}/trash${qs}`));
+  return { status: res.status, body: (await res.json()) as TrashPage };
 }
 
 describe('GET /api/folders/:id/trash', () => {
   beforeAll(async () => {
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) return;
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fp3-tlist-'));
-    realTmpRoot = await fs.realpath(tmpRoot);
-    process.env.MAPLE_ROOTS = realTmpRoot;
-    folderId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: folderId,
-      path: realTmpRoot,
-      label: 't',
-      created_at: new Date().toISOString(),
-      file_count: 0,
-    } as never);
+    live = await createLiveTestDatabase();
+    folderId = insertFolder(live.db, { path: ROOT, slug: 'trash-list-test' });
     const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
     invalidateLibraryRoots();
-    // Three trashed assets at different times. Post
-    // drop-abs-path-2026-05-21 each row's on-disk pointer is
-    // `fileinfo[0]` (here pointing at `.maple/trash` under the library
-    // root); `original_path` retains the legacy ABSOLUTE path because
-    // the route still exposes it on the wire shape.
+
+    // Three trashed assets at different times. The on-disk pointer is the
+    // asset's location row — here `.maple/trash` under the library root —
+    // while `original_path` retains the absolute path the file was trashed
+    // from, because the route still exposes it on the wire shape.
     const now = Date.now();
     for (let i = 0; i < 3; i++) {
       const filename = `T${i}.ARW`;
-      const trash = path.join(realTmpRoot, '.maple', 'trash', filename);
-      await fs.mkdir(path.dirname(trash), { recursive: true });
-      await fs.writeFile(trash, `r${i}`);
-      await db.collection('assets').insertOne({
-        _id: new ObjectId(),
-        fileinfo: [{ library_id: folderId, path: '.maple/trash', filename, deleted_at: null }],
+      const trashed = path.join(ROOT, '.maple', 'trash', filename);
+      await fs.mkdir(path.dirname(trashed), { recursive: true });
+      await fs.writeFile(trashed, `r${i}`);
+      seedIndexedAsset(live.db, {
+        libraryId: folderId,
+        path: '.maple/trash',
+        filename,
         size: 2,
         mtime: now,
-        indexed_at: new Date().toISOString(),
-        deleted_at: new Date(now - i * 1000).toISOString(),
-        original_path: path.join(realTmpRoot, filename),
-      } as never);
+        deletedAt: new Date(now - i * 1000).toISOString(),
+        originalPath: path.join(ROOT, filename),
+      });
     }
-    // One vanished (watcher-removed) asset — deleted_at set, original_path absent.
-    await db.collection('assets').insertOne({
-      _id: new ObjectId(),
-      fileinfo: [{ library_id: folderId, path: '', filename: 'vanished.ARW', deleted_at: null }],
+
+    // One vanished (watcher-removed) asset — deleted_at set, original_path
+    // absent, and not a reaped row, so Trash must not offer it.
+    seedIndexedAsset(live.db, {
+      libraryId: folderId,
+      filename: 'vanished.ARW',
       size: 0,
       mtime: now,
-      indexed_at: new Date().toISOString(),
-      deleted_at: new Date().toISOString(),
-    } as never);
+      deletedAt: new Date().toISOString(),
+    });
   });
 
   afterAll(async () => {
-    // Close the APP DB client (held by the routes via the singleton
-    // `getDb()` in src/db/client.ts) so it doesn't leak across tests —
-    // otherwise subsequent test files inherit a connection pointed at
-    // this file's TEST_DB. Pattern mirrors assets-xmp-delete.test.ts.
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    if (mongo) {
-      try {
-        await mongo.db(TEST_DB).dropDatabase();
-      } catch {}
-      await mongo.close();
-    }
-    if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
-    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
-    if (PRIOR_MAPLE_ROOTS === undefined) delete process.env.MAPLE_ROOTS;
-    else process.env.MAPLE_ROOTS = PRIOR_MAPLE_ROOTS;
+    live.close();
+    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+    await fs.rm(ROOT, { recursive: true, force: true }).catch(() => {});
   });
 
   test('returns trashed assets newest-first, excludes vanished (no original_path)', async () => {
-    if (!mongoReachable) return;
-    const { app } = await import('../src/index.ts');
-    const res = await app.handle(
-      new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash`, {
-        headers: { Authorization: BEARER },
-      }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      items: Array<{
-        filename: string;
-        original_relative_path: string;
-        deleted_at: string;
-        mtime: string;
-      }>;
-      next_cursor: string | null;
-    };
+    const { status, body } = await trash();
+    expect(status).toBe(200);
     expect(body.items).toHaveLength(3);
     expect(body.items[0].filename).toBe('T0.ARW');
     expect(body.items[2].filename).toBe('T2.ARW');
     expect(body.items[0].original_relative_path).toBe('T0.ARW');
-    // mtime must be emitted as ISO-8601 (not epoch-ms float) — the
-    // Swift Date decoder cannot otherwise consume it.
+    // mtime must be emitted as ISO-8601 (not an epoch-ms float) — the Swift
+    // Date decoder cannot otherwise consume it.
     expect(typeof body.items[0].mtime).toBe('string');
     expect(body.items[0].mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 
   test('400 on non-numeric limit (regression: NaN→500 via .limit())', async () => {
-    if (!mongoReachable) return;
-    const { app } = await import('../src/index.ts');
-    const res = await app.handle(
-      new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash?limit=abc`, {
-        headers: { Authorization: BEARER },
-      }),
-    );
-    expect(res.status).toBe(400);
+    expect((await trash('?limit=abc')).status).toBe(400);
   });
 
   test('400 on negative limit', async () => {
-    if (!mongoReachable) return;
-    const { app } = await import('../src/index.ts');
-    const res = await app.handle(
-      new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash?limit=-1`, {
-        headers: { Authorization: BEARER },
-      }),
-    );
-    expect(res.status).toBe(400);
+    expect((await trash('?limit=-1')).status).toBe(400);
   });
 
   test('pagination via limit + cursor returns subsequent page', async () => {
-    if (!mongoReachable) return;
-    const { app } = await import('../src/index.ts');
-    const first = await app.handle(
-      new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash?limit=2`, {
-        headers: { Authorization: BEARER },
-      }),
-    );
-    const firstBody = (await first.json()) as {
-      items: Array<{ filename: string }>;
-      next_cursor: string | null;
-    };
-    expect(firstBody.items).toHaveLength(2);
-    expect(firstBody.next_cursor).toBeTruthy();
-    const second = await app.handle(
-      new Request(
-        `http://localhost/api/folders/${folderId.toHexString()}/trash?limit=2&cursor=${encodeURIComponent(firstBody.next_cursor!)}`,
-        {
-          headers: { Authorization: BEARER },
-        },
-      ),
-    );
-    const secondBody = (await second.json()) as {
-      items: Array<{ filename: string }>;
-      next_cursor: string | null;
-    };
-    expect(secondBody.items).toHaveLength(1);
-    expect(secondBody.items[0].filename).toBe('T2.ARW');
-    expect(secondBody.next_cursor).toBeNull();
+    const first = await trash('?limit=2');
+    expect(first.body.items).toHaveLength(2);
+    expect(first.body.next_cursor).toBeTruthy();
+
+    const second = await trash(`?limit=2&cursor=${encodeURIComponent(first.body.next_cursor!)}`);
+    expect(second.body.items).toHaveLength(1);
+    expect(second.body.items[0].filename).toBe('T2.ARW');
+    expect(second.body.next_cursor).toBeNull();
   });
 });
