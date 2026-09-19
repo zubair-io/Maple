@@ -20,7 +20,7 @@ import {
   insertLocation,
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { __resetFolderPathCacheForTests } from '../db/sqlite/repos/changes.repo.ts';
+import { __resetChangeFolderPathCacheForTests } from '../db/sqlite/repos/changes.repo.ts';
 import { listTrashedBefore } from '../db/sqlite/repos/assets.sweeps.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { trashFolderRecursive, restoreFolderRecursive } from './folder-trash.ts';
@@ -38,7 +38,7 @@ beforeEach(async () => {
   // The change feed caches each library's root path per process, keyed on the
   // library id. Every test mints its own id so a stale entry cannot be read,
   // but dropping it keeps that independent of how ids are minted.
-  __resetFolderPathCacheForTests();
+  __resetChangeFolderPathCacheForTests();
 });
 
 afterEach(async () => {

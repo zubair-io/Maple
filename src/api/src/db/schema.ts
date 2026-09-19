@@ -1196,11 +1196,6 @@ export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null)
 }
 
 // ---------------------------------------------------------------------------
-// Indexer queue task
-// ---------------------------------------------------------------------------
-
-export type TaskKind = 'scan_folder' | 'gen_thumb' | 'extract_exif';
-// ---------------------------------------------------------------------------
 // JobRunner — sibling subsystem to the indexer pipeline for user-triggered
 // long-running work (export, batch reprocess, …). See
 // `docs/workers-architecture.md` §9, §11. Persisted job documents with

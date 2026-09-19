@@ -1,6 +1,6 @@
 /**
  * Seeding, registration, the version-bump reset and the persisted counts —
- * ported from the `versionBumpReset` half of `workers/run-stage.test.ts`, the
+ * ported from the `resetStageRowsBelowTarget` half of `workers/run-stage.test.ts`, the
  * `blankStagesSkeleton` contract in `workers/stages/manifest.ts`, and the
  * per-stage counts in `workers/status-counts.test.ts`.
  */
@@ -11,7 +11,7 @@ import {
   registerStage,
   registerStages,
   seedStageRows,
-  versionBumpReset,
+  resetStageRowsBelowTarget,
 } from './stage-state.repo.ts';
 import { claimStageBatch } from './stage-claim.ts';
 import { seedClaimableAsset, stageRow } from './stage-runtime.test-helpers.ts';
@@ -136,7 +136,7 @@ describe('registering a stage', () => {
   });
 });
 
-describe('versionBumpReset', () => {
+describe('resetStageRowsBelowTarget', () => {
   test('lifts the dead flag and clears the failure trail below the new target', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
@@ -145,7 +145,7 @@ describe('versionBumpReset', () => {
     });
     const done = seedClaimableAsset(handle.db, { stages: { exif: { version: 2 } } });
 
-    const changed = await versionBumpReset('exif', 2, 1, db);
+    const changed = await resetStageRowsBelowTarget('exif', 2, 1, db);
 
     expect(changed).toBe(1);
     expect(stageRow(handle.db, parked, 'exif')).toMatchObject({
@@ -168,7 +168,7 @@ describe('versionBumpReset', () => {
       stages: { exif: { version: 1, attempts: 1, nextAttemptAt: lease } },
     });
 
-    await versionBumpReset('exif', 2, 1, db);
+    await resetStageRowsBelowTarget('exif', 2, 1, db);
 
     // A restart across a bump: the outgoing process is still draining handlers
     // (`stop()` allows 30 s) while the incoming one boots and runs this. If the
@@ -196,7 +196,7 @@ describe('versionBumpReset', () => {
       stages: { exif: { version: 1, attempts: 3, nextAttemptAt: '2026-06-01T12:15:00.000Z' } },
     });
 
-    await versionBumpReset('exif', 2, 1, db);
+    await resetStageRowsBelowTarget('exif', 2, 1, db);
     const claimed = await claimStageBatch(
       {
         stage: 'exif',
@@ -221,7 +221,7 @@ describe('versionBumpReset', () => {
     const db = testSqliteDb(handle.db);
     const parked = seedClaimableAsset(handle.db, { stages: { exif: { dead: true } } });
 
-    expect(await versionBumpReset('exif', 2, 2, db)).toBe(0);
+    expect(await resetStageRowsBelowTarget('exif', 2, 2, db)).toBe(0);
     expect(stageRow(handle.db, parked, 'exif')?.dead).toBe(1);
   });
 });

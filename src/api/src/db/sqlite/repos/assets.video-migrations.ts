@@ -139,7 +139,7 @@ export const SCREENSHOT_VIDEO_SCOPE: CandidateScope = {
  * exists" branch in `sidecar-metadata-index` and permanently shadow the
  * heuristic for that asset.
  */
-export async function clearVideoScreenshotFlags(
+export async function clearVideoScreenshotFlagRows(
   ids: readonly ObjectId[],
   version: number,
   dbOverride?: SqliteDb,

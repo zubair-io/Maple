@@ -16,7 +16,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase, insertFolder, testSqliteDb } from '../test-sqlite.test-helpers.ts';
-import { insertFace, insertPerson } from './assets.test-helpers.ts';
+import { insertFaceRow, insertPersonRow } from './assets.test-helpers.ts';
 import { auditSubthresholdFaces, purgeSubthresholdFaces } from './faces.purge.ts';
 import { seedSearchAsset } from './search.test-helpers.ts';
 import type { SqliteDb } from './db-handle.ts';
@@ -38,10 +38,10 @@ async function withFaces<T>(
 ): Promise<T> {
   using handle = await createTestDatabase();
   const libraryId = insertFolder(handle.db, { slug: 'purge' });
-  const personId = insertPerson(handle.db, 'Assigned');
+  const personId = insertPersonRow(handle.db, 'Assigned');
   const assetId = seedSearchAsset(handle.db, libraryId, { capturedAt: null });
   faces(personId).forEach((face, index) => {
-    insertFace(handle.db, {
+    insertFaceRow(handle.db, {
       assetId,
       faceIndex: index,
       personId: face.personId ?? null,
@@ -209,7 +209,7 @@ describe('purgeSubthresholdFaces', () => {
       capturedAt: null,
       deletedAt: '2026-01-01T00:00:00.000Z',
     });
-    insertFace(handle.db, { assetId, faceIndex: 0, bbox: { x: 0, y: 0, w: 0.04, h: 0.04 } });
+    insertFaceRow(handle.db, { assetId, faceIndex: 0, bbox: { x: 0, y: 0, w: 0.04, h: 0.04 } });
     const db = testSqliteDb(handle.db);
 
     expect((await auditSubthresholdFaces(THRESHOLD, db)).unassigned).toBe(1);

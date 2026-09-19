@@ -13,7 +13,7 @@ import { Elysia } from 'elysia';
 import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { peopleRoutes } from '../people.ts';
-import { insertFace, insertPerson } from '../../db/sqlite/repos/assets.test-helpers.ts';
+import { insertFaceRow, insertPersonRow } from '../../db/sqlite/repos/assets.test-helpers.ts';
 import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
@@ -28,8 +28,8 @@ let bystanderId: string;
 beforeEach(async () => {
   live = await createLiveTestDatabase();
   const libraryId = insertFolder(live.db, { slug: 'person-exclude', path: '/lib' });
-  personId = insertPerson(live.db, 'Ex Cluded');
-  bystanderId = insertPerson(live.db, 'By Stander');
+  personId = insertPersonRow(live.db, 'Ex Cluded');
+  bystanderId = insertPersonRow(live.db, 'By Stander');
 
   // Group shot: the excluded person plus a bystander — the whole asset must
   // drop, not just the one face.
@@ -37,8 +37,8 @@ beforeEach(async () => {
     filename: 'a.dng',
     capturedAt: '2026-05-10T00:00:00.000Z',
   });
-  insertFace(live.db, { assetId: group, faceIndex: 0, personId });
-  insertFace(live.db, { assetId: group, faceIndex: 1, personId: bystanderId });
+  insertFaceRow(live.db, { assetId: group, faceIndex: 0, personId });
+  insertFaceRow(live.db, { assetId: group, faceIndex: 1, personId: bystanderId });
 
   seedSearchAsset(live.db, libraryId, {
     filename: 'b.dng',

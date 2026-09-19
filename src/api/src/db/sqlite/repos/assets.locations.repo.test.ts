@@ -25,7 +25,7 @@ import {
   listTrashedAssetLocationsUnderFolder,
   loadAssetLocationView,
   loadAssetLocationViews,
-  loadNearbyAssetCandidates,
+  loadNearbyAssetCandidateRows,
 } from './assets.locations.repo.ts';
 
 const oid = (hex: string): ObjectId => new ObjectId(hex);
@@ -288,7 +288,7 @@ describe('listTrashedAssetLocationsUnderFolder', () => {
   });
 });
 
-describe('loadNearbyAssetCandidates', () => {
+describe('loadNearbyAssetCandidateRows', () => {
   test('returns the live, in-window assets of one library with their folders', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
@@ -310,7 +310,7 @@ describe('loadNearbyAssetCandidates', () => {
       capturedAt: '2024-03-15T00:00:00.000Z',
     });
 
-    const { candidates, truncated } = await loadNearbyAssetCandidates(
+    const { candidates, truncated } = await loadNearbyAssetCandidateRows(
       oid(libraryId),
       Date.parse('2024-03-01T00:00:00.000Z'),
       Date.parse('2024-03-31T00:00:00.000Z'),
@@ -342,7 +342,7 @@ describe('loadNearbyAssetCandidates', () => {
       missingSince: '2026-01-01T00:00:00.000Z',
     });
 
-    const { candidates } = await loadNearbyAssetCandidates(
+    const { candidates } = await loadNearbyAssetCandidateRows(
       oid(libraryId),
       Date.parse('2024-03-01T00:00:00.000Z'),
       Date.parse('2024-03-31T00:00:00.000Z'),
@@ -372,7 +372,7 @@ describe('loadNearbyAssetCandidates', () => {
       filename: 'dupe.dng',
     });
 
-    const { candidates } = await loadNearbyAssetCandidates(
+    const { candidates } = await loadNearbyAssetCandidateRows(
       oid(libraryId),
       Date.parse('2024-03-01T00:00:00.000Z'),
       Date.parse('2024-03-31T00:00:00.000Z'),

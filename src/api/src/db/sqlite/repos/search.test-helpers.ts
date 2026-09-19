@@ -15,7 +15,7 @@
 import type { Database } from 'bun:sqlite';
 import { newObjectIdHex } from '../object-id.ts';
 import { insertFolder, run } from '../test-sqlite.test-helpers.ts';
-import { insertDetail, insertFace, insertPerson } from './assets.test-helpers.ts';
+import { insertDetail, insertFaceRow, insertPersonRow } from './assets.test-helpers.ts';
 
 /** Everything one fixture asset varies. */
 export interface SeedAsset {
@@ -225,9 +225,9 @@ function insertEnrichment(db: Database, asset: ResolvedAsset, people: Map<string
   }
 
   for (const [index, name] of asset.people.entries()) {
-    const personId = people.get(name) ?? insertPerson(db, name);
+    const personId = people.get(name) ?? insertPersonRow(db, name);
     people.set(name, personId);
-    insertFace(db, { assetId: asset.id, faceIndex: index, personId });
+    insertFaceRow(db, { assetId: asset.id, faceIndex: index, personId });
   }
 }
 

@@ -24,7 +24,7 @@ import type { AssetWithId } from '../../schema.ts';
 import type * as MongoRepo from '../../assets.repo.ts';
 import * as SqliteRepo from './assets.repo.ts';
 import { deleteOutcome, updateOutcome } from './db-handle.ts';
-import { insertDetail, insertFace, insertPerson } from './assets.test-helpers.ts';
+import { insertDetail, insertFaceRow, insertPersonRow } from './assets.test-helpers.ts';
 import {
   createTestDatabase,
   insertAsset,
@@ -179,8 +179,8 @@ function seedRows(db: Parameters<typeof insertAsset>[0]): void {
     }),
     transcript: JSON.stringify(TRANSCRIPT),
   });
-  insertPerson(db, 'Maya', PERSON_ID);
-  insertFace(db, {
+  insertPersonRow(db, 'Maya', PERSON_ID);
+  insertFaceRow(db, {
     assetId: ASSET_ID,
     personId: PERSON_ID,
     confidence: 0.91,

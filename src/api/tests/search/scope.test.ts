@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { fmtAuth, seedBaseLibrary } from './_setup.ts';
-import { insertFace } from '../../src/db/sqlite/repos/assets.test-helpers.ts';
+import { insertFaceRow } from '../../src/db/sqlite/repos/assets.test-helpers.ts';
 import { seedSearchAsset } from '../../src/db/sqlite/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
@@ -35,7 +35,7 @@ beforeAll(async () => {
     path: '',
     capturedAt: null,
   });
-  insertFace(live.db, { assetId: faceOnly, bbox: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 } });
+  insertFaceRow(live.db, { assetId: faceOnly, bbox: { x: 0.1, y: 0.1, w: 0.3, h: 0.3 } });
 
   // Live row with BOTH GPS and a face — covered by both scopes.
   const gpsAndFace = seedSearchAsset(live.db, folderA, {
@@ -49,7 +49,7 @@ beforeAll(async () => {
     focalLength: 26,
     gps: { lat: 40.7, lng: -74.0 },
   });
-  insertFace(live.db, {
+  insertFaceRow(live.db, {
     assetId: gpsAndFace,
     bbox: { x: 0.2, y: 0.2, w: 0.4, h: 0.4 },
     confidence: 0.95,

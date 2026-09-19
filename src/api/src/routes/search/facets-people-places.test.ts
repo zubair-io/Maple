@@ -17,7 +17,7 @@ import { Elysia } from 'elysia';
 import { facetsRoute } from './facets.ts';
 import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
-import { insertFace, insertPerson } from '../../db/sqlite/repos/assets.test-helpers.ts';
+import { insertFaceRow, insertPersonRow } from '../../db/sqlite/repos/assets.test-helpers.ts';
 import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
@@ -39,11 +39,11 @@ let live: LiveTestDatabase;
 beforeEach(async () => {
   live = await createLiveTestDatabase();
   const libraryId = insertFolder(live.db, { slug: 'facets-pp', path: '/lib' });
-  const priya = insertPerson(live.db, 'Priya Patel');
-  const hiddenPerson = insertPerson(live.db, 'Hidden Person');
+  const priya = insertPersonRow(live.db, 'Priya Patel');
+  const hiddenPerson = insertPersonRow(live.db, 'Hidden Person');
   run(live.db, `UPDATE people SET hidden = 1 WHERE id = ?`, hiddenPerson);
-  const autoPerson = insertPerson(live.db, 'Person 7');
-  const personAlice = insertPerson(live.db, 'Person Alice');
+  const autoPerson = insertPersonRow(live.db, 'Person 7');
+  const personAlice = insertPersonRow(live.db, 'Person Alice');
 
   const seed = (
     name: string,
@@ -56,7 +56,7 @@ beforeEach(async () => {
       ...place,
     });
     for (const face of faces) {
-      insertFace(live.db, { assetId: id, faceIndex: face.faceIndex, personId: face.personId });
+      insertFaceRow(live.db, { assetId: id, faceIndex: face.faceIndex, personId: face.personId });
     }
   };
 

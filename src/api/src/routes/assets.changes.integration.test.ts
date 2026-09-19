@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { assetsRoutes } from './assets.ts';
 import {
   listChangesSince,
-  __resetFolderPathCacheForTests,
+  __resetChangeFolderPathCacheForTests,
 } from '../db/sqlite/repos/changes.repo.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { registerLibrary, seedRouteAsset } from '../../tests/helpers/assets-route-fixtures.ts';
@@ -43,7 +43,7 @@ beforeEach(async () => {
   live = await createLiveTestDatabase();
   // The relative-path resolver memoises `folders.path` for the life of the
   // process, and every test here mints a new library under a new temp root.
-  __resetFolderPathCacheForTests();
+  __resetChangeFolderPathCacheForTests();
   tmp = await mkdtemp(join(tmpdir(), 'maple-changes-'));
   previousRoots = process.env.MAPLE_ROOTS;
   process.env.MAPLE_ROOTS = tmp;

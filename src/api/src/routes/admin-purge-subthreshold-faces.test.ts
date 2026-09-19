@@ -24,7 +24,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { saveEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
-import { insertFace, insertPerson } from '../db/sqlite/repos/assets.test-helpers.ts';
+import { insertFaceRow, insertPersonRow } from '../db/sqlite/repos/assets.test-helpers.ts';
 import { seedSearchAsset } from '../db/sqlite/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
@@ -66,7 +66,7 @@ function face(w: number, h: number, opts: Omit<SeedFace, 'w' | 'h'> = {}): SeedF
 function insertAssetWithFaces(faces: SeedFace[]): string {
   const assetId = seedSearchAsset(live.db, libraryId, { capturedAt: null });
   faces.forEach((f, index) => {
-    insertFace(live.db, {
+    insertFaceRow(live.db, {
       assetId,
       faceIndex: index,
       personId: f.personId ?? null,
@@ -128,7 +128,7 @@ describe('purge-subthreshold', () => {
 
   it('dry-run counts unassigned / assigned / hidden sub-threshold faces', async () => {
     await setMinSize(0.1);
-    const personId = insertPerson(live.db, 'Audit-Person');
+    const personId = insertPersonRow(live.db, 'Audit-Person');
 
     // 1 unassigned sub-threshold, alongside one above the threshold.
     insertAssetWithFaces([face(0.05, 0.05), face(0.2, 0.2)]);
@@ -154,7 +154,7 @@ describe('purge-subthreshold', () => {
 
   it('apply default — removes only unassigned sub-threshold, preserves assigned+hidden', async () => {
     await setMinSize(0.1);
-    const personId = insertPerson(live.db, 'Preserved-Person');
+    const personId = insertPersonRow(live.db, 'Preserved-Person');
 
     const assetId = insertAssetWithFaces([
       face(0.04, 0.04), // sub-threshold, unassigned → REMOVE
@@ -187,7 +187,7 @@ describe('purge-subthreshold', () => {
 
   it('apply with includeAssigned — also removes assigned sub-threshold, still preserves hidden', async () => {
     await setMinSize(0.1);
-    const personId = insertPerson(live.db, 'Assigned-Remove');
+    const personId = insertPersonRow(live.db, 'Assigned-Remove');
 
     const assetId = insertAssetWithFaces([
       face(0.04, 0.04), // sub-threshold, unassigned → REMOVE
@@ -216,7 +216,7 @@ describe('purge-subthreshold', () => {
 
   it('face count recomputed correctly for affected people after apply', async () => {
     await setMinSize(0.1);
-    const personId = insertPerson(live.db, 'Recompute-Person');
+    const personId = insertPersonRow(live.db, 'Recompute-Person');
 
     // 1 assigned sub-threshold (removed) + 1 above-threshold (kept).
     insertAssetWithFaces([
@@ -237,7 +237,7 @@ describe('purge-subthreshold', () => {
 
   it('above-threshold faces and their person_id are untouched', async () => {
     await setMinSize(0.1);
-    const personId = insertPerson(live.db, 'Untouched');
+    const personId = insertPersonRow(live.db, 'Untouched');
 
     const assetId = insertAssetWithFaces([face(0.2, 0.25, { personId })]);
 
@@ -309,7 +309,7 @@ describe('purge-subthreshold', () => {
     // There is one spelling now, in SQL, so the thing worth pinning is the
     // population: the audit's own numbers, and the rows that survive.
     await setMinSize(0.1);
-    const personId = insertPerson(live.db, 'Lockstep');
+    const personId = insertPersonRow(live.db, 'Lockstep');
 
     const assetId = insertAssetWithFaces([
       face(0.05, 0.05), // sub, unassigned, visible

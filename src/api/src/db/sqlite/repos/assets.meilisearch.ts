@@ -201,7 +201,7 @@ export async function hasMeiliAssetsAfter(cursor: string, dbOverride?: SqliteDb)
 }
 
 /** Stamp the fingerprint on the assets whose documents just landed in the index. */
-export async function markAssetsVectorized(
+export async function markAssetRowsVectorized(
   assetIds: readonly string[],
   fingerprint: string,
   dbOverride?: SqliteDb,
@@ -239,7 +239,7 @@ export async function advanceVectorFingerprint(
 }
 
 /** How many live assets there are — the denominator of vector coverage. */
-export async function countLiveAssets(dbOverride?: SqliteDb): Promise<number> {
+export async function countLiveAssetRows(dbOverride?: SqliteDb): Promise<number> {
   const rows = await sqliteDb(dbOverride).read<{ n: number }>(
     `SELECT COUNT(*) AS n FROM assets WHERE ${LIVE_ASSET_PREDICATE}`,
   );
@@ -247,7 +247,7 @@ export async function countLiveAssets(dbOverride?: SqliteDb): Promise<number> {
 }
 
 /** How many live assets carry exactly this fingerprint — the numerator. */
-export async function countLiveAssetsWithFingerprint(
+export async function countLiveAssetRowsWithFingerprint(
   fingerprint: string,
   dbOverride?: SqliteDb,
 ): Promise<number> {

@@ -17,17 +17,17 @@ import {
   run,
   testSqliteDb,
 } from '../test-sqlite.test-helpers.ts';
-import { insertDetail, insertFace, insertPerson } from './assets.test-helpers.ts';
+import { insertDetail, insertFaceRow, insertPersonRow } from './assets.test-helpers.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import {
   advanceVectorFingerprint,
-  countLiveAssets,
-  countLiveAssetsWithFingerprint,
+  countLiveAssetRows,
+  countLiveAssetRowsWithFingerprint,
   countMeiliAssetsAfter,
   hasMeiliAssetsAfter,
   loadMeiliAssetsAfter,
   loadMeiliAssetsByIds,
-  markAssetsVectorized,
+  markAssetRowsVectorized,
 } from './assets.meilisearch.ts';
 
 /**
@@ -175,9 +175,9 @@ describe('loadMeiliAssetsAfter', () => {
     using handle = await createTestDatabase();
     const db = handle.db;
     const id = insertIndexable(db);
-    const person = insertPerson(db, 'Ada');
-    insertFace(db, { assetId: id, faceIndex: 0, personId: person, confidence: 0.8 });
-    insertFace(db, { assetId: id, faceIndex: 1, personId: null });
+    const person = insertPersonRow(db, 'Ada');
+    insertFaceRow(db, { assetId: id, faceIndex: 0, personId: person, confidence: 0.8 });
+    insertFaceRow(db, { assetId: id, faceIndex: 1, personId: null });
 
     const batch = await loadMeiliAssetsAfter(null, 10, testSqliteDb(db));
     const faces = batch.faces.get(id) ?? [];
@@ -253,7 +253,7 @@ describe('vector coverage', () => {
     const marked = insertIndexable(db, { id: hexId('1') });
     const untouched = insertIndexable(db, { id: hexId('2') });
 
-    await markAssetsVectorized([marked], 'v8:abc', testSqliteDb(db));
+    await markAssetRowsVectorized([marked], 'v8:abc', testSqliteDb(db));
     const rows = db
       .query(`SELECT id, semantic_vector_fingerprint AS fp FROM assets ORDER BY id`)
       .all() as Array<{ id: string; fp: string | null }>;
@@ -267,7 +267,7 @@ describe('vector coverage', () => {
     using handle = await createTestDatabase();
     const db = handle.db;
     const id = insertIndexable(db, { fingerprint: 'v8:old' });
-    await markAssetsVectorized([], 'v8:new', testSqliteDb(db));
+    await markAssetRowsVectorized([], 'v8:new', testSqliteDb(db));
     const [row] = db
       .query(`SELECT semantic_vector_fingerprint AS fp FROM assets WHERE id = ?`)
       .all(id) as Array<{ fp: string }>;
@@ -333,7 +333,7 @@ describe('vector coverage', () => {
     insertIndexable(db, { fingerprint: 'v8:current', deletedAt: '2026-01-01T00:00:00.000Z' });
 
     const sqlite = testSqliteDb(db);
-    expect(await countLiveAssets(sqlite)).toBe(3);
-    expect(await countLiveAssetsWithFingerprint('v8:current', sqlite)).toBe(2);
+    expect(await countLiveAssetRows(sqlite)).toBe(3);
+    expect(await countLiveAssetRowsWithFingerprint('v8:current', sqlite)).toBe(2);
   });
 });

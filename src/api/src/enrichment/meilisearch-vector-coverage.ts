@@ -13,20 +13,20 @@
 
 import {
   advanceVectorFingerprint,
-  countLiveAssets as countLiveAssetsRow,
-  countLiveAssetsWithFingerprint as countLiveAssetsWithFingerprintRow,
-  markAssetsVectorized as markAssetsVectorizedRow,
+  countLiveAssetRows,
+  countLiveAssetRowsWithFingerprint,
+  markAssetRowsVectorized,
 } from '../db/sqlite/repos/assets.meilisearch.ts';
 
 /** How many live assets the library holds — vector coverage's denominator. */
 export async function countLiveAssets(): Promise<number> {
-  return countLiveAssetsRow();
+  return countLiveAssetRows();
 }
 
 /** How many live assets carry this exact fingerprint — coverage's numerator. */
 export async function countLiveAssetsWithFingerprint(fingerprint: string | null): Promise<number> {
   if (!fingerprint) return 0;
-  return countLiveAssetsWithFingerprintRow(fingerprint);
+  return countLiveAssetRowsWithFingerprint(fingerprint);
 }
 
 export async function markAssetsVectorized(
@@ -34,7 +34,7 @@ export async function markAssetsVectorized(
   fingerprint: string | null | undefined,
 ): Promise<void> {
   if (!fingerprint || assetIds.length === 0) return;
-  await markAssetsVectorizedRow(assetIds, fingerprint);
+  await markAssetRowsVectorized(assetIds, fingerprint);
 }
 
 /**

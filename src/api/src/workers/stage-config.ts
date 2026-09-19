@@ -21,7 +21,7 @@ import { type IndexerAssetDoc } from '../indexer/images.repo.ts';
 import type { SqlStatement } from '../db/sqlite/protocol.ts';
 import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
 import type { StageClaimResidual } from '../db/sqlite/repos/stage-claim.ts';
-import { versionBumpReset as resetStageRowsBelowTarget } from '../db/sqlite/repos/stage-state.repo.ts';
+import { resetStageRowsBelowTarget } from '../db/sqlite/repos/stage-state.repo.ts';
 import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 
 // ---------------------------------------------------------------------------

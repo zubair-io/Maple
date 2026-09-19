@@ -32,7 +32,7 @@ import {
   listChangesSince,
   recordAssetChange,
   recordAndPublishAssetChange,
-  __resetFolderPathCacheForTests,
+  __resetChangeFolderPathCacheForTests,
   type SqliteDb,
 } from '../../db/sqlite/repos/changes.repo.ts';
 import {
@@ -47,7 +47,7 @@ const LIBRARY_ROOT = '/srv/photos';
 
 beforeEach(() => {
   __resetChangeBusForTests();
-  __resetFolderPathCacheForTests();
+  __resetChangeFolderPathCacheForTests();
 });
 
 function app(): Elysia {

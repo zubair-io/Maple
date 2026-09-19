@@ -1,7 +1,7 @@
 /**
  * The stage-state table's non-claim verbs — the SQLite port of
  * `workers/stages/manifest.ts`'s `blankStagesSkeleton`, of
- * `stage-config.ts`'s `versionBumpReset`, and of the per-stage counts
+ * `stage-config.ts`'s `resetStageRowsBelowTarget`, and of the per-stage counts
  * `workers/status-counts.ts` persists (#3748).
  *
  * ## Registering a stage is an insert
@@ -131,7 +131,7 @@ export async function registerStages(
  * claim the outgoing process is still holding across a restart. See
  * `STAGE_VERSION_BUMP_RESET_SQL` for why that costs nothing.
  */
-export async function versionBumpReset(
+export async function resetStageRowsBelowTarget(
   stage: string,
   targetVersion: number,
   lastSeenVersion: number,

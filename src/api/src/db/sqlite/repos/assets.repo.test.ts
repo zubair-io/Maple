@@ -20,8 +20,8 @@ import { bucketedIds, locationsByAssetIdsSql } from './assets.sql.ts';
 import {
   insertDetail,
   insertEnrichmentState,
-  insertFace,
-  insertPerson,
+  insertFaceRow,
+  insertPersonRow,
 } from './assets.test-helpers.ts';
 import {
   createTestDatabase,
@@ -91,9 +91,9 @@ describe('findDetailById', () => {
         segments: [{ start: 0, end: 2, text: 'hello' }],
       }),
     });
-    const personId = insertPerson(db, 'Maya');
-    insertFace(db, { assetId, faceIndex: 0, personId, embedding: JSON.stringify([0.1, 0.2]) });
-    insertFace(db, { assetId, faceIndex: 1, personId: null });
+    const personId = insertPersonRow(db, 'Maya');
+    insertFaceRow(db, { assetId, faceIndex: 0, personId, embedding: JSON.stringify([0.1, 0.2]) });
+    insertFaceRow(db, { assetId, faceIndex: 1, personId: null });
     insertEnrichmentState(db, assetId, 'geocode', { doneAt: '2026-04-01T11:00:00Z', version: 2 });
 
     const dto = await findDetailById(oid(assetId), sql);
@@ -175,13 +175,13 @@ describe('findDetailById', () => {
     const libraryId = insertFolder(db);
     const assetId = insertAsset(db);
     insertLocation(db, { assetId, libraryId });
-    const personId = insertPerson(db, 'Greyson');
+    const personId = insertPersonRow(db, 'Greyson');
     // The Mongo repo has to canonicalise the id's case and drop malformed hex
     // before its `$in`; the foreign key makes both defences unnecessary here.
-    expect(() => insertFace(db, { assetId, personId: personId.toUpperCase() })).toThrow(
+    expect(() => insertFaceRow(db, { assetId, personId: personId.toUpperCase() })).toThrow(
       /FOREIGN KEY constraint failed/,
     );
-    insertFace(db, { assetId, personId });
+    insertFaceRow(db, { assetId, personId });
     const dto = await findDetailById(oid(assetId), testSqliteDb(db));
     expect(dto!.faces[0]!.name).toBe('Greyson');
   });
@@ -214,8 +214,8 @@ describe('findDetailsByIds', () => {
     const second = insertAsset(db);
     insertLocation(db, { assetId: first, libraryId, filename: 'a.dng' });
     insertLocation(db, { assetId: second, libraryId, filename: 'b.dng' });
-    const personId = insertPerson(db, 'Ada');
-    insertFace(db, { assetId: second, personId });
+    const personId = insertPersonRow(db, 'Ada');
+    insertFaceRow(db, { assetId: second, personId });
 
     const dtos = await findDetailsByIds(
       [oid(first), oid(second), new ObjectId()],

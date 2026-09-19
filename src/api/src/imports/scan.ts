@@ -41,8 +41,8 @@ import {
   nearestCandidateFolder,
   NEARBY_ASSET_WINDOW_MS,
   resolveSourceFolderContext,
-  type NearbyAssetCandidate,
 } from './dest.ts';
+import type { NearbyAssetCandidate } from '../db/sqlite/repos/assets.locations.repo.ts';
 import { child as childLogger } from '../log.ts';
 import type { ImportFileEntry, ImportFileKind } from '../db/schema.ts';
 

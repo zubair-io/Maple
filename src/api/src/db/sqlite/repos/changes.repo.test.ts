@@ -24,7 +24,7 @@ import {
   recordAndPublishAssetChange,
   recordAssetChange,
   recordAssetChangeRow,
-  __resetFolderPathCacheForTests,
+  __resetChangeFolderPathCacheForTests,
   type RecordChangeInput,
   type SqliteDb,
 } from './changes.repo.ts';
@@ -41,7 +41,7 @@ import { getChangeBus, __resetChangeBusForTests } from '../../../runtime/change-
 const oid = (): ObjectId => new ObjectId();
 
 beforeEach(() => {
-  __resetFolderPathCacheForTests();
+  __resetChangeFolderPathCacheForTests();
   __resetChangeBusForTests();
 });
 

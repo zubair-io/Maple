@@ -147,7 +147,7 @@ interface ChangeRow {
 const folderPathCache: Map<string, string> = new Map();
 
 /** Test hook — drops the in-process folder.path cache. */
-export function __resetFolderPathCacheForTests(): void {
+export function __resetChangeFolderPathCacheForTests(): void {
   folderPathCache.clear();
 }
 

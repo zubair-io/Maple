@@ -33,6 +33,7 @@
 
 import path from 'node:path';
 import { isSafeFilename } from '../backup/path-formatter.ts';
+import type { NearbyAssetCandidate } from '../db/sqlite/repos/assets.locations.repo.ts';
 
 export interface Bucket {
   /** 4-digit UTC year, zero-padded. */
@@ -59,13 +60,6 @@ export const MISC_SEGMENT = 'misc';
 
 /** Proximity window for the nearby-asset-folder match (see `imports/nearby.ts`). */
 export const NEARBY_ASSET_WINDOW_MS = 30 * 60 * 1000;
-
-export interface NearbyAssetCandidate {
-  /** Epoch ms of the candidate asset's `exif.captured_at`. */
-  capturedAtMs: number;
-  /** The library-root-relative folder the candidate already lives in. */
-  folderPath: string;
-}
 
 /** Nearest candidate to `capturedAtMs` within `NEARBY_ASSET_WINDOW_MS`, or
  * null. Pure — the database query that produces `candidates` lives in

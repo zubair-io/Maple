@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { xmpPathRoutes } from './xmp.ts';
 import {
-  __resetFolderPathCacheForTests,
+  __resetChangeFolderPathCacheForTests,
   listChangesSince,
 } from '../db/sqlite/repos/changes.repo.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -59,7 +59,7 @@ afterEach(async () => {
   // The change feed memoises folder id → root path for the life of the
   // process; each test registers its own library, so the cache is dropped with
   // the database that backed it.
-  __resetFolderPathCacheForTests();
+  __resetChangeFolderPathCacheForTests();
   live.close();
   await rm(tmp, { recursive: true, force: true });
 });

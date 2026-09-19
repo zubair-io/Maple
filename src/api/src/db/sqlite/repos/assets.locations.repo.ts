@@ -251,7 +251,7 @@ export const NEARBY_CANDIDATE_CAP = 20_000;
  * It is what keeps one row per asset, matching the positional `fileinfo.$`
  * projection the Mongo query used.
  */
-export async function loadNearbyAssetCandidates(
+export async function loadNearbyAssetCandidateRows(
   libraryId: ObjectId,
   minMs: number,
   maxMs: number,

@@ -47,7 +47,7 @@ export function insertDetail(
 }
 
 /** Inserts a person and returns its id. */
-export function insertPerson(db: Database, name: string, id = newObjectIdHex()): string {
+export function insertPersonRow(db: Database, name: string, id = newObjectIdHex()): string {
   const now = new Date().toISOString();
   run(
     db,
@@ -62,7 +62,7 @@ export function insertPerson(db: Database, name: string, id = newObjectIdHex()):
 }
 
 /** Inserts one detected face on an asset. */
-export function insertFace(
+export function insertFaceRow(
   db: Database,
   args_: {
     assetId: string;

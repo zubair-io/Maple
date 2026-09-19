@@ -32,7 +32,7 @@ import {
   insertFolder,
   run,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { insertFace, insertPerson } from '../src/db/sqlite/repos/assets.test-helpers.ts';
+import { insertFaceRow, insertPersonRow } from '../src/db/sqlite/repos/assets.test-helpers.ts';
 import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
 import {
   BROKEN_PLACE,
@@ -181,7 +181,7 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
   it('pushes the FULL doc shape (description / vision / people / searchBlob)', async () => {
     using live = await createLiveTestDatabase();
     insertFolder(live.db, { path: '/library' });
-    const personId = insertPerson(live.db, 'Greyson');
+    const personId = insertPersonRow(live.db, 'Greyson');
     const assetId = seedIndexableAsset(live.db, {
       mapleId: 'full',
       description: 'kids playing lacrosse',
@@ -202,7 +202,7 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       assetId,
     );
     run(live.db, `UPDATE assets SET is_screenshot = 0 WHERE id = ?`, assetId);
-    insertFace(live.db, { assetId, personId, confidence: 0.9 });
+    insertFaceRow(live.db, { assetId, personId, confidence: 0.9 });
 
     const meili = makeCapturingMeili();
     setMeilisearchClientForTests(meili.client);

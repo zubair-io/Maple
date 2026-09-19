@@ -12,8 +12,8 @@ import { ObjectId } from 'mongodb';
 import { hardDelete, markSoftDeleted, restoreFromTrash } from './assets.trash.ts';
 import {
   insertDetail,
-  insertFace,
-  insertPerson,
+  insertFaceRow,
+  insertPersonRow,
   insertPhassetLink,
   insertStageState,
   stageState,
@@ -246,7 +246,7 @@ describe('hardDelete', () => {
     const { db } = handle;
     const { assetId } = seedTwoLocationAsset(db);
     insertDetail(db, assetId, { description: 'gone soon' });
-    insertFace(db, { assetId, personId: insertPerson(db, 'Ada') });
+    insertFaceRow(db, { assetId, personId: insertPersonRow(db, 'Ada') });
     insertPhassetLink(db, { assetId, deviceId: 'device-a', phassetLocalId: 'local-1' });
     run(db, `INSERT INTO asset_search (asset_id, search_blob) VALUES (?, 'gone soon')`, assetId);
 

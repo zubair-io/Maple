@@ -13,10 +13,10 @@
 
 import type { ObjectId } from 'mongodb';
 import {
-  loadNearbyAssetCandidates as loadCandidates,
+  loadNearbyAssetCandidateRows as loadCandidates,
   NEARBY_CANDIDATE_CAP,
 } from '../db/sqlite/repos/assets.locations.repo.ts';
-import type { NearbyAssetCandidate } from './dest.ts';
+import type { NearbyAssetCandidate } from '../db/sqlite/repos/assets.locations.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('import-nearby');

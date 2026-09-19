@@ -41,7 +41,7 @@ import {
   type CandidateScope,
 } from '../../db/sqlite/repos/assets.migrations.ts';
 import {
-  clearVideoScreenshotFlags as clearFlags,
+  clearVideoScreenshotFlagRows as clearFlags,
   SCREENSHOT_VIDEO_SCOPE,
 } from '../../db/sqlite/repos/assets.video-migrations.ts';
 import { child as childLogger } from '../../log.ts';
