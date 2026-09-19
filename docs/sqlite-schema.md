@@ -636,7 +636,7 @@ keyed probe into `assets` for the liveness and damaged gates, which has to read
 the asset row because `assets_live_id` is partial on liveness alone, and a probe
 into the `stage_state` primary key for each `dependsOn` edge, which on a
 `WITHOUT ROWID` table means descending a B-tree that carries every row body.
-Twelve stages, sequentially, came to 5.7 s per refresh (#3804).
+Twelve stages, sequentially, came to 5.6 s per refresh (#3804).
 
 `stage_state.asset_claimable` removes the first: the same three columns
 mirrored onto the stage row by triggers, carried as a trailing member of
@@ -651,7 +651,8 @@ stages that are dependencies today, because `stage` is free-form data precisely
 so registering a stage is an insert, and an index listing the dependency graph
 would silently stop covering the first edge added outside the list.
 
-The pass falls to 0.9 s, which matters more than the ratio: the refresher rests
+The pass falls to 0.96 s — pending 2,092 ms to 87, ready 3,518 ms to 876 — which
+matters more than the ratio: the refresher rests
 for three times the last pass's duration with a 5 s floor, so anything slower
 than 1.67 s holds a reader continuously AND refreshes the page more slowly than
 the page asked for.
