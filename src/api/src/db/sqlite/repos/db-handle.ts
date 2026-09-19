@@ -132,15 +132,20 @@ export function changesAt(results: readonly SqlWriteResult[], index: number): nu
  *
  * `bun:sqlite` counts every row a statement wrote, including rows written by
  * triggers and by cascading deletes — `hardDelete` has said so since the
- * cutover, where a ten-location asset deletes as sixteen. Since #3768 an
- * update that changes `assets.deleted_at`, `assets.hidden` or
- * `live_location_count` fans out to four satellite tables as well
- * (`ddl/facet-state.ts`), so the raw count on those statements is the asset
- * plus however many locations, faces, subjects and detail rows it has.
+ * cutover, where a ten-location asset deletes as sixteen. Two trigger families
+ * now widen that further on any update touching `assets.deleted_at`,
+ * `assets.hidden` or `live_location_count`: since #3768 it fans out to four
+ * satellite tables (`ddl/facet-state.ts`), and since #3804 it re-stamps
+ * `stage_state.asset_claimable` on every stage row the asset has. So the raw
+ * count on those statements is the asset plus its locations, faces, subjects,
+ * detail and stage rows.
  *
  * Every caller of `matchedCount` asks whether it is zero, meaning "no such
  * asset" — which is what Mongo's `updateOne` on `{ _id }` reported, and what
  * this preserves.
+ *
+ * Only for statements that genuinely address one key. A multi-row `UPDATE`
+ * needs to count what it means some other way.
  */
 export function matchedOne(changes: number): number {
   return changes > 0 ? 1 : 0;
