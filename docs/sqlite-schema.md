@@ -423,6 +423,8 @@ in pages the multi-kilobyte rows already occupied. `asset_locations` and
 | stage claim                       | `stages.<name>.version < target`, `dead != true`, backoff | `WHERE stage = ? AND version < ? AND dead = 0 AND …`                          | `stage_claim`                                            |
 | stage claim, video/audio only     | the same filter plus `media_kind`, on one document        | the same, plus `stage_state.media_kind IN ('video','audio')`                  | `stage_claim_media`                                      |
 | stage dead count and list         | `stage_<name>_dead` partial index                         | `WHERE stage = ? AND dead = 1`                                                | `stage_dead`                                             |
+| stage backlog: pending            | `countDocuments` per stage on `/status`                   | `WHERE stage = ? AND version < ? AND dead = 0 AND asset_claimable = 1`        | `stage_claim`, covering                                  |
+| stage backlog: ready              | the same plus the backoff and `dependsOn` gates           | the same, plus the retry gate and one `EXISTS` per dependency                 | `stage_claim` + `stage_dep` per dependency               |
 | legacy enrichment claim           | `enrichment.<stage>.done_at: null` + lease                | `WHERE stage = ? AND done_at IS NULL`                                         | `enrichment_claim`                                       |
 | `listEnrichmentDeadLetter`        | `enrichment.<stage>.dead_letter_at != null`, sorted       | `WHERE stage = ? AND dead_letter_at IS NOT NULL ORDER BY dead_letter_at DESC` | `enrichment_dead_letter` (new — a collection scan today) |
 | damaged list and count            | `'damaged.since': { $type: 'string' }`                    | `WHERE damaged_since IS NOT NULL`                                             | `assets_damaged`                                         |
@@ -625,6 +627,42 @@ minority kinds. Two triggers own the column — nothing else writes it — becau
 `media_kind` is itself derived from an asset's locations and changes when they
 do. The residual keeps its `EXISTS` as the authoritative test and merely leads
 with the narrowing term, so the assets a stage claims are provably unchanged.
+
+**A count is the claim without the `LIMIT`, and that changes what it can
+afford.** The Workers page's `pending` and `ready` ask the claim's question of
+the whole backlog rather than of five candidates, so two things the claim pays
+for once per tick were being paid for 324,000 times per stage per refresh: a
+keyed probe into `assets` for the liveness and damaged gates, which has to read
+the asset row because `assets_live_id` is partial on liveness alone, and a probe
+into the `stage_state` primary key for each `dependsOn` edge, which on a
+`WITHOUT ROWID` table means descending a B-tree that carries every row body.
+Twelve stages, sequentially, came to 5.7 s per refresh (#3804).
+
+`stage_state.asset_claimable` removes the first: the same three columns
+mirrored onto the stage row by triggers, carried as a trailing member of
+`stage_claim` so the count never leaves the index. Unlike `media_kind` it is
+authoritative for the count rather than a narrowing, because almost every asset
+is live and a narrowing would leave the probe running anyway — the claim itself
+is untouched and still asks `assets`, so a drifted mirror could only misreport a
+number on a settings page. `stage_dep` removes the second: `(stage, asset_id,
+version)`, covering, 167 MB whose hot region is the one dependency stage's 13 MB
+rather than the table's 324 MB. It is deliberately not partial on the four
+stages that are dependencies today, because `stage` is free-form data precisely
+so registering a stage is an insert, and an index listing the dependency graph
+would silently stop covering the first edge added outside the list.
+
+The pass falls to 0.9 s, which matters more than the ratio: the refresher rests
+for three times the last pass's duration with a 5 s floor, so anything slower
+than 1.67 s holds a reader continuously AND refreshes the page more slowly than
+the page asked for.
+
+One consequence worth knowing before writing a repository function.
+`bun:sqlite` counts a trigger's writes in the row count of the statement that
+fired it, so any `UPDATE assets` that changes `deleted_at`, `damaged_since` or
+`live_location_count` now reports roughly a dozen rows per asset. A statement
+keyed on one id can clamp (`oneIfChanged`); a multi-row one has to count what it
+means some other way, which `clearDamagedAssets` and `repairLiveLocationCounts`
+each do differently and say why.
 
 **Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
 enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and
