@@ -1,8 +1,8 @@
 /**
  * Fail-closed startup.
  *
- * `src/api/src/people/cluster-pool.ts` is the precedent for this module's
- * message plumbing, and it degrades to in-process execution when a Worker
+ * The clustering pool (`repos/people.cluster-pool.ts`) is the precedent for
+ * this module's message plumbing, and it degrades to in-process execution when a Worker
  * cannot spawn — fine for an occasional clustering pass. The database every
  * request depends on must not do that: the in-process fallback would block the
  * event loop on every query for the life of the process, so a Self Hosted

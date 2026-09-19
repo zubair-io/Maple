@@ -19,8 +19,8 @@ import {
   listGeneratedSearches,
   pruneGeneratedSearches,
   saveGeneratedSearches,
-  type GeneratedSearchInput,
 } from './generated-searches.repo.ts';
+import type { GeneratedSearchInput } from '../../../workers/generated-search/repo.ts';
 
 const LIB = newObjectIdHex();
 const OTHER_LIB = newObjectIdHex();

@@ -6,8 +6,8 @@
  * overrides re-arm `meili` so the search document is rebuilt, and both trash
  * workflows re-arm `meili` plus the two path-keyed raster caches because
  * moving a file into or out of `.maple/trash/` is a relocate. The Mongo
- * originals are `MEILI_REARM_SET` (`people/people-search-reindex.ts`) and
- * `relocateCacheStageResetSet` (`db/relocate-cache-reset.ts`); the field lists
+ * originals were `MEILI_REARM_SET` and `relocateCacheStageResetSet`
+ * (`db/relocate-cache-reset.ts`, and a people module now deleted); the lists
  * below mirror them exactly, including the one asymmetry — the meili re-arm
  * clears `processed_at` and the cache re-arm does not.
  *

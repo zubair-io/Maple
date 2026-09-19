@@ -1,6 +1,5 @@
 /**
- * Single-worker clustering pool over SQLite (#3749) — the port of
- * `people/cluster-pool.ts`.
+ * Single-worker clustering pool over SQLite (#3749).
  *
  * One worker, not several: the online pass is inherently sequential, because a
  * face competes against every cluster the faces before it opened, so sharding it
@@ -34,7 +33,8 @@ import { child as childLogger } from '../../../log.ts';
 import { DEFAULT_SIMILARITY_THRESHOLD } from '../../../people/cluster-embeddings.ts';
 import { sqlitePool } from '../index.ts';
 import { serveWorkerDbRequests, type MessageChannelLike } from '../worker-db.ts';
-import { prepareClusteringPass, type PreparedClusteringPass } from './people.cluster-load.ts';
+import { prepareClusteringPass } from './people.cluster-load.ts';
+import type { PreparedClusteringPass } from '../../../people/cluster-load.ts';
 import type { SqliteDb } from './db-handle.ts';
 
 const log = childLogger('people:cluster-pool:sqlite');

@@ -28,8 +28,13 @@ import { newObjectIdHex } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { parseJson, toObjectId } from './values.ts';
 
-export type { SqliteDb } from './db-handle.ts';
-export type { GeneratedSearchDoc, GeneratedSearchInput };
+// The two document interfaces are NOT re-exported from here, though this is
+// the module that writes them. They are declared in
+// `workers/generated-search/repo.ts` — the worker's vocabulary, assembled and
+// carried long before anything is stored — and forwarding them back out would
+// close a re-export loop between the two files. A loop is structurally a no-op
+// and it stops reachability analysis propagating through either module, so
+// consumers import the types from where they are declared.
 
 const DAY_MS = 86_400_000;
 

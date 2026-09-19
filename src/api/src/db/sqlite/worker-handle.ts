@@ -2,8 +2,9 @@
  * One database worker, seen from the main thread: spawn it, complete the open
  * handshake, correlate replies, and count what is in flight.
  *
- * The message plumbing follows `src/api/src/people/cluster-pool.ts`, with one
- * deliberate difference. That pool degrades to in-process execution when a
+ * The message plumbing follows the clustering pool
+ * (`repos/people.cluster-pool.ts`), with one deliberate difference. That pool
+ * degrades to in-process execution when a
  * Worker cannot spawn, which is acceptable for an occasional clustering pass.
  * A database that every request depends on must fail CLOSED instead: there is
  * no in-process fallback anywhere in this file, because the fallback would be

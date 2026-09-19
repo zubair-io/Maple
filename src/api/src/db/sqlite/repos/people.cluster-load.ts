@@ -68,7 +68,11 @@ import type {
   SerializedCluster,
 } from '../../../people/cluster-load.ts';
 
-export type { FaceEnvelope, LoadedCentroid, PreparedClusteringPass, SerializedCluster };
+// The four result shapes are NOT re-exported from here. They are declared in
+// `people/cluster-load.ts` — the stage's contract, shared so the two halves
+// cannot drift — and this module imports them as types, which erase. Sending
+// them back out as well would close a re-export loop between the two files,
+// and a loop stops reachability analysis propagating through either one.
 export { EMBEDDING_DIM } from '../../../people/cluster-embeddings.ts';
 
 /** An unassigned face with its embedding. Not exported — see the module header. */

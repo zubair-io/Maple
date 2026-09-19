@@ -29,47 +29,5 @@
     "src/runtime/__fixtures__/stderr-crash-harness.ts",
     "src/__fixtures__/otel-crash-child.ts"
   ],
-  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"],
-
-  // The change feed is the one collection whose SQLite port and MongoDB
-  // original export the same ten names, because the route imports them by name
-  // and the cutover (#3752) swaps which module answers rather than editing the
-  // call sites. fallow reads that as a duplicated export surface, which is
-  // exactly what it is and exactly what the beside-then-switch shape requires
-  // — the two modules are one API over two engines. The entry goes when the
-  // MongoDB module does (#3785).
-  "ignoreExports": [
-    { "file": "src/db/changes.repo.ts", "exports": ["*"] },
-    { "file": "src/db/sqlite/repos/changes.repo.ts", "exports": ["*"] }
-  ],
-  // The SQLite pool (#3742) is the first slice of the MongoDB-to-SQLite epic
-  // (#3753), which sequences the pool ahead of the schema, the importer and
-  // the repository ports. Until a port calls it, its only consumers are its
-  // own tests, which fallow does not count — so every primitive reads as dead
-  // code. Reported but not gating for now; the API's startup path wires the
-  // pool at the cutover (#3752) and this block is deleted in that PR.
-  //
-  // `src/runtime/sqlite/**` is the same situation one layer up: the ported
-  // change-feed tailer (#3747) has no caller until the cutover either. Its
-  // duplication against the Mongo tailer is suppressed in the file itself,
-  // because duplication is not one of the rules an override can reach. Both
-  // blocks go away in #3752.
-  "overrides": [
-    {
-      "files": ["src/db/sqlite/**"],
-      "rules": {
-        "unused-exports": "warn",
-        "unused-types": "warn",
-        "unused-class-members": "warn"
-      }
-    },
-    {
-      "files": ["src/runtime/sqlite/**"],
-      "rules": {
-        "unused-exports": "warn",
-        "unused-types": "warn",
-        "unused-class-members": "warn"
-      }
-    }
-  ]
+  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"]
 }

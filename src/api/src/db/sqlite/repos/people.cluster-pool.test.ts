@@ -28,7 +28,7 @@ import {
 } from './people.test-helpers.ts';
 import type { SqliteDb } from './db-handle.ts';
 import type { SqlStatement, SqlWriteResult } from '../protocol.ts';
-import type { PreparedClusteringPass } from './people.cluster-load.ts';
+import type { PreparedClusteringPass } from '../../../people/cluster-load.ts';
 
 interface PrepareReply {
   type: 'prepare';

@@ -1,6 +1,6 @@
 /**
  * Bun Worker entry point owning the clustering LOAD + COMPUTE stage against
- * SQLite (#3749) — the port of `people/cluster.worker.ts`.
+ * SQLite (#3749).
  *
  * It runs on its own thread so that neither the O(N·D) embedding decode and
  * normalise nor the synchronous O(N·K·D) comparison pass ever blocks the HTTP
@@ -29,7 +29,7 @@
 
 import { createWorkerDb, type MessageChannelLike, type WorkerDb } from '../worker-db.ts';
 import { prepareClusteringPass } from './people.cluster-load.ts';
-import type { PreparedClusteringPass } from './people.cluster-load.ts';
+import type { PreparedClusteringPass } from '../../../people/cluster-load.ts';
 
 /** What the host sends to start a pass. */
 interface PrepareRequest {

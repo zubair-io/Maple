@@ -32,7 +32,7 @@ import { newObjectIdHex } from '../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { prepareClusteringPassOffThread } from './people.cluster-pool.ts';
-import type { PreparedClusteringPass } from './people.cluster-load.ts';
+import type { PreparedClusteringPass } from '../../../people/cluster-load.ts';
 import { loadMergeDismissals, suggestionStatement } from './people.merge-suggestions.ts';
 import { suggestedMergesJson } from './people.rows.ts';
 import { markAssetIdsForMeiliReindexBestEffort } from './people.search-reindex.ts';

@@ -21,8 +21,8 @@ import { ObjectId } from 'mongodb';
 import {
   findGeneratedSearchById,
   listGeneratedSearches,
-  type GeneratedSearchDoc,
 } from '../db/sqlite/repos/generated-searches.repo.ts';
+import type { GeneratedSearchDoc } from '../workers/generated-search/repo.ts';
 import { buildSearchWhere } from '../db/sqlite/repos/search.where.ts';
 import { searchCount, searchPage } from '../db/sqlite/repos/search.page.ts';
 import { toSearchQuery } from '../workers/generated-search/execute.ts';

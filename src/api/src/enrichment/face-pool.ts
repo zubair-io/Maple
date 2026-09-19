@@ -11,7 +11,7 @@
  *   - `ffi/ffi-pool.ts`     — lazy single-worker spawn, request-id pending Map,
  *                             multiple request methods, error handler that
  *                             rejects in-flight calls and respawns next call.
- *   - `people/cluster-pool.ts` — graceful in-process fallback when Bun's
+ *   - `db/sqlite/repos/people.cluster-pool.ts` — graceful in-process fallback when Bun's
  *                             `Worker` can't spawn (sandbox / unsupported
  *                             runtime / CI shells), degrading with a warning.
  *
