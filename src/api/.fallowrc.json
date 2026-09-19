@@ -31,7 +31,12 @@
     "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",
     "src/runtime/__fixtures__/stderr-crash-harness.ts",
-    "src/__fixtures__/otel-crash-child.ts"
+    "src/__fixtures__/otel-crash-child.ts",
+
+    // #3797 — the reader-pool sizing and degradation benchmark. Same shape as
+    // the block above: an entry point run by hand, so nothing imports it. On
+    // its own line for the same reason those are.
+    "scripts/sqlite-bench/reader-pool.ts"
   ],
   "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"]
 }

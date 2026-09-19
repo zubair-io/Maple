@@ -143,6 +143,7 @@ export class SqliteWorkerHandle {
    * that. `nextId` carries on climbing too, so a late reply from the thread
    * that just died can never be mistaken for an answer to a new request.
    */
+  // fallow-ignore-next-line unused-class-member -- called from production by `SqlitePool.respawnReader`, on the `SqliteWorkerHandle` it reads out of `this.readers[index]`; the analysis does not resolve an indexed read back to this class, the same reason `read` above carries one
   async restart(path: string): Promise<void> {
     const corpse = this.worker;
     this.worker = null;

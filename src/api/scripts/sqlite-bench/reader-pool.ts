@@ -191,11 +191,14 @@ function printHeader(title: string): void {
 async function tableSizing(id: string): Promise<void> {
   printHeader(`Sizing: request-path read, ${WINDOW_MS / 1000}s window`);
   for (const readers of [1, 2, 3, 4, 8]) {
+    // Zero slow reads on the pool of two is the control: what an uncontended
+    // request-path read costs, so the collapsed rows have something to be read
+    // against. Beyond N slow reads there is nothing left to learn — the pool is
+    // already fully occupied.
+    const loads = readers === 2 ? [0, 1, 2] : [1, 2, 3, 4].filter((slow) => slow <= readers);
     const pool = await openWarm(readers);
     try {
-      if (readers === 2) printRow('2 readers, no load', await cell(pool, 0, id));
-      for (const slow of [1, 2, 3, 4]) {
-        if (slow > readers) continue;
+      for (const slow of loads) {
         printRow(`${readers} readers, ${slow} slow`, await cell(pool, slow, id));
       }
     } finally {
