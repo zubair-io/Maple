@@ -10,7 +10,7 @@
  * from the web settings panel, which has the ceremony machinery.
  */
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
 // The persistent-credential proof below is the one device-session question
 // `auth/refresh_store.ts` does not re-export — it is a read of the *primary*

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { maple } from 'maple';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import thumbStage from './thumb.ts';
 import { resolveThumbPath, resolveThumbPathForAsset, sha256Prefix16 } from '../../fs/xmp.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';

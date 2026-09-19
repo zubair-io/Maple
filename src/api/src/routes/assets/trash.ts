@@ -29,7 +29,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import { unlink } from 'node:fs/promises';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';

@@ -21,7 +21,7 @@
  *     pretending to validate.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 
 /** An id as the tables store it. */
 export function toHex(id: ObjectId): string {

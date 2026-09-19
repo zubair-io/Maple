@@ -12,7 +12,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 

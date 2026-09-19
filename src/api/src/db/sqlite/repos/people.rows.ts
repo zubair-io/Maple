@@ -36,7 +36,7 @@
  * `people.face-count.ts` for why that is now cheap enough to do.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import type { AssetFaceDoc, Bbox, PersonDoc, PersonWithId } from '../../schema.ts';
 import { bool, json } from './assets.rows.ts';
 import type { SqliteDb } from './db-handle.ts';

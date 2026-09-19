@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from '../fs/mirrored.ts';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
   insertAsset,

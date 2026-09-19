@@ -25,7 +25,7 @@ import {
   redriveMeilisearchBackfillFailures,
 } from '../src/enrichment/meilisearch-backfill-redrive.ts';
 import { runMeilisearchBackfill } from '../src/enrichment/meilisearch-backfill.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 
 afterEach(() => {
   setMeilisearchClientForTests(null);

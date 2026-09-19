@@ -35,7 +35,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import * as nodePath from 'node:path';
 import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { findLiveAssetIdAtAddress } from '../db/sqlite/repos/assets.address.ts';

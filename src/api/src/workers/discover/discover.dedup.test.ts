@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import { hashFileForId } from '../../indexer/id.ts';
 import {
   allAssets,

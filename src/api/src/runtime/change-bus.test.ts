@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { ChangeBus } from './change-bus.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 

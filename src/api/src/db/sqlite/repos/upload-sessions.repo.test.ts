@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import {
   BusyElsewhereError,
   CROSS_DEVICE_BUSY_WINDOW_MS,

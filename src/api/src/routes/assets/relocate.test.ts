@@ -21,7 +21,7 @@ import * as path from 'node:path';
 import { relocateRoutes } from './relocate.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import { locationRows } from '../../../tests/helpers/assets-route-fixtures.ts';
 import {
   createLiveTestDatabase,

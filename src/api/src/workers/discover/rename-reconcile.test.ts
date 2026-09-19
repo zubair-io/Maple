@@ -14,9 +14,9 @@
  */
 import { describe, expect, it, spyOn } from 'bun:test';
 import { writeFile, rm, readFile, stat } from 'node:fs/promises';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import * as path from 'node:path';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import { readExif } from '../../indexer/exif.ts';
 import * as exifModule from '../../indexer/exif.ts';
 import { reconcileRenamesInDirectory, type MissingFileCandidate } from './rename-reconcile.ts';

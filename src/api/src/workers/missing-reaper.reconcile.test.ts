@@ -17,7 +17,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { reapRow } from './missing-reaper.reconcile.ts';
 import type { MissingTaggedAsset } from '../db/sqlite/repos/assets.sweeps.ts';
 import {

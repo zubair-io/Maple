@@ -26,7 +26,7 @@ import * as path from 'node:path';
 // (which re-exports the full `node:fs/promises` surface) rather than a
 // direct `node:fs/promises` import, per the oxlint fs-import guardrail.
 import { stat } from '../fs/mirrored.ts';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { moveToTrash, moveOutOfTrash } from '../fs/trash.ts';
 import { composeSearchBlob } from '../enrichment/search-blob.ts';

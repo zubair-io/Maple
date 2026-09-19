@@ -27,7 +27,7 @@
  * the first handler runs.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import type { AssetExif, Place, VisionDoc, VisionMeta } from '../../schema.ts';
 import type { ImageDoc, StageState } from '../../../workers/stage-config.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';

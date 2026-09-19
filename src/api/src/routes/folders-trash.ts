@@ -21,7 +21,7 @@
  */
 
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import type { FolderWithId } from '../db/schema.ts';
 import { validateRelPathHeader } from './folders.ts';

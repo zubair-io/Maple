@@ -11,7 +11,7 @@
  *      consults `ctx.shouldCancel()` between steps.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import type { JobKind } from '../../db/schema.ts';
 import { batchJpegExportHandler } from './batch-jpeg-export.ts';
 import { panoStitchHandler } from './pano-stitch.ts';

@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../src/db/object-id.ts';
 import { authRoutes } from '../../src/routes/auth.ts';
 import { signAccessToken, signStepUpToken } from '../../src/auth/tokens.ts';
 import {

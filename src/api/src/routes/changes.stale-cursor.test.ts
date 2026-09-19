@@ -27,7 +27,7 @@
 
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { changesRoutes } from './changes.ts';
 import { getChangeBus, __resetChangeBusForTests } from '../runtime/change-bus.ts';
 import { __resetChangeFeedTailerForTests } from '../runtime/change-feed-tailer.ts';

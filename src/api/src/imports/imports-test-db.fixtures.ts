@@ -15,7 +15,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
 

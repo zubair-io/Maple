@@ -22,8 +22,11 @@
  * Backend telemetry goes DIRECT to SigNoz (the server holds the ingestion key).
  * Client telemetry instead proxies through `POST /api/observability/otlp/*`.
  *
- * Instrumentation: HTTP (inbound/outbound) + MongoDB, so every request and DB
- * call becomes a span without manual annotation.
+ * Instrumentation: HTTP, inbound and outbound, so every request becomes a span
+ * without manual annotation. Database calls are not instrumented: the library
+ * is a SQLite file reached through this process's own worker pool, not a wire
+ * protocol an auto-instrumentation can sit in front of. A query worth a span
+ * gets one by hand.
  *
  * Metrics are intentionally NOT wired here. `metrics_enabled` defaults off and
  * there's no metrics exporter today; the flag is plumbed through the config so
@@ -46,7 +49,6 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
-import { MongoDBInstrumentation } from '@opentelemetry/instrumentation-mongodb';
 import { child as childLogger } from './log.ts';
 import { setOtelLogTarget } from './otel-logs.ts';
 import type { ResolvedObservabilityConfig } from './observability/observability-config.repo.ts';
@@ -160,8 +162,8 @@ function buildSdk(c: ResolvedObservabilityConfig): NodeSDK {
   // captures loggers created after the SDK starts — so it dropped the entire
   // startup sequence. We ship logs ourselves via `otel-logs.ts`, which taps
   // pino's output stream directly (see `startSdk` / `stopSdk`). This NodeSDK is
-  // traces-only: HTTP + Mongo spans exported to `${endpoint}/v1/traces`.
-  const instrumentations = [new HttpInstrumentation(), new MongoDBInstrumentation()];
+  // traces-only: HTTP spans exported to `${endpoint}/v1/traces`.
+  const instrumentations = [new HttpInstrumentation()];
 
   return new NodeSDK({
     resource,
@@ -176,7 +178,7 @@ function buildSdk(c: ResolvedObservabilityConfig): NodeSDK {
  * exporter setup internally; failures there surface on first export, not here,
  * so we wrap the start in try/catch and log. */
 function startSdk(c: ResolvedObservabilityConfig): void {
-  // Traces: NodeSDK (HTTP + Mongo spans). Only started when traces are on —
+  // Traces: NodeSDK (HTTP spans). Only started when traces are on —
   // a logs-only config runs no NodeSDK.
   if (c.traces_enabled) {
     const next = buildSdk(c);

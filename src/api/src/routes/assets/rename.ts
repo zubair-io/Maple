@@ -36,7 +36,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';

@@ -9,21 +9,12 @@
     "src/db/sqlite/db.worker.ts",
     "scripts/seed-fake-workers.ts",
     "scripts/sqlite-bench/run.ts",
-    "scripts/sqlite-bench/list-items-compare.ts",
-    "scripts/mongo-to-sqlite.ts",
-    "scripts/e2e-cutover.ts",
 
-    // #3748 — the stage-runtime comparison benchmarks. Entry points, run by
-    // hand, so their exports have no importer and read as dead code without
-    // this. Appended rather than merged into the line above so a sibling port
-    // branch adding its own script conflicts on one line, not on this block.
-    "scripts/sqlite-bench/stage-claim-compare.ts",
+    // The benchmarks. Entry points, run by hand, so their exports have no
+    // importer and read as dead code without this. Appended rather than merged
+    // into the line above so a sibling branch adding its own script conflicts
+    // on one line, not on this block.
     "scripts/sqlite-bench/stage-claim-roundtrip.ts",
-    "scripts/sqlite-bench/search-compare.ts",
-    "scripts/sqlite-bench/search-relevance.ts",
-
-    // #3795 — what a media-only stage's claim tick costs, both residual
-    // spellings against one generated library. Same reason as the block above.
     "scripts/sqlite-bench/stage-claim-media.ts",
 
     // #3804 — what one Workers-page refresh costs, both count spellings

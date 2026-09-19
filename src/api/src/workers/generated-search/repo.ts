@@ -26,7 +26,7 @@
  * at execution time and can never go stale in written data.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import type { GeneratedQuery } from './validate.ts';
 
 /** A collection as written by the worker. */

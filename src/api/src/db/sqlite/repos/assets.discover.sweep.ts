@@ -9,7 +9,7 @@
  * run once per file.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { AssetExif, FileInfo } from '../../schema.ts';
 import type { LocationKey } from './assets.discover.ts';
 import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';

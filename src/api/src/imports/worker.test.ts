@@ -19,7 +19,7 @@
 
 import { describe, it, test, expect, beforeAll, afterAll } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

@@ -9,7 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

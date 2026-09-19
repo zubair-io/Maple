@@ -25,12 +25,12 @@
  *   - `index.ts` (here)        — folder-resolution, the `startDiscover` factory, the
  *                                child-process `main()`, and the public re-exports.
  */
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import { child } from '../../log.ts';
 import { listLibraryRoots } from '../../db/sqlite/repos/folders.repo.ts';
 import { closeSqlitePool, openSqlitePool } from '../../db/sqlite/index.ts';
 import { logReaderRespawn } from '../../db/sqlite/pool-logging.ts';
-import { sqliteDatabasePath } from '../../db/sqlite/boot-migration.ts';
+import { sqliteDatabasePath } from '../../db/sqlite/database-path.ts';
 import { type DiscoverHandle, type DiscoverOptions } from './types.ts';
 import { handleEvent } from './handle-event.ts';
 import { SweeperLoop } from './sweeper.ts';

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import { insertUser } from './auth.users.repo.ts';
 import {

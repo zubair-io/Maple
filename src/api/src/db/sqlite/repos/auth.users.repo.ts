@@ -34,8 +34,8 @@
  * the two.
  */
 
-import type { ObjectId, WithId } from 'mongodb';
-import { newObjectIdHex } from '../object-id.ts';
+import type { ObjectId, WithId } from '../../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import {
   deleteOutcome,
   sqliteDb,

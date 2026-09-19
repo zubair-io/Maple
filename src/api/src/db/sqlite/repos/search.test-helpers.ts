@@ -13,7 +13,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { insertFolder, run } from '../test-sqlite.test-helpers.ts';
 import { insertDetail, insertFaceRow, insertPersonRow } from './assets.test-helpers.ts';
 

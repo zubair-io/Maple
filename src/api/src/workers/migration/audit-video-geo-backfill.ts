@@ -17,7 +17,7 @@
  * Spec: GitHub issue #1529.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import { countCandidates, listCandidates } from '../../db/sqlite/repos/assets.migrations.ts';
 import {
   findGeoDonors,

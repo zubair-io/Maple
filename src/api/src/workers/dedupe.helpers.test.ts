@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import type { FileInfo } from '../db/schema.ts';
 import {
   isUnsortedPath,

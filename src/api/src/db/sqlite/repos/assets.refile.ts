@@ -32,7 +32,7 @@
  * than repaired.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { LocationKey } from './assets.discover.ts';
 import {
   BACKUP_ORIGIN,

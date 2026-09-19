@@ -21,7 +21,7 @@ import { batchRenameRoutes } from './batch-rename.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import {
   createLiveTestDatabase,
   insertAsset,

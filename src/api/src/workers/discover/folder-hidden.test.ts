@@ -16,8 +16,8 @@
 import { describe, it, expect } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ObjectId } from 'mongodb';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import type { ObjectId } from '../../db/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import type { HidableAsset } from '../../cloudflare/hidden-cleanup.ts';
 import {
   assetRow,

@@ -26,7 +26,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import type * as MongoRepo from '../../changes.repo.ts';
 import * as SqliteRepo from './changes.repo.ts';
 import type { AssetChangeWithId } from '../../schema.ts';

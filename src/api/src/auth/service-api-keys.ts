@@ -13,7 +13,7 @@
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import {
   findServiceApiKeyByKeyId,
   insertServiceApiKey,

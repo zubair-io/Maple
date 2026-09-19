@@ -17,7 +17,7 @@ import { mkdir, mkdtemp, rm, symlink } from '../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { registerRoot, unregisterRoot } from '../fs/root.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { createJob, getJob, JobConflictError, markCancelled } from '../job-runner/jobs.repo.ts';

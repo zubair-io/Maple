@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect } from 'bun:test';
 import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import type { ImageDoc, StageContext, StageState } from '../run-stage.ts';
 import type { AssetFaceDoc } from '../../db/schema.ts';
 import type { DetectedFace, FaceDetector } from '../../enrichment/face-detector.ts';

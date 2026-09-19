@@ -13,7 +13,7 @@
  * Nothing in this file touches a database.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 
 export interface IssuedRefresh {
   raw: string;

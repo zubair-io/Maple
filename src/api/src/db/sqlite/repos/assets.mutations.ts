@@ -35,7 +35,7 @@
  * mechanism" argument the trash workflows already rest on.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { composeSearchBlob } from '../../../enrichment/search-blob.ts';
 import type { Enrichment, Place } from '../../schema.ts';

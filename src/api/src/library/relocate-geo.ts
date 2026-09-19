@@ -35,7 +35,7 @@
  * cannot be written in the first place, so the race is prevented rather than
  * repaired. See `db/sqlite/repos/assets.refile.ts`.
  */
-import type { WithId } from 'mongodb';
+import type { WithId } from '../db/object-id.ts';
 import * as path from 'node:path';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';

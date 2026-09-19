@@ -21,7 +21,7 @@
  */
 
 import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import * as fs from '../fs/mirrored.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';

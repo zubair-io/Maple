@@ -23,7 +23,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import * as refileBackups from '../migration/refile-backups.ts';
 import { describeHandler, setDescribeDepsForTests } from './describe.ts';

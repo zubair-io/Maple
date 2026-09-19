@@ -15,7 +15,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { batchRenameAssets, previewBatchRename } from '../../library/batch-rename.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 

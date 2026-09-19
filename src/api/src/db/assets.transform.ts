@@ -21,7 +21,7 @@
  */
 
 import * as path from 'node:path';
-import { type ObjectId } from 'mongodb';
+import { type ObjectId } from './object-id.ts';
 import {
   normaliseEnrichment,
   type AssetDoc,

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import {
   createTestDatabase,
   insertFolder,

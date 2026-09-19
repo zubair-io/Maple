@@ -9,7 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../src/db/object-id.ts';
 import {
   lanHandoffIssueRoutes,
   lanHandoffRedeemRoutes,

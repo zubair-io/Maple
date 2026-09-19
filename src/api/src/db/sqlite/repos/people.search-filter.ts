@@ -3,7 +3,7 @@
  * filtering; ids in, names out for the facet picker (#3749).
  */
 
-import { safeObjectId } from '../../safe-object-id.ts';
+import { safeObjectId } from '../../object-id.ts';
 import { caseFoldKey } from '../case-fold.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import {

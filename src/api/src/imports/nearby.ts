@@ -11,7 +11,7 @@
  * is a judgement about this feature rather than about the rows.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import {
   loadNearbyAssetCandidateRows as loadCandidates,
   NEARBY_CANDIDATE_CAP,

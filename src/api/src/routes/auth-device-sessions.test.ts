@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import { authRoutes } from './auth.ts';
 import { authDeviceSessionRoutes } from './auth-device-sessions.ts';
 import {

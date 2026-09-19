@@ -8,7 +8,7 @@
 //
 // Sibling to meili.test.ts (at the file-size budget).
 import { afterEach, describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import type {
   MeilisearchAssetDoc,
   MeilisearchClient,

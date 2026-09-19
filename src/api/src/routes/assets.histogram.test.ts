@@ -25,7 +25,7 @@ import { join, dirname } from 'node:path';
 import { assetsRoutes } from './assets.ts';
 import { cachePathFor } from '../fs/xmp.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
-import { newObjectIdHex } from '../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../db/object-id.ts';
 import { registerLibrary, seedRouteAsset } from '../../tests/helpers/assets-route-fixtures.ts';
 import {
   createLiveTestDatabase,

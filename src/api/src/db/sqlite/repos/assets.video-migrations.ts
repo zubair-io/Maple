@@ -27,7 +27,7 @@
  * a paraphrase silently turns this into a scan of the whole library per video.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { AssetExif } from '../../schema.ts';
 import {
   LIVE_GEO_VIDEO,

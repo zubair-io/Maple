@@ -22,7 +22,7 @@
  * for the test (#3787), with both libraries rooted at their own tmp directory.
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../src/db/object-id.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

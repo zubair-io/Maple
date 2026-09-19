@@ -28,10 +28,10 @@
  * What is left is the asset row and its first location.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { SqlValue } from '../protocol.ts';
 import type { AssetExif } from '../../schema.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toObjectId } from './values.ts';
 

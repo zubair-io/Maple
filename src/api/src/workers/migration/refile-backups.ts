@@ -24,7 +24,7 @@
  * Spec: docs/superpowers/specs/2026-06-18-refile-backups-migration.md.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import type { FileInfo, Place, AssetExif } from '../../db/schema.ts';
 import {
   countCandidates,

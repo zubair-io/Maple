@@ -33,7 +33,7 @@ import {
   run,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { insertFaceRow, insertPersonRow } from '../src/db/sqlite/repos/assets.test-helpers.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import {
   BROKEN_PLACE,
   failuresByMapleId,

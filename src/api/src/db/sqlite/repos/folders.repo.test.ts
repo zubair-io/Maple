@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import * as foldersRepo from './folders.repo.ts';
 import {

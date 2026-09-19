@@ -8,7 +8,7 @@
  */
 
 import { child as childLogger } from '../../log.ts';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import { findCoreInfoById, parseAssetId, type AssetCoreInfo } from '../../db/assets.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
