@@ -23,8 +23,7 @@ import {
 } from '../db/sqlite/repos/auth.users.repo.ts';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import { userFileAccess } from '../auth/permissions.ts';
-import type { UserDoc } from '../db/schema.ts';
-import type { WithId } from 'mongodb';
+import type { UserDoc, UserWithId } from '../db/schema.ts';
 
 /**
  * Validate a roster PATCH against the target user (#2921). Pure decision
@@ -53,7 +52,7 @@ function validateUserPatch(
   return { ok: true };
 }
 
-function toPublicUser(u: WithId<UserDoc>) {
+function toPublicUser(u: UserWithId) {
   return {
     id: u._id.toHexString(),
     email: u.email,

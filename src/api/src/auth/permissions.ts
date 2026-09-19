@@ -3,8 +3,7 @@
 // One place decides what a user document's permission fields mean, so every
 // access-token mint site and the /me endpoint agree byte-for-byte.
 
-import type { WithId } from 'mongodb';
-import type { UserDoc, UserRole } from '../db/schema.ts';
+import type { UserRole, UserWithId } from '../db/schema.ts';
 
 /**
  * Effective "file access" permission for a user document. Owners always
@@ -21,7 +20,7 @@ export function userFileAccess(user: { role: UserRole; file_access?: boolean }):
  * every login/redeem flow). One builder so the five mint sites can't
  * drift on which fields ride along.
  */
-export function toPublicAuthUser(user: WithId<UserDoc>): {
+export function toPublicAuthUser(user: UserWithId): {
   id: string;
   email: string;
   role: UserRole;

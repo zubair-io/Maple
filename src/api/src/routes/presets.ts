@@ -19,14 +19,13 @@
  */
 
 import { Elysia, t } from 'elysia';
-import type { WithId } from 'mongodb';
 import {
   deletePreset,
   insertPreset,
   isPresetNameConflict,
   listPresets,
 } from '../db/sqlite/repos/presets.repo.ts';
-import type { PresetDoc } from '../db/schema.ts';
+import type { PresetDoc, PresetWithId } from '../db/schema.ts';
 import {
   isStorableKey,
   unstorableKeyError,
@@ -79,7 +78,7 @@ function findUnstorableKey(value: unknown): string | null {
 }
 
 /** Wire shape: unknown preserved keys first so the owned keys win. */
-function toWireRow(row: WithId<PresetDoc>) {
+function toWireRow(row: PresetWithId) {
   return {
     ...(row.extra ?? {}),
     id: row._id.toHexString(),

@@ -7,7 +7,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId, type WithId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import {
   anyUserExists,
   deleteUser,
@@ -33,7 +33,7 @@ import {
 import { redeemInvite, createInvite, listInvites, rescindInvite } from '../auth/invites.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
 import { toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
-import type { UserDoc } from '../db/schema.ts';
+import type { UserWithId } from '../db/schema.ts';
 import {
   issueRefreshToken,
   RefreshError,
@@ -52,7 +52,7 @@ function jwtSecret(): string {
 
 /** Find-or-create the dev-login user (owner role) and stamp last_seen_at.
  * Null only on the vanishingly-unlikely re-read miss after insert. */
-async function upsertDevUser(email: string): Promise<WithId<UserDoc> | null> {
+async function upsertDevUser(email: string): Promise<UserWithId | null> {
   const existing = await findUserByEmail(email);
   if (existing) {
     await touchUserLastSeen(existing._id);

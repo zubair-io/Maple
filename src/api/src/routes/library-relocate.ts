@@ -56,8 +56,8 @@ import { backupLocationSegments } from '../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path-formatter.ts';
 import { relocateGeoAsset } from '../library/relocate-geo.ts';
 import { child as childLogger } from '../log.ts';
-import type { AssetDoc } from '../db/schema.ts';
-import type { ObjectId, WithId } from 'mongodb';
+import type { AssetDoc, AssetWithId } from '../db/schema.ts';
+import type { ObjectId } from 'mongodb';
 import {
   findRelocateCandidatesByFilenames,
   type RelocateCandidateRow,
@@ -105,7 +105,7 @@ function yearForDir(currentPath: string, capturedYear: number | null | undefined
  *
  * Falls back to <year>/Misc when the asset has no usable geo location.
  */
-function geoDir(doc: WithId<AssetDoc>): string | null {
+function geoDir(doc: AssetWithId): string | null {
   const primary = assetActiveFileInfo(doc);
   if (!primary) return null;
 
@@ -137,7 +137,7 @@ function geoDir(doc: WithId<AssetDoc>): string | null {
  * — regardless of whether it has backup copies. This is the generalised predicate
  * replacing the old `isGeoBackupCandidate` which required `phasset_links`.
  */
-function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
+function isGeoCandidate(doc: AssetWithId): boolean {
   return assetActiveFileInfo(doc) !== null;
 }
 
@@ -145,7 +145,7 @@ function isGeoCandidate(doc: WithId<AssetDoc>): boolean {
  * True when relocating the asset would actually move it — i.e. its target geo
  * dir differs from its current dir.
  */
-function wouldRelocate(doc: WithId<AssetDoc>): boolean {
+function wouldRelocate(doc: AssetWithId): boolean {
   if (!isGeoCandidate(doc)) return false;
   const target = geoDir(doc);
   if (!target) return false;
@@ -231,7 +231,7 @@ async function reconcileSidecarMetadata(ids: readonly ObjectId[]): Promise<void>
 async function findGeoDocs(
   absPaths: string[],
   libs: ReadonlyMap<string, string>,
-): Promise<WithId<AssetDoc>[]> {
+): Promise<AssetWithId[]> {
   if (absPaths.length === 0) return [];
   const filenames = [...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean))];
   const absPathSet = new Set(absPaths);

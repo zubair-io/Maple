@@ -89,6 +89,8 @@ export interface FolderDoc {
   mirrors?: MirrorLocation[];
 }
 
+export type FolderWithId = WithId<FolderDoc>;
+
 // ---------------------------------------------------------------------------
 // Asset
 // ---------------------------------------------------------------------------
@@ -1343,6 +1345,8 @@ export interface UserDoc {
   last_seen_at: string | null;
 }
 
+export type UserWithId = WithId<UserDoc>;
+
 // ---------------------------------------------------------------------------
 // Credential (one user → many passkeys)
 // ---------------------------------------------------------------------------
@@ -1661,3 +1665,5 @@ export interface PresetDoc {
   /** ISO timestamp of the last write to this row. */
   updated_at: string;
 }
+
+export type PresetWithId = WithId<PresetDoc>;
