@@ -67,6 +67,7 @@ import {
   STAGE_DEAD_COUNT_SQL,
   STAGE_INVALIDATE_SQL,
   STAGE_OFF_CLAIM_SUCCESS_SQL,
+  rearmStageByFilenamesSql,
   STAGE_VERSION_BUMP_RESET_SQL,
   stagePendingCountSql,
   stageReadyCountSql,
@@ -140,6 +141,26 @@ export async function versionBumpReset(
   const result = await assetsDb(dbOverride).write(STAGE_VERSION_BUMP_RESET_SQL, [
     stage,
     targetVersion,
+  ]);
+  return result.changes;
+}
+
+/**
+ * Re-arm one stage for every asset holding a location with one of these
+ * filenames, and report how many stage rows moved.
+ *
+ * Returns 0 for an empty filename set rather than issuing a statement with no
+ * placeholders, which SQLite would reject.
+ */
+export async function rearmStageByFilenames(
+  stage: string,
+  filenames: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<number> {
+  if (filenames.length === 0) return 0;
+  const result = await assetsDb(dbOverride).write(rearmStageByFilenamesSql(filenames.length), [
+    stage,
+    ...filenames,
   ]);
   return result.changes;
 }

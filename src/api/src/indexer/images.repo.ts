@@ -14,15 +14,15 @@
  * caller left, and the trash workflows they predate live in
  * `db/sqlite/repos/assets.trash.ts`.
  *
- * The remaining MongoDB references — `coll`, `updateLiveLocationCount` and the
- * three query-fragment builders below — exist only for call sites in
- * `src/routes/**` and `src/workers/**` that the cutover has not reached yet.
- * Each one is noted at its own declaration.
+ * Nothing here opens a collection any more. What is left is the document
+ * helpers — the ones that read a `fileinfo` array and answer a question about
+ * it — which are pure functions over a shape the SQLite rows are still
+ * assembled into, plus a few query-fragment builders whose last callers are
+ * going with them. Each of those is noted at its own declaration.
  */
 
 import * as path from 'node:path';
-import { ObjectId, type Collection } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
+import { ObjectId } from 'mongodb';
 import {
   type AssetDoc,
   type AssetFaceDoc,
@@ -66,18 +66,6 @@ export interface IndexerAssetFields {
 }
 
 export type IndexerAssetDoc = AssetDoc & IndexerAssetFields;
-
-/**
- * The raw `assets` collection, typed with the indexer's extra fields.
- *
- * MongoDB-only, and left here for `routes/xmp-batch.ts` and
- * `workers/stages/sidecar-metadata-index.ts`, which are the last two call sites
- * and belong to other buckets of the cutover. It goes when they do.
- */
-export async function coll(): Promise<Collection<IndexerAssetDoc>> {
-  const c = await assetsCollection();
-  return c as unknown as Collection<IndexerAssetDoc>;
-}
 
 // ---------------------------------------------------------------------------
 // Location helpers (content-addressing migration)

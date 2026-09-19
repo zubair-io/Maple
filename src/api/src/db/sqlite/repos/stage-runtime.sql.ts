@@ -405,6 +405,35 @@ export const STAGE_VERSION_BUMP_RESET_SQL = `
    WHERE stage = ? AND version < ?`;
 
 /**
+ * Re-arm one stage for every asset holding a location with one of these
+ * filenames.
+ *
+ * The sidecar-batch route's dirty marker. It knows the files it just wrote by
+ * absolute path and nothing else, so the filename set is the only handle it has
+ * on the assets involved; a duplicate filename across libraries marks both,
+ * which is harmless because the stage is idempotent, and which is the same
+ * breadth the `fileinfo.filename` `$in` it replaces had.
+ *
+ * `version = 0` rather than a decrement, because the claim query is
+ * `version < targetVersion` and zero is unambiguously below any target. Rows
+ * are dense (see {@link SEED_STAGE_ROW_SQL}), so this always finds the row it
+ * means to; on Mongo the equivalent `$set` had to create the subdocument.
+ *
+ * The placeholder list is built by the caller, so the parameters are `stage`
+ * followed by one filename per placeholder.
+ */
+export function rearmStageByFilenamesSql(count: number): string {
+  return `
+  UPDATE stage_state
+     SET version = 0, dead = 0, attempts = 0, last_error = NULL
+   WHERE stage = ?
+     AND asset_id IN (
+       SELECT asset_id FROM asset_locations
+        WHERE filename IN (${Array.from({ length: count }, () => '?').join(', ')})
+     )`;
+}
+
+/**
  * Seed one stage's row for one asset, at version 0.
  *
  * Rows are dense by design: on Mongo a missing `stages.<name>` subdocument is
