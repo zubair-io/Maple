@@ -66,7 +66,7 @@ const STAGE_STATE_COLUMNS = `
  * the same property the Mongo filter bought by writing the gate as
  * `$not: { $gt: now }` rather than `$lte`.
  */
-const CLAIMABLE_GATES = `
+export const CLAIMABLE_GATES = `
     version < ?
     AND dead = 0
     AND (next_attempt_at IS NULL OR next_attempt_at <= ?)`;
@@ -81,7 +81,7 @@ const CLAIMABLE_GATES = `
  * the operator-clearable tag a file-reading stage stamps when the bytes turn
  * out to be unreadable; it parks the asset for every stage too.
  */
-const ASSET_CLAIMABLE_SQL = `
+export const ASSET_CLAIMABLE_SQL = `
     EXISTS (
       SELECT 1 FROM assets
        WHERE id = stage_state.asset_id
@@ -90,14 +90,14 @@ const ASSET_CLAIMABLE_SQL = `
     )`;
 
 /** One `dependsOn` entry: the named stage must have reached `minVersion`. */
-const DEPENDENCY_SQL = `
+export const DEPENDENCY_SQL = `
     EXISTS (
       SELECT 1 FROM stage_state dep
        WHERE dep.asset_id = stage_state.asset_id AND dep.stage = ? AND dep.version >= ?
     )`;
 
 /** `dependencyCount` copies of the dependency probe, two parameters each. */
-function dependencyClauses(dependencyCount: number): string[] {
+export function dependencyClauses(dependencyCount: number): string[] {
   return Array.from({ length: dependencyCount }, () => DEPENDENCY_SQL);
 }
 
@@ -105,7 +105,7 @@ function dependencyClauses(dependencyCount: number): string[] {
  * The stage's own extra predicate, parenthesised so its internal `OR`s cannot
  * escape and weaken a gate above it.
  */
-function residualClauses(residualSql?: string): string[] {
+export function residualClauses(residualSql?: string): string[] {
   return residualSql === undefined ? [] : [`(${residualSql})`];
 }
 
@@ -511,50 +511,11 @@ export const TAG_LOCATION_MISSING_BY_ADDRESS_SQL = `
      AND missing_since IS NULL`;
 
 /**
- * How many assets this stage still owes work on, ignoring the retry gate and
- * the dependency gates — the Workers page's "pending".
+ * The Workers page's three per-stage numbers live in `stage-backlog.sql.ts`.
  *
- * Parameters: `stage`, `targetVersion`, then the residual's own parameters.
+ * They were here while they were the claim's statements with the `LIMIT` taken
+ * off. They no longer are: the claim reads five rows and stops, a count reads
+ * the whole backlog, and the two now answer the asset-level gate differently
+ * for that reason (#3804). They still import {@link CLAIMABLE_GATES} and
+ * {@link DEPENDENCY_SQL} from here, so the gates cannot drift.
  */
-export function stagePendingCountSql(residualSql?: string): string {
-  const residual = residualSql === undefined ? '' : `\n     AND (${residualSql})`;
-  return `SELECT COUNT(*) AS n
-     FROM stage_state
-    WHERE stage = ? AND version < ? AND dead = 0
-      AND ${ASSET_CLAIMABLE_SQL}${residual}`;
-}
-
-/**
- * How many of those assets could start right now — the Workers page's "ready",
- * and the other half of the split it renders as "N ready · M blocked on an
- * upstream stage".
- *
- * Every gate the claim applies, which is the point: `blocked = pending - ready`
- * is only a meaningful number if `ready` is the claim's own question. A stage
- * parked behind `dependsOn` otherwise reports a large pending backlog with
- * nothing to say that none of it can move, which is the exact diagnosis the
- * split exists to give.
- *
- * The in-flight exclusion is left out on purpose — it is one process's private
- * bookkeeping, and a count that shrank because a worker happened to be busy
- * would report a different backlog to every reader.
- *
- * Parameters: `stage`, `targetVersion`, `now`, then two per dependency, then
- * the residual's own parameters.
- */
-export function stageReadyCountSql(dependencyCount: number, residualSql?: string): string {
-  const clauses = [
-    'stage = ?',
-    CLAIMABLE_GATES,
-    ASSET_CLAIMABLE_SQL,
-    ...dependencyClauses(dependencyCount),
-    ...residualClauses(residualSql),
-  ];
-  return `SELECT COUNT(*) AS n
-     FROM stage_state
-    WHERE ${clauses.join('\n    AND ')}`;
-}
-
-/** Parked rows for one stage — the dead-letter count, served by `stage_dead`. */
-export const STAGE_DEAD_COUNT_SQL = `
-  SELECT COUNT(*) AS n FROM stage_state WHERE stage = ? AND dead = 1`;
