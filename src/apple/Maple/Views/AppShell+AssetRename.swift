@@ -47,7 +47,7 @@ extension AppShell {
   /// show the user. PhotoKit assets have no user-writable path (design
   /// doc: "PhotoKit → not supported" — surface WHY, not a silent failure).
   /// A Cloud asset that hasn't been resolved through the Timeline/Search
-  /// flow (`asset.catalog == nil`) has no known Mongo asset id to address
+  /// flow (`asset.catalog == nil`) has no known server asset id to address
   /// `/api/assets/:id/rename` with — same precondition the info pane's
   /// enrichment fetch and `CloudSidecarStore` XMP writes already have.
   func renameUnsupportedReason(for asset: AssetRef) -> String? {

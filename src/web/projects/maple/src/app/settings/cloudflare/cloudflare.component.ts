@@ -7,8 +7,8 @@
 //     saving, so a typo surfaces before the operator commits it
 //
 // The JWT secret the Cloudflare Worker (#1760) needs is NOT surfaced here —
-// the operator retrieves it directly from the server (MongoDB
-// `server_state` collection, `_id: "jwt_secret"`, field `value`; see
+// the operator retrieves it directly from the server's library database (the
+// `server_state` table, `id = 'jwt_secret'`, column `value`; see
 // `src/api/src/auth/jwt-secret.repo.ts`) and runs `wrangler secret put
 // JWT_SECRET` themselves. The app deliberately has no route that echoes the
 // root signing secret — that would add an HTTP-reachable path to what

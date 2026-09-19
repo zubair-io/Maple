@@ -138,9 +138,9 @@ struct CloudflareSettingsView: View {
         Section("Worker authentication") {
             Text("""
                 The Worker's JWT signing secret is deliberately not shown here and is \
-                exposed by no API route. Read it from MongoDB — collection \
-                `server_state`, `_id: "jwt_secret"`, field `value` — and install it with \
-                `wrangler secret put JWT_SECRET`.
+                exposed by no API route. Read it from the server's library database — \
+                table `server_state`, row `id = 'jwt_secret'`, column `value` — and \
+                install it with `wrangler secret put JWT_SECRET`.
                 """)
                 .font(.caption)
                 .foregroundStyle(.secondary)

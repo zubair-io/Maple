@@ -112,7 +112,7 @@ namespace Maple.UI.Pages
             _diagnostics.Checks = new[]
             {
                 new MuiDiagnosticCheck("ffi", "Native pipeline (raw_ffi.dll)", MuiDiagnosticStatus.NotRun),
-                new MuiDiagnosticCheck("db", "MongoDB connection", MuiDiagnosticStatus.NotRun),
+                new MuiDiagnosticCheck("db", "Library database", MuiDiagnosticStatus.NotRun),
                 new MuiDiagnosticCheck("gpu", "GPU device (WGSL)", MuiDiagnosticStatus.NotRun),
             };
             _diagnostics.RunAllRequested += (_, _) =>
@@ -121,10 +121,10 @@ namespace Maple.UI.Pages
                 _diagnostics.Checks = new[]
                 {
                     new MuiDiagnosticCheck("ffi", "Native pipeline (raw_ffi.dll)", MuiDiagnosticStatus.Passed),
-                    new MuiDiagnosticCheck("db", "MongoDB connection", MuiDiagnosticStatus.Passed),
+                    new MuiDiagnosticCheck("db", "Library database", MuiDiagnosticStatus.Passed),
                     new MuiDiagnosticCheck("gpu", "GPU device (WGSL)", MuiDiagnosticStatus.Failed),
                 };
-                _diagnostics.RawOutput = "ffi: ok (v1.6.2)\ndb: ok (mongodb://localhost:27017)\ngpu: no adapter found";
+                _diagnostics.RawOutput = "ffi: ok (v1.6.2)\ndb: ok (data/maple.sqlite)\ngpu: no adapter found";
                 _diagnostics.IsRunning = false;
             };
 

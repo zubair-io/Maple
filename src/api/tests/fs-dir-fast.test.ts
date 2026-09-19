@@ -3,8 +3,8 @@
  * by the Angular Browse grid. It must:
  *   - return the same path/parent/dirs/images shape as /dir, minus EXIF
  *     and asset_id and sidecars,
- *   - NOT touch Mongo (no DB connection attempted; safe to run with
- *     MAPLE_MONGO_URI unset),
+ *   - NOT touch the database (no query issued; safe to run with no library
+ *     database present at all),
  *   - drop `.xmp` filenames silently (they aren't surfaced),
  *   - respect the same paging cursor contract as /dir.
  */
@@ -37,8 +37,8 @@ describe('GET /api/fs/dir-fast', () => {
     await fs.writeFile(path.join(tmpRoot, '.env'), 'x');
 
     process.env.MAPLE_ROOTS = realTmpRoot;
-    // Deliberately do NOT set MAPLE_MONGO_URI — this endpoint must work
-    // without Mongo reachable.
+    // Deliberately no MAPLE_SQLITE_PATH and no pool: this endpoint reads the
+    // filesystem and must work with no library database at all.
   });
 
   afterAll(async () => {

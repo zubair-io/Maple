@@ -33,7 +33,7 @@ import { SelfHostedSidebarHeaderComponent } from './self-hosted-sidebar-extensio
 // Self-Hosted: paired with the Bun API. The service worker caches the app
 // shell + JS/assets for fast, offline-resilient loads and caches thumbnail
 // responses (see the `thumbnails` dataGroup in ngsw-config.json). Library data
-// APIs are deliberately NOT cached, so MongoDB stays authoritative; the
+// APIs are deliberately NOT cached, so the server stays authoritative; the
 // background app-update flow keeps the cached shell from going stale.
 export const appConfig: ApplicationConfig = {
   providers: [

@@ -698,7 +698,8 @@
                         <div class="field-hint">
                           Base URL of a Meilisearch sidecar for typo-tolerant search. Empty falls
                           back to the <span class="mono set-mono">MAPLE_MEILISEARCH_URL</span> env
-                          var (or disables the sidecar — search then uses the Mongo text index).
+                          var (or disables the sidecar — search then uses the server's own full-text
+                          index).
                         </div>
                         @if (testState(s).kind === 'ok') {
                           <div class="test-result set-test-result ok">

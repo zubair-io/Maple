@@ -124,7 +124,7 @@ public struct MuiPageAdmin: View {
         MuiDiagnosticCheck(id: "1", label: "XMP sidecars readable", status: .pass),
         MuiDiagnosticCheck(id: "2", label: "Rust core loaded", status: .pass),
         MuiDiagnosticCheck(id: "3", label: "GPU pipeline available", status: .pass),
-        MuiDiagnosticCheck(id: "4", label: "MongoDB reachable", status: .pending),
+        MuiDiagnosticCheck(id: "4", label: "Library database reachable", status: .pending),
     ]
 }
 
