@@ -14,11 +14,7 @@
  */
 
 import type { ImportReport, VerifyReport } from './types.ts';
-import {
-  DEFAULT_CHANGES_WINDOW,
-  MANAGED_CERTIFICATES_WARNING,
-  SKIPPED_COLLECTIONS,
-} from './plan/index.ts';
+import { DEFAULT_CHANGES_WINDOW, SKIPPED_COLLECTIONS } from './plan/index.ts';
 
 /** How many entries of a failure list to print before summarising the rest. */
 const LIST_LIMIT = 20;
@@ -246,8 +242,6 @@ export function renderImportReport(report: ImportReport): string[] {
     ...Object.entries(SKIPPED_COLLECTIONS).map(
       ([collection, reason]) => `  ${collection.padEnd(30)}${reason}`,
     ),
-    '',
-    `  ${MANAGED_CERTIFICATES_WARNING}`,
   ];
 }
 

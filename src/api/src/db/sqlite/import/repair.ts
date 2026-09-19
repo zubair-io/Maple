@@ -66,6 +66,15 @@ export const REQUIRED_FOREIGN_KEYS: readonly ForeignKey[] = [
   { table: 'service_api_keys', column: 'created_by', parent: 'users', parentKey: 'id' },
   { table: 'native_auth_codes', column: 'user_id', parent: 'users', parentKey: 'id' },
   { table: 'lan_handoff_codes', column: 'user_id', parent: 'users', parentKey: 'id' },
+  // The Meilisearch redrive list is a work list rather than a record, and its
+  // column says so with `ON DELETE CASCADE`: a parked row whose asset has been
+  // purged is not history, it is a unit of work that can never succeed.
+  {
+    table: 'meilisearch_backfill_failures',
+    column: 'asset_id',
+    parent: 'assets',
+    parentKey: 'id',
+  },
 ];
 
 /** `import_meta` key under which a run records what the repair pass changed. */
