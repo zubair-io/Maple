@@ -1,10 +1,31 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import type { ImageDoc } from '../run-stage.ts';
+import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { CoordinateCache } from '../../enrichment/coordinate-cache.ts';
 import { NominatimClient, NominatimError } from '../../enrichment/nominatim-client.ts';
 
 import geocodeStage, { geocodeHandler, setGeocodeDepsForTests } from './geocode.ts';
+import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+
+/**
+ * The place the handler asked the runner to write, read back out of the
+ * statement's bound JSON.
+ *
+ * The patch is a list of statements now rather than a map of document fields,
+ * so the assertions decode bound parameters instead of reading properties.
+ */
+function patchedPlace(result: StageResult): Record<string, unknown> {
+  if (!('patch' in result)) throw new Error(`expected a patch, got ${JSON.stringify(result)}`);
+  const statement = result.patch.find((candidate) => candidate.sql.includes('place = json(?)'));
+  if (statement === undefined) throw new Error('expected a place statement in the patch');
+  return JSON.parse((statement.params as string[])[0]!) as Record<string, unknown>;
+}
+
+/** True when the patch also re-queues the asset for the refile-backups pass. */
+function resetsBackupLayout(result: StageResult): boolean {
+  if (!('patch' in result)) throw new Error(`expected a patch, got ${JSON.stringify(result)}`);
+  return result.patch.some((statement) => statement.sql.includes('backup_layout_version = ?'));
+}
 
 function fakeDoc(gps: { lat: number; lng: number } | null = { lat: 42.65, lng: -73.75 }): ImageDoc {
   return {
@@ -69,8 +90,10 @@ function errorNominatim(status: number): NominatimClient {
   });
 }
 
-// Use a unique geocoderVersion per call to avoid MongoDB cache hits across
-// tests (each test run must see cold-cache behaviour on first access).
+// Use a unique geocoderVersion per call so a cache row written by an earlier
+// test can never answer a later one: each test must see cold-cache behaviour on
+// first access. The rows themselves live in the per-test database installed by
+// `createLiveTestDatabase`, which the handler reaches with no override.
 let versionCounter = Date.now();
 function freshCache(): CoordinateCache {
   return new CoordinateCache({ geocoderVersion: ++versionCounter });
@@ -84,19 +107,20 @@ afterEach(() => {
 
 describe('geocodeHandler — happy path', () => {
   it('returns patch with place populated from Nominatim response', async () => {
+    using _live = await createLiveTestDatabase();
     const doc = fakeDoc();
     setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
     const result = await geocodeHandler(doc, fakeCtx);
-    const patch = (result as { patch: { place: Record<string, unknown> } }).patch;
-    expect(patch.place).toBeTruthy();
-    expect(patch.place.display_name).toBe('Test Museum, Albany');
-    expect(typeof patch.place.search_blob).toBe('string');
-    expect(patch.place.lat).toBe(42.65);
-    expect(patch.place.lon).toBe(-73.75);
+    const place = patchedPlace(result);
+    expect(place.display_name).toBe('Test Museum, Albany');
+    expect(typeof place.search_blob).toBe('string');
+    expect(place.lat).toBe(42.65);
+    expect(place.lon).toBe(-73.75);
     expect((result as { invalidates?: string[] }).invalidates).toContain('meili');
   });
 
   it('uses cached place on second call for same coordinates', async () => {
+    using _live = await createLiveTestDatabase();
     const cache = freshCache();
     let callCount = 0;
     const fetchImpl = (async () => {
@@ -115,6 +139,7 @@ describe('geocodeHandler — happy path', () => {
   });
 
   it('returns skip when image has no GPS', async () => {
+    using _live = await createLiveTestDatabase();
     const doc = fakeDoc(null);
     setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
     const result = await geocodeHandler(doc, fakeCtx);
@@ -124,12 +149,14 @@ describe('geocodeHandler — happy path', () => {
 
 describe('geocodeHandler — Nominatim errors', () => {
   it('5xx propagates as NominatimError (retryable)', async () => {
+    using _live = await createLiveTestDatabase();
     const doc = fakeDoc();
     setGeocodeDepsForTests({ client: errorNominatim(503), cache: freshCache() });
     await expect(geocodeHandler(doc, fakeCtx)).rejects.toBeInstanceOf(NominatimError);
   });
 
   it('4xx propagates as NominatimError (non-retryable)', async () => {
+    using _live = await createLiveTestDatabase();
     const doc = fakeDoc();
     setGeocodeDepsForTests({ client: errorNominatim(400), cache: freshCache() });
     await expect(geocodeHandler(doc, fakeCtx)).rejects.toBeInstanceOf(NominatimError);
@@ -138,11 +165,12 @@ describe('geocodeHandler — Nominatim errors', () => {
 
 describe('geocodeHandler — lat/lon provenance', () => {
   it("place.lat/lon are taken from the asset's EXIF, not Nominatim response", async () => {
+    using _live = await createLiveTestDatabase();
     const doc = fakeDoc({ lat: 42.65, lng: -73.75 });
     const bodyWithDifferentCoords = { ...MUSEUM_RESPONSE, lat: '99.9', lon: '99.9' };
     setGeocodeDepsForTests({ client: fakeNominatim(bodyWithDifferentCoords), cache: freshCache() });
     const result = await geocodeHandler(doc, fakeCtx);
-    const place = (result as { patch: { place: { lat: number; lon: number } } }).patch.place;
+    const place = patchedPlace(result);
     expect(place.lat).toBe(42.65);
     expect(place.lon).toBe(-73.75);
   });
@@ -150,27 +178,26 @@ describe('geocodeHandler — lat/lon provenance', () => {
 
 describe('geocodeHandler — refile re-trigger (#1525)', () => {
   it('resets backup_layout_version when geocoding adds a place (folder changes)', async () => {
+    using _live = await createLiveTestDatabase();
     const doc = fakeDoc(); // place: null
     setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
-    const patch = ((await geocodeHandler(doc, fakeCtx)) as { patch: Record<string, unknown> })
-      .patch;
-    expect(patch.place).toBeTruthy();
-    expect(patch.backup_layout_version).toBe(0);
+    const result = await geocodeHandler(doc, fakeCtx);
+    expect(patchedPlace(result)).toBeTruthy();
+    expect(resetsBackupLayout(result)).toBe(true);
   });
 
   it('does NOT reset backup_layout_version when the folder is unchanged', async () => {
+    using _live = await createLiveTestDatabase();
     const cache = freshCache();
     setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache });
     // First pass resolves the place; capture it.
-    const first = ((await geocodeHandler(fakeDoc(), fakeCtx)) as { patch: { place: unknown } })
-      .patch;
+    const first = patchedPlace(await geocodeHandler(fakeDoc(), fakeCtx));
     // An asset already filed at that exact place re-geocodes to the same folder.
     const doc2 = fakeDoc();
-    (doc2 as { place: unknown }).place = first.place;
-    const patch2 = ((await geocodeHandler(doc2, fakeCtx)) as { patch: Record<string, unknown> })
-      .patch;
-    expect(patch2.place).toBeTruthy();
-    expect(patch2.backup_layout_version).toBeUndefined();
+    (doc2 as { place: unknown }).place = first;
+    const second = await geocodeHandler(doc2, fakeCtx);
+    expect(patchedPlace(second)).toBeTruthy();
+    expect(resetsBackupLayout(second)).toBe(false);
   });
 });
 

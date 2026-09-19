@@ -21,7 +21,17 @@
  */
 
 import type { SqlStatement } from '../protocol.ts';
-import type { AssetExif, MetadataOverride, TranscriptDoc } from '../../schema.ts';
+import type {
+  AssetDoc,
+  AssetExif,
+  MetadataOverride,
+  Place,
+  TranscriptDoc,
+  VideoDescriptionDoc,
+  VideoDescriptionMeta,
+  VisionDoc,
+  VisionMeta,
+} from '../../schema.ts';
 
 /**
  * The EXIF stage's output: the parsed payload, the screenshot heuristic, and —
@@ -199,5 +209,122 @@ export function sidecarMetadataStatements(
   return [
     { sql: `UPDATE assets SET ${columns.join(', ')} WHERE id = ?`, params: [...params, assetId] },
     { sql: OVERRIDE_UPSERT_SQL, params: [JSON.stringify(patch.metadataOverride), assetId] },
+  ];
+}
+
+/**
+ * The geocode stage's output: the resolved place, and — when the place moves
+ * the asset's canonical backup folder — the `backup_layout_version` reset that
+ * puts it back into the refile-backups candidate set.
+ *
+ * Two statements on the same row rather than one, because the reset is
+ * conditional and folding it into the place UPDATE would mean building the
+ * column list by hand for a single optional column. They commit in the same
+ * transaction, so "place resolved" and "needs re-filing" still land together.
+ */
+export function placeStatements(
+  assetId: string,
+  place: Place,
+  refileNeeded: boolean,
+): SqlStatement[] {
+  const write: SqlStatement = {
+    sql: `UPDATE assets SET place = json(?) WHERE id = ?`,
+    params: [JSON.stringify(place), assetId],
+  };
+  if (!refileNeeded) return [write];
+  return [
+    write,
+    {
+      sql: `UPDATE assets SET backup_layout_version = ? WHERE id = ?`,
+      params: [REFILE_RESET_VERSION, assetId],
+    },
+  ];
+}
+
+/**
+ * Reset value for `backup_layout_version` that puts an asset back into the
+ * refile-backups candidate set. Lives here rather than in the stage file
+ * because it is a property of the column, not of the geocoder.
+ */
+const REFILE_RESET_VERSION = 0;
+
+/**
+ * The describe stage's output.
+ *
+ * `is_screenshot` is the one field of it that is not detail data: the grid
+ * filters on it, so it is a column on `assets` and a separate statement. The
+ * rest — caption, structured vision, OCR mirror, and the three provenance
+ * blobs — are `asset_detail`'s, written as one upsert.
+ */
+export interface DescribePatch {
+  /** Free-text caption mirror of `vision.caption`. */
+  description: string;
+  /** Provenance blob. Open-ended: providers append their own diagnostics. */
+  descriptionMeta: Record<string, unknown>;
+  vision: VisionDoc;
+  visionMeta: VisionMeta;
+  /** Mirrored from `vision.text_visible`; empty when the model saw no text. */
+  ocrText: string;
+  ocrMeta: NonNullable<AssetDoc['ocr_meta']>;
+  /** The VLM's verdict, already clamped to `false` for video by the handler. */
+  isScreenshot: boolean;
+}
+
+const DESCRIBE_UPSERT_SQL = `
+  INSERT INTO asset_detail
+    (asset_id, description, description_meta, ocr_text, ocr_meta, vision, vision_meta)
+  SELECT id, ?, json(?), ?, json(?), json(?), json(?) FROM assets WHERE id = ?
+  ON CONFLICT (asset_id) DO UPDATE SET
+    description      = excluded.description,
+    description_meta = excluded.description_meta,
+    ocr_text         = excluded.ocr_text,
+    ocr_meta         = excluded.ocr_meta,
+    vision           = excluded.vision,
+    vision_meta      = excluded.vision_meta`;
+
+export function describeStatements(assetId: string, patch: DescribePatch): SqlStatement[] {
+  return [
+    {
+      sql: DESCRIBE_UPSERT_SQL,
+      params: [
+        patch.description,
+        JSON.stringify(patch.descriptionMeta),
+        patch.ocrText,
+        JSON.stringify(patch.ocrMeta),
+        JSON.stringify(patch.vision),
+        JSON.stringify(patch.visionMeta),
+        assetId,
+      ],
+    },
+    {
+      sql: `UPDATE assets SET is_screenshot = ? WHERE id = ?`,
+      params: [patch.isScreenshot ? 1 : 0, assetId],
+    },
+  ];
+}
+
+const VIDEO_DESCRIPTION_UPSERT_SQL = `
+  INSERT INTO asset_detail (asset_id, video_description, video_description_meta)
+  SELECT id, json(?), json(?) FROM assets WHERE id = ?
+  ON CONFLICT (asset_id) DO UPDATE SET
+    video_description      = excluded.video_description,
+    video_description_meta = excluded.video_description_meta`;
+
+/**
+ * The video-describe stage's output: the whole multi-frame description and its
+ * provenance. One upsert, because the two are meaningless apart — a summary
+ * with no record of which model and how many frames produced it cannot be
+ * triaged or invalidated.
+ */
+export function videoDescriptionStatements(
+  assetId: string,
+  description: VideoDescriptionDoc,
+  meta: VideoDescriptionMeta,
+): SqlStatement[] {
+  return [
+    {
+      sql: VIDEO_DESCRIPTION_UPSERT_SQL,
+      params: [JSON.stringify(description), JSON.stringify(meta), assetId],
+    },
   ];
 }

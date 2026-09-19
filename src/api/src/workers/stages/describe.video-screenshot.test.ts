@@ -27,7 +27,13 @@ import { ObjectId } from 'mongodb';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import * as refileBackups from '../migration/refile-backups.ts';
 import { describeHandler, setDescribeDepsForTests } from './describe.ts';
-import { VALID_VISION, mockProvider, singleServerPool, stageDocIn } from './describe.fixtures.ts';
+import {
+  VALID_VISION,
+  mockProvider,
+  patchFields,
+  singleServerPool,
+  stageDocIn,
+} from './describe.fixtures.ts';
 
 let tmpRoot: string;
 let libraryId: ObjectId;
@@ -66,22 +72,23 @@ describe('describeHandler — video is never a screenshot (#2325)', () => {
     const doc = await stageDocIn(join(tmpRoot, 'clip.mov'), libraryId, tmpRoot);
     withScreenshotVerdict();
 
-    const res = (await describeHandler(doc, fakeCtx)) as { patch: Record<string, unknown> };
+    const patch = patchFields(await describeHandler(doc, fakeCtx));
 
-    expect(res.patch.is_screenshot).toBe(false);
+    expect(patch.is_screenshot).toBe(false);
   });
 
   it('also clamps the stored vision subdoc, so a sidecar re-index cannot resurrect it', async () => {
     const doc = await stageDocIn(join(tmpRoot, 'clip.mov'), libraryId, tmpRoot);
     withScreenshotVerdict();
 
-    const res = (await describeHandler(doc, fakeCtx)) as {
-      patch: { vision: { is_screenshot: boolean; caption: string } };
+    const vision = patchFields(await describeHandler(doc, fakeCtx)).vision as {
+      is_screenshot: boolean;
+      caption: string;
     };
 
-    expect(res.patch.vision.is_screenshot).toBe(false);
+    expect(vision.is_screenshot).toBe(false);
     // The rest of the VisionDoc is passed through untouched.
-    expect(res.patch.vision.caption).toBe(VALID_VISION.caption);
+    expect(vision.caption).toBe(VALID_VISION.caption);
   });
 
   it('never relocates a video into <year>/Screenshot on disk', async () => {
@@ -102,11 +109,9 @@ describe('describeHandler — video is never a screenshot (#2325)', () => {
     const doc = await stageDocIn(join(tmpRoot, 'shot.png'), libraryId, tmpRoot);
     withScreenshotVerdict();
 
-    const res = (await describeHandler(doc, fakeCtx)) as {
-      patch: { is_screenshot: boolean; vision: { is_screenshot: boolean } };
-    };
+    const patch = patchFields(await describeHandler(doc, fakeCtx));
 
-    expect(res.patch.is_screenshot).toBe(true);
-    expect(res.patch.vision.is_screenshot).toBe(true);
+    expect(patch.is_screenshot).toBe(true);
+    expect((patch.vision as { is_screenshot: boolean }).is_screenshot).toBe(true);
   });
 });

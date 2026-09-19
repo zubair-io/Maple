@@ -20,7 +20,7 @@ import { dirname } from 'node:path';
 import { ObjectId } from 'mongodb';
 import { solidAvif } from '../../test-support/synth-image.ts';
 import type { VisionDoc } from '../../db/schema.ts';
-import type { ImageDoc } from '../run-stage.ts';
+import type { ImageDoc, StageResult } from '../run-stage.ts';
 import type {
   DescribeProvider,
   DescribeResult,
@@ -143,4 +143,35 @@ export function singleServerPool(provider: DescribeProvider): DescribeServerPool
     [{ url: 'http://localhost:11434', concurrency: 1 }],
     () => provider,
   );
+}
+
+/**
+ * What a describe handler asked the runner to write, back in the field names
+ * the document patch used.
+ *
+ * The patch is two statements now — the `asset_detail` upsert carrying the
+ * caption, the structured vision and the OCR mirror, and the one-column
+ * `assets` UPDATE for the screenshot verdict the grid filters on — so the
+ * assertions decode bound parameters instead of reading properties. Decoding
+ * once here rather than in each suite keeps those tests about describe's
+ * output and not about the schema's table split.
+ */
+export function patchFields(result: StageResult): Record<string, unknown> {
+  if (!('patch' in result)) throw new Error(`expected a patch, got ${JSON.stringify(result)}`);
+  const detail = result.patch.find((s) => s.sql.includes('INSERT INTO asset_detail'));
+  const screenshot = result.patch.find((s) => s.sql.includes('is_screenshot = ?'));
+  if (detail === undefined || screenshot === undefined) {
+    throw new Error('expected a detail upsert and a screenshot update in the patch');
+  }
+  const [description, descriptionMeta, ocrText, ocrMeta, vision, visionMeta] =
+    detail.params as string[];
+  return {
+    description,
+    description_meta: JSON.parse(descriptionMeta!) as unknown,
+    ocr_text: ocrText,
+    ocr_meta: JSON.parse(ocrMeta!) as unknown,
+    vision: JSON.parse(vision!) as unknown,
+    vision_meta: JSON.parse(visionMeta!) as unknown,
+    is_screenshot: (screenshot.params as unknown[])[0] === 1,
+  };
 }

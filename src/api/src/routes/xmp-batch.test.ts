@@ -1,36 +1,39 @@
 /**
  * Integration tests for POST /api/xmp/batch.
  *
- * Uses a real temp directory for sidecar files. MongoDB calls from
- * markSidecarMetadataIndexDirty are allowed to fail (they're best-effort),
- * so we don't need a live Mongo for the core sidecar-write path.
+ * Uses a real temp directory for sidecar files and a real SQLite database
+ * (#3787). The endpoint accepts `{ address }` (slug:relPath), so each test
+ * registers its temp directory as a library root and lets the library cache
+ * resolve the slug from that row.
  *
- * The endpoint now accepts { address } (slug:relPath) instead of { path }.
- * Tests register a test slug in the in-memory libraries cache via
- * setLibraryBySlugForTests, mirroring the pattern in address.test.ts.
+ * The dirty-mark at the end of the batch is `rearmStageByFilenames`, which
+ * resets `version` / `dead` / `attempts` on the matching `stage_state` rows.
+ * Those rows are dense by design — one per (asset, stage) — so the assertion is
+ * on the row's columns, not on the presence of a nested field.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { ObjectId } from 'mongodb';
 import { Elysia } from 'elysia';
 import { xmpBatchRoutes } from './xmp-batch.ts';
 import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
-
-// Isolate the shared db-client singleton to a unique test DB and reset it
-// around this file, so markSidecarMetadataIndexDirty's Mongo touch neither writes
-// the real `maple` DB nor leaves the singleton connected for later test files
-// (mirrors the convention in folder.test.ts / imports/repo.test.ts).
-withTestDb(`maple_test_xmp_batch_${process.pid}`);
-beforeAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
-});
-afterAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
-});
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { insertStageState } from '../db/sqlite/repos/assets.test-helpers.ts';
+import {
+  SIDECAR_METADATA_INDEX_STAGE_NAME,
+  SIDECAR_METADATA_INDEX_VERSION,
+} from '../workers/stages/sidecar-metadata-index.ts';
+import {
+  registerLibrary,
+  seedRouteAsset,
+  stageStateRow,
+} from '../../tests/helpers/assets-route-fixtures.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Test app
@@ -43,12 +46,15 @@ const app = new Elysia().use(xmpBatchRoutes);
 // ---------------------------------------------------------------------------
 
 const TEST_SLUG = 'xmp-batch-test';
-const TEST_LIB_ID = new ObjectId();
 
+let live: LiveTestDatabase;
 let tmpDir: string;
-const originalMapleRoots = process.env.MAPLE_ROOTS;
+let libraryId: string;
+let originalMapleRoots: string | undefined;
 
 beforeEach(async () => {
+  live = await createLiveTestDatabase();
+
   // realpath the temp dir: on macOS os.tmpdir() is under /var → /private/var
   // symlink, and writeXmpAtomic realpaths before its root check, so an
   // un-realpath'd MAPLE_ROOTS would look "outside" the registered root.
@@ -56,16 +62,15 @@ beforeEach(async () => {
 
   // Jail the write path so safeWriteAllowed passes when other test files set
   // a narrow MAPLE_ROOTS concurrently (bun runs test files in parallel).
+  // Captured inside the hook, never at module scope: bun evaluates every test
+  // file's module body before any hook runs, so a module-scope capture would
+  // record whichever file happened to load last.
+  originalMapleRoots = process.env.MAPLE_ROOTS;
   process.env.MAPLE_ROOTS = tmpDir;
 
-  // Register the temp dir as a library slug in the in-memory cache so
-  // resolveAddressString can look up the slug:relPath address scheme.
-  const { setLibraryBySlugForTests } = await import('../indexer/libraries.cache.ts');
-  setLibraryBySlugForTests(TEST_SLUG, {
-    libraryId: TEST_LIB_ID,
-    root: tmpDir,
-    label: 'XMP Batch Test Library',
-  });
+  // The temp dir as a real library row, so `resolveAddressString` resolves the
+  // slug:relPath address through the same cache production uses.
+  libraryId = registerLibrary(live.db, tmpDir, TEST_SLUG);
 });
 
 afterEach(async () => {
@@ -75,9 +80,9 @@ afterEach(async () => {
   } else {
     delete process.env.MAPLE_ROOTS;
   }
-  // Clear the slug from the in-memory cache so it doesn't leak into sibling tests.
-  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+  // Drop the slug from the in-memory cache so it doesn't leak into sibling tests.
   invalidateLibraryRoots();
+  live.close();
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -281,6 +286,60 @@ describe('POST /api/xmp/batch', () => {
     expect(xml).not.toContain('crs:Version');
     // The stem-swap path must NOT have been created.
     await expect(fs.access(rawPath('clip.xmp'))).rejects.toThrow();
+  });
+
+  // The dirty-mark that closes the batch. `rearmStageByFilenames` is what makes
+  // the polled `sidecar-metadata-index` stage pick the asset up again, and it
+  // has to clear the dead-letter flag and the attempt count too — an asset that
+  // exhausted its retries before the operator fixed the metadata would
+  // otherwise stay parked forever.
+  describe('sidecar-metadata-index re-arm', () => {
+    test('resets version, dead and attempts on the written asset’s stage row', async () => {
+      const filename = 'dirty.dng';
+      await fs.writeFile(rawPath(filename), '');
+      const assetId = seedRouteAsset(live.db, { libraryId, path: '', filename });
+      insertStageState(live.db, assetId, SIDECAR_METADATA_INDEX_STAGE_NAME, {
+        version: SIDECAR_METADATA_INDEX_VERSION,
+        attempts: 3,
+        dead: true,
+        lastError: 'previous failure',
+      });
+
+      const res = await post({
+        entries: [{ address: addr(filename), metadata: { city: 'Paris' } }],
+      });
+      expect(res.status).toBe(200);
+
+      expect(stageStateRow(live.db, assetId, SIDECAR_METADATA_INDEX_STAGE_NAME)).toMatchObject({
+        version: 0,
+        dead: 0,
+        attempts: 0,
+        last_error: null,
+      });
+    });
+
+    test('leaves an unrelated asset’s stage row alone', async () => {
+      const written = 'touched.dng';
+      await fs.writeFile(rawPath(written), '');
+      const touchedId = seedRouteAsset(live.db, { libraryId, path: '', filename: written });
+      const untouchedId = seedRouteAsset(live.db, {
+        libraryId,
+        path: '',
+        filename: 'untouched.dng',
+      });
+      for (const id of [touchedId, untouchedId]) {
+        insertStageState(live.db, id, SIDECAR_METADATA_INDEX_STAGE_NAME, {
+          version: SIDECAR_METADATA_INDEX_VERSION,
+        });
+      }
+
+      await post({ entries: [{ address: addr(written), metadata: { city: 'Paris' } }] });
+
+      expect(stageStateRow(live.db, touchedId, SIDECAR_METADATA_INDEX_STAGE_NAME)?.version).toBe(0);
+      expect(stageStateRow(live.db, untouchedId, SIDECAR_METADATA_INDEX_STAGE_NAME)?.version).toBe(
+        SIDECAR_METADATA_INDEX_VERSION,
+      );
+    });
   });
 
   // #1614: culling fields — rating, flag, colorLabel

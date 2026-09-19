@@ -1,3 +1,30 @@
+/**
+ * The 409 a client is owed when its saved cursor predates the retained journal.
+ *
+ * Both transports have to answer it and they answer it from different places:
+ * `/api/changes/subscribe` asks the in-memory ring buffer whether it can still
+ * replay from that cursor, and `/api/changes` asks the journal itself. The Apple
+ * side treats either 409 as `syncAnchorExpired` and re-enumerates, so a 200 over
+ * a journal that has lost the rows in between is the failure this file exists to
+ * catch — the client would advance its anchor past edits it never saw.
+ *
+ * ## What the cutover changed here
+ *
+ * The polling case used to seed its "already pruned" journal by writing the
+ * counter document and the surviving rows straight into MongoDB. There is no
+ * counter to write any more: `asset_changes.cursor` is an `INTEGER PRIMARY KEY`
+ * and therefore a rowid alias, so allocation happens inside the insert and rows
+ * are made with `recordAssetChange` / `recordAssetChangeRow`. The floor is then
+ * produced the way production produces it — by running the retention sweep
+ * (#3741) over the bottom of the journal — rather than by describing its
+ * after-effects. The counter surviving that sweep is what lets an emptied
+ * journal still report how far history went, so this asserts it explicitly
+ * through `allocatedCursor`, which reads the counter and allocates nothing.
+ *
+ * The route reaches the database with no override, so each case installs a
+ * migrated database as the process-wide handle and seeds through the same one.
+ */
+
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
@@ -6,8 +33,20 @@ import { getChangeBus, __resetChangeBusForTests } from '../runtime/change-bus.ts
 import { __resetChangeFeedTailerForTests } from '../runtime/change-feed-tailer.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
-import { getDb, assetChangesCollection, serverStateCollection } from '../db/client.ts';
+import {
+  allocatedCursor,
+  recordAssetChange,
+  recordAssetChangeRow,
+} from '../db/sqlite/repos/changes.repo.ts';
+import { pruneChangesBatch } from '../db/sqlite/repos/changes.retention.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
+let live: LiveTestDatabase;
+
+/** An event for the bus alone — the SSE floor is a buffer, not the journal. */
 function evt(cursor: number): AssetChangeWithId {
   return {
     _id: new ObjectId(),
@@ -20,21 +59,33 @@ function evt(cursor: number): AssetChangeWithId {
   } as AssetChangeWithId;
 }
 
+/** Writes `count` journal rows and reports the cursors the inserts allocated. */
+async function seedJournal(count: number): Promise<number[]> {
+  const cursors: number[] = [];
+  for (let i = 1; i <= count; i++) {
+    cursors.push(
+      await recordAssetChange(live.handle, {
+        kind: 'update',
+        asset_id: new ObjectId(),
+        folder_id: new ObjectId(),
+        abs_path: `/p/${i}.dng`,
+        relative_path: `${i}.dng`,
+      }),
+    );
+  }
+  return cursors;
+}
+
 beforeEach(async () => {
+  live = await createLiveTestDatabase();
   __resetChangeBusForTests();
   __resetChangeFeedTailerForTests();
-  try {
-    const db = await getDb();
-    await db.collection('asset_changes').deleteMany({});
-    await db.collection('server_state').deleteOne({ _id: 'asset_changes_cursor' as never });
-  } catch {
-    // Ignore if DB unreachable
-  }
 });
 
 afterEach(() => {
   __resetChangeBusForTests();
   __resetChangeFeedTailerForTests();
+  live.close();
 });
 
 describe('GET /api/changes/subscribe (stale cursor)', () => {
@@ -58,25 +109,15 @@ describe('GET /api/changes/subscribe (stale cursor)', () => {
 
 describe('GET /api/changes (polling stale cursor check)', () => {
   it('returns 409 when rows prior to since have been pruned', async () => {
-    const coll = await assetChangesCollection();
-    const stateColl = await serverStateCollection();
-    // Simulate pruned table: cursors 1..100 were pruned; rows 101..105 exist
-    await stateColl.updateOne(
-      { _id: 'asset_changes_cursor' },
-      { $set: { seq: 105 } },
-      { upsert: true },
-    );
-    for (let c = 101; c <= 105; c++) {
-      await coll.insertOne({
-        cursor: c,
-        asset_id: new ObjectId(),
-        folder_id: new ObjectId(),
-        kind: 'update',
-        abs_path: `/p/${c}.dng`,
-        relative_path: `${c}.dng`,
-        at: new Date(),
-      });
-    }
+    const cursors = await seedJournal(105);
+    expect(cursors.at(-1)).toBe(105);
+    // The sweep production runs, over the bottom of the journal: cursors 1..100
+    // go, 101..105 stay.
+    const { deleted, prunedThrough } = await pruneChangesBatch(100, 100, live.handle);
+    expect({ deleted, prunedThrough }).toEqual({ deleted: 100, prunedThrough: 100 });
+    // The counter is not in the journal, so it still knows how far history went.
+    // This is the number every 409 below names.
+    expect(await allocatedCursor(live.handle)).toBe(105);
 
     const app = new Elysia().use(fakeAuth()).use(changesRoutes);
 
@@ -110,23 +151,22 @@ describe('GET /api/changes (polling stale cursor check)', () => {
     expect(bodyCurrent.next_cursor).toBeUndefined();
   });
 
-  it('returns 200 when collection has unpruned rows starting from 1', async () => {
-    const coll = await assetChangesCollection();
-    await coll.insertOne({
-      cursor: 1,
+  it('returns 200 when the journal has unpruned rows starting from 1', async () => {
+    const row = await recordAssetChangeRow(live.handle, {
+      kind: 'create',
       asset_id: new ObjectId(),
       folder_id: new ObjectId(),
-      kind: 'create',
       abs_path: '/p/1.dng',
       relative_path: '1.dng',
-      at: new Date(),
     });
+    expect(row.cursor).toBe(1);
 
     const app = new Elysia().use(fakeAuth()).use(changesRoutes);
     const res = await app.handle(new Request('http://localhost/api/changes?since=0'));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.changes.length).toBe(1);
-    expect(body.changes[0].cursor).toBe(1);
+    expect(body.changes[0].cursor).toBe(row.cursor);
+    expect(body.changes[0].relative_path).toBe(row.relative_path);
   });
 });

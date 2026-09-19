@@ -279,6 +279,13 @@ export interface VisionDoc {
 export interface VisionMeta {
   /** Describe provider that produced this row. */
   provider: 'ollama' | 'anthropic' | 'openai' | 'gemini';
+  /**
+   * Which endpoint in the describe pool answered. Optional because rows
+   * written before the pool existed carry no value; the stage has stamped it
+   * on every row since, and without it a slow or subtly-broken server in a
+   * multi-server pool is invisible in triage.
+   */
+  server_url?: string;
   /** Concrete model tag, e.g. "gemma4:12b". */
   model: string;
   /** Bumped whenever the system prompt changes. */
