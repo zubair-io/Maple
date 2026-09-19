@@ -22,15 +22,40 @@
  * with the writer. A facet count that takes a few hundred milliseconds then
  * cannot delay a grid page behind it.
  *
+ * How many readers, and why it is not a constant: a pool of N tolerates N−1
+ * sustained long reads and collapses at N. That is a cliff rather than a slope,
+ * and the hardcoded 2 sat one step from it — which is how a single CPU-hungry
+ * stage claim (#3795) became a total read outage rather than a slowdown. The
+ * default now scales with the box and an operator can widen it without a
+ * deploy; `protocol.ts` has the numbers and `scripts/sqlite-bench/reader-pool.ts`
+ * reproduces them.
+ *
+ * Why a dead reader comes back: the same cliff. Losing one reader does not cost
+ * 1/N of the read capacity, it moves the pool one step closer to the edge, and
+ * on the pool of two that shipped it went straight over — measured at 203,541
+ * request-path reads in four seconds before, 32 after. So a dead reader is
+ * respawned on a bounded ladder rather than left as a permanent loss that only
+ * a process restart repairs (#3782).
+ *
+ * Why the writer does not: it is single by design, and resurrecting it is not
+ * the same question. Every write outstanding when it died was rejected, and
+ * their callers have had a failure they may or may not have acted on; a new
+ * writer would start accepting work as though the ordering those callers were
+ * promised still held. Readers have no such problem — a read that failed is
+ * just a read that failed. #3782 is about readers, and so is this.
+ *
  * Why it fails closed: `open()` rejects if any worker cannot spawn or cannot
  * open the file, and the pool is unusable afterwards. There is no in-process
  * fallback, because for a database on the request path the fallback would mean
- * blocking the event loop on every query for the lifetime of the process.
+ * blocking the event loop on every query for the lifetime of the process. That
+ * is startup only. A pool that is already serving degrades instead — see
+ * `respawnReader`.
  */
 
 import {
-  DEFAULT_READER_COUNT,
+  defaultReaderCount,
   DEFAULT_REQUEST_TIMEOUT_MS,
+  readerCountFromEnvironment,
   type SqlParams,
   type SqlRow,
   type SqlStatement,
@@ -44,10 +69,46 @@ import {
 } from './worker-handle.ts';
 import { retryOnBusy } from './busy-retry.ts';
 
+/**
+ * Backoff sleep. Unref'd for the same reason the request timer is: a pool
+ * waiting to respawn a reader must not be the thing keeping a process alive
+ * that is otherwise finished.
+ */
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, milliseconds);
+    timer.unref?.();
+  });
+}
+
+/**
+ * How wide this pool will be: what the caller asked for, else the operator's
+ * `MAPLE_SQLITE_READERS`, else a count scaled from the box.
+ *
+ * Throws on anything it cannot honour, including an unparseable override, so a
+ * mis-sized pool never starts quietly at some other width — the sizing is the
+ * difference between a slow query and a read outage, and an operator who
+ * widened the pool during an incident has to be able to trust that it took.
+ */
+function resolveReaderCount(requested: number | undefined): number {
+  const readers = requested ?? readerCountFromEnvironment() ?? defaultReaderCount();
+  if (!Number.isInteger(readers) || readers < 1) {
+    throw new Error(`sqlite pool: readers must be a positive integer, got ${readers}`);
+  }
+  return readers;
+}
+
 export interface SqlitePoolOptions {
   /** Path to the database file. Created by the writer if it does not exist. */
   path: string;
-  /** Reader workers to spawn. Defaults to {@link DEFAULT_READER_COUNT}. */
+  /**
+   * Reader workers to spawn. Defaults to the operator's `MAPLE_SQLITE_READERS`
+   * override, then to {@link defaultReaderCount}, which scales with the box.
+   *
+   * A caller that passes this is saying it knows better than both — which one
+   * does: the lens-profile cache opens a pool of its own for a single lookup
+   * and asks for one reader.
+   */
   readers?: number;
   /**
    * How a worker thread is created. Production leaves this alone; it exists so
@@ -60,6 +121,67 @@ export interface SqlitePoolOptions {
    * reply that never arrives, not a query deadline — see the constant.
    */
   requestTimeoutMs?: number;
+  /**
+   * Told whenever a reader dies and the pool acts on it.
+   *
+   * The pool cannot log this itself. Anything `pool.ts` imports is loaded
+   * inside a `Worker` thread — the clustering worker reaches it through
+   * `worker-db.ts` — and importing pino there wedges the thread: it never
+   * answers its first message. `busy-retry.ts` has the measurement. So the log
+   * line lives with whoever opened the pool, which in production is the process
+   * boot (`pool-logging.ts` supplies the callback).
+   */
+  onReaderRespawn?: (event: ReaderRespawnEvent) => void;
+  /**
+   * The respawn backoff ladder. Production leaves this alone; it exists so the
+   * end of the ladder can be exercised without a twelve-second test, the same
+   * reason {@link spawnWorker} exists.
+   */
+  respawnDelaysMs?: readonly number[];
+}
+
+/** What the pool did about a dead reader, for whoever is holding the logger. */
+export interface ReaderRespawnEvent {
+  /** Which reader slot, 0-based — the index into {@link SqlitePoolStats.readers}. */
+  reader: number;
+  /** Which attempt on the current ladder this was, 1-based. */
+  attempt: number;
+  outcome:
+    | /** The reader is back and taking reads again. */ 'respawned'
+    | /** This attempt failed; another is scheduled. */ 'failed'
+    | /** The ladder is spent. The slot stays dead for the life of the process. */ 'retired';
+  /** Why the reader died, or why this respawn attempt failed. */
+  reason: string;
+}
+
+/**
+ * Backoff before each respawn attempt. Four attempts spanning ~12.6 seconds.
+ *
+ * The first is short because the likeliest death is a one-off — an uncaught
+ * throw, a query that ran the thread out of memory — and a reader that is back
+ * inside 100 ms costs the request path nothing. The ladder then escalates so
+ * that a reader which cannot come back is not respawned in a tight loop for
+ * months.
+ *
+ * Spending the whole ladder is what distinguishes the two failures the issue
+ * asks to be told apart, and it needs no second policy to do it: a worker that
+ * cannot open the database never completes a request, so it never earns the
+ * reset below and burns all four attempts in about twelve seconds. A reader
+ * that dies transiently comes back, serves, and starts each later death with a
+ * fresh ladder.
+ */
+const RESPAWN_DELAYS_MS = [100, 500, 2_000, 10_000] as const;
+
+/** Per-slot respawn bookkeeping. One of these per reader, for the pool's life. */
+interface ReaderRespawnState {
+  /** A ladder is running; a second death must not start a second one. */
+  inFlight: boolean;
+  /** How far up {@link RESPAWN_DELAYS_MS} this slot has climbed. */
+  attempt: number;
+  /** The slot's `completed` count when it last came back — the reset trigger. */
+  completedAtRestart: number;
+  /** The ladder was spent. This slot is never retried again. */
+  retired: boolean;
 }
 
 /** Queue depth across the pool — what an operator watches during a bulk import. */
@@ -73,6 +195,9 @@ export interface SqlitePoolStats {
 export class SqlitePool {
   private readonly writer: SqliteWorkerHandle;
   private readonly readers: SqliteWorkerHandle[];
+  private readonly respawns: ReaderRespawnState[];
+  private readonly onReaderRespawn: (event: ReaderRespawnEvent) => void;
+  private readonly respawnDelaysMs: readonly number[];
   /** Round-robin cursor, used only to break ties between equally idle readers. */
   private cursor = 0;
   private closed = false;
@@ -81,9 +206,19 @@ export class SqlitePool {
     readonly path: string,
     writer: SqliteWorkerHandle,
     readers: SqliteWorkerHandle[],
+    onReaderRespawn: (event: ReaderRespawnEvent) => void,
+    respawnDelaysMs: readonly number[],
   ) {
     this.writer = writer;
     this.readers = readers;
+    this.onReaderRespawn = onReaderRespawn;
+    this.respawnDelaysMs = respawnDelaysMs;
+    this.respawns = readers.map(() => ({
+      inFlight: false,
+      attempt: 0,
+      completedAtRestart: 0,
+      retired: false,
+    }));
   }
 
   /**
@@ -93,16 +228,21 @@ export class SqlitePool {
    * terminated, so a failed startup leaves no orphan threads behind.
    */
   static async open(options: SqlitePoolOptions): Promise<SqlitePool> {
-    const readerCount = options.readers ?? DEFAULT_READER_COUNT;
-    if (!Number.isInteger(readerCount) || readerCount < 1) {
-      throw new Error(`sqlite pool: readers must be a positive integer, got ${readerCount}`);
-    }
+    const readerCount = resolveReaderCount(options.readers);
     const spawn = options.spawnWorker ?? spawnDatabaseWorker;
     const timeout = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     const writer = new SqliteWorkerHandle('writer', spawn, timeout);
+    // The readers' death hook needs the pool, which needs the readers, so until
+    // the constructor runs this resolves to null and the death goes unheard.
+    // `sweepStartupDeaths` below is what makes that safe — see it for the
+    // window, which is wider than it looks.
+    let pool: SqlitePool | null = null;
     const readers = Array.from(
       { length: readerCount },
-      () => new SqliteWorkerHandle('reader', spawn, timeout),
+      (_unused, index) =>
+        new SqliteWorkerHandle('reader', spawn, timeout, (reason) =>
+          pool?.onReaderDied(index, reason),
+        ),
     );
 
     try {
@@ -114,7 +254,41 @@ export class SqlitePool {
       throw e instanceof Error ? e : new Error(String(e));
     }
 
-    return new SqlitePool(options.path, writer, readers);
+    pool = new SqlitePool(
+      options.path,
+      writer,
+      readers,
+      options.onReaderRespawn ?? (() => {}),
+      options.respawnDelaysMs ?? RESPAWN_DELAYS_MS,
+    );
+    pool.sweepStartupDeaths();
+    return pool;
+  }
+
+  /**
+   * Respawn any reader that died after its handshake but before this object
+   * existed to hear about it.
+   *
+   * The window is not the instant between the last `await` and the constructor.
+   * `Promise.all` waits for every reader, so a reader whose handshake completed
+   * first is a live, idle thread for the whole of the remaining startup — and
+   * anything that kills it in that time calls a death hook that resolves to
+   * null and is silently dropped. Without this sweep the pool would open with a
+   * permanently dead reader and no ladder, which is exactly the failure #3782
+   * exists to remove, arrived at through the one path the respawn machinery
+   * could not see.
+   *
+   * A death *before* a handshake completes is a different thing and keeps the
+   * old behaviour: `start()` rejects, `open()` terminates everything and
+   * throws, and the process refuses to serve. The line is the handshake — once
+   * a reader has opened its connection it is a pool member, and a member that
+   * dies is respawned.
+   */
+  private sweepStartupDeaths(): void {
+    this.readers.forEach((reader, index) => {
+      if (!reader.alive)
+        this.onReaderDied(index, reader.deathReason ?? 'worker died during startup');
+    });
   }
 
   /** Run one statement on a reader and return its rows. */
@@ -199,11 +373,8 @@ export class SqlitePool {
    * the idlest worker in the pool, so one crashed thread would attract every
    * subsequent read and turn a 1-in-N failure into a total read outage.
    *
-   * A dead reader is left in place rather than respawned. Respawning wants a
-   * policy this slice has no caller for — how many attempts, how long to back
-   * off, what to do when the environment genuinely cannot spawn a thread — and
-   * the honest failure here is a read that rejects while `stats()` shows which
-   * worker is gone, not a silent retry loop.
+   * A reader that is mid-respawn is skipped by the same test: its connection is
+   * not open yet, so `alive` stays false until the handshake completes.
    */
   private leastBusyReader(): SqliteWorkerHandle | null {
     const start = this.cursor % this.readers.length;
@@ -212,6 +383,96 @@ export class SqlitePool {
     const live = rotated.filter((reader) => reader.alive);
     if (live.length === 0) return null;
     return live.reduce((best, reader) => (reader.inFlight < best.inFlight ? reader : best));
+  }
+
+  /**
+   * A reader died. Decide whether to bring it back, and start the ladder.
+   *
+   * Called by the handle itself, once per death. Three reasons to do nothing:
+   * the pool is closing (its own `terminate` calls are what killed the reader),
+   * a ladder is already running for this slot, or the slot has been retired.
+   */
+  private onReaderDied(index: number, reason: string): void {
+    const state = this.respawns[index];
+    const reader = this.readers[index];
+    if (!state || !reader || this.closed || state.inFlight || state.retired) return;
+    // A reader that has answered a request since it last came back has proved
+    // the database is openable and the thread can work, so this death is a
+    // fresh one rather than the continuation of a failing ladder.
+    if (reader.stats().completed > state.completedAtRestart) state.attempt = 0;
+    state.inFlight = true;
+    void this.respawnReader(index, reason);
+  }
+
+  /**
+   * Work up {@link RESPAWN_DELAYS_MS} until the reader is back or the ladder is
+   * spent, then leave the slot alone.
+   *
+   * The pool degrades rather than failing closed here, which is the opposite of
+   * what startup does and deliberately so. Startup refuses because a pool that
+   * cannot open would serve every query on the event loop. A pool that is
+   * already serving and loses one of N readers still answers every read
+   * correctly on the survivors; killing the process over it would turn the
+   * partial failure into the total one this whole area exists to prevent. The
+   * floor underneath is unchanged — a pool that has lost every reader still
+   * rejects reads by name.
+   */
+  private async respawnReader(index: number, death: string): Promise<void> {
+    const state = this.respawns[index]!;
+    const reader = this.readers[index]!;
+    // Why the last attempt failed, which is not the same question as why the
+    // reader died. A `respawned` event reports the death, because "it is back,
+    // and here is what happened to it" is the useful line; a `failed` event
+    // reports its own error. Folding the two into one variable made a
+    // successful second attempt report the first attempt's error as the cause
+    // of a death it had nothing to do with.
+    let lastFailure: string | null = null;
+
+    while (!this.closed) {
+      const delay = this.respawnDelaysMs[state.attempt];
+      if (delay === undefined) {
+        state.retired = true;
+        const reason = lastFailure ?? death;
+        this.report({ reader: index, attempt: state.attempt, outcome: 'retired', reason });
+        break;
+      }
+      const attempt = (state.attempt += 1);
+      await sleep(delay);
+      if (this.closed) break;
+      try {
+        await reader.restart(this.path);
+        // close() can land during the handshake, and it terminated a handle
+        // that was not yet holding this thread. Honour it rather than leaving
+        // an orphan with the database open.
+        if (this.closed) {
+          reader.terminate();
+          break;
+        }
+        state.completedAtRestart = reader.stats().completed;
+        this.report({ reader: index, attempt, outcome: 'respawned', reason: death });
+        break;
+      } catch (e) {
+        lastFailure = e instanceof Error ? e.message : String(e);
+        this.report({ reader: index, attempt, outcome: 'failed', reason: lastFailure });
+      }
+    }
+
+    state.inFlight = false;
+  }
+
+  /**
+   * Hand one event to whoever supplied the callback, and survive a bad one.
+   *
+   * A throwing callback would otherwise escape mid-ladder and leave `inFlight`
+   * set forever, which would disable respawn for that slot permanently — a
+   * logging mistake turning into a capacity one.
+   */
+  private report(event: ReaderRespawnEvent): void {
+    try {
+      this.onReaderRespawn(event);
+    } catch {
+      // Nothing to do with it here: this module has no logger by design.
+    }
   }
 
   /**
