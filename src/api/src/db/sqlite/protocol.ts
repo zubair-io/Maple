@@ -162,8 +162,12 @@ const CORES_RESERVED_FOR_WORKER_CHILD = 2;
  * `scripts/sqlite-bench/reader-pool.ts`. Four leaves room for three: the worker
  * tier's per-stage backlog counts (one at a time, deliberately — see
  * `workers/status-counts.ts`), the change feed, and whatever a request happens
- * to be doing. It is the smallest count that is not one step from the edge, and
- * it is also where a 12-wide search fan-out is fastest.
+ * to be doing. It is the smallest count that is not one step from the edge.
+ *
+ * A small box pays for the floor in facet latency — a 12-wide search fan-out
+ * costs 18.8 ms on four readers against 12.7 on eight — which is the right way
+ * round: four cores cannot absorb eight busy reader threads, and a slower
+ * search is a better failure than a pool one long read from collapsing.
  */
 const READER_FLOOR = 4;
 
