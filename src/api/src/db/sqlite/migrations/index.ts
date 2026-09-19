@@ -25,9 +25,11 @@ import type { Migration } from '../migrate.ts';
 import { initialSchemaMigration } from './0001-initial-schema.ts';
 import { stageStateMediaKindMigration } from './0002-stage-state-media-kind.ts';
 import { facetStateMigration } from './0003-facet-state.ts';
+import { stageStateAssetClaimableMigration } from './0004-stage-state-asset-claimable.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
   stageStateMediaKindMigration,
   facetStateMigration,
+  stageStateAssetClaimableMigration,
 ];

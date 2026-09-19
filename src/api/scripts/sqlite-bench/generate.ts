@@ -16,6 +16,7 @@ import type { Database, Statement } from 'bun:sqlite';
 import {
   ASSET_LOCATIONS_TRIGGER_DDL,
   ASSET_LOCATIONS_TRIGGER_NAMES,
+  LIVE_LOCATION_COUNT_RECOMPUTE_SQL,
 } from '../../src/db/sqlite/ddl/asset-locations.ts';
 import {
   FACET_STATE_TRIGGER_DDL,
@@ -26,6 +27,9 @@ import {
   ASSET_SEARCH_TRIGGER_NAMES,
 } from '../../src/db/sqlite/ddl/search.ts';
 import {
+  STAGE_STATE_ASSET_CLAIMABLE_RECOMPUTE_SQL,
+  STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_DDL,
+  STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_NAMES,
   STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL,
   STAGE_STATE_MEDIA_KIND_TRIGGER_DDL,
   STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
@@ -439,6 +443,7 @@ function dropDerivedTriggers(db: Database): void {
     ...ASSET_SEARCH_TRIGGER_NAMES,
     ...STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
     ...FACET_STATE_TRIGGER_NAMES,
+    ...STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_NAMES,
   ];
   for (const name of names) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
 }
@@ -451,13 +456,24 @@ function dropDerivedTriggers(db: Database): void {
  * in triggerless, so the column still reads its `'image'` default on every
  * video and audio asset, and a generated library where it did would make every
  * media-narrowed claim in the benchmark look free.
+ *
+ * The location counts are recomputed here too, ahead of the triggers, although
+ * the caller runs the same statement again afterwards. A triggerless load
+ * leaves every asset at `live_location_count = 0`, so bringing
+ * `assets_claimable_stage_state_au` back first would make the caller's one
+ * statement a stage-row write for every asset that came back to life (#3804).
+ * Run before the trigger exists it costs nothing, and the caller's repeat then
+ * flips nothing and stays a boolean comparison per asset.
  */
 function restoreDerivedTriggers(db: Database): void {
+  db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
+  db.exec(STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL);
+  db.exec(STAGE_STATE_ASSET_CLAIMABLE_RECOMPUTE_SQL);
   db.exec(ASSET_LOCATIONS_TRIGGER_DDL);
   db.exec(ASSET_SEARCH_TRIGGER_DDL);
   db.exec(STAGE_STATE_MEDIA_KIND_TRIGGER_DDL);
-  db.exec(STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL);
   db.exec(FACET_STATE_TRIGGER_DDL);
+  db.exec(STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_DDL);
 }
 
 function seedPeople(db: Database, now: string): string[] {

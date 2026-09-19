@@ -61,6 +61,9 @@ import {
   ASSETS_FTS_REBUILD_SQL,
 } from '../ddl/search.ts';
 import {
+  STAGE_STATE_ASSET_CLAIMABLE_RECOMPUTE_SQL,
+  STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_DDL,
+  STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_NAMES,
   STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL,
   STAGE_STATE_MEDIA_KIND_TRIGGER_DDL,
   STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
@@ -116,6 +119,7 @@ const TRIGGER_NAMES = [
   ...ASSET_SEARCH_TRIGGER_NAMES,
   ...STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
   ...FACET_STATE_TRIGGER_NAMES,
+  ...STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_NAMES,
 ];
 
 /**
@@ -374,7 +378,8 @@ async function importCollection(
  *
  * A file whose triggers are dropped opens cleanly and answers every query —
  * and silently indexes nothing new into the FTS5 table, stops maintaining
- * `assets.live_location_count` and stops maintaining `stage_state.media_kind`,
+ * `assets.live_location_count`, `stage_state.media_kind` and
+ * `stage_state.asset_claimable`,
  * so a server pointed at it shows every newly-located asset as dead, finds
  * nothing new in search, and never transcribes a newly imported video. A run
  * that is killed between here and `restoreDerived` leaves exactly that file,
@@ -386,17 +391,33 @@ function dropDerivedTriggers(db: Database): void {
   for (const name of TRIGGER_NAMES) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
 }
 
-/** Puts the triggers back and rebuilds everything they maintain. */
+/**
+ * Rebuilds everything the triggers maintain, then puts them back.
+ *
+ * Recompute first, create the triggers after — the order matters since #3804.
+ * A triggerless load leaves every asset at `live_location_count = 0`, so a
+ * trigger that watches liveness existing while the location counts are
+ * recomputed turns that one statement into a per-asset write for every asset
+ * that came back to life: four million single-row writes inside one statement
+ * for `assets_claimable_stage_state_au`, and a push to four satellite tables
+ * for the facet trigger. With both created afterwards, each mirror is rebuilt
+ * by its own set-based recompute instead.
+ *
+ * Within the recompute group the location counts go first, because both
+ * mirrors are derived from the column that statement rebuilds.
+ */
 function restoreDerived(db: Database): void {
+  db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
+  db.exec(STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL);
+  // Both of these read `live_location_count`, so both go after the statement
+  // that rebuilds it and neither may go before.
+  db.exec(FACET_STATE_RECOMPUTE_SQL);
+  db.exec(STAGE_STATE_ASSET_CLAIMABLE_RECOMPUTE_SQL);
   db.exec(ASSET_LOCATIONS_TRIGGER_DDL);
   db.exec(ASSET_SEARCH_TRIGGER_DDL);
   db.exec(STAGE_STATE_MEDIA_KIND_TRIGGER_DDL);
   db.exec(FACET_STATE_TRIGGER_DDL);
-  db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
-  db.exec(STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL);
-  // After the location counts, never before: the mirrored `asset_live` on
-  // every satellite is derived from the column that statement rebuilds.
-  db.exec(FACET_STATE_RECOMPUTE_SQL);
+  db.exec(STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_DDL);
   // 'rebuild' discards the whole inverted index and re-derives it from the
   // content table, so it needs no clearing step and is safe to repeat.
   db.exec(ASSETS_FTS_REBUILD_SQL);
