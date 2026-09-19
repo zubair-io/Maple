@@ -19,6 +19,8 @@
  * discriminated on `ok` rather than on `kind`, so error handling is one branch.
  */
 
+import { availableParallelism } from 'node:os';
+
 /**
  * A value SQLite can bind. Booleans are accepted and stored as 0/1 — SQLite
  * has no boolean type, so they come back as numbers.
@@ -136,8 +138,85 @@ export type SqliteWorkerResponse =
  */
 export const STATEMENT_CACHE_LIMIT = 256;
 
-/** Reader workers spawned when the caller does not say otherwise. */
-export const DEFAULT_READER_COUNT = 2;
+/**
+ * Environment variable an operator can widen the reader pool with, without a
+ * deploy. See {@link readerCountFromEnvironment} for why this is an environment
+ * variable rather than a settings row.
+ */
+export const READER_COUNT_ENV = 'MAPLE_SQLITE_READERS';
+
+/**
+ * Cores left to the worker child. The API process and the worker child it
+ * spawns share one box, and the child runs the enrichment tier — which is the
+ * genuinely CPU-hungry half. Sizing the reader pool to every core would have
+ * the database's own threads compete with the work they are feeding.
+ */
+const CORES_RESERVED_FOR_WORKER_CHILD = 2;
+
+/**
+ * Fewest readers the pool will size itself to, however small the box.
+ *
+ * Three is the number the process can occupy on its own, and this is that plus
+ * a spare. A pool of N tolerates N−1 sustained long reads and collapses at N
+ * (measured — `scripts/sqlite-bench/reader-pool.ts`), so the floor is set by
+ * how many long reads the process generates rather than by the core count:
+ * the worker tier's per-stage backlog counts, the change feed, and an operator
+ * with the Workers page open, which tightens that counts pass precisely when
+ * an incident makes them open it.
+ */
+const READER_FLOOR = 4;
+
+/**
+ * Most readers the pool will size itself to unasked.
+ *
+ * Past this the request-path read is already flat — the measured difference
+ * between 8 and 16 readers under load is inside the noise — and every further
+ * thread is one more SQLite page cache and one more scheduler client competing
+ * with the worker child. An operator who wants more sets {@link READER_COUNT_ENV}.
+ */
+const READER_CEILING = 8;
+
+/** Largest value {@link READER_COUNT_ENV} will accept — a fat-finger guard. */
+const READER_ENV_MAX = 64;
+
+/**
+ * Reader workers to spawn when the caller does not say otherwise.
+ *
+ * Scaled from the box rather than fixed, because the number of concurrent long
+ * reads this process can produce grows with the stage list and the background
+ * passes rather than staying constant. Four on a small box, eight on anything
+ * with ten or more cores. Cost is one thread and its page cache each.
+ */
+export function defaultReaderCount(): number {
+  const spare = availableParallelism() - CORES_RESERVED_FOR_WORKER_CHILD;
+  return Math.min(READER_CEILING, Math.max(READER_FLOOR, spare));
+}
+
+/**
+ * The operator's override, or null when unset.
+ *
+ * This is one of the cases the project's settings-over-environment-variables
+ * rule genuinely carves out, and the carve-out is structural rather than a
+ * preference: the settings this would otherwise live in are rows in the
+ * database the pool has not opened yet. A settings row could only be read after
+ * the pool exists, which is after the reader count has been decided.
+ *
+ * It throws rather than falling back on a value it cannot parse. An operator
+ * who widened the pool during an outage and silently got the default back would
+ * conclude that widening it did not help and go looking somewhere else; the
+ * process refusing to start with the variable named is the cheaper failure.
+ */
+export function readerCountFromEnvironment(): number | null {
+  const raw = process.env[READER_COUNT_ENV];
+  if (raw === undefined || raw.trim() === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > READER_ENV_MAX) {
+    throw new Error(
+      `sqlite pool: ${READER_COUNT_ENV} must be an integer between 1 and ${READER_ENV_MAX}, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return parsed;
+}
 
 /** Milliseconds a connection waits on a held lock before reporting SQLITE_BUSY. */
 export const BUSY_TIMEOUT_MS = 5_000;

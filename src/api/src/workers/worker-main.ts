@@ -5,6 +5,7 @@
  */
 import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { closeSqlitePool, openSqlitePool } from '../db/sqlite/index.ts';
+import { logReaderRespawn } from '../db/sqlite/pool-logging.ts';
 import { sqliteDatabasePath } from '../db/sqlite/boot-migration.ts';
 import { startWorkers, stopWorkers } from './start-workers.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
   // This is the whole of the tier's database setup now (#3787). There is no
   // second connection to open and no index set to ensure: the schema is the
   // migration's output, and every repository below reaches this one pool.
-  await openSqlitePool({ path: sqliteDatabasePath() });
+  await openSqlitePool({ path: sqliteDatabasePath(), onReaderRespawn: logReaderRespawn });
   try {
     await initOtel(resolveObservabilityConfig(await loadObservabilityConfig()), 'worker');
   } catch (e) {
