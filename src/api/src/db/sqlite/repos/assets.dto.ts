@@ -10,14 +10,19 @@
  *
  * ## Two differences a reviewer should know about rather than discover
  *
- * **`is_screenshot` is no longer tri-state.** The Mongo field is
- * `boolean | undefined` and the DTO reports `boolean | null`, where `null`
- * means "the screenshot classifier has not looked at this asset". The schema
- * declares the column `NOT NULL DEFAULT 0`, so an unclassified asset and a
- * classified-not-a-screenshot asset are the same row, and this transform
- * reports `false` for both. The facets slice (#3750) is where a tri-state, if
- * one is still wanted, has to be reintroduced — it is the only reader that
- * distinguishes the three states.
+ * **`is_screenshot` is tri-state, and stays that way through this boundary.**
+ * The column is `CHECK (is_screenshot IS NULL OR is_screenshot IN (0, 1))` and
+ * the DTO reports `boolean | null`, where `null` means the classifier has not
+ * looked at this asset yet — which is a different claim from "it is not a
+ * screenshot". It goes through `nullableBool`, not `bool`.
+ *
+ * An earlier draft of this comment asserted the column was `NOT NULL DEFAULT 0`
+ * and that a tri-state would have to be reintroduced by the facets slice. Both
+ * halves were wrong, and the same mistake was live on the query side, where
+ * `isScreenshot=false` tested equality against zero and so matched only assets
+ * already classified — almost nothing on a library mid-enrichment (#3761). A
+ * test now asserts all three states round-trip, because nothing failed when
+ * this collapsed the first time.
  *
  * **`hidden` and `hidden_ack` are always present.** Both are `NOT NULL` 0/1
  * columns, so an asset that never set them reports `false` where Mongo omitted
@@ -50,6 +55,7 @@ import {
   bool,
   json,
   resolvePrimary,
+  nullableBool,
   toEnrichmentStage,
   toFace,
   toFileInfo,
@@ -157,7 +163,7 @@ export function toDetailDto(
     ocr_meta: json<NonNullable<AssetDoc['ocr_meta']>>(detail?.ocr_meta ?? null),
     vision: json<VisionDoc>(detail?.vision ?? null),
     vision_meta: json<VisionMeta>(detail?.vision_meta ?? null),
-    is_screenshot: bool(row.is_screenshot),
+    is_screenshot: nullableBool(row.is_screenshot),
     transcript: toTranscriptDto(detail?.transcript ?? null),
     video_description: json<VideoDescriptionDoc>(detail?.video_description ?? null),
     video_description_meta: json<VideoDescriptionMeta>(detail?.video_description_meta ?? null),

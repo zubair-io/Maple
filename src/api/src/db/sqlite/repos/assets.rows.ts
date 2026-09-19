@@ -126,9 +126,29 @@ export interface EnrichmentRow {
   dead_letter_at: string | null;
 }
 
-/** SQLite's 0/1 as a boolean. */
+/** SQLite's 0/1 as a boolean, for a `NOT NULL` column. */
 export function bool(value: number | null | undefined): boolean {
   return value === 1;
+}
+
+/**
+ * SQLite's 0/1/NULL as `boolean | null`, for a column that is genuinely
+ * three-valued.
+ *
+ * Separate from {@link bool} rather than a widening of it, because the two
+ * answer different questions and only one column asks the second one.
+ * `is_screenshot` is `CHECK (is_screenshot IS NULL OR is_screenshot IN (0, 1))`
+ * where NULL means the classifier has not looked at this asset yet, which is
+ * not the same claim as "it is not a screenshot". Every other flag here is
+ * `NOT NULL DEFAULT 0` and collapsing its absent case to `false` is correct.
+ *
+ * Passing a tri-state column through `bool` is how the distinction was lost
+ * once already: it silently reported `false` for unclassified assets, and the
+ * matching bug on the query side made `isScreenshot=false` match almost nothing
+ * (#3761).
+ */
+export function nullableBool(value: number | null | undefined): boolean | null {
+  return value === null || value === undefined ? null : value === 1;
 }
 
 /**

@@ -143,6 +143,32 @@ describe('findDetailById', () => {
     });
   });
 
+  test('carries all three states of is_screenshot through to the DTO', async () => {
+    using handle = await createTestDatabase();
+    const sql = testSqliteDb(handle.db);
+    const libraryId = insertFolder(handle.db, { path: '/libraries/main', slug: 'main' });
+
+    // The column is CHECK (is_screenshot IS NULL OR is_screenshot IN (0, 1)),
+    // where NULL means the classifier has not looked at this asset yet — a
+    // different claim from "it is not a screenshot". The transform ran through
+    // `bool`, which returns a boolean and never null, so the third state was
+    // silently reported as false. Nothing failed when that happened, which is
+    // why this test exists rather than a comment (#3761).
+    const cases: Array<[number | null, boolean | null]> = [
+      [1, true],
+      [0, false],
+      [null, null],
+    ];
+    for (const [stored, expected] of cases) {
+      const assetId = insertAsset(handle.db);
+      insertLocation(handle.db, { assetId, libraryId, path: 'p', filename: `${assetId}.dng` });
+      run(handle.db, `UPDATE assets SET is_screenshot = ? WHERE id = ?`, stored, assetId);
+
+      const dto = await findDetailById(oid(assetId), sql);
+      expect(dto!.is_screenshot).toBe(expected);
+    }
+  });
+
   test('cannot carry a face whose person is not a real row, so no name lookup can miss', async () => {
     using handle = await createTestDatabase();
     const { db } = handle;
