@@ -14,15 +14,34 @@
  * editing source and redeploying.
  */
 
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { availableParallelism } from 'node:os';
 
 import { SqlitePool } from './pool.ts';
 import { fakeWorkers } from './pool.test-helpers.ts';
 import { defaultReaderCount, readerCountFromEnvironment, READER_COUNT_ENV } from './protocol.ts';
 
-/** Restores whatever the environment had, so these cannot leak into other files. */
-const original = process.env[READER_COUNT_ENV];
+/**
+ * What the environment held before this suite started, restored after each test
+ * so an override cannot outlive the test that set it.
+ *
+ * Captured in `beforeAll` rather than at module scope, per
+ * `docs/best-practices.md` § Testing: Bun evaluates every module body during the
+ * import phase, before any test runs, so a module-scope capture reads the
+ * variable at import time. With several suites in one process that means
+ * capturing another suite's override as this one's "prior" and then faithfully
+ * restoring the wrong value process-wide — the #2783 flake class.
+ *
+ * `withTestEnv` is the helper for this and is not used here only because it
+ * scopes one fixed value to a whole suite, where these tests need a different
+ * value per test. The rule it enforces is the capture location, which is what
+ * this follows.
+ */
+let original: string | undefined;
+
+beforeAll(() => {
+  original = process.env[READER_COUNT_ENV];
+});
 
 afterEach(() => {
   if (original === undefined) delete process.env[READER_COUNT_ENV];

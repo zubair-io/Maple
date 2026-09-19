@@ -35,14 +35,30 @@ const SHORT_TIMEOUT_MS = 30;
 const sleep = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-/** Polls until `predicate` holds, or fails the test rather than hanging. */
+/**
+ * Polls until `predicate` holds, then lets the loop drain before returning.
+ *
+ * The drain is not tidiness. Polling for a transient state is how a real defect
+ * survived a review cycle here: a respawned reader was alive for a few
+ * microseconds and then killed by the previous corpse's `close`, and every test
+ * that polled for `alive` saw the gap and moved on satisfied. Whatever a test
+ * asserts after this has to still be true once everything queued has run.
+ */
 async function until(predicate: () => boolean, what: string): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      await settle();
+      return;
+    }
     await sleep(2);
   }
   throw new Error(`timed out waiting for ${what}`);
+}
+
+/** Let every queued macrotask run, so a state that is about to be undone is. */
+async function settle(): Promise<void> {
+  await sleep(20);
 }
 
 /** Readers only — `spawned` also holds the writer, which is always first. */
@@ -165,6 +181,51 @@ describe('a reader that dies comes back', () => {
       expect(events.map((event) => event.attempt)).toEqual([1, 1, 1]);
       expect(events.every((event) => event.outcome === 'respawned')).toBe(true);
       expect(pool.stats().readers[0]?.restarts).toBe(3);
+    } finally {
+      pool.close();
+    }
+  });
+});
+
+describe('a reader killed by its own predecessor', () => {
+  test('an error without an exit is respawned once, not four times and retired', async () => {
+    const { spawned, spawn } = fakeWorkers();
+    const events: ReaderRespawnEvent[] = [];
+    const pool = await SqlitePool.open({
+      path: '/unused',
+      readers: 1,
+      spawnWorker: spawn,
+      respawnDelaysMs: FAST_LADDER,
+      onReaderRespawn: (event) => events.push(event),
+    });
+    try {
+      // An uncaught throw inside the worker's message handler: `error` fires
+      // and the thread carries on running, which is the case `terminate()` is
+      // documented for. The respawn therefore kills a thread that is genuinely
+      // still alive, and a live thread being killed emits `close` a turn of the
+      // loop later — onto a handle that has just cleared its death flag for the
+      // replacement.
+      readerWorkers(spawned)[0]?.raise();
+      await until(() => pool.stats().readers[0]?.alive === true, 'the reader to come back');
+
+      const rows = await pool.read('SELECT 1');
+      const stats = pool.stats();
+
+      // One death, one respawn. Before the fix this was four respawns, each
+      // killed by the corpse before it, then a retired slot and no readers at
+      // all — one bad query taking reads down until a process restart.
+      expect(events).toEqual([
+        {
+          reader: 0,
+          attempt: 1,
+          outcome: 'respawned',
+          reason: 'worker errored — uncaught error in worker',
+        },
+      ]);
+      expect(stats.readers[0]?.alive).toBe(true);
+      expect(stats.readers[0]?.restarts).toBe(1);
+      expect(readerWorkers(spawned)).toHaveLength(2);
+      expect(rows).toEqual([]);
     } finally {
       pool.close();
     }

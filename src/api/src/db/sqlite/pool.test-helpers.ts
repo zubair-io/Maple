@@ -76,6 +76,8 @@ export class FakeWorker {
   terminated = false;
   /** Every request the pool posted here, in order. */
   readonly received: SqliteWorkerRequest[] = [];
+  /** The thread is gone — set by {@link exit} and by a kill that lands first. */
+  private exited = false;
   private silent = false;
   private readonly listeners = new Map<string, ((event: unknown) => void)[]>();
 
@@ -93,9 +95,30 @@ export class FakeWorker {
     queueMicrotask(() => this.emit('message', { data: reply(request) }));
   }
 
+  /**
+   * Kill the thread, and emit the `close` a real `Worker` emits when killed.
+   *
+   * Two behaviours, and getting either wrong hides or invents a bug. A thread
+   * that is *still running* when it is killed fires `close`; one that has
+   * already exited does not fire a second time — checked against a real
+   * `Worker` on Bun 1.4.3, not assumed.
+   *
+   * The first half is the one that matters, and this fake used to terminate
+   * silently, which hid a real defect in `restart()` for a whole review cycle:
+   * the corpse of a worker that raised `error` without exiting is still alive
+   * when the respawn kills it, and its `close` lands on a handle that has just
+   * cleared its death flag for the replacement.
+   */
   // fallow-ignore-next-line unused-class-member -- same: `SqlitePool.close()` terminates a `Worker`
   terminate(): void {
+    if (this.terminated) return;
     this.terminated = true;
+    this.silent = true;
+    if (this.exited) return;
+    this.exited = true;
+    // A real thread does not stop between one statement and the next; the event
+    // arrives on a later turn of the loop, which is the window the bug lives in.
+    setTimeout(() => this.emit('close', {}), 0);
   }
 
   /** Stop answering — the dropped-reply shape the request timeout exists for. */
@@ -117,6 +140,8 @@ export class FakeWorker {
   /** The thread exited: a `close` event, and nothing will answer again. */
   // fallow-ignore-next-line unused-class-member -- called by pool.resilience.test.ts, both as `first?.exit()` and in a `for...of` over `spawned.filter(...)`
   exit(): void {
+    if (this.exited) return;
+    this.exited = true;
     this.silent = true;
     this.emit('close', {});
   }
