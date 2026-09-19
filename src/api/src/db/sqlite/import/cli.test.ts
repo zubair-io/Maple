@@ -155,6 +155,24 @@ describe('renderImportReport', () => {
     const lines = renderImportReport(EMPTY_REPORT).join('\n');
     expect(lines).not.toContain('Dangling references nulled');
     expect(lines).not.toContain('could not be imported');
+    expect(lines).not.toContain('claimed by more than one');
+  });
+
+  /**
+   * A library that carried two entries for one file path comes out of the
+   * import with one, and an operator should hear the number and the reason
+   * from the run that decided it rather than from a row count later.
+   */
+  it('says how many file paths were contested and what decided them', () => {
+    const lines = renderImportReport({
+      ...EMPTY_REPORT,
+      contestedAddresses: 3478,
+      locationsReleased: { 'entry-liveness': 3282, 'index-recency': 196, 'asset-liveness': 17 },
+    }).join('\n');
+    expect(lines).toContain('3478 file path(s) were claimed by more than one location entry');
+    expect(lines).toContain('entry-liveness: 3282');
+    expect(lines).toContain('index-recency: 196');
+    expect(lines).toContain('asset-liveness: 17');
   });
 
   it('names the change-log floor, the repairs and the rejects when there are any', () => {

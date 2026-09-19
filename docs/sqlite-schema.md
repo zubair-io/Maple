@@ -443,6 +443,25 @@ the device and the local id as dotted paths, so an asset linked to
 `(deviceA, id1)` and `(deviceB, id2)` answers a lookup for `(deviceA, id2)`.
 Every sibling route uses `$elemMatch`. As rows, the mismatch cannot be written.
 
+**One file path, one location row — and the live entry gets it** (#3790).
+`asset_locations_lib_path_name` is UNIQUE over `(library_id, path, filename)`,
+which is what makes a relocate safe: a file whose content changed has its old
+row released rather than tagged, because a tagged row would occupy the key.
+MongoDB's counterpart index is NOT unique, so a production library has
+addresses that a tombstone and a live entry both claim — 3,478 of them on the
+owner's, 2,519 with a live entry involved. The importer decides each one before
+it maps a document: an entry with no `deleted_at` beats a tombstone, an
+untagged entry beats one tagged `missing_since`, an entry on a live asset beats
+one on a soft-deleted asset, and otherwise the more recently indexed asset
+keeps the path. The entries that lose are released — the row is not written,
+the asset is imported whole, and the ordinal of a surviving sibling is not
+renumbered. On the owner's library that is 3,495 entries: 3,282 tombstones, 17
+on trashed assets, and 196 genuine live-against-live duplicates where both
+assets survive and only one of them can name the file. The rule and the
+measurements are in `import/plan/contested-locations.ts`; verification asks the
+source for its number of DISTINCT addresses, which is what the destination
+should hold, rather than for its number of entries.
+
 **`live_location_count` stays, but is derived.** What the ticket retires is the
 hand-maintained version — a denormalised number updated at every liveness
 mutation site, which could drift. Triggers on `asset_locations` derive it now, so
