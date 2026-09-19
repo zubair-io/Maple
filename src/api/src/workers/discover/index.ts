@@ -29,6 +29,7 @@ import type { ObjectId } from 'mongodb';
 import { child } from '../../log.ts';
 import { listLibraryRoots } from '../../db/sqlite/repos/folders.repo.ts';
 import { closeSqlitePool, openSqlitePool } from '../../db/sqlite/index.ts';
+import { logReaderRespawn } from '../../db/sqlite/pool-logging.ts';
 import { sqliteDatabasePath } from '../../db/sqlite/boot-migration.ts';
 import { type DiscoverHandle, type DiscoverOptions } from './types.ts';
 import { handleEvent } from './handle-event.ts';
@@ -140,7 +141,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  await openSqlitePool({ path: sqliteDatabasePath() });
+  await openSqlitePool({ path: sqliteDatabasePath(), onReaderRespawn: logReaderRespawn });
 
   const handle = await startDiscover({ roots });
   log.info({ roots }, 'discover started');

@@ -81,6 +81,7 @@ import { staticUiPlugin } from './routes/static_ui.ts';
 import { authedApi } from './routes/authed-api.ts';
 
 import { openSqlitePool, closeSqlitePool } from './db/sqlite/index.ts';
+import { logReaderRespawn } from './db/sqlite/pool-logging.ts';
 import { migrateAtBoot, sqliteDatabasePath } from './db/sqlite/boot-migration.ts';
 import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
@@ -279,7 +280,7 @@ async function startSqlite(): Promise<void> {
     log.fatal({ err }, 'SQLite migration failed — refusing to serve');
     process.exit(1);
   }
-  await openSqlitePool({ path: sqliteDatabasePath() });
+  await openSqlitePool({ path: sqliteDatabasePath(), onReaderRespawn: logReaderRespawn });
 }
 
 async function start(): Promise<void> {
