@@ -13,8 +13,8 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { fmtAuth, seedBaseLibrary } from './_setup.ts';
-import { insertFaceRow } from '../../src/db/sqlite/repos/assets.test-helpers.ts';
-import { seedSearchAsset } from '../../src/db/sqlite/repos/search.test-helpers.ts';
+import { insertFaceRow } from '../../src/db/repos/assets.test-helpers.ts';
+import { seedSearchAsset } from '../../src/db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

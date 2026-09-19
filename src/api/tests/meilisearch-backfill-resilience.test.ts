@@ -17,7 +17,7 @@ import {
 } from '../src/enrichment/meilisearch-client.ts';
 import { MeilisearchTaskError } from '../src/enrichment/meilisearch-transport.ts';
 import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { readBackfillState } from '../src/db/sqlite/repos/meilisearch-backfill.repo.ts';
+import { readBackfillState } from '../src/db/repos/meilisearch-backfill.repo.ts';
 import { failuresByMapleId, seedIndexableAsset } from './helpers/meili-backfill-fixtures.ts';
 import {
   clearMeilisearchBackfillRetryState,

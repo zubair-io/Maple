@@ -1,7 +1,7 @@
 /**
  * End-to-end coverage for GET /api/assets/:id — exercises the wire
  * contract of the metadata DTO produced by `routes/assets/metadata.ts`
- * + `db/sqlite/repos/assets.repo.ts:findDetailById`.
+ * + `db/repos/assets.repo.ts:findDetailById`.
  *
  * Sibling assets endpoints already have e2e coverage
  * (assets-list.test.ts, assets-xmp-*.test.ts, assets-overrides.test.ts,
@@ -10,7 +10,7 @@
  * the gap for the detail GET, which is the most field-heavy DTO in the
  * assets repo (vision, vision_meta, enrichment, description_meta).
  *
- * What the repository's own suite (`db/sqlite/repos/assets.repo.test.ts`)
+ * What the repository's own suite (`db/repos/assets.repo.test.ts`)
  * cannot cover is everything on this side of the handler: the two status
  * codes for a malformed and an absent id, and that the DTO survives JSON
  * serialisation with its field names intact. Hence a real SQLite database
@@ -29,7 +29,7 @@ import {
   run,
   type LiveTestDatabase,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { insertDetail } from '../src/db/sqlite/repos/assets.test-helpers.ts';
+import { insertDetail } from '../src/db/repos/assets.test-helpers.ts';
 import { fakeAuth } from './helpers/test-auth.ts';
 import { registerLibrary } from './helpers/assets-route-fixtures.ts';
 

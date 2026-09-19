@@ -3,7 +3,7 @@
  *
  * The sentinel's own behaviour — the concurrent race, the release, the
  * boot-time backfill — is covered against the repository in
- * `db/sqlite/repos/server-state.repo.test.ts`. This file covers the module
+ * `db/repos/server-state.repo.test.ts`. This file covers the module
  * `routes/auth.ts` and `index.ts` import: that the claim they call is the
  * SQLite one, and that the exported id still names the row they look for.
  */

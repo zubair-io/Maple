@@ -37,8 +37,8 @@ import {
 import {
   stagePendingCountSql,
   stageReadyCountSql,
-} from '../../src/db/sqlite/repos/stage-backlog.sql.ts';
-import { stageClaimCandidatesSql } from '../../src/db/sqlite/repos/stage-runtime.sql.ts';
+} from '../../src/db/repos/stage-backlog.sql.ts';
+import { stageClaimCandidatesSql } from '../../src/db/repos/stage-runtime.sql.ts';
 import {
   benchDbPath,
   buildLibrary,

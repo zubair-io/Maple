@@ -17,7 +17,7 @@ import {
   type MeilisearchAssetDoc,
 } from '../src/enrichment/meilisearch-client.ts';
 import { createLiveTestDatabase, insertFolder } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { readBackfillState } from '../src/db/sqlite/repos/meilisearch-backfill.repo.ts';
+import { readBackfillState } from '../src/db/repos/meilisearch-backfill.repo.ts';
 import { BROKEN_PLACE, seedIndexableAsset } from './helpers/meili-backfill-fixtures.ts';
 import { backfillMeilisearchVectors } from '../src/workers/migration/backfill-meilisearch-vectors.ts';
 import { resetMigrationState } from '../src/workers/migration-config.repo.ts';

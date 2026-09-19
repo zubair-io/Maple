@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
 import { Elysia } from 'elysia';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { parseNominatimResponse } from '../src/enrichment/place-parser.ts';
-import { seedSearchAsset, type SeedAsset } from '../src/db/sqlite/repos/search.test-helpers.ts';
+import { seedSearchAsset, type SeedAsset } from '../src/db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

@@ -20,7 +20,7 @@ import {
   type MeilisearchSearchOptions,
   type MeilisearchSearchResult,
 } from '../src/enrichment/meilisearch-client.ts';
-import { seedSearchAsset } from '../src/db/sqlite/repos/search.test-helpers.ts';
+import { seedSearchAsset } from '../src/db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

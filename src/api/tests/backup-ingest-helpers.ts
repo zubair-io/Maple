@@ -29,7 +29,7 @@ import {
   createLiveTestDatabase,
   type LiveTestDatabase,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { setCachedPlace } from '../src/db/sqlite/repos/geocode-cache.repo.ts';
+import { setCachedPlace } from '../src/db/repos/geocode-cache.repo.ts';
 import { quantizedKey } from '../src/enrichment/coordinate-cache.ts';
 import { GEOCODE_HANDLER_VERSION } from '../src/workers/stages/geocode.ts';
 import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';

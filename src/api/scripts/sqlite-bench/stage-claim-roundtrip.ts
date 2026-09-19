@@ -31,11 +31,11 @@
 import { Database } from 'bun:sqlite';
 import { SqlitePool } from '../../src/db/sqlite/pool.ts';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
-import { claimStageBatch } from '../../src/db/sqlite/repos/stage-claim.ts';
+import { claimStageBatch } from '../../src/db/repos/stage-claim.ts';
 import {
   stageClaimCandidatesSql,
   stageClaimSql,
-} from '../../src/db/sqlite/repos/stage-runtime.sql.ts';
+} from '../../src/db/repos/stage-runtime.sql.ts';
 import { BENCH_DIR, median, openBenchDatabase, removeDatabase } from './bench-db.ts';
 import { generateLibrary } from './generate.ts';
 

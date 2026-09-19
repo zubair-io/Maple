@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { createServiceApiKey } from '../src/auth/service-api-keys.ts';
-import { insertUser } from '../src/db/sqlite/repos/auth.users.repo.ts';
+import { insertUser } from '../src/db/repos/auth.users.repo.ts';
 import { saveEnrichmentConfig } from '../src/enrichment/enrichment-config.repo.ts';
 import {
   MeilisearchSearchError,
@@ -21,7 +21,7 @@ import {
   _resetServiceSearchRateLimitsForTests,
   serviceAssetSearchRoutes,
 } from '../src/routes/service-asset-search.ts';
-import { seedSearchAsset } from '../src/db/sqlite/repos/search.test-helpers.ts';
+import { seedSearchAsset } from '../src/db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,
