@@ -27,6 +27,10 @@
     // #3795 — what a media-only stage's claim tick costs, both residual
     // spellings against one generated library. Same reason as the block above.
     "scripts/sqlite-bench/stage-claim-media.ts",
+
+    // #3804 — what one Workers-page refresh costs, both count spellings
+    // against one generated library. Same reason as the blocks above.
+    "scripts/sqlite-bench/stage-backlog-counts.ts",
     "src/people/clustering-quality-harness.ts",
     "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",

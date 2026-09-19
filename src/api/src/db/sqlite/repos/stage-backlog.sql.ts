@@ -36,8 +36,8 @@
  *    ROWID` B-tree that carries every row body.
  *
  * Measured on a generated library of the production shape, twelve stages
- * sequentially: 2,082 ms of pending and 3,584 ms of ready became 81 ms and
- * 814 ms. `scripts/sqlite-bench/stage-backlog-counts.ts` is the measurement,
+ * sequentially: 2,092 ms of pending and 3,518 ms of ready became 87 ms and
+ * 876 ms. `scripts/sqlite-bench/stage-backlog-counts.ts` is the measurement,
  * and it checks stage by stage that the old and new spellings agree.
  *
  * ## The in-flight exclusion stays out, deliberately

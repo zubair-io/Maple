@@ -275,7 +275,7 @@ export function assetClaimableExpression(qualifier = ''): string {
  * liveness only, so `damaged_since IS NULL` still has to read the asset row —
  * and the asset row is the widest in the schema. Measured on a generated
  * library of the production shape (335,377 assets, 4.02 M stage rows), the
- * twelve stages' pending counts cost 2,082 ms and `describe`'s alone 350 ms.
+ * twelve stages' pending counts cost 2,092 ms and `describe`'s alone 375 ms.
  *
  * This is the same shape {@link STAGE_STATE_MEDIA_KIND_DDL} fixed for the
  * media-only stages, and the fix is the same: put the asset-level fact in the
@@ -305,8 +305,10 @@ export function assetClaimableExpression(qualifier = ''): string {
  * MB pulled through the page cache to read one integer per probe.
  * `stage_dep` answers the same question from 167 MB of covering index whose hot
  * region is the one dependency stage's 13 MB, and the claim's own `dependsOn`
- * probe picks it up for free. `ready` for the twelve stages falls from 3,584 ms
- * to 814 ms; the whole pass goes 5,666 ms to 896 ms.
+ * probe picks it up for free. `ready` for the twelve stages falls from 3,518 ms
+ * to 876 ms; the whole pass goes 5,610 ms to 963 ms. One extra index entry per
+ * successful stage run is what it costs on the write side: 19.4 us per success
+ * writeback against 22.1, measured over 3,000 of them at the same shape.
  *
  * Under the refresher's own cadence (`STAGE_COUNTS_MIN_INTERVAL_MS` 5 s,
  * `BACKOFF_FACTOR` 3) that is the difference between a pass that throttles
