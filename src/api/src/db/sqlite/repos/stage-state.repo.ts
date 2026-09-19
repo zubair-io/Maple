@@ -47,12 +47,13 @@
  *
  * ## Counts stay persisted by the worker
  *
- * {@link countStageBacklog} is cheap: `stage_dead` answers the dead count from
- * the index alone, and pending and ready are range scans of `stage_claim`. It is still
- * meant to be called from the worker's own refresh pass and written to
- * `worker_status`, never from `GET /api/workers/status`. The reason is the
+ * {@link countStageBacklog} is cheap now: `stage_dead` answers the dead count
+ * from the index alone, `pending` is a covering range scan of `stage_claim`,
+ * and `ready` adds a covering probe into `stage_dep` per dependency (#3804).
+ * It is still meant to be called from the worker's own refresh pass and written
+ * to `worker_status`, never from `GET /api/workers/status`. The reason is the
  * contract rather than the cost — the demand flag (`counts_wanted_until`), the
- * worker-side pass and the single `findOne` the endpoint does instead are one
+ * worker-side pass and the single keyed read the endpoint does instead are one
  * mechanism, and re-deriving counts on the request path is what made that
  * endpoint an 8-second stall (#3491).
  */
@@ -62,15 +63,17 @@ import { assetsDb, type SqliteDb } from './db-handle.ts';
 import type { StageClaimResidual } from './stage-claim.ts';
 import type { ResolvedStageDep } from './stage-claim.ts';
 import {
+  STAGE_DEAD_COUNT_SQL,
+  stagePendingCountSql,
+  stageReadyCountSql,
+} from './stage-backlog.sql.ts';
+import {
   REGISTER_STAGE_SQL,
   SEED_STAGE_ROW_SQL,
-  STAGE_DEAD_COUNT_SQL,
   STAGE_INVALIDATE_SQL,
   STAGE_OFF_CLAIM_SUCCESS_SQL,
   rearmStageByFilenamesSql,
   STAGE_VERSION_BUMP_RESET_SQL,
-  stagePendingCountSql,
-  stageReadyCountSql,
 } from './stage-runtime.sql.ts';
 
 /**
