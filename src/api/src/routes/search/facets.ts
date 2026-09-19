@@ -15,10 +15,10 @@
 
 import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { buildSearchWhere, searchFacets } from '../../db/sqlite/repos/search.repo.ts';
-import { personIdsToDrop } from '../../people/people.repo.ts';
-import { namesForPersonIds, personIdsForNames } from '../../people/people-search-filter.repo.ts';
-import { peopleNames, SearchQueryT, type SearchQuery } from './query.ts';
+import { searchFacets } from '../../db/sqlite/repos/search.repo.ts';
+import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
+import { SearchQueryT, type SearchQuery } from './query.ts';
+import { resolveSearchScope } from './scope.ts';
 
 /** Canonical (lowercase) hex for a person-id bucket key, so the map lookup
  * against `namesForPersonIds`' canonical keys can't miss on case. Invalid ids
@@ -29,20 +29,11 @@ function canonicalHex(id: string): string {
 
 export const facetsRoute = new Elysia().get(
   '/facets',
-  async ({ query, set }) => {
-    // Keep facet counts in agreement with the result list — same id set as
-    // the list route (see `personIdsToDrop`).
-    const dropIds = await personIdsToDrop((query as SearchQuery).excludeHiddenPeople);
-    // Names → person ids, same contract as the list route: facet counts must
-    // agree with the result list when a person filter is active.
-    const peopleIds = await personIdsForNames(peopleNames((query as SearchQuery).people));
-    const whereOrError = buildSearchWhere(query as SearchQuery, dropIds, peopleIds);
-    if ('error' in whereOrError) {
-      set.status = 400;
-      return { error: whereOrError.error };
-    }
+  async ({ query }) => {
+    const where = await resolveSearchScope(query as SearchQuery);
+    if (where instanceof Response) return where;
 
-    const facets = await searchFacets(whereOrError);
+    const facets = await searchFacets(where);
 
     // Join the person-id buckets to display names; ids whose person is
     // hidden, merged away, or gone drop out (count order is preserved).

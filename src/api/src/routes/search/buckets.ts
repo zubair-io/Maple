@@ -13,9 +13,8 @@
 
 import { Elysia } from 'elysia';
 import { buildSearchWhere, searchBuckets } from '../../db/sqlite/repos/search.repo.ts';
-import { personIdsToDrop } from '../../people/people.repo.ts';
-import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
-import { peopleNames, SearchQueryT, type SearchQuery } from './query.ts';
+import { SearchQueryT, type SearchQuery } from './query.ts';
+import { resolveSearchScope } from './scope.ts';
 
 // ── Buckets response cache ────────────────────────────────────────────
 // Module-scoped because the cache lives for the process lifetime. Keys
@@ -140,20 +139,11 @@ export const bucketsRoute = new Elysia().get(
       return cached.result;
     }
 
-    // Cache MISS only: the person-id lookups are this route's extra round
-    // trips, so they stay behind the fast path. A fresh exclusion can lag
-    // buckets by up to the 30s cache TTL, same as any asset write.
-    // fallow-ignore-next-line duplicates -- inherited loose token-clone vs
-    // facets.ts (both route bodies share the resolve→filter→aggregate
-    // shape); re-attributed as "new" only because the #2894 edit shifted
-    // these lines. Not duplication this changeset introduced.
-    const dropIds = await personIdsToDrop((query as SearchQuery).excludeHiddenPeople);
-    const peopleIds = await personIdsForNames(peopleNames((query as SearchQuery).people));
-    const whereOrError = buildSearchWhere(query as SearchQuery, dropIds, peopleIds);
-    if ('error' in whereOrError) {
-      set.status = 400;
-      return { error: whereOrError.error };
-    }
+    // Cache MISS only: the person-id lookups this resolves are the route's
+    // extra round trips, so they stay behind the fast path. A fresh exclusion
+    // can lag buckets by up to the 30s cache TTL, same as any asset write.
+    const whereOrError = await resolveSearchScope(query as SearchQuery);
+    if (whereOrError instanceof Response) return whereOrError;
 
     const result = await searchBuckets(whereOrError);
     // Bound the cache so a parameterised attack can't grow it
