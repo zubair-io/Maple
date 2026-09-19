@@ -61,6 +61,8 @@ const POINT_SQL = `SELECT id, size, rating, media_kind FROM assets WHERE id = ?`
 interface Sample {
   /** Request-path reads that completed inside the window. */
   reads: number;
+  /** Reads rejected because no reader was alive to run them. */
+  errors: number;
   p50: number;
   p95: number;
   max: number;
@@ -71,14 +73,29 @@ function percentile(sorted: readonly number[], fraction: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ?? Number.NaN;
 }
 
-function summarise(samples: readonly number[]): Sample {
+function summarise(samples: readonly number[], errors = 0): Sample {
   const sorted = [...samples].sort((a, b) => a - b);
   return {
     reads: sorted.length,
+    errors,
     p50: percentile(sorted, 0.5),
     p95: percentile(sorted, 0.95),
     max: sorted.at(-1) ?? Number.NaN,
   };
+}
+
+/**
+ * Whether a rejection is one this script deliberately caused by killing a
+ * reader, as opposed to a defect in the rig.
+ *
+ * The distinction matters: the first version of this script caught every
+ * rejection, and a point lookup naming a column that does not exist came back
+ * in 0.0 ms, 223,738 times. Only the two shapes a terminated reader produces
+ * are tolerated; anything else still throws.
+ */
+function isExpectedReaderDeath(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return /worker (exited|was terminated)|every reader worker/.test(text);
 }
 
 function ms(value: number): string {
@@ -97,14 +114,18 @@ function ms(value: number): string {
 function startSlowLoad(pool: SqlitePool, count: number): () => Promise<void> {
   let running = true;
   const loops = Array.from({ length: count }, async () => {
-    while (running) await pool.read(SLOW_SQL, [...SLOW_PARAMS]);
+    while (running) {
+      try {
+        await pool.read(SLOW_SQL, [...SLOW_PARAMS]);
+      } catch (error) {
+        // A reader dying under an in-flight read is staged by this script. Any
+        // other rejection is a defect in the rig and must not be swallowed.
+        if (!isExpectedReaderDeath(error)) throw error;
+      }
+    }
   });
   return async () => {
     running = false;
-    // A rejection here is a real defect in the rig, not noise to swallow: the
-    // loops stop before the pool closes, and no cell kills every reader. The
-    // first version of this script caught them, and a point lookup naming a
-    // column that does not exist came back in 0.0 ms, 223,738 times.
     await Promise.all(loops);
   };
 }
@@ -113,14 +134,23 @@ function startSlowLoad(pool: SqlitePool, count: number): () => Promise<void> {
 async function sampleRequestPath(pool: SqlitePool, id: string): Promise<Sample> {
   const samples: number[] = [];
   const until = performance.now() + WINDOW_MS;
+  let errors = 0;
   while (performance.now() < until) {
     const startedAt = performance.now();
-    const rows = await pool.read(POINT_SQL, [id]);
-    if (rows.length !== 1)
-      throw new Error(`reader-pool bench: point lookup returned ${rows.length} rows`);
-    samples.push(performance.now() - startedAt);
+    try {
+      const rows = await pool.read(POINT_SQL, [id]);
+      if (rows.length !== 1)
+        throw new Error(`reader-pool bench: point lookup returned ${rows.length} rows`);
+      samples.push(performance.now() - startedAt);
+    } catch (error) {
+      if (!isExpectedReaderDeath(error)) throw error;
+      // The window the pool has no reader to run on. Counted rather than timed:
+      // it is a read that did not happen, not a slow one, and averaging it into
+      // the latency would flatter exactly the case worth seeing.
+      errors += 1;
+    }
   }
-  return summarise(samples);
+  return summarise(samples, errors);
 }
 
 const sleep = (milliseconds: number): Promise<void> =>
@@ -134,10 +164,17 @@ const sleep = (milliseconds: number): Promise<void> =>
  * lock it held is released by the OS a moment later. The next open can lose
  * that race and see SQLITE_BUSY. A rig artefact, not a pool defect.
  */
-async function openWarm(readers: number): Promise<SqlitePool> {
+async function openWarm(readers: number, respawn = true): Promise<SqlitePool> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const pool = await SqlitePool.open({ path: DB_PATH, readers });
+      const pool = await SqlitePool.open({
+        path: DB_PATH,
+        readers,
+        // An empty ladder retires a dead reader on the spot, which is exactly
+        // the behaviour that shipped before #3782 — so the same rig measures
+        // both sides of that change without a second code path.
+        ...(respawn ? {} : { respawnDelaysMs: [] }),
+      });
       await Promise.all(
         Array.from({ length: readers }, () => pool.read(SLOW_SQL, [...SLOW_PARAMS])),
       );
@@ -166,7 +203,8 @@ async function cell(pool: SqlitePool, slow: number, id: string): Promise<Sample>
 function printRow(label: string, sample: Sample): void {
   console.log(
     `| ${label.padEnd(26)} | ${ms(sample.p50).padStart(8)} | ${ms(sample.p95).padStart(8)} | ` +
-      `${ms(sample.max).padStart(9)} | ${String(sample.reads).padStart(6)} |`,
+      `${ms(sample.max).padStart(9)} | ${String(sample.reads).padStart(7)} | ` +
+      `${String(sample.errors).padStart(6)} |`,
   );
 }
 
@@ -174,11 +212,11 @@ function printHeader(title: string): void {
   console.log(`\n### ${title}\n`);
   console.log(
     `| ${''.padEnd(26)} | ${'p50 ms'.padStart(8)} | ${'p95 ms'.padStart(8)} | ` +
-      `${'max ms'.padStart(9)} | ${'reads'.padStart(6)} |`,
+      `${'max ms'.padStart(9)} | ${'reads'.padStart(7)} | ${'failed'.padStart(6)} |`,
   );
   console.log(
     `| ${'-'.repeat(26)} | ${'-'.repeat(8)} | ${'-'.repeat(8)} | ` +
-      `${'-'.repeat(9)} | ${'-'.repeat(6)} |`,
+      `${'-'.repeat(9)} | ${'-'.repeat(7)} | ${'-'.repeat(6)} |`,
   );
 }
 
@@ -210,17 +248,46 @@ async function tableSizing(id: string): Promise<void> {
 /**
  * Table B — what losing a reader costs, which is the question #3782 is about.
  *
- * A pool is opened at its full width, readers are killed, and the surviving
- * pool is measured under a fixed load. The pool routes around a dead reader
- * correctly; what it cannot do today is get it back.
+ * A pool is opened at its full width, readers are killed, and the survivors are
+ * measured under a fixed load. With respawn off — the behaviour that shipped —
+ * the loss is permanent, and because the pool is a cliff rather than a slope the
+ * last reader to go takes everything with it.
  */
 async function tableDegraded(id: string, width: number, slow: number): Promise<void> {
-  printHeader(`Degraded: a pool of ${width} losing readers, ${slow} sustained slow reads`);
+  printHeader(
+    `Degraded, respawn OFF: a pool of ${width} losing readers, ${slow} sustained slow reads`,
+  );
   for (let dead = 0; dead < width; dead += 1) {
-    const pool = await openWarm(width);
+    const pool = await openWarm(width, false);
     try {
       killReaders(pool, dead);
       printRow(`${dead} dead, ${width - dead} alive`, await cell(pool, slow, id));
+    } finally {
+      await closeAndSettle(pool);
+    }
+  }
+}
+
+/**
+ * Table B′ — the same kills against a pool that respawns, on real threads.
+ *
+ * The unit tests pin the policy against a stand-in worker; this is the end-to-end
+ * version, with genuine threads dying and genuine SQLite connections reopening
+ * underneath a live read load. Each row kills its readers at the start of the
+ * window rather than before it, so the measurement spans the outage and the
+ * recovery instead of starting after both.
+ */
+async function tableRespawn(id: string, width: number, slow: number): Promise<void> {
+  printHeader(`Same kills, respawn ON: a pool of ${width}, ${slow} sustained slow reads`);
+  for (let dead = 1; dead <= width; dead += 1) {
+    const pool = await openWarm(width);
+    try {
+      const stop = startSlowLoad(pool, slow);
+      killReaders(pool, dead);
+      const sample = await sampleRequestPath(pool, id);
+      await stop();
+      const restarts = pool.stats().readers.reduce((total, r) => total + r.restarts, 0);
+      printRow(`${dead} killed, ${restarts} respawned`, sample);
     } finally {
       await closeAndSettle(pool);
     }
@@ -309,6 +376,7 @@ async function main(): Promise<void> {
   await tableSizing(seed.id);
   await tableDegraded(seed.id, defaultReaderCount(), 2);
   await tableDegraded(seed.id, 2, 1);
+  await tableRespawn(seed.id, 2, 1);
   await tableSearchBurst();
   await tableCost();
 
