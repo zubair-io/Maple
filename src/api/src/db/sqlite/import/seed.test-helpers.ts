@@ -22,6 +22,7 @@ import {
   seedNotImported,
   seedOperational,
 } from './seed-ops.test-helpers.ts';
+import { seedSettings } from './seed-settings.test-helpers.ts';
 
 export { TEST_MONGO_URI, type SeedIds } from './seed-fixtures.test-helpers.ts';
 
@@ -107,6 +108,7 @@ export async function seedLibrary(db: Db, options: { changeRows?: number } = {})
 
   await seedAssets(db, ids);
   await seedOperational(db, ids);
+  await seedSettings(db, ids);
   await seedAuth(db, ids);
   ids.changeCursors = await seedChanges(db, ids, options.changeRows ?? 12);
   await seedNotImported(db, ids);
