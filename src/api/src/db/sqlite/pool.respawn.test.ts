@@ -50,6 +50,28 @@ function readerWorkers(spawned: readonly FakeWorker[]): FakeWorker[] {
   return spawned.filter((worker) => worker.role === 'reader');
 }
 
+/**
+ * A spawn function that records what it made and can start a chosen worker
+ * silent, picked by role and by how many of that role came before it.
+ *
+ * Counting per role is what lets a test say "the second reader ever spawned",
+ * which spans the initial open and the respawns after it — the two staging
+ * questions here are "which reader fails its handshake during startup" and
+ * "which respawn attempt fails", and both are that same counter.
+ */
+function countedSpawn(
+  spawned: FakeWorker[],
+  silentWhen: (role: SqliteWorkerRole, nth: number) => boolean,
+): (role: SqliteWorkerRole) => Worker {
+  const counts = { writer: 0, reader: 0 };
+  return (role: SqliteWorkerRole) => {
+    const worker = new FakeWorker(role);
+    if (silentWhen(role, counts[role]++)) worker.goSilent();
+    spawned.push(worker);
+    return worker.asWorker();
+  };
+}
+
 describe('a reader that dies comes back', () => {
   test('the slot is respawned and serves reads again', async () => {
     const { spawned, spawn } = fakeWorkers();
@@ -149,6 +171,101 @@ describe('a reader that dies comes back', () => {
   });
 });
 
+describe('a reader that dies during startup', () => {
+  test('is respawned, not returned dead in a pool that never heard about it', async () => {
+    // The window is wider than the instant before the constructor runs.
+    // `Promise.all` waits for every reader, so a reader whose handshake landed
+    // first sits there live and idle for the whole of the rest of startup. The
+    // second reader is spawned silent, so the open stays parked on it while the
+    // first one dies — and that death calls a hook which resolves to a pool
+    // that does not exist yet and is dropped on the floor.
+    const spawned: FakeWorker[] = [];
+    const events: ReaderRespawnEvent[] = [];
+    const spawn = countedSpawn(spawned, (role, nth) => role === 'reader' && nth === 1);
+
+    const opening = SqlitePool.open({
+      path: '/unused',
+      readers: 2,
+      spawnWorker: spawn,
+      respawnDelaysMs: FAST_LADDER,
+      onReaderRespawn: (event) => events.push(event),
+    });
+    // Let the writer and the first reader finish handshaking. The open cannot
+    // have returned: the silent reader has not answered.
+    await sleep(5);
+    expect(readerWorkers(spawned)).toHaveLength(2);
+
+    readerWorkers(spawned)[0]?.exit();
+    readerWorkers(spawned)[1]?.deliverLateReply();
+
+    const pool = await opening;
+    try {
+      await until(() => pool.stats().readers[0]?.alive === true, 'reader 0 to be swept up');
+      const rows = await pool.read('SELECT 1');
+
+      expect(rows).toEqual([]);
+      expect(pool.stats().readers.map((reader) => reader.alive)).toEqual([true, true]);
+      expect(pool.stats().readers[0]?.restarts).toBe(1);
+      expect(events.map((event) => event.outcome)).toEqual(['respawned']);
+    } finally {
+      pool.close();
+    }
+  });
+
+  test('a reader that never completes its handshake still fails the open', async () => {
+    // The other side of the line: the sweep must not turn a fail-closed startup
+    // into a pool that quietly respawns its way up. Before the handshake there
+    // is no pool member to bring back.
+    const { spawn } = fakeWorkers({ silent: true });
+    const error = await SqlitePool.open({
+      path: '/unused',
+      readers: 1,
+      spawnWorker: spawn,
+      requestTimeoutMs: SHORT_TIMEOUT_MS,
+      respawnDelaysMs: FAST_LADDER,
+    }).then(
+      (pool) => {
+        pool.close();
+        return null;
+      },
+      (e: Error) => e,
+    );
+
+    expect(error?.message).toContain('could not open');
+  });
+});
+
+describe('what a respawn event reports', () => {
+  test('a recovery names the death, not whatever the failed attempt before it hit', async () => {
+    // Reader spawn 0 opens the pool, spawn 1 is the respawn attempt that fails
+    // its handshake, spawn 2 is the one that works.
+    const spawned: FakeWorker[] = [];
+    const events: ReaderRespawnEvent[] = [];
+    const spawn = countedSpawn(spawned, (role, nth) => role === 'reader' && nth === 1);
+    const pool = await SqlitePool.open({
+      path: '/unused',
+      readers: 1,
+      spawnWorker: spawn,
+      requestTimeoutMs: SHORT_TIMEOUT_MS,
+      respawnDelaysMs: FAST_LADDER,
+      onReaderRespawn: (event) => events.push(event),
+    });
+    try {
+      readerWorkers(spawned)[0]?.exit();
+      await until(() => pool.stats().readers[0]?.alive === true, 'the second attempt to land');
+
+      // Two different questions, and folding them into one variable answered
+      // the second one wrong: an operator reading "respawned, reason: could not
+      // open" would be looking for a database fault that never happened.
+      expect(events.map((event) => event.outcome)).toEqual(['failed', 'respawned']);
+      expect(events[0]?.reason).toContain('could not open');
+      expect(events[1]?.reason).toBe('worker exited');
+    } finally {
+      pool.close();
+    }
+  });
+});
+
 describe('a reader that cannot open the database', () => {
   /**
    * Answers the initial open, then hands out workers that never reply — the
@@ -203,6 +320,10 @@ describe('a reader that cannot open the database', () => {
       // test exists for is an unbounded respawn loop, which would keep climbing.
       expect(events.filter((event) => event.outcome === 'failed')).toHaveLength(FAST_LADDER.length);
       expect(events.at(-1)?.outcome).toBe('retired');
+      // A failed attempt reports its own error rather than the death that
+      // started the ladder — they are different questions, and the one an
+      // operator needs here is why it could not come back.
+      expect(events[0]?.reason).toContain('could not open');
       expect(events.at(-1)?.reason).toContain('could not open');
       expect(spawned).toHaveLength(spawnsAtRetirement);
       // The operator signal the ticket asked to keep: gone, never came back,
