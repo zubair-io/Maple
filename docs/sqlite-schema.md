@@ -318,6 +318,7 @@ the `vision` payload instead of re-parsing it: 2.4x, at no cost in table size.
 | Call site                         | Mongo                                                     | SQLite                                                                        | Index                                                    |
 | --------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------- |
 | stage claim                       | `stages.<name>.version < target`, `dead != true`, backoff | `WHERE stage = ? AND version < ? AND dead = 0 AND …`                          | `stage_claim`                                            |
+| stage claim, video/audio only     | the same filter plus `media_kind`, on one document        | the same, plus `stage_state.media_kind IN ('video','audio')`                  | `stage_claim_media`                                      |
 | stage dead count and list         | `stage_<name>_dead` partial index                         | `WHERE stage = ? AND dead = 1`                                                | `stage_dead`                                             |
 | legacy enrichment claim           | `enrichment.<stage>.done_at: null` + lease                | `WHERE stage = ? AND done_at IS NULL`                                         | `enrichment_claim`                                       |
 | `listEnrichmentDeadLetter`        | `enrichment.<stage>.dead_letter_at != null`, sorted       | `WHERE stage = ? AND dead_letter_at IS NOT NULL ORDER BY dead_letter_at DESC` | `enrichment_dead_letter` (new — a collection scan today) |
@@ -506,6 +507,21 @@ So every asset gets one row per registered stage at `version = 0` when it is
 created, and the claim becomes a plain index range scan — 0.06 ms for 500
 candidates over 12 million rows. Registering a thirteenth stage is then one
 `INSERT … SELECT id, 'new-stage' FROM assets`.
+
+**A stage that applies to a subset needs that subset in the index.** The scan
+above is a range over `version < target`, so its length is the stage's backlog.
+For `transcribe` and `video-describe` — 15,790 eligible assets out of 335,419 —
+the backlog is the whole photo library, and saying so with an `EXISTS` over
+`assets` narrows nothing, because a residual can only be applied to a candidate
+the scan has already produced. Once each stage had caught up on the media it
+could claim, every poll tick walked 323,000 rows and found nothing: 418 ms of
+CPU per second per stage, which starved the reader pool until requests timed
+out (#3795). `stage_state.media_kind` is that narrowing, denormalised from
+`assets` and carried by `stage_claim_media`, a partial index over the two
+minority kinds. Two triggers own the column — nothing else writes it — because
+`media_kind` is itself derived from an asset's locations and changes when they
+do. The residual keeps its `EXISTS` as the authoritative test and merely leads
+with the narrowing term, so the assets a stage claims are provably unchanged.
 
 **Foreign keys need a pragma.** SQLite parses foreign-key clauses always but
 enforces them only when `PRAGMA foreign_keys = ON` is set, per connection, and

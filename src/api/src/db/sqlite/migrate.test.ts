@@ -278,7 +278,7 @@ describe('the migrated schema', () => {
     }
   });
 
-  test('replaces the 24 per-stage indexes with 2', async () => {
+  test('replaces the 24 per-stage indexes with a set that does not grow', async () => {
     using handle = await createTestDatabase();
     const { db } = handle;
     const stageIndexes = (
@@ -289,6 +289,69 @@ describe('the migrated schema', () => {
         .all() as Array<{ name: string }>
     ).map((r) => r.name);
 
-    expect(stageIndexes.sort()).toEqual(['stage_claim', 'stage_dead']);
+    // Three, and none of them per-stage: the claim scan, the dead-letter list,
+    // and the claim scan for a stage narrowed to video or audio (#3795).
+    // Registering a stage is still an insert rather than two more indexes,
+    // which is the property the count is here to protect.
+    expect(stageIndexes.sort()).toEqual(['stage_claim', 'stage_claim_media', 'stage_dead']);
+  });
+});
+
+/**
+ * The upgrade path, which is the one a live library actually takes.
+ *
+ * Every other test here migrates an empty database, where a backfill has
+ * nothing to do and cannot be wrong. `0002` shipped after the cutover, so the
+ * only database that matters already had rows in it — and the rows it has to
+ * find are the minority ones.
+ */
+describe('0002 on a database that already carries 0001', () => {
+  test('backfills the media kind onto the stage rows that were already there', async () => {
+    using handle = createBlankTestDatabase();
+    const { db, migrationDb } = handle;
+    await runMigrations(migrationDb, [ALL_MIGRATIONS[0]!]);
+
+    const asset = 'a'.repeat(24);
+    db.run(
+      `INSERT INTO assets (id, size, mtime, indexed_at, media_kind)
+       VALUES (?, 1, 1, '2026-01-01T00:00:00Z', 'video')`,
+      [asset],
+    );
+    db.run(`INSERT INTO stage_state (asset_id, stage) VALUES (?, 'transcribe')`, [asset]);
+    // No column to read yet — that is the state the migration starts from.
+    expect(
+      (
+        db.query(`SELECT name FROM pragma_table_info('stage_state')`).all() as Array<{
+          name: string;
+        }>
+      ).map((r) => r.name),
+    ).not.toContain('media_kind');
+
+    await runMigrations(migrationDb, ALL_MIGRATIONS);
+
+    const row = db.query(`SELECT media_kind FROM stage_state WHERE asset_id = ?`).get(asset) as {
+      media_kind: string;
+    };
+    expect(row.media_kind).toBe('video');
+  });
+
+  test('leaves the triggers in charge afterwards', async () => {
+    using handle = createBlankTestDatabase();
+    const { db, migrationDb } = handle;
+    await runMigrations(migrationDb, ALL_MIGRATIONS);
+
+    const asset = 'b'.repeat(24);
+    db.run(
+      `INSERT INTO assets (id, size, mtime, indexed_at, media_kind)
+       VALUES (?, 1, 1, '2026-01-01T00:00:00Z', 'image')`,
+      [asset],
+    );
+    db.run(`INSERT INTO stage_state (asset_id, stage) VALUES (?, 'transcribe')`, [asset]);
+    db.run(`UPDATE assets SET media_kind = 'audio' WHERE id = ?`, [asset]);
+
+    const row = db.query(`SELECT media_kind FROM stage_state WHERE asset_id = ?`).get(asset) as {
+      media_kind: string;
+    };
+    expect(row.media_kind).toBe('audio');
   });
 });
