@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { RemoteError } from '../../enrichment/describe-providers/index.ts';
+import { STAGE_STATE_VIDEO_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import type { SampledFrame } from '../../video/sample-frames.ts';
 import type { StageResult } from '../run-stage.ts';
@@ -107,6 +108,16 @@ describe('video-describe stage config', () => {
     expect(videoDescribeStage.claimResidual?.params).toEqual(['video']);
     expect(videoDescribeStage.claimResidual?.sql).toContain('id = stage_state.asset_id');
     expect(videoDescribeStage.claimResidual?.sql).toContain('media_kind = ?');
+  });
+
+  it('leads the residual with the term that selects the partial index (#3795)', () => {
+    // Two terms, because SQLite will not infer the `IN` that selects
+    // `stage_claim_media` from the equality that narrows within it — see
+    // `STAGE_STATE_VIDEO_NARROWING`. Asserted against the constant so the
+    // stage cannot drift from the index the constant is spelled for.
+    expect(videoDescribeStage.claimResidual?.sql.startsWith(STAGE_STATE_VIDEO_NARROWING)).toBe(
+      true,
+    );
   });
 
   it('depends on preview, starts paused-on-first-boot at concurrency 1', () => {
