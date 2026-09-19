@@ -81,6 +81,23 @@ function sleep(milliseconds: number): Promise<void> {
   });
 }
 
+/**
+ * How wide this pool will be: what the caller asked for, else the operator's
+ * `MAPLE_SQLITE_READERS`, else a count scaled from the box.
+ *
+ * Throws on anything it cannot honour, including an unparseable override, so a
+ * mis-sized pool never starts quietly at some other width — the sizing is the
+ * difference between a slow query and a read outage, and an operator who
+ * widened the pool during an incident has to be able to trust that it took.
+ */
+function resolveReaderCount(requested: number | undefined): number {
+  const readers = requested ?? readerCountFromEnvironment() ?? defaultReaderCount();
+  if (!Number.isInteger(readers) || readers < 1) {
+    throw new Error(`sqlite pool: readers must be a positive integer, got ${readers}`);
+  }
+  return readers;
+}
+
 export interface SqlitePoolOptions {
   /** Path to the database file. Created by the writer if it does not exist. */
   path: string;
@@ -211,10 +228,7 @@ export class SqlitePool {
    * terminated, so a failed startup leaves no orphan threads behind.
    */
   static async open(options: SqlitePoolOptions): Promise<SqlitePool> {
-    const readerCount = options.readers ?? readerCountFromEnvironment() ?? defaultReaderCount();
-    if (!Number.isInteger(readerCount) || readerCount < 1) {
-      throw new Error(`sqlite pool: readers must be a positive integer, got ${readerCount}`);
-    }
+    const readerCount = resolveReaderCount(options.readers);
     const spawn = options.spawnWorker ?? spawnDatabaseWorker;
     const timeout = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     const writer = new SqliteWorkerHandle('writer', spawn, timeout);
