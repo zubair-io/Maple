@@ -135,16 +135,30 @@ a `0002` or `0003` to correct it on top; integrating them collapsed all three
 back into `0001`, because a fresh install creating a table and immediately
 rebuilding it twice is ceremony, not safety.
 
-The freeze starts at the cutover (#3752), and `0002-facet-state` is the first
-change on the far side of it. It adds the mirrored facet columns, the
-`asset_subjects` table, the indexes over both and the triggers that maintain
-them, and it backfills before it indexes, so each index is built once over
-final values. On a 335,377-asset library it takes about fifteen seconds, almost
-all of it the one pass over `asset_detail` — a table whose rows average several
-kilobytes, so setting two columns rewrites them. A fresh install therefore
-creates two `asset_detail` indexes in `0001` and rebuilds them in `0002`, which
-is the cost of the freeze and is worth it: both kinds of database end up with
-the same schema, which is the only property that matters.
+The freeze starts at the cutover (#3752). `0002-stage-state-media-kind` (#3795)
+was the first change on the far side of it and `0003-facet-state` (#3768) is
+the second — and the second was written as a `0002` and renumbered when the
+first merged ahead of it, which is the whole cost of the rule. Two branches
+that both shipped a `0002` would leave two installs recording the same id for
+different schemas, and nothing downstream could tell them apart.
+
+`0003` adds the mirrored facet columns, the `asset_subjects` table, the indexes
+over both and the triggers that maintain them, and it backfills before it
+indexes so each index is built once over final values. On a 335,377-asset
+library it takes about fifteen seconds, almost all of it the one pass over
+`asset_detail` — a table whose rows average several kilobytes, so setting two
+columns rewrites them. A fresh install therefore creates two `asset_detail`
+indexes in `0001` and rebuilds them in `0003`, which is the cost of the freeze
+and is worth it: both kinds of database end up with the same schema, which is
+the only property that matters.
+
+**The boot applies pending migrations before anything reads a column.**
+`migrateAtBoot` returns before `openSqlitePool` is called and before any route,
+worker or repository exists to issue a query, and on the already-cutover branch
+it now runs the migration list rather than skipping straight past it. That
+ordering is what lets a live database take `0003`: the marker says the data is
+here, the migration list says what shape it is in, and the two are no longer
+read as the same answer.
 
 The corrections themselves survive, in the DDL rather than on top of it:
 
@@ -840,21 +854,21 @@ question of which index it reads:
 
 | facet                   | before   | after   | reads now                         |
 | ----------------------- | -------- | ------- | --------------------------------- |
-| total                   | 6.1 ms   | 6.2 ms  | `assets_live`                     |
-| camera make + model     | 16.3 ms  | 17.7 ms | `assets_facet_camera`             |
-| lens                    | 14.0 ms  | 15.1 ms | `assets_facet_lens`               |
-| place locality + region | 17.3 ms  | 18.5 ms | `assets_facet_place_label`        |
-| screenshot              | 9.3 ms   | 9.3 ms  | `assets_facet_screenshot`         |
-| capture range           | 21.0 ms  | 22.5 ms | `assets_live_captured`            |
+| total                   | 6.1 ms   | 6.3 ms  | `assets_live`                     |
+| camera make + model     | 16.3 ms  | 17.4 ms | `assets_facet_camera`             |
+| lens                    | 14.0 ms  | 15.9 ms | `assets_facet_lens`               |
+| place locality + region | 17.3 ms  | 17.2 ms | `assets_facet_place_label`        |
+| screenshot              | 9.3 ms   | 9.7 ms  | `assets_facet_screenshot`         |
+| capture range           | 21.0 ms  | 22.1 ms | `assets_live_captured`            |
 | grid page, 200 rows     | 0.15 ms  | 0.14 ms | `assets_live_captured`            |
-| **ISO range**           | 256 ms   | 11.9 ms | `assets_facet_iso`                |
+| **ISO range**           | 256 ms   | 12.1 ms | `assets_facet_iso`                |
 | **extensions**          | 465 ms   | 16.0 ms | `asset_locations_facet_extension` |
-| **scene type**          | 810 ms   | 13.9 ms | `asset_detail_scene_type`         |
+| **scene type**          | 810 ms   | 13.5 ms | `asset_detail_scene_type`         |
 | **activity**            | 706 ms   | 12.2 ms | `asset_detail_activity`           |
-| **people**              | 643 ms   | 31.0 ms | `faces_facet_person`              |
-| **subjects**            | 1,193 ms | 36.0 ms | `asset_subjects_facet`            |
+| **people**              | 643 ms   | 29.9 ms | `faces_facet_person`              |
+| **subjects**            | 1,193 ms | 37.0 ms | `asset_subjects_facet`            |
 
-The route waits for the slowest of the twelve, so it costs 36 ms rather than
+The route waits for the slowest of the twelve, so it costs 37 ms rather than
 1.2 s — and the pool, which has two reader threads, now does about 210 ms of
 work per faceted search instead of about 4 s. That second number is the one
 that mattered: with two readers, twelve aggregations at up to a second each is
@@ -870,22 +884,33 @@ person is a question only `assets` can answer, and the mirror does not help
 with it. Those statements keep the shape they had, with `assets` pinned as the
 outer loop by `CROSS JOIN`, and none of them is slower than before. Measured
 with `rating >= 4`, the worst kind of residual — one no index can serve, so the
-live set has to be walked whatever the plan:
+live set has to be walked whatever the plan — with both statements timed in one
+run against one database, which is the only way the two columns can be compared
+at all:
 
-| facet      | before | after  |
-| ---------- | ------ | ------ |
-| ISO range  | 120 ms | 114 ms |
-| people     | 591 ms | 124 ms |
-| subjects   | 175 ms | 129 ms |
-| scene type | 136 ms | 129 ms |
-| activity   | 140 ms | 128 ms |
-| extensions | 153 ms | 148 ms |
+| facet         | before | after  |
+| ------------- | ------ | ------ |
+| extensions    | 151 ms | 155 ms |
+| ISO range     | 136 ms | 135 ms |
+| scene type    | 150 ms | 150 ms |
+| activity      | 151 ms | 149 ms |
+| subjects      | 177 ms | 147 ms |
+| people        | 660 ms | 145 ms |
+| capture range | 548 ms | 148 ms |
 
-The capture range improves in the same pass and for a different reason: it
-named `assets_live_captured` on every request, including filtered ones, which
-made the statement walk the whole live set in the index's order and fetch each
-row for the residual — 493 ms against 116 ms. Both range facets now name their
-index only when the statement can be answered from it alone.
+Four of them are unchanged, and about 150 ms is what walking the live set costs
+— the residual sets that floor and nothing in this ticket can lower it. Three
+improve. People was led from `faces`, so it probed `assets` once per assigned
+face rather than the other way round. The capture range named
+`assets_live_captured` on every request including filtered ones, which made the
+statement walk the whole live set in the index's order and fetch each row for
+the residual; both range facets now name their index only when the statement
+can be answered from it alone.
+
+A caution about reading any of these against a figure taken on another day:
+the same filtered set measured 25% slower across every row, including one whose
+plan this ticket does not touch, on a machine that had just run the test suite.
+Two numbers are comparable when they come out of the same run.
 
 ## Reproducing the measurements
 
