@@ -67,16 +67,34 @@ interface Row {
   mongoMs: number | null;
 }
 
+/**
+ * What SQLite says it will do, as one line.
+ *
+ * Printed beside the timings because a facet's cost is entirely a question of
+ * which index it reads, and a timing on its own cannot tell a reader whether
+ * the index the schema claims is the one that ran. `docs/sqlite-schema.md`
+ * quotes these, so they have to come out of the same run as the numbers.
+ */
+function planOf(db: Database, sql: string, params: readonly unknown[]): string {
+  return (
+    db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...(params as never[])) as Array<{ detail: string }>
+  )
+    .map((row) => row.detail.trim())
+    .join(' | ');
+}
+
 /** Every facet statement, plus the count and a grid page, timed on SQLite. */
-function timeSqlite(db: Database): Row[] {
+function timeSqlite(db: Database, plans: Map<string, string>): Row[] {
   const where = emptyWhere();
   const statements = facetStatements(where);
   const facets = Object.entries(statements).map(([name, statement]) => {
     const { ms, rows } = timeStatement(db, statement.sql, statement.params, RUNS);
+    plans.set(`facet: ${name}`, planOf(db, statement.sql, statement.params));
     return { name: `facet: ${name}`, sqliteMs: ms, sqliteRows: rows, mongoMs: null };
   });
   const page = pageSql(where, 'captured_desc', 200, 0);
   const pageTiming = timeStatement(db, page.sql, page.params, RUNS);
+  plans.set('grid page, 200 rows', planOf(db, page.sql, page.params));
   return [
     ...facets,
     {
@@ -207,7 +225,8 @@ console.log(`\n# /api/search facets: MongoDB vs SQLite, ${assetCount.toLocaleStr
 console.log('Building the SQLite library…');
 const sqlite = await buildSqlite(assetCount);
 const libraryId = (sqlite.query('SELECT id FROM folders LIMIT 1').get() as { id: string }).id;
-const rows = timeSqlite(sqlite);
+const plans = new Map<string, string>();
+const rows = timeSqlite(sqlite, plans);
 const counterfactuals = timeCounterfactuals(sqlite, libraryId);
 
 const mongoRan = skipMongo
@@ -228,6 +247,9 @@ if (!mongoRan) {
 
 console.log('\n## The two shapes the schema rejected\n');
 printTable(counterfactuals, false);
+
+console.log('\n## What each one reads\n');
+for (const [name, plan] of plans) console.log(`- **${name}** — \`${plan}\``);
 
 sqlite.close();
 await removeDatabase(DB_PATH);

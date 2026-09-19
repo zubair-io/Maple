@@ -83,6 +83,7 @@ aliases are used freely for the internal tables whose ids never reach a client:
 | `assets`                                                                                                                                                               | `assets` document root                                                                                                        | Narrow. Scalars plus `exif` / `place` JSON and 14 generated columns.                   |
 | `asset_locations`                                                                                                                                                      | `fileinfo[]`                                                                                                                  | `ordinal` keeps the array position; `ordinal = 0` is the canonical entry.              |
 | `asset_detail`                                                                                                                                                         | `vision`, `description`, `ocr_*`, `transcript`, `video_description*`, `metadata_override`, `derivative_audit`, `geo_inferred` | 1:1. The bulk of the old document. A rowid table, deliberately — see the facets below. |
+| `asset_subjects`                                                                                                                                                       | `vision.subjects[]`                                                                                                           | One row per (asset, subject), derived from the payload by trigger (#3768).             |
 | `asset_search` + `assets_fts`                                                                                                                                          | `search_blob` + `search_blob_text`                                                                                            | FTS5 in external-content mode.                                                         |
 | `asset_phasset_links`                                                                                                                                                  | `phasset_links[]`                                                                                                             | Indexed on `(device_id, phasset_local_id)` — the index that does not exist today.      |
 | `faces`                                                                                                                                                                | `faces[]`                                                                                                                     | `face_index` keeps the array position, which is on the wire.                           |
@@ -120,7 +121,7 @@ a concurrent save to a different key survives, and the function creates the
 intermediate objects a dotted Mongo path like
 `migrations.refile-backups.enabled` needs.
 
-### Migrations, and why there is only one
+### Migrations, and where the freeze starts
 
 A shipped migration id is frozen: the runner skips a recorded id without
 looking at what it now declares, so a database that already ran
@@ -132,8 +133,18 @@ Nothing in this epic shipped while it was being built. Three port slices each
 found the initial schema wrong about a table they were porting, and each wrote
 a `0002` or `0003` to correct it on top; integrating them collapsed all three
 back into `0001`, because a fresh install creating a table and immediately
-rebuilding it twice is ceremony, not safety. There is one migration, and the
-freeze starts at the cutover (#3752).
+rebuilding it twice is ceremony, not safety.
+
+The freeze starts at the cutover (#3752), and `0002-facet-state` is the first
+change on the far side of it. It adds the mirrored facet columns, the
+`asset_subjects` table, the indexes over both and the triggers that maintain
+them, and it backfills before it indexes, so each index is built once over
+final values. On a 335,377-asset library it takes about fifteen seconds, almost
+all of it the one pass over `asset_detail` — a table whose rows average several
+kilobytes, so setting two columns rewrites them. A fresh install therefore
+creates two `asset_detail` indexes in `0001` and rebuilds them in `0002`, which
+is the cost of the freeze and is worth it: both kinds of database end up with
+the same schema, which is the only property that matters.
 
 The corrections themselves survive, in the DDL rather than on top of it:
 
@@ -283,20 +294,21 @@ the index entirely.
 Every row below carries `live AND hidden = 0` as its `WHERE`; only the part
 that differs is written out.
 
-| Call site                                                              | Mongo                                                     | SQLite                                                                      | Index                                               |
-| ---------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------- |
-| facet total, Meili live count, generated-search preview, buckets total | `countDocuments(live)`                                    | `COUNT(*)`                                                                  | `assets_live`                                       |
-| camera facet                                                           | `$group { exif.camera_make, exif.camera_model }`          | `GROUP BY camera_make, camera_model`                                        | `assets_facet_camera`                               |
-| lens facet                                                             | `$group '$exif.lens'`                                     | `GROUP BY lens`                                                             | `assets_facet_lens`                                 |
-| places facet                                                           | `$group { place.rollups.locality, place.rollups.region }` | `GROUP BY place_locality, place_region`                                     | `assets_facet_place_label`                          |
-| country drill-down                                                     | the `place_rollups` index's purpose                       | `GROUP BY place_country_code`                                               | `assets_facet_place`                                |
-| timeline buckets                                                       | `$group { exif.captured_year, exif.captured_month }`      | `GROUP BY captured_year, captured_month`                                    | `assets_live_captured_ym`                           |
-| screenshot tri-state                                                   | `$cond` bucket over `is_screenshot`                       | `GROUP BY is_screenshot`                                                    | `assets_facet_screenshot`                           |
-| scene / activity facets                                                | `$group '$vision.scene_type'`, `{ $nin: [null, ''] }`     | `JOIN assets` + `WHERE vision_scene_type IS NOT NULL AND <> '' GROUP BY` it | `asset_detail_scene_type`, `asset_detail_activity`  |
-| capture range, ISO range                                               | `$min` / `$max`                                           | `MIN` / `MAX`                                                               | `assets_live_captured`, table scan for ISO          |
-| extension facet                                                        | `$split` on `fileinfo.filename`                           | `GROUP BY` a suffix expression                                              | `asset_locations_filename` scan                     |
-| people facet                                                           | `$setUnion` over `faces` then `$unwind`                   | `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces`                     | `faces_person`                                      |
-| Meili vector coverage                                                  | `LIVE_ASSET_FILTER` + `semantic_vector_fingerprint`       | `WHERE semantic_vector_fingerprint = ?`                                     | `assets_vector_fingerprint` (new — unindexed today) |
+| Call site                                                              | Mongo                                                     | SQLite                                                  | Index                                               |
+| ---------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------- |
+| facet total, Meili live count, generated-search preview, buckets total | `countDocuments(live)`                                    | `COUNT(*)`                                              | `assets_live`                                       |
+| camera facet                                                           | `$group { exif.camera_make, exif.camera_model }`          | `GROUP BY camera_make, camera_model`                    | `assets_facet_camera`                               |
+| lens facet                                                             | `$group '$exif.lens'`                                     | `GROUP BY lens`                                         | `assets_facet_lens`                                 |
+| places facet                                                           | `$group { place.rollups.locality, place.rollups.region }` | `GROUP BY place_locality, place_region`                 | `assets_facet_place_label`                          |
+| country drill-down                                                     | the `place_rollups` index's purpose                       | `GROUP BY place_country_code`                           | `assets_facet_place`                                |
+| timeline buckets                                                       | `$group { exif.captured_year, exif.captured_month }`      | `GROUP BY captured_year, captured_month`                | `assets_live_captured_ym`                           |
+| screenshot tri-state                                                   | `$cond` bucket over `is_screenshot`                       | `GROUP BY is_screenshot`                                | `assets_facet_screenshot`                           |
+| scene / activity facets                                                | `$group '$vision.scene_type'`, `{ $nin: [null, ''] }`     | `GROUP BY` it, over the mirrored live-and-visible rows  | `asset_detail_scene_type`, `asset_detail_activity`  |
+| subjects facet                                                         | `$unwind '$vision.subjects'` then `$group`                | `GROUP BY subject` over `asset_subjects`                | `asset_subjects_facet`                              |
+| capture range, ISO range                                               | `$min` / `$max`                                           | `MIN` / `MAX`, each naming its index                    | `assets_live_captured`, `assets_facet_iso`          |
+| extension facet                                                        | `$split` on `fileinfo.filename`                           | `GROUP BY` a generated `extension` column               | `asset_locations_facet_extension`                   |
+| people facet                                                           | `$setUnion` over `faces` then `$unwind`                   | `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces` | `faces_facet_person`                                |
+| Meili vector coverage                                                  | `LIVE_ASSET_FILTER` + `semantic_vector_fingerprint`       | `WHERE semantic_vector_fingerprint = ?`                 | `assets_vector_fingerprint` (new — unindexed today) |
 
 The vision facets are the one row where the exclusion is load-bearing rather
 than decorative. A bare `GROUP BY vision_scene_type` implies nothing about
@@ -312,6 +324,83 @@ table — measured at 30,000 rows, the same grouping is 69.8 ms against
 `WITHOUT ROWID` and 1.0 ms against a rowid table. And the two facet columns are
 `STORED` and declared first, so a lookup that does visit the row stops before
 the `vision` payload instead of re-parsing it: 2.4x, at no cost in table size.
+
+### The mirrored facet state (#3768, #3783)
+
+Six facets group a table that is not `assets`, and for each of them the schema
+above got the group key right and stopped one step short. `asset_detail` holds
+scene type and activity, `asset_locations` holds the filename an extension
+comes from, `faces` holds the people, and `vision.subjects` held nothing
+indexable at all. Every one of them answered its own index cheaply and then had
+to ask `assets` one question per candidate row — is this asset live, and is it
+hidden — and that probe was the entire cost. Grouping the scene-type index
+alone measures 10 ms at 335,377 assets; the same grouping with the liveness
+join measured 264 ms, and making the probe index-only (see `assets_live_id`
+below) took it to 81 ms and no further. The probe itself is the floor, because
+the answer is not in the grouped table.
+
+It is now. Each of those four tables carries two mirrored columns:
+
+| column         | mirrors                                          |
+| -------------- | ------------------------------------------------ |
+| `asset_live`   | `deleted_at IS NULL AND live_location_count > 0` |
+| `asset_hidden` | `assets.hidden`                                  |
+
+`asset_live` goes in each facet index's `WHERE`, because no caller can ask for
+dead assets. `asset_hidden` is a _column_ of the index, for the same reason
+`hidden` is a column on the `assets` facet indexes: `hidden=only` and
+`hidden=all` are real wire values, and a partial index over `asset_hidden = 0`
+would lose the index for both.
+
+**Nothing but a trigger writes them**, which is the difference between this and
+the denormalised `people.face_count` the schema deleted. One trigger on
+`assets` pushes a change out to the four satellites, guarded by a `WHEN` that
+fires only when liveness or visibility actually flips — without it every
+discovered file would fan out into four keyed updates, because
+`live_location_count` is itself rewritten by a trigger on every location insert.
+One trigger per satellite seeds a new row from its asset. Both halves are
+needed: an asset can be hidden long after its faces were detected, and a face
+can be detected long after its asset was hidden. `FACET_STATE_RECOMPUTE_SQL`
+rebuilds all of it in one pass for the importer's triggerless bulk load, and
+`facet-state.test.ts` asserts that the pass lands on exactly what the triggers
+would have written.
+
+`asset_subjects` is the same idea applied to an array SQLite cannot index. It
+is derived from `asset_detail.vision` by trigger rather than written by the
+describe stage, so the table cannot disagree with the payload it comes from,
+and `subjects=` filters read the same table the facet groups — which they could
+not while one parsed JSON and the other did not. One row per (asset, subject):
+the shipped statement counted `json_each` rows, so an asset listing the same
+subject twice counted twice in its own bucket while the filter returned it
+once.
+
+**A row count is no longer a row count on those statements.** `bun:sqlite`
+reports every row a statement wrote, trigger writes included — `hardDelete` has
+said so since the cutover — and an update that changes `deleted_at`, `hidden`
+or `live_location_count` now writes to four more tables. Anything reading
+`changes` off such a statement has to say what it means: `matchedOne` in
+`repos/db-handle.ts` for the by-id updates, and a deliberate counting statement
+in `repos/assets.folder-hidden.ts`, which needs a real count for an
+operator-facing log line and takes it before the flip, under the same
+predicate, on a column no trigger watches.
+
+**What it costs.** At 335,377 assets the database grows from 1,646 MB to
+1,815 MB — about 10%, and more than half of it is subjects:
+
+| object                            | before  | after   |
+| --------------------------------- | ------- | ------- |
+| `asset_subjects` + its index      | —       | 79.0 MB |
+| `faces_facet_person`              | —       | 16.2 MB |
+| `asset_locations_facet_extension` | —       | 14.1 MB |
+| `asset_detail_scene_type`         | 4.0 MB  | 10.8 MB |
+| `asset_detail_activity`           | 3.6 MB  | 9.4 MB  |
+| `assets_facet_iso`                | —       | 4.2 MB  |
+| `assets_live_id`                  | 12.3 MB | 12.7 MB |
+
+The two `asset_detail` indexes grew because they gained `asset_hidden` and
+`asset_id`; the mirrored columns themselves cost nothing there, since they fit
+in pages the multi-kilobyte rows already occupied. `asset_locations` and
+`faces` each grew under a megabyte for their two columns.
 
 ### Pipeline, workers and maintenance
 
@@ -389,11 +478,11 @@ and the statements that would otherwise name an index drop the hint, because an
 
 ### Index count
 
-|                                 | Mongo                                                                          | SQLite                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| Per-stage indexes on `assets`   | 24 (12 stages × 2), plus stale ones for retired stages that were never dropped | 2, and they do not grow with the stage list             |
-| Other named indexes on `assets` | 26                                                                             | 33 across `assets` and the six tables its arrays became |
-| Registering a new stage         | two more index definitions, rebuilt on the next boot                           | an insert                                               |
+|                                 | Mongo                                                                          | SQLite                                            |
+| ------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
+| Per-stage indexes on `assets`   | 24 (12 stages × 2), plus stale ones for retired stages that were never dropped | 2, and they do not grow with the stage list       |
+| Other named indexes on `assets` | 26                                                                             | 36 across `assets` and the seven tables beside it |
+| Registering a new stage         | two more index definitions, rebuilt on the next boot                           | an insert                                         |
 
 The ticket's "28 of 54" counts production's live index list, which carries
 indexes for stages that no longer exist; 24 of 50 is what the current source
@@ -715,14 +804,15 @@ shapes and they are within a millisecond, and at 1M it flips to leading with
 why the pair is measured rather than asserted: at two of the three sizes there
 is nothing to see.
 
-**The vision scene facet** is the schema's weakest surface and the numbers say
-so. Grouping the facet index alone costs 35.6 ms at a million assets; adding the
-join to `assets` that restricts it to live, non-hidden rows costs 1,923 ms, in
-every join shape tried. The facet index works — that took a rowid table and two
-`STORED` columns, both measured above — but liveness is not visible from
-`asset_detail`, so each candidate is a probe into `assets`. Making it visible is
-a denormalisation with a maintenance cost, so it belongs to whichever port has a
-caller to justify it, not to the schema on spec.
+**The vision scene facet** was the schema's weakest surface and the numbers say
+why. Grouping the facet index alone costs 35.6 ms at a million assets; adding
+the join to `assets` that restricts it to live, non-hidden rows costs 1,923 ms,
+in every join shape tried. The facet index works — that took a rowid table and
+two `STORED` columns, both measured above — but liveness was not visible from
+`asset_detail`, so each candidate was a probe into `assets`. Both rows are kept
+as they were measured, because they are the argument for the denormalisation
+that #3768 then made: liveness _is_ visible from `asset_detail` now, and the
+unfiltered facet reads the first row's index without the second row's join.
 
 **The `EXISTS` count** is the live-asset count without the derived
 `live_location_count` column, and it is why that column stays: 271 ms against
@@ -733,35 +823,69 @@ nearly every document, where the work is ranking matches rather than finding
 them. A selective term, which is what a person types, is three orders of
 magnitude faster.
 
-### The same facets through the ported route (#3750)
+### The same facets through the ported route (#3750, #3768)
 
 The table above times the queries the schema was designed around. These time the
-statements `db/sqlite/repos/search.sql.ts` actually generates for an unfiltered
-`GET /api/search/facets`, which differ in one way that turned out to matter: they
-all carry the always-on `hidden = 0` filter. At 335,377 assets:
+statements `db/sqlite/repos/search.facets.sql.ts` actually generates for an
+unfiltered `GET /api/search/facets`, which differ in one way that turned out to
+matter: they all carry the always-on `hidden = 0` filter. Median of five at
+335,377 generated assets, from
 
-| facet                   | SQLite   | reads                      |
-| ----------------------- | -------- | -------------------------- |
-| total                   | 6.1 ms   | `assets_live`              |
-| camera make + model     | 16.3 ms  | `assets_facet_camera`      |
-| lens                    | 14.0 ms  | `assets_facet_lens`        |
-| place locality + region | 17.3 ms  | `assets_facet_place_label` |
-| screenshot              | 9.3 ms   | `assets_facet_screenshot`  |
-| capture range           | 21.0 ms  | `assets_live_captured`     |
-| grid page, 200 rows     | 0.15 ms  | `assets_live_captured`     |
-| ISO range               | 256 ms   | every matching asset row   |
-| extensions              | 465 ms   | `asset_locations`, per row |
-| people                  | 643 ms   | `faces`, then an asset row |
-| activity                | 706 ms   | `asset_detail`, per row    |
-| scene type              | 810 ms   | `asset_detail`, per row    |
-| subjects                | 1,193 ms | the `vision` JSON, per row |
+```bash
+cd src/api && bun scripts/sqlite-bench/search-compare.ts 335377 --no-mongo
+```
 
-The first seven are the ones every index in this schema was built for, and they
-are where the migration's case lies — against 4.7 to 5.7 seconds each on
-production MongoDB today. The last six each have to leave the `assets` row to
-answer, and none of them has an index that covers what it needs; the schema
-already flagged the scene, activity and ISO cases as unindexed, and the ported
-measurement puts numbers on them. Closing that gap is #3768.
+which prints the plan beside each timing, because a facet's cost is entirely a
+question of which index it reads:
+
+| facet                   | before   | after   | reads now                         |
+| ----------------------- | -------- | ------- | --------------------------------- |
+| total                   | 6.1 ms   | 6.2 ms  | `assets_live`                     |
+| camera make + model     | 16.3 ms  | 17.7 ms | `assets_facet_camera`             |
+| lens                    | 14.0 ms  | 15.1 ms | `assets_facet_lens`               |
+| place locality + region | 17.3 ms  | 18.5 ms | `assets_facet_place_label`        |
+| screenshot              | 9.3 ms   | 9.3 ms  | `assets_facet_screenshot`         |
+| capture range           | 21.0 ms  | 22.5 ms | `assets_live_captured`            |
+| grid page, 200 rows     | 0.15 ms  | 0.14 ms | `assets_live_captured`            |
+| **ISO range**           | 256 ms   | 11.9 ms | `assets_facet_iso`                |
+| **extensions**          | 465 ms   | 16.0 ms | `asset_locations_facet_extension` |
+| **scene type**          | 810 ms   | 13.9 ms | `asset_detail_scene_type`         |
+| **activity**            | 706 ms   | 12.2 ms | `asset_detail_activity`           |
+| **people**              | 643 ms   | 31.0 ms | `faces_facet_person`              |
+| **subjects**            | 1,193 ms | 36.0 ms | `asset_subjects_facet`            |
+
+The route waits for the slowest of the twelve, so it costs 36 ms rather than
+1.2 s — and the pool, which has two reader threads, now does about 210 ms of
+work per faceted search instead of about 4 s. That second number is the one
+that mattered: with two readers, twelve aggregations at up to a second each is
+enough to build a queue on its own.
+
+The six in bold are the ones the mirrored facet state fixed; the argument and
+the storage it costs are in "The mirrored facet state" above. The first seven
+rows are unchanged, which is the point of listing them — every one of them is
+within run-to-run noise of where it was.
+
+**A filtered search still joins**, because a camera, a place, a date or a
+person is a question only `assets` can answer, and the mirror does not help
+with it. Those statements keep the shape they had, with `assets` pinned as the
+outer loop by `CROSS JOIN`, and none of them is slower than before. Measured
+with `rating >= 4`, the worst kind of residual — one no index can serve, so the
+live set has to be walked whatever the plan:
+
+| facet      | before | after  |
+| ---------- | ------ | ------ |
+| ISO range  | 120 ms | 114 ms |
+| people     | 591 ms | 124 ms |
+| subjects   | 175 ms | 129 ms |
+| scene type | 136 ms | 129 ms |
+| activity   | 140 ms | 128 ms |
+| extensions | 153 ms | 148 ms |
+
+The capture range improves in the same pass and for a different reason: it
+named `assets_live_captured` on every request, including filtered ones, which
+made the statement walk the whole live set in the index's order and fetch each
+row for the residual — 493 ms against 116 ms. Both range facets now name their
+index only when the statement can be answered from it alone.
 
 ## Reproducing the measurements
 
@@ -770,7 +894,9 @@ cd src/api
 bun scripts/sqlite-bench/run.ts                 # 335k, 600k and 1M assets
 bun scripts/sqlite-bench/run.ts 335377 --keep   # one size, leave the file behind
 
-# The ported search and facet queries, against both engines (#3750)
+# The ported search and facet queries, against both engines (#3750, #3768).
+# Prints a plan per facet under "What each one reads", so a timing here can be
+# checked against the index the map above claims for it.
 bun scripts/sqlite-bench/search-compare.ts              # 60,000 assets
 bun scripts/sqlite-bench/search-compare.ts 335377 --no-mongo
 bun scripts/sqlite-bench/search-relevance.ts            # $text vs FTS5
@@ -797,3 +923,13 @@ needs no fixtures. That is the part of this document that cannot go stale
 quietly: three of its mappings were wrong when it was first written, and a
 mapping the planner ignores looks exactly like one it honours until someone
 runs `EXPLAIN QUERY PLAN`.
+
+The mirrored facet state has a second test beside it,
+`src/api/src/db/sqlite/facet-state.test.ts`, because a plan cannot catch what
+goes wrong with a denormalisation. It drives the writes that change liveness
+and visibility — hide, un-hide, trash, restore, lose a file, find it again,
+re-describe, merge a duplicate — and asserts the facets afterwards, where a
+stale mirror shows up as a bucket disagreeing with the total beside it. The
+last case runs `FACET_STATE_RECOMPUTE_SQL` over a library the triggers built
+and asserts that nothing moves, which is what the importer's triggerless bulk
+load depends on.
