@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import {
   cleanupProductionFixtures,
   stageProductionFixtures,
@@ -54,17 +54,6 @@ async function waitFor(url: string, child: Bun.Subprocess): Promise<void> {
     await Bun.sleep(200);
   }
   throw new Error(`Timed out waiting for ${url}`);
-}
-
-async function waitForFile(path: string, child: Bun.Subprocess): Promise<string> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`${path} producer exited before becoming ready`);
-    const value = await readFile(path, 'utf8').catch(() => '');
-    if (value) return value;
-    await Bun.sleep(100);
-  }
-  throw new Error(`Timed out waiting for ${path}`);
 }
 
 async function endpointIsReady(url: string): Promise<boolean> {
@@ -137,16 +126,12 @@ try {
   const hostedUpdate = await prepareHostedUpdateFixtures();
   await run(['bun', 'x', 'ng', 'build', 'maple', '--configuration', 'production']);
 
-  const mongoUriFile = join(manifest.root, 'runtime', 'mongo-uri');
+  // The API creates this file and its schema on its first boot, so the run
+  // starts from an empty library under the fixture root rather than against
+  // whatever database the developer's own checkout happens to hold. It is
+  // removed with the rest of the fixtures at the end.
   await mkdir(join(manifest.root, 'runtime'), { recursive: true });
-  const mongo = Bun.spawn(['bun', 'run', 'test:production-mongo'], {
-    cwd: API_ROOT,
-    stdout: 'inherit',
-    stderr: 'inherit',
-    env: { ...process.env, MAPLE_E2E_MONGO_URI_FILE: mongoUriFile },
-  });
-  children.push(mongo);
-  const mongoUri = await waitForFile(mongoUriFile, mongo);
+  const sqlitePath = join(manifest.root, 'runtime', 'maple.sqlite');
 
   const api = Bun.spawn(['bun', 'src/index.ts'], {
     cwd: API_ROOT,
@@ -159,8 +144,7 @@ try {
       MAPLE_DEV_AUTH: '1',
       MAPLE_ROOTS: manifest.root,
       MAPLE_UI_DIST: resolve(WEB_ROOT, 'dist/maple/browser'),
-      MAPLE_MONGO_URI: mongoUri,
-      MAPLE_MONGO_DB: 'maple_e2e',
+      MAPLE_SQLITE_PATH: sqlitePath,
       MAPLE_INDEXER_AUTOSTART: '0',
       MAPLE_JWT_SECRET_FILE: resolve(manifest.root, 'runtime/jwt.secret'),
       MAPLE_BACKUP_TMP: resolve(manifest.root, 'runtime/backup'),

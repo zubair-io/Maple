@@ -263,7 +263,7 @@
         // files to check the import graph; the other three write fixtures under
         // os.tmpdir(). None writes into a library, so none has a mirror to
         // replicate to.
-        "src/db/no-mongo-on-the-serving-path.test.ts",
+        "src/db/no-mongodb-anywhere.test.ts",
         "src/workers/stages/sidecar-metadata-index.projection.test.ts",
         "src/workers/stages/sidecar-metadata-index.test-helpers.ts",
         "src/routes/folders.rescan.test.ts"

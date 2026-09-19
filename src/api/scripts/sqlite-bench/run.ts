@@ -2,15 +2,20 @@
  * Schema benchmark for #3743.
  *
  * Builds a synthetic library at one or more sizes, measures how much space each
- * table and index occupies, and times the queries the migration is supposed to
- * make fast — including the three facet aggregations that take about five
- * seconds on production MongoDB today.
+ * table and index occupies, and times the queries the schema is meant to make
+ * fast — including the three facet aggregations that used to take about five
+ * seconds each.
  *
  * Everything is generated. Nothing here connects to production.
  *
  *   bun scripts/sqlite-bench/run.ts                    # 335k, 600k, 1M
  *   bun scripts/sqlite-bench/run.ts 50000              # one size
  *   bun scripts/sqlite-bench/run.ts 335377 --keep      # leave the .db behind
+ *
+ * `--keep` doubles as the dev fixture: the library it leaves behind carries
+ * per-stage `stage_state` rows with a realistic spread of pending, retrying and
+ * dead work, so pointing `MAPLE_SQLITE_PATH` at it renders a populated
+ * Settings → Workers table with no real photos anywhere.
  *
  * `bun:sqlite` is used directly and on purpose: this script owns its process
  * and has no event loop to protect, so the worker pool (#3742) is irrelevant
@@ -31,9 +36,9 @@ const DEFAULT_SIZES = [335_377, 600_000, 1_000_000];
 // The exact spelling from the schema — a partial index is only used when the
 // query WHERE provably implies the index WHERE, so this must not be paraphrased.
 const LIVE = LIVE_ASSET_PREDICATE;
-// Every browse, search and facet request carries this too: `buildFilter` emits
-// `hidden: { $ne: true }` unless the caller asks for hidden assets, so a
-// measurement without it is measuring a query the product never issues.
+// Every browse, search and facet request carries this too: the where-builder
+// emits `hidden = 0` unless the caller asks for hidden assets, so a measurement
+// without it is measuring a query the product never issues.
 const VISIBLE = `${LIVE} AND hidden = 0`;
 // The generator spreads assets over four library roots; 'bench-1' holds about
 // a fifth of them, so a library-scoped query has to discriminate rather than
