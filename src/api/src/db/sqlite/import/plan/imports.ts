@@ -7,7 +7,7 @@
  * together is what stops one of them being changed without the other.
  */
 
-import type { Db } from 'mongodb';
+import { ObjectId, type Db } from 'mongodb';
 import type { CollectionPlan, Row } from '../types.ts';
 import {
   asArray,
@@ -124,16 +124,54 @@ const importsBasePlan = onePerDocument({
  * field that exists on production documents, is read at runtime, and was in
  * neither the column list nor the list of things deliberately discarded. An
  * operator who cut over would have found those imports rendering with no files
- * at all.
+ * at all. The owner's library has six such imports holding 14,809 file records
+ * between them, so this is not a hypothetical.
  *
- * The entries become ordinary `import_files` rows, positioned by their index
- * in the array, which is what the collection's own `idx` means. A document
- * carrying both is not a shape the application produces; if one existed, the
- * two would collide on `UNIQUE (import_id, idx)` and land on the reject list
- * rather than merging into something nobody designed.
+ * The entries become ordinary `import_files` rows, positioned by their index in
+ * the array, which is what the collection's own `idx` means.
+ *
+ * ## An import can carry both copies, and the rows are the canonical one
+ *
+ * This comment used to say that a document carrying both "is not a shape the
+ * application produces". That was right about the application and wrong about
+ * the data (#3791): the array came first, the collection replaced it, and one
+ * import was written during the changeover and kept both. The owner's library
+ * has exactly one, and its 31 inline entries and 31 rows agree field for field
+ * — a row is an inline entry promoted into its own collection, carrying three
+ * things the entry does not (its own id, the import's id, and the ordinal).
+ *
+ * So where rows exist they are the copy to write, and the inline array is a
+ * duplicate to skip; where they do not, the array is the only copy there is.
+ * Stated that way round rather than as "they happen to match", because the
+ * rule has to hold for an import whose two copies have drifted, and there the
+ * collection is the one the application has been writing.
+ *
+ * Left unsaid, the two copies collide on `UNIQUE (import_id, idx)`: the inline
+ * half is written first, the collection's rows lose, and the whole import
+ * document lands on the reject list — which is what failed the production
+ * verification 31 rows short.
  */
 export const importsPlan: CollectionPlan = {
   ...importsBasePlan,
+  /**
+   * Drops the inline array of any import whose files are already rows.
+   *
+   * A batch-wide question rather than a per-document one, which is what
+   * `hydrate` is for: one `distinct` over the batch's ids answers it for every
+   * document in the batch, and `map` stays a pure function of the document it
+   * is handed. The empty array it is left with is the honest input — this
+   * import contributes no rows from its inline copy — and it is what the
+   * verifier re-maps too, since verification hydrates the same way.
+   */
+  async hydrate(db, docs) {
+    const ids = docs.map((doc) => doc._id).filter((id) => id instanceof ObjectId);
+    if (ids.length === 0) return [...docs];
+    const withRows = await db
+      .collection('import_files')
+      .distinct('import_id', { import_id: { $in: ids } });
+    const superseded = new Set(withRows.map((id) => String(id)));
+    return docs.map((doc) => (superseded.has(String(doc._id)) ? { ...doc, files: [] } : doc));
+  },
   map(doc, ctx) {
     const importId = docId(doc);
     return [
@@ -157,7 +195,12 @@ const importFilesBasePlan = onePerDocument({
 /**
  * The `import_files` table is filled from two collections, so its expected
  * count is the sum of both: the documents of its own collection, and the
- * entries of every legacy inline array.
+ * entries of every legacy inline array the collection has not superseded.
+ *
+ * The second half has to apply the same rule the mapper does, which is the
+ * whole reason these two live in one module — an import that carries both
+ * copies contributes its rows and not its array, and counting the array as
+ * well would expect 31 rows the destination correctly does not hold.
  */
 export const importFilesPlan: CollectionPlan = {
   ...importFilesBasePlan,
@@ -170,11 +213,19 @@ export const importFilesPlan: CollectionPlan = {
   },
 };
 
-/** How many per-file entries still live inside an `imports` document. */
+/**
+ * How many per-file entries live inside an `imports` document and nowhere else.
+ *
+ * The imports whose files are already rows are excluded by id: there are a
+ * handful of imports in a library, so naming them is cheaper and plainer than
+ * a lookup, and it is the same question `hydrate` asks one batch at a time.
+ */
 async function legacyImportFileCount(db: Db): Promise<number> {
+  const superseded = await db.collection('import_files').distinct('import_id');
   const rows = await db
     .collection('imports')
     .aggregate<{ total: number }>([
+      { $match: { _id: { $nin: superseded } } },
       { $project: { n: { $size: { $ifNull: ['$files', []] } } } },
       { $group: { _id: null, total: { $sum: '$n' } } },
     ])

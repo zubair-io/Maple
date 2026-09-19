@@ -274,4 +274,40 @@ describe('the rest of the library', () => {
       { idx: 1, src: '/incoming/old/b.mov', kind: 'movie', state: 'skipped_duplicate' },
     ]);
   });
+
+  /** The third shape: an import whose files are only ever rows. */
+  it('takes the rows of an import that never held its files inline', () => {
+    const { client, ids } = fixture.state;
+    if (client === null || ids === null) return;
+    const rows = fixture.all<{ idx: number; src: string }>(
+      `SELECT idx, src FROM import_files WHERE import_id = ? ORDER BY idx`,
+      ids.importJob.toHexString(),
+    );
+    expect(rows).toEqual([
+      { idx: 0, src: '/incoming/a.dng' },
+      { idx: 1, src: '/incoming/a.xmp' },
+    ]);
+  });
+
+  /**
+   * An import written during the changeover carries both copies, and the rows
+   * are the canonical one (#3791). Before this rule the inline half was
+   * written first, the collection's rows lost the unique constraint on
+   * `(import_id, idx)`, and the whole import document was rejected — which is
+   * what failed the production verification 31 rows short.
+   *
+   * The seeded copies disagree on `src` on purpose. Production's agree, so a
+   * test built on matching copies would pass whichever one landed.
+   */
+  it('prefers the promoted rows to the inline copy when an import has both', () => {
+    const { client, ids } = fixture.state;
+    if (client === null || ids === null) return;
+    const rows = fixture.all<{ idx: number; src: string; dest: string }>(
+      `SELECT idx, src, dest FROM import_files WHERE import_id = ? ORDER BY idx`,
+      ids.mixedImportJob.toHexString(),
+    );
+    expect(rows).toEqual([
+      { idx: 0, src: '/incoming/mixed/promoted-row.dng', dest: '2025/11/promoted-row.dng' },
+    ]);
+  });
 });

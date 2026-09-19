@@ -129,6 +129,38 @@ export async function seedOperational(db: Db, ids: SeedIds): Promise<void> {
     ],
   } as never);
 
+  // Written during the changeover, so it carries BOTH copies of its file list
+  // (#3791). Production has exactly one of these. The two copies agree there;
+  // here they deliberately do not, so a test can tell which one was written —
+  // the rows are the canonical copy and the inline entries must not appear.
+  await db.collection('imports').insertOne({
+    _id: ids.mixedImportJob,
+    status: 'done',
+    source_root: '/incoming/mixed',
+    library_id: ids.libraryA,
+    library_root: '/libraries/a',
+    scan_pending: false,
+    progress: { current: 1, total: 1 },
+    counts: { copied: 1, skipped: 0, failed: 0 },
+    error: null,
+    locked_by: null,
+    lease_expires_at: null,
+    cancel_requested: false,
+    created_at: iso(0),
+    updated_at: iso(1),
+    files: [
+      {
+        src: '/incoming/mixed/stale-inline.dng',
+        dest: '2025/11/stale-inline.dng',
+        size: 40,
+        mtime: 3,
+        kind: 'image',
+        state: 'copied',
+        error: null,
+      },
+    ],
+  } as never);
+
   await db.collection('import_files').insertMany([
     {
       import_id: ids.importJob,
@@ -149,6 +181,19 @@ export async function seedOperational(db: Db, ids: SeedIds): Promise<void> {
       size: 2,
       mtime: 1,
       kind: 'sidecar',
+      state: 'copied',
+      error: null,
+    },
+    // The canonical copy of the mixed import's one file. Same ordinal as its
+    // inline entry, a different `src`, so only one of the two can land.
+    {
+      import_id: ids.mixedImportJob,
+      idx: 0,
+      src: '/incoming/mixed/promoted-row.dng',
+      dest: '2025/11/promoted-row.dng',
+      size: 40,
+      mtime: 3,
+      kind: 'image',
       state: 'copied',
       error: null,
     },

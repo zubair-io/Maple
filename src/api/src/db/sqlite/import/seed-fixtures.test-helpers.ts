@@ -47,6 +47,8 @@ export interface SeedIds {
   importJob: ObjectId;
   /** An import from before the per-file rows moved out into their own collection. */
   legacyImportJob: ObjectId;
+  /** An import written during the changeover, carrying both copies (#3791). */
+  mixedImportJob: ObjectId;
   changeCursors: number[];
 }
 
@@ -69,6 +71,7 @@ export function newSeedIds(): SeedIds {
     },
     importJob: new ObjectId(),
     legacyImportJob: new ObjectId(),
+    mixedImportJob: new ObjectId(),
     changeCursors: [],
   };
 }
