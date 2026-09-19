@@ -21,6 +21,11 @@ import {
   ASSET_SEARCH_TRIGGER_DDL,
   ASSET_SEARCH_TRIGGER_NAMES,
 } from '../../src/db/sqlite/ddl/search.ts';
+import {
+  STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL,
+  STAGE_STATE_MEDIA_KIND_TRIGGER_DDL,
+  STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
+} from '../../src/db/sqlite/ddl/stage-state.ts';
 import { newObjectIdHex } from '../../src/db/sqlite/object-id.ts';
 import {
   ACTIVITIES,
@@ -124,6 +129,12 @@ interface AssetShape {
   hasPlace: boolean;
   /** Index into the generated library roots. */
   libraryIndex: number;
+  /**
+   * `image`, `video` or `audio`. On the shape rather than drawn where the asset
+   * row is written, because the stage rows need it too: a media-only stage can
+   * never advance past version 0 on an image.
+   */
+  mediaKind: string;
 }
 
 function prepare(db: Database): Statements {
@@ -208,9 +219,18 @@ function makePlace(random: () => number, now: string, shape: AssetShape): string
   });
 }
 
-/** 88% image, 10% video, 2% audio. */
+/**
+ * 95.3% image, 3.6% video, 1.1% audio — the production mix, not a guess.
+ *
+ * #3795 counted it on the owner's library: 15,790 video-and-audio assets out of
+ * 335,419, which is 4.7%. The share matters here more than it looks, because
+ * every stage that narrows to `media_kind` is measured against the assets it
+ * can NEVER claim, and that population is the other 95.3%. A generator that
+ * modelled video at 10% would make the claim look four times healthier than the
+ * library it stands in for.
+ */
 function pickMediaKind(random: () => number): string {
-  return either(random, 0.88, 'image', either(random, 0.83, 'video', 'audio'));
+  return either(random, 0.953, 'image', either(random, 0.76, 'video', 'audio'));
 }
 
 function writeAssetRow(ctx: Context, shape: AssetShape): void {
@@ -226,7 +246,7 @@ function writeAssetRow(ctx: Context, shape: AssetShape): void {
     flag(random, 0.05),
     either(random, 0.06, 'green', ''),
     flag(random, 0.22),
-    pickMediaKind(random),
+    shape.mediaKind,
     flag(random, 0.012),
     // Tri-state: NULL on the assets the describe stage has not classified yet,
     // which is what the column and the DTO both say (#3761).
@@ -262,13 +282,42 @@ function writeLocations(ctx: Context, shape: AssetShape, index: number): void {
   }
 }
 
+/**
+ * Stages that only claim some media kinds, and the kinds each one takes.
+ *
+ * Their rows on every other kind are seeded at version 0 and then never move,
+ * because the stage can never claim them. That is the backlog #3795 measured on
+ * production, and the arithmetic falls out exactly: 319,629 images plus 3,769
+ * audio assets is the 323,398 `video-describe` rows sitting at version 0, out
+ * of 335,419 — against 12,021 videos the stage could take at all. Modelling
+ * these two like every other stage would hide the whole effect.
+ */
+const CLAIMABLE_KINDS_BY_STAGE = new Map<string, ReadonlySet<string>>([
+  ['transcribe', new Set(['video', 'audio'])],
+  ['video-describe', new Set(['video'])],
+]);
+
 /** One row per registered stage, seeded at version 0 when it has not run —
  * the same density the skeleton insert will write in production. */
 function writeStages(ctx: Context, shape: AssetShape): void {
   const { random } = ctx;
   for (const stage of STAGE_NAMES) {
-    const version = either(random, 0.88, 1 + Math.floor(random() * 3), 0);
-    ctx.st.stage.run(shape.id, stage, version, version === 0 ? null : ctx.now, flag(random, 0.004));
+    // Both draws happen for every stage regardless of the outcome, so changing
+    // the media mix does not shift the PRNG sequence for everything after it.
+    const drawnVersion = either(random, 0.88, 1 + Math.floor(random() * 3), 0);
+    const drawnDead = flag(random, 0.004);
+    const kinds = CLAIMABLE_KINDS_BY_STAGE.get(stage);
+    const unreachable = kinds !== undefined && !kinds.has(shape.mediaKind);
+    const version = unreachable ? 0 : drawnVersion;
+    ctx.st.stage.run(
+      shape.id,
+      stage,
+      version,
+      version === 0 ? null : ctx.now,
+      // Never attempted means never parked: a row the claim cannot reach
+      // cannot have spent its attempt budget either.
+      unreachable ? 0 : drawnDead,
+    );
     ctx.counts.stage_state += 1;
   }
 }
@@ -364,6 +413,7 @@ function writeAsset(ctx: Context, index: number): void {
     hasExif,
     hasPlace: hasExif && random() > 0.34,
     libraryIndex: skewedIndex(random, LIBRARY_COUNT),
+    mediaKind: pickMediaKind(random),
   };
   writeAssetRow(ctx, shape);
   writeLocations(ctx, shape, index);
@@ -378,14 +428,28 @@ function writeAsset(ctx: Context, index: number): void {
  * Restored by {@link restoreDerivedTriggers} once the rows are in.
  */
 function dropDerivedTriggers(db: Database): void {
-  for (const name of [...ASSET_LOCATIONS_TRIGGER_NAMES, ...ASSET_SEARCH_TRIGGER_NAMES]) {
-    db.exec(`DROP TRIGGER IF EXISTS ${name}`);
-  }
+  const names = [
+    ...ASSET_LOCATIONS_TRIGGER_NAMES,
+    ...ASSET_SEARCH_TRIGGER_NAMES,
+    ...STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
+  ];
+  for (const name of names) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
 }
 
+/**
+ * Puts the triggers back and rebuilds what they maintain.
+ *
+ * `stage_state.media_kind` is recomputed here rather than left to the trigger,
+ * for the same reason the caller recomputes the location counts: the rows went
+ * in triggerless, so the column still reads its `'image'` default on every
+ * video and audio asset, and a generated library where it did would make every
+ * media-narrowed claim in the benchmark look free.
+ */
 function restoreDerivedTriggers(db: Database): void {
   db.exec(ASSET_LOCATIONS_TRIGGER_DDL);
   db.exec(ASSET_SEARCH_TRIGGER_DDL);
+  db.exec(STAGE_STATE_MEDIA_KIND_TRIGGER_DDL);
+  db.exec(STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL);
 }
 
 function seedPeople(db: Database, now: string): string[] {

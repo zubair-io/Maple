@@ -6,6 +6,7 @@ import { extractAudioWav, hasAudioStream } from '../../audio/extract-audio.ts';
 import { transcribeWav } from '../../audio/whisper-cli.ts';
 import { ensureWhisperModel, type WhisperTier } from '../../audio/whisper-model.ts';
 import type { TranscriptResult } from '../../audio/whisper-parse.ts';
+import { STAGE_STATE_MEDIA_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { transcriptStatement } from '../../db/sqlite/repos/assets.stage-patches.ts';
 import type { TranscriptDoc } from '../../db/schema.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
@@ -126,13 +127,19 @@ const transcribeStage = defineStage({
   // it goes straight to media. The handler's own extension + `no-audio` skips
   // stay the correctness backstop; this only narrows what gets claimed.
   //
-  // An `EXISTS` over `assets` rather than a join, because the claim scans
-  // `stage_state` and this has to stay a probe per candidate row — `media_kind`
-  // has a partial index over exactly the two minority kinds (#3492), so the
-  // probe is a seek.
+  // Two terms, doing two different jobs. The `EXISTS` over `assets` is the
+  // authoritative test and is unchanged, so the set of assets this stage claims
+  // is the set it has always claimed. `STAGE_STATE_MEDIA_NARROWING` in front of
+  // it is what the planner acts on: it selects the partial `stage_claim_media`
+  // index, so the candidate scan walks video and audio stage rows only.
+  //
+  // Leading with the `EXISTS` alone was the #3795 outage. A residual can only
+  // be applied to a row the scan has already produced, and the scan's length is
+  // the stage's backlog — which for this stage is the whole photo library.
   claimResidual: {
-    sql: `EXISTS (SELECT 1 FROM assets
-                   WHERE id = stage_state.asset_id AND media_kind IN (?, ?))`,
+    sql: `${STAGE_STATE_MEDIA_NARROWING}
+          AND EXISTS (SELECT 1 FROM assets
+                       WHERE id = stage_state.asset_id AND media_kind IN (?, ?))`,
     params: ['video', 'audio'],
   },
   defaults: {
