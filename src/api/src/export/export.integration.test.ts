@@ -1,11 +1,16 @@
-/** Real Mongo ledger, child-process encoder and temporary synthetic RAWs. */
+/** Real SQLite ledger, child-process encoder and temporary synthetic RAWs. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from '../fs/mirrored.ts';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ObjectId } from 'mongodb';
-import { getDb, closeDb } from '../db/client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { registerRoot, unregisterRoot } from '../fs/root.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
@@ -18,9 +23,13 @@ import { _resetFfiPoolForTests } from '../ffi/ffi-pool.ts';
 import { parseExportPayload } from './export-payload.ts';
 import type { ExportEntry } from './export-files.ts';
 
-withTestDb(`maple_test_export_recipe_${process.pid}`);
-const enabled = !!process.env['MAPLE_EXPORT_FIXTURE'] && !!process.env['MAPLE_MONGO_URI'];
+// The fixture is the whole gate now: the ledger is an ordinary SQLite database
+// this file opens for itself, so there is no second environment variable to
+// satisfy and no way for this suite to quietly skip because a service was down.
+const enabled = !!process.env['MAPLE_EXPORT_FIXTURE'];
+let live: LiveTestDatabase | null = null;
 let root = '';
+let libraryId = '';
 let original: Buffer<ArrayBuffer>;
 const xml =
   '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="1.2"/></rdf:RDF>';
@@ -30,16 +39,17 @@ beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'maple-recipe-'));
   await mkdir(join(root, 'exports'));
   registerRoot(root);
-  await closeDb();
-  await (await getDb()).collection('folders').insertOne({ path: root, slug: 'recipe' });
+  live = await createLiveTestDatabase();
+  libraryId = insertFolder(live.db, { path: root, slug: 'recipe' });
   invalidateLibraryRoots();
 });
-beforeEach(async () => {
-  if (enabled) await (await getDb()).collection('jobs').deleteMany({});
+beforeEach(() => {
+  if (live) live.db.run(`DELETE FROM jobs`);
 });
 afterAll(async () => {
   _resetFfiPoolForTests();
-  await closeDb();
+  live?.close();
+  live = null;
   if (root) {
     unregisterRoot(root);
     await rm(root, { recursive: true, force: true });
@@ -307,23 +317,21 @@ integration('export recovery boundaries', () => {
     const retry = await jobs.getJob(new ObjectId(requestId));
     expect(retry?.payload.targets).toEqual([bad]);
     expect((await batchSyncJobRoutes.handle(request())).status).toBe(201);
-    expect(
-      await (await getDb()).collection('jobs').countDocuments({ _id: new ObjectId(requestId) }),
-    ).toBe(1);
+    const rows = live!.db.query(`SELECT COUNT(*) AS n FROM jobs WHERE id = ?`).get(requestId) as {
+      n: number;
+    };
+    expect(rows.n).toBe(1);
   }, 60000);
 
   it('migrates the legacy JPEG job onto an immutable developed-image recipe ledger', async () => {
     const photo = await target('legacy');
-    const db = await getDb();
-    const library = await db.collection('folders').findOne({ slug: 'recipe' });
-    const asset = await db
-      .collection('assets')
-      .insertOne({ fileinfo: [{ library_id: library!._id, path: '', filename: 'legacy.dng' }] });
+    const assetId = insertAsset(live!.db);
+    insertLocation(live!.db, { assetId, libraryId, path: '', filename: 'legacy.dng' });
     await writeFile(join(root, 'legacy.xmp'), xml);
     const job = await jobs.createJob({
       kind: 'batch_jpeg_export',
       payload: {
-        assetIds: [asset.insertedId.toHexString()],
+        assetIds: [assetId],
         outputDir: join(root, 'exports'),
         quality: 91,
         maxPx: 32,
@@ -342,7 +350,7 @@ integration('export recovery boundaries', () => {
     expect(await jobs.resumeBatchJob(job._id)).toBe(true);
     await jobs.claimJob('recipe-worker', 60000);
     const completed = await batchJpegExportHandler.run(job.payload, await context(job._id));
-    expect(completed.result.applied).toEqual([asset.insertedId.toHexString()]);
+    expect(completed.result.applied).toEqual([assetId]);
     expect((await readFile(join(root, 'exports', 'legacy.jpg'))).subarray(0, 2)).toEqual(
       Buffer.from([255, 216]),
     );

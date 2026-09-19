@@ -3,29 +3,44 @@
  * retention window.
  *
  * Problem (#3741):
- * asset_changes has no retention policy and dominates the database (176M rows,
- * 83% of all index bytes on prod).
+ * asset_changes has no retention policy and dominated the database (176M rows,
+ * 83% of all index bytes on prod MongoDB).
  *
  * Why pruning is safe by design:
- * Cursor allocation ($inc on `server_state`) and row insert are separate operations.
- * Cursors are monotonic and tolerate gaps. Clients (File Provider extension,
- * RemoteCatalog, ChangeFeedClient) recover through the 409 stale-cursor path,
- * which triggers full working-set re-enumeration. Rows dropped by a retention sweep
- * land in exactly that path.
+ * The cursor counter does not live in the journal. `asset_changes.cursor` is an
+ * INTEGER PRIMARY KEY — a rowid alias — and the value is handed out by the
+ * `asset_changes_cursor` row of `server_state`: the counter bump and the row
+ * insert go in as one `BEGIN IMMEDIATE` batch, and that insert's
+ * `lastInsertRowid` IS the cursor (`db/sqlite/repos/changes.repo.ts`). Emptying
+ * the journal therefore leaves the counter standing, which is exactly what lets
+ * a swept server still answer 409 instead of silently serving nothing:
+ * `isChangeCursorTooOld` compares a client's saved cursor against the surviving
+ * floor, and clients (File Provider extension, RemoteCatalog, ChangeFeedClient)
+ * recover through that stale-cursor path by re-enumerating their working set. A
+ * sweep that reset the counter would turn that 409 into a 200 over an empty
+ * stream — the one outcome a client cannot detect.
  *
  * Invariants:
  * 1. Library-wide, interval-fired job in `maintenance.ts` (mirrors `trash-gc.ts`).
- * 2. Deletes in bounded batches, yielding between batches so HTTP handlers are never starved.
+ * 2. Deletes in bounded batches, yielding between batches so HTTP handlers are never starved,
+ *    and so the single SQLite writer is never held for longer than one batch.
  * 3. The retention window is a DB-backed setting with a control on Settings → Workers,
  *    defaulting to 30 days to match trash-gc.
  * 4. `server_state` cursor stays monotonic; pruning NEVER rewinds it.
  * 5. Cooperative cancellation, single-flight guard, and per-pass batch cap prevent
  *    event-loop starvation and runaway sweeps.
+ *
+ * This module decides *when* and *how much*; every statement it drives lives
+ * beside the table in `db/sqlite/repos/changes.retention.ts`, including the
+ * binary search that finds the cutoff cursor without an index on `at`.
  */
 
-import type { Collection, Db } from 'mongodb';
-import { assetChangesCollection } from '../db/client.ts';
-import type { AssetChangeDoc } from '../db/schema.ts';
+import {
+  countChanges,
+  findRetentionCutoffCursor,
+  pruneChangesBatch,
+} from '../db/sqlite/repos/changes.retention.ts';
+import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
 import { child as childLogger } from '../log.ts';
 import { loadChangeLogGcConfig, recordChangeLogGcRun } from './change-log-gc-config.repo.ts';
 
@@ -43,7 +58,7 @@ export interface ChangeLogGcOptions {
   batchSize?: number;
   pauseMs?: number;
   shouldStop?: () => boolean;
-  dbOverride?: Db;
+  dbOverride?: SqliteDb;
 }
 
 export interface ChangeLogGcSummary {
@@ -55,67 +70,6 @@ export interface ChangeLogGcSummary {
   durationMs: number;
   remaining: number;
   retentionDays: number;
-}
-
-/**
- * Finds the highest cursor where `at < cutoffDate` using indexed binary search over
- * `{ cursor: 1 }`. Since cursors are monotonically allocated over time, point lookups
- * on `cursor` find the boundary in O(log N) operations without scanning the collection
- * or requiring an index on `at`.
- */
-export async function findRetentionCutoffCursor(
-  coll: Collection<AssetChangeDoc>,
-  cutoffDate: Date,
-): Promise<number | null> {
-  const lowestDoc = await coll
-    .find({}, { projection: { cursor: 1, at: 1 } })
-    .sort({ cursor: 1 })
-    .limit(1)
-    .next();
-
-  if (!lowestDoc || lowestDoc.at >= cutoffDate) {
-    return null;
-  }
-
-  const highestDoc = await coll
-    .find({}, { projection: { cursor: 1, at: 1 } })
-    .sort({ cursor: -1 })
-    .limit(1)
-    .next();
-
-  if (!highestDoc) {
-    return null;
-  }
-
-  if (highestDoc.at < cutoffDate) {
-    return highestDoc.cursor;
-  }
-
-  let low = lowestDoc.cursor;
-  let high = highestDoc.cursor;
-  let best = lowestDoc.cursor;
-
-  while (low <= high) {
-    const mid = Math.floor(low + (high - low) / 2);
-    const doc = await coll.findOne(
-      { cursor: { $gte: mid } },
-      { projection: { cursor: 1, at: 1 }, sort: { cursor: 1 } },
-    );
-
-    if (!doc || doc.cursor > high) {
-      high = mid - 1;
-      continue;
-    }
-
-    if (doc.at < cutoffDate) {
-      best = Math.max(best, doc.cursor);
-      low = doc.cursor + 1;
-    } else {
-      high = doc.cursor - 1;
-    }
-  }
-
-  return best;
 }
 
 /** One pass. Exported for tests + callable from setInterval. */
@@ -143,14 +97,10 @@ export async function runChangeLogGcOnce(
   const batchSize = Math.max(1, Math.floor(opts.batchSize ?? BATCH_SIZE));
   const pauseMs = opts.pauseMs ?? BATCH_PAUSE_MS;
 
-  const coll = opts.dbOverride
-    ? opts.dbOverride.collection<AssetChangeDoc>('asset_changes')
-    : await assetChangesCollection();
-
-  const cutoffCursor = await findRetentionCutoffCursor(coll, cutoffDate);
+  const cutoffCursor = await findRetentionCutoffCursor(cutoffDate, opts.dbOverride);
 
   if (cutoffCursor === null) {
-    const remaining = await coll.estimatedDocumentCount().catch(() => 0);
+    const remaining = await countChanges(opts.dbOverride).catch(() => 0);
     const durationMs = Date.now() - startedAt;
     await recordChangeLogGcRun(
       {
@@ -184,30 +134,19 @@ export async function runChangeLogGcOnce(
     while (batches < MAX_BATCHES_PER_PASS) {
       if (opts.shouldStop?.()) break;
 
-      const docs = await coll
-        .find({ cursor: { $lte: cutoffCursor } }, { projection: { _id: 1, cursor: 1 } })
-        .sort({ cursor: 1 })
-        .limit(batchSize)
-        .toArray();
+      const batch = await pruneChangesBatch(cutoffCursor, batchSize, opts.dbOverride);
 
-      if (docs.length === 0) break;
+      if (batch.deleted === 0) break; // no progress — bail rather than spin
 
-      const minCursor = docs[0]!.cursor;
-      const maxCursor = docs[docs.length - 1]!.cursor;
-
-      const res = await coll.deleteMany({
-        cursor: { $gte: minCursor, $lte: maxCursor },
-      });
-
-      if (res.deletedCount === 0) break; // no progress — bail rather than spin
-
-      deleted += res.deletedCount;
+      deleted += batch.deleted;
       batches++;
-      if (maxCursor > prunedThrough) {
-        prunedThrough = maxCursor;
+      if (batch.prunedThrough > prunedThrough) {
+        prunedThrough = batch.prunedThrough;
       }
 
-      if (docs.length < batchSize) break;
+      // A batch that came up short took everything still below the cutoff, so
+      // the next one would be the empty round trip the guard above catches.
+      if (batch.deleted < batchSize) break;
 
       // Yield to the event loop so ongoing HTTP / websocket traffic is never starved
       await delay(pauseMs);
@@ -217,7 +156,7 @@ export async function runChangeLogGcOnce(
     log.error({ err: error, deleted, batches }, 'change-log-gc pass failed mid-sweep');
   }
 
-  const remaining = await coll.estimatedDocumentCount().catch(() => 0);
+  const remaining = await countChanges(opts.dbOverride).catch(() => 0);
   const durationMs = Date.now() - startedAt;
 
   await recordChangeLogGcRun(

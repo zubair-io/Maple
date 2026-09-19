@@ -6,7 +6,7 @@ import { otelLogStream } from '../otel-logs.ts';
  * `startFaceWorker()` is documented "Never throws" (#720). #707 wrapped the
  * model-preload path; this guards the OTHER throwable on the happy path —
  * `loadEnrichmentConfig()` (and the `resolveEnrichmentConfig()` fold) at the top
- * of the function. If the config load rejects (e.g. Mongo unreachable mid-boot),
+ * of the function. If the config load rejects (e.g. the database unreachable mid-boot),
  * the bootstrap must log a warning and resolve, NOT reject — the `index.ts`
  * caller's defensive try/catch is a safety net, not the contract.
  *
@@ -38,7 +38,7 @@ describe('startFaceWorker — never throws when config load rejects (#720)', () 
     });
 
     const loadSpy = spyOn(configRepo, 'loadEnrichmentConfig').mockImplementation(async () => {
-      throw new Error('mongo unreachable');
+      throw new Error('database unreachable');
     });
 
     try {

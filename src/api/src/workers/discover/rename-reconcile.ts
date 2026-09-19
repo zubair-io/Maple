@@ -32,13 +32,8 @@ import type { ObjectId } from 'mongodb';
 import * as fs from '../../fs/mirrored.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { readExif } from '../../indexer/exif.ts';
-import { assetsCollection } from '../../db/client.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
-import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
-import {
-  relocateCacheStageResetSet,
-  liveFileinfoMatchFilter,
-} from '../../db/relocate-cache-reset.ts';
+import { repointLocation, restoreLocation } from '../../db/sqlite/repos/assets.discover.sweep.ts';
 import { buildFileinfoEntry } from './types.ts';
 import { child } from '../../log.ts';
 import type { AssetExif, FileInfo } from '../../db/schema.ts';
@@ -276,58 +271,11 @@ async function moveSidecarIfPresent(oldAbsPath: string, newAbsPath: string): Pro
   }
 }
 
-/** Repoints the DB row's matching `fileinfo` entry onto the new path, in
- * place: same `_id`, same `maple_id`, same edits, same stage history except
- * the cache-writing stages (thumb/preview), which reset to v0 so the
- * workers regenerate them at the new location — the established move
- * pattern `library/relocate-asset.ts` uses for an in-app relocate.
- *
- * The OLD entry's `(library_id, path, filename, deleted_at: null)` is part
- * of the top-level QUERY filter, not just the `arrayFilters` — mirroring
- * `library/relocate-asset.ts`'s `repointToNewLocation`. That matters: with
- * the old entry matched only via `arrayFilters`, a concurrent change to
- * that exact fileinfo entry (another repoint, a trash, a dedupe move) makes
- * the array-filtered `$set` clauses silently no-op while `_id` alone still
- * matches — and this update's OTHER top-level field (`indexed_at`, always a
- * fresh timestamp) would still report a real `modifiedCount`, masking the
- * no-op. Folding the old values into the query itself means `matchedCount`
- * only comes back positive when the exact entry we read moments ago is
- * still there to update. */
-async function repointFileinfoEntry(
-  candidate: MissingFileCandidate,
-  newEntry: { path: string; filename: string },
-): Promise<boolean> {
-  const coll = await assetsCollection();
-  const set: Record<string, unknown> = {
-    'fileinfo.$[e].path': newEntry.path,
-    'fileinfo.$[e].filename': newEntry.filename,
-    'fileinfo.$[e].missing_since': null,
-    'fileinfo.$[e].missing_reason': null,
-    indexed_at: new Date().toISOString(),
-    ...MEILI_REARM_SET,
-    ...relocateCacheStageResetSet(),
-  };
-  const res = await coll.updateOne(
-    liveFileinfoMatchFilter(candidate.docId, candidate.fileinfo),
-    { $set: set } as never,
-    {
-      arrayFilters: [
-        {
-          'e.library_id': candidate.fileinfo.library_id,
-          'e.path': candidate.fileinfo.path,
-          'e.filename': candidate.fileinfo.filename,
-        },
-      ],
-    },
-  );
-  return res.matchedCount > 0 && res.modifiedCount > 0;
-}
-
-/** Reverses `repointFileinfoEntry` exactly: restores the entry (now sitting
- * at `newEntry`) back to `original`'s path/filename/missing markers. Used
- * ONLY when the repoint itself succeeded but the follow-on sidecar move
- * then failed — see `reconcilePair`'s ordering comment for why that
- * specific failure needs an explicit undo rather than being left in place.
+/** Reverses the repoint exactly: restores the entry (now sitting at
+ * `newEntry`) back to `original`'s path/filename/missing markers. Used ONLY
+ * when the repoint itself succeeded but the follow-on sidecar move then
+ * failed — see `reconcilePair`'s ordering comment for why that specific
+ * failure needs an explicit undo rather than being left in place.
  * Best-effort: if even the rollback write fails, the row is left
  * (rare, logged) with a location that has no sidecar of its own on disk —
  * an orphaned-sidecar-shaped failure, not a misattributed-edits one. */
@@ -336,39 +284,13 @@ async function rollbackRepoint(
   newEntry: { path: string; filename: string },
   original: FileInfo,
 ): Promise<void> {
-  const coll = await assetsCollection();
   try {
-    const res = await coll.updateOne(
-      {
-        _id: docId,
-        fileinfo: {
-          $elemMatch: {
-            library_id: original.library_id,
-            path: newEntry.path,
-            filename: newEntry.filename,
-            deleted_at: null,
-          },
-        },
-      },
-      {
-        $set: {
-          'fileinfo.$[e].path': original.path,
-          'fileinfo.$[e].filename': original.filename,
-          'fileinfo.$[e].missing_since': original.missing_since ?? null,
-          'fileinfo.$[e].missing_reason': original.missing_reason ?? null,
-        },
-      } as never,
-      {
-        arrayFilters: [
-          {
-            'e.library_id': original.library_id,
-            'e.path': newEntry.path,
-            'e.filename': newEntry.filename,
-          },
-        ],
-      },
+    const restored = await restoreLocation(
+      docId,
+      { library_id: original.library_id, path: newEntry.path, filename: newEntry.filename },
+      original,
     );
-    if (res.matchedCount === 0) {
+    if (!restored) {
       log.warn(
         { docId: docId.toHexString() },
         'rename-reconcile: rollback found no matching entry — row changed again concurrently',
@@ -412,7 +334,20 @@ async function reconcilePair(
     return false;
   }
 
-  const repointed = await repointFileinfoEntry(missing, newEntry);
+  // Repoints the row's matching location onto the new path, in place: same
+  // `_id`, same `maple_id`, same edits, same stage history except the
+  // cache-writing stages (thumb/preview), which reset to v0 so the workers
+  // regenerate them at the new location — the established move pattern
+  // `library/relocate-asset.ts` uses for an in-app relocate. The old
+  // `(library_id, path, filename)` and its liveness are in the write's own
+  // `WHERE`, so a `false` means the exact entry we read moments ago is no
+  // longer there rather than that the write happened to change nothing.
+  const repointed = await repointLocation(
+    missing.docId,
+    missing.fileinfo,
+    newEntry,
+    new Date().toISOString(),
+  );
   if (!repointed) {
     log.warn(
       { docId: missing.docId.toHexString() },

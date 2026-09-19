@@ -2,7 +2,7 @@
 import { ObjectId } from 'mongodb';
 import { readFile } from '../../fs/mirrored.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
-import { assetsCollection } from '../../db/client.ts';
+import { loadAssetLocationViews } from '../../db/sqlite/repos/assets.locations.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { DEFAULT_EXPORT_RECIPE } from '../../generated/export-recipe.generated.ts';
@@ -29,17 +29,14 @@ async function snapshot(path: string): Promise<string> {
 async function recipePayload(raw: Record<string, unknown>): Promise<Record<string, unknown>> {
   const ids = assetIds(raw['assetIds']);
   const roots = await loadLibraryRoots();
-  const docs = await (await assetsCollection())
-    .find({ _id: { $in: ids.map((id) => new ObjectId(id)) } })
-    .toArray();
-  const byId = new Map(docs.map((doc) => [doc._id.toHexString(), doc]));
+  const byId = await loadAssetLocationViews(ids.map((id) => new ObjectId(id)));
   const targets = [];
   for (const [index, id] of ids.entries()) {
-    const doc = byId.get(id);
-    const path = doc ? assetAbsPath(doc, roots) : null;
+    const view = byId.get(id);
+    const path = view ? assetAbsPath(view, roots) : null;
     if (!path) throw new Error(`Cannot resolve original ${id}`);
     const xmp = await snapshot(path);
-    targets.push({ id, path, xmp, index, capturedAt: doc?.exif?.captured_at ?? null });
+    targets.push({ id, path, xmp, index, capturedAt: view?.capturedAt ?? null });
   }
   const payload = {
     targets,

@@ -4,27 +4,27 @@
 // Apple Preview screen's thumbnail → hi-res swap.
 //
 // Serving is exercised via pre-staged `.maple/previews/` cache files (fresh
-// mtime) so the tests never invoke maple/libraw. The Mongo-backed
-// content-addressed path follows the per-process isolated-DB +
-// skip-if-Mongo-unreachable pattern from `libraries.cache.test.ts`.
+// mtime) so the tests never invoke maple/libraw. The catalogue lookup behind
+// the path-keyed entry runs against SQLite (#3787): a private database per
+// test, installed as the process-wide handle, which is also what makes the
+// route's `isSqliteOpen()` guard open the catalogue branch at all.
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { MongoClient, ObjectId } from 'mongodb';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_fs_previews_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 import { fsPreviewsRoutes, libraryAddressFor } from './fs-previews.ts';
 import { cachePathFor } from '../fs/xmp.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import { getDb, closeDb } from '../db/client.ts';
 import * as videoPosterModule from '../thumbs/video-poster.ts';
+import { registerLibrary, seedRouteAsset } from '../../tests/helpers/assets-route-fixtures.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 describe('libraryAddressFor', () => {
   const roots = new Map([['aaaaaaaaaaaaaaaaaaaaaaaa', '/lib/photos']]);
@@ -55,50 +55,16 @@ describe('libraryAddressFor', () => {
   });
 });
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db(TEST_DB).command({ ping: 1 });
-    return c;
-  } catch {
-    await c.close().catch(() => {});
-    return null;
-  }
-}
-
 describe('GET /api/fs/preview', () => {
-  let mongo: MongoClient | null = null;
-  let tmp: string | null = null;
-  let rawPath: string | null = null;
-
-  beforeAll(async () => {
-    mongo = await tryConnect();
-    // The route consults the DB only when the app's own client already holds
-    // a live connection (`isDbConnected()` guard — in production the server
-    // connects at boot). Mirror that here so the content-addressed path is
-    // exercised.
-    if (mongo) await getDb();
-  });
-
-  afterAll(async () => {
-    if (mongo) {
-      await mongo
-        .db(TEST_DB)
-        .dropDatabase()
-        .catch(() => {});
-      await mongo.close().catch(() => {});
-    }
-    // Also close the app's own client (opened via getDb() above) so no
-    // pooled connection outlives the suite.
-    await closeDb().catch(() => {});
-  });
+  let live: LiveTestDatabase;
+  let tmp: string;
+  let rawPath: string;
+  let previousRoots: string | undefined;
 
   beforeEach(async () => {
+    live = await createLiveTestDatabase();
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-fs-previews-')));
+    previousRoots = process.env.MAPLE_ROOTS;
     process.env.MAPLE_ROOTS = tmp;
     rawPath = join(tmp, 'a.jpg');
     await writeFile(rawPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
@@ -106,12 +72,10 @@ describe('GET /api/fs/preview', () => {
   });
 
   afterEach(async () => {
-    if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
-    tmp = null;
-    if (mongo) {
-      await mongo.db(TEST_DB).collection('folders').deleteMany({});
-      await mongo.db(TEST_DB).collection('assets').deleteMany({});
-    }
+    if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = previousRoots;
+    live.close();
+    await rm(tmp, { recursive: true, force: true }).catch(() => {});
     invalidateLibraryRoots();
   });
 
@@ -124,7 +88,7 @@ describe('GET /api/fs/preview', () => {
 
   /** Pre-stage the legacy basename-keyed cache entry with distinct bytes. */
   const stageLegacyPreview = async (bytes: Buffer) => {
-    const previewPath = cachePathFor(rawPath!, 'previews', PREVIEW_CACHE_SUFFIX);
+    const previewPath = cachePathFor(rawPath, 'previews', PREVIEW_CACHE_SUFFIX);
     await mkdir(dirname(previewPath), { recursive: true });
     await writeFile(previewPath, bytes);
   };
@@ -142,7 +106,7 @@ describe('GET /api/fs/preview', () => {
   });
 
   it('415s an unsupported extension inside the jail', async () => {
-    const docPath = join(tmp!, 'notes.txt');
+    const docPath = join(tmp, 'notes.txt');
     await writeFile(docPath, 'hello');
     const res = await get(docPath);
     expect(res.status).toBe(415);
@@ -151,7 +115,7 @@ describe('GET /api/fs/preview', () => {
   // #2132: video shares the jail with /api/fs/thumb, and used to be rejected
   // there by an allowlist that predated poster-frame extraction (#1649).
   it('does not 415 a video at the extension gate', async () => {
-    const videoPath = join(tmp!, 'clip.mov');
+    const videoPath = join(tmp, 'clip.mov');
     await writeFile(videoPath, Buffer.from('container bytes'));
     const res = await get(videoPath);
     expect(res.status).not.toBe(415);
@@ -163,7 +127,7 @@ describe('GET /api/fs/preview', () => {
     // 500 — indistinguishable from a real server fault.
     const spy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
     try {
-      const videoPath = join(tmp!, 'no-decoder.mov');
+      const videoPath = join(tmp, 'no-decoder.mov');
       await writeFile(videoPath, Buffer.from('container bytes'));
       const res = await get(videoPath);
       expect(res.status).toBe(503);
@@ -174,19 +138,17 @@ describe('GET /api/fs/preview', () => {
   });
 
   it('serves a fresh pre-staged preview with an ETag, and 304s on If-None-Match', async () => {
-    if (!mongo) return; // skip-if-unreachable: route consults Mongo per request
-
     const staged = Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);
     await stageLegacyPreview(staged);
 
-    const res = await get(rawPath!);
+    const res = await get(rawPath);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/avif');
     const etag = res.headers.get('etag');
     expect(etag).toBeTruthy();
     expect(Buffer.from(await res.arrayBuffer())).toEqual(staged);
 
-    const revalidated = await get(rawPath!, { 'if-none-match': etag! });
+    const revalidated = await get(rawPath, { 'if-none-match': etag! });
     expect(revalidated.status).toBe(304);
     // Not immutable / long-max-age — the preview is overwritten in place on
     // edit, so clients must revalidate (the file-based ETag then busts) (#2017).
@@ -194,36 +156,15 @@ describe('GET /api/fs/preview', () => {
   });
 
   it('serves the indexer-written <filename>.avif when the asset is indexed (no maple_id needed)', async () => {
-    if (!mongo) return;
-
-    const db = mongo.db(TEST_DB);
-    const libraryId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: libraryId,
-      path: tmp!,
-      slug: 'test-lib',
-      label: 'Test',
-    });
-    await db.collection('assets').insertOne({
-      deleted_at: null,
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: '',
-          filename: 'a.jpg',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-    });
-    invalidateLibraryRoots();
+    const libraryId = registerLibrary(live.db, tmp, 'test-lib');
+    seedRouteAsset(live.db, { libraryId, path: '', filename: 'a.jpg' });
 
     const pathKeyed = Buffer.from([0xff, 0xd8, 0xaa, 0xbb, 0xff, 0xd9]);
-    const previewPath = join(tmp!, '.maple', 'previews', `a.jpg.${PREVIEW_CACHE_SUFFIX}`);
+    const previewPath = join(tmp, '.maple', 'previews', `a.jpg.${PREVIEW_CACHE_SUFFIX}`);
     await mkdir(dirname(previewPath), { recursive: true });
     await writeFile(previewPath, pathKeyed);
 
-    const res = await get(rawPath!);
+    const res = await get(rawPath);
     expect(res.status).toBe(200);
     expect(Buffer.from(await res.arrayBuffer())).toEqual(pathKeyed);
   });

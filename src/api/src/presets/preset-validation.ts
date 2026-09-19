@@ -17,10 +17,11 @@
  *     look") rather than a missing one.
  *   - UNKNOWN fields (newer schema versions) are accepted and preserved
  *     verbatim — but must still be JSON scalars within size caps, so the
- *     collection can't be used as a blob store.
- *   - ALL keys must be Mongo-safe (no `.`/NUL, no `$` prefix) — they are
- *     written as subdocument keys, and an unsafe one would otherwise only
- *     fail at insert time as a 500 instead of a clean 400.
+ *     preset store can't be used as a blob store.
+ *   - ALL keys must be storable (no `.`/NUL, no `$` prefix) — rejected here,
+ *     as a deterministic 400, rather than anywhere further down. See
+ *     `isStorableKey` for which half of that rule is a live storage limit
+ *     and which half is an inherited part of the API contract.
  *
  * Pure functions, no I/O — unit-tested in `preset-validation.test.ts`.
  */
@@ -51,19 +52,30 @@ export type PresetValidationResult =
   | { ok: false; error: string };
 
 /**
- * MongoDB forbids document keys that contain `.` or NUL or start with `$`
- * (exact rules vary by server version). Preset `fields` keys — and the
- * preserved unknown top-level keys in `doc.extra` — are written as
- * subdocument keys, so an unsafe key would only surface at insert time as
- * a 500. Reject it during validation instead, as a deterministic 400.
+ * Which key shapes a preset may carry, in `fields` and in the preserved
+ * unknown top-level keys of `doc.extra`. Three characters are rejected, for
+ * two different reasons:
+ *
+ *   - NUL is a live storage hazard. Both maps are persisted as JSON in a text
+ *     column, and an embedded NUL truncates or corrupts that text depending on
+ *     which reader gets to it first.
+ *   - `.` and a leading `$` are inherited. Presets used to be stored as
+ *     database documents whose own keys were these very field names, and that
+ *     store forbade both characters in a key, so an unsafe one surfaced at
+ *     insert time as a 500. JSON text has no such restriction, so this half is
+ *     no longer about storage — it is kept because the set of keys the API
+ *     accepts is part of its contract, and widening it is its own decision.
+ *
+ * Either way the rejection happens during validation, so the caller gets a
+ * deterministic 400 rather than a failure further down.
  */
-export function isMongoSafeKey(key: string): boolean {
+export function isStorableKey(key: string): boolean {
   return !key.startsWith('$') && !key.includes('.') && !key.includes('\0');
 }
 
-/** Shared 400 message for a Mongo-unsafe key (field, preserved top-level,
- * or nested inside a preserved value). */
-export function unsafeKeyError(key: string): string {
+/** Shared 400 message for a key `isStorableKey` rejects (field, preserved
+ * top-level, or nested inside a preserved value). */
+export function unstorableKeyError(key: string): string {
   return `key "${key.slice(0, 80)}" must not contain "." or NUL or start with "$"`;
 }
 
@@ -98,8 +110,8 @@ export function validatePresetFields(raw: unknown): { fields: PresetFields } | {
     if (key.length === 0 || key.length > PRESET_FIELD_KEY_MAX) {
       return { error: `field key "${key.slice(0, 80)}" has invalid length` };
     }
-    if (!isMongoSafeKey(key)) {
-      return { error: unsafeKeyError(key) };
+    if (!isStorableKey(key)) {
+      return { error: unstorableKeyError(key) };
     }
     if (isKnownNumericField(key)) {
       if (typeof value !== 'number' || !Number.isFinite(value)) {

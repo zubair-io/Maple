@@ -2,16 +2,16 @@
  * Unified `asset.search_blob` synthesis. Concatenates the three text
  * sources that contribute to user-visible search hits (place metadata,
  * LLM caption, OCR'd text), normalises them into a deterministic bag
- * of tokens, and exports the Mongo aggregation-pipeline expression that
- * recomputes the field atomically inside each worker's `complete()`.
+ * of tokens. `composeSearchBlob` is what every writer uses; the MongoDB
+ * aggregation-pipeline expression below survives only for the remaining
+ * MongoDB read path in `db/client.ts`.
  *
  * Why one field?
- *   Mongo allows ONE text index per collection. The three sources land
- *   on different schedules (geocode worker, describe worker, OCR worker)
- *   and each must keep the unified blob coherent without serialising on
- *   a separate write. The aggregation-pipeline `$set` form lets us
- *   recompute the union from the live row state in a single
- *   `updateOne` — no read-modify-write race.
+ *   One denormalised text field carries all three sources, and one full-text
+ *   index covers it. The sources land on different schedules (geocode worker,
+ *   describe worker, OCR worker) and each must keep the unified blob coherent
+ *   without serialising on a separate write, so the blob is always recomputed
+ *   from the live row state rather than read, edited and written back.
  *
  * Tokenisation matches `place-parser.ts:buildSearchBlob`:
  *   - lowercased

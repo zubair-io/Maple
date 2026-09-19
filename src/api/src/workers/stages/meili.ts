@@ -6,8 +6,12 @@
  * to incorporate their outputs. Operator must bump meili.targetVersion or
  * trigger a manual reset to refresh.
  *
- * The `search_blob` patch keeps the Mongo `$text` fallback search coherent
- * so assets remain searchable even without a Meilisearch sidecar.
+ * The `search_blob` patch keeps the built-in full-text fallback coherent so
+ * assets remain searchable even without a Meilisearch sidecar. It is a row of
+ * `asset_search` now rather than a field of the asset document, and that table
+ * is the external content of the FTS5 index — so an empty blob is a delete
+ * rather than a write of `''`, which is what the repo's
+ * `searchBlobStatements` encodes.
  *
  * When Meilisearch is configured, the doc is also upserted there for
  * typo-tolerant search. Throws on transport error so the runtime retries.
@@ -17,7 +21,6 @@
  * rather than spinning forever on an un-fixable invariant violation.
  */
 
-import { ObjectId } from 'mongodb';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import {
@@ -30,59 +33,59 @@ import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { placeTextForIndex, transcriptForIndex } from '../../enrichment/asset-doc-fields.ts';
 import { ASSET_DOC_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { peopleCollection } from '../../db/client.ts';
-import { AUTO_PERSON_NAME } from '../../people/auto-person-name.ts';
-import type { AssetFaceDoc, FileInfo, PersonDoc, VisionDoc } from '../../db/schema.ts';
+import { searchBlobStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { indexableNamesForPersonIds } from '../../db/sqlite/repos/people.search-filter.ts';
+import type { AssetFaceDoc, FileInfo, VisionDoc } from '../../db/schema.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
 
-// Auto-generated cluster names ("Person 1", "Person 12", …) are
-// placeholders, not real identities — folding them into the index would
-// pollute it with the high-frequency token "person", so they stay out of
-// both the search blob and the Meili `people` attribute. The predicate is
-// shared with the search facets picker (#2879).
-
-function validPersonIds(faces: AssetFaceDoc[] | null | undefined): ObjectId[] {
+/**
+ * The de-duplicated person ids an asset's faces point at, canonicalised to
+ * lowercase hex.
+ *
+ * `faces[].person_id` was free-form text on Mongo, so a malformed value had to
+ * be discarded here or the whole `$in` would throw for the asset. It is a
+ * foreign key into `people` now and a value naming no real person cannot be
+ * stored, so the shape check is belt and braces — but the *case*
+ * canonicalisation still matters, because the name map this feeds is keyed on
+ * the stored form.
+ */
+function validPersonIds(faces: AssetFaceDoc[] | null | undefined): string[] {
   if (!faces || faces.length === 0) return [];
-  const ids: ObjectId[] = [];
+  const ids: string[] = [];
   const seen = new Set<string>();
   for (const face of faces) {
     const hex = face.person_id;
-    if (!hex || seen.has(hex) || !/^[0-9a-f]{24}$/i.test(hex)) continue;
-    seen.add(hex);
-    ids.push(new ObjectId(hex));
+    if (!hex || !/^[0-9a-f]{24}$/i.test(hex)) continue;
+    const canonical = hex.toLowerCase();
+    if (seen.has(canonical)) continue;
+    seen.add(canonical);
+    ids.push(canonical);
   }
   return ids;
 }
 
-/** Load all indexable person names for one or more assets in a single query. */
+/**
+ * Indexable person names for one or more assets, in a single query.
+ *
+ * "Indexable" is the visibility rule, and it is stricter than the one the facet
+ * picker uses: merged rows out, hidden out, excluded out (#2894 — an excluded
+ * person's name must not be searchable), and auto-generated `Person N` cluster
+ * names out. Those are placeholders rather than identities, and folding them in
+ * would pollute the index with the high-frequency token "person".
+ *
+ * All four are `WHERE` clauses in `indexableNamesForPersonIds` now, where the
+ * Mongo version filtered three of them server-side and then re-filtered the
+ * auto-names in TypeScript against a regex.
+ */
 export async function loadNamedPeople(
   faceSets: Array<AssetFaceDoc[] | null | undefined>,
 ): Promise<Map<string, string>> {
-  const uniqueIds = new Map<string, ObjectId>();
+  const uniqueIds = new Set<string>();
   for (const faces of faceSets) {
-    for (const id of validPersonIds(faces)) uniqueIds.set(id.toHexString(), id);
+    for (const id of validPersonIds(faces)) uniqueIds.add(id);
   }
   if (uniqueIds.size === 0) return new Map();
-
-  const coll = await peopleCollection();
-  const rows = await coll
-    .find({
-      _id: { $in: [...uniqueIds.values()] },
-      merged_into: null,
-      hidden: { $ne: true },
-      // #2894 — an excluded person's name must not be searchable.
-      excluded: { $ne: true },
-    } as never)
-    .project<{ _id: ObjectId; name: PersonDoc['name'] }>({ _id: 1, name: 1 })
-    .toArray();
-  return new Map(
-    rows
-      .filter(
-        (row) =>
-          typeof row.name === 'string' && row.name.length > 0 && !AUTO_PERSON_NAME.test(row.name),
-      )
-      .map((row) => [row._id.toHexString(), row.name]),
-  );
+  return indexableNamesForPersonIds([...uniqueIds]);
 }
 
 /** Resolve an asset's ordered, de-duplicated names from a batch name map. */
@@ -93,7 +96,7 @@ export function peopleNamesForFaces(
   const names: string[] = [];
   const seen = new Set<string>();
   for (const id of validPersonIds(faces)) {
-    const name = namesById.get(id.toHexString());
+    const name = namesById.get(id);
     if (!name || seen.has(name)) continue;
     seen.add(name);
     names.push(name);
@@ -279,10 +282,7 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
 
   const semanticFingerprint = client.semanticFingerprint?.();
   return {
-    patch: {
-      search_blob: blob,
-      ...(semanticFingerprint ? { semantic_vector_fingerprint: semanticFingerprint } : {}),
-    },
+    patch: searchBlobStatements(image._id.toHexString(), blob, semanticFingerprint ?? null),
   };
 }
 

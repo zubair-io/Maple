@@ -1,7 +1,7 @@
 /**
  * Persisted map tile-source config (Map T2, #2826). Mirrors the
- * observability-config shape: a single document in `app_settings` keyed by
- * `_id: "map"`.
+ * observability-config shape: a single row in `app_settings` keyed
+ * `id = 'map'`.
  *
  * Design: `docs/superpowers/specs/2026-08-14-photo-map-view-design.md` §
  * "Tile source setting (web only)". The web map (MapLibre GL) needs a

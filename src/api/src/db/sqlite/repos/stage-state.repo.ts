@@ -65,6 +65,8 @@ import {
   REGISTER_STAGE_SQL,
   SEED_STAGE_ROW_SQL,
   STAGE_DEAD_COUNT_SQL,
+  STAGE_INVALIDATE_SQL,
+  STAGE_OFF_CLAIM_SUCCESS_SQL,
   STAGE_VERSION_BUMP_RESET_SQL,
   stagePendingCountSql,
   stageReadyCountSql,
@@ -140,6 +142,67 @@ export async function versionBumpReset(
     targetVersion,
   ]);
   return result.changes;
+}
+
+/** One asset's outcome from a handler the caller ran itself. */
+export interface OffClaimStageResult {
+  assetId: string;
+  /** The handler's own writes, already built by its patch builder. */
+  patch?: readonly SqlStatement[];
+  /** Downstream stages the handler asked to re-arm. */
+  invalidates?: readonly string[];
+  /** Present when the handler skipped; recorded in `last_error` as a loop does. */
+  skipReason?: string;
+}
+
+/**
+ * Record results from a stage handler that a request path ran directly, rather
+ * than the stage's own poll loop.
+ *
+ * `/api/library/relocate` is the caller and the reason this exists: it cannot
+ * move an asset into its canonical location folder using a `place_text` the
+ * sidecar has already superseded, so for the assets `sidecar-metadata-index` has
+ * not reached it runs that handler on the spot and lands the result here. The
+ * alternative — waiting for the poll loop — would have the route silently
+ * relocate against stale metadata.
+ *
+ * The whole batch is one transaction, which is the property the Mongo
+ * `bulkWrite` this replaces did *not* have: there, each asset's patch and its
+ * stage row were separate document writes, and a crash between two of them left
+ * an asset patched but not marked, or marked but not patched. Every statement
+ * degrades to a no-op for an asset that has been deleted since it was read
+ * (`UPDATE … WHERE id = ?`, or an insert sourced from `SELECT … FROM assets`),
+ * so one vanished asset cannot roll the others back.
+ *
+ * See `STAGE_OFF_CLAIM_SUCCESS_SQL` for what it means for the stage row to be
+ * written without a claim's lease.
+ */
+export async function recordOffClaimStageResults(
+  stage: { name: string; targetVersion: number },
+  results: readonly OffClaimStageResult[],
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  if (results.length === 0) return;
+  const processedAt = new Date().toISOString();
+  const statements = results.flatMap((result): SqlStatement[] => [
+    ...(result.patch ?? []),
+    // The handler's own stage is excluded for the same reason the runner
+    // excludes it: this statement list already owns that row.
+    ...(result.invalidates ?? [])
+      .filter((name) => name !== stage.name)
+      .map((name) => ({ sql: STAGE_INVALIDATE_SQL, params: [name, result.assetId] })),
+    {
+      sql: STAGE_OFF_CLAIM_SUCCESS_SQL,
+      params: [
+        stage.name,
+        stage.targetVersion,
+        result.skipReason === undefined ? null : `skip: ${result.skipReason}`,
+        processedAt,
+        result.assetId,
+      ],
+    },
+  ]);
+  await assetsDb(dbOverride).transaction(statements);
 }
 
 /** What one stage's row on Settings → Workers reports. */

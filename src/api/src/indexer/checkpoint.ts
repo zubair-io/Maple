@@ -1,67 +1,26 @@
 /**
- * Per-folder indexer checkpoint.
+ * Per-library indexer checkpoint — where the last full walk got to, and which
+ * jobs were in flight when the process went down.
  *
- * Stored in a dedicated Mongo collection so an indexer restart can
- * resume: re-walk folders whose on-disk mtime has advanced past our
- * last recorded walk, and re-enqueue jobs that were in flight when
- * we went down.
+ * A restart re-walks the libraries whose on-disk mtime has advanced past the
+ * recorded walk and re-enqueues whatever the row still lists as in flight.
+ *
+ * The storage moved to SQLite in #3787; the accessors live in
+ * `db/sqlite/repos/indexer-checkpoints.repo.ts` and this module is the import
+ * path the discover sweeper already uses. Two functions did not come across:
+ *
+ *  - `checkpointsCollection`, which handed out the raw Mongo collection. It had
+ *    no caller outside this file.
+ *  - `ensureCheckpointIndexes`, whose whole job was creating the unique index on
+ *    `folderId` that the upserts depend on. `folder_id` is the table's primary
+ *    key, so that uniqueness is now a property of the schema rather than of a
+ *    startup call somebody has to remember to make.
  */
 
-import { getDb } from '../db/client.ts';
-import type { Collection } from 'mongodb';
-
-export interface CheckpointDoc {
-  /** Hex string of the folder's Mongo ObjectId. */
-  folderId: string;
-  /** Absolute filesystem path — handy for cross-checks / orphan cleanup. */
-  path: string;
-  /** Most recent time we finished a full walk (ms since epoch). */
-  lastWalkedAt: number;
-  /** maple:id hex strings of jobs that had been picked up but not finished. */
-  inflightIds: string[];
-  /** Active discover sweep generation for this folder. */
-  sweepGen?: number;
-  updatedAt: number;
-}
-
-export async function checkpointsCollection(): Promise<Collection<CheckpointDoc>> {
-  const db = await getDb();
-  const coll = db.collection<CheckpointDoc>('indexer_checkpoints');
-  return coll;
-}
-
-export async function ensureCheckpointIndexes(): Promise<void> {
-  const coll = await checkpointsCollection();
-  await coll.createIndex({ folderId: 1 }, { unique: true });
-}
-
-export async function readCheckpoint(folderId: string): Promise<CheckpointDoc | null> {
-  const coll = await checkpointsCollection();
-  return coll.findOne({ folderId });
-}
-
-export async function writeCheckpoint(doc: CheckpointDoc): Promise<void> {
-  const coll = await checkpointsCollection();
-  await coll.updateOne(
-    { folderId: doc.folderId },
-    { $set: { ...doc, updatedAt: Date.now() } },
-    { upsert: true },
-  );
-}
-
-export async function markInflight(folderId: string, id: string): Promise<void> {
-  const coll = await checkpointsCollection();
-  await coll.updateOne(
-    { folderId },
-    { $addToSet: { inflightIds: id }, $set: { updatedAt: Date.now() } },
-    { upsert: true },
-  );
-}
-
-export async function clearInflight(folderId: string, id: string): Promise<void> {
-  const coll = await checkpointsCollection();
-  await coll.updateOne(
-    { folderId },
-    { $pull: { inflightIds: id }, $set: { updatedAt: Date.now() } },
-  );
-}
+export {
+  clearInflight,
+  markInflight,
+  readCheckpoint,
+  writeCheckpoint,
+} from '../db/sqlite/repos/indexer-checkpoints.repo.ts';
+export type { CheckpointDoc } from '../db/sqlite/repos/indexer-checkpoints.repo.ts';

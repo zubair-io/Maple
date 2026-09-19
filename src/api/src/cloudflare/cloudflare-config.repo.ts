@@ -1,6 +1,6 @@
 /**
- * Persisted Cloudflare R2 thumbnail-mirror config. A single document in
- * `app_settings` keyed by `_id: "cloudflare"`, mirroring the shape used by
+ * Persisted Cloudflare R2 thumbnail-mirror config. A single row in
+ * `app_settings` keyed `id = 'cloudflare'`, mirroring the shape used by
  * `enrichment-config.repo.ts`.
  *
  * Unlike the enrichment config, there is no env-var fallback: R2

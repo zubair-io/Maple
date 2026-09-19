@@ -1,230 +1,57 @@
 /**
- * Runner-side per-location `missing_since` tagging tests.
+ * The runner's ENOENT path: what happens when an original-file stage cannot
+ * find the file it was claimed to process.
  *
- * Split out of `run-stage.test.ts` to keep that file under the file-size
- * budget. Covers the catch-path tag the missing-reaper consumes: an
- * original-file stage (`tagsMissingOnEnoent`) that fails with ENOENT stamps
- * `missing_since` on the PRIMARY `fileinfo` entry (first-detection wins), and
- * nothing else tags. DB-free — the in-memory collection mock understands the
- * `$elemMatch`/`$in`/`$type`/`$not` operators the claim query uses and applies
- * `arrayFilters` `$set`s the way the per-entry tag write needs.
+ * Confirm-before-tag (#2171) is the whole subject. A handler-level ENOENT is
+ * only a CLAIM that the file is gone — it can also be a race, a stale negative
+ * cache on a network share, or an unmounted library root under which every
+ * child path ENOENTs. The runner therefore resolves the location against its
+ * registered root, requires the root to be available (listable and non-empty,
+ * because an unmounted mountpoint is a present-but-empty directory), re-stats
+ * the exact path, and tags only on a confirmed absence.
+ *
+ * `claimRollbackStatement`'s own behaviour — the attempt given back, the lease
+ * cleared — is asserted in `db/sqlite/repos/stage-writeback.test.ts`. What is
+ * asserted here is the decision in front of it, which the repository cannot
+ * see: whether to reach for the tag at all.
+ *
+ * The library roots come from the `folders` table rather than from a test-only
+ * override, because that is where the runner reads them from now. One case the
+ * Mongo suite covered has gone with that move: "the location names a library
+ * that is not registered" is unreachable here, because `asset_locations` holds
+ * a foreign key into `folders`. The runner still refuses to tag in that case —
+ * the guard is unchanged — but the database can no longer produce it, and a
+ * test that has to break the schema to reach a branch is asserting the schema's
+ * absence rather than the runner's behaviour.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Collection, UpdateResult } from 'mongodb';
-import { _test, buildClaimQuery, defineStage, type ImageDoc } from './run-stage.ts';
-import type { WorkerConfigDoc } from './worker-config.repo.ts';
-import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
+import type { Database } from 'bun:sqlite';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { defineStage, runOnce, type StageConfig } from './run-stage.ts';
 
-function makeConfigMock(): Collection<WorkerConfigDoc> {
-  const store = new Map<string, WorkerConfigDoc>();
-  return {
-    async findOne(filter: Record<string, unknown>) {
-      const name = filter['name'] as string | undefined;
-      return name ? (store.get(name) ?? null) : null;
-    },
-    async updateOne(
-      filter: Record<string, unknown>,
-      update: Record<string, unknown>,
-      opts?: { upsert?: boolean },
-    ) {
-      const name = filter['name'] as string;
-      const setDoc = (update['$set'] ?? {}) as Partial<WorkerConfigDoc>;
-      const existing = store.get(name);
-      if (existing || opts?.upsert) {
-        store.set(name, { ...(existing ?? {}), ...setDoc } as WorkerConfigDoc);
-      }
-      return { matchedCount: 1, modifiedCount: 1, acknowledged: true } as UpdateResult;
-    },
-  } as unknown as Collection<WorkerConfigDoc>;
+const CONFIG = { concurrency: 1, maxAttempts: 3, paused: false, last_seen_target_version: 1 };
+
+function enoent(filename: string): Error {
+  return Object.assign(new Error(`ENOENT: no such file, stat '${filename}'`), { code: 'ENOENT' });
 }
 
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  let cur: unknown = obj;
-  for (const p of path.split('.')) {
-    if (cur == null || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[p];
-  }
-  return cur;
-}
-
-/**
- * One operator → does `docVal` satisfy it?
- *
- * A table rather than a switch: each entry is independently readable, adding
- * an operator is one line, and complexity stays flat as the set grows rather
- * than accumulating in a single function.
- */
-const OPERATORS: Record<string, (docVal: unknown, opv: unknown) => boolean> = {
-  $lt: (d, v) => typeof d === 'number' && d < (v as number),
-  $ne: (d, v) => d !== v,
-  // Dates, for the retry-backoff gate (#2729). An absent field must NOT
-  // satisfy `$gt`, so that `$not: { $gt: now }` leaves never-failed rows
-  // claimable — mirroring Mongo, and the reason the gate is written as a
-  // negation in the first place.
-  $gt: (d, v) => d !== undefined && d !== null && Number(d) > Number(v),
-  $nin: (d, v) => !(v as unknown[]).includes(d),
-  // `$in: [null]` matches null OR absent, mirroring Mongo.
-  $in: (d, v) =>
-    (v as unknown[]).some((x) => x === d || (x === null && (d === null || d === undefined))),
-  $exists: (d, v) => (v as boolean) === (d !== undefined),
-  $type: (d, v) => v !== 'string' || typeof d === 'string',
-  $not: (d, v) => !matchVal(d, v),
-  $elemMatch: (d, v) =>
-    Array.isArray(d) && d.some((el) => matchesFilter(el, v as Record<string, unknown>)),
-};
-
-/** Evaluate one field condition (a scalar equality or an operator object).
- * Supports the operator subset the claim query + per-entry tag write use. */
-function matchVal(docVal: unknown, cond: unknown): boolean {
-  if (cond === null || typeof cond !== 'object' || Array.isArray(cond)) {
-    return docVal === cond;
-  }
-  for (const [op, opv] of Object.entries(cond as Record<string, unknown>)) {
-    const predicate = OPERATORS[op];
-    // Fail closed: an operator the mock doesn't model would otherwise be
-    // silently ignored, letting a query-shape change pass unnoticed. This is
-    // what caught the retry-backoff gate's `$gt` on its first run (#2729).
-    if (!predicate) throw new Error(`mock matchVal: unsupported operator ${op}`);
-    if (!predicate(docVal, opv)) return false;
-  }
-  return true;
-}
-
-function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
-  for (const [key, val] of Object.entries(filter)) {
-    if (key === '$or') {
-      const arr = val as Record<string, unknown>[];
-      if (!arr.some((sub) => matchesFilter(doc, sub))) return false;
-      continue;
-    }
-    if (!matchVal(getNestedValue(doc as Record<string, unknown>, key), val)) return false;
-  }
-  return true;
-}
-
-/** Does array element `el` satisfy the arrayFilter for identifier `id`? The
- * filter keys are `id.field` (and possibly `$or` of the same), so strip the
- * `id.` prefix and reuse `matchesFilter` on the element. */
-function arrayFilterMatches(
-  el: unknown,
-  id: string,
-  af: Record<string, unknown> | undefined,
-): boolean {
-  if (!af) return true;
-  const strip = (arm: Record<string, unknown>): Record<string, unknown> => {
-    const o: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(arm)) {
-      o[k.startsWith(`${id}.`) ? k.slice(id.length + 1) : k] = v;
-    }
-    return o;
-  };
-  const sub: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(af)) {
-    if (k === '$or') sub['$or'] = (v as Record<string, unknown>[]).map(strip);
-    else if (k.startsWith(`${id}.`)) sub[k.slice(id.length + 1)] = v;
-  }
-  return matchesFilter(el, sub);
-}
-
-/** Resolve one `$set` path to its target objects + final key WITHOUT writing.
- * Mongo evaluates arrayFilters against the PRE-update document for the whole
- * update, so writes must be collected first and applied afterwards — applying
- * one path can otherwise flip a filter (`missing_since $exists:false`) off
- * before a sibling path (`missing_reason`) is matched. */
-function collectWrites(
-  obj: Record<string, unknown>,
-  parts: string[],
-  value: unknown,
-  arrayFilters: Record<string, unknown>[] | undefined,
-  out: Array<{ target: Record<string, unknown>; key: string; value: unknown }>,
-): void {
-  const [head, ...rest] = parts;
-  const m = /^\$\[(\w+)\]$/.exec(head!);
-  if (m) {
-    const id = m[1]!;
-    const af = (arrayFilters ?? []).find((f) =>
-      Object.keys(f).some((k) => k === id || k.startsWith(`${id}.`) || k === '$or'),
-    );
-    const arr = obj as unknown as unknown[];
-    if (!Array.isArray(arr)) return;
-    for (const el of arr) {
-      if (arrayFilterMatches(el, id, af))
-        collectWrites(el as Record<string, unknown>, rest, value, arrayFilters, out);
-    }
-    return;
-  }
-  if (rest.length === 0) {
-    out.push({ target: obj, key: head!, value });
-    return;
-  }
-  if (obj[head!] == null) obj[head!] = {};
-  collectWrites(obj[head!] as Record<string, unknown>, rest, value, arrayFilters, out);
-}
-
-function applySet(
-  doc: unknown,
-  setDoc: Record<string, unknown>,
-  arrayFilters?: Record<string, unknown>[],
-): void {
-  const writes: Array<{ target: Record<string, unknown>; key: string; value: unknown }> = [];
-  for (const [path, value] of Object.entries(setDoc)) {
-    collectWrites(doc as Record<string, unknown>, path.split('.'), value, arrayFilters, writes);
-  }
-  for (const w of writes) w.target[w.key] = w.value;
-}
-
-function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
-  const store: ImageDoc[] = [...initial];
-  return {
-    find(filter: Record<string, unknown>) {
-      let matched = store.filter((d) => matchesFilter(d, filter));
-      return {
-        limit(n: number) {
-          matched = matched.slice(0, n);
-          return this;
-        },
-        async toArray() {
-          return [...matched];
-        },
-      };
-    },
-    async findOne(filter: Record<string, unknown>) {
-      return store.find((d) => matchesFilter(d, filter)) ?? null;
-    },
-    async updateOne(
-      filter: Record<string, unknown>,
-      update: Record<string, unknown>,
-      options?: { arrayFilters?: Record<string, unknown>[] },
-    ) {
-      const doc = store.find((d) => matchesFilter(d, filter));
-      if (doc)
-        applySet(doc, (update['$set'] ?? {}) as Record<string, unknown>, options?.arrayFilters);
-      return {
-        matchedCount: doc ? 1 : 0,
-        modifiedCount: doc ? 1 : 0,
-        acknowledged: true,
-      } as UpdateResult;
-    },
-  } as unknown as Collection<ImageDoc>;
-}
-
-const cfg = {
-  concurrency: 1,
-  maxAttempts: 3,
-  paused: false,
-  last_seen_target_version: 1,
-};
-
-function originalFileStage(name = 'exif', tags = true) {
+/** A file-reading stage whose handler always reports the original as gone. */
+function originalFileStage(name = 'exif', tagsMissingOnEnoent = true): StageConfig {
   return defineStage({
     name,
     targetVersion: 1,
     dependsOn: [],
-    tagsMissingOnEnoent: tags,
+    tagsMissingOnEnoent,
     defaults: {
       concurrency: 1,
       maxAttempts: 3,
@@ -233,234 +60,180 @@ function originalFileStage(name = 'exif', tags = true) {
       last_seen_target_version: 0,
     },
     handler: async () => {
-      throw Object.assign(new Error("ENOENT: no such file, stat '/gone.raw'"), {
-        code: 'ENOENT',
-      });
+      throw enoent('gone.raw');
     },
-  });
+  }) as StageConfig;
 }
 
-/** A doc with one live location, so the claim query picks it up and the
- * primary-entry resolution has something to tag. */
-function liveDoc(filename = 'gone.raw'): ImageDoc {
-  return {
-    fileinfo: [{ library_id: 'lib0', path: '', filename, deleted_at: null }],
-  } as unknown as ImageDoc;
+function locationRow(db: Database, assetId: string) {
+  return db
+    .query(`SELECT missing_since, missing_reason FROM asset_locations WHERE asset_id = ?`)
+    .get(assetId) as { missing_since: string | null; missing_reason: string | null };
 }
 
-/** The (single) fileinfo entry's per-location missing tag. */
-function entryMissing(doc: ImageDoc): unknown {
-  return (doc as unknown as { fileinfo?: Array<{ missing_since?: unknown }> }).fileinfo?.[0]
-    ?.missing_since;
+function stageRow(db: Database, assetId: string, stage: string) {
+  return db
+    .query(
+      `SELECT version, attempts, dead, last_error FROM stage_state WHERE asset_id = ? AND stage = ?`,
+    )
+    .get(assetId, stage) as
+    | { version: number; attempts: number; dead: number; last_error: string | null }
+    | undefined;
 }
 
-/** The (single) fileinfo entry's structured missing provenance. */
-function entryReason(doc: ImageDoc): unknown {
-  return (doc as unknown as { fileinfo?: Array<{ missing_reason?: unknown }> }).fileinfo?.[0]
-    ?.missing_reason;
-}
-
-// The tag write is confirm-before-tag now (#2171): it resolves the primary
-// entry against the registered library root, requires the root to be AVAILABLE
-// (listable + non-empty — an unmounted mount is a present-but-empty dir), and
-// re-stats the exact path, tagging only on a confirmed ENOENT. These tests
-// register a real tmp dir as `lib0`'s root; `marker.txt` keeps it non-empty.
+// A real temporary directory stands in for the library root, with a marker file
+// keeping it non-empty — an empty directory is exactly what an unmounted mount
+// looks like, and the runner treats that as "the root is gone", not "the file".
 let libRoot: string;
-beforeEach(() => {
+let live: LiveTestDatabase;
+let libraryId: string;
+
+beforeEach(async () => {
   libRoot = mkdtempSync(join(tmpdir(), 'maple-runstage-root-'));
   writeFileSync(join(libRoot, 'marker.txt'), 'x');
-  setLibraryRootsForTests(new Map([['lib0', libRoot]]));
+  live = await createLiveTestDatabase();
+  libraryId = insertFolder(live.db, { path: libRoot });
 });
+
 afterEach(() => {
-  setLibraryRootsForTests(null);
+  live.close();
   rmSync(libRoot, { recursive: true, force: true });
 });
 
-describe('runOnce — per-location missing_since tagging', () => {
-  it('tags the primary entry missing_since on an ENOENT failure when tagsMissingOnEnoent is set', async () => {
-    const images = makeImagesMock([liveDoc()]);
-    const configColl = makeConfigMock();
-    const stage = originalFileStage();
+/** One claimable asset whose single location names `filename` under the root. */
+function seedAsset(stage: string, filename = 'gone.raw'): string {
+  const assetId = insertAsset(live.db);
+  insertLocation(live.db, { assetId, libraryId, path: '', filename });
+  live.db.run(`INSERT INTO stage_state (asset_id, stage) VALUES (?, ?)`, [assetId, stage]);
+  return assetId;
+}
 
-    await _test.runOnce(stage, cfg, images, configColl);
-    const doc = (await images.find({}).toArray())[0]!;
-    expect(typeof entryMissing(doc)).toBe('string');
+describe('a confirmed missing original', () => {
+  it('tags the location and rolls the claim back untouched', async () => {
+    const assetId = seedAsset('exif');
+
+    await runOnce(originalFileStage(), CONFIG);
+
+    const location = locationRow(live.db, assetId);
+    expect(typeof location.missing_since).toBe('string');
     // Structured provenance: which writer tagged, and from which stage (#2171).
-    expect(entryReason(doc)).toBe('stage-enoent:exif');
-    // Never the asset root — the tag is per-location now.
-    expect((doc as unknown as { missing_since?: unknown }).missing_since).toBeUndefined();
-    const firstTag = entryMissing(doc);
-
-    // First-detection wins: a second ENOENT tick must NOT push the timestamp
-    // forward (the reaper's per-entry age-gate depends on it being stable).
-    // The tagged entry is now non-live, so the claim query no longer selects
-    // the row — assert the tag is unchanged regardless.
-    await _test.runOnce(stage, cfg, images, configColl);
-    expect(entryMissing((await images.find({}).toArray())[0]!)).toBe(firstTag as string);
-  });
-
-  it('tag-only suppression: stamps the entry and touches NO stage state', async () => {
-    const images = makeImagesMock([liveDoc()]);
-    const configColl = makeConfigMock();
-    const stage = originalFileStage();
-
-    await _test.runOnce(stage, cfg, images, configColl);
-    const doc = (await images.find({}).toArray())[0]! as unknown as {
-      fileinfo?: Array<{ missing_since?: string }>;
-      stages?: Record<string, { attempts?: number; version?: number; dead?: boolean }>;
-    };
-    // Tagged for the reaper, and the claim's provisional attempt (#897) is
-    // rolled back: a missing original was never genuinely attempted, so the
-    // stage is left unadvanced — no version, not dead, attempts 0. The
-    // tagged entry parks the row out of the claim query; the reaper re-enables it.
-    expect(typeof doc.fileinfo?.[0]?.missing_since).toBe('string');
-    expect(doc.stages?.exif?.attempts ?? 0).toBe(0);
-    expect(doc.stages?.exif?.version).toBeUndefined();
-    expect(doc.stages?.exif?.dead ?? false).toBe(false);
-  });
-
-  it('buildClaimQuery requires a live location (and never references root missing_since)', () => {
-    const q = buildClaimQuery('exif', 1, [], new Set()) as Record<string, unknown>;
-    expect(q['fileinfo']).toEqual({
-      $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } },
+    expect(location.missing_reason).toBe('stage-enoent:exif');
+    // The claim's provisional attempt is given back: a missing original was
+    // never genuinely attempted, and the stage is left unadvanced so the reaper
+    // recovering the file makes it claimable again immediately.
+    expect(stageRow(live.db, assetId, 'exif')).toMatchObject({
+      attempts: 0,
+      version: 0,
+      dead: 0,
     });
-    expect(q['missing_since']).toBeUndefined();
   });
 
-  it('does NOT tag when the file is actually present on disk (transient ENOENT)', async () => {
-    // #2171: a handler-level ENOENT can be a race (file mid-move, stale
-    // negative cache on a network share) rather than a real deletion. The
-    // runner re-stats the primary path and refuses to tag a present file;
-    // the attempt rollback leaves the row claimable for a clean retry.
-    writeFileSync(join(libRoot, 'gone.raw'), 'x'); // present despite the handler's ENOENT
-    const images = makeImagesMock([liveDoc()]);
-    const configColl = makeConfigMock();
-    const stage = originalFileStage();
+  it('keeps the first detection when a later tick reaches the same conclusion', async () => {
+    const assetId = seedAsset('exif');
+    await runOnce(originalFileStage(), CONFIG);
+    const firstTag = locationRow(live.db, assetId).missing_since;
 
-    await _test.runOnce(stage, cfg, images, configColl);
-    const doc = (await images.find({}).toArray())[0]! as unknown as {
-      fileinfo?: Array<{ missing_since?: string }>;
-      stages?: Record<string, { attempts?: number }>;
-    };
-    expect(doc.fileinfo?.[0]?.missing_since).toBeUndefined();
-    expect(doc.stages?.exif?.attempts ?? 0).toBe(0); // rolled back — will retry
+    // The tagged location is now non-live, so the asset drops out of every
+    // stage's claim — but the guard is what the reaper's age window depends on,
+    // so assert the timestamp is unchanged regardless of who could claim it.
+    await runOnce(originalFileStage(), CONFIG);
+
+    expect(locationRow(live.db, assetId).missing_since).toBe(firstTag);
   });
 
-  it('does NOT tag when the library root is unavailable (empty mountpoint)', async () => {
-    // An unmounted bind/network mount is a present-but-EMPTY directory: every
-    // child path ENOENTs. That is evidence the ROOT is gone, not the file.
-    rmSync(join(libRoot, 'marker.txt'));
-    const images = makeImagesMock([liveDoc()]);
-    const configColl = makeConfigMock();
-    const stage = originalFileStage();
+  it('parks the asset out of the claim entirely once its only location is gone', async () => {
+    const assetId = seedAsset('exif');
+    await runOnce(originalFileStage(), CONFIG);
 
-    await _test.runOnce(stage, cfg, images, configColl);
-    expect(entryMissing((await images.find({}).toArray())[0]!)).toBeUndefined();
-  });
+    // A second stage, with a handler that would succeed, still claims nothing.
+    const other = defineStage({
+      ...originalFileStage('thumb'),
+      handler: async () => ({ wrote: true }),
+    }) as StageConfig;
+    live.db.run(`INSERT INTO stage_state (asset_id, stage) VALUES (?, 'thumb')`, [assetId]);
 
-  it('does NOT tag when the library is not registered (no root to verify against)', async () => {
-    setLibraryRootsForTests(new Map()); // lib0 unknown
-    const images = makeImagesMock([liveDoc()]);
-    const configColl = makeConfigMock();
-    const stage = originalFileStage();
-
-    await _test.runOnce(stage, cfg, images, configColl);
-    expect(entryMissing((await images.find({}).toArray())[0]!)).toBeUndefined();
-  });
-
-  it('does NOT tag for a non-ENOENT failure', async () => {
-    const images = makeImagesMock([liveDoc('bad.raw')]);
-    const configColl = makeConfigMock();
-    const stage = defineStage({
-      ...originalFileStage(),
-      handler: async () => {
-        throw new Error('decode blew up'); // no ENOENT code
-      },
-    });
-
-    await _test.runOnce(stage, cfg, images, configColl);
-    expect(entryMissing((await images.find({}).toArray())[0]!)).toBeUndefined();
-  });
-
-  it('does NOT tag when tagsMissingOnEnoent is unset, even on ENOENT', async () => {
-    const images = makeImagesMock([liveDoc()]);
-    const configColl = makeConfigMock();
-    // A stage that does not read the original file never opts in.
-    const stage = originalFileStage('meili', false);
-
-    await _test.runOnce(stage, cfg, images, configColl);
-    expect(entryMissing((await images.find({}).toArray())[0]!)).toBeUndefined();
+    expect(await runOnce(other, CONFIG)).toBe(0);
+    expect(stageRow(live.db, assetId, 'thumb')).toMatchObject({ version: 0, attempts: 0 });
   });
 });
 
-// ---------------------------------------------------------------------------
-// no-resolvable-location → just records the skip.
-//
-// The legacy orphan-tagging branch is gone: a row whose every fileinfo entry is
-// non-live is now PARKED by the claim query (the live-entry `$elemMatch`), so a
-// file-touching stage never sees it, and whatever made the row non-live (the
-// watcher `removed` handler, the modified-content guard's orphan dual-flag, or
-// the ENOENT catch above) already left a per-entry `missing_since` for the
-// reaper. A `no-resolvable-location` skip on a still-claimable row (e.g. its
-// library is transiently unregistered) just records the reason and resets
-// attempts to 0 — it does NOT tag anything.
-// ---------------------------------------------------------------------------
+describe('an ENOENT the runner refuses to believe', () => {
+  it('does not tag a file that is present on disk', async () => {
+    // A race — the file moved and came back, or a network share served a stale
+    // negative. The rollback leaves the row claimable for a clean retry.
+    writeFileSync(join(libRoot, 'gone.raw'), 'x');
+    const assetId = seedAsset('exif');
 
-function skipNoLocationStage(name = 'exif', tags = true) {
-  return defineStage({
-    name,
-    targetVersion: 1,
-    dependsOn: [],
-    tagsMissingOnEnoent: tags,
-    defaults: {
-      concurrency: 1,
-      maxAttempts: 3,
-      paused: false,
-      pausedOnFirstBoot: false,
-      last_seen_target_version: 0,
-    },
-    handler: async () => ({ skip: 'no-resolvable-location' as const }),
-  });
-}
+    await runOnce(originalFileStage(), CONFIG);
 
-describe('runOnce — no-resolvable-location skip', () => {
-  it('records the skip without tagging when a stage cannot resolve a claimed row', async () => {
-    const images = makeImagesMock([liveDoc('live.raw')]);
-    const configColl = makeConfigMock();
-    const stage = skipNoLocationStage();
-
-    await _test.runOnce(stage, cfg, images, configColl);
-    const doc = (await images.find({}).toArray())[0]! as unknown as {
-      fileinfo?: Array<{ missing_since?: string }>;
-      stages?: Record<string, { last_error?: string; version?: number }>;
-    };
-    expect(doc.fileinfo?.[0]?.missing_since).toBeUndefined();
-    expect(doc.stages?.exif?.last_error).toBe('skip: no-resolvable-location');
-    expect(doc.stages?.exif?.version).toBe(1);
+    expect(locationRow(live.db, assetId).missing_since).toBeNull();
+    expect(stageRow(live.db, assetId, 'exif')?.attempts).toBe(0);
   });
 
-  it('does not claim a row whose only location is already missing (parked)', async () => {
-    // A row with no live entry is excluded by the claim query, so the stage
-    // never runs on it — the reaper owns it now.
-    const parked = {
-      fileinfo: [
-        {
-          library_id: 'lib0',
-          path: '',
-          filename: 'gone.raw',
-          missing_since: '2026-05-01T00:00:00Z',
-        },
-      ],
-    } as unknown as ImageDoc;
-    const images = makeImagesMock([parked]);
-    const configColl = makeConfigMock();
-    const stage = skipNoLocationStage();
+  it('does not tag when the library root is an empty mountpoint', async () => {
+    // An unmounted bind/network mount is a present-but-EMPTY directory: every
+    // child path ENOENTs. That is evidence the ROOT is gone, not the file.
+    rmSync(join(libRoot, 'marker.txt'));
+    const assetId = seedAsset('exif');
 
-    await _test.runOnce(stage, cfg, images, configColl);
-    const doc = (await images.find({}).toArray())[0]! as unknown as {
-      stages?: Record<string, { last_error?: string; version?: number }>;
-    };
-    // Untouched — never claimed.
-    expect(doc.stages?.exif).toBeUndefined();
+    await runOnce(originalFileStage(), CONFIG);
+
+    expect(locationRow(live.db, assetId).missing_since).toBeNull();
+  });
+
+  it('does not tag a non-ENOENT failure', async () => {
+    const assetId = seedAsset('exif', 'bad.raw');
+    const stage = defineStage({
+      ...originalFileStage(),
+      handler: async () => {
+        throw new Error('decode blew up');
+      },
+    }) as StageConfig;
+
+    await runOnce(stage, CONFIG);
+
+    expect(locationRow(live.db, assetId).missing_since).toBeNull();
+    // An ordinary failed attempt, not the rollback path.
+    expect(stageRow(live.db, assetId, 'exif')).toMatchObject({
+      attempts: 1,
+      last_error: 'decode blew up',
+    });
+  });
+
+  it('does not tag for a stage that never reads the original', async () => {
+    const assetId = seedAsset('meili');
+
+    await runOnce(originalFileStage('meili', false), CONFIG);
+
+    expect(locationRow(live.db, assetId).missing_since).toBeNull();
+    expect(stageRow(live.db, assetId, 'meili')?.attempts).toBe(1);
+  });
+});
+
+/**
+ * A `no-resolvable-location` skip is not a missing-original report.
+ *
+ * The legacy orphan-tagging branch is gone: an asset whose every location is
+ * non-live is parked by the claim itself, so a file-touching stage never sees
+ * it, and whatever made it non-live already left a `missing_since` for the
+ * reaper. A skip on a still-claimable asset records the reason and resets the
+ * attempt count — it tags nothing.
+ */
+describe('a no-resolvable-location skip', () => {
+  it('records the reason and leaves the location alone', async () => {
+    const assetId = seedAsset('exif', 'live.raw');
+    const stage = defineStage({
+      ...originalFileStage(),
+      handler: async () => ({ skip: 'no-resolvable-location' }),
+    }) as StageConfig;
+
+    await runOnce(stage, CONFIG);
+
+    expect(locationRow(live.db, assetId).missing_since).toBeNull();
+    expect(stageRow(live.db, assetId, 'exif')).toMatchObject({
+      version: 1,
+      attempts: 0,
+      last_error: 'skip: no-resolvable-location',
+    });
   });
 });

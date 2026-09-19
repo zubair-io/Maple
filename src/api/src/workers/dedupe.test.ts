@@ -1,499 +1,450 @@
 /**
- * DeDuplicate worker integration tests. Run against a real Mongo (skip-pass when
- * unreachable, mirroring missing-reaper.test.ts / trash-gc.test.ts).
+ * DeDuplicate worker integration tests — real SQLite, real filesystem (#3787).
+ *
+ * The worker's whole job is to move files a photographer owns, so nothing here
+ * is mocked below the decision it is testing: every case seeds actual bytes
+ * under a temporary library root, runs a real pass, and then asserts on both
+ * what is on disk and what the database now says.
+ *
+ * Each test opens its own database and installs it as the process-wide handle
+ * (`createLiveTestDatabase`), because `runDeDuplicateOnce` reaches `sqliteDb()`
+ * with no override — it is a worker tick, not a repository call. That also
+ * means each test gets its own temporary library root, its own `folders` row,
+ * and no way to see another test's fixtures; `using` disposes both even when an
+ * assertion throws partway through.
  *
  * Covers: collapse-to-one with the keeper ranking, file + sidecar relocation
- * into `_duplicates/`, fileinfo `$pull`, cache cleanup of the moved copy's
- * folder, cache-stage re-arm when the anchor moves, live-only gating
- * (tombstoned siblings ignored), missing-file skip, and dry-run.
+ * into `_duplicates/`, removal of the moved location rows, cache cleanup of the
+ * moved copy's folder, cache-stage re-arm when the anchor moves, live-only
+ * gating (tombstoned siblings ignored), missing-file skip, `.keep` pinning, and
+ * dry-run.
  *
- * #1290: also covers live-aware candidate query — assets with one live + one
- * tombstoned (`missing_since` / `deleted_at`) entry must NOT be returned by the
- * worker's candidate prefilter (`liveAwareDuplicatePredicate`) and must NOT be
- * counted in the deduplicate ready/pending total (covered in routes.test.ts).
+ * One conversion note: on Mongo the candidate gate needed a partial index on
+ * `fileinfo.1` plus an in-memory count of each row's non-tombstoned entries, so
+ * "a tombstoned sibling is not a duplicate" and "#1290: such a row is not even
+ * fetched" were two separate tests of two separate mechanisms. Here both are
+ * the one column test `live_location_count >= 2`, so they are one test carrying
+ * both sets of assertions.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { describe, it, expect } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { runDeDuplicateOnce } from './dedupe.ts';
 
-const TEST_DB = withTestDb(`maple_test_dedupe_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let root: string;
-let libraryId: ObjectId;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[dedupe.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
-    await db.createCollection(name).catch(() => undefined);
-  }
-  const { closeDb, ensureIndexes } = await import('../db/client.ts');
-  await closeDb();
-  await ensureIndexes();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-  await db!.collection('folders').deleteMany({});
-  // Fresh on-disk library root per test.
-  root = mkdtempSync(join(tmpdir(), 'maple_dedupe_'));
-  libraryId = new ObjectId();
-  await db!.collection('folders').insertOne({
-    _id: libraryId,
-    path: root,
-    label: 'test',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  });
-  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
-  invalidateLibraryRoots();
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-  if (root) rmSync(root, { recursive: true, force: true });
-});
-
+/** Every seeded copy shares one content id — that is what makes them duplicates. */
 const MAPLE_ID = 'a'.repeat(32);
 
-function stageEntry(version: number) {
-  return { version, attempts: 0, last_error: null, processed_at: null, dead: false };
+/** Quarantine directory name, mirrored from `fs/duplicates.ts`. */
+const DUP = '_duplicates';
+
+/**
+ * Stage versions every seeded asset starts at. `thumb` and `preview` are
+ * non-zero so a re-arm back to zero is visible; `exif` is the control — it is
+ * content-keyed, so relocating a copy must not touch it.
+ */
+const SEEDED_STAGE_VERSIONS = { exif: 1, thumb: 2, preview: 1 } as const;
+
+/** One on-disk location to seed, in `ordinal` order. */
+interface LocationSeed {
+  /** Directory relative to the library root. */
+  dir: string;
+  filename?: string;
+  missingSince?: string;
+  deletedAt?: string;
+  /** The stored `keep` flag, deliberately settable without a marker on disk. */
+  keep?: boolean;
 }
 
-/** Write a real file (+ optional xmp) on disk at <root>/<rel dir>/<filename>. */
-function writeFile(relDir: string, filename: string, withXmp = true): void {
-  const dir = relDir === '' ? root : join(root, relDir);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, filename), `bytes-${relDir}-${filename}`);
-  if (withXmp) writeFileSync(join(dir, filename.replace(/\.[^.]+$/, '.xmp')), '<xmp/>');
+/** One test's database, library root, and the folder row tying them together. */
+interface DedupeEnv extends Disposable {
+  readonly live: LiveTestDatabase;
+  /** Absolute path of the temporary library root. */
+  readonly root: string;
+  /** Hex id of the `folders` row pointing at {@link root}. */
+  readonly libraryId: string;
 }
 
-function fi(
-  relDir: string,
-  filename: string,
-  tags: Partial<{ missing_since: string; keep: boolean }> = {},
-) {
-  return { path: relDir, filename, library_id: libraryId, ...tags };
+async function createEnv(): Promise<DedupeEnv> {
+  const live = await createLiveTestDatabase();
+  const root = mkdtempSync(join(tmpdir(), 'maple_dedupe_'));
+  const libraryId = insertFolder(live.db, { path: root });
+  // `library_id hex → root` is a process-wide cache with no TTL, so the map a
+  // previous test built would otherwise point this pass at a directory that has
+  // already been removed. Dropped on the way in and on the way out.
+  invalidateLibraryRoots();
+  const close = (): void => {
+    live.close();
+    rmSync(root, { recursive: true, force: true });
+    invalidateLibraryRoots();
+  };
+  return { live, root, libraryId, [Symbol.dispose]: close };
 }
 
-/** Drop a `.keep` marker file into <root>/<rel dir>. */
-function writeKeep(relDir: string): void {
-  const dir = relDir === '' ? root : join(root, relDir);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, '.keep'), '');
+/** Write real bytes (+ optional sidecar) at `<root>/<dir>/<filename>`. */
+function writeCopy(env: DedupeEnv, dir: string, filename: string, withXmp = true): void {
+  const abs = dir === '' ? env.root : join(env.root, dir);
+  mkdirSync(abs, { recursive: true });
+  writeFileSync(join(abs, filename), `bytes-${dir}-${filename}`);
+  if (withXmp) writeFileSync(join(abs, filename.replace(/\.[^.]+$/, '.xmp')), '<xmp/>');
 }
 
-async function insertAsset(
-  fileinfo: object[],
-  stages?: Record<string, unknown>,
-): Promise<ObjectId> {
-  const id = new ObjectId();
-  await db!.collection('assets').insertOne({
-    _id: id,
-    fileinfo,
-    maple_id: MAPLE_ID,
-    size: 1,
-    mtime: 0,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: '2026-06-01T00:00:00Z',
-    deleted_at: null,
-    stages: stages ?? {
-      exif: stageEntry(1),
-      thumb: stageEntry(2),
-      preview: stageEntry(1),
-    },
-  } as never);
+/** Drop a `.keep` marker into `<root>/<dir>`, pinning every copy that lives there. */
+function writeKeepMarker(env: DedupeEnv, dir: string): void {
+  const abs = dir === '' ? env.root : join(env.root, dir);
+  mkdirSync(abs, { recursive: true });
+  writeFileSync(join(abs, '.keep'), '');
+}
+
+/** Seed one asset with its locations in array order, and its stage bookkeeping. */
+function seedAsset(env: DedupeEnv, seeds: readonly LocationSeed[]): string {
+  const db = env.live.db;
+  const id = insertAsset(db);
+  run(db, `UPDATE assets SET maple_id = ? WHERE id = ?`, MAPLE_ID, id);
+  seeds.forEach((seed, ordinal) => {
+    insertLocation(db, {
+      assetId: id,
+      libraryId: env.libraryId,
+      ordinal,
+      path: seed.dir,
+      filename: seed.filename ?? 'IMG.dng',
+      deletedAt: seed.deletedAt ?? null,
+      missingSince: seed.missingSince ?? null,
+    });
+    if (seed.keep === true) {
+      run(
+        db,
+        `UPDATE asset_locations SET keep = 1 WHERE asset_id = ? AND ordinal = ?`,
+        id,
+        ordinal,
+      );
+    }
+  });
+  for (const [stage, version] of Object.entries(SEEDED_STAGE_VERSIONS)) {
+    run(
+      db,
+      `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, ?, ?)`,
+      id,
+      stage,
+      version,
+    );
+  }
   return id;
 }
 
-async function getAsset(id: ObjectId) {
-  return db!.collection('assets').findOne({ _id: id });
+/** One asset's surviving locations, in array order. */
+interface StoredLocation {
+  path: string;
+  filename: string;
+  missing_since: string | null;
+  missing_reason: string | null;
 }
 
-const DUP = '_duplicates';
+function locationsOf(env: DedupeEnv, assetId: string): StoredLocation[] {
+  return env.live.db
+    .query(
+      `SELECT path, filename, missing_since, missing_reason
+         FROM asset_locations WHERE asset_id = ? ORDER BY ordinal`,
+    )
+    .all(assetId) as StoredLocation[];
+}
+
+function stageVersion(env: DedupeEnv, assetId: string, stage: string): number | null {
+  const row = env.live.db
+    .query(`SELECT version FROM stage_state WHERE asset_id = ? AND stage = ?`)
+    .get(assetId, stage) as { version: number } | null;
+  return row?.version ?? null;
+}
 
 describe('runDeDuplicateOnce', () => {
   it('collapses to one, relocating the unsorted copy + its xmp into _duplicates', async () => {
-    if (!mongoReachable) return;
-    writeFile('photos/2024', 'IMG.dng');
-    writeFile('unsorted', 'IMG.dng');
-    const id = await insertAsset([fi('unsorted', 'IMG.dng'), fi('photos/2024', 'IMG.dng')]);
+    using env = await createEnv();
+    writeCopy(env, 'photos/2024', 'IMG.dng');
+    writeCopy(env, 'unsorted', 'IMG.dng');
+    const id = seedAsset(env, [{ dir: 'unsorted' }, { dir: 'photos/2024' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
     expect(summary.deduped).toBe(1);
     expect(summary.movedFiles).toBe(1);
 
     // The clean copy is kept; the unsorted one is moved away.
-    expect(existsSync(join(root, 'photos/2024', 'IMG.dng'))).toBe(true);
-    expect(existsSync(join(root, 'unsorted', 'IMG.dng'))).toBe(false);
-    expect(existsSync(join(root, DUP, 'unsorted', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, 'photos/2024', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, 'unsorted', 'IMG.dng'))).toBe(false);
+    expect(existsSync(join(env.root, DUP, 'unsorted', 'IMG.dng'))).toBe(true);
     // The sidecar travelled with it.
-    expect(existsSync(join(root, DUP, 'unsorted', 'IMG.xmp'))).toBe(true);
+    expect(existsSync(join(env.root, DUP, 'unsorted', 'IMG.xmp'))).toBe(true);
 
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(1);
-    expect(asset!.fileinfo[0].path).toBe('photos/2024');
+    const locations = locationsOf(env, id);
+    expect(locations).toHaveLength(1);
+    expect(locations[0]!.path).toBe('photos/2024');
   });
 
   it('rule 4 — keeps the LAST copy when no signals distinguish them', async () => {
-    if (!mongoReachable) return;
-    writeFile('a', 'IMG.dng');
-    writeFile('b', 'IMG.dng');
-    const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
+    using env = await createEnv();
+    writeCopy(env, 'a', 'IMG.dng');
+    writeCopy(env, 'b', 'IMG.dng');
+    const id = seedAsset(env, [{ dir: 'a' }, { dir: 'b' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     await runDeDuplicateOnce({});
 
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(1);
-    expect(asset!.fileinfo[0].path).toBe('b'); // last kept
-    expect(existsSync(join(root, DUP, 'a', 'IMG.dng'))).toBe(true);
+    const locations = locationsOf(env, id);
+    expect(locations).toHaveLength(1);
+    expect(locations[0]!.path).toBe('b'); // last kept
+    expect(existsSync(join(env.root, DUP, 'a', 'IMG.dng'))).toBe(true);
   });
 
-  it('re-arms thumb + preview when the cache anchor (fileinfo[0]) is moved away', async () => {
-    if (!mongoReachable) return;
-    writeFile('a', 'IMG.dng'); // index 0 = current anchor, will be moved
-    writeFile('b', 'IMG.dng'); // keeper (rule 4)
+  it('re-arms thumb + preview when the cache anchor (the first location) is moved away', async () => {
+    using env = await createEnv();
+    writeCopy(env, 'a', 'IMG.dng'); // ordinal 0 = current anchor, will be moved
+    writeCopy(env, 'b', 'IMG.dng'); // keeper (rule 4)
     // Anchor folder has the maple_id-keyed cache; keeper folder does not.
     // Both the current AVIF thumb and a legacy JPEG left over from before the
     // thumb stage's v3 format migration should be swept.
-    mkdirSync(join(root, 'a', '.maple', 'thumbs'), { recursive: true });
-    writeFileSync(join(root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.avif`), 'avif');
-    writeFileSync(join(root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.jpg`), 'jpg');
-    const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
+    mkdirSync(join(env.root, 'a', '.maple', 'thumbs'), { recursive: true });
+    writeFileSync(join(env.root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.avif`), 'avif');
+    writeFileSync(join(env.root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.jpg`), 'jpg');
+    const id = seedAsset(env, [{ dir: 'a' }, { dir: 'b' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     await runDeDuplicateOnce({});
 
-    const asset = await getAsset(id);
     // Cache stages reset so the kept copy regenerates at folder b.
-    expect(asset!.stages.thumb.version).toBe(0);
-    expect(asset!.stages.preview.version).toBe(0);
-    expect(asset!.stages.exif.version).toBe(1); // untouched — content-keyed
+    expect(stageVersion(env, id, 'thumb')).toBe(0);
+    expect(stageVersion(env, id, 'preview')).toBe(0);
+    expect(stageVersion(env, id, 'exif')).toBe(1); // untouched — content-keyed
     // The orphaned cache in the moved-from folder was cleaned — both extensions.
-    expect(existsSync(join(root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.avif`))).toBe(false);
-    expect(existsSync(join(root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.jpg`))).toBe(false);
+    expect(existsSync(join(env.root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.avif`))).toBe(false);
+    expect(existsSync(join(env.root, 'a', '.maple', 'thumbs', `${MAPLE_ID}.jpg`))).toBe(false);
   });
 
-  it('ignores a tombstoned sibling — a single live entry is not a duplicate set', async () => {
-    if (!mongoReachable) return;
-    writeFile('live', 'IMG.dng');
-    const id = await insertAsset([
-      fi('live', 'IMG.dng'),
-      fi('gone', 'IMG.dng', { missing_since: '2026-01-01T00:00:00Z' }),
+  // --- candidate gate: `live_location_count >= 2` (#1290) ---
+
+  it('a missing_since sibling leaves one live location — not a duplicate set, not even fetched', async () => {
+    using env = await createEnv();
+    writeCopy(env, 'live', 'IMG.dng');
+    const id = seedAsset(env, [
+      { dir: 'live' },
+      { dir: 'gone', missingSince: '2026-01-01T00:00:00Z' },
     ]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
+    // Not fetched at all: no scan budget spent, nothing collapsed, row untouched.
+    expect(summary.scanned).toBe(0);
     expect(summary.deduped).toBe(0);
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(2); // untouched
+    expect(locationsOf(env, id)).toHaveLength(2);
   });
 
-  // The move-in-progress race: discover recorded a new path before its `removed`
-  // handler tombstoned the old one, so the asset has two "live" entries but only
-  // ONE physical file. Nothing must be relocated — that would leave zero files
-  // on disk. Covered for the stale entry being either first or second in the list.
-  it('does not move anything when only one copy is actually on disk (stale entry first)', async () => {
-    if (!mongoReachable) return;
-    // 'ghost' has no file (stale); only 'keep' exists on disk.
-    writeFile('keep', 'IMG.dng');
-    const id = await insertAsset([fi('ghost', 'IMG.dng'), fi('keep', 'IMG.dng')]);
+  it('a deleted_at sibling leaves one live location — not fetched either', async () => {
+    using env = await createEnv();
+    writeCopy(env, 'live', 'IMG.dng');
+    seedAsset(env, [{ dir: 'live' }, { dir: 'replaced', deletedAt: '2026-01-01T00:00:00Z' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.scanned).toBe(0);
+    expect(summary.deduped).toBe(0);
+  });
+
+  it('two live locations ARE fetched and processed', async () => {
+    using env = await createEnv();
+    writeCopy(env, 'a', 'IMG.dng');
+    writeCopy(env, 'b', 'IMG.dng');
+    const id = seedAsset(env, [{ dir: 'a' }, { dir: 'b' }]);
+
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.scanned).toBe(1);
+    expect(summary.deduped).toBe(1);
+    expect(locationsOf(env, id)).toHaveLength(1);
+  });
+
+  it('an absent-but-untagged sibling is still fetched — the tag-then-skip drain path', async () => {
+    using env = await createEnv();
+    // 'keep' exists on disk; 'ghost' does not (absent but NOT yet tagged), so
+    // both count as live and the row is a candidate. The pass must fetch it,
+    // stat the files, discover 'ghost' is gone, tag it, and return early.
+    writeCopy(env, 'keep', 'IMG.dng');
+    const id = seedAsset(env, [{ dir: 'keep' }, { dir: 'ghost' }]);
+
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.scanned).toBe(1);
+    expect(summary.deduped).toBe(0);
+    expect(summary.skippedMissingFile).toBe(1);
+    const ghost = locationsOf(env, id).find((e) => e.path === 'ghost');
+    expect(ghost!.missing_since).toBeTypeOf('string');
+  });
+
+  // --- the move-in-progress race ---
+  // discover recorded a new path before its `removed` handler tombstoned the old
+  // one, so the asset has two "live" entries but only ONE physical file. Nothing
+  // must be relocated — that would leave zero files on disk. Covered for the
+  // stale entry being either first or second in the list.
+
+  it('does not move anything when only one copy is actually on disk (stale entry first)', async () => {
+    using env = await createEnv();
+    writeCopy(env, 'keep', 'IMG.dng');
+    const id = seedAsset(env, [{ dir: 'ghost' }, { dir: 'keep' }]);
+
     const summary = await runDeDuplicateOnce({});
 
     expect(summary.movedFiles).toBe(0);
     expect(summary.deduped).toBe(0);
     expect(summary.skippedMissingFile).toBe(1);
     // The single real file stayed put; nothing was quarantined.
-    expect(existsSync(join(root, 'keep', 'IMG.dng'))).toBe(true);
-    expect(existsSync(join(root, DUP, 'keep', 'IMG.dng'))).toBe(false);
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(2); // nothing pulled
-    // Verify that the absent entry was tagged missing_since so reaper can prune it.
-    const ghost = asset!.fileinfo.find((e: any) => e.path === 'ghost');
-    expect(ghost.missing_since).toBeTypeOf('string');
-    // Structured provenance for the tag (#2171).
-    expect(ghost.missing_reason).toBe('dedupe-absent');
-  });
-
-  it('does NOT tag absent entries when the library root is empty (unmounted mountpoint) — #2171', async () => {
-    if (!mongoReachable) return;
-    // Both copies stat ENOENT because the ROOT is an empty dir (unmounted
-    // mount look-alike) — that is evidence about the root, not the files.
-    // The asset must be skipped untouched, not mass-tagged missing.
-    const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
-
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
-    const summary = await runDeDuplicateOnce({});
-
-    expect(summary.movedFiles).toBe(0);
-    expect(summary.skippedOffline).toBe(1);
-    const asset = await getAsset(id);
-    for (const e of asset!.fileinfo as Array<{ missing_since?: string }>) {
-      expect(e.missing_since ?? null).toBeNull();
-    }
+    expect(existsSync(join(env.root, 'keep', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, DUP, 'keep', 'IMG.dng'))).toBe(false);
+    const locations = locationsOf(env, id);
+    expect(locations).toHaveLength(2); // nothing removed
+    // The absent entry was tagged so the reaper can prune it, with structured
+    // provenance for the tag (#2171).
+    const ghost = locations.find((e) => e.path === 'ghost');
+    expect(ghost!.missing_since).toBeTypeOf('string');
+    expect(ghost!.missing_reason).toBe('dedupe-absent');
   });
 
   it('does not move anything when only one copy is actually on disk (stale entry last)', async () => {
-    if (!mongoReachable) return;
+    using env = await createEnv();
     // Only 'a' exists; 'b' is the stale entry. Even though rule 4 would prefer
     // 'b' as keeper, it is not on disk so it is never chosen, and 'a' (the only
     // real file) is never moved.
-    writeFile('a', 'IMG.dng');
-    const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
+    writeCopy(env, 'a', 'IMG.dng');
+    const id = seedAsset(env, [{ dir: 'a' }, { dir: 'b' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
     expect(summary.movedFiles).toBe(0);
     expect(summary.deduped).toBe(0);
     expect(summary.skippedMissingFile).toBe(1);
-    expect(existsSync(join(root, 'a', 'IMG.dng'))).toBe(true); // only real copy untouched
-    expect(existsSync(join(root, DUP, 'a', 'IMG.dng'))).toBe(false);
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(2);
-    // Verify that the absent entry was tagged missing_since so reaper can prune it.
-    const b = asset!.fileinfo.find((e: any) => e.path === 'b');
-    expect(b.missing_since).toBeTypeOf('string');
+    expect(existsSync(join(env.root, 'a', 'IMG.dng'))).toBe(true); // only real copy untouched
+    expect(existsSync(join(env.root, DUP, 'a', 'IMG.dng'))).toBe(false);
+    const locations = locationsOf(env, id);
+    expect(locations).toHaveLength(2);
+    const stale = locations.find((e) => e.path === 'b');
+    expect(stale!.missing_since).toBeTypeOf('string');
+  });
+
+  it('does NOT tag absent entries when the library root is empty (unmounted mountpoint) — #2171', async () => {
+    using env = await createEnv();
+    // Both copies stat ENOENT because the ROOT is an empty dir (unmounted
+    // mount look-alike) — that is evidence about the root, not the files.
+    // The asset must be skipped untouched, not mass-tagged missing.
+    const id = seedAsset(env, [{ dir: 'a' }, { dir: 'b' }]);
+
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.movedFiles).toBe(0);
+    expect(summary.skippedOffline).toBe(1);
+    for (const location of locationsOf(env, id)) {
+      expect(location.missing_since).toBeNull();
+    }
   });
 
   it('dry-run reports the work but mutates nothing', async () => {
-    if (!mongoReachable) return;
-    writeFile('a', 'IMG.dng');
-    writeFile('b', 'IMG.dng');
-    const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
+    using env = await createEnv();
+    writeCopy(env, 'a', 'IMG.dng');
+    writeCopy(env, 'b', 'IMG.dng');
+    const id = seedAsset(env, [{ dir: 'a' }, { dir: 'b' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({ dryRun: true });
 
     expect(summary.dryRun).toBe(1);
     expect(summary.movedFiles).toBe(0);
-    expect(existsSync(join(root, 'a', 'IMG.dng'))).toBe(true); // not moved
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(2); // not pulled
-  });
-
-  // --- #1290: live-aware candidate prefilter ---
-  // The worker's candidate query must use liveAwareDuplicatePredicate so that
-  // assets with only one live entry (the other tombstoned) are not fetched at
-  // all, avoiding wasted scan budget and stale-row starvation.
-
-  it('#1290: asset with 1 live + 1 missing_since sibling is NOT fetched by the candidate query (scanned=0)', async () => {
-    if (!mongoReachable) return;
-    writeFile('live', 'IMG.dng');
-    // Insert asset where the second entry is tombstoned via missing_since —
-    // the coarse predicate `fileinfo.1 exists` would match this, but the
-    // live-aware predicate must exclude it.
-    await insertAsset([
-      fi('live', 'IMG.dng'),
-      fi('gone', 'IMG.dng', { missing_since: '2026-01-01T00:00:00Z' }),
-    ]);
-
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
-    const summary = await runDeDuplicateOnce({});
-
-    // With the live-aware prefilter, the asset is not fetched at all.
-    expect(summary.scanned).toBe(0);
-    expect(summary.deduped).toBe(0);
-  });
-
-  it('#1290: asset with 1 live + 1 deleted_at sibling is NOT fetched by the candidate query (scanned=0)', async () => {
-    if (!mongoReachable) return;
-    writeFile('live', 'IMG.dng');
-    // Insert asset where the second entry is tombstoned via deleted_at.
-    await insertAsset([
-      fi('live', 'IMG.dng'),
-      {
-        path: 'replaced',
-        filename: 'IMG.dng',
-        library_id: libraryId,
-        deleted_at: '2026-01-01T00:00:00Z',
-      },
-    ]);
-
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
-    const summary = await runDeDuplicateOnce({});
-
-    // With the live-aware prefilter, the asset is not fetched at all.
-    expect(summary.scanned).toBe(0);
-    expect(summary.deduped).toBe(0);
-  });
-
-  it('#1290: asset with >=2 live entries IS fetched and processed by the candidate query', async () => {
-    if (!mongoReachable) return;
-    writeFile('a', 'IMG.dng');
-    writeFile('b', 'IMG.dng');
-    // Both entries are live (no tags) — should be fetched and deduped.
-    const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
-
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
-    const summary = await runDeDuplicateOnce({});
-
-    expect(summary.scanned).toBe(1);
-    expect(summary.deduped).toBe(1);
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(1);
+    expect(existsSync(join(env.root, 'a', 'IMG.dng'))).toBe(true); // not moved
+    expect(locationsOf(env, id)).toHaveLength(2); // not removed
   });
 
   // --- `.keep` marker: pin copies in a folder against collapse ---
 
   it('keeps the copy in a `.keep` folder and moves the un-pinned one', async () => {
-    if (!mongoReachable) return;
-    // 'photos/2024' would normally be the keeper (rule 4 / clean), but the
-    // operator pinned the 'extra' copy with a `.keep` marker — so 'extra' must
-    // survive and the un-pinned 'photos/2024' copy is the one moved away.
-    writeFile('photos/2024', 'IMG.dng');
-    writeFile('extra', 'IMG.dng');
-    writeKeep('extra');
-    const id = await insertAsset([fi('photos/2024', 'IMG.dng'), fi('extra', 'IMG.dng')]);
+    using env = await createEnv();
+    // 'photos/2024' would normally be the keeper (clean path), but the operator
+    // pinned the 'extra' copy with a `.keep` marker — so 'extra' must survive
+    // and the un-pinned 'photos/2024' copy is the one moved away.
+    writeCopy(env, 'photos/2024', 'IMG.dng');
+    writeCopy(env, 'extra', 'IMG.dng');
+    writeKeepMarker(env, 'extra');
+    const id = seedAsset(env, [{ dir: 'photos/2024' }, { dir: 'extra' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
     expect(summary.deduped).toBe(1);
     expect(summary.movedFiles).toBe(1);
-    // The pinned copy stays; the un-pinned one is quarantined.
-    expect(existsSync(join(root, 'extra', 'IMG.dng'))).toBe(true);
-    expect(existsSync(join(root, 'photos/2024', 'IMG.dng'))).toBe(false);
-    expect(existsSync(join(root, DUP, 'photos/2024', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, 'extra', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, 'photos/2024', 'IMG.dng'))).toBe(false);
+    expect(existsSync(join(env.root, DUP, 'photos/2024', 'IMG.dng'))).toBe(true);
 
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(1);
-    expect(asset!.fileinfo[0].path).toBe('extra');
+    const locations = locationsOf(env, id);
+    expect(locations).toHaveLength(1);
+    expect(locations[0]!.path).toBe('extra');
   });
 
   it('keeps EVERY pinned copy when more than one folder is marked `.keep`', async () => {
-    if (!mongoReachable) return;
+    using env = await createEnv();
     // Two pinned folders + one un-pinned copy: both pinned copies survive, only
     // the un-pinned one is moved.
-    writeFile('keepA', 'IMG.dng');
-    writeFile('keepB', 'IMG.dng');
-    writeFile('loose', 'IMG.dng');
-    writeKeep('keepA');
-    writeKeep('keepB');
-    const id = await insertAsset([
-      fi('keepA', 'IMG.dng'),
-      fi('keepB', 'IMG.dng'),
-      fi('loose', 'IMG.dng'),
-    ]);
+    for (const dir of ['keepA', 'keepB', 'loose']) writeCopy(env, dir, 'IMG.dng');
+    writeKeepMarker(env, 'keepA');
+    writeKeepMarker(env, 'keepB');
+    const id = seedAsset(env, [{ dir: 'keepA' }, { dir: 'keepB' }, { dir: 'loose' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
     expect(summary.deduped).toBe(1);
     expect(summary.movedFiles).toBe(1);
-    expect(existsSync(join(root, 'keepA', 'IMG.dng'))).toBe(true);
-    expect(existsSync(join(root, 'keepB', 'IMG.dng'))).toBe(true);
-    expect(existsSync(join(root, 'loose', 'IMG.dng'))).toBe(false);
-    expect(existsSync(join(root, DUP, 'loose', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, 'keepA', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, 'keepB', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, 'loose', 'IMG.dng'))).toBe(false);
+    expect(existsSync(join(env.root, DUP, 'loose', 'IMG.dng'))).toBe(true);
 
-    const asset = await getAsset(id);
-    const paths = (asset!.fileinfo as any[]).map((e) => e.path).sort();
-    expect(paths).toEqual(['keepA', 'keepB']);
+    expect(locationsOf(env, id).map((e) => e.path)).toEqual(['keepA', 'keepB']);
   });
 
   it('leaves the asset untouched when every on-disk copy is pinned `.keep`', async () => {
-    if (!mongoReachable) return;
-    writeFile('keepA', 'IMG.dng');
-    writeFile('keepB', 'IMG.dng');
-    writeKeep('keepA');
-    writeKeep('keepB');
-    const id = await insertAsset([fi('keepA', 'IMG.dng'), fi('keepB', 'IMG.dng')]);
+    using env = await createEnv();
+    writeCopy(env, 'keepA', 'IMG.dng');
+    writeCopy(env, 'keepB', 'IMG.dng');
+    writeKeepMarker(env, 'keepA');
+    writeKeepMarker(env, 'keepB');
+    const id = seedAsset(env, [{ dir: 'keepA' }, { dir: 'keepB' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
     expect(summary.deduped).toBe(0);
     expect(summary.movedFiles).toBe(0);
     expect(summary.skippedAllKept).toBe(1);
     // Both copies remain on disk and in the row.
-    expect(existsSync(join(root, 'keepA', 'IMG.dng'))).toBe(true);
-    expect(existsSync(join(root, 'keepB', 'IMG.dng'))).toBe(true);
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(2);
+    expect(existsSync(join(env.root, 'keepA', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(env.root, 'keepB', 'IMG.dng'))).toBe(true);
+    expect(locationsOf(env, id)).toHaveLength(2);
   });
 
   it('re-confirms `.keep` on disk — a stale stored keep flag does not block collapse', async () => {
-    if (!mongoReachable) return;
-    // The stored flag claims 'a' is kept, but there is no `.keep` file on disk
+    using env = await createEnv();
+    // The stored flag claims 'a' is pinned, but there is no `.keep` file on disk
     // (the marker was removed after indexing). The worker trusts disk and
     // collapses normally — keeping the last copy per rule 4.
-    writeFile('a', 'IMG.dng');
-    writeFile('b', 'IMG.dng');
-    const id = await insertAsset([fi('a', 'IMG.dng', { keep: true }), fi('b', 'IMG.dng')]);
+    writeCopy(env, 'a', 'IMG.dng');
+    writeCopy(env, 'b', 'IMG.dng');
+    const id = seedAsset(env, [{ dir: 'a', keep: true }, { dir: 'b' }]);
 
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
     expect(summary.deduped).toBe(1);
     expect(summary.movedFiles).toBe(1);
-    const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(1);
-    expect(asset!.fileinfo[0].path).toBe('b'); // rule 4 last-kept, marker ignored
-  });
-
-  it('#1290: absent+untagged entry (present+absent pair) is still fetched — tag-then-skip drain path preserved', async () => {
-    if (!mongoReachable) return;
-    // 'keep' exists on disk; 'ghost' does not (absent but NOT yet tagged).
-    // Both are "live" by isLiveFileInfo (no missing_since / deleted_at).
-    // The live-aware prefilter must still fetch this asset so processAsset
-    // can stat the files, discover 'ghost' is absent, tag it, and return early.
-    writeFile('keep', 'IMG.dng');
-    const id = await insertAsset([fi('keep', 'IMG.dng'), fi('ghost', 'IMG.dng')]);
-
-    const { runDeDuplicateOnce } = await import('./dedupe.ts');
-    const summary = await runDeDuplicateOnce({});
-
-    // Fetched (scanned), NOT deduped (only 1 on disk), absent entry tagged.
-    expect(summary.scanned).toBe(1);
-    expect(summary.deduped).toBe(0);
-    expect(summary.skippedMissingFile).toBe(1);
-    const asset = await getAsset(id);
-    const ghost = (asset!.fileinfo as any[]).find((e: any) => e.path === 'ghost');
-    expect(ghost.missing_since).toBeTypeOf('string');
+    const locations = locationsOf(env, id);
+    expect(locations).toHaveLength(1);
+    expect(locations[0]!.path).toBe('b'); // rule 4 last-kept, stored flag ignored
   });
 });

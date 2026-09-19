@@ -1,113 +1,23 @@
 /**
  * Shared dedup-hit writer for the discover producer (`handle-event.ts`) —
- * records a (library_id, path, filename) location on an existing row for
- * the same content, used by both the main dedup branch and the E11000
- * race-loser fallback (which were verbatim near-duplicates before this
- * extraction; split out for the file-size budget).
+ * records a `(library_id, path, filename)` location on an existing row for the
+ * same content, used by both the main dedup branch and the race-loser fallback.
  *
- * Two cases:
- *   - Location not yet on the row → conditional $push. Only appends if no
- *     entry already matches; a concurrent worker may have seen the same
- *     stale read and raced ahead, and the $not/$elemMatch filter makes us
- *     a silent no-op in that case (the winner already did the work).
- *   - Already-known location → clear its per-entry `deleted_at` and
- *     `missing_since`/`missing_reason` (re-discovering a live file at the
- *     location un-parks it from the missing-reaper) and refresh top-level
- *     timestamps. arrayFilters, not a positional index — a concurrent
- *     $push can shift indices between the caller's findOne and this
- *     updateOne.
+ * The body moved to `db/sqlite/repos/assets.discover.ts` at the cutover
+ * (#3787), where it sits beside the lookups that feed it and the insert it is
+ * the alternative to. Two things it used to do by hand are now properties of
+ * the schema rather than code: the conditional `$push` that made a concurrent
+ * worker's duplicate append a silent no-op is the UNIQUE index over
+ * `(library_id, path, filename)` plus `ON CONFLICT DO NOTHING`, and the
+ * `updateLiveLocationCount` round trip after every write is the triggers in
+ * `ddl/asset-locations.ts`.
  *
- * Reviving a soft-deleted row (user trash or reaped, #2977): its search
- * doc was tombstoned, so the meili stage is re-armed in the SAME update or
- * the asset stays invisible in search until the next full backfill. The
- * caller's `dedupSet` clears the doc-level `deleted_at`/`deleted_reason`.
- *
- * Live-location count is recomputed after either write (append adds a live
- * entry; refresh may un-tombstone one).
+ * This module stays as the import path `handle-event.ts` uses, and re-exports
+ * the name explicitly rather than with `export *` so a changed shape fails to
+ * compile here instead of being swapped silently.
  */
-
-import type { ObjectId } from 'mongodb';
-import type { assetsCollection } from '../../db/client.ts';
-import { updateLiveLocationCount } from '../../indexer/images.repo.ts';
-import { MEILI_REARM_SET } from '../../people/people-search-reindex.ts';
-
-interface LocationKey {
-  library_id: ObjectId;
-  path: string;
-  filename: string;
-}
-
-/**
- * Append `entry` to `row.fileinfo` or refresh the matching entry in place.
- *
- * `keep` — when defined, the known-location refresh also rewrites the
- * entry's `keep` flag (a `.keep` marker may have been added or removed
- * since first index). The race-loser fallback passes undefined and leaves
- * the flag untouched, matching its pre-extraction behavior.
- *
- * Returns 'append' | 'refresh' so the caller can log which path ran.
- */
-export async function appendOrRefreshLocation(
-  coll: Awaited<ReturnType<typeof assetsCollection>>,
-  row: { _id: ObjectId; fileinfo?: unknown; deleted_at?: string | null },
-  entry: LocationKey & Record<string, unknown>,
-  dedupSet: Record<string, unknown>,
-  keep?: boolean,
-): Promise<'append' | 'refresh'> {
-  const reviveSet = typeof row.deleted_at === 'string' ? MEILI_REARM_SET : {};
-  const list = (row.fileinfo ?? []) as LocationKey[];
-  const known = list.some(
-    (e) =>
-      e.library_id.equals(entry.library_id) &&
-      e.path === entry.path &&
-      e.filename === entry.filename,
-  );
-
-  if (!known) {
-    await coll.updateOne(
-      {
-        _id: row._id,
-        fileinfo: {
-          $not: {
-            $elemMatch: {
-              library_id: entry.library_id,
-              path: entry.path,
-              filename: entry.filename,
-            },
-          },
-        },
-      },
-      {
-        $push: { fileinfo: entry as never },
-        $set: { ...dedupSet, ...reviveSet },
-      },
-    );
-    await updateLiveLocationCount(coll, row._id);
-    return 'append';
-  }
-
-  await coll.updateOne(
-    { _id: row._id },
-    {
-      $set: {
-        ...dedupSet,
-        ...reviveSet,
-        'fileinfo.$[entry].deleted_at': null,
-        'fileinfo.$[entry].missing_since': null,
-        'fileinfo.$[entry].missing_reason': null,
-        ...(keep === undefined ? {} : { 'fileinfo.$[entry].keep': keep }),
-      },
-    },
-    {
-      arrayFilters: [
-        {
-          'entry.library_id': entry.library_id,
-          'entry.path': entry.path,
-          'entry.filename': entry.filename,
-        },
-      ],
-    },
-  );
-  await updateLiveLocationCount(coll, row._id);
-  return 'refresh';
-}
+export {
+  appendOrRefreshLocation,
+  type AssetForContent,
+  type DedupRefresh,
+} from '../../db/sqlite/repos/assets.discover.dedup.ts';

@@ -44,8 +44,7 @@ import type { Dirent } from 'node:fs';
 // (readdir/stat) pass straight through.
 import * as fs from '../fs/mirrored.ts';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
+import { liveLocationsByDirectory } from '../db/sqlite/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { sourceFilenameForPreviewCacheName } from '../fs/preview-cache-cleanup.ts';
 import { sha256Prefix16 } from '../fs/xmp.ts';
@@ -57,16 +56,6 @@ export interface SweepResult {
   scanned: number;
   deleted: number;
   skipped_recent: number;
-}
-
-/** Minimal projected shape of one `fileinfo` entry, for the previews
- * known-live-set query below. */
-interface FileInfoLocation {
-  library_id: ObjectId;
-  path: string;
-  filename: string;
-  deleted_at?: unknown;
-  missing_since?: unknown;
 }
 
 /**
@@ -95,17 +84,21 @@ const THUMB_KEY_RE = /^[0-9a-f]{16}$/;
  * pano-injection pre-seed preview (module doc). Captures the 16-hex key. */
 const LEGACY_PANO_PREVIEW_RE = /^([0-9a-f]{16})_1600\.jpg$/;
 
-/** Resolve `libraryRoot`'s registered `_id`, or `null` if it isn't a
+/** Resolve `libraryRoot`'s registered library id (hex), or `null` if it isn't a
  * registered library root (or the lookup fails). `null` makes the previews
  * sweep scan/count as normal but skip every delete decision (see
  * `sweepPreviewsDir`) rather than treat an empty known-live set as "nothing
  * is live" — a transient failure here must never cause a mass-delete of
- * live previews. */
-async function resolveLibraryId(libraryRoot: string): Promise<ObjectId | null> {
+ * live previews.
+ *
+ * Hex rather than an `ObjectId`: `loadLibraryRoots()` is keyed by hex and the
+ * live-set query takes hex, so wrapping and unwrapping in between would buy
+ * nothing but a round trip. */
+async function resolveLibraryId(libraryRoot: string): Promise<string | null> {
   try {
     const libs = await loadLibraryRoots();
     for (const [idHex, root] of libs) {
-      if (root === libraryRoot) return new ObjectId(idHex);
+      if (root === libraryRoot) return idHex;
     }
   } catch {
     /* fall through to null */
@@ -136,7 +129,7 @@ interface SweepContext {
    * path-keyed now, so this is the live set for each (see `isOrphanThumb`);
    * not renamed to avoid unrelated churn across every call site. */
   knownPreviewFilenames: ReadonlyMap<string, ReadonlySet<string>>;
-  libraryId: ObjectId | null;
+  libraryId: string | null;
 }
 
 /**
@@ -188,7 +181,7 @@ function lazyHashedNames(liveNames: ReadonlySet<string>): () => ReadonlySet<stri
  * failure is not a reason to keep the file. See the module doc for why a
  * liveness check would leak one file per asset instead. */
 function isOrphanThumb(
-  libraryId: ObjectId | null,
+  libraryId: string | null,
   hashedLiveNames: () => ReadonlySet<string>,
   name: string,
 ): boolean {
@@ -211,7 +204,7 @@ function isOrphanThumb(
  * for this pass, so never delete — a transient failure to resolve the
  * library must not mass-delete live previews (see `resolveLibraryId`). */
 function isOrphanPreview(
-  libraryId: ObjectId | null,
+  libraryId: string | null,
   liveNames: ReadonlySet<string>,
   hashedLiveNames: () => ReadonlySet<string>,
   name: string,
@@ -409,41 +402,17 @@ async function walk(ctx: SweepContext, dir: string, relDir: string): Promise<voi
   }
 }
 
-/** Build the set of live (path, filename) pairs for one library — previews
- * are path-keyed per-location, not DB-wide unique like maple_id, so this
- * needs library scoping. `path` (POSIX-separated, matching `fileinfo.path`'s
- * own convention) maps to the set of live filenames at that exact
- * directory. */
-async function loadKnownPreviewFilenames(
-  coll: Awaited<ReturnType<typeof assetsCollection>>,
-  libraryId: ObjectId,
-): Promise<Map<string, Set<string>>> {
-  const knownPreviewFilenames = new Map<string, Set<string>>();
-  const fiCursor = coll.find(
-    {
-      fileinfo: {
-        $elemMatch: { library_id: libraryId, deleted_at: null, missing_since: null },
-      },
-    },
-    { projection: { fileinfo: 1 } },
-  );
-  for await (const doc of fiCursor) {
-    for (const fi of (doc.fileinfo as FileInfoLocation[] | undefined) ?? []) {
-      if (!fi.library_id.equals(libraryId) || fi.deleted_at || fi.missing_since) continue;
-      const set = knownPreviewFilenames.get(fi.path) ?? new Set<string>();
-      set.add(fi.filename);
-      knownPreviewFilenames.set(fi.path, set);
-    }
-  }
-  return knownPreviewFilenames;
-}
-
 export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepResult> {
-  const coll = await assetsCollection();
   const libraryId = await resolveLibraryId(libraryRoot);
-  const knownPreviewFilenames = libraryId
-    ? await loadKnownPreviewFilenames(coll, libraryId)
-    : new Map<string, Set<string>>();
+  // The live set is `directory → live filenames` for this library alone —
+  // derivatives are path-keyed per-location, not DB-wide unique like maple_id,
+  // so a library-wide answer would let one library's names keep another's
+  // orphans alive. `liveLocationsByDirectory` answers it in one statement
+  // (#3787); the Mongo version had to stream every matching asset document and
+  // re-filter its `fileinfo` array here, because `$elemMatch` returns documents
+  // and cannot project the entries that matched.
+  const knownPreviewFilenames =
+    libraryId === null ? new Map<string, Set<string>>() : await liveLocationsByDirectory(libraryId);
 
   const ctx: SweepContext = {
     counters: {

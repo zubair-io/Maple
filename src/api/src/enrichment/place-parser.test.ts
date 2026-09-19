@@ -59,7 +59,7 @@ describe("parseNominatimResponse — golden fixture", () => {
       { name: "New York State Museum", category: "tourism", type: "museum" },
     ]);
 
-    // search_blob is the denormalised text used by the Mongo $text index.
+    // search_blob is the denormalised text the full-text index covers.
     // Tokens are lowercased, deduped, and sorted alphabetically. Every
     // address.* value, the state_code, the country_code, the country
     // full name, and each POI's name + type contribute their words.

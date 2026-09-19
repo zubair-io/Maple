@@ -166,16 +166,17 @@ export async function buildDiscoverableAuthenticationOptions() {
 /**
  * Read a stored credential public key as a tight `Uint8Array<ArrayBuffer>`.
  *
- * MongoDB hands binary fields back as a BSON `Binary` (with a `.buffer` Node
- * Buffer) by default, or — under `promoteBuffers` — as a raw Node `Buffer`. A
- * Node Buffer is a view into a shared pool, so its `.buffer` is the WHOLE pool
- * (extra bytes + wrong length); we must copy the Buffer itself (which respects
- * byteOffset/length), not its underlying ArrayBuffer. Handles both shapes so a
- * driver/config change can't silently corrupt the key and break every login.
+ * A stored key comes back as a Node `Buffer`, which is a view into a shared
+ * pool: its `.buffer` is the WHOLE pool (extra bytes + wrong length), so we copy
+ * the Buffer itself — which respects byteOffset/length — and never its
+ * underlying ArrayBuffer. The `.buffer`-unwrapping branch below also accepts the
+ * wrapper shape the MongoDB driver used to hand back (a BSON `Binary`), so a
+ * change in what the store returns can't silently corrupt the key and break
+ * every login.
  */
 function credentialPublicKeyBytes(pk: unknown): Uint8Array<ArrayBuffer> {
   if (pk instanceof Uint8Array) return Uint8Array.from(pk); // Node Buffer / Uint8Array
-  const buf = (pk as { buffer?: unknown } | null)?.buffer; // BSON Binary
+  const buf = (pk as { buffer?: unknown } | null)?.buffer; // wrapper shape
   if (buf instanceof Uint8Array) return Uint8Array.from(buf);
   if (buf) return Uint8Array.from(new Uint8Array(buf as ArrayBufferLike));
   return new Uint8Array(0);

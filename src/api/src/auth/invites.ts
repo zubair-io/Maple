@@ -8,8 +8,8 @@
  * live in `./invite-code.ts` and both stores share them, which is what stops a
  * code minted from one alphabet being read back against another.
  *
- * Deleting MongoDB is #3785; until then this file is what makes the cutover a
- * one-line revert rather than an edit to every caller.
+ * Removing MongoDB is #3785. Keeping the re-export is what made the cutover a
+ * one-line change here rather than an edit to every caller.
  */
 
 export {

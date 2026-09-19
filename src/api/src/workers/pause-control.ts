@@ -18,7 +18,7 @@
 
 import type { Logger } from 'pino';
 import { stageRegistry } from './registry.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 
 export interface PausableWorkerOptions {
   /** Registry / `worker_config` key, e.g. `deduplicate`. */
@@ -62,20 +62,13 @@ export function registerPausableWorker(opts: PausableWorkerOptions): WorkerPause
   const { name, log, messages } = opts;
   const state = { paused: opts.initialPaused };
 
-  let repoPromise: Promise<WorkerConfigRepo> | null = null;
-  const getRepo = (): Promise<WorkerConfigRepo> => {
-    if (!repoPromise) {
-      repoPromise = (async () => {
-        const { getDb } = await import('../db/client.ts');
-        const db = await getDb();
-        return new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-      })();
-    }
-    return repoPromise;
-  };
+  // One repository for the worker's lifetime. It opens nothing — every call
+  // resolves the process-wide SQLite handle — so the lazily-memoised connection
+  // promise this used to carry has nothing left to memoise.
+  const repo = new WorkerConfigRepo();
   const loadPaused = async (): Promise<void> => {
     try {
-      const cfg = await (await getRepo()).load(name);
+      const cfg = await repo.load(name);
       state.paused = cfg?.paused ?? opts.defaultPaused;
     } catch (err) {
       log.warn({ err: err instanceof Error ? err.message : err }, messages.loadFailed);
@@ -83,8 +76,7 @@ export function registerPausableWorker(opts: PausableWorkerOptions): WorkerPause
   };
   const persistPaused = async (value: boolean): Promise<void> => {
     try {
-      const r = await getRepo();
-      await r.patch(name, { paused: value });
+      await repo.patch(name, { paused: value });
     } catch {
       /* best-effort — in-memory state already applied; next boot re-reads */
     }
@@ -92,12 +84,12 @@ export function registerPausableWorker(opts: PausableWorkerOptions): WorkerPause
 
   stageRegistry.register(name, {
     targetVersion: 1,
-    // Not a claim stage — no upstream dependencies. The /status ready/blocked
-    // split (and its buildClaimQuery) is gated to real claim stages anyway.
     dependsOn: [],
     getInFlight: opts.getInFlight,
     getThroughput: opts.getThroughput,
     getPaused: () => state.paused,
+    // Not a claim stage — no upstream dependencies, and the /status
+    // ready/blocked split is gated to real claim stages anyway.
     reloadConfig: loadPaused,
     pause: async () => {
       state.paused = true;

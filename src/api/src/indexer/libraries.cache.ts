@@ -5,7 +5,7 @@
  * Every code path that resolves a `fileinfo[]` entry to an on-disk location
  * needs this map (cache-path resolution, change feed projection, route
  * handlers). Folders rarely change; we cache the read and invalidate
- * explicitly on writes to the folders collection.
+ * explicitly on writes to the `folders` table.
  *
  * The cache lives at module scope (process-local) and is rebuilt lazily on
  * the first read after invalidation. There is no TTL — clients that need
@@ -16,7 +16,7 @@
  * slug to a library root with zero additional DB round-trips.
  */
 import type { ObjectId } from 'mongodb';
-import { foldersCollection } from '../db/client.ts';
+import { listLibraryRoots } from '../db/sqlite/repos/folders.repo.ts';
 
 /** Resolved library info keyed by slug. */
 export interface LibraryBySlug {
@@ -36,15 +36,16 @@ let cached: LibraryCache | null = null;
 
 async function loadCache(): Promise<LibraryCache> {
   if (cached) return cached;
-  const coll = await foldersCollection();
-  const docs = await coll.find({}, { projection: { path: 1, slug: 1, label: 1 } }).toArray();
+  const roots = await listLibraryRoots();
   const byId = new Map<string, string>();
   const bySlug = new Map<string, LibraryBySlug>();
-  for (const d of docs) {
-    byId.set(d._id.toHexString(), d.path);
-    if (d.slug) {
-      bySlug.set(d.slug, { libraryId: d._id, root: d.path, label: d.label ?? '' });
-    }
+  for (const root of roots) {
+    byId.set(root.id.toHexString(), root.path);
+    // Every registered library has a slug: the column is `NOT NULL UNIQUE`, so
+    // the two maps always hold the same set. The Mongo documents predated that
+    // guarantee and a pre-M1 install could carry a slugless folder, which is
+    // why this used to be a conditional.
+    bySlug.set(root.slug, { libraryId: root.id, root: root.path, label: root.label });
   }
   cached = { byId, bySlug };
   return cached;
@@ -68,12 +69,6 @@ export function invalidateLibraryRoots(): void {
 }
 
 /**
- * Test-only: stuff the cache with a fixed map so handler-level tests can
- * exercise the content-addressed cache-path resolution without a Mongo
- * instance. Pass `null` to revert to the lazy-load behaviour.
- */
-
-/**
  * Return a map from `library_id hex` → slug for all libraries that have a slug.
  * Used to compute `slug:relPath` addresses for cover assets in the people list.
  * Served from the same in-memory cache as `loadLibraryRoots` — zero extra DB
@@ -89,6 +84,12 @@ export async function loadLibraryIdToSlug(): Promise<ReadonlyMap<string, string>
   }
   return out;
 }
+
+/**
+ * Test-only: stuff the cache with a fixed map so a handler-level test can
+ * exercise content-addressed cache-path resolution without seeding a database.
+ * Pass `null` to revert to the lazy-load behaviour.
+ */
 export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null): void {
   if (map === null) {
     cached = null;
@@ -98,8 +99,8 @@ export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null)
 }
 
 /**
- * Test-only: register a single slug entry so address-resolution tests can
- * exercise `resolveAddress` without a Mongo instance.
+ * Test-only: register a single slug entry so an address-resolution test can
+ * exercise `resolveAddress` without seeding a database.
  */
 export function setLibraryBySlugForTests(slug: string, entry: LibraryBySlug): void {
   if (!cached) {

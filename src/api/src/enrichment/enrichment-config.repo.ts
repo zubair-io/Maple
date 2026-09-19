@@ -1,7 +1,7 @@
 import type { AiConnectionsConfig } from './ai-connections.ts';
 /**
  * Persisted enrichment runtime config. Mirrors the `indexer-config` shape:
- * a single document in `app_settings` keyed by `_id: "enrichment"`.
+ * a single row in `app_settings` keyed `id = 'enrichment'`.
  *
  * The values here override the env vars (`MAPLE_NOMINATIM_URL`,
  * `MAPLE_GEOCODE_WORKER_ENABLED`, `MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC`,
@@ -256,8 +256,8 @@ export interface EnrichmentConfig {
   face_mobilefacenet_sha256?: string | null;
   // ── Search index (Phase 7) ───────────────────────────────────────────
   /** Meilisearch sidecar base URL for typo-tolerant search. `null`/missing →
-   * falls back to `MAPLE_MEILISEARCH_URL` / unset (search uses the Mongo
-   * `$text` path). */
+   * falls back to `MAPLE_MEILISEARCH_URL` / unset (search uses the built-in
+   * full-text path). */
   meilisearch_url?: string | null;
   /** Meilisearch API key (master/search key). Secret: persisted but never
    * echoed back over HTTP — the config route reports only whether a key is

@@ -1,8 +1,8 @@
 /**
  * ImportRunner — the import worker (ticket #742).
  *
- * Mirrors `job-runner/runner.ts`, but the work queue is the `imports`
- * collection and the unit of work is a folder copy. Loop shape:
+ * Mirrors `job-runner/runner.ts`, but the work queue is the `imports` table
+ * and the unit of work is a folder copy. Loop shape:
  *
  *     while (!shutdown) {
  *       const claim = await claimImport(...);
@@ -26,8 +26,8 @@
  * Concurrency: one import at a time per runner (the proposed v1 default,
  * matching JobRunner). Poll/lease are constants (no env vars); there is no
  * operator-facing import config in v1. If a pause/concurrency knob is wanted
- * later it should live in the `worker_config` collection (`name: 'import'`)
- * with a control on /settings/workers — not a new env var.
+ * later it should live in the `worker_config` table (`name = 'import'`) with a
+ * control on /settings/workers — not a new env var.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -230,7 +230,7 @@ export class ImportRunner {
     const everyMs = Math.max(1_000, Math.floor(this.leaseMs / 3));
     const handle = setInterval(() => {
       void renewImportLease(id, this.leaseMs, this.now).catch(() => {
-        // A transient Mongo error here is non-fatal — the next tick renews,
+        // A transient database error here is non-fatal — the next tick renews,
         // or the lease lapses and another runner legitimately takes over.
       });
     }, everyMs);
@@ -247,8 +247,9 @@ export class ImportRunner {
     // — see `buildImportFiles`), persist the resolved files to `import_files`,
     // then copy as usual. The manual path's files were resolved up-front by
     // the create request and already live in `import_files`. Either way we
-    // pull them back from the collection (NOT off the claim doc) — they were
-    // moved out of the import doc so a huge folder can't overflow it.
+    // read them back from that table rather than off the claim — the file list
+    // is a row per file and never a field on the import itself, which is what
+    // keeps a folder of any size from being bounded by one record's size.
     let files: ImportFileEntry[];
     if (claim.scan_pending) {
       const scanned = await buildImportFiles(

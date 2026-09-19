@@ -19,10 +19,9 @@
 // writer; `db/sqlite/worker-db.ts` has the full argument.
 //
 // So a `prepare` message now carries `path`, not `mongo`. The manager that
-// speaks that protocol is `db/sqlite/repos/people.cluster-pool.ts` — NOT the
-// Mongo-era `./cluster-pool.ts`, which still posts `{ mongo }` and no longer
-// has a worker that understands it. `clustering-job.ts` already dispatches
-// through the SQLite pool; retiring `./cluster-pool.ts` is the last step.
+// speaks that protocol is `db/sqlite/repos/people.cluster-pool.ts`, which
+// `./cluster-pool.ts` re-exports, so every dispatcher — `clustering-job.ts`
+// included — reaches the same one.
 //
 // Nothing a logger can reach may enter this import graph: pino inside a Worker
 // thread never answers its first message, and one `log.warn` turned a 214 ms

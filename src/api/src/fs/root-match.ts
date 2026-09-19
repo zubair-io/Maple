@@ -44,8 +44,8 @@ export function relativeUnderRoot(root: string, abs: string): string | null {
  * Registration only rejects an exact duplicate path (`POST /api/folders`), so
  * one library can legally sit inside another (`/srv/photos` and
  * `/srv/photos/2024`). A first-match scan would attribute a file to whichever
- * root the caller happened to list first — for Mongo-backed roots that is
- * natural document order, i.e. registration order. Deepest-wins makes the
+ * root the caller happened to list first — for database-backed roots that is
+ * whatever order the store returns, i.e. registration order. Deepest-wins makes the
  * answer independent of that ordering.
  */
 export function mostSpecificRoot<T>(

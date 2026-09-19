@@ -1,5 +1,4 @@
-import { describe, expect, it, beforeEach } from 'bun:test';
-import { getDb } from '../db/client.ts';
+import { describe, expect, it } from 'bun:test';
 import {
   clampRetentionDays,
   DEFAULT_RETENTION_DAYS,
@@ -9,17 +8,9 @@ import {
   MIN_RETENTION_DAYS,
   MAX_RETENTION_DAYS,
 } from './change-log-gc-config.repo.ts';
+import { createTestDatabase, testSqliteDb } from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 describe('change-log-gc-config.repo', () => {
-  beforeEach(async () => {
-    try {
-      const db = await getDb();
-      await db.collection('app_settings').deleteOne({ _id: 'change-log-gc' as never });
-    } catch {
-      // Ignore if DB is unreachable in pure unit runs
-    }
-  });
-
   describe('clampRetentionDays', () => {
     it('clamps below minimum to MIN_RETENTION_DAYS', () => {
       expect(clampRetentionDays(0)).toBe(MIN_RETENTION_DAYS);
@@ -40,34 +31,43 @@ describe('change-log-gc-config.repo', () => {
     });
   });
 
+  // Every persistence case drives the repo through its `dbOverride` tail
+  // parameter, which is the same one `runChangeLogGcOnce` forwards.
   describe('persistence', () => {
     it('returns default when no doc exists', async () => {
-      const cfg = await loadChangeLogGcConfig();
+      using handle = await createTestDatabase();
+      const cfg = await loadChangeLogGcConfig(testSqliteDb(handle.db));
       expect(cfg.enabled).toBe(true);
       expect(cfg.retention_days).toBe(DEFAULT_RETENTION_DAYS);
       expect(cfg.last_run).toBeNull();
     });
 
     it('saves and loads configured retention window', async () => {
-      const saved = await saveChangeLogGcConfig({ retention_days: 60 });
+      using handle = await createTestDatabase();
+      const db = testSqliteDb(handle.db);
+      const saved = await saveChangeLogGcConfig({ retention_days: 60 }, db);
       expect(saved.retention_days).toBe(60);
 
-      const cfg = await loadChangeLogGcConfig();
+      const cfg = await loadChangeLogGcConfig(db);
       expect(cfg.retention_days).toBe(60);
     });
 
     it('patches enabled flag and preserves retention_days', async () => {
-      await saveChangeLogGcConfig({ retention_days: 45 });
-      const updated = await saveChangeLogGcConfig({ enabled: false });
+      using handle = await createTestDatabase();
+      const db = testSqliteDb(handle.db);
+      await saveChangeLogGcConfig({ retention_days: 45 }, db);
+      const updated = await saveChangeLogGcConfig({ enabled: false }, db);
       expect(updated.enabled).toBe(false);
       expect(updated.retention_days).toBe(45);
 
-      const cfg = await loadChangeLogGcConfig();
+      const cfg = await loadChangeLogGcConfig(db);
       expect(cfg.enabled).toBe(false);
       expect(cfg.retention_days).toBe(45);
     });
 
     it('records and loads last_run summary', async () => {
+      using handle = await createTestDatabase();
+      const db = testSqliteDb(handle.db);
       const run = {
         deleted: 1500,
         batches: 3,
@@ -76,9 +76,9 @@ describe('change-log-gc-config.repo', () => {
         remaining: 200,
         finished_at: new Date().toISOString(),
       };
-      await recordChangeLogGcRun(run);
+      await recordChangeLogGcRun(run, db);
 
-      const cfg = await loadChangeLogGcConfig();
+      const cfg = await loadChangeLogGcConfig(db);
       expect(cfg.last_run).toEqual(run);
     });
   });

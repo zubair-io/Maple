@@ -1,8 +1,8 @@
 /**
  * Persisted render runtime config — the operator ramp/kill switch for the web
  * GPU live-render path (#1062, epic #925). Mirrors the observability- and
- * display-config shape: a single document in `app_settings` keyed by
- * `_id: "render"`.
+ * display-config shape: a single row in `app_settings` keyed
+ * `id = 'render'`.
  *
  * Config lives ENTIRELY in the database — set it from web Settings → Workers
  * (or `PUT /api/render/config`). There is no env-var fallback here: an

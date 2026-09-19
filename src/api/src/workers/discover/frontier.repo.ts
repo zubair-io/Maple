@@ -1,87 +1,24 @@
 /**
- * The discover sweep frontier — the queue of directories still to visit, in
- * Mongo so the walk's memory is O(one directory). Claim is atomic
- * (findOneAndUpdate) so only one sweeper visits a given dir; a lease lets a
- * crashed sweeper's dir be retaken.
+ * The discover sweep frontier — the queue of directories still to visit, so a
+ * walk's memory is O(one directory) rather than O(tree). A claim is atomic and
+ * carries a lease, so a crashed sweeper's directory is retaken rather than
+ * stranded.
+ *
+ * The bodies moved to `db/sqlite/repos/discover-frontier.repo.ts` at the
+ * cutover (#3787); this module is the import path `sweeper.ts` and `index.ts`
+ * already use, kept so the move is one file rather than every call site.
+ *
+ * Each name is re-exported explicitly rather than with `export *`: a name whose
+ * shape changed on the SQLite side then fails to compile here instead of being
+ * swapped silently. `FrontierDir._id` is exactly such a change — it is the
+ * frontier row's integer primary key now, not an `ObjectId`, because no caller
+ * ever does anything with the value except hand it back to `completeDir`.
  */
-import type { ObjectId } from 'mongodb';
-import { type WithId } from 'mongodb';
-import { discoverFrontierCollection } from '../../db/client.ts';
-import type { DiscoverFrontierDoc } from '../../db/schema.ts';
-
-export type FrontierDir = WithId<DiscoverFrontierDoc>;
-
-/** Insert the root dir for a fresh generation (no-op if it already exists). */
-export async function seedRoot(folderId: ObjectId, rootPath: string, gen: number): Promise<void> {
-  await enqueueDirs(folderId, [rootPath], gen, false);
-}
-
-/** Insert child directories for the current generation, ignoring duplicates.
- * `hiddenAncestor` records that the enqueuing parent is folder-hidden (own
- * `.hidden` marker or inherited), so the subtree inherits the hide (#2972). */
-export async function enqueueDirs(
-  folderId: ObjectId,
-  dirs: string[],
-  gen: number,
-  hiddenAncestor: boolean,
-): Promise<void> {
-  if (dirs.length === 0) return;
-  const coll = await discoverFrontierCollection();
-  const now = Date.now();
-  const docs: DiscoverFrontierDoc[] = dirs.map((d) => ({
-    folder_id: folderId,
-    dir_path: d,
-    sweep_gen: gen,
-    claimed_at: null,
-    enqueued_at: now,
-    hidden_ancestor: hiddenAncestor,
-  }));
-  // ordered:false so a duplicate-key on one dir doesn't drop the rest.
-  await coll.insertMany(docs, { ordered: false }).catch((err: unknown) => {
-    // ordered:false aggregates per-doc errors in a MongoBulkWriteError.
-    // Duplicate-key (11000) is EXPECTED on re-seed and safe to ignore;
-    // any other error (auth, network, validation) must propagate so we
-    // never silently drop frontier rows.
-    //
-    // MongoBulkWriteError shape (mongodb driver ≥ 6):
-    //   err.code         — top-level code (11000 when ALL errors are dups)
-    //   err.writeErrors  — WriteError[], each with a .code getter
-    const e = err as { code?: number; writeErrors?: Array<{ code: number }> };
-    if (e.code === 11000) return;
-    const writeErrors = e.writeErrors ?? [];
-    if (writeErrors.length > 0 && writeErrors.every((w) => w.code === 11000)) return;
-    throw err;
-  });
-}
-
-/** Atomically claim the oldest free (or lease-expired) dir for `gen`. */
-export async function claimNextDir(
-  folderId: ObjectId,
-  gen: number,
-  leaseMs: number,
-): Promise<FrontierDir | null> {
-  const coll = await discoverFrontierCollection();
-  const now = Date.now();
-  const res = await coll.findOneAndUpdate(
-    {
-      folder_id: folderId,
-      sweep_gen: gen,
-      $or: [{ claimed_at: null }, { claimed_at: { $lt: now } }],
-    },
-    { $set: { claimed_at: now + leaseMs } },
-    { sort: { enqueued_at: 1, _id: 1 }, returnDocument: 'after' },
-  );
-  return res as FrontierDir | null;
-}
-
-/** Remove a finished dir from the frontier. */
-export async function completeDir(id: ObjectId): Promise<void> {
-  const coll = await discoverFrontierCollection();
-  await coll.deleteOne({ _id: id });
-}
-
-/** Rows left for a generation (claimed or not). 0 ⇒ sweep of that gen done. */
-export async function remainingForGen(folderId: ObjectId, gen: number): Promise<number> {
-  const coll = await discoverFrontierCollection();
-  return coll.countDocuments({ folder_id: folderId, sweep_gen: gen });
-}
+export {
+  claimNextDir,
+  completeDir,
+  enqueueDirs,
+  remainingForGen,
+  seedRoot,
+} from '../../db/sqlite/repos/discover-frontier.repo.ts';
+export type { FrontierDir } from '../../db/sqlite/repos/discover-frontier.repo.ts';

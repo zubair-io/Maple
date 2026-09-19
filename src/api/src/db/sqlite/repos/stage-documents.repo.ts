@@ -104,6 +104,7 @@ interface DetailRow {
   transcript: string | null;
   video_description: string | null;
   video_description_meta: string | null;
+  metadata_override: string | null;
 }
 
 interface StageStateRow {
@@ -248,6 +249,11 @@ function toImageDoc(
     ),
     video_description_meta: json<NonNullable<ImageDoc['video_description_meta']>>(
       detail?.video_description_meta ?? null,
+    ),
+    // Read by `sidecar-metadata-index`, which re-arms `geocode` only when the
+    // sidecar's coordinates differ from the ones already stored here.
+    metadata_override: json<NonNullable<ImageDoc['metadata_override']>>(
+      detail?.metadata_override ?? null,
     ),
     enrichment: toEnrichment(enrichment),
     stages: toStageStates(stages),

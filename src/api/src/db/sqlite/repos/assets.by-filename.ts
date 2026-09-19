@@ -4,7 +4,7 @@
  *
  * Four callers take a list of absolute paths they already resolved through the
  * library jail, and need the catalog rows behind them: the batch metadata
- * snapshot, the panorama path resolver, the relocate preview, and the directory
+ * snapshot, the panorama path resolver, the relocate routes, and the directory
  * listing `/api/fs/dir` serves. None of them can key on `(library, directory,
  * filename)` directly, because the absolute path they hold was produced by
  * `realpath` and a library registered through a symlink resolves to a root the
@@ -27,8 +27,8 @@
  * that work once per copy and report duplicates.
  */
 
-import type { ObjectId } from 'mongodb';
-import type { AssetExif, FileInfo, MetadataOverride } from '../../schema.ts';
+import type { ObjectId, WithId } from 'mongodb';
+import type { AssetDoc, AssetExif, FileInfo, MetadataOverride, Place } from '../../schema.ts';
 import { json, toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
@@ -143,6 +143,108 @@ export async function findMetadataByFilenames(
     rating: row.rating,
     flag: row.flag as -1 | 0 | 1,
     color_label: row.color_label,
+  }));
+}
+
+/**
+ * A relocate candidate: the asset as the move helpers read it, plus how far the
+ * sidecar reconcile has got on it.
+ *
+ * The document is the widest read in this module — the metadata snapshot's
+ * projection plus `place`, `maple_id` and `apple_rendered_path` — because
+ * `/api/library/relocate` does three separate things with it. It decides the
+ * canonical folder (`place`, the override's `place_text`, the screenshot
+ * verdict, the capture year), it moves the file and its Apple-rendered
+ * companion, and it reclaims the emptied source folder's `.maple` cache entries
+ * by `maple_id`.
+ *
+ * `sidecarStageVersion` rides along so the route can tell, without a second
+ * query, which of these assets the `sidecar-metadata-index` stage has not
+ * reached yet — those it reconciles on the spot rather than relocating against
+ * a `place_text` the sidecar has already superseded.
+ */
+export interface RelocateCandidateRow {
+  doc: WithId<AssetDoc>;
+  /** The named stage's recorded version; 0 when it has never run. */
+  sidecarStageVersion: number;
+}
+
+interface RelocateAssetRow {
+  id: string;
+  size: number;
+  mtime: number;
+  indexed_at: string;
+  rating: number;
+  flag: number;
+  color_label: string;
+  is_screenshot: number | null;
+  maple_id: string | null;
+  apple_rendered_path: string | null;
+  exif: string | null;
+  place: string | null;
+  metadata_override: string | null;
+  stage_version: number;
+}
+
+const RELOCATE_CANDIDATE_SQL = `
+  SELECT a.id AS id, a.size AS size, a.mtime AS mtime, a.indexed_at AS indexed_at,
+         a.rating AS rating, a.flag AS flag, a.color_label AS color_label,
+         a.is_screenshot AS is_screenshot, a.maple_id AS maple_id,
+         a.apple_rendered_path AS apple_rendered_path,
+         a.exif AS exif, a.place AS place,
+         d.metadata_override AS metadata_override,
+         COALESCE(s.version, 0) AS stage_version
+    FROM assets a
+    LEFT JOIN asset_detail d ON d.asset_id = a.id
+    LEFT JOIN stage_state s ON s.asset_id = a.id AND s.stage = ?`;
+
+/**
+ * The relocate candidates behind a set of basenames, with the named stage's
+ * version on each.
+ *
+ * `stage_state` is joined rather than queried separately, and `COALESCE(…, 0)`
+ * is what makes a missing row read as "never run" — the same thing a missing
+ * `stages.<name>` subdocument meant on Mongo. Stage rows are seeded densely, so
+ * a missing one is rare, but reading it as "already at target" would silently
+ * skip the reconcile the route exists to do.
+ */
+export async function findRelocateCandidatesByFilenames(
+  filenames: readonly string[],
+  stage: string,
+  dbOverride?: SqliteDb,
+): Promise<RelocateCandidateRow[]> {
+  const db = sqliteDb(dbOverride);
+  const { ids, locations } = await idsByFilenames(db, filenames);
+  if (ids.length === 0) return [];
+
+  const rows = await db.read<RelocateAssetRow>(
+    `${RELOCATE_CANDIDATE_SQL}\n   WHERE a.id IN (${placeholders(ids.length)})`,
+    [stage, ...ids],
+  );
+
+  return rows.map((row) => ({
+    sidecarStageVersion: row.stage_version,
+    doc: {
+      _id: toObjectId(row.id),
+      fileinfo: toFileInfo(locations.get(row.id) ?? []),
+      size: row.size,
+      mtime: row.mtime,
+      indexed_at: row.indexed_at,
+      rating: row.rating,
+      flag: row.flag as -1 | 0 | 1,
+      color_label: row.color_label,
+      exif: json<AssetExif>(row.exif),
+      place: json<Place>(row.place),
+      metadata_override: json<MetadataOverride>(row.metadata_override),
+      // Omitted rather than nulled when absent, because `geoDir` reads the
+      // screenshot verdict as `override ?? row` and a `null` here would answer
+      // the wrong question for an asset the describe stage has not classified.
+      ...(row.is_screenshot === null ? {} : { is_screenshot: row.is_screenshot === 1 }),
+      ...(row.maple_id === null ? {} : { maple_id: row.maple_id }),
+      ...(row.apple_rendered_path === null
+        ? {}
+        : { apple_rendered_path: row.apple_rendered_path }),
+    },
   }));
 }
 

@@ -26,13 +26,13 @@ export async function initializeHttpSearch(): Promise<void> {
       return;
     }
     if (!(await client.health())) {
-      log.warn('Meilisearch unreachable — search will fall back to Mongo text search');
+      log.warn('Meilisearch unreachable — search will fall back to built-in text search');
       return;
     }
     await client.ensureIndex();
     await advanceKnownVectorCoverage(client.semanticFingerprint?.());
     log.info({ semanticEnabled: client.semanticConfigured() }, 'Meilisearch search sidecar ready');
   } catch (error) {
-    log.warn({ err: error }, 'Meilisearch setup failed — search will fall back to Mongo');
+    log.warn({ err: error }, 'Meilisearch setup failed — search will fall back to built-in text search');
   }
 }

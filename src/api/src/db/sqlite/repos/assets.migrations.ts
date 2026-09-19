@@ -80,18 +80,35 @@ const ANY_VIDEO_FILENAME = filenameMatches([...VIDEO_EXTS]);
 const GEO_VIDEO_EXTS = ['.mp4', '.mov'] as const;
 
 /**
+ * "This asset is a video", written so the index can serve it.
+ *
+ * `assets_media_kind_av` is partial over `media_kind IN ('video', 'audio')`, and
+ * SQLite only uses a partial index when the query's own `WHERE` provably implies
+ * the index's — by a *textual* test, not a value one. `media_kind = 'video'`
+ * implies the predicate to a reader and not to the planner, so on its own it
+ * plans as a full scan of `assets`. Repeating the index's predicate verbatim
+ * alongside the equality is what makes the difference, and it is the same rule
+ * the schema documents for `assets_maple_id`.
+ *
+ * Measured on 3,000 rows with statistics gathered: `SCAN assets` without the
+ * repetition, `SEARCH assets USING COVERING INDEX assets_media_kind_av` with it.
+ * All three video migrations sweep the whole library, so this is the difference
+ * between visiting every photo and visiting the videos.
+ */
+const IS_VIDEO = `a.media_kind IN ('video', 'audio') AND a.media_kind = 'video'`;
+
+/**
  * "Is a video AND that video location is live."
  *
- * `media_kind` is the cheap half — an equality the `assets_media_kind_av`
- * partial index serves — and the filename test on the same row is what keeps it
- * honest, for the reason in the module comment.
+ * `media_kind` is the cheap half, and the filename test on the same row is what
+ * keeps it honest, for the reason in the module comment.
  */
-export const LIVE_VIDEO = `a.media_kind = 'video' AND EXISTS (
+export const LIVE_VIDEO = `${IS_VIDEO} AND EXISTS (
   SELECT 1 FROM asset_locations l
    WHERE l.asset_id = a.id AND ${LIVE_LOCATION} AND ${ANY_VIDEO_FILENAME})`;
 
 /** The geo-backfill pair's narrower scope: a live `.mp4`/`.mov` location. */
-export const LIVE_GEO_VIDEO = `a.media_kind = 'video' AND EXISTS (
+export const LIVE_GEO_VIDEO = `${IS_VIDEO} AND EXISTS (
   SELECT 1 FROM asset_locations l
    WHERE l.asset_id = a.id AND ${LIVE_LOCATION}
      AND ${filenameMatches(GEO_VIDEO_EXTS)})`;

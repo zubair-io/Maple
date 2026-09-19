@@ -1,10 +1,10 @@
-// The polling loop, the stop/singleton bookkeeping and the republish pass are
-// near-copies of the Mongo tailer's, because only the lines that reach the
-// database differ between them. Factoring the shared half into a base class
-// would couple the two implementations together shortly before one of them is
-// deleted, which is the opposite of what this migration's beside-then-switch
-// shape is for. The duplication ends with the Mongo tailer, at the cutover
-// (#3752).
+// The polling loop, the stop/singleton bookkeeping and the republish pass were
+// written as near-copies of the Mongo tailer's, because only the lines that
+// reached the database differed between them. Factoring the shared half into a
+// base class would have coupled the two implementations together shortly before
+// one of them was deleted, which is the opposite of what the migration's
+// beside-then-switch shape was for. The Mongo tailer is gone at the cutover
+// (#3752), and with it the duplication.
 // fallow-ignore-file code-duplication
 
 /**
@@ -29,9 +29,9 @@
  *
  * ## The watermark is seeded from the counter, not from the journal
  *
- * This is the one behavioural difference from the Mongo tailer, and it fixes a
- * real hole. The Mongo version seeds the watermark from `highestCursor()` — the
- * largest cursor still *stored*. Retention pruning (#3741) deletes old rows by
+ * This is the one behavioural difference from the Mongo tailer, and it fixed a
+ * real hole. The Mongo version seeded the watermark from `highestCursor()` —
+ * the largest cursor still *stored*. Retention pruning (#3741) deletes old rows by
  * design, so a swept journal reports 0, the watermark starts at 0, and
  * `ChangeBus.isCursorReplayable` then answers true for every stale cursor it is
  * asked about, because the empty-buffer branch is `since >= watermark`. A

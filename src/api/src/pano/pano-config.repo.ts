@@ -1,6 +1,6 @@
 /**
- * Persisted pano runtime config. A single document in `app_settings`
- * keyed by `_id: "pano"`. Pattern mirrors enrichment-config.repo.ts.
+ * Persisted pano runtime config. A single row in `app_settings` keyed
+ * `id = 'pano'`. Pattern mirrors enrichment-config.repo.ts.
  *
  * Settings (all operator-configurable at runtime via PUT /api/pano/config):
  *   - maple_cli_path  : absolute path to the compiled maple-cli binary

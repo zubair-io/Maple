@@ -265,6 +265,34 @@ export const STAGE_INVALIDATE_SQL = `
     version = 0, attempts = 0, last_error = NULL, processed_at = NULL, dead = 0`;
 
 /**
+ * A stage recorded as handled by something other than its own poll loop.
+ *
+ * `/api/library/relocate` is the caller, and the only one: it cannot relocate an
+ * asset into its canonical location folder using a `place_text` the sidecar has
+ * already superseded, so it runs the `sidecar-metadata-index` handler itself for
+ * the assets that stage has not reached, and records the result here.
+ *
+ * Three differences from {@link STAGE_SUCCESS_SQL}, each forced by the caller
+ * not being a claimer. It is an upsert, because a route can reach an asset whose
+ * stage row was never seeded, and `SELECT … FROM assets` keeps it from inserting
+ * a row for an asset that no longer exists. It carries no lease fence, because
+ * there is no lease to fence on. And it clears `next_attempt_at` outright, which
+ * is what the Mongo route did by rewriting the whole `stages.<name>`
+ * subdocument: a poll loop holding a live claim on the same asset therefore
+ * loses its exclusivity, and the worst case is that its writeback and this one
+ * both land, in either order, on an idempotent handler.
+ *
+ * Parameters: `stage`, `version`, `last_error`, `processed_at`, `asset_id`.
+ */
+export const STAGE_OFF_CLAIM_SUCCESS_SQL = `
+  INSERT INTO stage_state (asset_id, stage, version, attempts, last_error, processed_at, dead)
+  SELECT id, ?, ?, 0, ?, ?, 0 FROM assets WHERE id = ?
+  ON CONFLICT (asset_id, stage) DO UPDATE SET
+    version = excluded.version, attempts = 0, last_error = excluded.last_error,
+    processed_at = excluded.processed_at, dead = 0,
+    failed_at = NULL, next_attempt_at = NULL`;
+
+/**
  * The claiming stage's own row after a `rearm`: left below target with its
  * claim-time attempt kept, so the `dependsOn` gate parks it until the upstream
  * stage completes and it re-claims automatically. The lease is cleared because

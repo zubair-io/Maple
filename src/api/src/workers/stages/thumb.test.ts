@@ -1,14 +1,34 @@
 import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
-import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { maple } from 'maple';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import thumbStage from './thumb.ts';
 import { resolveThumbPath, resolveThumbPathForAsset, sha256Prefix16 } from '../../fs/xmp.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots, setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import { runOnce } from '../run-stage.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
+
+/**
+ * What the handler returns on a successful render: no field writes of its own,
+ * and the edge-upload stage re-armed against the bytes it just produced.
+ *
+ * The thumb's path is derived from the source path by every reader, so there is
+ * nothing to persist — the patch is empty on purpose and the `invalidates` is
+ * the whole result. It used to be a `{ wrote: true }` plus a best-effort
+ * `updateOne` the handler issued itself, which could be lost independently of
+ * the thumbnail landing on disk.
+ */
+const RENDERED = { patch: [], invalidates: ['cf-thumb-sync'] };
 
 /**
  * Minimal APP1 EXIF segment carrying a single IFD0 entry: Orientation
@@ -36,27 +56,6 @@ function withExifOrientation(jpeg: Buffer, orientation: number): Buffer {
   return Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]);
 }
 
-// --- shared test-DB harness for the path-keyed cache-path block below ---
-const TEST_DB = withTestDb(`maple_test_thumb_stage_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
 function makeDoc(
   absPath: string,
   libraryId: ObjectId,
@@ -68,7 +67,7 @@ function makeDoc(
   const relDir = path.relative(libraryRoot, path.dirname(absPath));
   const filename = path.basename(absPath);
   return {
-    _id: '000000000000000000000003' as unknown as ObjectId,
+    _id: new ObjectId('000000000000000000000003'),
     fileinfo: [
       {
         path: relDir === '.' || relDir === '' ? '' : relDir.split(path.sep).join('/'),
@@ -133,12 +132,10 @@ describe('thumb handler — bitmap path', () => {
   beforeAll(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'thumb-stage-'));
     libraryId = new ObjectId();
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
   afterAll(async () => {
     await rm(dir, { recursive: true, force: true });
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
     setLibraryRootsForTests(null);
   });
 
@@ -150,9 +147,9 @@ describe('thumb handler — bitmap path', () => {
     const doc = makeDoc(file, libraryId, dir);
     const result = await thumbStage.handler(doc as never, {} as never);
 
-    // The stage no longer persists `thumb_path` — it returns { wrote: true }
-    // and the thumb lives at the path-keyed location, recomputed on read.
-    expect(result).toEqual({ wrote: true });
+    // The stage no longer persists `thumb_path` — the thumb lives at the
+    // path-keyed location, recomputed on read.
+    expect(result).toEqual(RENDERED);
     const thumbPath = resolveThumbPathForAsset(
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
@@ -264,7 +261,7 @@ describe('thumb handler — bitmap path', () => {
 
     const doc = makeDoc(file, libraryId, dir, null, 'e'.repeat(32));
     const result = await thumbStage.handler(doc as never, {} as never);
-    expect(result).toEqual({ wrote: true });
+    expect(result).toEqual(RENDERED);
     const thumbPath = resolveThumbPathForAsset(
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
@@ -278,7 +275,7 @@ describe('thumb handler — bitmap path', () => {
   it('marks the stage as wrote for a RAW when the FFI is unavailable (soft pass)', async () => {
     // Without libraw_ffi built, generateThumb silently skips the RAW and
     // returns without writing a file. The handler must still return
-    // { wrote: true } so the runtime can mark the stage done and the image
+    // a clean success so the runtime can mark the stage done and the image
     // advances to face.
     //
     // This test verifies the handler does not throw when the FFI is absent.
@@ -296,7 +293,6 @@ describe('thumb handler — bitmap path', () => {
     // RAW lives outside the test library — stage a second library that
     // claims its directory.
     const rawLibraryId = new ObjectId();
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
     setLibraryRootsForTests(
       new Map([
         [libraryId.toHexString(), dir],
@@ -306,71 +302,36 @@ describe('thumb handler — bitmap path', () => {
     const doc = makeDoc(dng, rawLibraryId, path.dirname(dng), null, 'f'.repeat(32));
     // Must not throw.
     const result = await thumbStage.handler(doc as never, {} as never);
-    expect(result).toEqual({ wrote: true });
+    expect(result).toEqual(RENDERED);
     // Restore the single-library cache for subsequent tests.
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
 });
 
 describe('thumb handler — path-keyed cache path', () => {
-  let mongo: MongoClient | null = null;
-  let mongoReachable = false;
-  let db: Db | null = null;
   let dir: string;
 
   beforeAll(async () => {
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) {
-      console.log('[thumb.test] skipping path-keyed block: MongoDB unreachable');
-      return;
-    }
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-    const { closeDb } = await import('../../db/client.ts');
-    await closeDb();
     dir = await mkdtemp(path.join(os.tmpdir(), 'thumb-stage-ca-'));
   });
 
   afterAll(async () => {
-    if (mongoReachable) {
-      const { closeDb } = await import('../../db/client.ts');
-      await closeDb();
-      try {
-        await mongo!.db(TEST_DB).dropDatabase();
-      } catch {}
-      try {
-        await mongo!.close();
-      } catch {}
-      await rm(dir, { recursive: true, force: true });
-    }
+    await rm(dir, { recursive: true, force: true });
   });
 
   it('writes the path-keyed name /api/fs/thumb reads, not a maple_id-keyed one', async () => {
-    if (!mongoReachable) return; // soft pass
-
-    // Set up a library at our tmp dir, with a sub-folder containing the JPEG.
-    const { foldersCollection } = await import('../../db/client.ts');
-    const { invalidateLibraryRoots } = await import('../../indexer/libraries.cache.ts');
+    // A real library row rather than the injected roots map, because the
+    // handler resolves its destination through `loadLibraryRoots()` and this
+    // test is about where that resolution lands on disk.
+    using live = await createLiveTestDatabase();
+    const libId = new ObjectId(insertFolder(live.db, { path: dir }));
     invalidateLibraryRoots();
-
-    const libId = new ObjectId();
-    const folder = await foldersCollection();
-    await folder.insertOne({
-      _id: libId,
-      path: dir,
-      label: 'test',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
 
     const sub = path.join(dir, 'vacation');
     await rm(sub, { recursive: true, force: true });
-    await import('node:fs/promises').then(({ mkdir }) => mkdir(sub, { recursive: true }));
+    await mkdir(sub, { recursive: true });
     const file = path.join(sub, 'IMG_001.jpg');
-    const buf = await solidJpeg(800, 600, [50, 50, 50]);
-    await writeFile(file, buf);
+    await writeFile(file, await solidJpeg(800, 600, [50, 50, 50]));
 
     const mapleId = 'e'.repeat(32);
     const doc = {
@@ -378,131 +339,102 @@ describe('thumb handler — path-keyed cache path', () => {
       // Override to point fileinfo[0] at the vacation subdir explicitly so
       // the thumb lands in that folder's .maple/.
       fileinfo: [
-        {
-          path: 'vacation',
-          filename: 'IMG_001.jpg',
-          library_id: libId,
-          deleted_at: null,
-        },
+        { path: 'vacation', filename: 'IMG_001.jpg', library_id: libId, deleted_at: null },
       ],
     };
 
     const result = await thumbStage.handler(doc as never, {} as never);
-    expect(result).toEqual({ wrote: true });
+    expect(result).toEqual(RENDERED);
     // The thumb must land at the name a path-only reader computes — this is
     // the agreement that was broken while the stage was maple_id-keyed.
     const expected = resolveThumbPath(file);
     expect(expected).toBe(
       path.join(dir, 'vacation', '.maple', 'thumbs', `${sha256Prefix16('IMG_001.jpg')}.avif`),
     );
-    const s = await stat(expected);
-    expect(s.size).toBeGreaterThan(0);
+    expect((await stat(expected)).size).toBeGreaterThan(0);
     // And explicitly NOT at the old content-addressed name.
     await expect(
       stat(path.join(dir, 'vacation', '.maple', 'thumbs', `${mapleId}.avif`)),
     ).rejects.toThrow();
+    invalidateLibraryRoots();
   });
 });
 
 describe('thumb handler — resets cf-thumb-sync stage state on rewrite', () => {
-  let mongo: MongoClient | null = null;
-  let mongoReachable = false;
-  let db: Db | null = null;
   let dir: string;
-  let libId: ObjectId;
 
   beforeAll(async () => {
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) {
-      console.log('[thumb.test] skipping cf-thumb-sync reset block: MongoDB unreachable');
-      return;
-    }
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-    const { closeDb } = await import('../../db/client.ts');
-    await closeDb();
     dir = await mkdtemp(path.join(os.tmpdir(), 'thumb-stage-cfreset-'));
-    const { foldersCollection } = await import('../../db/client.ts');
-    const { invalidateLibraryRoots } = await import('../../indexer/libraries.cache.ts');
-    libId = new ObjectId();
-    const folder = await foldersCollection();
-    await folder.insertOne({
-      _id: libId,
-      path: dir,
-      label: 'cfreset-test',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
-    invalidateLibraryRoots();
   });
 
   afterAll(async () => {
-    if (mongoReachable) {
-      const { closeDb } = await import('../../db/client.ts');
-      await closeDb();
-      try {
-        await mongo!.db(TEST_DB).dropDatabase();
-      } catch {}
-      try {
-        await mongo!.close();
-      } catch {}
-      await rm(dir, { recursive: true, force: true });
-    }
+    await rm(dir, { recursive: true, force: true });
   });
 
   it('resets a previously-synced cf-thumb-sync stage state back to unprocessed', async () => {
-    if (!mongoReachable) return;
+    // Driven through `runOnce` rather than by calling the handler, because the
+    // reset is no longer something the handler performs: it is declared as
+    // `invalidates` and the runner commits it in the same transaction as this
+    // stage's own success row. Asserting on the handler's return value alone
+    // would prove the declaration and not the write.
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db, { path: dir });
+    invalidateLibraryRoots();
+
     const file = path.join(dir, 'reset-me.jpg');
-    const buf = await solidJpeg(400, 300, [1, 2, 3]);
-    await writeFile(file, buf);
+    await writeFile(file, await solidJpeg(400, 300, [1, 2, 3]));
 
-    const mapleId = 'f'.repeat(32);
-    const doc = {
-      ...makeDoc(file, libId, dir, null, mapleId),
-      _id: new ObjectId(),
-    };
-    await db!.collection('assets').insertOne({
-      ...doc,
-      cf_thumb_synced_at: '2026-01-01T00:00:00.000Z',
-      stages: {
-        ...doc.stages,
-        // Seeded as dead-lettered with a stale error, to confirm the reset
-        // clears last_error/processed_at too, not just version/dead/attempts
-        // — matching reArmCacheStages()'s full-reset shape.
-        'cf-thumb-sync': {
-          version: 1,
-          attempts: 5,
-          last_error: 'R2 upload failed (500): stale error from a prior run',
-          processed_at: '2026-01-01T00:00:00.000Z',
-          dead: true,
-        },
-      },
-    } as never);
+    const assetId = insertAsset(live.db);
+    run(
+      live.db,
+      `UPDATE assets SET cf_thumb_synced_at = ? WHERE id = ?`,
+      '2026-01-01T00:00:00.000Z',
+      assetId,
+    );
+    insertLocation(live.db, { assetId, libraryId, path: '', filename: 'reset-me.jpg' });
+    // `exif` at target so the dependency gate lets `thumb` claim the row.
+    run(
+      live.db,
+      `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'exif', 99)`,
+      assetId,
+    );
+    run(
+      live.db,
+      `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, 'thumb', 0)`,
+      assetId,
+    );
+    // Seeded as dead-lettered with a stale error, to confirm the reset clears
+    // last_error/processed_at too — not just version/dead/attempts.
+    run(
+      live.db,
+      `INSERT INTO stage_state (asset_id, stage, version, attempts, last_error, processed_at, dead)
+       VALUES (?, 'cf-thumb-sync', 1, 5, ?, ?, 1)`,
+      assetId,
+      'R2 upload failed (500): stale error from a prior run',
+      '2026-01-01T00:00:00.000Z',
+    );
 
-    const result = await thumbStage.handler(doc as never, {} as never);
-    expect(result).toEqual({ wrote: true });
+    await runOnce(thumbStage, {
+      concurrency: 2,
+      maxAttempts: 5,
+      paused: false,
+      last_seen_target_version: thumbStage.targetVersion,
+    });
 
-    const saved = await db!.collection('assets').findOne({ _id: doc._id } as never);
-    const syncState = (
-      saved as {
-        stages?: Record<
-          string,
-          {
-            version: number;
-            dead: boolean;
-            attempts: number;
-            last_error: string | null;
-            processed_at: string | null;
-          }
-        >;
-      }
-    )?.stages?.['cf-thumb-sync'];
-    expect(syncState?.version).toBe(0);
-    expect(syncState?.dead).toBe(false);
-    expect(syncState?.attempts).toBe(0);
-    expect(syncState?.last_error).toBeNull();
-    expect(syncState?.processed_at).toBeNull();
+    expect(
+      live.db
+        .query(
+          `SELECT version, attempts, last_error, processed_at, dead FROM stage_state
+            WHERE asset_id = ? AND stage = 'cf-thumb-sync'`,
+        )
+        .get(assetId),
+    ).toEqual({ version: 0, attempts: 0, last_error: null, processed_at: null, dead: 0 });
+    // The thumb stage itself is done, so the two landed together.
+    expect(
+      live.db
+        .query(`SELECT version FROM stage_state WHERE asset_id = ? AND stage = 'thumb'`)
+        .get(assetId),
+    ).toEqual({ version: thumbStage.targetVersion });
+    invalidateLibraryRoots();
   });
 });

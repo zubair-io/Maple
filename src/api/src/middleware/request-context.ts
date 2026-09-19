@@ -264,10 +264,15 @@ export const requestContext = new Elysia({ name: 'requestContext' })
     }
     set.status = status;
 
-    // Preserve the legacy DB-unavailable carve-out: surface the helpful
-    // "start mongo" tip at the top level so operators (and any existing
-    // diagnostic UI) still see it. The envelope-mandated `code` + `requestId`
-    // are added alongside.
+    // Preserve the legacy DB-unavailable carve-out: surface the helpful tip at
+    // the top level so operators (and any existing diagnostic UI) still see it.
+    // The envelope-mandated `code` + `requestId` are added alongside.
+    //
+    // The two substrings below are the ones `db/client.ts` produced; nothing in
+    // the SQLite layer raises either, so this branch is currently unreachable
+    // and a database failure surfaces as a plain 500. Restoring it means
+    // matching on what the SQLite layer actually throws — a behaviour change,
+    // tracked separately rather than smuggled into a comment sweep.
     const isDbErr = message.includes('[db]') || message.includes('MongoDB');
     if (isDbErr && status >= 500) {
       set.status = 503;
@@ -277,12 +282,12 @@ export const requestContext = new Elysia({ name: 'requestContext' })
         code: 'service_unavailable' as ErrorCode,
         requestId,
         detail: message,
-        tip: 'Start MongoDB with: docker compose up -d mongo',
+        tip: "Check the server's database file (MAPLE_SQLITE_PATH) exists and is writable.",
       };
     }
 
     // Pass the raw error to pino so its serializer preserves the stack +
-    // any structured fields (e.g. MongoDB driver error codes).
+    // any structured fields (e.g. a driver's own error codes).
     log.error({ err: error }, 'request error');
 
     const envelope: ErrorEnvelope = {

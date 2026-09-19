@@ -1,28 +1,37 @@
+/**
+ * Route-integration test: GET/PUT /api/apns/config.
+ *
+ * The document behind these routes is the `apns` row of `app_settings`, read
+ * and written through `readAppSettings` / `patchAppSettings` (#3787). The route
+ * reaches the process-wide SQLite handle with no override, so each test
+ * installs one with `createLiveTestDatabase()`.
+ *
+ * A private database per test is also what replaces the
+ * `deleteMany({ _id: 'apns' })` the MongoDB version ran before every case: the
+ * "no operator has touched this yet" state is now the state a fresh database is
+ * already in.
+ */
+
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { type Db } from 'mongodb';
 import { apnsConfigRoutes } from './apns-config.ts';
-import { closeDb, getDb, isDbConnected } from '../db/client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
-withTestDb(`maple_test_apns_config_route_${process.pid}`);
-
-let db: Db | null = null;
-let mongoReachable = false;
+let live: LiveTestDatabase;
 const savedEnv: Record<string, string | undefined> = {};
 const ENV_KEYS = ['MAPLE_APNS_KEY_ID', 'MAPLE_APNS_TEAM_ID', 'MAPLE_APNS_PRIVATE_KEY'] as const;
 
-beforeAll(async () => {
-  await closeDb();
+beforeAll(() => {
   for (const k of ENV_KEYS) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
+afterAll(() => {
   for (const k of ENV_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];
@@ -30,19 +39,11 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  await db
-    .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-    .deleteMany({ _id: 'apns' });
+  live = await createLiveTestDatabase();
 });
 
 afterEach(() => {
+  live.close();
   for (const k of ENV_KEYS) delete process.env[k];
 });
 
@@ -67,13 +68,11 @@ async function putConfig(body: unknown): Promise<Response> {
 
 describe('/api/apns/config', () => {
   it('defaults to disabled with no credentials configured', async () => {
-    if (!mongoReachable) return;
     const cfg = await getConfig();
     expect(cfg).toEqual({ enabled: false, credentials_configured: false });
   });
 
   it('reports credentials_configured true once the three env vars are set', async () => {
-    if (!mongoReachable) return;
     process.env.MAPLE_APNS_KEY_ID = 'A';
     process.env.MAPLE_APNS_TEAM_ID = 'B';
     process.env.MAPLE_APNS_PRIVATE_KEY = 'C';
@@ -82,7 +81,6 @@ describe('/api/apns/config', () => {
   });
 
   it('PUT round-trips enabled: true', async () => {
-    if (!mongoReachable) return;
     const res = await putConfig({ enabled: true });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { enabled: boolean };
@@ -91,7 +89,6 @@ describe('/api/apns/config', () => {
   });
 
   it('PUT enabled: false turns it back off', async () => {
-    if (!mongoReachable) return;
     await putConfig({ enabled: true });
     await putConfig({ enabled: false });
     expect((await getConfig()).enabled).toBe(false);

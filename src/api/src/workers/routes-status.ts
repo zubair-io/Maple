@@ -5,13 +5,15 @@
  * Everything here is cheap by construction (#3491): the live registry half
  * (status / inFlight / throughput / lastError) and the DB-derived counts
  * (pending / ready / dead / damaged / newly-hidden) both arrive in ONE
- * `worker_status` document that the worker process keeps up to date — see
+ * `worker_status` row that the worker process keeps up to date — see
  * `status-counts.ts` for how and when the counts are computed. The only other
- * reads are the tiny `worker_config` collection and the migration state doc.
+ * reads are the tiny `worker_config` table and the migration settings row.
+ *
+ * Nothing on this path counts anything. That is the architecture #3491
+ * established, and it did not become negotiable when the counts got cheap.
  */
 
-import { getDb } from '../db/client.ts';
-import { sanitizeWorkerConfig, type WorkerConfigDoc } from './worker-config.repo.ts';
+import { listWorkerConfigs, sanitizeWorkerConfig } from '../db/sqlite/repos/worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
 import { deriveBatchSize } from './loop-policy.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
@@ -20,7 +22,7 @@ import {
   pokeStatusCountsDemand,
   readWorkerStatus,
   type StatusCountsSnapshot,
-} from './worker-status.repo.ts';
+} from '../db/sqlite/repos/worker-status.repo.ts';
 import { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
 import { enabledRemainingTotal, loadAllMigrationStates } from './migration-config.repo.ts';
 
@@ -95,11 +97,11 @@ export interface WorkersStatusPayload {
 async function loadConfigMap(): Promise<Map<string, WorkerConfig>> {
   const configMap = new Map<string, WorkerConfig>();
   try {
-    const db = await getDb();
-    const allConfigs = await db.collection<WorkerConfigDoc>('worker_config').find({}).toArray();
     // Sanitize before exposing: strip any removed knobs that linger on older
-    // docs so they don't leak through /status or the WS status frame.
-    for (const cfg of allConfigs) configMap.set(cfg.name, sanitizeWorkerConfig(cfg));
+    // rows so they don't leak through /status or the WS status frame.
+    for (const cfg of await listWorkerConfigs()) {
+      configMap.set(cfg.name, sanitizeWorkerConfig(cfg));
+    }
   } catch {
     // DB unavailable — configMap empty.
   }
@@ -187,8 +189,8 @@ function assembleWorkersStatus(
 }
 
 /** Full `/status` payload: one `worker_status` read (registry snapshot +
- * persisted counts), the `worker_config` rows, and the migration state doc.
- * No `countDocuments` anywhere on this path. */
+ * persisted counts), the `worker_config` rows, and the migration settings row.
+ * No backlog count anywhere on this path. */
 export async function computeWorkersStatus(): Promise<WorkersStatusPayload> {
   const [snap, configMap, migrationStates] = await Promise.all([
     readWorkerStatus(),

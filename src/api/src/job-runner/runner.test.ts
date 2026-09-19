@@ -1,180 +1,138 @@
 /**
- * JobRunner unit tests. Real Mongo (skip-pass when unreachable). The handler
- * is stubbed so we don't depend on the FFI pool — the behaviour we care
- * about here is the runner's claim/dispatch/complete loop, not the work.
+ * The JobRunner's claim → dispatch → finish loop, one `tick()` at a time.
  *
- * Covers:
- *   - queued job is picked up and completed
- *   - progress is reported through ctx.reportProgress
- *   - cancellation observed mid-run flips status to "cancelled"
+ * The handler is always a stub: what is under test is the runner's bookkeeping —
+ * which job it picks up, what it writes when the handler returns, cancels or
+ * throws, and how it keeps a lease alive under a handler that does no reporting
+ * of its own — not the work a real handler would do.
+ *
+ * Each test installs its own SQLite database as the process-wide handle, because
+ * `tick()` reaches the repository with no override to pass one down. Nothing is
+ * shared between tests and nothing has to be cleared between them (#3787).
+ *
+ * The last two tests are the lease pair, and they are the reason this file drives
+ * real timers rather than a fake clock. A renewal that fires while the handler is
+ * awaiting something is the behaviour being checked, so the runner's own
+ * `setInterval` has to actually run: one test proves a long handler keeps its
+ * claim, and the other proves that once the claim is gone the handler's writes
+ * are refused rather than landing on a job another worker now owns.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, type Db } from 'mongodb';
+import { describe, expect, test } from 'bun:test';
 import type { JobHandler, JobHandlerContext } from './handlers/index.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import { claimJob, createJob, getJob, requestCancel } from './jobs.repo.ts';
+import { JobRunner } from './runner.ts';
+import { createLiveTestDatabase, run } from '../db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_job_runner_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const EXPORT_PAYLOAD = { assetIds: [], outputDir: '/tmp', quality: 80 };
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
+/** One queued export job for the runner to find. */
+async function queueExportJob() {
+  return createJob({ kind: 'batch_jpeg_export', payload: EXPORT_PAYLOAD });
 }
 
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[runner.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('jobs').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {}
-    try {
-      await mongo.close();
-    } catch {}
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
+/** A runner whose only handler is `handle`, registered for `batch_jpeg_export`. */
+function exportRunner(handle: JobHandler['run']): JobRunner {
+  return new JobRunner({ handlers: { batch_jpeg_export: { run: handle } }, pollMs: 5 });
+}
 
 describe('JobRunner', () => {
-  it('picks up a queued job and completes it', async () => {
-    if (!mongoReachable) return;
-    const { JobRunner } = await import('./runner.ts');
-    const repo = await import('./jobs.repo.ts');
-
-    const stub: JobHandler = {
-      async run() {
-        return { kind: 'done', result: { ok: true } };
-      },
-    };
-    const runner = new JobRunner({
-      handlers: { batch_jpeg_export: stub },
-      pollMs: 5,
-    });
-
-    const job = await repo.createJob({
-      kind: 'batch_jpeg_export',
-      payload: { assetIds: [], outputDir: '/tmp', quality: 80 },
-    });
+  test('picks up a queued job and completes it', async () => {
+    using live = await createLiveTestDatabase();
+    const job = await queueExportJob();
+    const runner = exportRunner(async () => ({ kind: 'done', result: { ok: true } }));
 
     const tick = await runner.tick();
     expect(tick.kind).toBe('completed');
+    expect(tick.kind === 'completed' && tick.jobId).toBe(job._id.toHexString());
 
-    const after = await repo.getJob(job._id);
-    expect(after!.status).toBe('done');
-    expect(after!.result).toEqual({ ok: true });
-    expect(after!.locked_by).toBeNull();
+    const after = (await getJob(job._id))!;
+    expect(after.status).toBe('done');
+    expect(after.result).toEqual({ ok: true });
+    expect(after.locked_by).toBeNull();
+    expect(after.lease_expires_at).toBeNull();
   });
 
-  it('reports progress through ctx.reportProgress', async () => {
-    if (!mongoReachable) return;
-    const { JobRunner } = await import('./runner.ts');
-    const repo = await import('./jobs.repo.ts');
+  test('reports progress through ctx.reportProgress', async () => {
+    using live = await createLiveTestDatabase();
+    const job = await queueExportJob();
 
     let observedDuringRun = { current: -1, total: -1 };
-    const stub: JobHandler = {
-      async run(_payload, ctx: JobHandlerContext) {
-        await ctx.reportProgress(0, 3);
-        await ctx.reportProgress(1, 3);
-        await ctx.reportProgress(2, 3);
-        const mid = await (await import('./jobs.repo.ts')).getJob(ctx.jobId);
-        observedDuringRun = mid!.progress;
-        await ctx.reportProgress(3, 3);
-        return { kind: 'done', result: { count: 3 } };
-      },
-    };
-    const runner = new JobRunner({
-      handlers: { batch_jpeg_export: stub },
-    });
-
-    const job = await repo.createJob({
-      kind: 'batch_jpeg_export',
-      payload: { assetIds: [], outputDir: '/tmp', quality: 80 },
+    const runner = exportRunner(async (_payload, ctx: JobHandlerContext) => {
+      await ctx.reportProgress(0, 3);
+      await ctx.reportProgress(1, 3);
+      await ctx.reportProgress(2, 3);
+      observedDuringRun = (await getJob(ctx.jobId))!.progress;
+      await ctx.reportProgress(3, 3);
+      return { kind: 'done', result: { count: 3 } };
     });
 
     await runner.tick();
-    expect(observedDuringRun).toEqual({ current: 2, total: 3 });
 
-    const after = await repo.getJob(job._id);
-    expect(after!.progress).toEqual({ current: 3, total: 3 });
-    expect(after!.status).toBe('done');
+    expect(observedDuringRun).toEqual({ current: 2, total: 3 });
+    const after = (await getJob(job._id))!;
+    expect(after.progress).toEqual({ current: 3, total: 3 });
+    expect(after.status).toBe('done');
   });
 
-  it('cancellation observed mid-run flips status to cancelled', async () => {
-    if (!mongoReachable) return;
-    const { JobRunner } = await import('./runner.ts');
-    const repo = await import('./jobs.repo.ts');
+  test('cancellation observed mid-run flips status to cancelled', async () => {
+    using live = await createLiveTestDatabase();
+    const job = await queueExportJob();
 
-    const job = await repo.createJob({
-      kind: 'batch_jpeg_export',
-      payload: { assetIds: [], outputDir: '/tmp', quality: 80 },
-    });
-
-    const stub: JobHandler = {
-      async run(_payload, ctx: JobHandlerContext) {
-        // Simulate batch loop: report progress, observe cancel between steps.
-        await ctx.reportProgress(0, 5);
-        await repo.requestCancel(ctx.jobId);
-        if (await ctx.shouldCancel()) {
-          return {
-            kind: 'cancelled',
-            result: { partial: true },
-          };
-        }
-        return { kind: 'done', result: {} };
-      },
-    };
-    const runner = new JobRunner({
-      handlers: { batch_jpeg_export: stub },
+    // Stands in for a batch loop: report a step, then notice the flag the route
+    // flipped underneath it and stop with whatever it had finished.
+    const runner = exportRunner(async (_payload, ctx: JobHandlerContext) => {
+      await ctx.reportProgress(0, 5);
+      await requestCancel(ctx.jobId);
+      if (await ctx.shouldCancel()) return { kind: 'cancelled', result: { partial: true } };
+      return { kind: 'done', result: {} };
     });
 
     const tick = await runner.tick();
     expect(tick.kind).toBe('cancelled');
 
-    const after = await repo.getJob(job._id);
-    expect(after!.status).toBe('cancelled');
-    expect(after!.result).toEqual({ partial: true });
-    expect(after!.locked_by).toBeNull();
+    const after = (await getJob(job._id))!;
+    expect(after.status).toBe('cancelled');
+    expect(after.result).toEqual({ partial: true });
+    expect(after.locked_by).toBeNull();
   });
 
-  it('renews the lease while a handler waits without reporting photo progress', async () => {
-    if (!mongoReachable) return;
-    const { JobRunner } = await import('./runner.ts');
-    const repo = await import('./jobs.repo.ts');
-    const job = await repo.createJob({ kind: 'batch_recipe_export', payload: {} });
+  test('returns no-claim when there is nothing queued', async () => {
+    using live = await createLiveTestDatabase();
+    const runner = new JobRunner({ handlers: {} });
+
+    expect((await runner.tick()).kind).toBe('no-claim');
+  });
+
+  test('fails the job when the handler throws', async () => {
+    using live = await createLiveTestDatabase();
+    const job = await queueExportJob();
+    const runner = exportRunner(async () => {
+      throw new Error('boom');
+    });
+
+    const tick = await runner.tick();
+    expect(tick.kind).toBe('failed');
+
+    const after = (await getJob(job._id))!;
+    expect(after.status).toBe('failed');
+    expect(after.error).toBe('boom');
+    expect(after.locked_by).toBeNull();
+  });
+
+  test('fails the job when no handler is registered for its kind', async () => {
+    using live = await createLiveTestDatabase();
+    const job = await queueExportJob();
+    const runner = new JobRunner({ handlers: {} });
+
+    const tick = await runner.tick();
+    expect(tick.kind === 'failed' && tick.error).toContain('no handler registered');
+    expect((await getJob(job._id))!.status).toBe('failed');
+  });
+
+  test('renews the lease while a handler waits without reporting photo progress', async () => {
+    using live = await createLiveTestDatabase();
+    const job = await createJob({ kind: 'batch_recipe_export', payload: {} });
     const runner = new JobRunner({
       workerId: 'long-render',
       leaseMs: 300,
@@ -182,30 +140,33 @@ describe('JobRunner', () => {
         batch_recipe_export: {
           async run() {
             await new Promise((resolve) => setTimeout(resolve, 850));
-            expect(await repo.claimJob('competitor', 300)).toBeNull();
-            expect((await repo.getJob(job._id))?.locked_by).toBe('long-render');
+            // A lease that lapsed would let this competitor take the job away.
+            expect(await claimJob('competitor', 300)).toBeNull();
+            expect((await getJob(job._id))?.locked_by).toBe('long-render');
             return { kind: 'done', result: {} };
           },
         },
       },
     });
+
     expect((await runner.tick()).kind).toBe('completed');
   });
 
-  it('fences publication after a long handler loses its lease', async () => {
-    if (!mongoReachable) return;
-    const { JobRunner } = await import('./runner.ts');
-    const repo = await import('./jobs.repo.ts');
-    const job = await repo.createJob({ kind: 'batch_recipe_export', payload: {} });
+  test('fences publication after a long handler loses its lease', async () => {
+    using live = await createLiveTestDatabase();
+    const job = await createJob({ kind: 'batch_recipe_export', payload: {} });
     const runner = new JobRunner({
       workerId: 'old-render',
       leaseMs: 150,
       handlers: {
         batch_recipe_export: {
           async run(_payload, ctx) {
-            await db!
-              .collection('jobs')
-              .updateOne({ _id: job._id }, { $set: { locked_by: 'new-render' } });
+            // Another worker takes the claim while this handler is still busy.
+            run(
+              live.db,
+              `UPDATE jobs SET locked_by = 'new-render' WHERE id = ?`,
+              job._id.toHexString(),
+            );
             await new Promise((resolve) => setTimeout(resolve, 250));
             await ctx.saveCheckpoint!({ wouldPublish: true });
             throw new Error('Publication guard was bypassed');
@@ -213,46 +174,11 @@ describe('JobRunner', () => {
         },
       },
     });
+
     const tick = await runner.tick();
     expect(tick.kind).toBe('failed');
     expect(tick.kind === 'failed' && tick.error).toContain('lease was claimed');
-    expect((await repo.getJob(job._id))?.checkpoint).toBeUndefined();
-    expect((await repo.getJob(job._id))?.locked_by).toBe('new-render');
-  });
-
-  it('returns no-claim when there is nothing queued', async () => {
-    if (!mongoReachable) return;
-    const { JobRunner } = await import('./runner.ts');
-    const runner = new JobRunner({ handlers: {} });
-    const tick = await runner.tick();
-    expect(tick.kind).toBe('no-claim');
-  });
-
-  it('fails the job when handler throws', async () => {
-    if (!mongoReachable) return;
-    const { JobRunner } = await import('./runner.ts');
-    const repo = await import('./jobs.repo.ts');
-
-    const stub: JobHandler = {
-      async run() {
-        throw new Error('boom');
-      },
-    };
-    const runner = new JobRunner({
-      handlers: { batch_jpeg_export: stub },
-    });
-
-    const job = await repo.createJob({
-      kind: 'batch_jpeg_export',
-      payload: { assetIds: [], outputDir: '/tmp', quality: 80 },
-    });
-
-    const tick = await runner.tick();
-    expect(tick.kind).toBe('failed');
-
-    const after = await repo.getJob(job._id);
-    expect(after!.status).toBe('failed');
-    expect(after!.error).toBe('boom');
-    expect(after!.locked_by).toBeNull();
+    expect((await getJob(job._id))?.checkpoint).toBeUndefined();
+    expect((await getJob(job._id))?.locked_by).toBe('new-render');
   });
 });

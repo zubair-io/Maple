@@ -37,7 +37,7 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
-  // The trigger reads its settings document and its device list through the
+  // The trigger reads its settings row and its device list through the
   // process-wide handle, so the database has to be installed as that handle
   // rather than handed in.
   live = await createLiveTestDatabase();

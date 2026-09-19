@@ -1,6 +1,6 @@
 /**
- * Persisted APNs push-to-signal config. A single document in `app_settings`
- * keyed by `_id: "apns"`, mirroring the shape used by
+ * Persisted APNs push-to-signal config. A single row in `app_settings` keyed
+ * `id = 'apns'`, mirroring the shape used by
  * `network/network-config.repo.ts`.
  *
  * Surfaced on Settings → Network alongside the LAN-address override (#1025):
@@ -17,8 +17,8 @@
  * system" rule, they are the one documented exception: they're a deploy
  * secret that must exist before this feature can do anything, in the same
  * category as `MAPLE_JWT_SECRET_FILE` or `MAPLE_TLS_CERT` — so they live in
- * environment variables (`loadApnsCredentialsFromEnv` below), and this
- * document only ever holds the boolean the operator controls at runtime.
+ * environment variables (`loadApnsCredentialsFromEnv` below), and this row only
+ * ever holds the boolean the operator controls at runtime.
  */
 
 import {

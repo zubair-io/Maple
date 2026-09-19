@@ -35,9 +35,16 @@
  * (`legacyDaydirCandidateFilter`) so a run over a ~90k-asset library only
  * ever fetches the handful of still-mis-filed rows, not the whole collection.
  */
-import type { Collection, Filter, WithId } from 'mongodb';
-import type { AssetDoc, FileInfo, Place } from '../../db/schema.ts';
-import { assetsCollection } from '../../db/client.ts';
+import type { FileInfo, Place } from '../../db/schema.ts';
+import {
+  countCandidates,
+  listCandidates,
+  stampMarker,
+  unstamped,
+  type CandidateScope,
+  type MigrationCandidate,
+} from '../../db/sqlite/repos/assets.migrations.ts';
+import { LEGACY_DAYDIR_SCOPE } from '../../db/sqlite/repos/assets.refile.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../../backup/path-formatter.ts';
@@ -80,23 +87,24 @@ export function isLegacyDaydirPath(dir: string): boolean {
   return LEGACY_DAYDIR_WITH_LOCATION_RE.test(dir) || LEGACY_DAYDIR_NO_LOCATION_RE.test(dir);
 }
 
-/** Mongo filter scoping a find() to assets with a live fileinfo entry still
- * in either old day-dir layout AND not yet stamped done. Pushes the
- * candidate scoping into the query so a run over the full library only
- * fetches the mis-filed, unresolved rows — never a full collection scan in
- * app code. */
-export function legacyDaydirCandidateFilter(): Filter<AssetDoc> {
-  return {
-    fileinfo: {
-      $elemMatch: {
-        path: { $in: [LEGACY_DAYDIR_WITH_LOCATION_RE, LEGACY_DAYDIR_NO_LOCATION_RE] },
-        deleted_at: { $in: [null] },
-        missing_since: { $in: [null] },
-      },
-    },
-    legacy_daydir_version: { $ne: LEGACY_DAYDIR_VERSION },
-  } as Filter<AssetDoc>;
+/** Scopes the candidate read to assets with a live location still in either
+ * old day-dir layout AND not yet stamped done. Pushes the candidate scoping
+ * into the query so a run over the full library only fetches the mis-filed,
+ * unresolved rows — never a full-collection scan in app code.
+ *
+ * The two anchored regular expressions this used to hand MongoDB have no
+ * meaning against SQLite, which has no regex operator. `LEGACY_DAYDIR_SCOPE`
+ * expresses the same two shapes as `GLOB` patterns plus a separator count; see
+ * that constant for why the pair is exact rather than a superset. The precise
+ * structural gate stays in TypeScript as `isLegacyDaydirPath`, which
+ * `processLegacyDaydirCandidate` applies to every candidate it fetches, exactly
+ * as it always did. */
+function candidateScope(): CandidateScope {
+  return unstamped(LEGACY_DAYDIR_SCOPE, 'legacy_daydir_version', LEGACY_DAYDIR_VERSION);
 }
+
+/** The done-marker every outcome in this migration stamps. */
+const MARKER = { name: 'legacy_daydir_version', version: LEGACY_DAYDIR_VERSION } as const;
 
 /**
  * The asset's true capture year: EXIF `captured_year` when present and
@@ -155,33 +163,13 @@ async function loadLibraryRootsOrEmpty(): Promise<ReadonlyMap<string, string>> {
   }
 }
 
-const CANDIDATE_PROJECTION = {
-  _id: 1,
-  fileinfo: 1,
-  maple_id: 1,
-  apple_rendered_path: 1,
-  place: 1,
-  is_screenshot: 1,
-  'exif.captured_year': 1,
-} as const;
-
-async function fetchLegacyDaydirCandidates(
-  coll: Collection<AssetDoc>,
-  batchSize: number,
-): Promise<WithId<AssetDoc>[]> {
-  return coll
-    .find(legacyDaydirCandidateFilter(), { projection: CANDIDATE_PROJECTION })
-    .limit(batchSize)
-    .toArray();
-}
-
 type CandidateOutcome = 'processed' | 'skipped-no-root' | 'retry-later' | 'error';
 
-/** Stamp `legacy_daydir_version` on `doc` without relocating it — the
+/** Stamp `legacy_daydir_version` on the asset without relocating it — the
  * done-marker for a candidate this migration has fully evaluated but has
  * nothing to move (not a real candidate, or unresolvable). */
-async function stampDone(coll: Collection<AssetDoc>, id: WithId<AssetDoc>['_id']): Promise<void> {
-  await coll.updateOne({ _id: id }, { $set: { legacy_daydir_version: LEGACY_DAYDIR_VERSION } });
+async function stampDone(id: MigrationCandidate['id']): Promise<void> {
+  await stampMarker(MARKER.name, MARKER.version, [id]);
 }
 
 /** `SourceMissingError` from `moveBackupAsset` — distinguish "root offline"
@@ -189,8 +177,7 @@ async function stampDone(coll: Collection<AssetDoc>, id: WithId<AssetDoc>['_id']
  * from a genuinely deleted file) from "file genuinely gone" before deciding
  * whether to stamp the asset done. */
 async function handleSourceMissing(
-  coll: Collection<AssetDoc>,
-  doc: WithId<AssetDoc>,
+  doc: MigrationCandidate,
   primary: FileInfo,
   root: string,
   err: SourceMissingError,
@@ -200,14 +187,14 @@ async function handleSourceMissing(
     // UNstamped so a later tick, once the mount returns, re-verifies instead
     // of permanently giving up on a false "file deleted" read.
     log.warn(
-      { _id: String(doc._id), maple_id: doc.maple_id, from: primary.path, root },
+      { _id: String(doc.id), maple_id: doc.maple_id, from: primary.path, root },
       'refile-legacy-daydir: library root unavailable — left in place for retry',
     );
     return 'skipped-no-root';
   }
-  await stampDone(coll, doc._id);
+  await stampDone(doc.id);
   log.warn(
-    { _id: String(doc._id), maple_id: doc.maple_id, from: primary.path, err: err.message },
+    { _id: String(doc.id), maple_id: doc.maple_id, from: primary.path, err: err.message },
     'refile-legacy-daydir: source missing — stamped, left for the reaper',
   );
   return 'processed';
@@ -216,8 +203,7 @@ async function handleSourceMissing(
 /** Attempt the actual relocation for an already-resolved candidate
  * (`primary`/`newDir` both known-good). */
 async function attemptLegacyDaydirMove(
-  coll: Collection<AssetDoc>,
-  doc: WithId<AssetDoc>,
+  doc: MigrationCandidate,
   primary: FileInfo,
   root: string,
   newDir: string,
@@ -232,12 +218,10 @@ async function attemptLegacyDaydirMove(
     // entry, hit SourceMissingError, and stamp the asset done without ever
     // touching the live day-dir entry we validated. Narrowing `fileinfo` to
     // just `primary` makes moveBackupAsset's internal pick unambiguous.
-    const result = await moveBackupAsset(coll, { ...doc, fileinfo: [primary] }, root, newDir, {
-      legacy_daydir_version: LEGACY_DAYDIR_VERSION,
-    });
+    const result = await moveBackupAsset({ ...doc, fileinfo: [primary] }, root, newDir, MARKER);
     if (result === 'moved') {
       log.info(
-        { _id: String(doc._id), maple_id: doc.maple_id, from: primary.path, to: newDir },
+        { _id: String(doc.id), maple_id: doc.maple_id, from: primary.path, to: newDir },
         'refile-legacy-daydir: moved',
       );
     }
@@ -246,11 +230,10 @@ async function attemptLegacyDaydirMove(
     // next tick re-attempts from the current state.
     return result === 'moved' || result === 'noop' ? 'processed' : 'retry-later';
   } catch (err) {
-    if (err instanceof SourceMissingError)
-      return handleSourceMissing(coll, doc, primary, root, err);
+    if (err instanceof SourceMissingError) return handleSourceMissing(doc, primary, root, err);
     log.error(
       {
-        _id: String(doc._id),
+        _id: String(doc.id),
         maple_id: doc.maple_id,
         from: primary.path,
         to: newDir,
@@ -265,24 +248,24 @@ async function attemptLegacyDaydirMove(
 /** Evaluate and (if resolvable) relocate one candidate. Pure orchestration —
  * all the actual filesystem/DB work is `moveBackupAsset`. */
 async function processLegacyDaydirCandidate(
-  coll: Collection<AssetDoc>,
   libs: ReadonlyMap<string, string>,
-  doc: WithId<AssetDoc>,
+  doc: MigrationCandidate,
 ): Promise<CandidateOutcome> {
   const primary = assetPrimaryFileInfo(doc);
   if (!primary || !isLegacyDaydirPath(primary.path)) {
-    // The loose Mongo prefilter matched, but the precise structural gate
-    // didn't (or there's no live entry at all) — not a real candidate.
-    // Stamp it done so it doesn't keep re-matching the query forever.
-    await stampDone(coll, doc._id);
+    // The query's structural gate matched some location of this asset, but the
+    // precise gate doesn't match its CANONICAL one (or there's no live entry at
+    // all) — not a real candidate. Stamp it done so it doesn't keep re-matching
+    // the query forever.
+    await stampDone(doc.id);
     return 'processed';
   }
 
   const newDir = computeCorrectedDir(doc, primary.filename);
   if (newDir == null) {
-    await stampDone(coll, doc._id);
+    await stampDone(doc.id);
     log.warn(
-      { _id: String(doc._id), maple_id: doc.maple_id, path: primary.path },
+      { _id: String(doc.id), maple_id: doc.maple_id, path: primary.path },
       'refile-legacy-daydir: no EXIF and no parseable filename date — stamped, left in place',
     );
     return 'processed';
@@ -296,7 +279,7 @@ async function processLegacyDaydirCandidate(
     return 'skipped-no-root';
   }
 
-  return attemptLegacyDaydirMove(coll, doc, primary, root, newDir);
+  return attemptLegacyDaydirMove(doc, primary, root, newDir);
 }
 
 export const refileLegacyDaydir: Migration = {
@@ -312,21 +295,19 @@ export const refileLegacyDaydir: Migration = {
     'nor a parseable filename date are stamped and left in place for ' +
     'manual review.',
 
-  async countRemaining(): Promise<number> {
-    const coll = await assetsCollection();
-    return coll.countDocuments(legacyDaydirCandidateFilter());
+  countRemaining(): Promise<number> {
+    return countCandidates(candidateScope());
   },
 
   async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    const coll = await assetsCollection();
     const libs = await loadLibraryRootsOrEmpty();
-    const docs = await fetchLegacyDaydirCandidates(coll, batchSize);
+    const docs = await listCandidates(candidateScope(), batchSize);
 
     let processed = 0;
     let errors = 0;
     let skippedNoRoot = 0;
     for (const doc of docs) {
-      const outcome = await processLegacyDaydirCandidate(coll, libs, doc);
+      const outcome = await processLegacyDaydirCandidate(libs, doc);
       if (outcome === 'processed') processed++;
       else if (outcome === 'error') errors++;
       else if (outcome === 'skipped-no-root') skippedNoRoot++;

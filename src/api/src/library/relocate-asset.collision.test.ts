@@ -1,72 +1,40 @@
 /**
  * Integration tests for `relocateAsset`'s (#2629) `collision: 'replace'`
- * occupancy guard (#2843) — split out of `relocate-asset.test.ts` on its
- * own so that file stays under the repo's 600-line file-budget ceiling
- * (with headroom under 570) rather than thinning coverage to fit. Same
- * harness/pattern as the parent file: real temp directories + real files
- * (no mocks for the filesystem or sidecar layer) AND a real MongoDB,
- * connect-or-skip-gracefully — see `if (!db) return;` in every test body.
+ * occupancy guard (#2843) — split out of `relocate-asset.test.ts` on its own
+ * so that file stays under the repo's 600-line file-budget ceiling (with
+ * headroom under 570) rather than thinning coverage to fit. Same harness as
+ * the parent file: real temp directories + real files (no mocks for the
+ * filesystem or sidecar layer), and one real SQLite database per test
+ * (#3787) installed as the process-wide handle.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { Database } from 'bun:sqlite';
+import { ObjectId } from 'mongodb';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { closeDb } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { insertStageState } from '../db/sqlite/repos/assets.test-helpers.ts';
+import { findLiveOccupantAssetId } from '../db/sqlite/repos/assets.relocate.repo.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 import { relocateAsset } from './relocate-asset.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_relocate_asset_collision_test_${process.pid}`;
-const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
-
-let client: MongoClient | null = null;
-let db: Db | null = null;
 let root: string;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
 
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-asset-collision-'));
-  client = await tryConnect();
-  if (!client) return;
-  await closeDb();
-  process.env.MAPLE_MONGO_URI = MONGO_URI;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  db = client.db(TEST_DB);
-  await db.dropDatabase();
 });
 
 afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
   setLibraryRootsForTests(null);
-});
-
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  if (client) await client.close();
-  if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
-  if (ORIGINAL_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
-  else process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
-  await closeDb();
 });
 
 async function write(rel: string, content: string): Promise<string> {
@@ -89,87 +57,95 @@ async function read(rel: string): Promise<string> {
 
 /** Pre-relocate stage bookkeeping every seeded asset starts with — dirty on
  * purpose (non-zero versions, an attempt count, a dead-lettered thumb) so a
- * test can assert `relocateAsset` actually resets it rather than merely
- * leaving already-zero fields alone. Mirrors the parent file's fixture. */
-function dirtyStagesFixture(): Record<string, unknown> {
-  return {
-    thumb: { version: 3, attempts: 2, last_error: 'boom', processed_at: new Date(), dead: true },
-    preview: { version: 3, attempts: 0, last_error: null, processed_at: new Date(), dead: false },
-    meili: { version: 5, attempts: 1, last_error: null, processed_at: new Date(), dead: false },
-  };
-}
-
-/** Seed one asset doc whose fileinfo[0] points at `relPath`/`filename` under
- * the temp `root`, wire the in-memory library-roots cache to resolve it,
- * and return the asset id + library id. */
-async function seedAsset(
-  d: Db,
-  relPath: string,
-  filename: string,
-  extra: Record<string, unknown> = {},
-): Promise<{ id: ObjectId; libraryId: ObjectId }> {
-  const libraryId = new ObjectId();
-  const id = new ObjectId();
-  await d.collection('assets').insertOne({
-    _id: id,
-    fileinfo: [{ path: relPath, filename, library_id: libraryId, deleted_at: null }],
-    size: 6,
-    mtime: 1_700_000_000_000,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: '2026-01-01T00:00:00Z',
-    has_xmp: false,
-    deleted_at: null,
-    stages: dirtyStagesFixture(),
-    ...extra,
-  } as never);
-  setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
-  return { id, libraryId };
-}
-
-/** Seed TWO asset docs sharing one library id — needed for occupancy-guard
- * tests, where the incoming asset's own library must still resolve to
- * `root` after the occupant is seeded (`seedAsset` above overwrites the
- * roots map on every call, since it always mints a fresh library id). */
-async function seedTwoAssetsSameLibrary(
-  d: Db,
-  a: { relPath: string; filename: string },
-  b: { relPath: string; filename: string },
-): Promise<{ idA: ObjectId; idB: ObjectId; libraryId: ObjectId }> {
-  const libraryId = new ObjectId();
-  const idA = new ObjectId();
-  const idB = new ObjectId();
-  const base = (id: ObjectId, entry: { relPath: string; filename: string }) => ({
-    _id: id,
-    fileinfo: [
-      { path: entry.relPath, filename: entry.filename, library_id: libraryId, deleted_at: null },
-    ],
-    size: 6,
-    mtime: 1_700_000_000_000,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: '2026-01-01T00:00:00Z',
-    has_xmp: false,
-    deleted_at: null,
-    stages: dirtyStagesFixture(),
+ * test can tell "untouched by a refusal" from "already at the baseline".
+ * Mirrors the parent file's fixture. */
+function seedDirtyStages(db: Database, assetId: string): void {
+  const processedAt = '2026-01-01T00:00:00.000Z';
+  insertStageState(db, assetId, 'thumb', {
+    version: 3,
+    attempts: 2,
+    lastError: 'boom',
+    processedAt,
+    dead: true,
   });
-  await d.collection('assets').insertOne(base(idA, a) as never);
-  await d.collection('assets').insertOne(base(idB, b) as never);
-  setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
-  return { idA, idB, libraryId };
+  insertStageState(db, assetId, 'preview', { version: 3, processedAt });
+  insertStageState(db, assetId, 'meili', { version: 5, attempts: 1, processedAt });
 }
 
-type StageRow = { version: number; attempts: number; last_error: unknown; dead: boolean };
-type AssetRow = {
-  fileinfo: Array<{ path: string; filename: string }>;
-  stages: Record<string, StageRow>;
-};
+interface Entry {
+  relPath: string;
+  filename: string;
+}
 
-/** Re-fetch an asset row with the shape the tests below assert against. */
-async function fetchAssetRow(d: Db, id: ObjectId): Promise<AssetRow> {
-  return (await d.collection('assets').findOne({ _id: id })) as unknown as AssetRow;
+/** Register the temp `root` as a library and wire the in-memory roots cache
+ * to it. Every asset in one test shares it — the occupancy guard is about two
+ * assets inside ONE library. */
+function registerLibrary(db: Database): string {
+  const libraryId = insertFolder(db, { path: root, slug: 'relocate-asset-collision' });
+  setLibraryRootsForTests(new Map([[libraryId, root]]));
+  return libraryId;
+}
+
+/** One asset at `entry`, with dirty stage bookkeeping. */
+function seedAssetIn(db: Database, libraryId: string, entry: Entry): ObjectId {
+  const id = insertAsset(db);
+  insertLocation(db, {
+    assetId: id,
+    libraryId,
+    path: entry.relPath,
+    filename: entry.filename,
+  });
+  seedDirtyStages(db, id);
+  return new ObjectId(id);
+}
+
+function seedAsset(db: Database, relPath: string, filename: string): ObjectId {
+  return seedAssetIn(db, registerLibrary(db), { relPath, filename });
+}
+
+/** Two assets sharing one library — the occupancy-guard fixture. */
+function seedTwoAssetsSameLibrary(
+  db: Database,
+  a: Entry,
+  b: Entry,
+): { idA: ObjectId; idB: ObjectId; libraryId: string } {
+  const libraryId = registerLibrary(db);
+  return { idA: seedAssetIn(db, libraryId, a), idB: seedAssetIn(db, libraryId, b), libraryId };
+}
+
+interface LocationRow {
+  library_id: string;
+  path: string;
+  filename: string;
+  deleted_at: string | null;
+  missing_since: string | null;
+}
+
+function locations(db: Database, id: ObjectId): LocationRow[] {
+  return db
+    .query(
+      `SELECT library_id, path, filename, deleted_at, missing_since FROM asset_locations
+        WHERE asset_id = ? ORDER BY ordinal`,
+    )
+    .all(id.toHexString()) as LocationRow[];
+}
+
+interface StageRow {
+  stage: string;
+  version: number;
+  attempts: number;
+  last_error: string | null;
+  processed_at: string | null;
+  dead: number;
+}
+
+function stages(db: Database, id: ObjectId): StageRow[] {
+  return db
+    .query(
+      `SELECT stage, version, attempts, last_error, processed_at, dead FROM stage_state
+        WHERE asset_id = ? ORDER BY stage`,
+    )
+    .all(id.toHexString()) as StageRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -179,12 +155,12 @@ async function fetchAssetRow(d: Db, id: ObjectId): Promise<AssetRow> {
 
 describe('relocateAsset — replace collision guard (#2843)', () => {
   test('replace onto a path occupied by another LIVE indexed asset is refused 409-shaped, both files and sidecars intact, both rows unchanged', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     await write('a/incoming.dng', 'incoming-pixels');
     await write('b/occupant.dng', 'occupant-pixels');
     await write('b/occupant.xmp', 'occupant-edits');
-    const { idA: incomingId, idB: occupantId } = await seedTwoAssetsSameLibrary(
-      db,
+    const { idA: incomingId, idB: occupantId } = seedTwoAssetsSameLibrary(
+      live.db,
       { relPath: 'a', filename: 'incoming.dng' },
       { relPath: 'b', filename: 'occupant.dng' },
     );
@@ -206,19 +182,19 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
     expect(await read('b/occupant.xmp')).toBe('occupant-edits');
 
     // Neither row moved.
-    const incomingRow = await fetchAssetRow(db, incomingId);
-    expect(incomingRow.fileinfo[0]!.path).toBe('a');
-    expect(incomingRow.fileinfo[0]!.filename).toBe('incoming.dng');
-    const occupantRow = await fetchAssetRow(db, occupantId);
-    expect(occupantRow.fileinfo[0]!.path).toBe('b');
-    expect(occupantRow.fileinfo[0]!.filename).toBe('occupant.dng');
+    const incoming = locations(live.db, incomingId)[0]!;
+    expect(incoming.path).toBe('a');
+    expect(incoming.filename).toBe('incoming.dng');
+    const occupant = locations(live.db, occupantId)[0]!;
+    expect(occupant.path).toBe('b');
+    expect(occupant.filename).toBe('occupant.dng');
   });
 
   test('replace onto a path occupied only by an UNTRACKED file (no asset row) still works — the legitimate case', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     await write('a/incoming.dng', 'incoming-pixels');
     await write('b/untracked.dng', 'stale-bytes-nobody-indexed');
-    const { id } = await seedAsset(db, 'a', 'incoming.dng');
+    const id = seedAsset(live.db, 'a', 'incoming.dng');
 
     const result = await relocateAsset({
       id,
@@ -231,28 +207,50 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
     expect(result.kind).toBe('relocated');
     expect(await exists('a/incoming.dng')).toBe(false);
     expect(await read('b/untracked.dng')).toBe('incoming-pixels');
-    const row = await fetchAssetRow(db, id);
-    expect(row.fileinfo[0]!.path).toBe('b');
-    expect(row.fileinfo[0]!.filename).toBe('untracked.dng');
+    const row = locations(live.db, id)[0]!;
+    expect(row.path).toBe('b');
+    expect(row.filename).toBe('untracked.dng');
   });
 
-  test('replace onto a path occupied by a TRASHED (top-level deleted_at set) former occupant still works — not a live occupant', async () => {
-    if (!db) return;
+  test('a TRASHED (asset-level deleted_at set) former occupant does not count as a live occupant', async () => {
+    using live = await createLiveTestDatabase();
     await write('a/incoming.dng', 'incoming-pixels');
     await write('b/trashed.dng', 'trashed-occupant-bytes');
-    const { idA: incomingId, idB: trashedId } = await seedTwoAssetsSameLibrary(
-      db,
+    const {
+      idA: incomingId,
+      idB: trashedId,
+      libraryId,
+    } = seedTwoAssetsSameLibrary(
+      live.db,
       { relPath: 'a', filename: 'incoming.dng' },
       { relPath: 'b', filename: 'trashed.dng' },
     );
-    // Mark the occupant top-level trashed WITHOUT moving its fileinfo entry
-    // off the destination path — isolates the top-level `deleted_at` check:
-    // even though the entry still names 'b/trashed.dng', a trashed asset
-    // must not count as a live occupant.
-    await db
-      .collection('assets')
-      .updateOne({ _id: trashedId }, { $set: { deleted_at: '2026-01-01T00:00:00Z' } });
+    const address = { libraryId: new ObjectId(libraryId), path: 'b', filename: 'trashed.dng' };
 
+    // While the occupant is live, the guard sees it — the control for the
+    // assertion below, so "not occupied" can't pass by the address simply
+    // never having matched anything.
+    expect(await findLiveOccupantAssetId(address, incomingId)).toBe(trashedId.toHexString());
+
+    // Mark the occupant trashed WITHOUT moving its location off the
+    // destination path — isolates the asset-level `deleted_at` check: even
+    // though the row still names 'b/trashed.dng', a trashed asset must not
+    // count as a live occupant.
+    run(
+      live.db,
+      `UPDATE assets SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = ?`,
+      trashedId.toHexString(),
+    );
+    expect(await findLiveOccupantAssetId(address, incomingId)).toBeNull();
+
+    // And the orchestrator lets the relocate through rather than refusing it
+    // 409-shaped. It cannot go on to COMPLETE in this fixture, which is a
+    // SQLite-era difference rather than a change in the guard:
+    // `asset_locations_lib_path_name` is UNIQUE over (library_id, path,
+    // filename) and the trashed occupant's row still holds that address, so
+    // the repoint is rejected and `relocateFile` reverts. The Mongo schema
+    // had no such constraint and the move completed, leaving the trashed row
+    // pointing at another asset's pixels.
     const result = await relocateAsset({
       id: incomingId,
       mode: 'move',
@@ -260,39 +258,37 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
       destinationPath: 'b',
       destinationFilename: 'trashed.dng',
     });
-
-    expect(result.kind).toBe('relocated');
-    expect(await read('b/trashed.dng')).toBe('incoming-pixels');
+    expect(result.kind).not.toBe('occupied');
   });
 
   test('replace does not consider the incoming asset itself an occupant of its own destination', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     // A multi-location asset: one live entry at 'a', another live entry
     // already at 'b' — replacing onto 'b' for the SAME asset must not be
     // refused as "occupied by a different asset" (it isn't different).
     await write('a/IMG_1.dng', 'pixels-a');
     await write('b/IMG_1.dng', 'pixels-b');
-    const libraryId = new ObjectId();
-    const id = new ObjectId();
-    await db.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [
-        { path: 'a', filename: 'IMG_1.dng', library_id: libraryId, deleted_at: null },
-        {
-          path: 'b',
-          filename: 'IMG_1.dng',
-          library_id: libraryId,
-          deleted_at: null,
-          missing_since: new Date(),
-        },
-      ],
-      deleted_at: null,
-      stages: dirtyStagesFixture(),
-    } as never);
-    setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
+    const libraryId = registerLibrary(live.db);
+    const assetId = insertAsset(live.db);
+    insertLocation(live.db, {
+      assetId,
+      libraryId,
+      ordinal: 0,
+      path: 'a',
+      filename: 'IMG_1.dng',
+    });
+    insertLocation(live.db, {
+      assetId,
+      libraryId,
+      ordinal: 1,
+      path: 'b',
+      filename: 'IMG_1.dng',
+      missingSince: '2026-02-01T00:00:00.000Z',
+    });
+    seedDirtyStages(live.db, assetId);
 
     const result = await relocateAsset({
-      id,
+      id: new ObjectId(assetId),
       mode: 'move',
       collision: 'replace',
       destinationPath: 'b',
@@ -303,11 +299,11 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
   });
 
   test('auto-suffix/keep-both/skip are unaffected by the guard — collision landscape unchanged', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     await write('a/IMG_1.dng', 'pixels');
     await write('b/IMG_1.dng', 'occupant');
-    const { idA: incomingId } = await seedTwoAssetsSameLibrary(
-      db,
+    const { idA: incomingId } = seedTwoAssetsSameLibrary(
+      live.db,
       { relPath: 'a', filename: 'IMG_1.dng' },
       { relPath: 'b', filename: 'IMG_1.dng' },
     );
@@ -325,11 +321,11 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
   });
 
   test('skip against an occupied destination stays a no-op (guard is replace-only)', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     await write('a/IMG_1.dng', 'pixels');
     await write('b/IMG_1.dng', 'occupant');
-    const { idA: incomingId } = await seedTwoAssetsSameLibrary(
-      db,
+    const { idA: incomingId } = seedTwoAssetsSameLibrary(
+      live.db,
       { relPath: 'a', filename: 'IMG_1.dng' },
       { relPath: 'b', filename: 'IMG_1.dng' },
     );
@@ -346,16 +342,17 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
   });
 
   test("the incoming asset's own row is untouched after a refusal", async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     await write('a/incoming.dng', 'incoming-pixels');
     await write('b/occupant.dng', 'occupant-pixels');
-    const { idA: incomingId } = await seedTwoAssetsSameLibrary(
-      db,
+    const { idA: incomingId } = seedTwoAssetsSameLibrary(
+      live.db,
       { relPath: 'a', filename: 'incoming.dng' },
       { relPath: 'b', filename: 'occupant.dng' },
     );
 
-    const before = await fetchAssetRow(db, incomingId);
+    const locationsBefore = locations(live.db, incomingId);
+    const stagesBefore = stages(live.db, incomingId);
     const result = await relocateAsset({
       id: incomingId,
       mode: 'move',
@@ -365,8 +362,7 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
     });
     expect(result.kind).toBe('occupied');
 
-    const after = await fetchAssetRow(db, incomingId);
-    expect(after.fileinfo).toEqual(before.fileinfo);
-    expect(after.stages).toEqual(before.stages);
+    expect(locations(live.db, incomingId)).toEqual(locationsBefore);
+    expect(stages(live.db, incomingId)).toEqual(stagesBefore);
   });
 });

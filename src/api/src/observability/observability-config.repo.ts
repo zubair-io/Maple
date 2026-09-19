@@ -1,7 +1,7 @@
 /**
  * Persisted observability (SigNoz / OpenTelemetry) runtime config. Mirrors the
- * enrichment-config shape: a single document in `app_settings` keyed by
- * `_id: "observability"`.
+ * enrichment-config shape: a single row in `app_settings` keyed
+ * `id = 'observability'`.
  *
  * Config lives ENTIRELY in the database — set it via the web Settings →
  * Observability page (or `PUT /api/observability/config`). There is no env-var

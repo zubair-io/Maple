@@ -1,7 +1,7 @@
 /**
  * Persisted FFI decode-pool config. Mirrors the enrichment-config shape: a
- * single document in `app_settings` keyed by `_id: "performance"`, with one
- * field today — `ffi_workers`.
+ * single row in `app_settings` keyed `id = 'performance'`, with one field
+ * today — `ffi_workers`.
  *
  * Precedence (resolveFfiPoolConfig): DB row > env var (`MAPLE_FFI_WORKERS`) >
  * built-in default (1). Default 1 keeps the change pure opt-in: an upgraded

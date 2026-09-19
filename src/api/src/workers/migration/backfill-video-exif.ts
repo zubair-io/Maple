@@ -19,15 +19,22 @@
  * re-run after the reader learns to extract more.
  */
 
-import type { Filter } from 'mongodb';
-import type { AssetDoc, FileInfo } from '../../db/schema.ts';
-import { assetsCollection } from '../../db/client.ts';
+import {
+  countCandidates,
+  listCandidates,
+  unstamped,
+  type CandidateScope,
+} from '../../db/sqlite/repos/assets.migrations.ts';
+import {
+  applyVideoExif,
+  stampVideoMetaVersion,
+  BACKUP_VIDEO_SCOPE,
+} from '../../db/sqlite/repos/assets.video-migrations.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetAbsPath, isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { child as childLogger } from '../../log.ts';
-import { liveVideoAssetFilter } from './video-selectors.ts';
 
 import type { Migration, MigrationBatchResult } from './types.ts';
 
@@ -38,17 +45,9 @@ const MIGRATION_ID = 'backfill-video-exif';
 /** Bump to re-sweep all videos (e.g. after the moov reader learns a new tag). */
 export const VIDEO_META_VERSION = 1;
 
-/** Reset value for `backup_layout_version` that re-enters the refile candidate
- * set (the migration's `$ne` selector). */
-const REFILE_RESET_VERSION = 0;
-
 /** Backup-origin assets with a live VIDEO entry not yet backfilled. */
-function candidateFilter(): Filter<AssetDoc> {
-  return {
-    'phasset_links.0': { $exists: true },
-    ...liveVideoAssetFilter(),
-    video_meta_version: { $ne: VIDEO_META_VERSION },
-  } as Filter<AssetDoc>;
+function candidateScope(): CandidateScope {
+  return unstamped(BACKUP_VIDEO_SCOPE, 'video_meta_version', VIDEO_META_VERSION);
 }
 
 export const backfillVideoExif: Migration = {
@@ -59,13 +58,11 @@ export const backfillVideoExif: Migration = {
     'that the EXIF stage skipped, then re-files them: GPS → geocode → location folder; ' +
     'no GPS → year/month. One-time; idempotent per video.',
 
-  async countRemaining(): Promise<number> {
-    const coll = await assetsCollection();
-    return coll.countDocuments(candidateFilter());
+  countRemaining(): Promise<number> {
+    return countCandidates(candidateScope());
   },
 
   async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    const coll = await assetsCollection();
     let libs: ReadonlyMap<string, string>;
     try {
       libs = await loadLibraryRoots();
@@ -73,12 +70,7 @@ export const backfillVideoExif: Migration = {
       libs = new Map();
     }
 
-    const docs = await coll
-      .find(candidateFilter(), {
-        projection: { _id: 1, fileinfo: 1, maple_id: 1 },
-      })
-      .limit(batchSize)
-      .toArray();
+    const docs = await listCandidates(candidateScope(), batchSize);
 
     let processed = 0;
     let errors = 0;
@@ -88,16 +80,11 @@ export const backfillVideoExif: Migration = {
       // Read the live VIDEO entry specifically, not `assetPrimaryFileInfo` (the
       // first live entry) — an asset could carry a still + video pair, and the
       // selector matched on *a* live video entry, so that's the one to read.
-      const video = ((doc.fileinfo ?? []) as FileInfo[]).find(
-        (fi) => isLiveFileInfo(fi) && isVideoFilename(fi.filename),
-      );
+      const video = doc.fileinfo.find((fi) => isLiveFileInfo(fi) && isVideoFilename(fi.filename));
       if (!video) {
         // Selector matched a live video entry but none survives now (stale shape)
         // — stamp so it drops out (never clogs).
-        await coll.updateOne(
-          { _id: doc._id },
-          { $set: { video_meta_version: VIDEO_META_VERSION } },
-        );
+        await stampVideoMetaVersion(doc.id, VIDEO_META_VERSION);
         processed++;
         continue;
       }
@@ -117,10 +104,7 @@ export const backfillVideoExif: Migration = {
         const code = (err as NodeJS.ErrnoException | undefined)?.code;
         if (code === 'ENOENT') {
           // Source gone — nothing to read; stamp so it doesn't clog.
-          await coll.updateOne(
-            { _id: doc._id },
-            { $set: { video_meta_version: VIDEO_META_VERSION } },
-          );
+          await stampVideoMetaVersion(doc.id, VIDEO_META_VERSION);
           processed++;
           continue;
         }
@@ -128,7 +112,7 @@ export const backfillVideoExif: Migration = {
         errors++;
         log.error(
           {
-            _id: String(doc._id),
+            _id: String(doc.id),
             maple_id: doc.maple_id,
             err: err instanceof Error ? err.message : err,
           },
@@ -137,24 +121,22 @@ export const backfillVideoExif: Migration = {
         continue;
       }
 
-      const set: Record<string, unknown> = {
-        video_meta_version: VIDEO_META_VERSION,
-      };
-      if (exif) {
-        set.exif = exif;
-        if (exif.gps) {
-          // Re-geocode → place → (geocode hook) reset blv → refile under location.
-          set['stages.geocode.version'] = 0;
-        } else if (exif.captured_year != null) {
-          // Dated but no GPS → make it a refile candidate for the <year>/Misc path.
-          set.backup_layout_version = REFILE_RESET_VERSION;
-        }
-      }
-      await coll.updateOne({ _id: doc._id }, { $set: set });
+      await applyVideoExif(
+        doc.id,
+        {
+          exif: exif ?? null,
+          // GPS recovered → geocode re-runs, resolves a place, and (via the
+          // geocode stage's place-write hook) clears the refile marker.
+          rearmGeocode: !!exif?.gps,
+          // Dated but placeless → a refile candidate for the <year>/Misc path.
+          resetBackupLayout: !exif?.gps && exif?.captured_year != null,
+        },
+        VIDEO_META_VERSION,
+      );
       if (exif && (exif.captured_at || exif.gps)) {
         log.info(
           {
-            _id: String(doc._id),
+            _id: String(doc.id),
             maple_id: doc.maple_id,
             dated: !!exif.captured_at,
             gps: !!exif.gps,

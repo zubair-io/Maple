@@ -94,7 +94,7 @@ export interface ResolvedEnrichmentConfig {
    * value (normalised [0, 1) on the 640-px detection frame). */
   face_min_detection_size: number;
   /** Resolved Meilisearch sidecar URL (DB → env → null). `null` leaves the
-   * sidecar disabled and search falls back to the Mongo `$text` path. */
+   * sidecar disabled and search falls back to the built-in full-text path. */
   meilisearch_url: string | null;
   /** Resolved Meilisearch API key (DB → env → null). Secret: the config
    * route strips this before responding — never send it to a client. */

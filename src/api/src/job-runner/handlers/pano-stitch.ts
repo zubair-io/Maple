@@ -32,9 +32,10 @@
 import { mkdir, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from 'mongodb';
-import { assetsCollection } from '../../db/client.ts';
+import { loadAssetLocationViews } from '../../db/sqlite/repos/assets.locations.repo.ts';
+import { upsertAssetByMapleId } from '../../db/sqlite/repos/assets.upsert.ts';
 import { hashFileForId } from '../../indexer/id.ts';
-import { assetAbsPath, upsertByMapleId } from '../../indexer/images.repo.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { child as childLogger } from '../../log.ts';
 import type { JobHandler, JobHandlerContext, JobHandlerResult } from './index.ts';
@@ -143,7 +144,6 @@ export const panoStitchHandler: JobHandler = {
 
     try {
       // ── 1. Resolve asset paths ────────────────────────────────────────────
-      const coll = await assetsCollection();
       const libs = await loadLibraryRoots();
       const inputPaths: string[] = [];
 
@@ -155,13 +155,13 @@ export const panoStitchHandler: JobHandler = {
         objectIds.push(new ObjectId(idHex));
       }
 
-      const docs = await coll.find({ _id: { $in: objectIds } }).toArray();
-      const docsById = new Map(docs.map((d) => [d._id.toHexString(), d]));
+      const viewsById = await loadAssetLocationViews(objectIds);
 
-      for (const idHex of payload.assetIds) {
-        const doc = docsById.get(new ObjectId(idHex).toHexString());
-        if (!doc) throw new Error(`pano_stitch: asset not found: ${idHex}`);
-        const p = assetAbsPath(doc, libs);
+      for (const id of objectIds) {
+        const idHex = id.toHexString();
+        const view = viewsById.get(idHex);
+        if (!view) throw new Error(`pano_stitch: asset not found: ${idHex}`);
+        const p = assetAbsPath(view, libs);
         if (!p) throw new Error(`pano_stitch: asset has no resolvable path: ${idHex}`);
         inputPaths.push(p);
       }
@@ -323,12 +323,15 @@ export const panoStitchHandler: JobHandler = {
       // form is the correct choice — no exif stage upgrade will follow.
       //
       // Using the real maple_id means the discover scanner's upsert will
-      // coalesce onto this same document if it ever visits .maple/panos/
+      // coalesce onto this same row if it ever visits .maple/panos/
       // (the sweeper's isInsideMapleCache guard already refuses such events,
       // but if that guard ever fails the real id prevents a duplicate row).
       const fileIdentity = await hashFileForId(destAbs);
 
-      await upsertByMapleId({
+      // The upsert reports which row it settled on, so the result payload needs
+      // no second lookup by `maple_id` — and cannot be answered by a concurrent
+      // writer's asset the way a re-query could.
+      const upserted = await upsertAssetByMapleId({
         libraryId: libId,
         relDir: '.maple/panos',
         filename: destFilename,
@@ -337,10 +340,7 @@ export const panoStitchHandler: JobHandler = {
         mapleId: fileIdentity.maple_id,
         sha1Head: fileIdentity.sha1_head,
       });
-
-      // Re-query to get the inserted _id for the result payload.
-      const inserted = await coll.findOne({ maple_id: fileIdentity.maple_id });
-      const outputAssetId = inserted?._id?.toHexString() ?? null;
+      const outputAssetId = upserted.id.toHexString();
 
       log.info({ outputAssetId, destAbs }, 'pano stitch complete');
 

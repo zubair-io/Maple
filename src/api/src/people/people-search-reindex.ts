@@ -22,20 +22,19 @@ export {
 } from '../db/sqlite/repos/people.search-reindex.ts';
 
 /**
- * The `$set` fields that re-arm the meili stage on one or more assets in a
- * MongoDB update: reset the stage version below `meiliStage.targetVersion` so
- * `buildClaimQuery` (`workers/run-stage.ts`) reclaims the doc on its next poll
- * tick, and clear the dead-letter/attempt/processed-at bookkeeping so a row
- * that previously dead-lettered isn't permanently skipped and Settings →
- * Workers doesn't keep showing a stale last-processed timestamp for a stage
- * that's about to be retried clean.
+ * The field/value pairs that re-arm the meili stage on an asset: reset the
+ * stage version below `meiliStage.targetVersion` so `buildClaimQuery`
+ * (`workers/run-stage.ts`) reclaims the row on its next poll tick, and clear
+ * the dead-letter/attempt/processed-at bookkeeping so a row that previously
+ * dead-lettered isn't permanently skipped and Settings → Workers doesn't keep
+ * showing a stale last-processed timestamp for a stage that's about to be
+ * retried clean.
  *
- * Kept as a plain constant — it performs no query of its own — for the call
- * sites outside this tier that still fold it into their own Mongo update
- * (`db/assets.trash.ts`, `library/relocate-*.ts`, `workers/discover/*`,
- * `workers/migration/move-backup-asset.ts`). Each of those moves to
- * `meiliRearmStatement` in `db/sqlite/repos/assets.stage-rearm.ts` as its own
- * tier is cut over; this constant goes away with the last one.
+ * It was a plain constant so the call sites outside this tier could fold it
+ * into their own update statement. They now use `meiliRearmStatement`
+ * (`db/sqlite/repos/assets.stage-rearm.ts`) instead, and nothing in the tree
+ * reads this constant any more — it is the shape, kept as documentation of
+ * what re-arming means, not a live dependency.
  */
 export const MEILI_REARM_SET: Record<string, unknown> = {
   'stages.meili.version': 0,

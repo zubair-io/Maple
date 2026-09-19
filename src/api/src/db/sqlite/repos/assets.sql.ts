@@ -172,10 +172,19 @@ export function facesByAssetIdsSql(count: number): string {
      ORDER BY f.asset_id, f.face_index`;
 }
 
+/**
+ * `metadata_override` rides along with the describe-stage payloads because the
+ * `sidecar-metadata-index` handler compares the stored override's coordinates
+ * against the ones it just parsed, and re-arms `geocode` only when they differ.
+ * Without the column that comparison always sees "no stored coordinates" and
+ * re-geocodes on every reconcile. It costs nothing to carry: the row is already
+ * being read for the columns beside it.
+ */
 export function detailByAssetIdsSql(count: number): string {
   return `
     SELECT asset_id, description, description_meta, ocr_text, ocr_meta,
-           vision, vision_meta, transcript, video_description, video_description_meta
+           vision, vision_meta, transcript, video_description, video_description_meta,
+           metadata_override
       FROM asset_detail
      WHERE asset_id IN (${placeholders(count)})`;
 }

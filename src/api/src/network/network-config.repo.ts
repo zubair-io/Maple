@@ -1,6 +1,6 @@
 /**
  * Persisted local-network-address config. Mirrors the observability-config
- * shape: a single document in `app_settings` keyed by `_id: "network"`.
+ * shape: a single row in `app_settings` keyed `id = 'network'`.
  *
  * Self-hosted Maple is commonly reachable via a public URL (reverse proxy,
  * dyndns hostname, Cloudflare Tunnel) as well as directly over the LAN when

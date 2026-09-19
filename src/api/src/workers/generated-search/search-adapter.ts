@@ -4,8 +4,8 @@
  *
  * This deliberately mirrors `GET /api/search`'s own sequence — resolve
  * natural-language dates, resolve the person ids to drop, resolve person
- * names to ids, `buildFilter`, `applyLiveFilter`, then Meilisearch first when
- * there is residual free text. The worker uses the count to decide whether a
+ * names to ids, `buildSearchWhere`, then Meilisearch first when there is
+ * residual free text. The worker uses the count to decide whether a
  * collection is worth keeping and the read API renders the same stored query
  * later; if the two paths disagree, a collection measured at 40 photos shows
  * up on a widget with four.
@@ -14,18 +14,30 @@
  * `semantic: meili.semanticConfigured()` — so a natural-language scene
  * description is matched against caption vectors rather than keywords. When
  * the sidecar is absent or errors, `meiliPage` returns null and this falls
- * back to the structured/`$text` Mongo path exactly as the route does.
+ * back to the database's own full-text path exactly as the route does.
+ *
+ * ## No time bound, and why that is not a regression
+ *
+ * The Mongo version wrapped both legs in `maxTimeMS` (#2988): the `$text`
+ * fallback matched on OR semantics, so a three-word query matched most of a
+ * 333k-asset library and then sorted the whole match set by `textScore`, while
+ * the count beside it was a documented ~2.5-second collection scan. Unbounded,
+ * a few concurrent broad queries held their connections past the front proxy's
+ * patience and the origin stopped answering.
+ *
+ * Neither leg has that shape here. The count is served by a partial index over
+ * the live set and the page is an FTS5 `MATCH` with a `bm25()` order — the
+ * measurements are in `docs/sqlite-schema.md`. More to the point, a bound is not
+ * expressible: SQLite's interrupt is per connection, and these queries run on a
+ * pooled worker shared with every other reader, so "abandon this statement"
+ * would mean abandoning whatever else that worker is running.
  */
 
-import { assetsCollection } from '../../db/client.ts';
-import { applyLiveFilter, type SearchQuery } from '../../routes/search/query.ts';
-import { resolveLiveFilter } from './execute.ts';
-import { meiliPage } from '../../routes/search/list-meili.ts';
 import { child as childLogger } from '../../log.ts';
-import {
-  SEARCH_COUNT_TIMEOUT_MS,
-  SEARCH_FIND_TIMEOUT_MS,
-} from '../../routes/search/query-timeout.ts';
+import { searchCount, searchPage } from '../../db/sqlite/repos/search.page.ts';
+import { meiliPage } from '../../routes/search/list-meili.ts';
+import type { SearchQuery } from '../../routes/search/query.ts';
+import { resolveSearchWhere } from './execute.ts';
 import type { SearchOutcome } from './loop.ts';
 
 const log = childLogger('generated-search');
@@ -49,19 +61,16 @@ function captionsOf(rows: readonly { description?: string | null }[]): string[] 
 export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutcome> {
   const empty: SearchOutcome = { count: 0, captions: [], coverAssetId: null };
 
-  const prepared = await resolveLiveFilter(query);
+  const prepared = await resolveSearchWhere(query);
   if ('error' in prepared) {
-    log.warn({ error: prepared.error }, 'candidate query rejected by buildFilter');
+    log.warn({ error: prepared.error }, 'candidate query rejected by the search-query builder');
     return empty;
   }
-  const { resolved, filter } = prepared;
-
-  const coll = await assetsCollection();
+  const { resolved, where } = prepared;
 
   // Meilisearch first when there is residual free text, mirroring the route.
   const meili = await meiliPage({
-    coll,
-    filter,
+    where,
     resolved,
     libraryId: query.libraryId,
     skip: 0,
@@ -71,31 +80,24 @@ export async function runGeneratedSearch(query: SearchQuery): Promise<SearchOutc
     return {
       count: meili.total,
       captions: captionsOf(meili.results),
-      // `_id`, not `.id`: SearchResult.id is the editor-facing
-      // `fs:<absPath>` form, useless against /api/assets/:id/*. The Mongo
-      // `_id` hex is the identity both branches can agree on.
+      // `_id`, not `.id`: `SearchResult.id` is the editor-facing `fs:<absPath>`
+      // form, useless against `/api/assets/:id/*`. The hex id is the identity
+      // both branches can agree on.
       coverAssetId: meili.results[0]?._id ?? null,
     };
   }
 
-  const liveFilter = applyLiveFilter(filter);
-  // Bounded (#2988) like the search route: a runaway candidate query must
-  // fail this one measurement, not stall the process.
+  // The database leg. The page and the total are composed from the same
+  // `SearchWhere`, which is what makes them agree by construction — on Mongo
+  // they were a `countDocuments` and a `find` over separately-wrapped filters.
   const [count, rows] = await Promise.all([
-    coll.countDocuments(liveFilter, { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS }),
-    coll
-      .find(liveFilter, {
-        projection: { _id: 1, description: 1 },
-        maxTimeMS: SEARCH_FIND_TIMEOUT_MS,
-      })
-      .limit(CAPTION_SAMPLE)
-      .toArray(),
+    searchCount(where),
+    searchPage(where, { sort: 'captured_desc', limit: CAPTION_SAMPLE, skip: 0 }),
   ]);
 
-  const cover = rows[0] as { _id?: { toHexString(): string } } | undefined;
   return {
     count,
-    captions: captionsOf(rows as { description?: string | null }[]),
-    coverAssetId: cover?._id?.toHexString() ?? null,
+    captions: captionsOf(rows as ReadonlyArray<{ description?: string | null }>),
+    coverAssetId: rows[0]?._id.toHexString() ?? null,
   };
 }

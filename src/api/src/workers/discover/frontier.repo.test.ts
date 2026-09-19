@@ -1,62 +1,41 @@
-import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'bun:test';
-import { ObjectId, type Db } from 'mongodb';
-import { closeDb, getDb } from '../../db/client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_frontier_repo_${process.pid}`);
-
-// Captured here, not re-resolved in afterAll: withTestDb restores
-// MAPLE_MONGO_DB before this suite's teardown runs.
-let suiteDb: Db | null = null;
-
-let reachable = true;
-beforeAll(async () => {
-  try {
-    await closeDb();
-    suiteDb = await getDb();
-  } catch {
-    reachable = false;
-  }
-});
-beforeEach(async () => {
-  if (!reachable) return;
-  await (await getDb()).collection('discover_frontier').deleteMany({});
-});
-afterAll(async () => {
-  if (suiteDb) await suiteDb.dropDatabase();
-  await closeDb();
-});
+/**
+ * The frontier's behaviour is covered in depth by
+ * `db/sqlite/repos/discover-frontier.repo.test.ts`, which drives the repository
+ * functions directly. What is left to check here is that this module still
+ * hands the sweeper the same five verbs, resolving against the process-wide
+ * handle the way production reaches them — a re-export that named a function
+ * the repository no longer has would fail to compile, but one that pointed at a
+ * different database would not.
+ */
+import { describe, it, expect } from 'bun:test';
+import { createLiveTestDatabase, insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { toObjectId } from '../../db/sqlite/repos/values.ts';
+import * as frontier from './frontier.repo.ts';
 
 describe('frontier.repo', () => {
   it('seeds a root, claims it exactly once, then completes it', async () => {
-    if (!reachable) return;
-    const repo = await import('./frontier.repo.ts');
-    const folder = new ObjectId();
-    await repo.seedRoot(folder, '/srv/photos/Library', 1);
+    using live = await createLiveTestDatabase();
+    const folder = toObjectId(insertFolder(live.db));
+    await frontier.seedRoot(folder, '/srv/photos/Library', 1);
 
-    const a = await repo.claimNextDir(folder, 1, 60_000);
-    const b = await repo.claimNextDir(folder, 1, 60_000);
+    const a = await frontier.claimNextDir(folder, 1, 60_000);
+    const b = await frontier.claimNextDir(folder, 1, 60_000);
     expect(a?.dir_path).toBe('/srv/photos/Library');
     expect(b).toBeNull(); // already claimed (lease held)
 
-    await repo.enqueueDirs(folder, ['/srv/photos/Library/2024'], 1, false);
-    expect(await repo.remainingForGen(folder, 1)).toBe(2); // root (claimed) + child
+    await frontier.enqueueDirs(folder, ['/srv/photos/Library/2024'], 1, false);
+    expect(await frontier.remainingForGen(folder, 1)).toBe(2); // root (claimed) + child
 
-    await repo.completeDir(a!._id);
-    expect(await repo.remainingForGen(folder, 1)).toBe(1);
+    await frontier.completeDir(a!._id);
+    expect(await frontier.remainingForGen(folder, 1)).toBe(1);
   });
 
   it('re-claims a dir whose lease expired', async () => {
-    if (!reachable) return;
-    const repo = await import('./frontier.repo.ts');
-    const folder = new ObjectId();
-    await repo.seedRoot(folder, '/x', 1);
-    await repo.claimNextDir(folder, 1, -1); // already-expired lease
-    const again = await repo.claimNextDir(folder, 1, 60_000);
+    using live = await createLiveTestDatabase();
+    const folder = toObjectId(insertFolder(live.db));
+    await frontier.seedRoot(folder, '/x', 1);
+    await frontier.claimNextDir(folder, 1, -1); // already-expired lease
+    const again = await frontier.claimNextDir(folder, 1, 60_000);
     expect(again?.dir_path).toBe('/x');
   });
 });

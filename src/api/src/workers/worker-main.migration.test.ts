@@ -33,6 +33,12 @@ describe('the worker tier', () => {
     // And it must not reach for the cutover. Importing the path helper is
     // fine and expected; calling the migration is what is forbidden.
     expect(workerMain).not.toContain('migrateAtBoot');
+
+    // One connection, and only one. After #3787 the tier has no MongoDB client
+    // and no index set to ensure — the schema is the migration's output — so a
+    // reappearing `getDb` here is a second database being opened, not a detail.
+    expect(workerMain).not.toContain('getDb');
+    expect(workerMain).not.toContain('ensureIndexes');
   });
 });
 

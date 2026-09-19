@@ -434,7 +434,7 @@ export interface ImageChild extends DirChild {
   size: number; // bytes
   ext: string; // lowercase, no dot
   /**
-   * Mongo `_id` of the matching asset doc, hex-encoded. Set when this file
+   * `_id` of the matching asset, hex-encoded. Set when this file
    * has been indexed; `undefined` when the indexer hasn't seen it yet. The
    * client uses this to call `/api/assets/:id` for the enriched detail
    * payload (place, faces, description, vision) — FS-walk assets have no other
@@ -443,7 +443,7 @@ export interface ImageChild extends DirChild {
   id?: string;
   /**
    * Indexed EXIF for this RAW (camera/lens/exposure/captured_at/gps), looked
-   * up by `abs_path` against the `assets` collection. `null` when the indexer
+   * up by `abs_path` against the `assets` table. `null` when the indexer
    * processed this file but found no usable EXIF; `undefined` when the file
    * hasn't been indexed yet (or the indexer hasn't run for this folder).
    */
@@ -464,7 +464,7 @@ export interface SidecarChild {
   mtime: string; // ISO-8601
   size: number; // bytes
   /**
-   * Hex Mongo `_id` of the asset this XMP is paired to. Always set —
+   * Hex `_id` of the asset this XMP is paired to. Always set —
    * sidecars without a matching indexed asset are dropped from the
    * listing (same filter as `images`).
    */
@@ -477,7 +477,7 @@ export interface SidecarChild {
  * are stored on disk and surfaced through the File Provider so it can sync
  * *all* file types, but they get no `AssetDoc` (the database stays
  * image-only). Addressed by `(folderID, relativePath)` on the client, not by
- * a Mongo asset id.
+ * an asset id.
  */
 export interface FileChild extends DirChild {
   size: number; // bytes
@@ -840,12 +840,12 @@ export async function listDirContents(
 // listDirFast — used by GET /api/fs/dir-fast.
 //
 // Pure-filesystem variant of `listDirContents`: readdir + realpath + stat,
-// nothing else. No Mongo queries, no EXIF lookup, no trash hiding, no
+// nothing else. No database queries, no EXIF lookup, no trash hiding, no
 // sidecar pairing, no discover enqueue. Designed for the web Browse grid,
 // which doesn't need any of those — per-image badges (rating / flag / has-
 // edits / EXIF) live in the search/timeline grid, and the editor's cold-
 // load path keys assets by `fs:${abs_path}` so it doesn't need a stable
-// Mongo id either.
+// database id either.
 //
 // The Apple File Provider extension and the iOS/macOS cloud-source browse
 // continue to use `/api/fs/dir`, which preserves the enriched response
@@ -1021,7 +1021,7 @@ async function findOwningFolder(absPath: string): Promise<{ id: string; root: st
  * Push a batch of un-indexed paths into the discover producer via handleEvent.
  *
  * Calls handleEvent({ kind: "created", absPath }, folderId) for each path that
- * is not yet in the assets collection. This is a fire-and-forget operation —
+ * is not yet in the `assets` table. This is a fire-and-forget operation —
  * the caller does not wait for upserts to complete. A failed upsert is logged
  * as a warning and does not surface to the HTTP response.
  *

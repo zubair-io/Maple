@@ -1,39 +1,20 @@
 /**
- * `discover` worker config in the shared `worker_config` collection (the same
- * collection stages + missing-reaper use), keyed by name. Operator-tunable on
- * /settings/workers — NOT an env var (repo convention).
+ * `discover` worker config — the sweeper's two operator-tunable knobs, stored
+ * in the shared `worker_config` row keyed by `name = 'discover'` (the same
+ * table the stages and the missing-reaper use). Tunable on /settings/workers,
+ * NOT an env var (repo convention).
+ *
+ * The bodies moved to `db/sqlite/repos/worker-config.repo.ts` at the cutover
+ * (#3787), which is where they belong: the discover row and a stage row are
+ * rows of one table differing only in which columns they fill in, so putting
+ * two modules' statements on that table was the thing worth avoiding. This
+ * module stays as the import path `index.ts` and `register.ts` already use.
+ *
+ * Each name is re-exported explicitly rather than with `export *`, so a name
+ * whose shape changed fails to compile here instead of being swapped silently.
  */
-// The `worker_config` collection is shared with the stages (keyed by `name`).
-// There is no exported accessor — open it directly, exactly as the PATCH route
-// does (`routes-main.ts`: `const coll = (await getDb()).collection('worker_config')`).
-// `WorkerConfigRepo.load()` only projects the stage fields (concurrency/
-// maxAttempts/paused/last_seen_target_version), so discover reads its own
-// `{paused, sweepDirIntervalMs}` here rather than reusing it.
-import { getDb } from '../../db/client.ts';
-
-export interface DiscoverConfig {
-  paused: boolean;
-  sweepDirIntervalMs: number;
-}
-const DEFAULTS: DiscoverConfig = { paused: false, sweepDirIntervalMs: 250 };
-const NAME = 'discover';
-
-interface DiscoverConfigDoc {
-  name: string;
-  paused?: boolean;
-  sweepDirIntervalMs?: number;
-}
-
-export async function loadDiscoverConfig(): Promise<DiscoverConfig> {
-  const coll = (await getDb()).collection<DiscoverConfigDoc>('worker_config');
-  const doc = await coll.findOne({ name: NAME });
-  return {
-    paused: doc?.paused ?? DEFAULTS.paused,
-    sweepDirIntervalMs: doc?.sweepDirIntervalMs ?? DEFAULTS.sweepDirIntervalMs,
-  };
-}
-
-export async function patchDiscoverConfig(patch: Partial<DiscoverConfig>): Promise<void> {
-  const coll = (await getDb()).collection<DiscoverConfigDoc>('worker_config');
-  await coll.updateOne({ name: NAME }, { $set: { name: NAME, ...patch } }, { upsert: true });
-}
+export {
+  loadDiscoverConfig,
+  patchDiscoverConfig,
+} from '../../db/sqlite/repos/worker-config.repo.ts';
+export type { DiscoverConfig } from '../../db/sqlite/repos/worker-config.repo.ts';

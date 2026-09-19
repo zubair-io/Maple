@@ -23,7 +23,7 @@
  *     (parity with `backup/path-formatter.ts`, which also buckets on UTC
  *     wall-clock).
  *
- * No Mongo, no filesystem — these are the safety + assembly primitives the
+ * No database, no filesystem — these are the safety + assembly primitives the
  * scan/copy/worker layers and the create route all funnel through, so the
  * traversal guard can't be bypassed by one caller forgetting it.
  *
@@ -68,7 +68,7 @@ export interface NearbyAssetCandidate {
 }
 
 /** Nearest candidate to `capturedAtMs` within `NEARBY_ASSET_WINDOW_MS`, or
- * null. Pure — the Mongo query that produces `candidates` lives in
+ * null. Pure — the database query that produces `candidates` lives in
  * `imports/nearby.ts`'s `loadNearbyAssetCandidates`. */
 export function nearestCandidateFolder(
   candidates: readonly NearbyAssetCandidate[],

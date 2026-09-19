@@ -24,7 +24,7 @@ import type { AssetExif, Bbox } from "../db/schema.ts";
 export interface AiFace {
   /** Bounding box in normalised [0..1] image coordinates. */
   bbox: Bbox;
-  /** Optional linked person id (MongoDB ObjectId hex) — null until reviewer confirms. */
+  /** Optional linked person id (24-char ObjectId hex) — null until reviewer confirms. */
   personId: string | null;
   /** Detector confidence in [0..1]. */
   confidence: number;

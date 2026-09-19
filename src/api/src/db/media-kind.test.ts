@@ -15,9 +15,6 @@ import {
   mediaKindExpression,
 } from './media-kind.ts';
 import { classifyMediaType, mediaKindOfFilenames } from '../indexer/media-types.ts';
-import { buildClaimQuery } from '../workers/claim-query.ts';
-import videoDescribeStage from '../workers/stages/video-describe.ts';
-import transcribeStage from '../workers/stages/transcribe.ts';
 
 withTestDb(`maple_test_media_kind_${process.pid}`);
 
@@ -170,21 +167,13 @@ describe('video-scoped queries use the media_kind index (#3492)', () => {
     return JSON.stringify(explain.queryPlanner?.winningPlan ?? {});
   }
 
-  it('video-describe and transcribe claim queries hit media_kind_av, never a collection scan', async () => {
-    if (!reachable) return;
-    const db = await seeded();
-    for (const stage of [videoDescribeStage, transcribeStage]) {
-      const q = buildClaimQuery(stage.name, stage.targetVersion, [], new Set(), stage.claimFilter);
-      const plan = await winningPlan(db, q as Record<string, unknown>);
-      expect(plan).not.toContain('COLLSCAN');
-      expect(plan).toContain(MEDIA_KIND_INDEX_NAME);
-    }
-    // And they select exactly the media rows.
-    const vd = buildClaimQuery('video-describe', 1, [], new Set(), videoDescribeStage.claimFilter);
-    const tr = buildClaimQuery('transcribe', 1, [], new Set(), transcribeStage.claimFilter);
-    expect(await db.collection('assets').countDocuments(vd as never)).toBe(1);
-    expect(await db.collection('assets').countDocuments(tr as never)).toBe(2);
-  });
+  // The claim-query half of this block moved out with #3787. A stage no longer
+  // carries a Mongo filter to plan: `StageConfig.claimResidual` is a SQL
+  // fragment the claim AND-s onto its own gates, and both properties this test
+  // asserted now live beside it — `db/sqlite/repos/stage-claim.test.ts` pins
+  // that a `media_kind IN (?, ?)` residual selects exactly the media rows and
+  // does not weaken the gates around it, and `stage-claim.query-plan.test.ts`
+  // pins that adding one does not cost the `stage_claim` index.
 
   it('the shared migration selector hits media_kind_av too', async () => {
     if (!reachable) return;

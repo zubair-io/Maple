@@ -139,10 +139,22 @@ describe('#3787 — the serving path does not reach MongoDB', () => {
     const harness = 'test-db.test-helpers';
     const stragglers = [...new Glob('src/**/*.test.ts').scanSync('.')]
       .concat([...new Glob('src/**/*.test-helpers.ts').scanSync('.')])
+      .concat([...new Glob('tests/**/*.test.ts').scanSync('.')])
       .filter((file) => !file.includes(harness))
       .filter((file) => !file.startsWith(IMPORTER_PREFIX))
       .filter((file) => file !== 'src/db/sqlite/boot-migration.test.ts')
-      .filter((file) => importsOf(file).some((site) => site.specifier.includes(harness)))
+      .filter((file) =>
+        importsOf(file).some(
+          (site) =>
+            site.specifier.includes(harness) ||
+            // A suite that opens its own client reaches MongoDB just as surely
+            // as one that goes through the harness, and pointing the test run's
+            // URI at a closed port would not stop one that hardcodes its own.
+            (site.specifier === 'mongodb' &&
+              !site.typeOnly &&
+              site.names.some((name) => !IDENTIFIER_ONLY.has(name))),
+        ),
+      )
       .sort();
 
     expect(stragglers).toEqual([]);

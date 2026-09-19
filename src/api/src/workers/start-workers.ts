@@ -22,7 +22,7 @@
  */
 
 import { child as childLogger } from '../log.ts';
-import { foldersCollection } from '../db/client.ts';
+import { listLibraryRoots } from '../db/sqlite/repos/folders.repo.ts';
 import { startAllStages, stopAllStages } from './orchestrator.ts';
 import { stageRegistry } from './registry.ts';
 import { registerDiscoverWorker, unregisterDiscoverWorker } from './discover/register.ts';
@@ -36,7 +36,7 @@ import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
 import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
-import { writeWorkerStatus } from './worker-status.repo.ts';
+import { writeWorkerStatus } from '../db/sqlite/repos/worker-status.repo.ts';
 import { startStatusCountsRefresher, type RefresherHandle } from './status-counts.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
 import { flushPendingMirrorOps } from '../fs/mirrored.ts';
@@ -53,7 +53,7 @@ const log = childLogger('workers');
 // ---------------------------------------------------------------------------
 
 let _discoverHandle: DiscoverHandle | null = null;
-/** Unref'd timer that publishes stageRegistry.statuses() to worker_status in Mongo. */
+/** Unref'd timer that publishes stageRegistry.statuses() to the `worker_status` row. */
 let _statusInterval: ReturnType<typeof setInterval> | null = null;
 let _countsRefresher: RefresherHandle | null = null;
 
@@ -70,9 +70,7 @@ export async function startWorkers(): Promise<void> {
   }
 
   try {
-    const foldersColl = await foldersCollection();
-    const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
-    const discoverRoots = folders.map((f) => f.path).filter(Boolean);
+    const discoverRoots = (await listLibraryRoots()).map((root) => root.path).filter(Boolean);
     if (discoverRoots.length > 0) {
       registerDiscoverWorker();
       _discoverHandle = await startDiscover({ roots: discoverRoots });
@@ -134,7 +132,7 @@ export async function startWorkers(): Promise<void> {
     await refreshWorkerEnrichmentConfig(true);
     startWorkerEnrichmentConfigRefresh();
   } catch (err) {
-    log.warn({ err }, 'Meilisearch boot failed; search will fall back to Mongo $text');
+    log.warn({ err }, 'Meilisearch boot failed; search will fall back to the local text index');
     startWorkerEnrichmentConfigRefresh();
   }
 
@@ -163,7 +161,7 @@ export async function startWorkers(): Promise<void> {
     log.warn({ err }, 'Maintenance jobs failed to start');
   }
 
-  // Publish stageRegistry.statuses() to the worker_status Mongo doc every 2 s
+  // Publish stageRegistry.statuses() to the `worker_status` row every 2 s
   // so the API process (which has an empty in-process registry) can serve
   // GET /api/workers/status.  The face-models loader status rides along in the
   // same write — the ONNX sessions load in THIS worker process, so the API
