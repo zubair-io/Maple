@@ -49,7 +49,7 @@ import { toBool, toHex, toObjectId } from './values.ts';
 /**
  * One directory still to visit.
  *
- * Mirrors `WithId<DiscoverFrontierDoc>` field for field, except that `_id` is
+ * Mirrors the MongoDB frontier document field for field, except that `_id` is
  * the row's integer primary key — see the module comment.
  *
  * `hidden_ancestor` is always present rather than optional: the column is

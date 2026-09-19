@@ -23,11 +23,11 @@
  * existed with no row. `allocateCursor` had no caller outside this module and
  * its own test, so nothing is re-exported in its place.
  *
- * **2. `currentAllocatedCursor` is `allocatedCursor` under the old name.** Same
- * query, same meaning: the highest cursor ever allocated, which survives
- * retention pruning because it counts what was issued rather than what is
- * retained. Aliased here rather than renamed at its one call site, so the
- * revert stays a single-file revert.
+ * **2. `currentAllocatedCursor` is gone.** It was `allocatedCursor` under the
+ * old name — same query, same meaning: the highest cursor ever allocated,
+ * which survives retention pruning because it counts what was issued rather
+ * than what is retained. The alias was kept for one call site that has since
+ * moved to the SQLite name, so nothing imports the old spelling.
  *
  * **3. `isChangeCursorTooOld` changes shape without changing behaviour.** This
  * is the one #3784 flagged, so it is worth being exact about what did and did
@@ -51,10 +51,7 @@
  * between two behaviours, it forwards the one that ships.
  */
 
-export type { SqliteDb } from './sqlite/repos/db-handle.ts';
-
 export {
-  __resetFolderPathCacheForTests,
   computeRelativePath,
   recordAssetChange,
   recordAssetChangeRow,
@@ -62,8 +59,5 @@ export {
   recordAndPublishAssetChange,
   highestCursor,
   isChangeCursorTooOld,
-  allocatedCursor as currentAllocatedCursor,
-  type RecordChangeInput,
   type ListChangesQuery,
-  type ChangeCursorAge,
 } from './sqlite/repos/changes.repo.ts';

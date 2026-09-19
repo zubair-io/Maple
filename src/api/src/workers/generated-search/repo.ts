@@ -54,6 +54,5 @@ export interface GeneratedSearchDoc extends GeneratedSearchInput {
 
 export {
   saveGeneratedSearches,
-  listGeneratedSearches,
   pruneGeneratedSearches,
 } from '../../db/sqlite/repos/generated-searches.repo.ts';

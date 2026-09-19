@@ -10,4 +10,3 @@
  */
 
 export { setPersonCover } from '../db/sqlite/repos/people.cover.ts';
-export type { SetPersonCoverResult } from '../db/sqlite/repos/people.cover.ts';

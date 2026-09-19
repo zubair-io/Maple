@@ -17,4 +17,3 @@ export {
   loadDiscoverConfig,
   patchDiscoverConfig,
 } from '../../db/sqlite/repos/worker-config.repo.ts';
-export type { DiscoverConfig } from '../../db/sqlite/repos/worker-config.repo.ts';

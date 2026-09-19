@@ -115,15 +115,6 @@ export type { SuggestedMergeInfo } from './people.merge-suggestions.ts';
 
 // The visibility toggles and id lists live in `people.visibility.ts`, and are
 // re-exported here so importers match the Mongo repo's surface exactly.
-export {
-  excludePerson,
-  hidePerson,
-  listExcludedPeople,
-  listHiddenPeople,
-  personIdsToDrop,
-  unexcludePerson,
-  unhidePerson,
-} from './people.visibility.ts';
 
 function nowIso(): string {
   return new Date().toISOString();

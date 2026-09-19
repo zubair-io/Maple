@@ -41,7 +41,7 @@
  * `INDEXED BY` on the page query. See {@link pageSql}.
  */
 
-import { placeholders } from './assets.sql.ts';
+import { placeholders } from './values.ts';
 import { FTS_RANK_ORDER, FTS_RANK_SQL } from './search.fts.ts';
 import {
   QUALIFIED_LIVE_PREDICATE,

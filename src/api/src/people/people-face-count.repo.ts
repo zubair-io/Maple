@@ -21,7 +21,4 @@
  * `db/sqlite/repos/people.face-count.ts` for the full argument.
  */
 
-export {
-  faceCountByPerson,
-  recomputePersonFaceCount,
-} from '../db/sqlite/repos/people.face-count.ts';
+export { recomputePersonFaceCount } from '../db/sqlite/repos/people.face-count.ts';

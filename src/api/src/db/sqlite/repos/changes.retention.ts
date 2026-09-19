@@ -21,8 +21,8 @@
  * One consequence for tests: there is no `allocateCursor` to call. Allocation is
  * part of the insert — the counter bump and the row go in one `BEGIN IMMEDIATE`
  * batch and the insert's `lastInsertRowid` *is* the cursor — so a test makes
- * journal rows with `recordAssetChange` / `recordAssetChangeRow`. (Mongo's
- * `currentAllocatedCursor` survives as an alias of `allocatedCursor`, which is a
+ * journal rows with `recordAssetChange` / `recordAssetChangeRow`. (What Mongo
+ * called `currentAllocatedCursor` is `allocatedCursor` here, which is a
  * reader, not an allocator.)
  *
  * ## Why the cutoff is a binary search
@@ -38,7 +38,7 @@
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 
 /** A journal row reduced to the two columns the retention sweep compares. */
-export interface ChangeBoundary {
+interface ChangeBoundary {
   cursor: number;
   at: string;
 }

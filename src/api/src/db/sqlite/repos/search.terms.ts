@@ -14,7 +14,7 @@
  */
 
 import { ObjectId } from 'mongodb';
-import { placeholders } from './assets.sql.ts';
+import { placeholders } from './values.ts';
 import type { SqlValue } from '../protocol.ts';
 import {
   asNumber,

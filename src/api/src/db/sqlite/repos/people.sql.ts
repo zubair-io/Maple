@@ -23,6 +23,7 @@
  */
 
 import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
+import { placeholders } from './values.ts';
 
 /** The `people` columns every read selects, in one place so they cannot drift. */
 const PERSON_COLUMNS = `
@@ -31,11 +32,6 @@ const PERSON_COLUMNS = `
   merged_into, hidden, excluded,
   centroid, centroid_face_count,
   suggested_merge_person_id, suggested_merge_score, suggested_merges`;
-
-/** A `?` placeholder list of the given length. */
-export function placeholders(count: number): string {
-  return new Array(count).fill('?').join(', ');
-}
 
 // ---------------------------------------------------------------------------
 // People reads

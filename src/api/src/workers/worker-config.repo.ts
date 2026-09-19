@@ -13,10 +13,4 @@
  * it does accept is a test's SQLite handle.
  */
 
-export {
-  WorkerConfigRepo,
-  loadWorkerConfigSafe,
-  listWorkerConfigs,
-  sanitizeWorkerConfig,
-} from '../db/sqlite/repos/worker-config.repo.ts';
-export type { WorkerConfigDoc, SqliteDb } from '../db/sqlite/repos/worker-config.repo.ts';
+export { loadWorkerConfigSafe } from '../db/sqlite/repos/worker-config.repo.ts';

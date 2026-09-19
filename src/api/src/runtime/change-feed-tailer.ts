@@ -39,8 +39,6 @@
  */
 
 export {
-  ChangeFeedTailer,
   getChangeFeedTailer,
   __resetChangeFeedTailerForTests,
-  type ChangeFeedTailerOptions,
 } from './sqlite/change-feed-tailer.ts';

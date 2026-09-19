@@ -34,8 +34,8 @@ import * as path from 'node:path';
 import type { FileInfo } from '../../schema.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
-import { bucketedIds, locationsByAssetIdsSql, placeholders } from './assets.sql.ts';
-import { toHex, toObjectId } from './values.ts';
+import { bucketedIds, locationsByAssetIdsSql } from './assets.sql.ts';
+import { placeholders, toHex, toObjectId } from './values.ts';
 
 /**
  * What every caller that resolves an asset to a file on disk actually reads:

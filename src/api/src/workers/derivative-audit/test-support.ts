@@ -16,10 +16,7 @@ import type { Database } from 'bun:sqlite';
 import { insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 
-export {
-  createLiveTestDatabase,
-  type LiveTestDatabase,
-} from '../../db/sqlite/test-sqlite.test-helpers.ts';
+export { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
 /**
  * Register `root` as a library and return its id, as the hex string the

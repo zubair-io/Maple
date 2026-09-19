@@ -41,8 +41,6 @@
 
 export {
   BusyElsewhereError,
-  CROSS_DEVICE_BUSY_WINDOW_MS,
   uploadSessions,
-  type OpenOrResumeArgs,
   type OpenOrResumeResult,
 } from '../db/sqlite/repos/upload-sessions.repo.ts';

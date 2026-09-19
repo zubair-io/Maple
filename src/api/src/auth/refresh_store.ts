@@ -19,17 +19,11 @@
  * one such class no matter which module threw it.
  */
 
-export {
-  RefreshError,
-  REFRESH_GRACE_MS,
-  type IssuedRefresh,
-  type IssueRefreshTokenOptions,
-} from './refresh-contract.ts';
+export { RefreshError } from './refresh-contract.ts';
 
 export {
   issueRefreshToken,
   revokeChain,
-  revokeFamily,
   revokeFamilyByToken,
   rotateRefreshToken,
 } from '../db/sqlite/repos/auth.refresh.repo.ts';
@@ -37,5 +31,4 @@ export {
 export {
   listDeviceSessions,
   revokeDeviceSession,
-  type DeviceSession,
 } from '../db/sqlite/repos/auth.device-sessions.repo.ts';

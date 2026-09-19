@@ -27,7 +27,7 @@ import type { ObjectId } from 'mongodb';
 import { child as childLogger } from '../../../log.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { MEILI_STAGE } from './assets.stage-rearm.ts';
-import { placeholders } from './people.sql.ts';
+import { placeholders } from './values.ts';
 
 const log = childLogger('people:search-reindex:sqlite');
 

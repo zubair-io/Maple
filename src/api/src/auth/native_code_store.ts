@@ -23,6 +23,5 @@ export {
   issueNativeCode,
   pkceS256,
   redeemNativeCode,
-  type IssuedNativeCode,
   type RedeemedNativeCode,
 } from '../db/sqlite/repos/auth.codes.repo.ts';

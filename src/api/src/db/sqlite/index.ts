@@ -17,9 +17,8 @@
 
 import { SqlitePool, type SqlitePoolOptions } from './pool.ts';
 
-export { type SqlitePoolOptions, type SqlitePoolStats } from './pool.ts';
-export type { SqliteWorkerStats } from './worker-handle.ts';
-export type { SqlParams, SqlRow, SqlStatement, SqlValue, SqlWriteResult } from './protocol.ts';
+export { type SqlitePoolOptions } from './pool.ts';
+export type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from './protocol.ts';
 
 import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from './protocol.ts';
 

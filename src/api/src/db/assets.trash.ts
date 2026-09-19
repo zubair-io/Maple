@@ -22,9 +22,4 @@
  * the fields are unchanged.
  */
 
-export {
-  markSoftDeleted,
-  hardDelete,
-  restoreFromTrash,
-  type LocationSource,
-} from './sqlite/repos/assets.trash.ts';
+export { hardDelete } from './sqlite/repos/assets.trash.ts';

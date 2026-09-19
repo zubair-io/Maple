@@ -81,7 +81,14 @@ export function parseJson<T>(text: string | null | undefined, fallback: T): T {
   return JSON.parse(text) as T;
 }
 
-/** `?, ?, ?` for an `IN (…)` list of `count` bound values. */
+/**
+ * `?, ?, ?` for an `IN (…)` list of `count` bound values.
+ *
+ * Deliberately positional rather than `json_each` over a single bound array:
+ * a positional list gives the planner literal values it can turn into index
+ * probes, where a subquery over a table-valued function makes it build an
+ * ephemeral index first.
+ */
 export function placeholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ');
 }

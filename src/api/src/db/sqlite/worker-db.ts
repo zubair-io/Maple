@@ -71,7 +71,7 @@ import {
 import type { SqliteDb } from './repos/db-handle.ts';
 
 /** A request from the worker asking the host to run statements on the writer. */
-export interface WorkerDbRequest {
+interface WorkerDbRequest {
   type: 'sqlite-db';
   requestId: number;
   /** `write` runs one statement on its own; `transaction` wraps the batch. */
@@ -80,7 +80,7 @@ export interface WorkerDbRequest {
 }
 
 /** The host's reply. Errors are flattened — an `Error` does not clone cleanly. */
-export interface WorkerDbResponse {
+interface WorkerDbResponse {
   type: 'sqlite-db-result';
   requestId: number;
   ok: boolean;

@@ -46,7 +46,7 @@
  */
 
 import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
-import { placeholders } from './assets.sql.ts';
+import { placeholders } from './values.ts';
 
 /** The bookkeeping columns a claim hands back, in `stage_state` order. */
 const STAGE_STATE_COLUMNS = `

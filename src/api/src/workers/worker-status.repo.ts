@@ -8,15 +8,4 @@
  * path remains, reachable or otherwise.
  */
 
-export {
-  pokeStatusCountsDemand,
-  readStatusCountsDemand,
-  readWorkerStatus,
-  writeStatusCounts,
-  writeWorkerStatus,
-} from '../db/sqlite/repos/worker-status.repo.ts';
-export type {
-  FaceModelsStatusSnapshot,
-  StatusCountsSnapshot,
-  WorkerStatusRead,
-} from '../db/sqlite/repos/worker-status.repo.ts';
+export { readWorkerStatus } from '../db/sqlite/repos/worker-status.repo.ts';

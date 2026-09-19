@@ -51,7 +51,7 @@ export interface PrepareResult {
 }
 
 /** Where the worker should open its read-only connection, and what to cluster. */
-export interface ClusterDispatch {
+interface ClusterDispatch {
   path: string;
   similarityThreshold: number;
 }

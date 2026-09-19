@@ -29,18 +29,7 @@
  */
 
 import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
-
-/**
- * `?`-placeholder list for an `IN (…)` clause.
- *
- * Deliberately positional rather than `json_each` over a single bound array:
- * a positional list gives the planner literal values it can turn into index
- * probes, where a subquery over a table-valued function makes it build an
- * ephemeral index first.
- */
-export function placeholders(count: number): string {
-  return Array.from({ length: count }, () => '?').join(', ');
-}
+import { placeholders } from './values.ts';
 
 /**
  * The id list a batch loader binds, padded so its length is a power of two.

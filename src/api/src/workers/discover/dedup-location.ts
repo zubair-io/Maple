@@ -16,8 +16,4 @@
  * the name explicitly rather than with `export *` so a changed shape fails to
  * compile here instead of being swapped silently.
  */
-export {
-  appendOrRefreshLocation,
-  type AssetForContent,
-  type DedupRefresh,
-} from '../../db/sqlite/repos/assets.discover.dedup.ts';
+export { appendOrRefreshLocation } from '../../db/sqlite/repos/assets.discover.dedup.ts';

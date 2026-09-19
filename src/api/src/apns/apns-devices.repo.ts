@@ -28,8 +28,6 @@ export {
   pruneDeviceTokens,
   registerDeviceToken,
   unregisterDeviceToken,
-  type RegisterDeviceInput,
-  type UnregisterDeviceInput,
 } from '../db/sqlite/repos/apns-devices.repo.ts';
 
 /**

@@ -48,8 +48,8 @@ import {
   enrichmentByAssetIdsSql,
   facesByAssetIdsSql,
   locationsByAssetIdsSql,
-  placeholders,
 } from './assets.sql.ts';
+import { placeholders } from './values.ts';
 
 /** The `assets` columns a stage handler can read off its document. */
 const STAGE_ASSET_COLUMNS = `

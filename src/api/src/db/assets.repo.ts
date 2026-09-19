@@ -31,9 +31,7 @@
  * `testSqliteDb(handle.db)` now.
  */
 
-export type { AssetDetailDto, AssetListItemDto, AssetCoreInfo } from './assets.transform.ts';
-
-export type { SqliteDb } from './sqlite/repos/db-handle.ts';
+export type { AssetCoreInfo } from './assets.transform.ts';
 
 export {
   parseAssetId,

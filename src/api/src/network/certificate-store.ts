@@ -21,7 +21,6 @@ export {
   rememberChallenge,
   renewCertificateLease,
   writeCertificateState,
-  type CertificateState,
   type DnsChallengeRecord,
   type StoredCertificate,
 } from '../db/sqlite/repos/managed-certificates.repo.ts';

@@ -25,13 +25,8 @@ export {
   readFaces,
   renamePerson,
 } from '../db/sqlite/repos/people.repo.ts';
-export type {
-  PersonDetail,
-  PersonDetailFace,
-  RenameResult,
-} from '../db/sqlite/repos/people.repo.ts';
 
-export type { ListPeopleOptions, PersonWithCount } from './people-list-core.ts';
+export type { PersonWithCount } from './people-list-core.ts';
 
 // Visibility toggles + id lists (hide #2124, exclude #2894) live in
 // people-visibility.repo.ts; re-exported here so importers are unchanged.

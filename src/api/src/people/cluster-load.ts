@@ -29,13 +29,6 @@
 import type { Bbox } from '../db/schema.ts';
 import type { MergeSuggestion } from './people-merge-suggestions.ts';
 
-export {
-  EMBEDDING_DIM,
-  loadUnassignedFaces,
-  prepareClusteringPass,
-  recomputeCentroids,
-} from '../db/sqlite/repos/people.cluster-load.ts';
-
 /** A loaded centroid, ready to seed the clustering pass. The `person_id` is
  * kept as a hex string so the whole structure is `postMessage`-serializable
  * when the load runs on the worker. */

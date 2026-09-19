@@ -9,4 +9,3 @@
  */
 
 export { dismissMergeSuggestion } from '../db/sqlite/repos/people.merge-suggestions.ts';
-export type { DismissMergeSuggestionResult } from '../db/sqlite/repos/people.merge-suggestions.ts';

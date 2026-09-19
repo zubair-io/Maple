@@ -11,10 +11,4 @@
  * input — that is what makes interpolating them safe.
  */
 
-export {
-  listPeopleByFilter,
-  LIVE_EXCLUDED_PREDICATE,
-  LIVE_HIDDEN_PREDICATE,
-  LIVE_VISIBLE_PREDICATE,
-} from '../db/sqlite/repos/people.list.ts';
-export type { ListPeopleOptions, PersonWithCount } from '../db/sqlite/repos/people.list.ts';
+export type { PersonWithCount } from '../db/sqlite/repos/people.list.ts';

@@ -40,9 +40,4 @@ export {
   updateImportProgress,
 } from '../db/sqlite/repos/imports.repo.ts';
 
-export type {
-  ClaimedImport,
-  CreateImportInput,
-  ImportFileEntryWithIdx,
-  ListImportsFilter,
-} from '../db/sqlite/repos/imports.repo.ts';
+export type { ClaimedImport } from '../db/sqlite/repos/imports.repo.ts';

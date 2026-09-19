@@ -65,13 +65,7 @@ import type { AssetCoreInfo, AssetDetailDto, AssetListItemDto } from '../../asse
 
 export type { AssetCoreInfo, AssetDetailDto, AssetListItemDto };
 export type { SqliteDb } from './db-handle.ts';
-export {
-  recordSidecarEdit,
-  requeueEnrichmentStage,
-  setDescriptionOverride,
-  setHasXmp,
-  setPlaceOverride,
-} from './assets.mutations.ts';
+export { requeueEnrichmentStage, setHasXmp, setPlaceOverride } from './assets.mutations.ts';
 export { hardDelete, markSoftDeleted, restoreFromTrash } from './assets.trash.ts';
 
 /**

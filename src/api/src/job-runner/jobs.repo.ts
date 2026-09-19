@@ -42,7 +42,7 @@ export {
   saveJobCheckpoint,
   updateProgress,
 } from '../db/sqlite/repos/jobs.repo.ts';
-export type { ClaimedJob, CreateJobInput, ListJobsFilter } from '../db/sqlite/repos/jobs.repo.ts';
+export type { CreateJobInput } from '../db/sqlite/repos/jobs.repo.ts';
 
 /**
  * Insert a queued job. Returns the new row with all defaults.

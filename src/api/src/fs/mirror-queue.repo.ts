@@ -29,5 +29,4 @@ export {
   failMirrorCopy,
   mirrorQueueCounts,
   retryDeadMirrorCopies,
-  type MirrorQueueEntry,
 } from '../db/sqlite/repos/mirror-queue.repo.ts';

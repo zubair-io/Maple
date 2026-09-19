@@ -58,21 +58,14 @@
  */
 
 export { buildSearchWhere } from './search.where.ts';
-export type { BoundPredicate, SearchWhere, SearchWhereResult } from './search.where.ts';
+export type { SearchWhere } from './search.where.ts';
 
 export { toTextFilter } from './search.fts.ts';
-export type { TextFilter } from './search.fts.ts';
 
 export { searchFacets } from './search.facets.ts';
-export type { SearchFacets, ValueBucket } from './search.facets.ts';
 
 export { searchByMapleIds, searchCount, searchPage } from './search.page.ts';
-export type { PageOptions, SeekPosition } from './search.page.ts';
 
 export { searchBuckets } from './search.buckets.ts';
-export type { SearchBuckets, TimelineBucket } from './search.buckets.ts';
 
 export { serviceLexicalSearch } from './search.service.ts';
-export type { ServiceMediaType, ServiceSearchHits, ServiceSearchScope } from './search.service.ts';
-
-export type { SqliteDb } from './db-handle.ts';

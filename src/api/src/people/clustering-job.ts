@@ -33,7 +33,6 @@ export {
   clusterEmbeddings,
   DEFAULT_SIMILARITY_THRESHOLD,
   dotProduct,
-  EMBEDDING_DIM,
   l2Normalise,
   updateCentroid,
 } from './cluster-embeddings.ts';

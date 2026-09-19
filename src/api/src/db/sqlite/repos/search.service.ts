@@ -25,7 +25,7 @@
  * that can produce a syntax error and nothing to swallow.
  */
 
-import { placeholders } from './assets.sql.ts';
+import { placeholders } from './values.ts';
 import { toTextFilter } from './search.fts.ts';
 import { serviceTextSearchSql } from './search.sql.ts';
 import { likeLiteral } from './search.terms.ts';

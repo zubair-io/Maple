@@ -18,9 +18,4 @@
 // one `findOneAndUpdate` is now one `UPDATE` carrying the same conditions in
 // its `WHERE`, and a row count of 1 is what says this caller spent the code.
 
-export {
-  issueLanHandoffCode,
-  redeemLanHandoffCode,
-  type IssuedLanHandoffCode,
-  type RedeemedLanHandoffCode,
-} from '../db/sqlite/repos/auth.codes.repo.ts';
+export { issueLanHandoffCode, redeemLanHandoffCode } from '../db/sqlite/repos/auth.codes.repo.ts';

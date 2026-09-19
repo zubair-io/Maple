@@ -998,21 +998,6 @@ export interface Place {
   /** Denormalised text for full-text search (Phase 3). */
   search_blob: string;
 }
-
-// ---------------------------------------------------------------------------
-// geocode_cache — Phase 2: quantised lat/lon → Place. Lets clustered photos
-// at one location share a single Nominatim API call.
-// `docs/indexer-enrichment.md` §4.3.
-// ---------------------------------------------------------------------------
-
-export interface GeocodeCacheDoc {
-  /** Quantised key, e.g. `"lat:42.6526,lon:-73.7562"` (4 decimal places). */
-  _id: string;
-  place: Place;
-  fetched_at: Date;
-  geocoder_version: number;
-}
-
 // ---------------------------------------------------------------------------
 // Face document — written by the Phase 5 face worker. Re-exported as
 // `AssetFace` from `indexer/images.repo.ts` for the indexer-side callers.
@@ -1168,18 +1153,6 @@ export interface PersonDoc {
 }
 
 export type PersonWithId = WithId<PersonDoc>;
-
-/**
- * One permanently-dismissed "not a match" pair from the person-page
- * merge-suggestion banner. `pair` is direction-independent — see
- * `sortedPairKey` in `people-merge-suggestions.ts`, which is the single
- * source of the exact string format both the read and write sides use.
- */
-export interface PersonMergeDismissalDoc {
-  pair: string;
-  created_at: string;
-}
-
 /**
  * Default empty state for one enrichment stage. The fast pipeline's skeleton
  * upsert seeds every stage with this shape on insert; readers fall back to it
@@ -1227,19 +1200,6 @@ export function normaliseEnrichment(raw: Partial<Enrichment> | undefined | null)
 // ---------------------------------------------------------------------------
 
 export type TaskKind = 'scan_folder' | 'gen_thumb' | 'extract_exif';
-
-export interface IndexerTaskDoc {
-  kind: TaskKind;
-  /** Payload varies by task kind. */
-  payload: Record<string, unknown>;
-  /** Lifecycle: pending → processing → done | failed. */
-  status: 'pending' | 'processing' | 'done' | 'failed';
-  /** Error message when status === "failed". */
-  error: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 // ---------------------------------------------------------------------------
 // JobRunner — sibling subsystem to the indexer pipeline for user-triggered
 // long-running work (export, batch reprocess, …). See
@@ -1335,7 +1295,7 @@ export interface ImportDoc {
   library_root: string;
   /**
    * LEGACY ONLY — the per-file entries used to live inline here. They now live
-   * one-doc-per-file in the `import_files` collection (see `ImportFileDoc`),
+   * one-doc-per-file in the `import_files` collection,
    * because a folder with tens of thousands of files serialized a single
    * `imports` document past MongoDB's hard 16 MiB document ceiling (and the
    * BSON driver's 17 MiB serialization buffer), which threw
@@ -1367,45 +1327,6 @@ export interface ImportDoc {
 }
 
 export type ImportWithId = WithId<ImportDoc>;
-
-/**
- * One file in an import, stored in its OWN `import_files` collection document
- * rather than inline on the `imports` doc. This is the fix for the
- * tens-of-thousands-of-files case: an inline array blew past MongoDB's 16 MiB
- * per-document limit (surfacing as a BSON `ERR_OUT_OF_RANGE` at the 17 MiB
- * serialization-buffer boundary) and failed the import during scanning.
- *
- * `(import_id, idx)` is unique. `idx` is the file's stable 0-based position so
- * the worker can pull files back in deterministic order and target a single
- * row's progress update without rewriting the whole set.
- */
-export interface ImportFileDoc extends ImportFileEntry {
-  import_id: ObjectId;
-  idx: number;
-}
-
-// ---------------------------------------------------------------------------
-// Discover frontier (resumable directory walk)
-// ---------------------------------------------------------------------------
-
-/**
- * One directory still to visit in an in-progress discover sweep. The frontier
- * lives in Mongo (not heap) so the walk's memory is O(one directory), not
- * O(tree). `(folder_id, dir_path, sweep_gen)` is unique so a re-seed can't
- * double-enqueue. `claimed_at` is a lease so a crashed sweeper's dir is retaken.
- */
-export interface DiscoverFrontierDoc {
-  folder_id: ObjectId;
-  dir_path: string; // absolute
-  sweep_gen: number;
-  claimed_at: number | null; // ms epoch lease; null = free
-  enqueued_at: number;
-  /** An ancestor directory carries a folder-level `.hidden` marker, so this
-   * dir's photos are folder-hidden even without a marker of its own (#2972).
-   * Set at enqueue time from the parent's effective state; absent = false. */
-  hidden_ancestor?: boolean;
-}
-
 // ---------------------------------------------------------------------------
 // User
 // ---------------------------------------------------------------------------
@@ -1453,39 +1374,6 @@ export interface InviteDoc {
   expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
   consumed_at: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Refresh token
-// ---------------------------------------------------------------------------
-
-export interface RefreshTokenDoc {
-  user_id: ObjectId;
-  token_hash: string; // sha256(raw)
-  issued_at: string;
-  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
-  revoked_at: string | null;
-  replaced_by: ObjectId | null;
-  device_label: string;
-  /** Rotation lineage (#858). A login starts a family; every rotation stays in
-   * it. Reuse detection and logout revoke a family (one device), not the whole
-   * user. Optional only for tokens issued before family tracking. */
-  family_id?: ObjectId;
-  /** Set on every member when logout/reuse deliberately revokes the family. */
-  family_revoked_at?: string;
-  /** Device-session platform marker (Maple TV epic, milestone B, #2075). Set
-   * on a paired-device login (e.g. 'tvos') and propagated across rotation /
-   * grace re-mint so the whole family stays labeled. Absent for plain
-   * browser/native logins. */
-  platform?: string;
-  /** Whether this token's cookie must be re-set with `Secure` on rotation.
-   * `false` only for the LAN-handoff redeem (the cookie answers on a plain-HTTP
-   * LAN origin, where a `Secure` cookie would be silently dropped by the
-   * browser). Propagated across rotation / grace re-mint like `platform`.
-   * Missing/absent means `true` (every other issuer: login, register,
-   * dev-login, native-code — all HTTPS-or-localhost secure contexts). */
-  secure?: boolean;
-}
-
 // ---------------------------------------------------------------------------
 // Service API keys (Maple-owned machine-to-machine contracts)
 // ---------------------------------------------------------------------------
@@ -1521,43 +1409,6 @@ export interface ChallengeDoc {
   invite_code: string | null;
   expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
 }
-
-// ---------------------------------------------------------------------------
-// Native one-time auth code (#856) — PKCE code-exchange for the Apple shell,
-// replacing the legacy token-in-redirect-URL bridge. Short TTL; single-use.
-// ---------------------------------------------------------------------------
-
-export interface NativeAuthCodeDoc {
-  code_hash: string; // sha256(raw code), hex
-  code_challenge: string; // PKCE S256: base64url(sha256(verifier))
-  state: string; // opaque CSRF token echoed back to the native app
-  user_id: ObjectId;
-  device_label: string; // label for the refresh token minted at redeem
-  created_at: string;
-  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
-  consumed_at: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// LAN handoff one-time code — a signed-in web session (on the public URL)
-// mints this so the SAME browser can redeem it on the server's LAN address
-// without repeating the WebAuthn ceremony (which requires a secure context
-// the LAN's plain-HTTP origin can't provide). No PKCE: unlike the native
-// flow, there is no separate side-channel to keep a verifier out of the
-// redirect URL here (both origins are the same browser tab), so a bare
-// single-use, short-TTL code carries the same guarantee a code+verifier
-// pair would.
-// ---------------------------------------------------------------------------
-
-export interface LanHandoffCodeDoc {
-  code_hash: string; // sha256(raw code), hex
-  user_id: ObjectId;
-  device_label: string;
-  created_at: string;
-  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
-  consumed_at: string | null;
-}
-
 // ---------------------------------------------------------------------------
 // PhotoKit backup
 // ---------------------------------------------------------------------------
@@ -1638,7 +1489,7 @@ export type AssetChangeKind = 'create' | 'update' | 'delete' | 'restore';
 
 export interface AssetChangeDoc {
   /** Monotonically increasing per insert. Allocated via the
-   * server_state.next_cursor counter (see ServerStateDoc). */
+   * server_state.next_cursor counter. */
   cursor: number;
   asset_id: ObjectId | null;
   folder_id: ObjectId | null;
@@ -1698,25 +1549,6 @@ export interface ApnsDeviceTokenDoc {
 }
 
 export type ApnsDeviceTokenWithId = WithId<ApnsDeviceTokenDoc>;
-
-/**
- * A small key/value collection for server-wide singletons. Rows:
- *   - `_id: "asset_changes_cursor"` — holds the next cursor value to allocate
- *     (numeric, in `seq`).
- *   - `_id: "jwt_secret"` — the HS256 signing key for access tokens (string,
- *     in `value`). Stored here so every instance shares one secret and it
- *     survives container recreates. See `auth/jwt-secret.repo.ts`.
- */
-export interface ServerStateDoc {
-  _id: string;
-  /** For the asset_changes counter row: the most recently allocated
-   * cursor. The next allocation atomically `$inc`'s this and returns
-   * the new value. */
-  seq?: number;
-  /** For string-valued singletons (e.g. the `jwt_secret` row). */
-  value?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Metadata override (#1580 — Batch Metadata M1)
 // ---------------------------------------------------------------------------
