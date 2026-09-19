@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { ObjectId } from 'mongodb';
+import { STAGE_STATE_MEDIA_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import transcribeStage, {
   setTranscribeDepsForTests,
@@ -56,6 +57,16 @@ describe('transcribe stage', () => {
     expect(transcribeStage.claimResidual?.params).toEqual(['video', 'audio']);
     expect(transcribeStage.claimResidual?.sql).toContain('id = stage_state.asset_id');
     expect(transcribeStage.claimResidual?.sql).toContain('media_kind IN (?, ?)');
+  });
+
+  it('leads the residual with the term that selects the partial index (#3795)', () => {
+    // The `EXISTS` above decides WHICH assets are claimed; this term decides
+    // how many rows the scan reads to find them, and it only does that if it
+    // is spelled exactly as `stage_claim_media`'s own `WHERE`. Taking it from
+    // the DDL rather than retyping it is what keeps the two in step, and
+    // asserting the stage actually uses it is what keeps a future edit from
+    // quietly paraphrasing it back into a full-library walk.
+    expect(transcribeStage.claimResidual?.sql.startsWith(STAGE_STATE_MEDIA_NARROWING)).toBe(true);
   });
 
   it('skips non-media and silent video', async () => {

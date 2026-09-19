@@ -7,7 +7,7 @@
  * moment a predicate is paraphrased into a form that loses an index, which is
  * the specific way this schema breaks silently.
  *
- * Three shapes are pinned.
+ * Four shapes are pinned.
  *
  *  1. The candidate scan uses `stage_claim` and nothing else leads. That index
  *     is `(stage, version, dead, next_attempt_at, asset_id)` and it does not
@@ -18,6 +18,9 @@
  *  3. Everything about an asset stays a semi-join, so `stage_state` remains the
  *     outer loop and the scan can stop at the limit instead of the planner
  *     leading with `assets` and filtering every stage row against it.
+ *  4. A stage narrowed to video or audio reaches `stage_claim_media` instead,
+ *     keeping 1–3 — because the alternative is the scan reading the photo
+ *     library's whole backlog to find nothing, which is what #3795 was.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -29,6 +32,7 @@ import {
   stagePendingCountSql,
   stageReadyCountSql,
 } from './stage-runtime.sql.ts';
+import { STAGE_STATE_MEDIA_NARROWING, STAGE_STATE_VIDEO_NARROWING } from '../ddl/stage-state.ts';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 import type { SqlValue } from '../migrate.ts';
 
@@ -113,6 +117,161 @@ describe('the candidate scan', () => {
 
     expect(detail.split('\n')[0]).toContain('USING INDEX stage_claim');
     expect(detail).not.toContain('TEMP B-TREE');
+  });
+});
+
+/**
+ * The narrowing a media-only stage leads its residual with (#3795).
+ *
+ * A residual is applied to a candidate the scan has already produced, so it
+ * cannot shorten the scan — and the scan is as long as the stage's backlog,
+ * which for `transcribe` and `video-describe` is the whole photo library. The
+ * narrowing term moves that decision into the index, and these tests are how
+ * the move is checked: every one of them fails if the term is paraphrased into
+ * something SQLite can no longer prove implies `stage_claim_media`'s own
+ * `WHERE`, which is the specific way this breaks in silence.
+ */
+describe('a media-narrowed claim', () => {
+  const AV_RESIDUAL = `${STAGE_STATE_MEDIA_NARROWING}
+    AND EXISTS (SELECT 1 FROM assets WHERE id = stage_state.asset_id AND media_kind IN (?, ?))`;
+  const VIDEO_RESIDUAL = `${STAGE_STATE_VIDEO_NARROWING}
+    AND EXISTS (SELECT 1 FROM assets WHERE id = stage_state.asset_id AND media_kind = ?)`;
+
+  test('the candidate scan reads the partial index, still with no sort', async () => {
+    using handle = await createTestDatabase();
+
+    const detail = plan(
+      handle.db,
+      stageClaimCandidatesSql(0, 0, AV_RESIDUAL),
+      'transcribe',
+      1,
+      NOW,
+      'video',
+      'audio',
+      20,
+    );
+
+    expect(detail.split('\n')[0]).toContain('USING INDEX stage_claim_media');
+    // The partial index carries the same columns in the same order as
+    // `stage_claim`, so `ORDER BY version` is still the index's own order.
+    expect(detail).not.toContain('TEMP B-TREE');
+    expect(detail).not.toContain('SCAN stage_state');
+  });
+
+  test('a stage narrower than the index gets there too', async () => {
+    using handle = await createTestDatabase();
+
+    const detail = plan(
+      handle.db,
+      stageClaimCandidatesSql(1, 0, VIDEO_RESIDUAL),
+      'video-describe',
+      1,
+      NOW,
+      'preview',
+      1,
+      'video',
+      20,
+    );
+
+    // `video-describe` takes video and not audio. The `IN` is what selects the
+    // index — SQLite will not infer it from the equality beside it — and
+    // without it this plan silently falls back to `stage_claim` and the
+    // full-library walk #3795 was.
+    expect(detail.split('\n')[0]).toContain('USING INDEX stage_claim_media');
+    expect(detail).not.toContain('TEMP B-TREE');
+  });
+
+  test('the residual alone does NOT reach the partial index', async () => {
+    using handle = await createTestDatabase();
+
+    // The pre-#3795 spelling, kept here as the control: this is what selects
+    // `stage_claim` and walks the backlog, and it is why the narrowing term is
+    // a separate term rather than something the `EXISTS` could imply.
+    const detail = plan(
+      handle.db,
+      stageClaimCandidatesSql(
+        0,
+        0,
+        `EXISTS (SELECT 1 FROM assets WHERE id = stage_state.asset_id AND media_kind IN (?, ?))`,
+      ),
+      'transcribe',
+      1,
+      NOW,
+      'video',
+      'audio',
+      20,
+    );
+
+    expect(detail).not.toContain('stage_claim_media');
+  });
+
+  test('taking the candidate is still a primary-key seek', async () => {
+    using handle = await createTestDatabase();
+
+    const detail = plan(
+      handle.db,
+      stageClaimSql(0, AV_RESIDUAL),
+      NOW,
+      'a'.repeat(24),
+      'transcribe',
+      1,
+      NOW,
+      'video',
+      'audio',
+    );
+
+    expect(detail).toContain('SEARCH stage_state USING PRIMARY KEY');
+    expect(detail).not.toContain('SCAN');
+  });
+
+  test('the backlog counts are narrowed by the same index', async () => {
+    using handle = await createTestDatabase();
+
+    // These run on the worker's persisted-counts pass, and a COUNT has no
+    // limit to stop it: before the narrowing they read every row of the photo
+    // library's backlog, twice per stage per pass.
+    const pending = plan(
+      handle.db,
+      stagePendingCountSql(AV_RESIDUAL),
+      'transcribe',
+      1,
+      'video',
+      'audio',
+    );
+    const ready = plan(
+      handle.db,
+      stageReadyCountSql(0, AV_RESIDUAL),
+      'transcribe',
+      1,
+      NOW,
+      'video',
+      'audio',
+    );
+
+    expect(pending.split('\n')[0]).toContain('stage_claim_media');
+    expect(ready.split('\n')[0]).toContain('stage_claim_media');
+  });
+
+  test('a stage with no residual keeps the index it had', async () => {
+    using handle = await createTestDatabase();
+
+    // The other half of the change: the new index must not attract a claim it
+    // does not narrow. `describe` has no asset-shaped residual, and a plan that
+    // moved it onto a partial index over 4.7% of the rows would be wrong, not
+    // faster.
+    const detail = plan(
+      handle.db,
+      stageClaimCandidatesSql(1, 0),
+      'describe',
+      4,
+      NOW,
+      'preview',
+      1,
+      20,
+    );
+
+    expect(detail.split('\n')[0]).toContain('USING INDEX stage_claim ');
+    expect(detail).not.toContain('stage_claim_media');
   });
 });
 

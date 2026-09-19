@@ -41,6 +41,11 @@
  * stage_state (asset_id, stage) SELECT id, 'new-stage' FROM assets` — instead
  * of two index definitions and a rebuild on the next boot. That is what the
  * ticket means by "a data insert".
+ *
+ * The cost of dense rows is that a stage which applies to a subset of assets
+ * has a backlog the size of the library, and the scan above is as long as the
+ * backlog. {@link STAGE_STATE_MEDIA_KIND_DDL} is how the two stages in that
+ * position get the subset into the index instead of into a filter (#3795).
  */
 
 export const STAGE_STATE_TABLE_DDL = `
