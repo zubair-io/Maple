@@ -2,103 +2,62 @@
  * #2358 — the Meilisearch-backed `placeQuery` path in `list.ts` didn't
  * thread the caller's `hidden` mode into `meili.search`, so Meili always
  * excluded hidden docs from its candidate id set (its own default). The
- * Mongo re-fetch's `hidden: true` predicate for `hidden=only` then
- * intersected against an already hidden-free id set and always came back
- * empty; `hidden=all` had the same problem in the other direction — a
- * hidden asset could never surface even though the Mongo filter placed no
- * constraint on it.
+ * re-fetch's `hidden` predicate for `hidden=only` then intersected against
+ * an already hidden-free id set and always came back empty; `hidden=all`
+ * had the same problem in the other direction — a hidden asset could never
+ * surface even though the database filter placed no constraint on it.
  *
  * Uses the `setMeilisearchClientForTests` seam (same pattern as
- * `workers/stages/meili.test.ts`) with a fake client that reproduces
- * `buildFilter`'s hidden handling (default exclusion, `includeHidden`,
+ * `workers/stages/meili.test.ts`) with a fake client that reproduces the
+ * filter builder's hidden handling (default exclusion, `includeHidden`,
  * and the `onlyHidden` pushdown). That makes this test actually exercise
- * the Mongo-side intersection, not just assert on the options object
+ * the database-side intersection, not just assert on the options object
  * passed to `search`.
  *
- * Real Mongo required (localhost:27017 by default, override via
- * `MAPLE_MONGO_URI`) — soft-skips when unreachable, matching
- * `assets-list.test.ts`.
+ * Real SQLite, installed as the process-wide handle so the route's own
+ * `searchByMapleIds` and `libraryMaps` calls reach it.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId, type Db } from 'mongodb';
 import { listRoute } from './list.ts';
-import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
 import {
   setMeilisearchClientForTests,
   type MeilisearchClient,
   type MeilisearchSearchOptions,
 } from '../../enrichment/meilisearch-client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-// Own database + explicit close (the repo-wide suite convention): without
-// these this file connected the shared singleton to whatever MAPLE_MONGO_DB
-// happened to be set — the default `maple` dev DB when it ran first — and
-// leaked that connection into later suites (#2783).
-withTestDb(`maple_test_search_list_${process.pid}`);
-
-let db: Db | null = null;
-let mongoReachable = false;
+import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
 const VISIBLE_ID = 'maple-visible-1';
 const HIDDEN_ID = 'maple-hidden-1';
-
-beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
-});
 
 afterEach(() => {
   setMeilisearchClientForTests(null);
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
-});
-
-async function seed(d: Db): Promise<void> {
-  const folder = new ObjectId();
-  const now = new Date('2026-05-10T00:00:00Z');
-  await d.collection('assets').insertMany([
-    {
-      maple_id: VISIBLE_ID,
-      fileinfo: [{ path: '', filename: 'visible.dng', library_id: folder, deleted_at: null }],
-      size: 1,
-      mtime: 1,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: 'now',
-      deleted_at: null,
-      hidden: false,
-      exif: { captured_at: now.toISOString() },
-    },
-    {
-      maple_id: HIDDEN_ID,
-      fileinfo: [{ path: '', filename: 'hidden.dng', library_id: folder, deleted_at: null }],
-      size: 1,
-      mtime: 1,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: 'now',
-      deleted_at: null,
-      hidden: true,
-      exif: { captured_at: now.toISOString() },
-    },
-  ] as never);
+/** One visible asset and one hidden one, both matching whatever Meili says. */
+function seed(live: LiveTestDatabase): void {
+  const libraryId = insertFolder(live.db, { slug: 'search-list', path: '/lib' });
+  const capturedAt = '2026-05-10T00:00:00.000Z';
+  seedSearchAsset(live.db, libraryId, {
+    filename: 'visible.dng',
+    mapleId: VISIBLE_ID,
+    capturedAt,
+  });
+  seedSearchAsset(live.db, libraryId, {
+    filename: 'hidden.dng',
+    mapleId: HIDDEN_ID,
+    hidden: true,
+    capturedAt,
+  });
 }
 
-/** Reproduces `buildFilter`'s hidden handling against the live index:
+/** Reproduces the filter builder's hidden handling against the live index:
  * `onlyHidden` narrows the candidate set to the hidden doc alone
  * (`hidden = true`), `includeHidden` returns both, and the default
  * excludes the hidden candidate entirely. */
@@ -129,49 +88,46 @@ function fakeMeiliClient(): {
   return { client, calls };
 }
 
+/** Filenames the route answered with, in response order. */
+async function filenames(url: string): Promise<string[]> {
+  const app = new Elysia().use(listRoute);
+  const res = await app.handle(new Request(url));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  return (body.results as Array<{ filename: string }>).map((r) => r.filename);
+}
+
 describe('GET /api/search — placeQuery hidden mode (#2358)', () => {
   it('hidden=only returns the hidden match via the Meili path', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
+    using live = await createLiveTestDatabase();
+    seed(live);
     const { client, calls } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
-    const app = new Elysia().use(listRoute);
-    const res = await app.handle(new Request('http://localhost/?placeQuery=museum&hidden=only'));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.results.map((r: { filename: string }) => r.filename)).toEqual(['hidden.dng']);
+    expect(await filenames('http://localhost/?placeQuery=museum&hidden=only')).toEqual([
+      'hidden.dng',
+    ]);
     expect(calls[0]?.onlyHidden).toBe(true);
   });
 
   it('hidden=all includes both the visible and hidden match', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
+    using live = await createLiveTestDatabase();
+    seed(live);
     const { client, calls } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
-    const app = new Elysia().use(listRoute);
-    const res = await app.handle(new Request('http://localhost/?placeQuery=museum&hidden=all'));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.results.map((r: { filename: string }) => r.filename).sort()).toEqual([
-      'hidden.dng',
-      'visible.dng',
-    ]);
+    const names = await filenames('http://localhost/?placeQuery=museum&hidden=all');
+    expect(names.sort()).toEqual(['hidden.dng', 'visible.dng']);
     expect(calls[0]?.includeHidden).toBe(true);
   });
 
   it('default hidden mode still excludes the hidden match', async () => {
-    if (!mongoReachable || !db) return;
-    await seed(db);
+    using live = await createLiveTestDatabase();
+    seed(live);
     const { client, calls } = fakeMeiliClient();
     setMeilisearchClientForTests(client);
 
-    const app = new Elysia().use(listRoute);
-    const res = await app.handle(new Request('http://localhost/?placeQuery=museum'));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.results.map((r: { filename: string }) => r.filename)).toEqual(['visible.dng']);
+    expect(await filenames('http://localhost/?placeQuery=museum')).toEqual(['visible.dng']);
     expect(calls[0]?.includeHidden).toBe(false);
     expect(calls[0]?.onlyHidden).toBe(false);
   });

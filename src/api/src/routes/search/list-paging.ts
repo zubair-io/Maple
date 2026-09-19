@@ -7,19 +7,24 @@
  * — so the handler itself stays a straight line.
  */
 
-import type { Filter } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-import { cursorDirectionFor, decodeCursor, seekFilter, type CursorDirection } from './cursor.ts';
+import {
+  cursorDirectionFor,
+  decodeCursor,
+  type CursorDirection,
+  type SeekCursor,
+} from './cursor.ts';
 
 export interface Paging {
   /** `null` when this request can't be seeked — an unseekable sort or the
    * relevance-ordered place path. The route reports that on the wire as
    * `cursorPaging: false`. */
   direction: CursorDirection | null;
-  /** Documents to SKIP. Always 0 once a cursor is in play. */
+  /** Rows to SKIP. Always 0 once a cursor is in play. */
   skip: number;
-  /** Range predicate to `$and` onto the caller's filter, or `null` in skip mode. */
-  seek: Filter<AssetDoc> | null;
+  /** The validated position to resume from, or `null` in skip mode. The
+   * repository turns it into the range predicate; the shape of that
+   * predicate is the statement's business, not the route's. */
+  cursor: SeekCursor | null;
 }
 
 /**
@@ -41,12 +46,12 @@ export function resolvePaging(
 ): Paging | { error: string } {
   const direction = usingPlaceText ? null : cursorDirectionFor(sort);
   const trimmed = typeof rawCursor === 'string' ? rawCursor.trim() : '';
-  if (trimmed.length === 0) return { direction, skip: page * limit, seek: null };
+  if (trimmed.length === 0) return { direction, skip: page * limit, cursor: null };
 
   if (direction === null) {
     return { error: 'cursor pagination is not available for this sort; use page/limit' };
   }
   const cursor = decodeCursor(trimmed);
   if (cursor === null || cursor.d !== direction) return { error: 'invalid cursor' };
-  return { direction, skip: 0, seek: seekFilter(cursor) };
+  return { direction, skip: 0, cursor };
 }

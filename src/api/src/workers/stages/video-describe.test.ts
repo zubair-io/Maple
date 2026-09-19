@@ -3,10 +3,34 @@ import { ObjectId } from 'mongodb';
 import { RemoteError } from '../../enrichment/describe-providers/index.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import type { SampledFrame } from '../../video/sample-frames.ts';
+import type { StageResult } from '../run-stage.ts';
 import videoDescribeStage, {
   setVideoDescribeDepsForTests,
   videoDescribeHandler,
 } from './video-describe.ts';
+
+/**
+ * The description and its provenance, read back out of the upsert's bound JSON.
+ *
+ * The patch is one `asset_detail` statement now rather than a map of document
+ * fields, so the assertions decode parameters instead of reading properties.
+ */
+function videoUpsertParams(result: StageResult): string[] {
+  if (!('patch' in result)) throw new Error(`expected a patch, got ${JSON.stringify(result)}`);
+  const statement = result.patch[0];
+  if (statement === undefined || !statement.sql.includes('video_description')) {
+    throw new Error('expected a video-description upsert in the patch');
+  }
+  return statement.params as string[];
+}
+
+function patchedVideoDescription(result: StageResult): unknown {
+  return JSON.parse(videoUpsertParams(result)[0]!) as unknown;
+}
+
+function patchedVideoMeta(result: StageResult): Record<string, unknown> {
+  return JSON.parse(videoUpsertParams(result)[1]!) as Record<string, unknown>;
+}
 
 const libraryId = new ObjectId();
 const asset = (filename: string) => ({
@@ -80,7 +104,9 @@ function inject(opts: InjectOptions = {}): { calls: Array<readonly Buffer[]> } {
 
 describe('video-describe stage config', () => {
   it('claims only video assets, never audio-only or photo files (#3492)', () => {
-    expect(videoDescribeStage.claimFilter).toEqual({ media_kind: 'video' });
+    expect(videoDescribeStage.claimResidual?.params).toEqual(['video']);
+    expect(videoDescribeStage.claimResidual?.sql).toContain('id = stage_state.asset_id');
+    expect(videoDescribeStage.claimResidual?.sql).toContain('media_kind = ?');
   });
 
   it('depends on preview, starts paused-on-first-boot at concurrency 1', () => {
@@ -99,7 +125,7 @@ describe('video-describe stage config', () => {
 });
 
 describe('video-describe handler', () => {
-  it('skips a non-video asset defensively (claimFilter already narrows this)', async () => {
+  it('skips a non-video asset defensively (claimResidual already narrows this)', async () => {
     inject();
     const result = await videoDescribeHandler(asset('photo.jpg') as never, {} as never);
     expect(result).toEqual({ skip: 'not-video' });
@@ -127,14 +153,13 @@ describe('video-describe handler', () => {
     // in the same order.
     expect(calls[0]!.map((b) => b[0])).toEqual([1, 2, 3]);
 
-    const patch = (result as { patch: Record<string, unknown> }).patch;
-    const description = patch.video_description as {
+    const description = patchedVideoDescription(result) as {
       summary: string;
       scenes: Array<{ timestamp_ms: number }>;
     };
     expect(description.scenes.map((s) => s.timestamp_ms)).toEqual([0, 2000, 4000]);
 
-    const meta = patch.video_description_meta as Record<string, unknown>;
+    const meta = patchedVideoMeta(result);
     expect(meta.frame_count).toBe(3);
     expect(meta.fallback_level).toBe('full');
     expect(meta.server_url).toBe('http://gpu-box:11434');
@@ -166,8 +191,7 @@ describe('video-describe handler', () => {
     // Every-other-frame from 3 frames = frames at index 0 and 2.
     expect(calls[1]!.map((b) => b[0])).toEqual([1, 3]);
 
-    const meta = (result as { patch: { video_description_meta: Record<string, unknown> } }).patch
-      .video_description_meta;
+    const meta = patchedVideoMeta(result);
     expect(meta.fallback_level).toBe('reduced');
     expect(meta.frame_count).toBe(2);
   });
@@ -188,8 +212,7 @@ describe('video-describe handler', () => {
     // full (3 frames) rejected, reduced (2 frames) rejected, poster-only (1) succeeds.
     expect(calls).toHaveLength(3);
     expect(calls[2]).toHaveLength(1);
-    const meta = (result as { patch: { video_description_meta: Record<string, unknown> } }).patch
-      .video_description_meta;
+    const meta = patchedVideoMeta(result);
     expect(meta.fallback_level).toBe('poster-only');
     expect(meta.frame_count).toBe(1);
   });

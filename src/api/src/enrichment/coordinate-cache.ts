@@ -1,5 +1,5 @@
 /**
- * Quantised lat/lon → Place cache backed by the `geocode_cache` collection.
+ * Quantised lat/lon → Place cache backed by the `geocode_cache` table.
  *
  * Why: clustered photos at one location (a museum, a restaurant, a single
  * trail head) all reverse-geocode to the same address. Quantising to 4
@@ -14,9 +14,8 @@
  * Spec: `docs/indexer-enrichment.md` §4.3.
  */
 
-import type { Collection } from "mongodb";
-import { geocodeCacheCollection } from "../db/client.ts";
-import type { GeocodeCacheDoc, Place } from "../db/schema.ts";
+import { getCachedPlace, setCachedPlace } from '../db/sqlite/repos/geocode-cache.repo.ts';
+import type { Place } from '../db/schema.ts';
 
 /** Decimal places to round lat/lon to before keying the cache.
  *  4 ≈ 11 m precision — same building usually shares a key. */
@@ -70,31 +69,17 @@ export class CoordinateCache {
    * current handler version. Mismatches are treated as misses so a parser
    * upgrade re-fetches automatically. */
   async get(lat: number, lon: number): Promise<Place | null> {
-    const c = await this.coll();
-    const doc = await c.findOne({ _id: this.keyFor(lat, lon) });
-    if (!doc) return null;
-    if (doc.geocoder_version !== this.geocoderVersion) return null;
-    return doc.place;
+    return getCachedPlace(this.keyFor(lat, lon), this.geocoderVersion);
   }
 
   /** Upsert. Idempotent — a worker that re-runs `process()` after a partial
    * crash overwrites the entry cleanly. */
   async set(lat: number, lon: number, place: Place): Promise<void> {
-    const c = await this.coll();
-    await c.updateOne(
-      { _id: this.keyFor(lat, lon) },
-      {
-        $set: {
-          place,
-          fetched_at: this.now(),
-          geocoder_version: this.geocoderVersion,
-        },
-      },
-      { upsert: true },
+    await setCachedPlace(
+      this.keyFor(lat, lon),
+      place,
+      this.geocoderVersion,
+      this.now().toISOString(),
     );
-  }
-
-  private coll(): Promise<Collection<GeocodeCacheDoc>> {
-    return geocodeCacheCollection();
   }
 }

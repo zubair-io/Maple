@@ -1,8 +1,9 @@
 /**
  * Regression tests for `sweepOrphanedCaches`' recognition of the pano
  * stitcher's pre-seed derivative scheme. Split out of `cache-gc.test.ts` to
- * stay under the file-size budget; has its own throwaway Mongo DB so it can
- * run standalone or alongside the main suite without name collisions.
+ * stay under the file-size budget; like that suite it runs against a per-test
+ * SQLite database installed as the process-wide handle, so the two files can
+ * run standalone or together without sharing any state.
  *
  * The pano stitcher pre-seeds a thumb + preview keyed by
  * `sha256_prefix16(basename)` immediately after stitching, before the pano
@@ -12,73 +13,24 @@
  * as the always-orphaned pre-migration legacy thumb key: it's legitimate iff
  * a live filename in this exact directory hashes to it.
  */
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, afterEach } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, rm, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import type { Database } from 'bun:sqlite';
 import { sha256Prefix16 } from '../fs/xmp.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { sweepOrphanedCaches } from './cache-gc.ts';
 
-const TEST_DB = withTestDb(`maple_test_cache_gc_preseed_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[cache-gc.pano-preseed.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await mongo.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
+// The library-roots cache is process-wide and must not outlive its database.
+afterEach(() => {
+  invalidateLibraryRoots();
 });
 
 async function mkTree(): Promise<string> {
@@ -88,35 +40,15 @@ async function mkTree(): Promise<string> {
 
 /** Register `root` as a library and bust the app's own in-memory
  * `loadLibraryRoots()` cache so it picks up the fresh insert. */
-async function registerLibrary(root: string): Promise<ObjectId> {
-  const libraryId = new ObjectId();
-  await db!.collection('folders').insertOne({
-    _id: libraryId,
-    path: root,
-    label: 'cache-gc-preseed-test',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  } as never);
-  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+function registerLibrary(db: Database, root: string): string {
+  const libraryId = insertFolder(db, { path: root });
   invalidateLibraryRoots();
   return libraryId;
 }
 
-/** Insert a live (non-tombstoned) asset row for one `fileinfo` location. */
-async function insertLiveAsset(libraryId: ObjectId, relPath: string, filename: string) {
-  await db!.collection('assets').insertOne({
-    _id: new ObjectId(),
-    fileinfo: [
-      {
-        library_id: libraryId,
-        path: relPath,
-        filename,
-        deleted_at: null,
-        missing_since: null,
-      },
-    ],
-  } as never);
+/** Insert a live (non-tombstoned) asset at one location. */
+function insertLiveAsset(db: Database, libraryId: string, relPath: string, filename: string): void {
+  insertLocation(db, { assetId: insertAsset(db), libraryId, path: relPath, filename });
 }
 
 async function writeJpg(p: string): Promise<void> {
@@ -142,12 +74,11 @@ async function agePast(p: string): Promise<void> {
 
 describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
   test('keeps a pano pre-seed thumb (sha256_prefix16-keyed) matching a live filename', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
-      await insertLiveAsset(libraryId, '', 'panorama-test.png');
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'panorama-test.png');
       const preSeedKey = sha256Prefix16('panorama-test.png');
       const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
       await writeAvif(preSeedThumb);
@@ -164,15 +95,15 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
   });
 
   test('does not delete a pano pre-seed thumb when the library cannot be resolved (safe degradation)', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      // Deliberately NOT registered — `resolveLibraryId` returns null, so
-      // no known-live set can be built. Mirrors the previews-side
+      // A library exists, but not this root — `resolveLibraryId` returns null,
+      // so no known-live set can be built. Mirrors the previews-side
       // "safe degradation" test — a transient/failed library lookup must
       // never mass-delete a pano's pre-seed thumb either (jules review,
       // PR #2008 round 2).
+      registerLibrary(live.db, path.join(root, 'elsewhere'));
       const preSeedKey = sha256Prefix16('panorama-test.png');
       const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
       await writeAvif(preSeedThumb);
@@ -189,11 +120,10 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
   });
 
   test('unlinks a pano pre-seed thumb (sha256_prefix16-keyed) matching NO live filename', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      await registerLibrary(root);
+      registerLibrary(live.db, root);
       const preSeedKey = sha256Prefix16('never-indexed.png');
       const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
       await writeAvif(preSeedThumb);
@@ -210,12 +140,11 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
 
   // Same pattern for the preview tier — `<sha256_prefix16(basename)>_1600.jpg`.
   test('keeps a pano pre-seed preview (sha256_prefix16-keyed) matching a live filename', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
-      await insertLiveAsset(libraryId, '', 'panorama-test.png');
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'panorama-test.png');
       const preSeedKey = sha256Prefix16('panorama-test.png');
       const preSeedPreview = path.join(root, '.maple', 'previews', `${preSeedKey}_1600.jpg`);
       await writeJpg(preSeedPreview);
@@ -232,11 +161,10 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
   });
 
   test('unlinks a pano pre-seed preview (sha256_prefix16-keyed) matching NO live filename', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      await registerLibrary(root);
+      registerLibrary(live.db, root);
       const preSeedKey = sha256Prefix16('never-indexed.png');
       const preSeedPreview = path.join(root, '.maple', 'previews', `${preSeedKey}_1600.jpg`);
       await writeJpg(preSeedPreview);

@@ -5,37 +5,19 @@
  * passthrough rule (unknown `fields` keys AND unknown top-level keys from
  * newer schema versions round-trip byte-identically).
  *
- * Requires a running MongoDB (skips gracefully if unreachable) — same
- * pattern as folders.mkdir.test.ts.
+ * The handlers reach `sqliteDb()` with no override, so each test installs its
+ * own database as the process-wide handle for the duration of the block —
+ * `createLiveTestDatabase`, not `createTestDatabase`. Nothing external is
+ * required and nothing is skipped.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, type Db } from 'mongodb';
-import { closeDb } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { presetsRoutes } from './presets.ts';
-
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_presets_test_${process.pid}`;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
 
 interface WirePreset {
   id: string;
@@ -48,33 +30,22 @@ interface WirePreset {
 }
 
 describe('/api/presets', () => {
-  let mongo: MongoClient | null = null;
-  let db: Db | null = null;
+  let live: LiveTestDatabase;
 
   beforeEach(async () => {
-    mongo = await tryConnect();
-    if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    await closeDb();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
-    // The case-insensitive unique name index the route's 409 path relies on
-    // (production builds it in ensureIndexes).
-    await db
-      .collection('presets')
-      .createIndex(
-        { name: 1 },
-        { unique: true, collation: { locale: 'en', strength: 2 }, name: 'presets_name_unique' },
-      );
+    live = await createLiveTestDatabase();
   });
 
-  afterEach(async () => {
-    if (db) await db.dropDatabase().catch(() => {});
-    if (mongo) await mongo.close().catch(() => {});
-    await closeDb();
-    db = null;
-    mongo = null;
+  // Closing in `afterEach` rather than at the head of the next `beforeEach`:
+  // the last test's database has no successor to close it, so the paired form
+  // left this suite's handle installed process-wide for the rest of the run.
+  // Bun runs every test file in one process, so a suite later in the run that
+  // asserts no database is open (`preview-ondemand-limiter.test.ts`, which
+  // pins the gate keeping a pre-startup request off an absent pool) saw this
+  // one's and failed — in the full run only, which is what made it look like
+  // the limiter's problem rather than this suite's.
+  afterEach(() => {
+    live?.close();
   });
 
   // No explicit `: Elysia` return type — the routed sub-app's generic
@@ -103,10 +74,6 @@ describe('/api/presets', () => {
   }
 
   it('creates a preset and lists it back', async () => {
-    if (!mongo) {
-      console.log('[presets.test] MongoDB unreachable — skipping');
-      return;
-    }
     const res = await create({
       schemaVersion: 1,
       name: 'My Sunset',
@@ -121,12 +88,11 @@ describe('/api/presets', () => {
 
     const listed = (await (await list()).json()) as { presets: WirePreset[] };
     expect(listed.presets).toHaveLength(1);
-    expect(listed.presets[0].id).toBe(created.id);
-    expect(listed.presets[0].fields).toEqual(created.fields);
+    expect(listed.presets[0]!.id).toBe(created.id);
+    expect(listed.presets[0]!.fields).toEqual(created.fields);
   });
 
   it('sorts the list by name (case-insensitive)', async () => {
-    if (!mongo) return;
     await create({ schemaVersion: 1, name: 'zebra', fields: {} });
     await create({ schemaVersion: 1, name: 'Alpha', fields: {} });
     await create({ schemaVersion: 1, name: 'mango', fields: {} });
@@ -135,7 +101,6 @@ describe('/api/presets', () => {
   });
 
   it('preserves unknown fields AND unknown top-level keys (passthrough)', async () => {
-    if (!mongo) return;
     const res = await create({
       schemaVersion: 3,
       name: 'From The Future',
@@ -145,7 +110,7 @@ describe('/api/presets', () => {
     expect(res.status).toBe(201);
     const listed = (await (await list()).json()) as { presets: WirePreset[] };
     expect(listed.presets).toHaveLength(1);
-    const row = listed.presets[0];
+    const row = listed.presets[0]!;
     expect(row.schemaVersion).toBe(3);
     expect(row.fields).toEqual({
       contrast: 10,
@@ -156,7 +121,6 @@ describe('/api/presets', () => {
   });
 
   it('rejects duplicate names with 409 (case-insensitive)', async () => {
-    if (!mongo) return;
     const first = await create({ schemaVersion: 1, name: 'Flat Light', fields: {} });
     expect(first.status).toBe(201);
     const dupe = await create({ schemaVersion: 1, name: 'flat light', fields: {} });
@@ -166,7 +130,6 @@ describe('/api/presets', () => {
   });
 
   it('rejects invalid documents with 400', async () => {
-    if (!mongo) return;
     // Out-of-range known field.
     expect((await create({ schemaVersion: 1, name: 'x', fields: { contrast: 500 } })).status).toBe(
       400,
@@ -188,8 +151,7 @@ describe('/api/presets', () => {
     expect(listed.presets).toHaveLength(0);
   });
 
-  it('rejects Mongo-unsafe keys with 400 instead of a 500 at insert', async () => {
-    if (!mongo) return;
+  it('rejects document-unsafe keys with 400 instead of a 500 at insert', async () => {
     // Dotted / $-prefixed `fields` keys.
     expect((await create({ schemaVersion: 1, name: 'x', fields: { 'bad.dot': 1 } })).status).toBe(
       400,
@@ -202,8 +164,7 @@ describe('/api/presets', () => {
     expect((await create({ schemaVersion: 1, name: 'x', fields: {}, $bad: true })).status).toBe(
       400,
     );
-    // Unsafe key NESTED inside a preserved value (extra is a subdocument,
-    // so nested keys are document keys too).
+    // Unsafe key NESTED inside a preserved value.
     expect(
       (await create({ schemaVersion: 1, name: 'x', fields: {}, future: { deep: [{ $no: 1 }] } }))
         .status,
@@ -214,7 +175,6 @@ describe('/api/presets', () => {
   });
 
   it('deletes a preset (and 404s on a second delete)', async () => {
-    if (!mongo) return;
     const created = (await (
       await create({ schemaVersion: 1, name: 'Doomed', fields: { exposure: 1 } })
     ).json()) as WirePreset;
@@ -228,7 +188,6 @@ describe('/api/presets', () => {
   });
 
   it('rejects malformed preset ids with 400', async () => {
-    if (!mongo) return;
     expect((await del('not-an-id')).status).toBe(400);
   });
 });

@@ -5,18 +5,26 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
+import { withTestEnv } from '../test-support/env.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
-// Isolate from the real maple DB, and from every later suite's idea of where
-// the library roots are — `/` must not outlive this file.
-withTestDb(`maple_test_browse_video_${process.pid}`);
+// Isolate from every later suite's idea of where the library roots are — `/`
+// must not outlive this file.
 withTestEnv('MAPLE_ROOTS', '/');
 
+// An empty library, installed as the process-wide handle: browse's EXIF
+// enrichment reaches it with no override, and an empty index is exactly the
+// state these cases describe — nothing here has been indexed.
+let live: LiveTestDatabase;
+
 beforeAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
+  live = await createLiveTestDatabase();
 });
-afterAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
+afterAll(() => {
+  live.close();
 });
 
 describe('listDirFast — video files', () => {

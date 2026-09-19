@@ -1,36 +1,36 @@
 /**
  * Stage-handler registry.
  *
- * Loads enabled rows from the `stage_handlers` Mongo collection and caches
- * them in-process. Callers go through `resolve(stage)` to learn how a stage
+ * Loads enabled rows from the `stage_handlers` table and caches them
+ * in-process. Callers go through `resolve(stage)` to learn how a stage
  * is implemented; the pipeline adapter dispatches accordingly.
  *
  * The set of handlers is small (one row per overridden stage), so we cache
- * everything on first read and bust on demand via `refresh()`. Mongo
- * unavailability is treated as "no overrides" — the pipeline falls back to
- * its in-process default. This keeps the indexer working even if the
- * handlers collection is missing or unreachable.
+ * everything on first read and bust on demand via `refresh()`. A database
+ * that cannot be reached is treated as "no overrides" — the pipeline falls
+ * back to its in-process default. This keeps the indexer working even if the
+ * table is empty or the handle is unavailable.
  */
 
-import { stageHandlersCollection } from "../db/client.ts";
-import type { StageHandlerDoc } from "../db/schema.ts";
+import { listEnabledStageHandlers } from '../db/sqlite/repos/stage-handlers.repo.ts';
+import type { StageHandlerDoc } from '../db/schema.ts';
 
 /**
  * Pipeline stage identifiers used by the handler registry.
  * Previously imported from indexer/channel.ts (now deleted).
  */
-export type Stage = "discover" | "hash" | "exif" | "thumb" | "ai" | "mongo";
+export type Stage = 'discover' | 'hash' | 'exif' | 'thumb' | 'ai' | 'mongo';
 
 export interface ResolvedHandler {
   stage: Stage;
-  impl: "builtin" | "http";
+  impl: 'builtin' | 'http';
   url: string | null;
   timeoutMs: number | null;
 }
 
 const BUILTIN: ResolvedHandler = {
-  stage: "ai",
-  impl: "builtin",
+  stage: 'ai',
+  impl: 'builtin',
   url: null,
   timeoutMs: null,
 };
@@ -47,12 +47,12 @@ const state: RegistryState = {
 
 function asStage(value: unknown): Stage | null {
   switch (value) {
-    case "discover":
-    case "hash":
-    case "exif":
-    case "thumb":
-    case "ai":
-    case "mongo":
+    case 'discover':
+    case 'hash':
+    case 'exif':
+    case 'thumb':
+    case 'ai':
+    case 'mongo':
       return value;
     default:
       return null;
@@ -62,40 +62,38 @@ function asStage(value: unknown): Stage | null {
 function project(doc: StageHandlerDoc): ResolvedHandler | null {
   const stage = asStage(doc.stage);
   if (!stage) return null;
-  if (doc.impl === "http") {
-    if (!doc.url || typeof doc.url !== "string") return null;
+  if (doc.impl === 'http') {
+    if (!doc.url || typeof doc.url !== 'string') return null;
     return {
       stage,
-      impl: "http",
+      impl: 'http',
       url: doc.url,
-      timeoutMs: typeof doc.timeout_ms === "number" ? doc.timeout_ms : null,
+      timeoutMs: typeof doc.timeout_ms === 'number' ? doc.timeout_ms : null,
     };
   }
-  return { stage, impl: "builtin", url: null, timeoutMs: null };
+  return { stage, impl: 'builtin', url: null, timeoutMs: null };
 }
 
 async function load(): Promise<void> {
   if (state.loaded) return;
   state.byStage.clear();
   try {
-    const coll = await stageHandlersCollection();
-    const rows = await coll.find({ enabled: true }).toArray();
-    for (const row of rows) {
+    for (const row of await listEnabledStageHandlers()) {
       const resolved = project(row);
       if (resolved) state.byStage.set(resolved.stage, resolved);
     }
   } catch {
-    // Mongo unavailable / collection missing: leave map empty and proceed
-    // with builtins. The pipeline must keep running.
+    // Database unavailable: leave the map empty and proceed with builtins.
+    // The pipeline must keep running.
   }
   state.loaded = true;
 }
 
 /**
  * Look up the active handler for a stage. Returns the builtin descriptor when
- * no enabled row matches. The first call hydrates the cache from Mongo; later
- * calls are in-process lookups until `refresh()` (or test reset) clears the
- * cache.
+ * no enabled row matches. The first call hydrates the cache from the database;
+ * later calls are in-process lookups until `refresh()` (or test reset) clears
+ * the cache.
  */
 export async function resolve(stage: Stage): Promise<ResolvedHandler> {
   await load();
@@ -104,7 +102,7 @@ export async function resolve(stage: Stage): Promise<ResolvedHandler> {
   return { ...BUILTIN, stage };
 }
 
-/** Mark the cache stale so the next `resolve()` re-reads Mongo. */
+/** Mark the cache stale so the next `resolve()` re-reads the table. */
 export function refresh(): void {
   state.loaded = false;
   state.byStage.clear();

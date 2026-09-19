@@ -10,10 +10,9 @@
  * env stays a fallback so existing deployments behave before any row is written.
  */
 
-import { getDb } from '../db/client.ts';
+import { patchAppSettings, readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'missing-reaper';
 const log = childLogger('missing-reaper:config');
 
@@ -39,10 +38,7 @@ function envHours(): number | null {
 /** Resolve the effective prune window in hours. */
 export async function loadPruneWindowHours(): Promise<number> {
   try {
-    const db = await getDb();
-    const doc = await db
-      .collection<{ _id: string; prune_window_hours?: number }>(COLL)
-      .findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<{ prune_window_hours?: number }>(DOC_ID);
     if (doc && typeof doc.prune_window_hours === 'number') {
       return clampHours(doc.prune_window_hours);
     }
@@ -59,9 +55,6 @@ export async function loadPruneWindowHours(): Promise<number> {
  * Returns the clamped value that was stored. */
 export async function savePruneWindowHours(hours: number): Promise<number> {
   const clamped = clampHours(hours);
-  const db = await getDb();
-  await db
-    .collection<{ _id: string; prune_window_hours?: number }>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: { prune_window_hours: clamped } }, { upsert: true });
+  await patchAppSettings(DOC_ID, { prune_window_hours: clamped });
   return clamped;
 }

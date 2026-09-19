@@ -15,7 +15,7 @@
  * `*Input` / `*Output` shapes here.
  */
 
-import type { AssetExif, Bbox } from "../db/schema.ts";
+import type { AssetExif, Bbox } from '../db/schema.ts';
 
 /**
  * Face detection output from the ai stage.
@@ -24,7 +24,7 @@ import type { AssetExif, Bbox } from "../db/schema.ts";
 export interface AiFace {
   /** Bounding box in normalised [0..1] image coordinates. */
   bbox: Bbox;
-  /** Optional linked person id (MongoDB ObjectId hex) — null until reviewer confirms. */
+  /** Optional linked person id (24-char ObjectId hex) — null until reviewer confirms. */
   personId: string | null;
   /** Detector confidence in [0..1]. */
   confidence: number;
@@ -37,7 +37,7 @@ export const CONTRACT_VERSION = 1 as const;
 /** Input passed to an `ai`-stage external handler. */
 export interface AiHandlerInput {
   contractVersion: typeof CONTRACT_VERSION;
-  stage: "ai";
+  stage: 'ai';
   mapleId: string;
   absPath: string;
   /** EXIF subdoc as parsed by the exif stage. May be null when the parse failed. */
@@ -61,20 +61,20 @@ export interface AiHandlerOutput {
  * coercion (e.g. converting bbox numbers) is the caller's responsibility.
  */
 export function parseAiOutput(value: unknown): AiHandlerOutput {
-  if (!value || typeof value !== "object") {
-    throw new Error("[handler-registry] response is not a JSON object");
+  if (!value || typeof value !== 'object') {
+    throw new Error('[handler-registry] response is not a JSON object');
   }
   const obj = value as Record<string, unknown>;
   if (obj.contractVersion !== CONTRACT_VERSION) {
     throw new Error(
-      `[handler-registry] response missing/unsupported contractVersion (got ${String(obj.contractVersion)}, expected ${CONTRACT_VERSION})`
+      `[handler-registry] response missing/unsupported contractVersion (got ${String(obj.contractVersion)}, expected ${CONTRACT_VERSION})`,
     );
   }
   if (!Array.isArray(obj.faces)) {
-    throw new Error("[handler-registry] response.faces is not an array");
+    throw new Error('[handler-registry] response.faces is not an array');
   }
-  if (!Array.isArray(obj.aiTags) || !obj.aiTags.every((t) => typeof t === "string")) {
-    throw new Error("[handler-registry] response.aiTags is not a string array");
+  if (!Array.isArray(obj.aiTags) || !obj.aiTags.every((t) => typeof t === 'string')) {
+    throw new Error('[handler-registry] response.aiTags is not a string array');
   }
   return {
     contractVersion: CONTRACT_VERSION,

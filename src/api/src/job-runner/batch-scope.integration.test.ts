@@ -1,27 +1,35 @@
-/** Real roots, sidecars and Mongo: exercise the same scope path used when queueing. */
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test';
+/**
+ * Real roots and sidecars: exercise the same scope path used when queueing.
+ *
+ * `batchScopes` unions the registered library roots with `MAPLE_ROOTS`, so
+ * every case here opens a database of its own with no `folders` rows in it
+ * (#3787) — that is what makes the assertions about environment-only roots
+ * mean what they say. The library cache is process-wide, so it is dropped as
+ * each database is installed and again as it goes away.
+ */
+import { afterAll, afterEach, beforeEach, expect, test } from 'bun:test';
 // Symlink setup is deliberately confined to temporary authorization fixtures.
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, parse } from 'node:path';
-import type { MongoClient } from 'mongodb';
-import { closeDb, getDb } from '../db/client.ts';
-import { tryConnectTestMongo, withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { batchScopes } from './batch-scope.ts';
 
-withTestDb(`maple_test_batch_scope_${process.pid}`);
-let mongo: MongoClient | null = null;
 let fixture = '';
 let previousRoots: string | undefined;
 const patch = { attributes: { 'crs:Exposure2012': '1.25' }, elements: {} };
 
-beforeAll(async () => {
-  mongo = await tryConnectTestMongo();
-  await closeDb();
+/** This test's own database, with no library registered in it. */
+async function emptyLibraries(): Promise<LiveTestDatabase> {
+  const live = await createLiveTestDatabase();
   invalidateLibraryRoots();
-  if (mongo) await (await getDb()).collection('folders').deleteMany({});
-});
+  return live;
+}
+
 beforeEach(async () => {
   previousRoots = process.env.MAPLE_ROOTS;
   fixture = await mkdtemp(join(tmpdir(), 'maple-batch-scope-'));
@@ -30,15 +38,14 @@ afterEach(async () => {
   if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
   else process.env.MAPLE_ROOTS = previousRoots;
   await rm(fixture, { recursive: true, force: true });
-});
-afterAll(async () => {
   invalidateLibraryRoots();
-  await closeDb();
-  await mongo?.close();
+});
+afterAll(() => {
+  invalidateLibraryRoots();
 });
 
 test('environment-only roots use the native path-list delimiter throughout batch authorization', async () => {
-  if (!mongo) throw new Error('This regression requires MongoDB');
+  using _live = await emptyLibraries();
   const roots = [join(fixture, 'first'), join(fixture, 'second')];
   await Promise.all(roots.map((root) => mkdir(root)));
   process.env.MAPLE_ROOTS = roots.join(delimiter);
@@ -57,7 +64,7 @@ test('environment-only roots use the native path-list delimiter throughout batch
 });
 
 test('batch queueing rejects a sidecar symlink outside its allowed root', async () => {
-  if (!mongo) throw new Error('This regression requires MongoDB');
+  using _live = await emptyLibraries();
   const root = join(fixture, 'allowed');
   await mkdir(root);
   const outside = join(fixture, 'outside.xmp');
@@ -71,7 +78,7 @@ test('batch queueing rejects a sidecar symlink outside its allowed root', async 
 });
 
 test('a filesystem root authorizes descendants and owns their batch fence', async () => {
-  if (!mongo) throw new Error('This regression requires MongoDB');
+  using _live = await emptyLibraries();
   const root = parse(fixture).root;
   process.env.MAPLE_ROOTS = root;
   expect(

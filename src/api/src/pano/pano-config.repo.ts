@@ -1,6 +1,6 @@
 /**
- * Persisted pano runtime config. A single document in `app_settings`
- * keyed by `_id: "pano"`. Pattern mirrors enrichment-config.repo.ts.
+ * Persisted pano runtime config. A single row in `app_settings` keyed
+ * `id = 'pano'`. Pattern mirrors enrichment-config.repo.ts.
  *
  * Settings (all operator-configurable at runtime via PUT /api/pano/config):
  *   - maple_cli_path  : absolute path to the compiled maple-cli binary
@@ -13,10 +13,13 @@
  */
 
 import path from 'node:path';
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'pano';
 const log = childLogger('pano:config-repo');
 
@@ -56,8 +59,7 @@ export interface ResolvedPanoConfig {
 /** Read the persisted config. Returns null when no row exists (first boot). */
 export async function loadPanoConfig(): Promise<PanoConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<PanoConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<PanoConfigDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -66,13 +68,12 @@ export async function loadPanoConfig(): Promise<PanoConfig | null> {
 
 /** Partial upsert — only supplied fields are touched. */
 export async function savePanoConfig(patch: Partial<PanoConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = { 'config.updated_at': Date.now() };
+  const set: Record<string, SettingsValue | undefined> = { 'config.updated_at': Date.now() };
   if (patch.maple_cli_path !== undefined) set['config.maple_cli_path'] = patch.maple_cli_path;
   if (patch.models_dir !== undefined) set['config.models_dir'] = patch.models_dir;
   if (patch.ort_dylib_path !== undefined) set['config.ort_dylib_path'] = patch.ort_dylib_path;
   if (patch.enabled !== undefined) set['config.enabled'] = patch.enabled;
-  await db.collection(COLL).updateOne({ _id: DOC_ID } as never, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
   log.info({ patch }, 'pano config saved');
 }
 

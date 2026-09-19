@@ -2,16 +2,16 @@
  * Unified `asset.search_blob` synthesis. Concatenates the three text
  * sources that contribute to user-visible search hits (place metadata,
  * LLM caption, OCR'd text), normalises them into a deterministic bag
- * of tokens, and exports the Mongo aggregation-pipeline expression that
- * recomputes the field atomically inside each worker's `complete()`.
+ * of tokens. `composeSearchBlob` is what every writer uses; the MongoDB
+ * aggregation-pipeline expression below survives only for the remaining
+ * MongoDB read path in `db/client.ts`.
  *
  * Why one field?
- *   Mongo allows ONE text index per collection. The three sources land
- *   on different schedules (geocode worker, describe worker, OCR worker)
- *   and each must keep the unified blob coherent without serialising on
- *   a separate write. The aggregation-pipeline `$set` form lets us
- *   recompute the union from the live row state in a single
- *   `updateOne` — no read-modify-write race.
+ *   One denormalised text field carries all three sources, and one full-text
+ *   index covers it. The sources land on different schedules (geocode worker,
+ *   describe worker, OCR worker) and each must keep the unified blob coherent
+ *   without serialising on a separate write, so the blob is always recomputed
+ *   from the live row state rather than read, edited and written back.
  *
  * Tokenisation matches `place-parser.ts:buildSearchBlob`:
  *   - lowercased
@@ -43,8 +43,12 @@ export function seasonForMonth(month: number | null | undefined): string | null 
 }
 
 export interface ComposeSearchBlobInput {
-  /** Reverse-geocoded place. `null`/`undefined` ⇒ contributes no tokens. */
-  place?: Place | null;
+  /** Reverse-geocoded place. `null`/`undefined` ⇒ contributes no tokens.
+   * Only `search_blob` is read, so a caller that has the blob but not the
+   * whole `Place` — the SQLite repo, which reads it straight out of the
+   * `place` JSON column — can pass just that field rather than rebuilding a
+   * `Place` it does not have. */
+  place?: Pick<Place, 'search_blob'> | null;
   /** `exif.captured_month` (1-12), used to derive a season token (#2992).
    * Month NAMES are deliberately never indexed here — `may`/`march`/`august`
    * are ordinary English words, and the date parser already serves an

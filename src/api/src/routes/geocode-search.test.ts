@@ -4,23 +4,21 @@
  * Uses mock NominatimClient instances to avoid real HTTP calls.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import type { NominatimClient } from '../enrichment/nominatim-client.ts';
 import { setGeocodeSearchClientForTests } from './geocode-search.ts';
 import type { NominatimSearchResult } from '../enrichment/nominatim-client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
-// The handler reads enrichment config from Mongo (loadEnrichmentConfig).
-// Isolate the shared db-client singleton to a unique test DB and reset it
-// around this file so it neither connects to the real `maple` DB nor leaks the
-// connection into later test files (convention from folder.test.ts).
-withTestDb(`maple_test_geocode_search_${process.pid}`);
-beforeAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
-});
-afterAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
-});
+// The handler reads the enrichment settings row (`loadEnrichmentConfig`) on
+// every request, through the process-wide SQLite handle (#3787) — so each test
+// installs a private database as that handle. None of them seeds anything: what
+// they exercise is the mock Nominatim client, and the empty settings row is the
+// correct starting state for that.
+let live: LiveTestDatabase;
 
 // ---------------------------------------------------------------------------
 // Mock client factory
@@ -70,13 +68,15 @@ import { Elysia } from 'elysia';
 
 const app = new Elysia().use(geocodeSearchRoutes);
 
-beforeEach(() => {
+beforeEach(async () => {
+  live = await createLiveTestDatabase();
   // Reset the client before each test.
   setGeocodeSearchClientForTests(null);
 });
 
 afterEach(() => {
   setGeocodeSearchClientForTests(null);
+  live.close();
 });
 
 describe('GET /api/geocode/search', () => {

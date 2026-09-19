@@ -4,20 +4,24 @@
  *
  * Mint requires the caller's OWN live refresh token in the body as proof of a
  * persistent credential; list surfaces only platform-marked families; revoke
- * is step-up-gated. Mirrors the bootstrap of the sibling auth route tests
- * (tests/auth/routes.native-code.test.ts, tests/auth/refresh-body-rotation.test.ts):
- * real Mongo via the default `db/client.ts` connection (mongodb://localhost:27017,
- * db "maple"), a directly-signed bearer JWT (no WebAuthn ceremony), collections
- * cleared in `beforeEach`. Distinct `x-forwarded-for` IPs per external call so
- * the shared `auth:<ip>` rate-limit bucket (10/min, `../auth/rate_limit.ts`)
- * doesn't trip across cases sharing this process with other auth test files.
+ * is step-up-gated. A directly-signed bearer JWT stands in for the WebAuthn
+ * ceremony. Each test gets a private SQLite database installed as the
+ * process-wide handle (#3787), so the handlers reach it through the same
+ * `sqliteDb()` they use in production and no state survives a test. Distinct
+ * `x-forwarded-for` IPs per external call so the shared `auth:<ip>` rate-limit
+ * bucket (10/min, `../auth/rate_limit.ts`) doesn't trip across cases sharing
+ * this process with other auth test files.
  */
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import type { ObjectId } from 'mongodb';
 import { authRoutes } from './auth.ts';
 import { authDeviceSessionRoutes } from './auth-device-sessions.ts';
-import { usersCollection, refreshTokensCollection } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { seedUser } from '../../tests/helpers/sqlite-fixtures.ts';
 import { signAccessToken, signStepUpToken } from '../auth/tokens.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
 
@@ -35,16 +39,23 @@ function nextIp(): string {
   return `203.0.113.${ipCounter}`;
 }
 
-async function seedUser(email: string): Promise<ObjectId> {
-  const ins = await (
-    await usersCollection()
-  ).insertOne({
-    email,
-    role: 'owner',
-    created_at: new Date().toISOString(),
-    last_seen_at: null,
-  });
-  return ins.insertedId;
+let live: LiveTestDatabase;
+
+function seedOwner(email: string): ObjectId {
+  return seedUser(live.db, { email, role: 'owner' });
+}
+
+/** Rewrite one family's rows — the two states a mint proof must be refused
+ * for, neither of which any repository function can produce on purpose. */
+function patchFamily(
+  familyId: ObjectId,
+  column: 'expires_at' | 'family_revoked_at',
+  value: string,
+) {
+  live.db.run(`UPDATE refresh_tokens SET ${column} = ? WHERE family_id = ?`, [
+    value,
+    familyId.toHexString(),
+  ]);
 }
 
 async function bearerFor(userId: ObjectId, email: string): Promise<string> {
@@ -100,13 +111,16 @@ function refresh(token: string) {
 }
 
 beforeEach(async () => {
-  await (await usersCollection()).deleteMany({});
-  await (await refreshTokensCollection()).deleteMany({});
+  live = await createLiveTestDatabase();
+});
+
+afterEach(() => {
+  live.close();
 });
 
 describe('device-session routes (#2075)', () => {
   it("mints a device session from the caller's own live refresh token, in a new family that rotates", async () => {
-    const userId = await seedUser('owner@maple.test');
+    const userId = seedOwner('owner@maple.test');
     const bearer = await bearerFor(userId, 'owner@maple.test');
     const own = await issueRefreshToken(userId, 'Safari on Mac');
 
@@ -133,7 +147,7 @@ describe('device-session routes (#2075)', () => {
   });
 
   it('rejects mint with a bogus, expired, or other-user refresh_token (403); nothing is minted', async () => {
-    const userId = await seedUser('owner2@maple.test');
+    const userId = seedOwner('owner2@maple.test');
     const bearer = await bearerFor(userId, 'owner2@maple.test');
 
     // Bogus token.
@@ -146,12 +160,7 @@ describe('device-session routes (#2075)', () => {
 
     // Expired-but-unrevoked token (belongs to the caller).
     const expired = await issueRefreshToken(userId, 'Old Session');
-    await (
-      await refreshTokensCollection()
-    ).updateOne(
-      { family_id: expired.familyId },
-      { $set: { expires_at: new Date(Date.now() - 1000) } },
-    );
+    patchFamily(expired.familyId, 'expires_at', new Date(Date.now() - 1000).toISOString());
     const expiredRes = await mint(bearer, {
       label: 'Kitchen',
       platform: 'tvos',
@@ -160,7 +169,7 @@ describe('device-session routes (#2075)', () => {
     expect(expiredRes.status).toBe(403);
 
     // Another user's live token.
-    const otherUserId = await seedUser('someone-else@maple.test');
+    const otherUserId = seedOwner('someone-else@maple.test');
     const otherToken = await issueRefreshToken(otherUserId, 'Someone Else Session');
     const otherRes = await mint(bearer, {
       label: 'Kitchen',
@@ -175,7 +184,7 @@ describe('device-session routes (#2075)', () => {
   });
 
   it("rejects mint when the proof is a device session's own token (403) — only primary logins pair", async () => {
-    const userId = await seedUser('owner2b@maple.test');
+    const userId = seedOwner('owner2b@maple.test');
     const bearer = await bearerFor(userId, 'owner2b@maple.test');
 
     // A live, caller-owned, platform-marked credential (an already-paired TV).
@@ -195,19 +204,14 @@ describe('device-session routes (#2075)', () => {
   });
 
   it('rejects mint when the proof token belongs to a logged-out (family-revoked) session (403)', async () => {
-    const userId = await seedUser('owner2c@maple.test');
+    const userId = seedOwner('owner2c@maple.test');
     const bearer = await bearerFor(userId, 'owner2c@maple.test');
 
     // Simulate the logout-race artifact: the presented row itself looks live
     // (revoked_at null) but its family carries family_revoked_at — the state a
     // grace-window re-mint can leave behind when it races revokeFamily.
     const loggedOut = await issueRefreshToken(userId, 'Old Phone');
-    await (
-      await refreshTokensCollection()
-    ).updateMany(
-      { family_id: loggedOut.familyId },
-      { $set: { family_revoked_at: new Date().toISOString() } },
-    );
+    patchFamily(loggedOut.familyId, 'family_revoked_at', new Date().toISOString());
     const res = await mint(bearer, {
       label: 'Kitchen',
       platform: 'tvos',
@@ -226,7 +230,7 @@ describe('device-session routes (#2075)', () => {
   });
 
   it('GET lists the minted session (label, platform, id); a plain login family is absent', async () => {
-    const userId = await seedUser('owner3@maple.test');
+    const userId = seedOwner('owner3@maple.test');
     const bearer = await bearerFor(userId, 'owner3@maple.test');
     const own = await issueRefreshToken(userId, 'Safari on Mac'); // plain login
 
@@ -250,7 +254,7 @@ describe('device-session routes (#2075)', () => {
   });
 
   it('DELETE without X-Step-Up header is rejected (403, "step-up required")', async () => {
-    const userId = await seedUser('owner4@maple.test');
+    const userId = seedOwner('owner4@maple.test');
     const bearer = await bearerFor(userId, 'owner4@maple.test');
     const own = await issueRefreshToken(userId, 'Safari on Mac');
     const mintRes = await mint(bearer, {
@@ -267,7 +271,7 @@ describe('device-session routes (#2075)', () => {
   });
 
   it('DELETE with a valid step-up token revokes (204); GET is empty; the token no longer rotates', async () => {
-    const userId = await seedUser('owner5@maple.test');
+    const userId = seedOwner('owner5@maple.test');
     const bearer = await bearerFor(userId, 'owner5@maple.test');
     const own = await issueRefreshToken(userId, 'Safari on Mac');
     const mintRes = await mint(bearer, {
@@ -293,7 +297,7 @@ describe('device-session routes (#2075)', () => {
   });
 
   it('DELETE for a family id belonging to another user is 404', async () => {
-    const userId = await seedUser('owner6@maple.test');
+    const userId = seedOwner('owner6@maple.test');
     const bearer = await bearerFor(userId, 'owner6@maple.test');
     const own = await issueRefreshToken(userId, 'Safari on Mac');
     const mintRes = await mint(bearer, {
@@ -303,7 +307,7 @@ describe('device-session routes (#2075)', () => {
     });
     const { id } = (await mintRes.json()) as { id: string };
 
-    const otherUserId = await seedUser('intruder@maple.test');
+    const otherUserId = seedOwner('intruder@maple.test');
     const otherBearer = await bearerFor(otherUserId, 'intruder@maple.test');
     const otherStepUp = await signStepUpToken(
       otherUserId.toHexString(),

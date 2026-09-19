@@ -24,8 +24,8 @@ export interface MeilisearchAssetDoc {
    * camera filenames remain strong even when hybrid search is enabled. */
   filename?: string;
   /** Unified text bag — concatenation of `place.search_blob`,
-   * `description`, and `ocr_text`. Equivalent to what the Mongo `$text`
-   * index covers. */
+   * `description`, and `ocr_text`. Equivalent to what the catalogue's own
+   * full-text index covers. */
   searchBlob: string;
   /** LLM-generated caption from the describe worker (Phase 6). Stored
    * separately so per-attribute weighting can favour caption matches.
@@ -101,8 +101,8 @@ export interface MeilisearchSearchOptions {
   sceneType?: string;
   /** Open-vocab `vision.activity`, exact match. */
   activity?: string;
-  /** Open-vocab `vision.subjects` — OR within the field, matching the Mongo
-   * `$in` semantics. */
+  /** Open-vocab `vision.subjects` — OR within the field: a hit on any one of
+   * the listed subjects matches. */
   subjects?: string[];
   /** Screenshot filter. `true` narrows to screenshots, `false` to
    * photographs (admitting documents indexed before the field existed),
@@ -124,8 +124,7 @@ export interface MeilisearchSearchOptions {
 
 export interface MeilisearchSearchResult {
   /** Asset ids in Meilisearch's relevance order. The route fetches asset
-   * summaries from Mongo with `find({ maple_id: { $in: ids } })` and
-   * preserves this order. */
+   * summaries from the catalogue by `maple_id` and preserves this order. */
   ids: string[];
   /** Meilisearch's `estimatedTotalHits` — what the route returns as `total`. */
   estimatedTotal: number;

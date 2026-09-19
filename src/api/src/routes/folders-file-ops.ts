@@ -37,7 +37,8 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import * as nodePath from 'node:path';
-import { foldersCollection, assetsCollection } from '../db/client.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
+import { findLiveAssetIdAtAddress } from '../db/sqlite/repos/assets.address.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import {
   realpathJailCheck,
@@ -89,7 +90,7 @@ async function resolveFolder(
   } catch {
     return { ok: false, status: 400, error: 'Invalid folder id' };
   }
-  const folder = await (await foldersCollection()).findOne({ _id: folderId });
+  const folder = await findFolderById(folderId);
   if (!folder) {
     return { ok: false, status: 404, error: 'Folder not found' };
   }
@@ -101,37 +102,21 @@ async function resolveFolder(
  * are meant to be reached only for `.file`-identified (non-asset) items —
  * but a race (the discover sweep indexes the file between the client's
  * last listing and this request) would otherwise let a bare filesystem
- * move/trash run without repointing the asset's `fileinfo` entry,
- * orphaning the Mongo doc. Returns the indexed asset's hex id when found,
- * so the caller can report exactly which asset-ID-keyed route to use
- * instead. */
+ * move/trash run without repointing the asset's location row, orphaning
+ * the catalog entry. Returns the indexed asset's hex id when found, so the
+ * caller can report exactly which asset-ID-keyed route to use instead.
+ *
+ * "Live" there means BOTH not-soft-deleted and not-reaped: an entry the
+ * reaper stamped `missing_since` no longer has a file on disk, so a NEW
+ * file that later appears at the same path is genuinely a non-asset file
+ * and must not be refused with a 409 pointing at a stale row. */
 async function findLiveIndexedAsset(
   folderId: ObjectId,
   relDir: string,
   filename: string,
 ): Promise<string | null> {
-  const assets = await assetsCollection();
-  const hit = await assets.findOne(
-    {
-      fileinfo: {
-        // "Live" means BOTH not-soft-deleted and not-reaped: an entry the
-        // reaper stamped `missing_since` no longer has a file on disk, so a
-        // NEW file that later appears at the same path is genuinely a
-        // non-asset file and must not be refused with a 409 pointing at a
-        // stale doc. Same pair `liveFileInfoElemMatch` uses; spelled inline
-        // because this query pins `library_id`/`path`/`filename` too.
-        $elemMatch: {
-          library_id: folderId,
-          path: relDir,
-          filename,
-          deleted_at: { $in: [null] },
-          missing_since: { $in: [null] },
-        },
-      },
-    },
-    { projection: { _id: 1 } },
-  );
-  return hit ? (hit._id as ObjectId).toHexString() : null;
+  const hit = await findLiveAssetIdAtAddress(folderId, relDir, filename);
+  return hit === null ? null : hit.toHexString();
 }
 
 /** Decides whether `relPath` names a path already claimed by a LIVE

@@ -6,8 +6,8 @@
  * silent ranking bug for half the corpus, so both call these.
  *
  * "Prose" is the point. `search_blob` is a lowercased, deduped,
- * alphabetically-sorted token bag (see `search-blob.ts`) — fine for the Mongo
- * `$text` fallback, useless as embedder input, because word order and
+ * alphabetically-sorted token bag (see `search-blob.ts`) — fine for the
+ * built-in full-text fallback, useless as embedder input, because word order and
  * repetition are exactly what a sentence embedder reads. These fields carry
  * the original text through to the index unmodified.
  */
@@ -38,7 +38,7 @@ export interface IndexablePlace {
  * document, which is also what the lexical `transcript` attribute searches.
  * Both exist because they answer to different indexes.
  *
- * The full transcript stays intact in Mongo; only the indexed copy is
+ * The full transcript stays intact in the catalogue; only the indexed copy is
  * bounded.
  */
 export const MAX_INDEXED_TRANSCRIPT_CHARS = 12_000;

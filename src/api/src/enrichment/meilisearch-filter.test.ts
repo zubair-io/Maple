@@ -4,7 +4,7 @@
  * The vision fields and `isScreenshot` are declared in the index's
  * `filterableAttributes` but had no clause here, so `/api/search` could not
  * push them down and fell back to post-filtering one page of relevance-ranked
- * ids in Mongo (#2932). These clauses are what make the pushdown possible.
+ * ids in the database (#2932). These clauses are what make the pushdown possible.
  *
  * Escaping matters as much as the clause itself: `activity` and `subjects`
  * are open-vocabulary strings straight off the wire, so they are the same
@@ -38,8 +38,9 @@ describe('buildFilter — vision + screenshot clauses', () => {
   });
 
   /**
-   * Mirrors the Mongo predicate, which is `$ne: true` rather than `false` so
-   * rows indexed before `is_screenshot` was written still count as photos.
+   * Mirrors the catalogue predicate, which admits a missing value rather than
+   * testing `false`, so rows indexed before `is_screenshot` was written still
+   * count as photos.
    * A bare `isScreenshot = false` would hide every one of them.
    */
   it('treats a missing isScreenshot as "not a screenshot"', () => {

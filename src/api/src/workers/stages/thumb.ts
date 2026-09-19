@@ -25,11 +25,19 @@
  * Mirroring the written thumbnail to Cloudflare R2 is NOT done here — it's
  * the independent `cf-thumb-sync` stage (`stages/cf-thumb-sync.ts`), which
  * depends on this one. Every rewrite here resets that stage's own version
- * back to 0 (see `resetCfThumbSyncVersion` below) so a re-render — most
- * notably a `targetVersion` bump like the v2 orientation fix — re-triggers
- * a fresh R2 upload instead of leaving a stale copy cached at the edge.
+ * back to 0 so a re-render — most notably a `targetVersion` bump like the v2
+ * orientation fix — re-triggers a fresh R2 upload instead of leaving a stale
+ * copy cached at the edge.
+ *
+ * That reset is the runner's `invalidates` mechanism, and moving to it is the
+ * one behaviour change in the SQLite port. On Mongo it was a best-effort
+ * `updateOne` this stage issued itself after `generateThumb` returned, outside
+ * the runner's writeback: a failure between the thumbnail landing on disk and
+ * the reset landing in the database left `cf-thumb-sync` marked done against
+ * bytes it had never uploaded, and nothing would notice. Declared as
+ * `invalidates` instead, the reset is one statement in the same transaction as
+ * this stage's own success row, so either both land or neither does.
  */
-import { assetsCollection } from '../../db/client.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -44,37 +52,13 @@ import {
   type StageResult,
 } from '../run-stage.ts';
 
-/** Reset `cf-thumb-sync`'s stage state to unprocessed — the full reset
- * shape (`version`/`attempts`/`last_error`/`processed_at`/`dead`), matching
- * `reArmCacheStages()` in `workers/dedupe.helpers.ts`. Clearing
- * `last_error`/`processed_at` alongside `version`/`dead`/`attempts` matters:
- * a stage that previously dead-lettered or errored on this asset would
- * otherwise keep showing that stale error in the Settings → Workers UI even
- * though the reset means it's about to be retried clean. Best-effort — a
- * failure here just means that stage catches up on its own next poll once
- * whatever transient issue clears, same as the thumb stage's own retry
- * path; it must never fail the thumb write itself. Mirrors the
- * cross-stage-reset precedent in `sidecar-metadata-index.ts` (GPS change
- * → reset `stages.geocode`). */
-async function resetCfThumbSyncVersion(imageId: ImageDoc['_id']): Promise<void> {
-  try {
-    const assets = await assetsCollection();
-    await assets.updateOne(
-      { _id: imageId },
-      {
-        $set: {
-          'stages.cf-thumb-sync.version': 0,
-          'stages.cf-thumb-sync.attempts': 0,
-          'stages.cf-thumb-sync.last_error': null,
-          'stages.cf-thumb-sync.processed_at': null,
-          'stages.cf-thumb-sync.dead': false,
-        },
-      },
-    );
-  } catch {
-    // Best-effort — see doc comment above.
-  }
-}
+/**
+ * The stage whose output this one invalidates on every rewrite.
+ *
+ * Named rather than inlined because the runner validates it against a stage
+ * name pattern and a typo would be a silently-never-re-armed edge cache.
+ */
+const CF_THUMB_SYNC_STAGE = 'cf-thumb-sync';
 
 const thumbStage = defineStage({
   name: 'thumb',
@@ -154,7 +138,7 @@ const thumbStage = defineStage({
     // fileinfo entries soft-deleted (every on-disk location gone) — is the
     // genuinely-orphaned one: the runner stamps `missing_since` on that skip
     // instead of marking the stage done, so the missing-reaper sees it. See
-    // run-stage.ts (`hasOnlySoftDeletedFileInfo`).
+    // run-stage.ts.
     const libs = await loadLibraryRoots();
     const thumbPath = resolveThumbPathForAsset(image as never, libs);
     const absPath = assetAbsPath(image as never, libs);
@@ -167,10 +151,10 @@ const thumbStage = defineStage({
     // We do NOT persist the path on the asset: every reader derives it from the
     // source path alone via `resolveThumbPath`, so a stored `thumb_path` would
     // be dead, redundant data — and a DB field is exactly the dependency
-    // path-keying exists to avoid. `{ wrote: true }` marks the stage done
-    // without patching any asset field.
-    await resetCfThumbSyncVersion(image._id);
-    return { wrote: true };
+    // path-keying exists to avoid. So the patch is empty and the whole point of
+    // the result is the invalidation beside it, which re-arms the edge upload
+    // against the bytes just written.
+    return { patch: [], invalidates: [CF_THUMB_SYNC_STAGE] };
   },
 });
 

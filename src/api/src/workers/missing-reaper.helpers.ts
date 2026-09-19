@@ -1,8 +1,14 @@
 /**
  * Stateless helpers for the missing-reaper — filesystem classification, the
- * per-`fileinfo` liveness predicates, the dead-stage re-arm builder, and the
- * pass-summary shape. Extracted from `missing-reaper.ts` to keep that file
- * under the size budget; everything here is pure (no Mongo, no module state).
+ * per-location liveness predicates, and the pass-summary shape. Extracted from
+ * `missing-reaper.ts` to keep that file under the size budget; everything here
+ * is pure (no database, no module state).
+ *
+ * Five other workers import `statKind` and `libraryRootAvailable` from here —
+ * discover, the sweeper, dedupe, the stage dispatcher and the legacy refile
+ * migration — which is why this module must stay free of database imports: it
+ * is the shared "is this path really gone?" vocabulary, not the reaper's
+ * private toolbox.
  */
 
 import * as fs from 'node:fs/promises';
@@ -18,7 +24,7 @@ export interface MissingReaperSummary {
   /** Surviving rows reconciled this pass (an entry recovered and/or a gone
    * sibling pruned). */
   recovered: number;
-  /** fileinfo entries pruned ($pull) across all surviving rows this pass. */
+  /** Locations removed from surviving assets this pass. */
   prunedEntries: number;
   /** Rows skipped because a library was offline / unregistered / unreadable. */
   skippedMountOffline: number;
@@ -39,14 +45,6 @@ export interface MissingReaperSummary {
   /** Rows that raised an unexpected error during the pass. */
   errors: number;
 }
-
-/**
- * Stages that read the ORIGINAL file (StageConfig.tagsMissingOnEnoent). When a
- * surviving row keeps a live location, any of these still flagged `dead` are
- * re-queued (version 0, dead cleared) so they reprocess. Kept in sync with the
- * tagsMissingOnEnoent stages.
- */
-export const ORIGINAL_FILE_STAGES = ['exif', 'thumb', 'preview'] as const;
 
 /** Circuit breaker: flag a pass that soft-deletes more than BREAKER_MIN rows
  * AND more than BREAKER_FRACTION of those scanned — likely a systemic
@@ -71,24 +69,6 @@ export function hasLiveEntry(fileinfo: FileInfo[] | undefined): boolean {
 
 export function sameEntry(a: FileInfo, b: FileInfo): boolean {
   return a.library_id.equals(b.library_id) && a.path === b.path && a.filename === b.filename;
-}
-
-/** Re-arm any dead original-file stage so it reprocesses once the row is no
- * longer parked. Drains the legacy `dead` backlog from before tag-only
- * suppression; new rows never dead-letter on a missing original. */
-export function reArmDeadStages(doc: {
-  stages?: Record<string, { dead?: boolean }>;
-}): Record<string, unknown> {
-  const set: Record<string, unknown> = {};
-  for (const name of ORIGINAL_FILE_STAGES) {
-    if (doc.stages?.[name]?.dead === true) {
-      set[`stages.${name}.version`] = 0;
-      set[`stages.${name}.attempts`] = 0;
-      set[`stages.${name}.last_error`] = null;
-      set[`stages.${name}.dead`] = false;
-    }
-  }
-  return set;
 }
 
 export type StatKind = 'present' | 'absent' | 'error';

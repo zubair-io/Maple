@@ -1,8 +1,14 @@
 /**
- * Tests for `sweepOrphanedCaches`. Per-process isolated DB + skip-if-Mongo-
- * unreachable, mirroring `libraries.cache.test.ts`.
+ * Tests for `sweepOrphanedCaches` (#3787).
+ *
+ * The sweep decides what to delete from one library's `.maple/` caches by
+ * comparing what is on disk against the live filenames in that library, so each
+ * test needs a real database and a real directory tree. The database is a
+ * per-test SQLite one installed as the process-wide handle — the sweep resolves
+ * the library and its live set through the ordinary production path, with no
+ * override to thread and no external service to have running.
  */
-import { describe, test, expect, beforeAll, beforeEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, afterEach, mock } from 'bun:test';
 import {
   mkdtemp,
   mkdir,
@@ -16,69 +22,15 @@ import {
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_cache_gc_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[cache-gc.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await mongo.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
+import type { Database } from 'bun:sqlite';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 
 const KNOWN_ID = 'a'.repeat(32);
 const LEGACY_KEY = '0123456789abcdef'; // gitleaks:allow sha256_prefix16 — 16 hex
@@ -88,42 +40,28 @@ async function mkTree(): Promise<string> {
   return root;
 }
 
+// The library-roots cache is process-wide, so a root registered by one test
+// would otherwise still resolve in the next one — against a disposed database.
+afterEach(() => {
+  invalidateLibraryRoots();
+});
+
 /** Register `root` as a library (so `sweepOrphanedCaches`' previews sweep can
  * resolve a library id for it) and bust the app's own in-memory
  * `loadLibraryRoots()` cache so it picks up the fresh insert. BOTH tiers are
  * path-keyed and library-scoped now (see `cachePathForAsset`'s doc), so every
  * test that expects a delete decision needs a registered library — with no
  * resolvable library id the sweep scans but never deletes. */
-async function registerLibrary(root: string): Promise<ObjectId> {
-  const libraryId = new ObjectId();
-  await db!.collection('folders').insertOne({
-    _id: libraryId,
-    path: root,
-    label: 'cache-gc-test',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  } as never);
-  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+function registerLibrary(db: Database, root: string): string {
+  const libraryId = insertFolder(db, { path: root });
   invalidateLibraryRoots();
   return libraryId;
 }
 
-/** Insert a live (non-tombstoned) asset row for one `fileinfo` location —
- * the shape `sweepOrphanedCaches`' previews known-live-set query reads. */
-async function insertLiveAsset(libraryId: ObjectId, relPath: string, filename: string) {
-  await db!.collection('assets').insertOne({
-    _id: new ObjectId(),
-    fileinfo: [
-      {
-        library_id: libraryId,
-        path: relPath,
-        filename,
-        deleted_at: null,
-        missing_since: null,
-      },
-    ],
-  } as never);
+/** Insert a live (non-tombstoned) asset at one location — the rows the sweep's
+ * live-set query reads. */
+function insertLiveAsset(db: Database, libraryId: string, relPath: string, filename: string): void {
+  insertLocation(db, { assetId: insertAsset(db), libraryId, path: relPath, filename });
 }
 
 async function writeJpg(p: string): Promise<void> {
@@ -153,17 +91,15 @@ describe('sweepOrphanedCaches', () => {
   // the DB would keep one stale file per asset forever — see cache-gc's module
   // doc. The live path-keyed thumb in the same directory must survive.
   test('reaps a retired maple_id-keyed thumb and keeps the live path-keyed one', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const { sha256Prefix16 } = await import('../fs/xmp.ts');
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
-      await insertLiveAsset(libraryId, '', 'live.dng');
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'live.dng');
       // Asset keeps its maple_id — proving the reap is not "maple_id is gone".
-      await db!
-        .collection('assets')
-        .insertOne({ _id: new ObjectId(), maple_id: KNOWN_ID } as never);
+      run(live.db, `UPDATE assets SET maple_id = ? WHERE id = ?`, KNOWN_ID, insertAsset(live.db));
 
       const retiredThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.jpg`);
       const liveThumb = path.join(root, '.maple', 'thumbs', `${sha256Prefix16('live.dng')}.jpg`);
@@ -188,13 +124,13 @@ describe('sweepOrphanedCaches', () => {
 
   // Same rule for the .avif tier the thumb stage actually writes.
   test('reaps a retired .avif thumb and keeps the live path-keyed .avif', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const { sha256Prefix16 } = await import('../fs/xmp.ts');
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
-      await insertLiveAsset(libraryId, '', 'live.dng');
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'live.dng');
       const retiredThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.avif`);
       const liveThumb = path.join(root, '.maple', 'thumbs', `${sha256Prefix16('live.dng')}.avif`);
       for (const f of [retiredThumb, liveThumb]) {
@@ -213,11 +149,11 @@ describe('sweepOrphanedCaches', () => {
   });
 
   test('unlinks a preview whose filename is not a live location in the registered library', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
-      await registerLibrary(root);
+      registerLibrary(live.db, root);
       const orphan = path.join(root, '.maple', 'previews', 'gone.dng.avif');
       await writeAvif(orphan);
       await agePast(orphan);
@@ -237,13 +173,13 @@ describe('sweepOrphanedCaches', () => {
   // prefix matching would wrongly treat the deleted `image.jpg.bak`'s
   // orphaned preview as live (it matches `image.jpg.`'s prefix).
   test('unlinks an orphaned preview even when its filename is a strict prefix-match of a DIFFERENT live filename', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
+      const libraryId = registerLibrary(live.db, root);
       // `image.jpg` is live; `image.jpg.bak` is NOT (already deleted).
-      await insertLiveAsset(libraryId, '', 'image.jpg');
+      insertLiveAsset(live.db, libraryId, '', 'image.jpg');
       const keep = path.join(root, '.maple', 'previews', 'image.jpg.avif');
       const orphan = path.join(root, '.maple', 'previews', 'image.jpg.bak.avif');
       await writeAvif(keep);
@@ -262,13 +198,13 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
-  test('keeps a preview whose filename matches a live fileinfo entry', async () => {
-    if (!mongoReachable) return;
+  test('keeps a preview whose filename matches a live location', async () => {
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
-      await insertLiveAsset(libraryId, '', 'a.dng');
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'a.dng');
       const keep = path.join(root, '.maple', 'previews', 'a.dng.full.jpg');
       await writeJpg(keep);
       await agePast(keep);
@@ -283,18 +219,46 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
+  // A tombstoned location is not live, so the derivative keyed off its filename
+  // is an orphan even though the row is still there — the port has to filter on
+  // the location's own tags, not on the asset's existence.
+  test('unlinks a preview whose only location is tombstoned', async () => {
+    using live = await createLiveTestDatabase();
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      const libraryId = registerLibrary(live.db, root);
+      insertLocation(live.db, {
+        assetId: insertAsset(live.db),
+        libraryId,
+        path: '',
+        filename: 'moved.dng',
+        deletedAt: new Date().toISOString(),
+      });
+      const orphan = path.join(root, '.maple', 'previews', 'moved.dng.avif');
+      await writeAvif(orphan);
+      await agePast(orphan);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 1, deleted: 1, skipped_recent: 0 });
+      await expect(stat(orphan)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   // Migration (#2017): with the size/version token gone, the new
   // `<filename>.avif` is kept for a live asset while pre-KISS files for the
   // SAME live asset — the size-keyed `<filename>.1280.avif` and the retired
   // display-preview stage's `<filename>.dev_<N>.jpg` — orphan out, because they
   // recover to a source filename (`a.dng.1280` / null) that is never live.
   test('keeps the new <filename>.avif but orphans pre-KISS size/version-keyed files for a live asset', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
-      await insertLiveAsset(libraryId, '', 'a.dng');
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'a.dng');
       const keep = path.join(root, '.maple', 'previews', 'a.dng.avif');
       const oldSized = path.join(root, '.maple', 'previews', 'a.dng.1280.avif');
       const oldDev = path.join(root, '.maple', 'previews', 'a.dng.dev_5.jpg');
@@ -318,11 +282,12 @@ describe('sweepOrphanedCaches', () => {
   });
 
   test('does not delete previews when the library cannot be resolved (safe degradation)', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
-      // Deliberately NOT registered — `resolveLibraryId` returns null.
+      // A library exists, but not this root — `resolveLibraryId` returns null.
+      registerLibrary(live.db, path.join(root, 'elsewhere'));
       const wouldBeOrphan = path.join(root, '.maple', 'previews', 'anything.dng.avif');
       await writeAvif(wouldBeOrphan);
       await agePast(wouldBeOrphan);
@@ -340,10 +305,11 @@ describe('sweepOrphanedCaches', () => {
   });
 
   test('library with no .maple/ directories → { scanned: 0, deleted: 0 }', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
+      registerLibrary(live.db, root);
       // Put a normal photo at the root and a sub-folder, but no .maple.
       const topPhoto = path.join(root, 'photo.jpg');
       const subPhoto = path.join(root, 'sub', 'photo2.jpg');
@@ -364,11 +330,11 @@ describe('sweepOrphanedCaches', () => {
   });
 
   test('descends into sub-folders to find nested .maple/ caches', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
-      await registerLibrary(root);
+      registerLibrary(live.db, root);
       const nested = path.join(root, 'vacation', '2024', '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
       await writeJpg(nested);
       await agePast(nested);
@@ -382,12 +348,37 @@ describe('sweepOrphanedCaches', () => {
     }
   });
 
-  test('TOCTOU: recently-written orphan is NOT unlinked (skipped_recent bumps)', async () => {
-    if (!mongoReachable) return;
+  // The live set is keyed by directory, so a live filename in one directory
+  // must not vouch for a same-named derivative in another.
+  test('does not let a live filename in one directory keep a derivative in another', async () => {
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
-      await registerLibrary(root);
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, 'kept', 'a.dng');
+      const elsewhere = path.join(root, 'other', '.maple', 'previews', 'a.dng.avif');
+      const here = path.join(root, 'kept', '.maple', 'previews', 'a.dng.avif');
+      for (const f of [elsewhere, here]) {
+        await writeAvif(f);
+        await agePast(f);
+      }
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result).toEqual({ scanned: 2, deleted: 1, skipped_recent: 0 });
+      expect((await stat(here)).size).toBeGreaterThan(0);
+      await expect(stat(elsewhere)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('TOCTOU: recently-written orphan is NOT unlinked (skipped_recent bumps)', async () => {
+    using live = await createLiveTestDatabase();
+    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    const root = await mkTree();
+    try {
+      registerLibrary(live.db, root);
       // Unknown filename (no live asset for it) with fresh mtime — simulates
       // a stage mid-write or just-finished writing while the known-live set
       // was already snapshotted.
@@ -409,11 +400,11 @@ describe('sweepOrphanedCaches', () => {
   });
 
   test('does not follow directory symlinks (no infinite loop)', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     try {
-      await registerLibrary(root);
+      registerLibrary(live.db, root);
       // A real .maple cache with one legacy orphan to verify the sweep still
       // does its job around the symlink.
       const realOrphan = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
@@ -435,10 +426,10 @@ describe('sweepOrphanedCaches', () => {
   });
 
   test('ENOENT (file vanished between readdir and unlink) does not abort sweep or log error', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      await registerLibrary(root);
+      registerLibrary(live.db, root);
       // Four legacy-keyed orphans. The mock makes `fs.unlink` race-fail
       // (ENOENT) for the first to land in unlinkSafe, simulating another
       // process having removed it between readdir and unlink.
@@ -503,7 +494,6 @@ describe('sweepOrphanedCaches', () => {
   });
 
   test('persistent unlink failure aborts sweep without crashing the caller', async () => {
-    if (!mongoReachable) return;
     // POSIX unlink requires write+execute on the parent directory. Chmod the
     // parent to 0o555 (r-x for owner) so:
     //   - readdir still works (need 'r'), so the sweep sees the files
@@ -512,10 +502,12 @@ describe('sweepOrphanedCaches', () => {
     if (process.platform === 'win32') return;
     if (typeof process.getuid === 'function' && process.getuid() === 0) return;
 
+    using live = await createLiveTestDatabase();
     const { sweepOrphanedCaches } = await import('./cache-gc.ts');
     const root = await mkTree();
     const lockedDir = path.join(root, '.maple', 'thumbs');
     try {
+      registerLibrary(live.db, root);
       // Four orphan files in one cache dir. We need at least 3 same-errno
       // failures to trip FAIL_THRESHOLD; the 4th may or may not be attempted
       // depending on whether the abort raced the loop body.

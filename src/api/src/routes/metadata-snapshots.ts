@@ -17,7 +17,10 @@
 import { Elysia, t } from 'elysia';
 import * as nodePath from 'node:path';
 import { resolveAddressString } from '../library/address.ts';
-import { assetsCollection } from '../db/client.ts';
+import {
+  findMetadataByFilenames,
+  type MetadataSnapshotRow,
+} from '../db/sqlite/repos/assets.by-filename.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import type { AssetDoc } from '../db/schema.ts';
@@ -141,36 +144,13 @@ export function overrideToXmpSnapshot(
 async function findAssetDocs(
   absPaths: string[],
   libs: ReadonlyMap<string, string>,
-): Promise<
-  Map<
-    string,
-    Pick<AssetDoc, 'exif' | 'metadata_override' | 'fileinfo' | 'rating' | 'flag' | 'color_label'>
-  >
-> {
+): Promise<Map<string, MetadataSnapshotRow>> {
   if (absPaths.length === 0) return new Map();
   const filenames = [...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean))];
-  const c = await assetsCollection();
-  const docs = await c
-    .find(
-      { 'fileinfo.filename': { $in: filenames } },
-      {
-        projection: {
-          metadata_override: 1,
-          exif: 1,
-          fileinfo: 1,
-          rating: 1,
-          flag: 1,
-          color_label: 1,
-        },
-      },
-    )
-    .toArray();
+  const docs = await findMetadataByFilenames(filenames);
 
   const absPathSet = new Set(absPaths);
-  const result = new Map<
-    string,
-    Pick<AssetDoc, 'exif' | 'metadata_override' | 'fileinfo' | 'rating' | 'flag' | 'color_label'>
-  >();
+  const result = new Map<string, MetadataSnapshotRow>();
 
   for (const doc of docs) {
     // Reconstruct the absolute path via the shared helper so path composition
@@ -229,10 +209,7 @@ export const metadataSnapshotsRoutes = new Elysia({
       libs = new Map();
     }
 
-    let docMap: Map<
-      string,
-      Pick<AssetDoc, 'exif' | 'metadata_override' | 'fileinfo' | 'rating' | 'flag' | 'color_label'>
-    >;
+    let docMap: Map<string, MetadataSnapshotRow>;
     try {
       docMap = await findAssetDocs(absPaths, libs);
     } catch {

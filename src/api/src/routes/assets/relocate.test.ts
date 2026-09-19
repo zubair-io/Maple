@@ -1,27 +1,36 @@
 /**
  * Integration tests for POST /api/assets/:id/relocate (#2629).
  *
- * Mirrors `routes/library-relocate.test.ts`'s pattern for the
- * validation/wiring cases (no Mongo required), plus a real end-to-end
- * pass against a real MongoDB + real temp-dir files (skipped gracefully
- * when Mongo is unreachable, same as `library/relocate-asset.test.ts`).
+ * Validation and path-traversal cases never reach storage; the end-to-end ones
+ * run against a real SQLite database (#3787) installed as the process-wide
+ * handle, plus real temp-dir files. Nothing external, so nothing to skip on.
+ *
+ * Where a location lives changed with the port: `asset_locations` is a table
+ * with a unique index over (library_id, path, filename), so the occupied-
+ * destination fixture seeds its two assets at two distinct addresses — a
+ * library that held two live rows at one address is a state the schema now
+ * rules out.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { Database } from 'bun:sqlite';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { relocateRoutes } from './relocate.ts';
-import { closeDb } from '../../db/client.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_relocate_route_test_${process.pid}`;
-const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
+import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { locationRows } from '../../../tests/helpers/assets-route-fixtures.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
 const app = new Elysia({ prefix: '/api/assets' }).use(fakeAuth()).use(relocateRoutes);
 
@@ -35,8 +44,22 @@ async function postRelocate(id: string, body: unknown): Promise<Response> {
   );
 }
 
+let live: LiveTestDatabase;
+let root: string;
+
+beforeEach(async () => {
+  live = await createLiveTestDatabase();
+  root = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-route-'));
+});
+
+afterEach(async () => {
+  live.close();
+  await fs.rm(root, { recursive: true, force: true });
+  setLibraryRootsForTests(null);
+});
+
 // ---------------------------------------------------------------------------
-// Wiring / validation — no Mongo required.
+// Wiring / validation.
 // ---------------------------------------------------------------------------
 
 describe('POST /api/assets/:id/relocate — wiring', () => {
@@ -50,7 +73,7 @@ describe('POST /api/assets/:id/relocate — wiring', () => {
   });
 
   test('returns 4xx for an invalid mode', async () => {
-    const res = await postRelocate(new ObjectId().toHexString(), {
+    const res = await postRelocate(newObjectIdHex(), {
       mode: 'teleport',
       collision: 'auto-suffix',
       destination_path: 'b',
@@ -60,7 +83,7 @@ describe('POST /api/assets/:id/relocate — wiring', () => {
   });
 
   test('returns 4xx for an invalid collision policy', async () => {
-    const res = await postRelocate(new ObjectId().toHexString(), {
+    const res = await postRelocate(newObjectIdHex(), {
       mode: 'move',
       collision: 'yolo',
       destination_path: 'b',
@@ -70,7 +93,7 @@ describe('POST /api/assets/:id/relocate — wiring', () => {
   });
 
   test('returns 4xx when destination_path is missing', async () => {
-    const res = await postRelocate(new ObjectId().toHexString(), {
+    const res = await postRelocate(newObjectIdHex(), {
       mode: 'move',
       collision: 'auto-suffix',
     });
@@ -80,13 +103,13 @@ describe('POST /api/assets/:id/relocate — wiring', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Path traversal — rejected at the HTTP boundary, before Mongo or the
+// Path traversal — rejected at the HTTP boundary, before the catalogue or the
 // filesystem are ever touched (jules review on #2669).
 // ---------------------------------------------------------------------------
 
 describe('POST /api/assets/:id/relocate — path traversal is rejected with 400', () => {
   test('destination_path with ../.. traversal', async () => {
-    const res = await postRelocate(new ObjectId().toHexString(), {
+    const res = await postRelocate(newObjectIdHex(), {
       mode: 'move',
       collision: 'auto-suffix',
       destination_path: '../../etc/passwd',
@@ -95,7 +118,7 @@ describe('POST /api/assets/:id/relocate — path traversal is rejected with 400'
   });
 
   test('an absolute destination_path', async () => {
-    const res = await postRelocate(new ObjectId().toHexString(), {
+    const res = await postRelocate(newObjectIdHex(), {
       mode: 'move',
       collision: 'auto-suffix',
       destination_path: '/etc/passwd',
@@ -104,7 +127,7 @@ describe('POST /api/assets/:id/relocate — path traversal is rejected with 400'
   });
 
   test('a backslash-variant destination_path', async () => {
-    const res = await postRelocate(new ObjectId().toHexString(), {
+    const res = await postRelocate(newObjectIdHex(), {
       mode: 'move',
       collision: 'auto-suffix',
       destination_path: 'a\\..\\..\\etc\\passwd',
@@ -113,7 +136,7 @@ describe('POST /api/assets/:id/relocate — path traversal is rejected with 400'
   });
 
   test('a destination_filename carrying its own traversal', async () => {
-    const res = await postRelocate(new ObjectId().toHexString(), {
+    const res = await postRelocate(newObjectIdHex(), {
       mode: 'move',
       collision: 'auto-suffix',
       destination_path: 'b',
@@ -124,126 +147,61 @@ describe('POST /api/assets/:id/relocate — path traversal is rejected with 400'
 });
 
 // ---------------------------------------------------------------------------
-// End-to-end — real Mongo + real temp-dir files.
+// End-to-end — real catalogue + real temp-dir files.
 // ---------------------------------------------------------------------------
 
-let client: MongoClient | null = null;
-let db: Db | null = null;
-let root: string;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
+/** One asset at `relPath`/`filename` under `root`, in `libraryId`. */
+async function seedOnDisk(
+  db: Database,
+  libraryId: string,
+  entry: { relPath: string; filename: string; content: string },
+): Promise<string> {
+  await fs.mkdir(path.join(root, entry.relPath), { recursive: true });
+  await fs.writeFile(path.join(root, entry.relPath, entry.filename), entry.content);
+  const id = insertAsset(db);
+  insertLocation(db, {
+    assetId: id,
+    libraryId,
+    path: entry.relPath,
+    filename: entry.filename,
   });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
-beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-route-'));
-  client = await tryConnect();
-  if (!client) return;
-  await closeDb();
-  process.env.MAPLE_MONGO_URI = MONGO_URI;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  db = client.db(TEST_DB);
-  await db.dropDatabase();
-});
-
-afterEach(async () => {
-  await fs.rm(root, { recursive: true, force: true });
-  setLibraryRootsForTests(null);
-});
-
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  if (client) await client.close();
-  if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
-  if (ORIGINAL_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
-  else process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
-  await closeDb();
-});
-
-/** Write `a/IMG_1.dng` under `root` and seed a matching asset doc pointing
- * at it, wiring the in-memory library-roots cache to resolve it. */
-async function seedAssetOnDisk(d: Db): Promise<ObjectId> {
-  const libraryId = new ObjectId();
-  const id = new ObjectId();
-  await fs.mkdir(path.join(root, 'a'), { recursive: true });
-  await fs.writeFile(path.join(root, 'a', 'IMG_1.dng'), 'pixels');
-  await d.collection('assets').insertOne({
-    _id: id,
-    fileinfo: [{ path: 'a', filename: 'IMG_1.dng', library_id: libraryId, deleted_at: null }],
-    size: 6,
-    mtime: 1_700_000_000_000,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: '2026-01-01T00:00:00Z',
-    has_xmp: false,
-    deleted_at: null,
-  } as never);
-  setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
+  run(
+    db,
+    `UPDATE assets SET size = ?, mtime = 1700000000000 WHERE id = ?`,
+    entry.content.length,
+    id,
+  );
   return id;
 }
 
-/** Seed TWO asset docs sharing one library id — the occupied-destination
- * end-to-end test needs the incoming asset's own library to still resolve
- * to `root` after the occupant is seeded (`seedAssetOnDisk`'s single-asset
- * helper always mints a fresh library id and overwrites the roots map). */
-async function seedTwoAssetsOnDiskSameLibrary(
-  d: Db,
-  a: { relPath: string; filename: string; content: string },
-  b: { relPath: string; filename: string; content: string },
-): Promise<{ idA: ObjectId; idB: ObjectId }> {
-  const libraryId = new ObjectId();
-  const idA = new ObjectId();
-  const idB = new ObjectId();
-  for (const [id, entry] of [
-    [idA, a],
-    [idB, b],
-  ] as const) {
-    await fs.mkdir(path.join(root, entry.relPath), { recursive: true });
-    await fs.writeFile(path.join(root, entry.relPath, entry.filename), entry.content);
-    await d.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [
-        { path: entry.relPath, filename: entry.filename, library_id: libraryId, deleted_at: null },
-      ],
-      size: entry.content.length,
-      mtime: 1_700_000_000_000,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-01-01T00:00:00Z',
-      has_xmp: false,
-      deleted_at: null,
-    } as never);
-  }
-  setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
-  return { idA, idB };
+/** Register one library root under `root` and wire the roots cache to it. */
+function seedLibrary(db: Database): string {
+  const libraryId = insertFolder(db, { path: root, slug: 'relocate-route-test' });
+  setLibraryRootsForTests(new Map([[libraryId, root]]));
+  return libraryId;
+}
+
+/** Write `a/IMG_1.dng` under `root` and seed a matching asset. */
+async function seedAssetOnDisk(db: Database): Promise<string> {
+  const libraryId = seedLibrary(db);
+  return seedOnDisk(db, libraryId, { relPath: 'a', filename: 'IMG_1.dng', content: 'pixels' });
 }
 
 describe('POST /api/assets/:id/relocate — replace collision guard (#2843)', () => {
   test('replace onto a path occupied by another live indexed asset is refused with 409', async () => {
-    if (!db) return;
-    const { idA: incomingId, idB: occupantId } = await seedTwoAssetsOnDiskSameLibrary(
-      db,
-      { relPath: 'a', filename: 'incoming.dng', content: 'incoming-pixels' },
-      { relPath: 'b', filename: 'occupant.dng', content: 'occupant-pixels' },
-    );
+    const libraryId = seedLibrary(live.db);
+    const incomingId = await seedOnDisk(live.db, libraryId, {
+      relPath: 'a',
+      filename: 'incoming.dng',
+      content: 'incoming-pixels',
+    });
+    const occupantId = await seedOnDisk(live.db, libraryId, {
+      relPath: 'b',
+      filename: 'occupant.dng',
+      content: 'occupant-pixels',
+    });
 
-    const res = await postRelocate(incomingId.toHexString(), {
+    const res = await postRelocate(incomingId, {
       mode: 'move',
       collision: 'replace',
       destination_path: 'b',
@@ -252,28 +210,21 @@ describe('POST /api/assets/:id/relocate — replace collision guard (#2843)', ()
 
     expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.occupied_by_asset_id).toBe(occupantId.toHexString());
+    expect(body.occupied_by_asset_id).toBe(occupantId);
 
     // Neither file moved.
     expect(await fs.readFile(path.join(root, 'a', 'incoming.dng'), 'utf8')).toBe('incoming-pixels');
     expect(await fs.readFile(path.join(root, 'b', 'occupant.dng'), 'utf8')).toBe('occupant-pixels');
     // Neither row moved.
-    const incomingRow = (await db.collection('assets').findOne({ _id: incomingId })) as unknown as {
-      fileinfo: Array<{ path: string; filename: string }>;
-    };
-    expect(incomingRow.fileinfo[0]!.path).toBe('a');
-    const occupantRow = (await db.collection('assets').findOne({ _id: occupantId })) as unknown as {
-      fileinfo: Array<{ path: string; filename: string }>;
-    };
-    expect(occupantRow.fileinfo[0]!.path).toBe('b');
+    expect(locationRows(live.db, incomingId)[0]!.path).toBe('a');
+    expect(locationRows(live.db, occupantId)[0]!.path).toBe('b');
   });
 
   test('replace onto a path occupied only by an untracked file still succeeds (200)', async () => {
-    if (!db) return;
-    const id = await seedAssetOnDisk(db);
+    const id = await seedAssetOnDisk(live.db);
     await fs.writeFile(path.join(root, 'a', 'untracked.dng'), 'stale-untracked-bytes');
 
-    const res = await postRelocate(id.toHexString(), {
+    const res = await postRelocate(id, {
       mode: 'move',
       collision: 'replace',
       destination_path: 'a',
@@ -287,11 +238,10 @@ describe('POST /api/assets/:id/relocate — replace collision guard (#2843)', ()
 });
 
 describe('POST /api/assets/:id/relocate — end to end', () => {
-  test('moves the asset, returns the new path, and repoints the DB', async () => {
-    if (!db) return;
-    const id = await seedAssetOnDisk(db);
+  test('moves the asset, returns the new path, and repoints the catalogue', async () => {
+    const id = await seedAssetOnDisk(live.db);
 
-    const res = await postRelocate(id.toHexString(), {
+    const res = await postRelocate(id, {
       mode: 'move',
       collision: 'auto-suffix',
       destination_path: 'b',
@@ -302,17 +252,13 @@ describe('POST /api/assets/:id/relocate — end to end', () => {
     expect(body.new_filename).toBe('IMG_1.dng');
     expect(body.renamed_on_collision).toBe(false);
 
-    const row = (await db.collection('assets').findOne({ _id: id })) as unknown as {
-      fileinfo: Array<{ path: string; filename: string }>;
-    };
-    expect(row.fileinfo[0]!.path).toBe('b');
+    expect(locationRows(live.db, id)[0]!.path).toBe('b');
     await expect(fs.readFile(path.join(root, 'a', 'IMG_1.dng'), 'utf8')).rejects.toThrow();
     expect(await fs.readFile(path.join(root, 'b', 'IMG_1.dng'), 'utf8')).toBe('pixels');
   });
 
   test('returns 404 for an unknown asset id', async () => {
-    if (!db) return;
-    const res = await postRelocate(new ObjectId().toHexString(), {
+    const res = await postRelocate(newObjectIdHex(), {
       mode: 'move',
       collision: 'auto-suffix',
       destination_path: 'b',

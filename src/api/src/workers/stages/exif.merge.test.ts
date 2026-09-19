@@ -1,345 +1,310 @@
 /**
  * EXIF stage — merge-on-collision tests for `tryMergeWithExistingPrimary`.
  *
- * Covers the runtime safety net the handler reaches for when a maple_id
- * upgrade would collide with an existing row's primary id (E11000 on the
- * unique partial index). The expected behaviour mirrors the boot-time
- * `mergeDuplicateAssets` heal in `db/migrations.ts` but applies one row
- * at a time as duplicates surface from the worker queue. See
- * `workers/stages/exif.ts` for the production call site.
+ * Covers the runtime safety net the handler reaches for when a `maple_id`
+ * upgrade would collide with an existing row's primary id. The expected
+ * behaviour mirrors the boot-time duplicate heal but applies one row at a time,
+ * as duplicates surface from the worker queue. See `workers/stages/exif.ts` for
+ * the production call site.
  *
- * Requires: MAPLE_MONGO_URI (or a local MongoDB on localhost:27017).
- * Skips gracefully when Mongo is unreachable.
+ * `createLiveTestDatabase` rather than an override handle: the merge reaches
+ * `sqliteDb()` through the repository with no override, and the point of these
+ * cases is the real schema — `assets_maple_id` is a UNIQUE partial index, so a
+ * merge that let two rows hold the same primary id at any point fails loudly
+ * here instead of silently passing against a mock.
  */
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import type { MongoClient } from 'mongodb';
-import { ObjectId, type Db } from 'mongodb';
-import { tryConnect } from '../discover/_test-helpers.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_exif_merge_${process.pid}`);
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+import { describe, expect, it } from 'bun:test';
+import { ObjectId } from 'mongodb';
+import type { Database } from 'bun:sqlite';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { __exifTestInternals } from './exif.ts';
 
 const NO_LOSER_CONTRIBUTION = { exif: null, is_screenshot: false };
 
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[exif.merge.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
+interface RowFixture {
+  mapleId: string;
+  indexedAt: string;
+  rating?: number;
+  flag?: number;
+  colorLabel?: string;
+  exif?: Record<string, unknown> | null;
+  locations: Array<{ path: string; filename: string; deletedAt?: string | null }>;
+}
 
-  // Mirror the production unique partial index on `maple_id` (see
-  // db/client.ts `maple_id_gt_1`). Without it the merge could transiently
-  // hold the same primary id on two rows and silently pass — exactly the
-  // gap that let the E11000-on-upgrade ordering bug ship. With the index in
-  // place the "loser is survivor" case fails loudly unless the condemned row
-  // is deleted before the survivor claims the id.
-  await db
-    .collection('assets')
-    .createIndex(
-      { maple_id: 1 },
-      { name: 'maple_id_gt_1', unique: true, partialFilterExpression: { maple_id: { $gt: '' } } },
-    );
-});
+/** Seeds one asset row with its locations, and returns it in `ImageDoc` shape. */
+function seedRow(
+  db: Database,
+  libraryId: string,
+  fixture: RowFixture,
+): {
+  _id: ObjectId;
+  maple_id: string;
+  indexed_at: string;
+  rating: number;
+  flag: number;
+  color_label: string;
+  exif: Record<string, unknown> | null;
+  fileinfo: Array<{
+    path: string;
+    filename: string;
+    library_id: ObjectId;
+    deleted_at: string | null;
+  }>;
+} {
+  const id = insertAsset(db, { exif: fixture.exif ? JSON.stringify(fixture.exif) : null });
+  run(
+    db,
+    `UPDATE assets SET maple_id = ?, indexed_at = ?, rating = ?, flag = ?, color_label = ?
+      WHERE id = ?`,
+    fixture.mapleId,
+    fixture.indexedAt,
+    fixture.rating ?? 0,
+    fixture.flag ?? 0,
+    fixture.colorLabel ?? '',
+    id,
+  );
+  fixture.locations.forEach((location, ordinal) => {
+    insertLocation(db, {
+      assetId: id,
+      libraryId,
+      ordinal,
+      path: location.path,
+      filename: location.filename,
+      deletedAt: location.deletedAt ?? null,
+    });
+  });
+  return {
+    _id: new ObjectId(id),
+    maple_id: fixture.mapleId,
+    indexed_at: fixture.indexedAt,
+    rating: fixture.rating ?? 0,
+    flag: fixture.flag ?? 0,
+    color_label: fixture.colorLabel ?? '',
+    exif: fixture.exif ?? null,
+    fileinfo: fixture.locations.map((location) => ({
+      path: location.path,
+      filename: location.filename,
+      library_id: new ObjectId(libraryId),
+      deleted_at: location.deletedAt ?? null,
+    })),
+  };
+}
 
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {}
-    try {
-      await mongo.close();
-    } catch {}
-  }
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
-});
+/** `"<path>/<filename>"` for every location of an asset, sorted. */
+function locationsOf(db: Database, assetId: ObjectId): string[] {
+  return (
+    db
+      .query(`SELECT path, filename FROM asset_locations WHERE asset_id = ?`)
+      .all(assetId.toHexString()) as Array<{ path: string; filename: string }>
+  )
+    .map((row) => `${row.path}/${row.filename}`)
+    .sort();
+}
+
+function assetRow(db: Database, assetId: ObjectId): Record<string, unknown> | null {
+  return db.query(`SELECT * FROM assets WHERE id = ?`).get(assetId.toHexString()) as Record<
+    string,
+    unknown
+  > | null;
+}
 
 describe('exif stage — tryMergeWithExistingPrimary', () => {
   it('returns null when no other row owns the new maple_id', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-    const { __exifTestInternals } = await import('./exif.ts');
-    const coll = await assetsCollection();
-
-    const loser = {
-      _id: new ObjectId(),
-      maple_id: '02' + 'a'.repeat(30),
-      indexed_at: '2026-05-01T00:00:00.000Z',
-      fileinfo: [
-        {
-          library_id: new ObjectId(),
-          path: 'a',
-          filename: 'IMG.jpg',
-          deleted_at: null,
-        },
-      ],
-    };
-    const newId = '01' + 'b'.repeat(30);
-    await coll.deleteMany({ maple_id: { $in: [loser.maple_id, newId] } });
-    await coll.insertOne(loser as never);
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db);
+    const loser = seedRow(live.db, libraryId, {
+      mapleId: '02' + 'a'.repeat(30),
+      indexedAt: '2026-05-01T00:00:00.000Z',
+      locations: [{ path: 'a', filename: 'IMG.jpg' }],
+    });
 
     const result = await __exifTestInternals.tryMergeWithExistingPrimary(
       loser as never,
-      newId,
+      '01' + 'b'.repeat(30),
       NO_LOSER_CONTRIBUTION,
     );
-    expect(result).toBeNull();
-    // Loser row still exists, untouched.
-    const stillThere = await coll.findOne({ _id: loser._id });
-    expect(stillThere).not.toBeNull();
 
-    await coll.deleteMany({ maple_id: { $in: [loser.maple_id, newId] } });
+    expect(result).toBeNull();
+    // The row is untouched — including its fallback id, which the caller
+    // upgrades itself through the ordinary patch when this returns null.
+    expect(assetRow(live.db, loser._id)).toMatchObject({ maple_id: loser.maple_id });
   });
 
-  it('merges fileinfo into the survivor and deletes the condemned when the new id collides', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-    const { __exifTestInternals } = await import('./exif.ts');
-    const coll = await assetsCollection();
-
-    const libraryId = new ObjectId();
+  it('merges locations into the survivor and deletes the condemned when the new id collides', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db);
     const collidingId = '01' + 'c'.repeat(30);
-    // Other-row indexed_at is earlier → survives.
-    const other = {
-      _id: new ObjectId(),
-      maple_id: collidingId,
-      indexed_at: '2026-04-01T00:00:00.000Z',
-      fileinfo: [{ library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    const loser = {
-      _id: new ObjectId(),
-      maple_id: '02' + 'd'.repeat(30),
-      indexed_at: '2026-05-01T00:00:00.000Z',
-      fileinfo: [{ library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
-    await coll.insertMany([other, loser] as never);
+    // The other row was indexed earlier, so it survives.
+    const other = seedRow(live.db, libraryId, {
+      mapleId: collidingId,
+      indexedAt: '2026-04-01T00:00:00.000Z',
+      locations: [{ path: 'a', filename: 'IMG.jpg' }],
+    });
+    const loser = seedRow(live.db, libraryId, {
+      mapleId: '02' + 'd'.repeat(30),
+      indexedAt: '2026-05-01T00:00:00.000Z',
+      locations: [{ path: 'b', filename: 'IMG.jpg' }],
+    });
 
     const result = await __exifTestInternals.tryMergeWithExistingPrimary(
       loser as never,
       collidingId,
       NO_LOSER_CONTRIBUTION,
     );
+
     expect(result).not.toBeNull();
     expect(result!.equals(other._id)).toBe(true);
-
-    // Survivor (other) now carries both locations; loser is gone.
-    const survivor = await coll.findOne({ _id: other._id });
-    expect(survivor).not.toBeNull();
-    const entries = (survivor!.fileinfo ?? []).map((e: any) => `${e.path}/${e.filename}`).sort();
-    expect(entries).toEqual(['a/IMG.jpg', 'b/IMG.jpg']);
-    const deadLoser = await coll.findOne({ _id: loser._id });
-    expect(deadLoser).toBeNull();
-
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
+    expect(locationsOf(live.db, other._id)).toEqual(['a/IMG.jpg', 'b/IMG.jpg']);
+    expect(assetRow(live.db, loser._id)).toBeNull();
+    // The roll-up the triggers maintain followed the rows across, without the
+    // explicit recompute the Mongo merge had to issue twice.
+    expect(assetRow(live.db, other._id)).toMatchObject({ live_location_count: 2 });
   });
 
   it('picks the older row as survivor and writes the maple_id upgrade when the loser is older', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-    const { __exifTestInternals } = await import('./exif.ts');
-    const coll = await assetsCollection();
-
-    const libraryId = new ObjectId();
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db);
     const collidingId = '01' + 'a'.repeat(30);
-    // The OTHER row is newer than the loser — survivor pick by indexed_at
-    // means the loser survives, and tryMergeWithExistingPrimary writes the
-    // upgraded maple_id onto it.
-    const other = {
-      _id: new ObjectId(),
-      maple_id: collidingId,
-      indexed_at: '2026-05-15T00:00:00.000Z',
-      fileinfo: [{ library_id: libraryId, path: 'newer', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    const loser = {
-      _id: new ObjectId(),
-      maple_id: '02' + '1'.repeat(30),
-      indexed_at: '2026-01-01T00:00:00.000Z',
+    // The OTHER row is newer, so the survivor pick by `indexed_at` keeps the
+    // row this stage is processing — and the merge claims the primary id for
+    // it. On Mongo that write had to be ordered strictly after the delete to
+    // avoid colliding on the unique index, and a crash in between stranded the
+    // survivor on its fallback id; here both are in one transaction.
+    const other = seedRow(live.db, libraryId, {
+      mapleId: collidingId,
+      indexedAt: '2026-05-15T00:00:00.000Z',
+      locations: [{ path: 'newer', filename: 'IMG.jpg' }],
+    });
+    const loser = seedRow(live.db, libraryId, {
+      mapleId: '02' + '1'.repeat(30),
+      indexedAt: '2026-01-01T00:00:00.000Z',
       rating: 5,
       flag: 1,
-      color_label: 'red',
-      fileinfo: [{ library_id: libraryId, path: 'older', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
-    await coll.insertMany([other, loser] as never);
+      colorLabel: 'red',
+      locations: [{ path: 'older', filename: 'IMG.jpg' }],
+    });
 
     const result = await __exifTestInternals.tryMergeWithExistingPrimary(
       loser as never,
       collidingId,
       NO_LOSER_CONTRIBUTION,
     );
+
     expect(result).not.toBeNull();
     expect(result!.equals(loser._id)).toBe(true);
-
-    const survivor = await coll.findOne({ _id: loser._id });
-    expect(survivor).not.toBeNull();
-    expect((survivor as { maple_id?: string }).maple_id).toBe(collidingId);
-    // User-edited fields kept (they were already on the survivor).
-    expect((survivor as { rating?: number }).rating).toBe(5);
-    expect((survivor as { flag?: number }).flag).toBe(1);
-    expect((survivor as { color_label?: string }).color_label).toBe('red');
-    // Both locations now on the survivor.
-    const entries = ((survivor!.fileinfo ?? []) as Array<{ path: string; filename: string }>)
-      .map((e) => `${e.path}/${e.filename}`)
-      .sort();
-    expect(entries).toEqual(['newer/IMG.jpg', 'older/IMG.jpg']);
-    // The newer row is gone.
-    const condemned = await coll.findOne({ _id: other._id });
-    expect(condemned).toBeNull();
-
-    await coll.deleteMany({ maple_id: { $in: [collidingId, loser.maple_id] } });
+    expect(assetRow(live.db, loser._id)).toMatchObject({
+      maple_id: collidingId,
+      // User-edited fields kept — they were already on the survivor.
+      rating: 5,
+      flag: 1,
+      color_label: 'red',
+    });
+    expect(locationsOf(live.db, loser._id)).toEqual(['newer/IMG.jpg', 'older/IMG.jpg']);
+    expect(assetRow(live.db, other._id)).toBeNull();
   });
 
   it('migrates user-edited fields (rating, flag, color_label) from condemned onto a default survivor', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-    const { __exifTestInternals } = await import('./exif.ts');
-    const coll = await assetsCollection();
-
-    const libraryId = new ObjectId();
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db);
     const collidingId = '01' + '5'.repeat(30);
-    // Survivor (older) has defaults; condemned (newer, loser) has user edits.
-    // The user-edits-on-loser scenario is rare but real: a user rates a
-    // freshly-discovered duplicate before its exif stage finishes.
-    const other = {
-      _id: new ObjectId(),
-      maple_id: collidingId,
-      indexed_at: '2026-04-01T00:00:00.000Z',
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      fileinfo: [{ library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    const loser = {
-      _id: new ObjectId(),
-      maple_id: '02' + '6'.repeat(30),
-      indexed_at: '2026-05-01T00:00:00.000Z',
+    // The survivor holds defaults and the condemned row holds user edits. Rare
+    // but real: a user rates a freshly-discovered duplicate before its exif
+    // stage finishes.
+    const other = seedRow(live.db, libraryId, {
+      mapleId: collidingId,
+      indexedAt: '2026-04-01T00:00:00.000Z',
+      locations: [{ path: 'a', filename: 'IMG.jpg' }],
+    });
+    const loser = seedRow(live.db, libraryId, {
+      mapleId: '02' + '6'.repeat(30),
+      indexedAt: '2026-05-01T00:00:00.000Z',
+      rating: 4,
+      flag: 1,
+      colorLabel: 'green',
+      locations: [{ path: 'b', filename: 'IMG.jpg' }],
+    });
+
+    await __exifTestInternals.tryMergeWithExistingPrimary(
+      loser as never,
+      collidingId,
+      NO_LOSER_CONTRIBUTION,
+    );
+
+    expect(assetRow(live.db, other._id)).toMatchObject({
       rating: 4,
       flag: 1,
       color_label: 'green',
-      fileinfo: [{ library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
-    await coll.insertMany([other, loser] as never);
-
-    await __exifTestInternals.tryMergeWithExistingPrimary(
-      loser as never,
-      collidingId,
-      NO_LOSER_CONTRIBUTION,
-    );
-    const survivor = await coll.findOne({ _id: other._id });
-    expect(survivor).not.toBeNull();
-    expect((survivor as { rating?: number }).rating).toBe(4);
-    expect((survivor as { flag?: number }).flag).toBe(1);
-    expect((survivor as { color_label?: string }).color_label).toBe('green');
-
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
+    });
   });
 
   it('writes the freshly-computed exif from the loser when the survivor has none', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-    const { __exifTestInternals } = await import('./exif.ts');
-    const coll = await assetsCollection();
-
-    const libraryId = new ObjectId();
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db);
     const collidingId = '01' + '7'.repeat(30);
-    const other = {
-      _id: new ObjectId(),
-      maple_id: collidingId,
-      indexed_at: '2026-04-01T00:00:00.000Z',
+    const other = seedRow(live.db, libraryId, {
+      mapleId: collidingId,
+      indexedAt: '2026-04-01T00:00:00.000Z',
       exif: null,
-      fileinfo: [{ library_id: libraryId, path: 'a', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    const loser = {
-      _id: new ObjectId(),
-      maple_id: '02' + '8'.repeat(30),
-      indexed_at: '2026-05-01T00:00:00.000Z',
-      fileinfo: [{ library_id: libraryId, path: 'b', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
-    await coll.insertMany([other, loser] as never);
+      locations: [{ path: 'a', filename: 'IMG.jpg' }],
+    });
+    const loser = seedRow(live.db, libraryId, {
+      mapleId: '02' + '8'.repeat(30),
+      indexedAt: '2026-05-01T00:00:00.000Z',
+      locations: [{ path: 'b', filename: 'IMG.jpg' }],
+    });
 
-    const freshExif = {
-      captured_at: '2024-01-01T12:00:00.000Z',
-      captured_year: 2024,
-      captured_month: 1,
-      camera_make: 'Hasselblad',
-      camera_model: 'L3D-100c',
-      lens: null,
-      iso: 100,
-      aperture: 5.6,
-      shutter: '1/250',
-      focal_length: 24,
-      gps: null,
-      camera_serial: null,
-    };
     await __exifTestInternals.tryMergeWithExistingPrimary(loser as never, collidingId, {
-      exif: freshExif,
+      exif: {
+        captured_at: '2024-01-01T12:00:00.000Z',
+        captured_year: 2024,
+        captured_month: 1,
+        camera_make: 'Hasselblad',
+        camera_model: 'L3D-100c',
+        lens: null,
+        iso: 100,
+        aperture: 5.6,
+        shutter: '1/250',
+        focal_length: 24,
+        gps: null,
+      } as never,
       is_screenshot: false,
     });
-    const survivor = await coll.findOne({ _id: other._id });
-    expect(survivor).not.toBeNull();
-    expect((survivor as { exif?: { camera_make: string } | null }).exif?.camera_make).toBe(
-      'Hasselblad',
-    );
 
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
+    const survivor = assetRow(live.db, other._id)!;
+    expect(JSON.parse(survivor.exif as string)).toMatchObject({ camera_make: 'Hasselblad' });
+    // The generated column reads through the JSON the merge just wrote, so the
+    // survivor is immediately sortable by capture time.
+    expect(survivor.captured_at).toBe('2024-01-01T12:00:00.000Z');
   });
 
-  it('prefers live fileinfo entries over tombstones when both rows reference the same location', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-    const { __exifTestInternals } = await import('./exif.ts');
-    const coll = await assetsCollection();
+  it('cannot be handed two rows claiming the same file — the schema forbids it', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db);
+    seedRow(live.db, libraryId, {
+      mapleId: '01' + 'e'.repeat(30),
+      indexedAt: '2026-04-01T00:00:00.000Z',
+      locations: [{ path: 'shared', filename: 'IMG.jpg' }],
+    });
 
-    const libraryId = new ObjectId();
-    const collidingId = '01' + 'e'.repeat(30);
-    // Survivor (other, older) has the shared location tombstoned. Loser
-    // (newer) considers it live. Merge must surface the live entry on the
-    // survivor.
-    const other = {
-      _id: new ObjectId(),
-      maple_id: collidingId,
-      indexed_at: '2026-04-01T00:00:00.000Z',
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: 'shared',
-          filename: 'IMG.jpg',
-          deleted_at: '2026-05-01T00:00:00.000Z',
-        },
-      ],
-    };
-    const loser = {
-      _id: new ObjectId(),
-      maple_id: '02' + 'f'.repeat(30),
-      indexed_at: '2026-05-15T00:00:00.000Z',
-      fileinfo: [{ library_id: libraryId, path: 'shared', filename: 'IMG.jpg', deleted_at: null }],
-    };
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
-    await coll.insertMany([other, loser] as never);
-
-    await __exifTestInternals.tryMergeWithExistingPrimary(
-      loser as never,
-      collidingId,
-      NO_LOSER_CONTRIBUTION,
-    );
-    const merged = await coll.findOne({ _id: other._id });
-    const list = (merged!.fileinfo ?? []) as Array<{ deleted_at?: string | null }>;
-    expect(list).toHaveLength(1);
-    expect(list[0]!.deleted_at ?? null).toBeNull();
-
-    await coll.deleteMany({ maple_id: { $in: [other.maple_id, loser.maple_id] } });
+    // The Mongo merge carried a whole branch for this: if both rows listed the
+    // same `(library, path, filename)` and the survivor's copy was tombstoned
+    // while the loser's was live, an `arrayFilters` pass had to revive it.
+    // `asset_locations_lib_path_name` is UNIQUE across the table, so the state
+    // that branch existed to repair cannot be reached — which is why the branch
+    // is gone rather than ported.
+    expect(() =>
+      insertLocation(live.db, {
+        assetId: insertAsset(live.db),
+        libraryId,
+        path: 'shared',
+        filename: 'IMG.jpg',
+      }),
+    ).toThrow(/UNIQUE/i);
   });
 });

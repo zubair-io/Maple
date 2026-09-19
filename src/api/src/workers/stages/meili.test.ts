@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach, spyOn } from 'bun:test';
+import { describe, it, expect, afterEach } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import type { ImageDoc } from '../run-stage.ts';
+import type { ImageDoc, StageResult } from '../run-stage.ts';
 import type { AssetFaceDoc } from '../../db/schema.ts';
 import type {
   MeilisearchClient,
@@ -13,6 +13,32 @@ import {
   SINGLE_DOC_TOMBSTONE_TIMEOUT_MS,
 } from './meili.ts';
 import { composeDocument } from '../../enrichment/meilisearch-backfill-compose.ts';
+import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { insertPerson } from '../../db/sqlite/repos/people.test-helpers.ts';
+
+/**
+ * The `asset_search` upsert the handler asked the runner to run.
+ *
+ * The blob is a bound parameter of a statement now, not a field of a returned
+ * document, so the assertions reach it through the statement rather than through
+ * a property. Finding it by its table keeps these tests indifferent to how many
+ * other statements a patch carries — the fingerprint write rides alongside it
+ * whenever a semantic embedder is configured.
+ */
+function blobStatement(result: StageResult): { assetId: string; blob: string } | null {
+  if (!('patch' in result)) return null;
+  const upsert = result.patch.find((statement) =>
+    statement.sql.includes('INSERT INTO asset_search'),
+  );
+  if (upsert === undefined) return null;
+  const params = upsert.params as unknown[];
+  return { assetId: params[0] as string, blob: params[1] as string };
+}
+
+/** The search blob the handler asked the runner to write. */
+function blobOf(result: StageResult): string | null {
+  return blobStatement(result)?.blob ?? null;
+}
 
 function fakeDoc(overrides: Partial<ImageDoc> = {}): ImageDoc {
   const folderId = new ObjectId();
@@ -132,14 +158,15 @@ afterEach(() => {
 });
 
 describe('meiliHandler — upsert payload shape', () => {
-  it('returns patch.search_blob and upserts with correct id, folderId, capturedAt, searchBlob, description, ocrText', async () => {
+  it('writes the search blob and upserts with correct id, folderId, capturedAt, searchBlob, description, ocrText', async () => {
     const { client, upserts } = capturingClient();
     setMeilisearchClientForTests(client);
     const doc = fakeDoc();
     const result = await meiliHandler(doc, fakeCtx);
-    // Returns patch with search_blob for Mongo $text fallback.
-    const patch = (result as { patch: { search_blob: string } }).patch;
-    expect(typeof patch.search_blob).toBe('string');
+    // The patch carries the `asset_search` row behind the built-in full-text
+    // fallback, keyed on this asset.
+    expect(blobStatement(result)).toMatchObject({ assetId: doc._id.toHexString() });
+    expect(typeof blobOf(result)).toBe('string');
     // Also upserted to Meilisearch.
     expect(upserts.length).toBe(1);
     const u = upserts[0]!;
@@ -336,81 +363,65 @@ describe('meiliHandler — Meilisearch error tolerance', () => {
 });
 
 describe('meiliHandler — unconfigured Meilisearch', () => {
-  it('still returns patch.search_blob even when Meilisearch is not configured', async () => {
+  it('still writes the search blob even when Meilisearch is not configured', async () => {
     setMeilisearchClientForTests(unconfiguredClient());
     const doc = fakeDoc();
     const result = await meiliHandler(doc, fakeCtx);
-    const patch = (result as { patch: { search_blob: string } }).patch;
-    expect(typeof patch.search_blob).toBe('string');
+    const blob = blobOf(result);
+    expect(typeof blob).toBe('string');
     // Blob includes tokens from all three sources.
-    const tokens = patch.search_blob.split(' ');
-    expect(tokens).toContain('albany');
+    expect(blob!.split(' ')).toContain('albany');
   });
 });
 
 describe('resolveAssetPeopleNames + people in the doc/blob', () => {
-  // A fake person row set keyed by hex id. The mocked peopleCollection's
-  // find() filters by `_id $in` and `merged_into: null`, mirroring the real
-  // query shape closely enough to exercise the exclusion logic.
-  const PERSON_A = new ObjectId();
-  const PERSON_AUTO = new ObjectId();
-  const PERSON_MERGED = new ObjectId();
-  const PERSON_HIDDEN = new ObjectId();
-  const personRows = [
-    { _id: PERSON_A, name: 'Greyson', merged_into: null },
-    // Auto-generated cluster name — must be excluded from the index.
-    { _id: PERSON_AUTO, name: 'Person 7', merged_into: null },
-    // Merged row — must be excluded.
-    { _id: PERSON_MERGED, name: 'Maya', merged_into: new ObjectId() },
-    { _id: PERSON_HIDDEN, name: 'Hidden Helen', merged_into: null, hidden: true },
-  ];
+  // Real rows in a real `people` table, because the exclusion rule IS the
+  // query's `WHERE` clause now — the Mongo version had to mock a collection and
+  // re-implement half the filter in the mock, which could only ever prove the
+  // mock agreed with itself.
+  const PERSON_A = new ObjectId().toHexString();
+  const PERSON_AUTO = new ObjectId().toHexString();
+  const PERSON_MERGED = new ObjectId().toHexString();
+  const PERSON_HIDDEN = new ObjectId().toHexString();
+  const PERSON_EXCLUDED = new ObjectId().toHexString();
 
-  function facesFor(...ids: ObjectId[]): AssetFaceDoc[] {
+  function facesFor(...ids: string[]): AssetFaceDoc[] {
     return ids.map((id) => ({
       bbox: { x: 0, y: 0, w: 0.1, h: 0.1 },
-      person_id: id.toHexString(),
+      person_id: id,
       confidence: 0.99,
     }));
   }
 
-  it('folds named people into the doc + blob, excluding Person N and merged', async () => {
-    const realDbClient = await import('../../db/client.ts');
-    const dbSpy = spyOn(realDbClient, 'peopleCollection').mockImplementation(async () => {
-      return {
-        find: (filter: { _id: { $in: ObjectId[] }; merged_into: null; hidden: { $ne: true } }) => {
-          const idSet = new Set(filter._id.$in.map((o) => o.toHexString()));
-          const matched = personRows.filter(
-            (r) => idSet.has(r._id.toHexString()) && r.merged_into === null && r.hidden !== true,
-          );
-          return {
-            project: () => ({
-              toArray: async () => matched.map((r) => ({ _id: r._id, name: r.name })),
-            }),
-          };
-        },
-      } as unknown as Awaited<ReturnType<typeof realDbClient.peopleCollection>>;
-    });
-    try {
-      const { client, upserts } = capturingClient();
-      setMeilisearchClientForTests(client);
-      const doc = {
-        ...fakeDoc(),
-        faces: facesFor(PERSON_A, PERSON_AUTO, PERSON_MERGED, PERSON_HIDDEN),
-      } as ImageDoc;
-      const result = await meiliHandler(doc, fakeCtx);
-      expect(upserts.length).toBe(1);
-      const u = upserts[0]!;
-      // Only the real, live, non-auto name lands in the doc.
-      expect(u.people).toEqual(['Greyson']);
-      // …and in the unified blob.
-      expect(u.searchBlob.split(' ')).toContain('greyson');
-      // The patch blob (Mongo fallback) carries it too.
-      const patch = (result as { patch: { search_blob: string } }).patch;
-      expect(patch.search_blob.split(' ')).toContain('greyson');
-      setMeilisearchClientForTests(null);
-    } finally {
-      dbSpy.mockRestore();
-    }
+  it('folds named people into the doc + blob, excluding Person N, merged, hidden and excluded', async () => {
+    using live = await createLiveTestDatabase();
+    const survivor = insertPerson(live.db, { name: 'Survivor' });
+    insertPerson(live.db, { id: PERSON_A, name: 'Greyson' });
+    // Auto-generated cluster name — a placeholder, not an identity.
+    insertPerson(live.db, { id: PERSON_AUTO, name: 'Person 7' });
+    insertPerson(live.db, { id: PERSON_MERGED, name: 'Maya', mergedInto: survivor });
+    insertPerson(live.db, { id: PERSON_HIDDEN, name: 'Hidden Helen', hidden: true });
+    // #2894 — an excluded person's name must not become searchable.
+    insertPerson(live.db, { id: PERSON_EXCLUDED, name: 'Excluded Edith', excluded: true });
+
+    const { client, upserts } = capturingClient();
+    setMeilisearchClientForTests(client);
+    const doc = {
+      ...fakeDoc(),
+      faces: facesFor(PERSON_A, PERSON_AUTO, PERSON_MERGED, PERSON_HIDDEN, PERSON_EXCLUDED),
+    } as ImageDoc;
+
+    const result = await meiliHandler(doc, fakeCtx);
+
+    expect(upserts.length).toBe(1);
+    const u = upserts[0]!;
+    // Only the real, live, visible, non-auto name lands in the doc.
+    expect(u.people).toEqual(['Greyson']);
+    // …and in the unified blob.
+    expect(u.searchBlob.split(' ')).toContain('greyson');
+    expect(u.searchBlob.split(' ')).not.toContain('edith');
+    // The stored blob carries it too.
+    expect(blobOf(result)!.split(' ')).toContain('greyson');
   });
 });
 

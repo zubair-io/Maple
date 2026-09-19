@@ -1,87 +1,60 @@
+/**
+ * POST /api/libraries/:id/backup/sidecar — writing an XMP sidecar next to a
+ * previously uploaded original.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * (#3787). The suite shares one database and one tmp library across the block
+ * on purpose: the skip-if-exists cases assert against sidecars an earlier test
+ * wrote, so the state has to accumulate.
+ */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { foldersCollection, assetsCollection } from '../src/db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedBackupAsset, seedLibrary } from './helpers/sqlite-fixtures.ts';
+import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const libId = new ObjectId();
 const deviceId = 'test-device-sidecar';
 const phid = 'SIDE/L0/001';
 const mapleId = '022361528672690f7f8881f7a9192407';
 const targetRelPath = '2024/Tokyo/03-15/IMG_SIDECAR.HEIC';
+
+let live: LiveTestDatabase;
+let libId: ObjectId;
 let tmpLib: string;
 
 beforeAll(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-test-'));
-  const f = await foldersCollection();
-  await f.insertOne({
-    _id: libId,
-    path: tmpLib,
-    label: 'test',
-    created_at: new Date(),
-    file_count: 0,
-  } as any);
+  live = await createLiveTestDatabase();
+  libId = seedLibrary(live.db, { path: tmpLib, label: 'sidecar-test' });
+  invalidateLibraryRoots();
 
-  // Pre-create an AssetDoc that simulates a prior ingest.
+  // Pre-create the asset a prior ingest would have written, bytes included.
   const assetPath = path.join(tmpLib, targetRelPath);
   await fs.mkdir(path.dirname(assetPath), { recursive: true });
   await fs.writeFile(assetPath, Buffer.alloc(64, 1));
 
-  const a = await assetsCollection();
-  await a.deleteMany({ 'phasset_links.device_id': deviceId });
-  // Post drop-abs-path-2026-05-21: the on-disk pointer lives on `fileinfo[]`,
-  // and the sidecar route scopes its prior-upload lookup by
-  // `{ 'fileinfo.library_id', phasset_links… }`. Seed must carry a
-  // `fileinfo[].library_id` entry for this library or the lookup 404s.
-  await a.insertOne({
-    _id: new ObjectId(),
-    fileinfo: [
-      {
-        library_id: libId,
-        path: path.dirname(targetRelPath),
-        filename: path.basename(targetRelPath),
-        deleted_at: null,
-      },
-    ],
+  // The route resolves the prior upload either by content id or by the
+  // (device, phasset) link, both scoped to a live location in this library, so
+  // the seed carries all three.
+  seedBackupAsset(live.db, {
+    mapleId,
     size: 64,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    maple_id: mapleId,
-    phasset_links: [{ device_id: deviceId, phasset_local_id: phid, first_seen: new Date() }],
-    deleted_from_photos: false,
-  } as any);
+    locations: [{ libraryId: libId, relPath: targetRelPath }],
+    links: [{ deviceId, phassetLocalId: phid }],
+  });
 });
 
 afterAll(async () => {
-  // Drop the asset + folder rows this suite seeded so they don't leak into the
-  // shared Mongo for later test files (KTLO #895) — beforeAll only cleared its
-  // own prior run, never tore down afterward. Scoped to this suite's
-  // libId/deviceId to stay parallel-safe with the sibling backup suites.
-  try {
-    const a = await assetsCollection();
-    await a.deleteMany({
-      $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': deviceId }],
-    });
-    const f = await foldersCollection();
-    await f.deleteMany({ _id: libId });
-  } catch {
-    // Best-effort teardown — never mask a test failure with a cleanup error.
-  }
-  // Guard tmpLib: beforeAll can throw before assigning it, and an unguarded
-  // fs.rm(undefined) would throw and mask the original failure (mirrors the
-  // guard in setupBackupIngestSuite).
-  if (tmpLib) {
-    try {
-      await fs.rm(tmpLib, { recursive: true, force: true });
-    } catch {
-      // Teardown is best-effort; the OS will reclaim the tmpdir.
-    }
-  }
+  live.close();
+  invalidateLibraryRoots();
+  await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
 function sidecarRequest(
@@ -235,9 +208,9 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     expect(body.error).toContain('unsafe');
   });
 
-  // #698 — dedup / cross-device assets: this device's phasset_link is not
-  // attached, so the (device_id, phasset_local_id) lookup misses. The
-  // X-Maple-Id (maple_id) primary lookup must still resolve the asset.
+  // #698 — dedup / cross-device assets: this device's link is not attached, so
+  // the (device_id, phasset_local_id) lookup misses. The X-Maple-Id (maple_id)
+  // primary lookup must still resolve the asset.
   describe('#698 maple_id lookup + skip-if-exists', () => {
     // A maple_id present on the asset, but a phasset id that is NOT linked
     // for this device — so the device+phasset fallback alone would 404.
@@ -246,7 +219,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
 
     test('maple_id resolves where device+phasset would miss → 200 + file written', async () => {
       // Sanity: device+phasset alone (no X-Maple-Id) misses → 404, proving the
-      // phasset link for `dedupPhid` is genuinely absent.
+      // link for `dedupPhid` is genuinely absent.
       const miss = await authedHandle(
         sidecarRequest('<x/>', {
           'X-Maple-Device-Id': deviceId,

@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { setupAuditMongo } from '../workers/derivative-audit/test-support.ts';
+import { createLiveTestDatabase } from '../workers/derivative-audit/test-support.ts';
 import { derivativeAuditRoutes } from './derivative-audit.ts';
 
-const h = setupAuditMongo(`maple_derivative_audit_route_test_${process.pid}`);
 const app = new Elysia().use(derivativeAuditRoutes);
 
 describe('derivative-audit routes', () => {
   it('GET /status returns config + progress', async () => {
-    if (!h.mongoReachable) return;
+    using _live = await createLiveTestDatabase();
     const res = await app.handle(new Request('http://localhost/api/derivative-audit/status'));
     const body = (await res.json()) as {
       config: { enabled: boolean };
@@ -19,7 +18,7 @@ describe('derivative-audit routes', () => {
   });
 
   it('PUT /config persists a partial patch', async () => {
-    if (!h.mongoReachable) return;
+    using _live = await createLiveTestDatabase();
     const res = await app.handle(
       new Request('http://localhost/api/derivative-audit/config', {
         method: 'PUT',

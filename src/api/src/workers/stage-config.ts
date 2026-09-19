@@ -15,10 +15,14 @@
  * unchanged for every stage file and test.
  */
 
-import type { Collection, Filter, WithId } from 'mongodb';
+import type { WithId } from 'mongodb';
 import type { Logger } from 'pino';
 import { type IndexerAssetDoc } from '../indexer/images.repo.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
+import type { SqlStatement } from '../db/sqlite/protocol.ts';
+import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+import type { StageClaimResidual } from '../db/sqlite/repos/stage-claim.ts';
+import { resetStageRowsBelowTarget } from '../db/sqlite/repos/stage-state.repo.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 
 // ---------------------------------------------------------------------------
 // Public types — load-bearing for every stage file and stage test.
@@ -80,7 +84,13 @@ export interface WorkerConfig {
   ai_model?: string | null;
 }
 
-export type StageResult<TPatch = Record<string, unknown>> =
+/**
+ * What a handler returns. `TPatch` is the statements the runner should run in
+ * the same transaction as the stage's own bookkeeping — on Mongo it was a map
+ * of document fields the runner folded into its `$set`, and the change of
+ * default is the whole shape of the SQLite cutover at the handler boundary.
+ */
+export type StageResult<TPatch = readonly SqlStatement[]> =
   // `invalidates` lists downstream stages the runner marks stale (version 0,
   // bookkeeping cleared) in the SAME atomic $set as the patch, so their poll
   // loops re-claim the doc and rebuild from the freshly-patched fields. The
@@ -118,7 +128,7 @@ export interface StageContext {
 
 export type StageDep = string | { name: string; minVersion: number };
 
-export interface StageConfig<TPatch = Record<string, unknown>> {
+export interface StageConfig<TPatch = readonly SqlStatement[]> {
   name: string;
   /**
    * Bumping this on deploy triggers a dead-doc reset on boot and re-queues
@@ -163,22 +173,27 @@ export interface StageConfig<TPatch = Record<string, unknown>> {
    */
   tagsDamagedOnDeadLetter?: boolean;
   /**
-   * Optional extra Mongo predicate `AND`-ed into the claim query, so a stage
-   * that only applies to a subset of assets never even claims the rest.
+   * Optional extra predicate `AND`-ed into the claim, so a stage that only
+   * applies to a subset of assets never even claims the rest.
    *
    * Without it, a stage claims from the whole unprocessed pool and skips the
-   * assets it doesn't handle in its handler — which stamps a pointless
-   * `stages.<name>` skip-record on every non-matching asset and starves the
-   * concurrency slots with skip work before the stage reaches anything real.
-   * `transcribe` (video/audio only) sets this to a filename regex so it goes
-   * straight to media assets and ignores the photo library. The handler's own
-   * skips remain the correctness backstop — this is purely a claim-set
-   * optimization, so a slightly loose filter is safe.
+   * assets it doesn't handle in its handler — which stamps a pointless skip
+   * record on every non-matching asset and starves the concurrency slots with
+   * skip work before the stage reaches anything real. `transcribe` and
+   * `video-describe` are the callers; both narrow to their `media_kind`. The
+   * handler's own skips remain the correctness backstop, so a slightly loose
+   * predicate is safe.
    *
-   * Merged as `{ $and: [<base claim query>, claimFilter] }` in
-   * `buildClaimQuery`; omit it and the claim query is unchanged.
+   * The SQL is evaluated against a `stage_state` row, so anything about the
+   * asset is an `EXISTS` over `assets` keyed on `stage_state.asset_id` — see
+   * `StageClaimResidual`. It is AND-ed on, never merged, so it cannot collide
+   * with a gate the claim already applies; omit it and the claim is unchanged.
+   *
+   * Renamed from `claimFilter` at the SQLite cutover on purpose: the value's
+   * shape changed completely, and a Mongo filter left behind under the old name
+   * would have type-checked as an object and silently narrowed nothing.
    */
-  claimFilter?: Filter<ImageDoc>;
+  claimResidual?: StageClaimResidual;
   handler: (image: ImageDoc, ctx: StageContext) => Promise<StageResult<TPatch>>;
   /**
    * Optional per-tick progress hook, invoked by the poll loop after each
@@ -199,56 +214,18 @@ export interface StageConfig<TPatch = Record<string, unknown>> {
 }
 
 /** Zero-cost identity helper that provides `TPatch` inference at stage sites. */
-export function defineStage<TPatch = Record<string, unknown>>(
+export function defineStage<TPatch = readonly SqlStatement[]>(
   config: StageConfig<TPatch>,
 ): StageConfig<TPatch> {
   return config;
-}
-
-/**
- * `$set` keys that mark each stage in `names` stale (version 0, bookkeeping
- * cleared) — the runner folds these into the SAME atomic write as a patch
- * result's field values, so a crash can never land the new fields without
- * also marking the downstream stage stale (or vice versa). Also reused by the
- * `rearm` result to reset an UPSTREAM stage (#2177). The writing stage's own
- * name is excluded: its state is owned by the runner in the same write. See
- * `StageResult`'s `invalidates` doc (#2172).
- */
-export function invalidationSets(
-  names: readonly string[] | undefined,
-  ownName: string,
-): Record<string, unknown> {
-  // Names are interpolated into `$set` paths — a `.`/`$`-bearing or empty
-  // value would silently create unintended nested fields (or throw
-  // mid-update). Stage names are compile-time constants, so any mismatch is
-  // a programming error: fail the attempt loudly rather than write a
-  // malformed update.
-  const invalid = (names ?? []).filter((s) => !/^[a-z][a-z0-9_-]*$/.test(s));
-  if (invalid.length > 0) {
-    throw new Error(`invalid stage name in invalidates: ${invalid.join(', ')}`);
-  }
-  return Object.fromEntries(
-    (names ?? [])
-      .filter((s) => s !== ownName)
-      .flatMap((s) => [
-        [`stages.${s}.version`, 0],
-        [`stages.${s}.attempts`, 0],
-        [`stages.${s}.dead`, false],
-        [`stages.${s}.last_error`, null],
-        [`stages.${s}.processed_at`, null],
-      ]),
-  );
 }
 
 // ---------------------------------------------------------------------------
 // Boot: load or seed worker_config for a stage.
 // ---------------------------------------------------------------------------
 
-export async function bootConfig(
-  stage: StageConfig,
-  coll: Collection<WorkerConfigDoc>,
-): Promise<WorkerConfig> {
-  const repo = new WorkerConfigRepo(coll);
+export async function bootConfig(stage: StageConfig, dbOverride?: SqliteDb): Promise<WorkerConfig> {
+  const repo = new WorkerConfigRepo(dbOverride);
   const existing = await repo.load(stage.name);
 
   const merged: WorkerConfig = {
@@ -280,19 +257,13 @@ function pickInt(value: unknown, fallback: number): number {
 export async function versionBumpReset(
   stage: StageConfig,
   lastSeenVersion: number,
-  images: Collection<ImageDoc>,
-): Promise<void> {
-  if (stage.targetVersion <= lastSeenVersion) return;
-  const stageKey = `stages.${stage.name}`;
-  await images.updateMany(
-    { [`${stageKey}.version`]: { $lt: stage.targetVersion } },
-    {
-      $set: {
-        [`${stageKey}.dead`]: false,
-        [`${stageKey}.attempts`]: 0,
-        [`${stageKey}.last_error`]: null,
-      },
-    },
+  dbOverride?: SqliteDb,
+): Promise<number> {
+  return await resetStageRowsBelowTarget(
+    stage.name,
+    stage.targetVersion,
+    lastSeenVersion,
+    dbOverride,
   );
 }
 

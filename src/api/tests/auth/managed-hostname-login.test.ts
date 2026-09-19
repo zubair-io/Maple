@@ -5,29 +5,44 @@
  * asserted there must verify without the operator adding it to MAPLE_ORIGIN
  * and restarting. A hostname the server is NOT serving stays rejected — the
  * allowlist follows the live listener, not anything a client claims.
+ *
+ * Storage is a private SQLite database installed as the process-wide handle for
+ * each test (#3787), so each test claims a fresh server with its own passkey.
  */
-import { describe, it, expect, beforeEach, afterAll, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { buildApp } from '../../src/index.ts';
-import {
-  usersCollection,
-  credentialsCollection,
-  challengesCollection,
-  refreshTokensCollection,
-  serverStateCollection,
-} from '../../src/db/client.ts';
-import { OWNER_CLAIM_ID } from '../../src/auth/server_claim.ts';
 import { managedHttps } from '../../src/network/managed-https.ts';
-import { withTestDb, withTestEnv } from '../../src/db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { buildRegistrationResponse, type SoftAuthenticator } from './helpers/soft-authn.ts';
 
-// Suite-scoped env + per-file database (#2900/#2904 convention): claimed in
-// beforeAll, restored in afterAll, so these settings never leak into a sibling
-// suite. The auth stack reads them at request time, so `buildApp` at module
-// scope is fine.
-withTestEnv('MAPLE_RP_ID', 'maple.test');
-withTestEnv('MAPLE_ORIGIN', 'https://maple.test');
-withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
-withTestDb(`maple_test_managed_hostname_${process.pid}`);
+/**
+ * Claim an environment variable for this suite only, restoring whatever the
+ * process had before.
+ *
+ * Every other auth suite registers its passkeys at `localhost`; this one is
+ * about a different hostname entirely, and Bun evaluates every test file's
+ * module body before any test runs — so setting these at module scope would
+ * hand `maple.test` to the whole run. Claiming them in `beforeAll` and putting
+ * them back in `afterAll` keeps the difference inside this file.
+ */
+function withSuiteEnv(name: string, value: string): void {
+  let prior: string | undefined;
+  beforeAll(() => {
+    prior = process.env[name];
+    process.env[name] = value;
+  });
+  afterAll(() => {
+    if (prior === undefined) delete process.env[name];
+    else process.env[name] = prior;
+  });
+}
+
+withSuiteEnv('MAPLE_RP_ID', 'maple.test');
+withSuiteEnv('MAPLE_ORIGIN', 'https://maple.test');
+withSuiteEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
 
 const RP_ID = 'maple.test';
 const PUBLIC_ORIGIN = 'https://maple.test';
@@ -35,18 +50,17 @@ const LOCAL_HOSTNAME = 'local.maple.test';
 const app = buildApp({ stageNames: [] });
 const endpoint = spyOn(managedHttps, 'endpoint');
 
+let live: LiveTestDatabase;
+
 beforeEach(async () => {
-  for (const c of [
-    usersCollection,
-    credentialsCollection,
-    challengesCollection,
-    refreshTokensCollection,
-  ]) {
-    await (await c()).deleteMany({});
-  }
-  await (await serverStateCollection()).deleteOne({ _id: OWNER_CLAIM_ID });
+  live = await createLiveTestDatabase();
   endpoint.mockReturnValue({ ip: LOCAL_HOSTNAME, port: 443, scheme: 'https' });
 });
+
+afterEach(() => {
+  live.close();
+});
+
 afterAll(() => endpoint.mockRestore());
 
 function post(path: string, body: unknown, ip: string): Promise<Response> {

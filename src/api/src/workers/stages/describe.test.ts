@@ -18,6 +18,7 @@ import {
   VALID_VISION,
   fakeDoc,
   mockProvider,
+  patchFields,
   singleServerPool,
   stageDocIn,
 } from './describe.fixtures.ts';
@@ -59,7 +60,7 @@ describe('describeHandler — happy path', () => {
     });
 
     const result = await describeHandler(doc, fakeCtx);
-    const patch = (result as { patch: Record<string, unknown> }).patch;
+    const patch = patchFields(result);
 
     // Legacy description mirror is the caption verbatim.
     expect(patch.description).toBe(VALID_VISION.caption);
@@ -139,7 +140,7 @@ describe('describeHandler — happy path', () => {
     });
 
     const result = await describeHandler(doc, fakeCtx);
-    const patch = (result as { patch: Record<string, unknown> }).patch;
+    const patch = patchFields(result);
     expect(patch.is_screenshot).toBe(true);
     expect((patch.vision as { is_screenshot: boolean }).is_screenshot).toBe(true);
   });
@@ -158,7 +159,7 @@ describe('describeHandler — happy path', () => {
       model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    const patch = (result as { patch: Record<string, unknown> }).patch;
+    const patch = patchFields(result);
     expect(patch.description).toBe(VALID_VISION.caption);
   });
 });
@@ -408,7 +409,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
       model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    const patch = (result as { patch: Record<string, unknown> }).patch;
+    const patch = patchFields(result);
     expect(patch.ocr_text).toBe('STOP');
     const ocrMeta = patch.ocr_meta as {
       engine: string;
@@ -433,7 +434,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
       model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    const patch = (result as { patch: Record<string, unknown> }).patch;
+    const patch = patchFields(result);
     expect(patch.ocr_text).toBe('');
   });
 
@@ -459,7 +460,7 @@ describe('describeHandler — OCR mirror from vision.text_visible', () => {
       model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    const patch = (result as { patch: Record<string, unknown> }).patch;
+    const patch = patchFields(result);
     expect(patch.ocr_text).toBe('FRESH READ');
     const ocrMeta = patch.ocr_meta as { engine: 'qwen2.5-vl' };
     // Engine is the single literal — no union with other engines exists.
@@ -482,8 +483,7 @@ describe('describeHandler — provider_info extras', () => {
       model: 'qwen3-vl:8b',
     });
     const result = await describeHandler(doc, fakeCtx);
-    const meta = (result as { patch: { description_meta: Record<string, unknown> } }).patch
-      .description_meta;
+    const meta = patchFields(result).description_meta as Record<string, unknown>;
     expect(meta.input_tokens).toBe('120');
     expect(meta.output_tokens).toBe('20');
     expect(meta.cost_usd).toBe(0.04);
@@ -516,7 +516,7 @@ it('mixed pools use and record the model and provider of the selected connection
   setDescribeDepsForTests({ pool, model: 'legacy-model', provider: 'ollama', systemPrompt: 'p' });
   for (const server of servers) {
     const result = await describeHandler(doc, fakeCtx);
-    const patch = (result as { patch: Record<string, unknown> }).patch;
+    const patch = patchFields(result);
     expect(patch.vision_meta).toMatchObject({ provider: server.provider, model: server.model });
     expect(patch.description_meta).toMatchObject({
       provider: server.provider,

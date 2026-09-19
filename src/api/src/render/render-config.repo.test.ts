@@ -41,7 +41,7 @@ describe('resolveRenderConfig', () => {
   });
 
   it('falls back to the default for a hand-edited non-boolean row', () => {
-    // A row edited straight in Mongo could hold anything. Degrading to the
+    // A row edited straight in the database could hold anything. Degrading to the
     // default keeps the editor rendering rather than failing closed on a typo.
     const resolved = resolveRenderConfig({
       gpu_live_render_enabled: 'false' as unknown as boolean,

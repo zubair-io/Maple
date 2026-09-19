@@ -6,9 +6,9 @@
  * install that has been running since has one `.meta` file per thumbnail
  * already on disk. This suite covers draining that pre-existing state, not
  * any current write path. Split out of `cache-gc.test.ts` to stay under the
- * file-size budget, mirroring `cache-gc.pano-preseed.test.ts`; has its own
- * throwaway Mongo DB so it can run standalone or alongside the main suite
- * without name collisions.
+ * file-size budget, mirroring `cache-gc.pano-preseed.test.ts`; like both it
+ * runs against a per-test SQLite database installed as the process-wide
+ * handle, so it shares no state with its neighbours.
  *
  * Sidecars are deliberately NOT swept as entries in their own right: the suffix
  * is appended to the whole artefact filename, so `path.extname('<key>.avif.meta')`
@@ -18,76 +18,27 @@
  * stranded-sidecar pass for ones orphaned out of band. Neither path counts toward
  * `scanned`/`deleted`, so the counters still reconcile against artefacts.
  */
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, afterEach } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, rm, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import type { Database } from 'bun:sqlite';
 import { sha256Prefix16 } from '../fs/xmp.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_cache_gc_sidecars_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { sweepOrphanedCaches } from './cache-gc.ts';
 
 /** A 16-hex stem that hashes no live filename — a genuine orphan. */
 const DEAD_KEY = '0123456789abcdef'; // gitleaks:allow sha256_prefix16 — 16 hex
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[cache-gc.sidecars.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await mongo.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
+// The library-roots cache is process-wide and must not outlive its database.
+afterEach(() => {
+  invalidateLibraryRoots();
 });
 
 async function mkTree(): Promise<string> {
@@ -98,35 +49,15 @@ async function mkTree(): Promise<string> {
  * `loadLibraryRoots()` cache so it picks up the fresh insert. Required for any
  * delete decision — with no resolvable library id the sweep scans but never
  * deletes. */
-async function registerLibrary(root: string): Promise<ObjectId> {
-  const libraryId = new ObjectId();
-  await db!.collection('folders').insertOne({
-    _id: libraryId,
-    path: root,
-    label: 'cache-gc-sidecars-test',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  } as never);
-  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+function registerLibrary(db: Database, root: string): string {
+  const libraryId = insertFolder(db, { path: root });
   invalidateLibraryRoots();
   return libraryId;
 }
 
-/** Insert a live (non-tombstoned) asset row for one `fileinfo` location. */
-async function insertLiveAsset(libraryId: ObjectId, relPath: string, filename: string) {
-  await db!.collection('assets').insertOne({
-    _id: new ObjectId(),
-    fileinfo: [
-      {
-        library_id: libraryId,
-        path: relPath,
-        filename,
-        deleted_at: null,
-        missing_since: null,
-      },
-    ],
-  } as never);
+/** Insert a live (non-tombstoned) asset at one location. */
+function insertLiveAsset(db: Database, libraryId: string, relPath: string, filename: string): void {
+  insertLocation(db, { assetId: insertAsset(db), libraryId, path: relPath, filename });
 }
 
 async function writeAvif(p: string): Promise<void> {
@@ -155,16 +86,15 @@ function thumbsDir(root: string): string {
 
 describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
   test('reaps the legacy sidecar alongside its thumb, and keeps a live thumb’s', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
-      await insertLiveAsset(libraryId, '', 'live.dng');
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'live.dng');
 
       const orphan = path.join(thumbsDir(root), `${DEAD_KEY}.avif`);
-      const live = path.join(thumbsDir(root), `${sha256Prefix16('live.dng')}.avif`);
-      for (const f of [orphan, live]) {
+      const liveThumb = path.join(thumbsDir(root), `${sha256Prefix16('live.dng')}.avif`);
+      for (const f of [orphan, liveThumb]) {
         await writeAvif(f);
         await writeLegacySidecar(f);
         await agePast(f);
@@ -180,26 +110,25 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
 
       await expect(stat(orphan)).rejects.toThrow();
       await expect(stat(`${orphan}.meta`)).rejects.toThrow();
-      expect((await stat(live)).size).toBeGreaterThan(0);
-      expect((await stat(`${live}.meta`)).size).toBeGreaterThan(0);
+      expect((await stat(liveThumb)).size).toBeGreaterThan(0);
+      expect((await stat(`${liveThumb}.meta`)).size).toBeGreaterThan(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
   test('reaps a stranded legacy sidecar whose thumb is gone', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      const libraryId = await registerLibrary(root);
-      await insertLiveAsset(libraryId, '', 'live.dng');
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'live.dng');
 
-      const live = path.join(thumbsDir(root), `${sha256Prefix16('live.dng')}.avif`);
-      await writeAvif(live);
-      await writeLegacySidecar(live);
-      await agePast(live);
-      await agePast(`${live}.meta`);
+      const liveThumb = path.join(thumbsDir(root), `${sha256Prefix16('live.dng')}.avif`);
+      await writeAvif(liveThumb);
+      await writeLegacySidecar(liveThumb);
+      await agePast(liveThumb);
+      await agePast(`${liveThumb}.meta`);
 
       // A sidecar with no artefact beside it — never scanned as an entry, so
       // without the dedicated pass it would leak forever.
@@ -216,19 +145,18 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
       });
 
       await expect(stat(stranded)).rejects.toThrow();
-      expect((await stat(live)).size).toBeGreaterThan(0);
-      expect((await stat(`${live}.meta`)).size).toBeGreaterThan(0);
+      expect((await stat(liveThumb)).size).toBeGreaterThan(0);
+      expect((await stat(`${liveThumb}.meta`)).size).toBeGreaterThan(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
   test('leaves a just-written stranded legacy sidecar for the next pass', async () => {
-    if (!mongoReachable) return;
-    const { sweepOrphanedCaches } = await import('./cache-gc.ts');
+    using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
-      await registerLibrary(root);
+      registerLibrary(live.db, root);
       // Not aged: within the recency window a sidecar belongs to a thumb some
       // stage is mid-publish on, so it must survive this pass.
       const fresh = path.join(thumbsDir(root), `${DEAD_KEY}.avif.meta`);

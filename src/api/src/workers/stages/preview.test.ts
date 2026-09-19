@@ -3,13 +3,17 @@ import { mkdtemp, mkdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/p
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { maple, type ImageMetadata } from 'maple';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import * as bitmapPoolModule from '../../thumbs/bitmap-pool.ts';
 import { checkAvifOutput } from '../../thumbs/avif-checks.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { solidJpeg } from '../../test-support/synth-image.ts';
 
 /**
@@ -74,9 +78,6 @@ async function readbackMetadata(p: string): Promise<ImageMetadata> {
 /** Incremented by the render stub below; surfaced by `readbackMetadata` so a
  * failure shows whether `generatePreview` ever reached the render boundary. */
 let mockRenderCalls = 0;
-
-const TEST_DB = withTestDb(`maple_test_preview_stage_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 /**
  * Every test below that writes a bitmap (JPEG) source drives
@@ -158,23 +159,6 @@ afterAll(() => {
   validateStubSpy?.mockRestore();
   validateStubSpy = null;
 });
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
 
 function makeDoc(
   absPath: string,
@@ -470,57 +454,31 @@ describe('preview handler — bitmap path', () => {
   });
 });
 
+/**
+ * The one block that needs a database: the library root has to come from a real
+ * `folders` row rather than from `setLibraryRootsForTests`, because what is
+ * under test is that the handler resolves its cache path from the asset's own
+ * `fileinfo` entry through the ordinary `loadLibraryRoots()` lookup.
+ */
 describe('preview handler — path-keyed cache path', () => {
-  let mongo: MongoClient | null = null;
-  let mongoReachable = false;
-  let db: Db | null = null;
+  let live: LiveTestDatabase;
   let dir: string;
 
   beforeAll(async () => {
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) {
-      console.log('[preview.test] skipping content-addressed block: MongoDB unreachable');
-      return;
-    }
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-    const { closeDb } = await import('../../db/client.ts');
-    await closeDb();
+    live = await createLiveTestDatabase();
     dir = await mkdtemp(path.join(os.tmpdir(), 'preview-stage-ca-'));
   });
 
   afterAll(async () => {
-    if (mongoReachable) {
-      const { closeDb } = await import('../../db/client.ts');
-      await closeDb();
-      try {
-        await mongo!.db(TEST_DB).dropDatabase();
-      } catch {}
-      try {
-        await mongo!.close();
-      } catch {}
-      await rm(dir, { recursive: true, force: true });
-    }
+    live.close();
+    await rm(dir, { recursive: true, force: true });
   });
 
   it('uses <lib>/<fileinfo[0].path>/.maple/previews/<filename>.avif when the doc has fileinfo (no maple_id needed)', async () => {
-    if (!mongoReachable) return; // soft pass
-
-    const { foldersCollection } = await import('../../db/client.ts');
     const { invalidateLibraryRoots } = await import('../../indexer/libraries.cache.ts');
     invalidateLibraryRoots();
 
-    const libId = new ObjectId();
-    const folder = await foldersCollection();
-    await folder.insertOne({
-      _id: libId,
-      path: dir,
-      label: 'test',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
+    const libId = new ObjectId(insertFolder(live.db, { path: dir }));
 
     const sub = path.join(dir, 'trip');
     await mkdir(sub, { recursive: true });

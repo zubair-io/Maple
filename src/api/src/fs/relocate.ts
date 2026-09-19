@@ -27,8 +27,8 @@
  *      reverts the primary relocate.
  *   5. Identity repoint: the optional `onVerified` hook runs here, between
  *      the verified copy and the delete-of-original — asset-aware callers
- *      (`library/relocate-asset.ts`) use it to repoint the Mongo `fileinfo`
- *      doc in the same window `workers/migration/move-backup-asset.ts`
+ *      (`library/relocate-asset.ts`) use it to repoint the asset's `fileinfo`
+ *      location in the same window `workers/migration/move-backup-asset.ts`
  *      already uses for its own repoint-between-verify-and-delete ordering.
  *   6. On `mode: 'move'`, delete the original primary + every sidecar that
  *      was actually copied.

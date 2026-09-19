@@ -3,7 +3,6 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeDb } from '../db/client.ts';
 import { fsRoutes } from './fs.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
@@ -30,17 +29,19 @@ import { fakeAuth } from '../../tests/helpers/test-auth.ts';
  * the handler that does not exist, and all three cases below pass with or
  * without the re-resolve. The race is closed by construction (the path that is
  * opened is the path that was checked), not by these assertions.
+ *
+ * No database of any kind is involved. `GET /api/fs/raw` resolves the path,
+ * checks it against `MAPLE_ROOTS` and streams bytes; the mirror lookup it makes
+ * on the way is served from an in-process registry. The connection teardown
+ * this file used to carry was inherited boilerplate for a connection it never
+ * opened (#3787).
  */
-const SHARED_DB = `maple_rawjail_test_${process.pid}`;
 
 describe('GET /api/fs/raw — symlink jail', () => {
   let root: string | null = null;
   let outside: string | null = null;
 
   beforeEach(async () => {
-    process.env.MAPLE_MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-    process.env.MAPLE_MONGO_DB = SHARED_DB;
-    await closeDb();
     root = await realpath(await mkdtemp(join(tmpdir(), 'maple-rawjail-root-')));
     outside = await realpath(await mkdtemp(join(tmpdir(), 'maple-rawjail-out-')));
     process.env.MAPLE_ROOTS = root;
@@ -54,7 +55,6 @@ describe('GET /api/fs/raw — symlink jail', () => {
     }
     root = null;
     outside = null;
-    await closeDb();
   });
 
   const app = () => new Elysia().use(fakeAuth()).use(fsRoutes);

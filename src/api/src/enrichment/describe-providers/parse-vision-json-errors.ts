@@ -9,8 +9,8 @@
  * full snippet stays on the `snippet` field for programmatic readers.
  */
 
-/** Maximum bytes of the raw response we attach to error messages. Mongo
- * docs can hold MBs, but the dead-letter list is human-triaged in a UI
+/** Maximum bytes of the raw response we attach to error messages. The stored
+ * row would happily hold MBs, but the dead-letter list is human-triaged in a UI
  * — keep messages bounded so the operator's terminal doesn't choke. */
 const MAX_ERROR_SNIPPET_BYTES = 8 * 1024;
 
@@ -60,8 +60,8 @@ export class VisionParseError extends Error {
 
 /** Byte-aware truncation. `String.slice` cuts UTF-16 code units, so a
  * multi-byte character near the boundary would let the result exceed
- * `maxBytes` — important because the snippet caps Mongo last_error +
- * dead-letter doc growth, not a character count. Exported so
+ * `maxBytes` — important because the snippet caps stored `last_error` +
+ * dead-letter row growth, not a character count. Exported so
  * `parse-video-json.ts`'s `VideoParseError` can share it rather than
  * reimplementing the same byte-boundary logic. */
 export function truncateBytes(s: string, maxBytes: number): string {

@@ -1,14 +1,21 @@
+/**
+ * The vector backfill's single-runner lease: it serialises the migration
+ * worker, the admin route and the reset operation against each other.
+ *
+ * Storage is `db/sqlite/repos/meilisearch-backfill.repo.ts`. The claim there is
+ * one conditional upsert, so the duplicate-key catch this module used to need —
+ * two racing Mongo upserts can both miss the document, and one then loses the
+ * insert — has no equivalent: a claim either changes the row or it does not.
+ */
+
 import { randomUUID } from 'node:crypto';
-import { getDb } from '../db/client.ts';
+import {
+  acquireBackfillLease,
+  releaseBackfillLease,
+  renewBackfillLease,
+} from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
 
-const LEASE_ID = 'assets';
 const LEASE_MS = 2 * 60 * 1000;
-
-interface BackfillLease {
-  _id: string;
-  owner: string;
-  expires_at: Date;
-}
 
 export class MeilisearchBackfillBusyError extends Error {
   constructor() {
@@ -17,40 +24,15 @@ export class MeilisearchBackfillBusyError extends Error {
   }
 }
 
-function isDuplicateKey(error: unknown): boolean {
-  return !!error && typeof error === 'object' && (error as { code?: unknown }).code === 11000;
-}
-
 /** Serialize the migration worker, admin route, and reset operation. */
 export async function withMeilisearchBackfillLease<T>(work: () => Promise<T>): Promise<T> {
-  const leases = (await getDb()).collection<BackfillLease>('meilisearch_backfill_leases');
   const owner = randomUUID();
-  const now = new Date();
-  try {
-    const acquired = await leases.findOneAndUpdate(
-      {
-        _id: LEASE_ID,
-        $or: [{ expires_at: { $lte: now } }, { owner }],
-      },
-      {
-        $set: {
-          owner,
-          expires_at: new Date(now.getTime() + LEASE_MS),
-        },
-      },
-      { upsert: true, returnDocument: 'after' },
-    );
-    if (acquired?.owner !== owner) throw new MeilisearchBackfillBusyError();
-  } catch (error) {
-    if (isDuplicateKey(error)) throw new MeilisearchBackfillBusyError();
-    throw error;
-  }
+  const nowMs = Date.now();
+  const acquired = await acquireBackfillLease(owner, nowMs + LEASE_MS, nowMs);
+  if (!acquired) throw new MeilisearchBackfillBusyError();
 
   const heartbeat = setInterval(() => {
-    void leases.updateOne(
-      { _id: LEASE_ID, owner },
-      { $set: { expires_at: new Date(Date.now() + LEASE_MS) } },
-    );
+    void renewBackfillLease(owner, Date.now() + LEASE_MS);
   }, LEASE_MS / 3);
   heartbeat.unref();
 
@@ -58,6 +40,6 @@ export async function withMeilisearchBackfillLease<T>(work: () => Promise<T>): P
     return await work();
   } finally {
     clearInterval(heartbeat);
-    await leases.deleteOne({ _id: LEASE_ID, owner });
+    await releaseBackfillLease(owner);
   }
 }

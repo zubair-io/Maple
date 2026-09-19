@@ -13,9 +13,9 @@
 // repeating the ceremony there.
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { usersCollection } from '../db/client.ts';
+import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
-import { toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
+import { accessClaimsFor, toPublicAuthUser } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
 import { issueLanHandoffCode, redeemLanHandoffCode } from '../auth/lan_handoff_store.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -69,29 +69,16 @@ export const lanHandoffRedeemRoutes = new Elysia().post(
       return { error: 'rate limited' };
     }
     const redeemed = await redeemLanHandoffCode(body.code);
-    // Mirrors the user-lookup + access-token-sign shape in auth-native-code.ts's
-    // redeem route (and auth.ts's own login/dev-login pair) — the codebase
-    // already tolerates this per-route shape elsewhere rather than extracting
-    // a shared helper.
-    // fallow-ignore-next-line code-duplication
     if (!redeemed) {
       set.status = 400;
       return { error: 'invalid or expired code' };
     }
-    const user = await (await usersCollection()).findOne({ _id: redeemed.userId });
+    const user = await findUserById(redeemed.userId);
     if (!user) {
       set.status = 401;
       return { error: 'user gone' };
     }
-    const access_token = await signAccessToken(
-      {
-        sub: user._id.toHexString(),
-        email: user.email,
-        role: user.role,
-        file_access: userFileAccess(user),
-      },
-      jwtSecret(),
-    );
+    const access_token = await signAccessToken(accessClaimsFor(user), jwtSecret());
     const refresh = await issueRefreshToken(user._id, redeemed.deviceLabel, { secure: false });
     cookie.maple_refresh.set({
       value: refresh.raw,

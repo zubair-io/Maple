@@ -1,7 +1,7 @@
 /**
  * Unit coverage for `canonicalBaseFromSidecarFilename` — the pure helper that
  * resolves an `.xmp` sidecar filename to the filename of the primary it pairs
- * to. Pure string math, no Mongo / filesystem.
+ * to. Pure string math, no database / filesystem.
  *
  * Two conventions live side by side (M5 — #1635):
  *   - images: stem-swap   `IMG_1.xmp`     → base `IMG_1`     (pairs by stem)

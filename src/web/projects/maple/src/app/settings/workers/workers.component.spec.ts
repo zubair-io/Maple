@@ -45,6 +45,13 @@ describe('WorkersComponent', () => {
     // shape drains the request at teardown (no assertions run on it here).
     for (const r of http.match('/api/derivative-audit/status'))
       r.flush({ config: { enabled: true }, progress: {} });
+    // Same for the change-log retention panel (#3741).
+    for (const r of http.match('/api/change-log-gc/status'))
+      r.flush({
+        config: { enabled: true, retention_days: 30, last_run: null },
+        rows: 0,
+        pruned_through: 0,
+      });
     // Generated Searches panel reads its config on init (it needs the paused
     // state for the collapsed summary row); drain it for the same reason.
     for (const r of http.match('/api/workers/generated-search/config'))
@@ -59,6 +66,9 @@ describe('WorkersComponent', () => {
       });
     for (const request of http.match('/api/ai/connections/'))
       request.flush({ connections: [], assignments: {}, available_workers: [] });
+    // Change log GC panel reads retention window on init; drain it for the same reason.
+    for (const r of http.match('/api/workers/change-log-gc/retention-window'))
+      r.flush({ days: 30 });
     http.verify();
   });
 

@@ -3,25 +3,27 @@
  *
  * Per `docs/indexer-enrichment.md` §3.3 + §7.2: when a slow-tier worker
  * (geocode today; face/describe in future) exhausts its retry budget it
- * stamps `enrichment.<stage>.dead_letter_at = now` on the asset row. The
+ * stamps a dead-letter timestamp on the asset's row for that stage. The
  * worker's claim filter excludes those rows, so they stay stuck until an
  * operator clears the dead-letter via the routes built on top of these
  * functions.
  *
- * These legacy enrichment dead letters live on the asset doc itself.
- * The retired fast-pipeline `indexer_dead_letter` collection is no longer
- * read or written by the API.
+ * Storage lives in `db/sqlite/repos/enrichment-state.repo.ts`. This module is
+ * the domain surface the routes call: it owns the stage vocabulary, the limit
+ * clamp and the error-class truncation length, and nothing else.
  */
 
-import type { ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import {
+  clearDeadLetter,
+  groupDeadLettered,
+  listDeadLettered,
+} from '../db/sqlite/repos/enrichment-state.repo.ts';
 
 /**
  * Stages that participate in the slow-tier enrichment loop. Mirrors
- * `Enrichment` in `db/schema.ts` — keep these in sync. New stages added
- * to the asset schema must be added here too.
+ * `Enrichment` in `db/schema.ts` and the `enrichment_state.stage` CHECK
+ * constraint — keep these in sync. New stages added to the asset schema must
+ * be added here too.
  */
 export type EnrichmentStage = 'geocode' | 'face' | 'describe';
 
@@ -34,9 +36,9 @@ export function isEnrichmentStage(s: string): s is EnrichmentStage {
 
 /** One row of `listEnrichmentDeadLetter` output.
  *
- * `abs_path` is nullable because legacy-incomplete rows (no `fileinfo[0]` and
- * no `abs_path`) resolve to `null` via `assetAbsPath` — they still appear in
- * the triage UI so an operator can clear them. */
+ * `abs_path` is nullable because a row with no live location — or one whose
+ * library is no longer registered — resolves to `null`. Those rows still
+ * appear in the triage UI so an operator can clear them. */
 export interface EnrichmentDeadLetterRow {
   asset_id: string;
   abs_path: string | null;
@@ -58,54 +60,18 @@ const MAX_LIMIT = 1000;
  * error messages with the same head from fragmenting the histogram. */
 const ERROR_CLASS_LEN = 80;
 
-function field(stage: EnrichmentStage, key: string): string {
-  return `enrichment.${stage}.${key}`;
-}
-
 /**
  * List dead-lettered assets for a stage, newest dead-letter first.
  *
  * Returns the small slice the triage UI actually needs (asset id, path,
- * error, attempt count, dead-letter timestamp) — not the whole asset doc.
+ * error, attempt count, dead-letter timestamp) — not the whole asset row.
  */
 export async function listEnrichmentDeadLetter(input: {
   stage: EnrichmentStage;
   limit?: number;
 }): Promise<EnrichmentDeadLetterRow[]> {
   const limit = Math.min(MAX_LIMIT, Math.max(1, input.limit ?? DEFAULT_LIMIT));
-  const coll = await assetsCollection();
-  const dlField = field(input.stage, 'dead_letter_at');
-  const cursor = coll
-    .find(
-      { [dlField]: { $ne: null } },
-      {
-        projection: {
-          _id: 1,
-          abs_path: 1,
-          fileinfo: 1,
-          folder_id: 1,
-          [`enrichment.${input.stage}`]: 1,
-        },
-      },
-    )
-    .sort({ [dlField]: -1 })
-    .limit(limit);
-
-  const docs = await cursor.toArray();
-  const libs = await loadLibraryRoots();
-  return docs.map((d) => {
-    const stageState = d.enrichment?.[input.stage];
-    return {
-      asset_id: d._id.toHexString(),
-      abs_path: assetAbsPath(d, libs),
-      last_error: stageState?.last_error ?? null,
-      attempts: stageState?.attempts ?? 0,
-      // Filter guarantees dead_letter_at is non-null; fall back to "" so
-      // the type stays a string and downstream JSON encoding doesn't have
-      // to think about it.
-      dead_letter_at: stageState?.dead_letter_at ?? '',
-    };
-  });
+  return listDeadLettered(input.stage, limit);
 }
 
 /**
@@ -118,86 +84,23 @@ export async function listEnrichmentDeadLetter(input: {
 export async function groupEnrichmentDeadLetter(input: {
   stage: EnrichmentStage;
 }): Promise<EnrichmentDeadLetterGroup[]> {
-  const coll = await assetsCollection();
-  const dlField = field(input.stage, 'dead_letter_at');
-  const errField = field(input.stage, 'last_error');
-
-  const pipeline = [
-    { $match: { [dlField]: { $ne: null } } },
-    {
-      $project: {
-        // `$ifNull` so rows with `last_error: null` collapse into a single
-        // bucket rather than crashing the $substrCP.
-        errorClass: {
-          $substrCP: [{ $ifNull: [`$${errField}`, ''] }, 0, ERROR_CLASS_LEN],
-        },
-        deadLetterAt: `$${dlField}`,
-      },
-    },
-    {
-      $group: {
-        _id: '$errorClass',
-        count: { $sum: 1 },
-        latestTs: { $max: '$deadLetterAt' },
-      },
-    },
-    {
-      $project: {
-        _id: 0,
-        errorClass: '$_id',
-        count: 1,
-        latestTs: 1,
-      },
-    },
-    { $sort: { count: -1, latestTs: -1 } },
-  ];
-  return coll.aggregate<EnrichmentDeadLetterGroup>(pipeline).toArray();
+  return groupDeadLettered(input.stage, ERROR_CLASS_LEN);
 }
 
 /**
  * Clear the dead-letter (and the per-stage error/attempt counters) so the
- * next worker tick re-claims the row. Single `updateMany` so the three
+ * next worker tick re-claims the row. A single statement so the three
  * fields flip atomically — there's no race window where the worker could
- * see `dead_letter_at: null` but `attempts >= MAX_ATTEMPTS`.
+ * see no dead-letter but `attempts >= MAX_ATTEMPTS`.
  *
  * - `assetId` provided: targets that one asset.
  * - `assetId` omitted: resets every dead-lettered row for the stage.
  *
- * Other stages on the same row are untouched.
+ * Other stages on the same asset are untouched.
  */
 export async function resetEnrichmentDeadLetter(input: {
   stage: EnrichmentStage;
   assetId?: string;
 }): Promise<{ resetCount: number }> {
-  const coll = await assetsCollection();
-  const dlField = field(input.stage, 'dead_letter_at');
-
-  // Always include the dead-letter filter — even when `assetId` is given,
-  // we don't want to zero out an asset that isn't actually dead-lettered
-  // (would clobber legitimate retry state on a row currently being processed).
-  const filter: Record<string, unknown> = { [dlField]: { $ne: null } };
-  if (input.assetId) {
-    let oid: ObjectId;
-    try {
-      // Lazy import to avoid pulling ObjectId into the public surface; the
-      // route layer passes us a hex string.
-      const { ObjectId } = await import('mongodb');
-      oid = new ObjectId(input.assetId);
-    } catch {
-      // Bad hex: nothing matches.
-      return { resetCount: 0 };
-    }
-    filter._id = oid;
-  }
-
-  const update = {
-    $set: {
-      [dlField]: null,
-      [field(input.stage, 'last_error')]: null,
-      [field(input.stage, 'attempts')]: 0,
-    },
-  };
-
-  const res = await coll.updateMany(filter, update);
-  return { resetCount: res.modifiedCount ?? 0 };
+  return { resetCount: await clearDeadLetter(input.stage, input.assetId) };
 }

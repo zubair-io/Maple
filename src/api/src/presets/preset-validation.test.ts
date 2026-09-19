@@ -4,7 +4,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   PRESET_FIELDS_MAX,
   PRESET_NAME_MAX,
-  isMongoSafeKey,
+  isStorableKey,
   validatePresetDocument,
   validatePresetFields,
   validatePresetName,
@@ -144,8 +144,8 @@ describe('validatePresetFields', () => {
     expect(validatePresetFields(big)).toHaveProperty('error');
   });
 
-  it('rejects Mongo-unsafe keys (dots, $-prefix, NUL) with a clean error', () => {
-    // These would otherwise pass validation and blow up the insert (500).
+  it('rejects unstorable keys (dots, $-prefix, NUL) with a clean error', () => {
+    // A clean 400 rather than a surprise further down the write path.
     expect(validatePresetFields({ 'future.dotted': 1 })).toHaveProperty('error');
     expect(validatePresetFields({ $set: 1 })).toHaveProperty('error');
     expect(validatePresetFields({ 'future\0nul': 1 })).toHaveProperty('error');
@@ -154,13 +154,13 @@ describe('validatePresetFields', () => {
   });
 });
 
-describe('isMongoSafeKey', () => {
-  it('classifies key shapes the way MongoDB inserts require', () => {
-    expect(isMongoSafeKey('contrast')).toBe(true);
-    expect(isMongoSafeKey('future$x')).toBe(true);
-    expect(isMongoSafeKey('$set')).toBe(false);
-    expect(isMongoSafeKey('a.b')).toBe(false);
-    expect(isMongoSafeKey('a\0b')).toBe(false);
+describe('isStorableKey', () => {
+  it('classifies the key shapes the preset contract accepts', () => {
+    expect(isStorableKey('contrast')).toBe(true);
+    expect(isStorableKey('future$x')).toBe(true);
+    expect(isStorableKey('$set')).toBe(false);
+    expect(isStorableKey('a.b')).toBe(false);
+    expect(isStorableKey('a\0b')).toBe(false);
   });
 });
 

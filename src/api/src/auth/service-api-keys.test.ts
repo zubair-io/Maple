@@ -1,12 +1,31 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { MongoClient, ObjectId } from 'mongodb';
+/**
+ * Service API keys: the format, and what authentication makes of it.
+ *
+ * The four storage operations are tested against the table in
+ * `db/sqlite/repos/auth.enrolment.repo.test.ts`. What is left here — and what
+ * these cases are about — is the half that never moved: a key is minted in one
+ * piece and handed over once, only its hash is kept, and authentication
+ * distinguishes an unknown key from a revoked one from an expired one from a
+ * key whose scopes fall short.
+ *
+ * These functions take no database handle, because their callers are routes
+ * that have none either. So the database is installed as the process-wide
+ * handle for the block rather than passed in.
+ */
+
+import { describe, expect, test } from 'bun:test';
+import type { ObjectId } from 'mongodb';
 import {
   authenticateServiceApiKey,
   createServiceApiKey,
   listServiceApiKeys,
   revokeServiceApiKey,
 } from './service-api-keys.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import { insertUser } from '../db/sqlite/repos/auth.users.repo.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 /** Mirrors `KEY_PATTERN` in service-api-keys.ts (module-private there). */
 const KEY_SHAPE = /^maple_sk_[a-f0-9]{16}_([A-Za-z0-9_-]{43})$/;
@@ -32,71 +51,43 @@ function secretOf(key: string): string {
   return match[1]!;
 }
 
-const TEST_DB = `maple_test_service_api_keys_${process.pid}`;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-withTestDb(TEST_DB);
+/** An owner to hang the keys off — `created_by` is a foreign key. */
+async function seedOwner(live: LiveTestDatabase): Promise<ObjectId> {
+  return await insertUser(
+    {
+      email: 'owner@maple.test',
+      role: 'owner',
+      created_at: new Date().toISOString(),
+      last_seen_at: null,
+    },
+    live.handle,
+  );
+}
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-
-beforeAll(async () => {
-  mongo = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await mongo.connect();
-    await mongo.db('admin').command({ ping: 1 });
-    mongoReachable = true;
-    await mongo.db(TEST_DB).dropDatabase();
-    const { closeDb } = await import('../db/client.ts');
-    await closeDb();
-  } catch {
-    mongoReachable = false;
-    await mongo.close().catch(() => {});
-    mongo = null;
-    console.log('[service-api-keys.test] skipping: MongoDB unreachable');
-  }
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await mongo!.db(TEST_DB).collection('service_api_keys').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo
-      .db(TEST_DB)
-      .dropDatabase()
-      .catch(() => {});
-    await mongo.close().catch(() => {});
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
+/** One stored key, straight off the table. */
+function storedRow(live: LiveTestDatabase, keyId: string): Record<string, unknown> {
+  return live.db.query(`SELECT * FROM service_api_keys WHERE key_id = ?`).get(keyId) as Record<
+    string,
+    unknown
+  >;
+}
 
 describe('service API keys', () => {
-  it('stores only a secret hash and returns plaintext once', async () => {
-    if (!mongoReachable) return;
-    const created = await createServiceApiKey({
-      name: 'SugarMaple',
-      createdBy: new ObjectId(),
-    });
+  test('stores only a secret hash and returns plaintext once', async () => {
+    using live = await createLiveTestDatabase();
+    const createdBy = await seedOwner(live);
+    const created = await createServiceApiKey({ name: 'SugarMaple', createdBy });
     expect(created.key).toMatch(KEY_SHAPE);
 
-    const stored = await mongo!
-      .db(TEST_DB)
-      .collection('service_api_keys')
-      .findOne({ key_id: created.keyId });
-    expect(stored?.secret_hash).toMatch(/^[a-f0-9]{64}$/);
+    const stored = storedRow(live, created.keyId);
+    expect(stored.secret_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(stored)).not.toContain(created.key);
     // Capture the secret by the key's shape rather than `split('_')`. base64url's
     // alphabet includes `_`, so splitting on it returns whatever follows the LAST
     // underscore — a one- or two-character tail whenever the secret happens to
     // contain one near its end. A fragment that short matches something in every
-    // stored document (an ObjectId, the 64-char hash, the timestamp), so the old
-    // form passed by accident and failed a few percent of the time (#2367).
+    // stored row (an id, the 64-char hash, the timestamp), so the old form passed
+    // by accident and failed a few percent of the time (#2367).
     expect(JSON.stringify(stored)).not.toContain(secretOf(created.key));
 
     const listed = await listServiceApiKeys();
@@ -109,12 +100,10 @@ describe('service API keys', () => {
     expect(JSON.stringify(listed)).not.toContain('secret_hash');
   });
 
-  it('authenticates scope, then rejects revoked and expired keys', async () => {
-    if (!mongoReachable) return;
-    const created = await createServiceApiKey({
-      name: 'Search consumer',
-      createdBy: new ObjectId(),
-    });
+  test('authenticates scope, then rejects revoked and expired keys', async () => {
+    using live = await createLiveTestDatabase();
+    const createdBy = await seedOwner(live);
+    const created = await createServiceApiKey({ name: 'Search consumer', createdBy });
     const valid = await authenticateServiceApiKey(`Bearer ${created.key}`, 'assets:search');
     expect(valid.ok).toBe(true);
 
@@ -124,14 +113,35 @@ describe('service API keys', () => {
 
     const expired = await createServiceApiKey({
       name: 'Expired',
-      createdBy: new ObjectId(),
+      createdBy,
       expiresAt: new Date(Date.now() + 60_000),
     });
-    await mongo!
-      .db(TEST_DB)
-      .collection('service_api_keys')
-      .updateOne({ key_id: expired.keyId }, { $set: { expires_at: new Date(0) } });
+    live.db.run(`UPDATE service_api_keys SET expires_at = ? WHERE key_id = ?`, [
+      new Date(0).toISOString(),
+      expired.keyId,
+    ]);
     const expiredResult = await authenticateServiceApiKey(`Bearer ${expired.key}`, 'assets:search');
     expect(expiredResult).toMatchObject({ ok: false, status: 401, reason: 'expired_key' });
+  });
+
+  test('a key that names nothing is refused the same way as a wrong secret', async () => {
+    using live = await createLiveTestDatabase();
+    const createdBy = await seedOwner(live);
+    const created = await createServiceApiKey({ name: 'Search consumer', createdBy });
+    const tampered = `${created.key.slice(0, -1)}${created.key.endsWith('A') ? 'B' : 'A'}`;
+
+    // An unknown key id and a real key id with the wrong secret are one answer
+    // on purpose — both go through the constant-time comparison first.
+    expect(
+      await authenticateServiceApiKey(
+        `Bearer maple_sk_${'0'.repeat(16)}_${'a'.repeat(43)}`,
+        'assets:search',
+      ),
+    ).toMatchObject({ ok: false, status: 401, reason: 'invalid_key' });
+    expect(await authenticateServiceApiKey(`Bearer ${tampered}`, 'assets:search')).toMatchObject({
+      ok: false,
+      status: 401,
+      reason: 'invalid_key',
+    });
   });
 });

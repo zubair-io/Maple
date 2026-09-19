@@ -1,21 +1,28 @@
 /**
  * Throttled cross-process pause-state poller.
  *
- * Re-reads `worker_config.<name>.paused` from Mongo at most once per
- * `intervalMs`, caching the last-known value between reads. Used by interval
- * workers (missing-reaper, migration) so a pause written by the API process
- * takes effect without IPC, without hammering Mongo on every tick.
+ * Re-reads the worker's `paused` flag at most once per `intervalMs`, caching
+ * the last-known value between reads. Used by the interval workers
+ * (missing-reaper, migration) so a pause written by the API process takes
+ * effect without IPC, and without a read on every tick.
  */
 
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 
-/** Returns a per-worker function that returns the current paused state.
- * Caches the result and only re-reads Mongo once per `intervalMs`. */
+/**
+ * Returns a per-worker function answering the current paused state.
+ *
+ * The repository is constructed once and closed over rather than per read: it
+ * holds no connection of its own — every call resolves the process-wide SQLite
+ * handle — so there is nothing to keep warm, and one object per poller is
+ * simply less work than one per tick.
+ */
 export function makePausedPoller(
   name: string,
   initialValue: boolean,
   intervalMs = 2000,
 ): () => Promise<boolean> {
+  const repo = new WorkerConfigRepo();
   let cached = initialValue;
   let lastReadAt = 0;
   return async () => {
@@ -23,9 +30,6 @@ export function makePausedPoller(
     if (now - lastReadAt >= intervalMs) {
       lastReadAt = now;
       try {
-        const { getDb } = await import('../db/client.ts');
-        const db = await getDb();
-        const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
         const cfg = await repo.load(name);
         if (cfg !== null) cached = cfg.paused;
       } catch {

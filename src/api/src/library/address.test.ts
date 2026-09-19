@@ -3,7 +3,7 @@
  *
  * resolveAddress tests that depend on a real library root use a tmp dir
  * registered via setLibraryRootsForTests in libraries.cache.ts. This
- * avoids a Mongo dependency for pure-jail tests.
+ * avoids a database dependency for pure-jail tests.
  */
 import { describe, it, expect, beforeAll } from 'bun:test';
 import { mkdtemp, symlink, mkdir } from 'node:fs/promises';
@@ -34,7 +34,7 @@ beforeAll(async () => {
   await symlink(outsideDir, path.join(tmpRoot, 'escape-link')).catch(() => {});
 
   // Register the test library slug in the in-memory cache.
-  // This avoids a Mongo dependency for pure-jail tests.
+  // This avoids a database dependency for pure-jail tests.
   const { setLibraryBySlugForTests } = await import('../indexer/libraries.cache.ts');
   setLibraryBySlugForTests(TEST_SLUG, {
     libraryId: TEST_LIB_ID,

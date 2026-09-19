@@ -1,65 +1,36 @@
 /**
  * External-rename reconciliation (#2655) — integration coverage through the
- * real sweeper `visitDirectory` + the real `handleEvent`, against real Mongo
- * and real files in a temp directory. No mocking of the sidecar layer: every
- * assertion reads the actual `.xmp` file back off disk.
+ * real sweep and the real event handler, against real files in a temp
+ * directory. No mocking of the sidecar layer: every assertion reads the actual
+ * `.xmp` file back off disk.
  *
- * Requires: MAPLE_MONGO_URI (or a local MongoDB on localhost:27017).
- * Skips gracefully when Mongo is unreachable.
+ * The property under test is that a file renamed OUTSIDE Maple between two
+ * rescans keeps its edits and its sidecar, instead of reading as one asset
+ * vanishing and an unrelated one appearing. The guard against getting that
+ * wrong is structural: candidates are bucketed by a cheap fingerprint and a
+ * bucket with more than one member on either side is declined outright, so an
+ * ambiguous pair falls through to the ordinary created/removed handling rather
+ * than attaching one photo's history to another.
  */
-import { describe, expect, it, beforeAll, afterAll, afterEach, spyOn } from 'bun:test';
-import { mkdtemp, writeFile, rm, readFile, stat } from 'node:fs/promises';
-import type { MongoClient } from 'mongodb';
-import { type Db, ObjectId } from 'mongodb';
-import * as os from 'node:os';
+import { describe, expect, it, spyOn } from 'bun:test';
+import { writeFile, rm, readFile, stat } from 'node:fs/promises';
+import { ObjectId } from 'mongodb';
 import * as path from 'node:path';
-import { tryConnect } from './_test-helpers.ts';
+import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
 import { readExif } from '../../indexer/exif.ts';
 import * as exifModule from '../../indexer/exif.ts';
 import { reconcileRenamesInDirectory, type MissingFileCandidate } from './rename-reconcile.ts';
-import type { Collection } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_rename_reconcile_${process.pid}`);
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[rename-reconcile.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
-});
-
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {}
-    try {
-      await mongo.close();
-    } catch {}
-  }
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
-});
-
-// Each test builds its own isolated temp directory but shares the one
-// `assets` collection — wipe it between tests so one test's rows can never
-// leak into another's fingerprint-matching pool.
-afterEach(async () => {
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
-});
+import {
+  allAssets,
+  assetIdAt,
+  assetRow,
+  createDiscoverLibrary,
+  locationsOf,
+  seedAsset,
+  seedLocation,
+  stageRow,
+  type DiscoverLibrary,
+} from './discover.test-helpers.ts';
 
 // ---------------------------------------------------------------------------
 // A minimal hand-built big-endian TIFF, EXIF SubIFD included, so `readExif`
@@ -129,212 +100,142 @@ function makeExifTiff(opts: { captureDate: string; serial?: string }): Buffer {
   return Buffer.concat([header, ifd0, makeVal, exifIfd, ...exifValBufs]);
 }
 
-async function sweepOnce(root: string, folderId: ObjectId): Promise<void> {
-  const { visitDirectory } = await import('./sweeper.ts');
+/** One sweep generation over the library root. */
+async function sweepOnce(library: DiscoverLibrary, gen: number): Promise<void> {
   const frontier = await import('./frontier.repo.ts');
   const { handleEvent } = await import('./handle-event.ts');
-  await frontier.seedRoot(folderId, root, 1);
-  const dir = await frontier.claimNextDir(folderId, 1, 60_000);
-  await visitDirectory(dir!, root, { handleEvent, folderId });
+  const { visitDirectory } = await import('./sweeper.ts');
+  await frontier.seedRoot(library.folderId, library.root, gen);
+  const dir = await frontier.claimNextDir(library.folderId, gen, 60_000);
+  expect(dir).not.toBeNull();
+  await visitDirectory(dir!, library.root, { handleEvent, folderId: library.folderId });
 }
 
-// `AssetDoc` doesn't type its Mongo-only `stages` subdocument (a pre-existing
-// gap shared by `library/relocate-asset.test.ts`), and this file's assertions
-// want a non-optional `fileinfo[0]` rather than fighting
-// `noUncheckedIndexedAccess` at every call site — a narrow local row shape,
-// cast at the read boundary, matches that sibling test file's pattern.
-interface AssetRow {
-  _id: ObjectId;
-  maple_id?: string;
-  fileinfo: Array<{ path: string; filename: string; missing_since?: string | null }>;
-  rating: number;
-  flag: number;
-  color_label: string;
-  stages: Record<string, { version: number }>;
-}
-
-async function fetchRow(coll: Collection<AssetDoc>, id: ObjectId): Promise<AssetRow | null> {
-  return (await coll.findOne({ _id: id })) as unknown as AssetRow | null;
+/** The one location of an asset, which every assertion below reads. */
+function onlyLocation(library: DiscoverLibrary, id: string) {
+  const rows = locationsOf(library.db, id);
+  expect(rows).toHaveLength(1);
+  return rows[0]!;
 }
 
 describe('rename reconciliation (#2655)', () => {
-  it('reconciles a same-folder rename: sidecar follows, DB row repoints, edits + maple_id survive, cache stages bump', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-
-    const root = await mkdtemp(path.join(os.tmpdir(), 'maple-rename-'));
+  it('reconciles a same-folder rename: sidecar follows, row repoints, edits survive', async () => {
+    using library = await createDiscoverLibrary('maple-rename-');
     const oldName = 'IMG_0001.dng';
     const newName = 'vacation-final.dng';
-    const oldAbs = path.join(root, oldName);
+    const oldAbs = path.join(library.root, oldName);
     const bytes = makeExifTiff({ captureDate: '2024:06:01 12:00:00', serial: 'CAM-A-001' });
     await writeFile(oldAbs, bytes);
 
-    // Index it first (a real discover pass), giving it edits + a real sidecar.
-    const folderId = new ObjectId();
-    await sweepOnce(root, folderId);
+    // Index it first (a real discover pass), then give it edits and a sidecar.
+    await sweepOnce(library, 1);
+    const id = assetIdAt(library.db, '', oldName);
+    expect(id).not.toBeNull();
+    const mapleId = assetRow(library.db, id!)!.maple_id;
 
-    const coll = await assetsCollection();
-    const indexed = await coll.findOne({ 'fileinfo.filename': oldName });
-    expect(indexed).not.toBeNull();
-    const mapleId = indexed!.maple_id;
-    // Simulate the `exif` stage having already run (it's a separate async
-    // worker this test never starts) — the reconcile fingerprint's
-    // captured-at/serial come from THIS field, exactly as they would in
-    // production once the pipeline reaches the row.
-    const exif = await readExif(oldAbs);
-    await coll.updateOne(
-      { _id: indexed!._id },
-      {
-        $set: {
-          exif,
-          rating: 4,
-          flag: 1,
-          color_label: 'red',
-          'stages.thumb.version': 3,
-          'stages.preview.version': 3,
-        },
-      },
+    // Stand in for the exif stage having already run — it is a separate async
+    // worker this test never starts, and the reconcile fingerprint's capture
+    // time and serial come from exactly this field.
+    library.db.run(
+      `UPDATE assets SET exif = json(?), rating = 4, flag = 1, color_label = 'red', has_xmp = 1
+        WHERE id = ?`,
+      [JSON.stringify(await readExif(oldAbs)), id!],
     );
-    const oldSidecar = path.join(root, 'IMG_0001.xmp');
+    library.db.run(
+      `UPDATE stage_state SET version = 3 WHERE asset_id = ? AND stage IN ('thumb', 'preview')`,
+      [id!],
+    );
+    const oldSidecar = path.join(library.root, 'IMG_0001.xmp');
     await writeFile(oldSidecar, '<xmp>edited</xmp>');
-    await coll.updateOne({ _id: indexed!._id }, { $set: { has_xmp: true } });
 
-    // Externally rename the file (and NOT the sidecar — Finder doesn't know
-    // to) outside Maple, then rescan.
+    // Rename the file outside Maple — and NOT the sidecar, which Finder does
+    // not know to move — then rescan under a fresh generation.
     await rm(oldAbs);
-    await writeFile(path.join(root, newName), bytes);
+    await writeFile(path.join(library.root, newName), bytes);
+    await sweepOnce(library, 2);
 
-    // Fresh frontier generation (gen-1's frontier row was already consumed
-    // by the first sweep above) — reseed under the SAME folderId and sweep
-    // again to simulate the rescan that discovers the external rename.
-    const frontier = await import('./frontier.repo.ts');
-    const { handleEvent } = await import('./handle-event.ts');
-    const { visitDirectory } = await import('./sweeper.ts');
-    await frontier.seedRoot(folderId, root, 2);
-    const dir2 = await frontier.claimNextDir(folderId, 2, 60_000);
-    await visitDirectory(dir2!, root, { handleEvent, folderId });
+    expect(assetRow(library.db, id!)!.maple_id).toBe(mapleId);
+    const location = onlyLocation(library, id!);
+    expect(location.filename).toBe(newName);
+    expect(location.path).toBe('');
+    expect(location.missing_since).toBeNull();
 
-    const after = await fetchRow(coll, indexed!._id);
-    expect(after).not.toBeNull();
-    expect(after!.maple_id).toBe(mapleId);
-    expect(after!.fileinfo[0]!.filename).toBe(newName);
-    expect(after!.fileinfo[0]!.path).toBe('');
-    expect(after!.fileinfo[0]!.missing_since ?? null).toBeNull();
-    expect(after!.rating).toBe(4);
-    expect(after!.flag).toBe(1);
-    expect(after!.color_label).toBe('red');
-    expect(after!.stages.thumb!.version).toBe(0);
-    expect(after!.stages.preview!.version).toBe(0);
+    const edits = library.db
+      .query(`SELECT rating, flag, color_label FROM assets WHERE id = ?`)
+      .get(id!) as { rating: number; flag: number; color_label: string };
+    expect(edits).toEqual({ rating: 4, flag: 1, color_label: 'red' });
+    // The path-keyed caches were dropped with the move, so both re-arm.
+    expect(stageRow(library.db, id!, 'thumb')!.version).toBe(0);
+    expect(stageRow(library.db, id!, 'preview')!.version).toBe(0);
 
-    // No duplicate row was created for the "new" filename.
-    const count = await coll.countDocuments({ maple_id: mapleId });
-    expect(count).toBe(1);
+    // No second row was created for the "new" filename.
+    expect(allAssets(library.db)).toHaveLength(1);
 
-    // Sidecar physically followed the rename.
+    // The sidecar physically followed the rename.
     await expect(stat(oldSidecar)).rejects.toThrow();
-    const newSidecar = path.join(root, 'vacation-final.xmp');
+    const newSidecar = path.join(library.root, 'vacation-final.xmp');
     expect(await readFile(newSidecar, 'utf8')).toBe('<xmp>edited</xmp>');
-
-    await rm(root, { recursive: true, force: true });
   });
 
-  it('declines when two candidates share a fingerprint (ambiguous — logs and leaves both unmerged)', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-
-    const root = await mkdtemp(path.join(os.tmpdir(), 'maple-rename-ambig-'));
+  it('declines when two candidates share a fingerprint, leaving both unmerged', async () => {
+    using library = await createDiscoverLibrary('maple-rename-ambig-');
     const bytes = makeExifTiff({ captureDate: '2024:07:04 09:00:00', serial: 'CAM-DUP' });
-    const folderId = new ObjectId();
+    const exif = { captured_at: '2024-07-04T09:00:00.000Z', camera_serial: 'CAM-DUP' };
 
-    const coll = await assetsCollection();
-    // Two DISTINCT already-indexed rows (as if two genuinely different
-    // photos, previously indexed under two different filenames) that
-    // happen to share the SAME fingerprint — size + capture time + serial.
-    // Both then go missing in this sweep, and two new same-fingerprint
-    // files appear: the ambiguity the false-positive guard must catch.
-    const now = new Date().toISOString();
-    const missingIds = [new ObjectId(), new ObjectId()];
-    await coll.insertMany([
-      {
-        _id: missingIds[0],
-        maple_id: 'amb-missing-1',
-        fileinfo: [{ library_id: folderId, path: '', filename: 'gone-1.dng' }],
+    // Two genuinely different photos, previously indexed under two filenames,
+    // that happen to share a fingerprint — size, capture time and serial. Both
+    // go missing in this sweep while two same-fingerprint files appear: the
+    // ambiguity the false-positive guard exists for. Neither old filename is
+    // ever written to disk, so both read as genuinely absent.
+    const missingIds = ['gone-1.dng', 'gone-2.dng'].map((filename, index) => {
+      const id = seedAsset(library.db, {
+        id: newObjectIdHex(),
+        mapleId: `amb-missing-${index + 1}`,
         size: bytes.length,
-        exif: { captured_at: '2024-07-04T09:00:00.000Z', camera_serial: 'CAM-DUP' },
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        deleted_at: null,
-        indexed_at: now,
-        stages: {},
-      },
-      {
-        _id: missingIds[1],
-        maple_id: 'amb-missing-2',
-        fileinfo: [{ library_id: folderId, path: '', filename: 'gone-2.dng' }],
-        size: bytes.length,
-        exif: { captured_at: '2024-07-04T09:00:00.000Z', camera_serial: 'CAM-DUP' },
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        deleted_at: null,
-        indexed_at: now,
-        stages: {},
-      },
-    ] as never);
-    // Two NEW files sharing the same fingerprint as both missing rows.
-    // Neither "gone-1.dng" nor "gone-2.dng" was ever written to `root` — the
-    // rows above are purely DB-side, so both read as genuinely absent.
-    await writeFile(path.join(root, 'new-1.dng'), bytes);
-    await writeFile(path.join(root, 'new-2.dng'), bytes);
+        exif,
+      });
+      seedLocation(library.db, {
+        assetId: id,
+        libraryId: library.folderId.toHexString(),
+        filename,
+      });
+      return id;
+    });
+    await writeFile(path.join(library.root, 'new-1.dng'), bytes);
+    await writeFile(path.join(library.root, 'new-2.dng'), bytes);
 
-    const frontier = await import('./frontier.repo.ts');
-    const { handleEvent } = await import('./handle-event.ts');
-    const { visitDirectory } = await import('./sweeper.ts');
-    await frontier.seedRoot(folderId, root, 5);
-    const dir = await frontier.claimNextDir(folderId, 5, 60_000);
-    await visitDirectory(dir!, root, { handleEvent, folderId });
+    await sweepOnce(library, 5);
 
     // Declined: neither missing row was repointed to either new filename.
-    const missing1 = await fetchRow(coll, missingIds[0]!);
-    const missing2 = await fetchRow(coll, missingIds[1]!);
-    expect(missing1!.fileinfo[0]!.filename).toBe('gone-1.dng');
-    expect(missing1!.fileinfo[0]!.missing_since).not.toBeNull();
-    expect(missing2!.fileinfo[0]!.filename).toBe('gone-2.dng');
-    expect(missing2!.fileinfo[0]!.missing_since).not.toBeNull();
+    expect(onlyLocation(library, missingIds[0]!).filename).toBe('gone-1.dng');
+    expect(onlyLocation(library, missingIds[0]!).missing_since).not.toBeNull();
+    expect(onlyLocation(library, missingIds[1]!).filename).toBe('gone-2.dng');
+    expect(onlyLocation(library, missingIds[1]!).missing_since).not.toBeNull();
 
-    // Both new files were indexed as their own (separate, unedited) row —
-    // content-hash dedup folds them onto ONE row (identical bytes), but
-    // that row is distinct from both original "missing" rows.
-    const afterCount = await coll.countDocuments({});
-    expect(afterCount).toBe(3); // 2 declined-missing rows + 1 for the new content
-
-    await rm(root, { recursive: true, force: true });
+    // Both new files were indexed as their own unedited asset — content dedup
+    // folds them onto one row, distinct from both declined rows.
+    expect(allAssets(library.db)).toHaveLength(3);
   });
 
-  it('false positive: same size, different DateTimeOriginal/serial never merges', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-
-    const root = await mkdtemp(path.join(os.tmpdir(), 'maple-rename-fp-'));
+  it('false positive: same size, different capture time and serial never merges', async () => {
+    using library = await createDiscoverLibrary('maple-rename-fp-');
     const oldBytes = makeExifTiff({ captureDate: '2024:01:01 08:00:00', serial: 'CAM-X' });
-    const oldAbs = path.join(root, 'photo-old.dng');
+    const oldAbs = path.join(library.root, 'photo-old.dng');
     await writeFile(oldAbs, oldBytes);
 
-    const folderId = new ObjectId();
-    await sweepOnce(root, folderId);
-
-    const coll = await assetsCollection();
-    const indexed = await coll.findOne({ 'fileinfo.filename': 'photo-old.dng' });
-    expect(indexed).not.toBeNull();
-    // Same rationale as the reconcile-success test: populate `exif` the way
+    await sweepOnce(library, 1);
+    const oldId = assetIdAt(library.db, '', 'photo-old.dng');
+    expect(oldId).not.toBeNull();
+    // Same rationale as the reconcile-success test: populate the EXIF the way
     // the (here, unstarted) exif stage would have by the time a rescan runs.
-    await coll.updateOne({ _id: indexed!._id }, { $set: { exif: await readExif(oldAbs) } });
+    library.db.run(`UPDATE assets SET exif = json(?) WHERE id = ?`, [
+      JSON.stringify(await readExif(oldAbs)),
+      oldId!,
+    ]);
 
     await rm(oldAbs);
-    // A genuinely DIFFERENT photo, padded to the exact same byte length as
-    // `oldBytes`, but with a different capture date AND a different serial —
-    // the false-positive case the fingerprint must not merge.
+    // A genuinely different photo padded to the exact same byte length, with a
+    // different capture date AND serial — the case the fingerprint must not merge.
     const newBytesRaw = makeExifTiff({ captureDate: '2025:12:25 18:30:00', serial: 'CAM-Y' });
     const newBytes =
       newBytesRaw.length === oldBytes.length
@@ -343,130 +244,97 @@ describe('rename reconciliation (#2655)', () => {
           ? Buffer.concat([newBytesRaw, Buffer.alloc(oldBytes.length - newBytesRaw.length)])
           : newBytesRaw.subarray(0, oldBytes.length);
     expect(newBytes.length).toBe(oldBytes.length);
-    await writeFile(path.join(root, 'photo-new.dng'), newBytes);
+    await writeFile(path.join(library.root, 'photo-new.dng'), newBytes);
 
-    const frontier = await import('./frontier.repo.ts');
-    const { handleEvent } = await import('./handle-event.ts');
-    const { visitDirectory } = await import('./sweeper.ts');
-    await frontier.seedRoot(folderId, root, 2);
-    const dir = await frontier.claimNextDir(folderId, 2, 60_000);
-    await visitDirectory(dir!, root, { handleEvent, folderId });
+    await sweepOnce(library, 2);
 
-    const oldRow = await fetchRow(coll, indexed!._id);
-    expect(oldRow!.fileinfo[0]!.filename).toBe('photo-old.dng');
-    expect(oldRow!.fileinfo[0]!.missing_since).not.toBeNull();
-
-    const newRow = await coll.findOne({ 'fileinfo.filename': 'photo-new.dng' });
-    expect(newRow).not.toBeNull();
-    expect(newRow!._id.toString()).not.toBe(indexed!._id.toString());
-
-    await rm(root, { recursive: true, force: true });
+    expect(onlyLocation(library, oldId!).filename).toBe('photo-old.dng');
+    expect(onlyLocation(library, oldId!).missing_since).not.toBeNull();
+    const newId = assetIdAt(library.db, '', 'photo-new.dng');
+    expect(newId).not.toBeNull();
+    expect(newId).not.toBe(oldId);
   });
 
-  it('declines when the fileinfo entry changed concurrently between discovery and repoint (sidecar left untouched)', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-
-    const root = await mkdtemp(path.join(os.tmpdir(), 'maple-rename-race-'));
-    const folderId = new ObjectId();
+  it('declines when the location changed between discovery and repoint', async () => {
+    using library = await createDiscoverLibrary('maple-rename-race-');
     const bytes = makeExifTiff({ captureDate: '2024:03:03 10:00:00', serial: 'CAM-RACE' });
+    const exif = { captured_at: '2024-03-03T10:00:00.000Z', camera_serial: 'CAM-RACE' };
 
-    // The row's REAL current fileinfo entry — filename 'actual-current.dng'.
-    // This stands in for a concurrent writer (another sweeper worker, a
-    // manual rename route call, a dedupe move) having already changed this
-    // exact entry after the sweeper's `find()` snapshotted it but before
-    // reconciliation runs its repoint write.
-    const coll = await assetsCollection();
-    const docId = new ObjectId();
-    await coll.insertOne({
-      _id: docId,
-      maple_id: 'race-1',
-      fileinfo: [{ library_id: folderId, path: '', filename: 'actual-current.dng' }],
+    // The row's real current location is `actual-current.dng`. That stands in
+    // for a concurrent writer — another sweeper, a manual rename, a dedupe move
+    // — having changed this exact location after the sweep snapshotted it but
+    // before reconciliation runs its repoint.
+    const docId = seedAsset(library.db, {
+      id: newObjectIdHex(),
+      mapleId: 'race-1',
       size: bytes.length,
-      exif: { captured_at: '2024-03-03T10:00:00.000Z', camera_serial: 'CAM-RACE' },
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      deleted_at: null,
-      indexed_at: new Date().toISOString(),
-      stages: {},
-    } as never);
+      exif,
+    });
+    seedLocation(library.db, {
+      assetId: docId,
+      libraryId: library.folderId.toHexString(),
+      filename: 'actual-current.dng',
+    });
 
-    // A real sidecar sitting next to the STALE (pre-race) path the
-    // candidate below still believes is current.
-    const staleAbsPath = path.join(root, 'stale-snapshot.dng');
-    const staleSidecar = path.join(root, 'stale-snapshot.xmp');
+    // A real sidecar next to the stale path the candidate still believes in.
+    const staleAbsPath = path.join(library.root, 'stale-snapshot.dng');
+    const staleSidecar = path.join(library.root, 'stale-snapshot.xmp');
     await writeFile(staleSidecar, '<xmp>never touched</xmp>');
-
-    const freshAbsPath = path.join(root, 'new-name.dng');
+    const freshAbsPath = path.join(library.root, 'new-name.dng');
     await writeFile(freshAbsPath, bytes);
 
     const staleCandidate: MissingFileCandidate = {
-      docId,
-      // Deliberately mismatched vs. what's actually in Mongo right now —
-      // the query's elemMatch (library_id/path/filename/deleted_at:null)
-      // can never match, so the repoint must decline.
-      fileinfo: { library_id: folderId, path: '', filename: 'stale-snapshot.dng' },
+      docId: new ObjectId(docId),
+      // Deliberately mismatched against what the database holds right now, so
+      // the repoint's own guard can never match and it must decline.
+      fileinfo: { library_id: library.folderId, path: '', filename: 'stale-snapshot.dng' },
       filename: 'stale-snapshot.dng',
       absPath: staleAbsPath,
       size: bytes.length,
-      exif: { captured_at: '2024-03-03T10:00:00.000Z', camera_serial: 'CAM-RACE' } as never,
+      exif: exif as never,
     };
 
     const result = await reconcileRenamesInDirectory(
       [{ filename: 'new-name.dng', absPath: freshAbsPath }],
       [staleCandidate],
-      root,
-      folderId,
+      library.root,
+      library.folderId,
     );
 
     expect(result.reconciledMissingFilenames.size).toBe(0);
     expect(result.reconciledNewFilenames.size).toBe(0);
+    // Untouched: still the real current location, repointed to neither.
+    expect(onlyLocation(library, docId).filename).toBe('actual-current.dng');
 
-    // Row untouched: still the REAL current entry, not repointed to either
-    // the stale candidate's belief or the fresh filename.
-    const row = await fetchRow(coll, docId);
-    expect(row!.fileinfo[0]!.filename).toBe('actual-current.dng');
-
-    // Sidecar never moved — repoint-first ordering means the sidecar move
-    // is never even attempted once the repoint itself declines.
+    // The sidecar never moved — repoint-first ordering means the move is not
+    // even attempted once the repoint declines.
     expect(await readFile(staleSidecar, 'utf8')).toBe('<xmp>never touched</xmp>');
-    const wouldBeNewSidecar = path.join(root, 'new-name.xmp');
-    await expect(stat(wouldBeNewSidecar)).rejects.toThrow();
-
-    await rm(root, { recursive: true, force: true });
+    await expect(stat(path.join(library.root, 'new-name.xmp'))).rejects.toThrow();
   });
 
-  it('short-circuits before readExif for a new file whose size matches no missing candidate', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../../db/client.ts');
-
-    const root = await mkdtemp(path.join(os.tmpdir(), 'maple-rename-sizecheck-'));
-    const folderId = new ObjectId();
+  it('short-circuits before readExif for a new file whose size matches no candidate', async () => {
+    using library = await createDiscoverLibrary('maple-rename-sizecheck-');
     const missingBytes = makeExifTiff({ captureDate: '2024:05:05 11:00:00', serial: 'CAM-SIZE' });
+    const exif = { captured_at: '2024-05-05T11:00:00.000Z', camera_serial: 'CAM-SIZE' };
 
-    const coll = await assetsCollection();
-    const docId = new ObjectId();
-    await coll.insertOne({
-      _id: docId,
-      maple_id: 'size-1',
-      fileinfo: [{ library_id: folderId, path: '', filename: 'gone.dng' }],
+    const docId = seedAsset(library.db, {
+      id: newObjectIdHex(),
+      mapleId: 'size-1',
       size: missingBytes.length,
-      exif: { captured_at: '2024-05-05T11:00:00.000Z', camera_serial: 'CAM-SIZE' },
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      deleted_at: null,
-      indexed_at: new Date().toISOString(),
-      stages: {},
-    } as never);
+      exif,
+    });
+    seedLocation(library.db, {
+      assetId: docId,
+      libraryId: library.folderId.toHexString(),
+      filename: 'gone.dng',
+    });
 
-    const matchingAbsPath = path.join(root, 'matches-size.dng');
+    const matchingAbsPath = path.join(library.root, 'matches-size.dng');
     await writeFile(matchingAbsPath, missingBytes);
-    // A wrong-size file — same directory, but its byte length can never
-    // equal the one missing candidate's size, so the fingerprint's cheap
-    // first key already rules it out before any EXIF parse.
-    const wrongSizeAbsPath = path.join(root, 'wrong-size.dng');
+    // A wrong-size file in the same directory: its byte length can never equal
+    // the one missing candidate's, so the fingerprint's cheap first key rules
+    // it out before any EXIF parse.
+    const wrongSizeAbsPath = path.join(library.root, 'wrong-size.dng');
     await writeFile(
       wrongSizeAbsPath,
       Buffer.concat([missingBytes, Buffer.from('extra-tail-bytes')]),
@@ -479,12 +347,12 @@ describe('rename reconciliation (#2655)', () => {
     });
     try {
       const missingCandidate: MissingFileCandidate = {
-        docId,
-        fileinfo: { library_id: folderId, path: '', filename: 'gone.dng' },
+        docId: new ObjectId(docId),
+        fileinfo: { library_id: library.folderId, path: '', filename: 'gone.dng' },
         filename: 'gone.dng',
-        absPath: path.join(root, 'gone.dng'),
+        absPath: path.join(library.root, 'gone.dng'),
         size: missingBytes.length,
-        exif: { captured_at: '2024-05-05T11:00:00.000Z', camera_serial: 'CAM-SIZE' } as never,
+        exif: exif as never,
       };
       await reconcileRenamesInDirectory(
         [
@@ -492,8 +360,8 @@ describe('rename reconciliation (#2655)', () => {
           { filename: 'wrong-size.dng', absPath: wrongSizeAbsPath },
         ],
         [missingCandidate],
-        root,
-        folderId,
+        library.root,
+        library.folderId,
       );
     } finally {
       spy.mockRestore();
@@ -501,7 +369,5 @@ describe('rename reconciliation (#2655)', () => {
 
     expect(readCalls).toContain(matchingAbsPath);
     expect(readCalls).not.toContain(wrongSizeAbsPath);
-
-    await rm(root, { recursive: true, force: true });
   });
 });

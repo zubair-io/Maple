@@ -1,11 +1,13 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
-import { type Db } from 'mongodb';
 import { aiRoutes } from './ai.ts';
 import { enrichmentRoutes } from './enrichment.ts';
 import { computeWorkersStatus } from '../workers/routes-status.ts';
-import { closeDb, getDb, isDbConnected } from '../db/client.ts';
-import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
+import { withTestEnv } from '../test-support/env.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import {
   loadEnrichmentConfig,
@@ -14,9 +16,8 @@ import {
 
 const JWT_SECRET = 'x'.repeat(32);
 withTestEnv('MAPLE_JWT_SECRET', JWT_SECRET);
-withTestDb(`maple_test_ai_routes_${process.pid}`);
 
-let db: Db | null = null;
+let live: LiveTestDatabase;
 let ownerToken = '';
 let memberToken = '';
 
@@ -28,7 +29,6 @@ const ENV_KEYS = [
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(async () => {
-  await closeDb();
   for (const k of ENV_KEYS) {
     savedEnv[k] = process.env[k];
     delete process.env[k];
@@ -43,9 +43,7 @@ beforeAll(async () => {
   );
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
+afterAll(() => {
   for (const k of ENV_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];
@@ -53,19 +51,15 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  try {
-    db = await getDb();
-    if (isDbConnected()) {
-      await db.collection('app_settings').deleteMany({ _id: 'enrichment' as never });
-      await db.collection('worker_config').deleteMany({});
-    }
-  } catch {
-    // DB offline fallback
-  }
+  // A fresh database per test, installed as the process-wide handle: the
+  // route reads the enrichment settings document and the worker_config rows
+  // through it with no override.
+  live = await createLiveTestDatabase();
 });
 
 afterEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
+  live.close();
 });
 
 function app() {
@@ -330,7 +324,9 @@ describe('/api/ai routes', () => {
     );
     expect(res.status).toBe(400);
     expect((await loadEnrichmentConfig())?.openai_api_key).toBeUndefined();
-    expect(await db!.collection('worker_config').findOne({ name: 'describe' })).toBeNull();
+    expect(
+      live.db.query(`SELECT name FROM worker_config WHERE name = ?`).get('describe'),
+    ).toBeNull();
   });
 
   it('rejects invalid Ollama servers without saving credentials', async () => {

@@ -5,6 +5,10 @@ import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { listDirContents } from './browse.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 // Captured per-test (not at module scope): bun imports every test file's
 // module body before running tests, so a module-scope snapshot could restore
@@ -12,8 +16,15 @@ import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 let priorRoots: string | undefined;
 const temporaryRoots: string[] = [];
 
-beforeEach(() => {
+// The jail decision is made before any query runs, but the listing that
+// follows it enriches its images from the index — so an empty library stands
+// in as the process-wide handle rather than letting that read fail into its
+// best-effort catch and assert nothing.
+let live: LiveTestDatabase;
+
+beforeEach(async () => {
   priorRoots = process.env.MAPLE_ROOTS;
+  live = await createLiveTestDatabase();
 });
 
 afterEach(async () => {
@@ -23,6 +34,7 @@ afterEach(async () => {
   await Promise.all(
     temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
+  live.close();
 });
 
 describe('listDirContents registered-library jail', () => {

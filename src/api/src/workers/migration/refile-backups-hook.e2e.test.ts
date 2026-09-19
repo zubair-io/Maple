@@ -1,192 +1,87 @@
 /**
- * End-to-end tests for the relocateBackupScreenshot describe-stage hook.
+ * The describe stage's on-the-fly screenshot relocation.
+ *
+ * When the vision model flips a backup photo to "screenshot" that the ingest
+ * filename heuristic missed, the asset is filed under `<year>/Screenshot`
+ * immediately rather than waiting for an operator to run the cleanup. Two
+ * refusals keep that narrow: the `<year>/Screenshot` layout is the PhotoKit
+ * backup contract, so a folder-scanned library is left exactly as the user
+ * arranged it, and an asset already filed there is not moved again.
  */
-import { describe, it, expect, afterAll, afterEach, beforeAll } from 'bun:test';
+import { describe, it, expect, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId, type Db } from 'mongodb';
+import { toObjectId } from '../../db/sqlite/repos/values.ts';
+import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { relocateBackupScreenshot } from './refile-backups.ts';
-import type { getDb as GetDbFn } from '../../db/client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import {
+  createLibrary,
+  locationsOf,
+  seedAsset,
+  type MigrationLibrary,
+} from './migration.test-helpers.ts';
 
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_refile_backups_hook_e2e_${process.pid}`);
+afterEach(() => setLibraryRootsForTests(null));
 
-// Captured here, not re-resolved in afterAll: withTestDb restores
-// MAPLE_MONGO_DB before this suite's teardown runs.
-let suiteDb: Db | null = null;
+/** A library whose root the relocation can resolve. */
+async function createBackupLibrary(prefix: string): Promise<MigrationLibrary> {
+  const library = await createLibrary(prefix);
+  setLibraryRootsForTests(new Map([[library.folderId.toHexString(), library.root]]));
+  return library;
+}
 
-beforeAll(async () => {
-  const { closeDb, getDb } = await import('../../db/client.ts');
-  // Force the singleton to reconnect under this file's TEST_DB even when
-  // an earlier suite left it connected.
-  await closeDb();
-  suiteDb = await getDb().catch(() => null);
-});
-
-afterAll(async () => {
-  const { closeDb } = await import('../../db/client.ts');
-  if (suiteDb) await suiteDb.dropDatabase();
-  await closeDb();
-});
-
-async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof GetDbFn>> | null> {
-  try {
-    const { getDb } = await import('../../db/client.ts');
-    return await getDb();
-  } catch {
-    console.log(`MongoDB unreachable — skipping ${label}`);
-    return null;
-  }
+async function writeFile(library: MigrationLibrary, rel: string, name: string): Promise<void> {
+  await fs.mkdir(path.join(library.root, ...rel.split('/')), { recursive: true });
+  await fs.writeFile(path.join(library.root, rel, name), 'pixels');
 }
 
 describe('relocateBackupScreenshot (describe-stage hook)', () => {
-  let dir: string | null = null;
-
-  afterEach(async () => {
-    if (dir) await fs.rm(dir, { recursive: true, force: true });
-    dir = null;
-  });
-
   it('files a backup screenshot the ingest heuristic missed into year/Screenshot', async () => {
-    const db = await connectOrSkip('relocate e2e');
-    if (!db) return;
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'refile-reloc-'));
-    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
-
+    using library = await createBackupLibrary('refile-reloc-');
     const oldRel = '2024/03';
-    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
-    await fs.writeFile(path.join(dir, oldRel, 'IMG_4523.PNG'), 'pixels');
+    await writeFile(library, oldRel, 'IMG_4523.PNG');
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'refile-reloc-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'IMG_4523.PNG',
-          library_id: libId,
-          deleted_at: null,
-        },
-      ],
-      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
-      // Still false on disk — relocate trusts the caller's verdict, not this.
-      is_screenshot: false,
-      size: 6,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
-    } as never);
+    const id = seedAsset(library.db, {
+      mapleId: 'refile-reloc-id',
+      phassetDevices: ['dev'],
+      // Still false in the database — the relocation trusts the caller's
+      // verdict, because the describe handler calls it before its own patch is
+      // persisted.
+      isScreenshot: false,
+      stages: ['thumb', 'preview'],
+      location: { libraryId: library.folderId, path: oldRel, filename: 'IMG_4523.PNG' },
+    });
 
-    try {
-      expect(await relocateBackupScreenshot(_id)).toBe('moved');
-      const doc = (await assets.findOne({ _id })) as {
-        fileinfo?: { path: string }[];
-      } | null;
-      expect(doc?.fileinfo?.[0].path).toBe('2024/Screenshot');
-      expect(await fs.readFile(path.join(dir, '2024/Screenshot/IMG_4523.PNG'), 'utf8')).toBe(
-        'pixels',
-      );
-    } finally {
-      await assets.deleteOne({ _id });
-      setLibraryRootsForTests(null);
-    }
+    expect(await relocateBackupScreenshot(toObjectId(id))).toBe('moved');
+    expect(locationsOf(library.db, id)[0]!.path).toBe('2024/Screenshot');
+    expect(await fs.readFile(path.join(library.root, '2024/Screenshot/IMG_4523.PNG'), 'utf8')).toBe(
+      'pixels',
+    );
   });
 
-  it('is not-applicable for a non-backup asset (no phasset_links)', async () => {
-    const db = await connectOrSkip('relocate non-backup e2e');
-    if (!db) return;
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'refile-reloc-nb-'));
-    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
-
+  it('is not-applicable for an asset that did not come from a backup', async () => {
+    using library = await createBackupLibrary('refile-reloc-nb-');
     const rel = '2024/03';
-    await fs.mkdir(path.join(dir, ...rel.split('/')), { recursive: true });
-    await fs.writeFile(path.join(dir, rel, 'IMG_X.PNG'), 'pixels');
+    await writeFile(library, rel, 'IMG_X.PNG');
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'refile-reloc-nb-id',
-      fileinfo: [
-        {
-          path: rel,
-          filename: 'IMG_X.PNG',
-          library_id: libId,
-          deleted_at: null,
-        },
-      ],
-      size: 6,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-    } as never);
+    const id = seedAsset(library.db, {
+      mapleId: 'refile-reloc-nb-id',
+      location: { libraryId: library.folderId, path: rel, filename: 'IMG_X.PNG' },
+    });
 
-    try {
-      expect(await relocateBackupScreenshot(_id)).toBe('not-applicable');
-      const doc = (await assets.findOne({ _id })) as {
-        fileinfo?: { path: string }[];
-      } | null;
-      expect(doc?.fileinfo?.[0].path).toBe(rel);
-    } finally {
-      await assets.deleteOne({ _id });
-      setLibraryRootsForTests(null);
-    }
+    expect(await relocateBackupScreenshot(toObjectId(id))).toBe('not-applicable');
+    expect(locationsOf(library.db, id)[0]!.path).toBe(rel);
   });
 
   it('is not-applicable when already filed under year/Screenshot', async () => {
-    const db = await connectOrSkip('relocate already-filed e2e');
-    if (!db) return;
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
+    using library = await createBackupLibrary('refile-reloc-af-');
 
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'refile-reloc-af-'));
-    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
+    const id = seedAsset(library.db, {
+      mapleId: 'refile-reloc-af-id',
+      phassetDevices: ['dev'],
+      location: { libraryId: library.folderId, path: '2024/Screenshot', filename: 'IMG_Y.PNG' },
+    });
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'refile-reloc-af-id',
-      fileinfo: [
-        {
-          path: '2024/Screenshot',
-          filename: 'IMG_Y.PNG',
-          library_id: libId,
-          deleted_at: null,
-        },
-      ],
-      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph3', first_seen: new Date() }],
-      size: 6,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-    } as never);
-
-    try {
-      expect(await relocateBackupScreenshot(_id)).toBe('not-applicable');
-    } finally {
-      await assets.deleteOne({ _id });
-      setLibraryRootsForTests(null);
-    }
+    expect(await relocateBackupScreenshot(toObjectId(id))).toBe('not-applicable');
   });
 });

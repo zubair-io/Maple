@@ -1,6 +1,6 @@
 /**
  * Persisted local-network-address config. Mirrors the observability-config
- * shape: a single document in `app_settings` keyed by `_id: "network"`.
+ * shape: a single row in `app_settings` keyed `id = 'network'`.
  *
  * Self-hosted Maple is commonly reachable via a public URL (reverse proxy,
  * dyndns hostname, Cloudflare Tunnel) as well as directly over the LAN when
@@ -17,10 +17,13 @@
  */
 
 import { networkInterfaces } from 'node:os';
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 import { SERVER_PORT } from '../runtime/server-port.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'network';
 
 /** Valid TCP port range. Shared by the resolver (guards against a stale/
@@ -59,8 +62,7 @@ export interface ResolvedNetworkConfig {
 /** Read the persisted config. Returns `null` when no row exists yet. */
 export async function loadNetworkConfig(): Promise<NetworkConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<NetworkConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<NetworkConfigDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -70,8 +72,7 @@ export async function loadNetworkConfig(): Promise<NetworkConfig | null> {
 /** Upsert. Partial patches are supported: only the fields you supply are
  * touched, the rest of the config doc is preserved. */
 export async function saveNetworkConfig(patch: Partial<NetworkConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = {
+  const set: Record<string, SettingsValue | undefined> = {
     'config.updated_at': Date.now(),
   };
   if (patch.enabled !== undefined) {
@@ -83,9 +84,7 @@ export async function saveNetworkConfig(patch: Partial<NetworkConfig>): Promise<
   if (patch.local_port_override !== undefined) {
     set['config.local_port_override'] = patch.local_port_override;
   }
-  await db
-    .collection<NetworkConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }
 
 /** Best-effort validator for an operator-supplied `local_ip_override`. We

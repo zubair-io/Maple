@@ -3,28 +3,32 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeDb } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { fsRoutes } from './fs.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-// The fs.etag route handler calls into listDirContents, which lazily
-// initialises the shared MongoClient via assetsCollection(). The DB name
-// is read once at connect time. To stay coherent with the other etag
-// tests in this process (which target `maple_etag_test_<pid>`), pin the
-// env var here too — otherwise the API caches a connection to the
-// default `maple` DB and the other tests fail to see their seed data.
-const SHARED_DB = `maple_etag_test_${process.pid}`;
-
+/**
+ * The ETag is computed over the enriched listing, and enriching it is what
+ * takes `GET /api/fs/dir` to the database: `listDirContents` asks for the
+ * registered library roots and pairs every visible filename against the
+ * indexed assets. Those reads go through the process-wide handle with no
+ * override, so the database has to be installed as that handle rather than
+ * handed in — a route handler has nowhere to put one (#3787).
+ *
+ * Nothing is seeded. The directory under test is a temporary one that no
+ * library owns, so an empty database is the honest fixture: what these cases
+ * assert is that the hash changes when the directory does, and that
+ * `If-None-Match` short-circuits when it has not.
+ */
 describe('GET /api/fs/dir — ETag', () => {
   let tmp: string | null = null;
+  let live: LiveTestDatabase | null = null;
 
   beforeEach(async () => {
-    process.env.MAPLE_MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-    process.env.MAPLE_MONGO_DB = SHARED_DB;
-    // Reset the API's module-cached MongoClient so the next route call
-    // (which transitively calls assetsCollection via listDirContents)
-    // picks up MAPLE_MONGO_DB fresh.
-    await closeDb();
+    live = await createLiveTestDatabase();
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-fs-etag-')));
     process.env.MAPLE_ROOTS = tmp;
     await writeFile(join(tmp, 'a.dng'), Buffer.alloc(8));
@@ -33,7 +37,8 @@ describe('GET /api/fs/dir — ETag', () => {
   afterEach(async () => {
     if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
     tmp = null;
-    await closeDb();
+    live?.close();
+    live = null;
   });
 
   it('returns ETag on 200', async () => {

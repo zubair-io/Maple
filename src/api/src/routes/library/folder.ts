@@ -3,7 +3,7 @@
  * GET /api/folder/:slug/*    — sub-folder listing
  *
  * Catalog-backed folder listing. Resolves the slug:relPath address to a
- * directory, reads the indexed assets from Mongo, and merges in any on-disk
+ * directory, reads the indexed assets from the catalog, and merges in any on-disk
  * files not yet in the catalog (listed as indexed:false). Enqueues a
  * discover scan for any unindexed entries.
  *
@@ -19,7 +19,7 @@ import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import { parseAddressPath, resolveAddress } from '../../library/address.ts';
-import { assetsCollection } from '../../db/client.ts';
+import { listDirectoryAssets } from '../../db/sqlite/repos/assets.address.ts';
 import { child as childLogger } from '../../log.ts';
 import {
   IMAGE_EXTENSIONS_SET,
@@ -38,6 +38,122 @@ const jsonError = (status: number, message: string): Response =>
     headers: { 'Content-Type': 'application/json' },
   });
 
+/** One entry of a folder listing's `images` array. */
+interface ListedImage {
+  name: string;
+  address: string;
+  mapleId: string | null;
+  indexed: boolean;
+  width?: number;
+  height?: number;
+  capturedAt?: string;
+}
+
+/** What one `readdir` of the folder found, minus the cache directory. */
+interface DiskEntry {
+  name: string;
+  isDirectory: boolean;
+}
+
+/**
+ * The address of a name inside this folder, or of the folder itself.
+ *
+ * Every address in a listing is built from the same two cases — a library root
+ * has no path segment to join — and the function is here so the response
+ * cannot end up with two spellings of the same address.
+ */
+function addressOf(slug: string, relPath: string, name?: string): string {
+  const base = relPath === '' ? `${slug}:` : `${slug}:${relPath}`;
+  if (name === undefined) return base;
+  return relPath === '' ? `${slug}:${name}` : `${slug}:${relPath}/${name}`;
+}
+
+/** The parent folder's address, or null at a library root. */
+function parentAddress(slug: string, relPath: string): string | null {
+  if (relPath === '') return null;
+  const parent = path.dirname(relPath);
+  return parent === '.' ? `${slug}:` : `${slug}:${parent}`;
+}
+
+/**
+ * What the folder holds on disk.
+ *
+ * A folder that cannot be read is not a failure of the listing: the catalog
+ * half still answers, which is what a client browsing a library on a
+ * disconnected volume sees. The reason is logged rather than returned.
+ */
+async function readDiskEntries(absPath: string): Promise<DiskEntry[]> {
+  try {
+    const dirents = await readdir(absPath, { withFileTypes: true });
+    return dirents
+      .filter((d) => d.name !== '.maple') // skip cache dir
+      .map((d) => ({ name: d.name, isDirectory: d.isDirectory() }));
+  } catch (err) {
+    log.warn(
+      { absPath, err: err instanceof Error ? err.message : String(err) },
+      'readdir failed on folder',
+    );
+    return [];
+  }
+}
+
+/** Immediate subdirectories, hidden ones left out. */
+function childFolders(
+  slug: string,
+  relPath: string,
+  entries: readonly DiskEntry[],
+): Array<{ name: string; address: string }> {
+  return entries
+    .filter((e) => e.isDirectory && !e.name.startsWith('.'))
+    .map((e) => ({ name: e.name, address: addressOf(slug, relPath, e.name) }));
+}
+
+/** The images the catalog holds at this address. */
+function catalogImages(
+  slug: string,
+  relPath: string,
+  rows: Awaited<ReturnType<typeof listDirectoryAssets>>,
+): ListedImage[] {
+  return rows.map((row) => ({
+    name: row.filename,
+    address: addressOf(slug, relPath, row.filename),
+    mapleId: row.maple_id,
+    indexed: true,
+    width: row.width ?? undefined,
+    height: row.height ?? undefined,
+    capturedAt: row.captured_at ?? undefined,
+  }));
+}
+
+/**
+ * On-disk image files the catalog does not have yet.
+ *
+ * Metadata-only stub images (eip/braw/afphoto/ai) and audio (#1835) get an
+ * asset row too — see the `isMedia` check in `routes/folders.ts` — so they
+ * belong in this listing the same way an unindexed photo does.
+ */
+function unindexedImages(
+  slug: string,
+  relPath: string,
+  entries: readonly DiskEntry[],
+  known: ReadonlySet<string>,
+): ListedImage[] {
+  return entries
+    .filter((entry) => isUnindexedImage(entry, known))
+    .map((entry) => ({
+      name: entry.name,
+      address: addressOf(slug, relPath, entry.name),
+      mapleId: null,
+      indexed: false,
+    }));
+}
+
+function isUnindexedImage(entry: DiskEntry, known: ReadonlySet<string>): boolean {
+  if (entry.isDirectory || known.has(entry.name)) return false;
+  const ext = path.extname(entry.name).toLowerCase().replace(/^\./, '');
+  return IMAGE_EXTENSIONS_SET.has(ext) || STUB_AND_AUDIO_EXTENSIONS_SET.has(ext);
+}
+
 async function buildFolderListing(slug: string, wildcard: string): Promise<Response> {
   const t0 = performance.now();
   const segments = parseWildcardSegments(wildcard);
@@ -53,130 +169,25 @@ async function buildFolderListing(slug: string, wildcard: string): Promise<Respo
 
   const { libraryId, absPath } = resolved;
 
-  // Address string helpers.
-  const address = relPath === '' ? `${slug}:` : `${slug}:${relPath}`;
-  const parent =
-    relPath === ''
-      ? null
-      : (() => {
-          const p = path.dirname(relPath);
-          return p === '.' ? `${slug}:` : `${slug}:${p}`;
-        })();
+  // Query the catalog for images whose location is in THIS library AND at THIS
+  // path. Library and directory are columns of one `asset_locations` row, so a
+  // deduplicated asset can only surface the filename it holds here — the
+  // cross-matching a loose dot-notation Mongo filter allowed (files from other
+  // folders leaking into a listing) cannot be expressed.
+  const catalogRows = await listDirectoryAssets(libraryId, relPath);
+  const diskEntries = await readDiskEntries(absPath);
 
-  // Query the catalog for images whose fileinfo has an entry in THIS library
-  // AND at THIS path (same entry — $elemMatch). A loose dot-notation match
-  // (`{'fileinfo.library_id': id, 'fileinfo.path': relPath}`) would
-  // cross-match deduplicated assets whose library_id and path live in
-  // DIFFERENT fileinfo entries, leaking files from other folders/libraries.
-  const coll = await assetsCollection();
-  const catalogRows = await coll
-    .find(
-      {
-        fileinfo: {
-          $elemMatch: {
-            library_id: libraryId,
-            path: relPath,
-            deleted_at: null,
-            missing_since: null,
-          },
-        },
-        deleted_at: null,
-      },
-      {
-        projection: {
-          maple_id: 1,
-          'fileinfo.filename': 1,
-          'fileinfo.path': 1,
-          'fileinfo.library_id': 1,
-          'exif.captured_at': 1,
-          'exif.width': 1,
-          'exif.height': 1,
-        },
-      },
-    )
-    .toArray();
+  const indexed = catalogImages(slug, relPath, catalogRows);
+  const unindexed = unindexedImages(
+    slug,
+    relPath,
+    diskEntries,
+    new Set(catalogRows.map((row) => row.filename)),
+  );
 
-  // One readdir to find on-disk entries.
-  let diskEntries: { name: string; isDirectory: boolean }[] = [];
-  try {
-    const dirents = await readdir(absPath, { withFileTypes: true });
-    diskEntries = dirents
-      .filter((d) => d.name !== '.maple') // skip cache dir
-      .map((d) => ({ name: d.name, isDirectory: d.isDirectory() }));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn({ absPath, err: msg }, 'readdir failed on folder');
-  }
-
-  // Child folders — immediate subdirectories.
-  const folders = diskEntries
-    .filter((e) => e.isDirectory && !e.name.startsWith('.'))
-    .map((e) => ({
-      name: e.name,
-      address: relPath === '' ? `${slug}:${e.name}` : `${slug}:${relPath}/${e.name}`,
-    }));
-
-  // Images — from the catalog, then on-disk files not yet indexed.
-  const images: Array<{
-    name: string;
-    address: string;
-    mapleId: string | null;
-    indexed: boolean;
-    width?: number;
-    height?: number;
-    capturedAt?: string;
-  }> = [];
-  const catalogFilenames = new Set<string>();
-
-  for (const row of catalogRows) {
-    // Match the fileinfo entry on BOTH library_id and path so a deduplicated
-    // asset surfaces its filename for THIS folder only.
-    const fi = (
-      row.fileinfo as Array<{
-        filename: string;
-        path: string;
-        library_id: unknown;
-      }>
-    ).find((f) => String(f.library_id) === libraryId.toHexString() && f.path === relPath);
-    if (!fi) continue;
-    catalogFilenames.add(fi.filename);
-    const exif = row.exif as { captured_at?: string; width?: number; height?: number } | undefined;
-    const fileAddress =
-      relPath === '' ? `${slug}:${fi.filename}` : `${slug}:${relPath}/${fi.filename}`;
-    images.push({
-      name: fi.filename,
-      address: fileAddress,
-      mapleId: (row.maple_id as string | null) ?? null,
-      indexed: true,
-      width: exif?.width ?? undefined,
-      height: exif?.height ?? undefined,
-      capturedAt: exif?.captured_at ?? undefined,
-    });
-  }
-
-  // On-disk image files not in the catalog.
-  let hasUnindexed = false;
-  for (const entry of diskEntries) {
-    if (entry.isDirectory) continue;
-    const ext = path.extname(entry.name).toLowerCase().replace(/^\./, '');
-    // Metadata-only stub images (eip/braw/afphoto/ai) and audio (#1835) get
-    // an AssetDoc too (see routes/folders.ts's isMedia check), so they
-    // belong in this listing the same way unindexed images do.
-    if (!IMAGE_EXTENSIONS_SET.has(ext) && !STUB_AND_AUDIO_EXTENSIONS_SET.has(ext)) continue;
-    if (catalogFilenames.has(entry.name)) continue;
-    const fileAddress =
-      relPath === '' ? `${slug}:${entry.name}` : `${slug}:${relPath}/${entry.name}`;
-    images.push({
-      name: entry.name,
-      address: fileAddress,
-      mapleId: null,
-      indexed: false,
-    });
-    hasUnindexed = true;
-  }
-
-  // Enqueue a discover scan if we found un-indexed files.
-  if (hasUnindexed) {
+  // Something on disk is not in the catalog: ask discover to look at this
+  // folder. Best-effort — the listing answers with what it already knows.
+  if (unindexed.length > 0) {
     handleEvent({ kind: 'modified', absPath }, libraryId, resolved.libraryRoot).catch((err) => {
       log.warn(
         { absPath, err: err instanceof Error ? err.message : err },
@@ -185,13 +196,17 @@ async function buildFolderListing(slug: string, wildcard: string): Promise<Respo
     });
   }
 
-  const elapsed = Math.round(performance.now() - t0);
-  const listing = { address, parent, folders, images };
+  const listing = {
+    address: addressOf(slug, relPath),
+    parent: parentAddress(slug, relPath),
+    folders: childFolders(slug, relPath, diskEntries),
+    images: [...indexed, ...unindexed],
+  };
   return new Response(JSON.stringify(listing), {
     status: 200,
     headers: {
       'Content-Type': 'application/json',
-      'Server-Timing': `total;dur=${elapsed}`,
+      'Server-Timing': `total;dur=${Math.round(performance.now() - t0)}`,
     },
   });
 }

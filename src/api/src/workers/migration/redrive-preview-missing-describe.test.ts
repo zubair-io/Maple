@@ -1,168 +1,86 @@
 /**
- * Tests for the redrive-preview-missing-describe migration (#2179, the
- * one-time backlog drain following the #2177 behavioural fix).
+ * The describe re-drive for rows skipped on a missing preview.
  *
- * Rows whose describe stage terminally skipped with `skip: preview-missing`
- * before the `{ rearm }` result existed (#2177) are stamped done and never
- * re-claimed.
- * This migration resets exactly those rows so the new describe branch decides
- * their fate (re-arm preview on drift, re-skip terminally where no preview can
- * exist).
+ * Before #2177 a describe run that found the 1280-px preview absent returned a
+ * terminal skip, and a skip writes the stage's target version — so every asset
+ * that hit that branch is stamped done with no caption and nothing queued to
+ * regenerate its preview. This migration resets exactly those rows so the new
+ * code decides per asset: re-arm the preview stage (drift), or re-skip
+ * terminally (no preview can exist, e.g. video on a host with no ffmpeg).
  *
- * The properties worth pinning down, and why each would be a real bug:
- *  - ONLY rows with the exact `skip: preview-missing` last_error are selected
- *    (a broader sweep would re-run describe — a billable/slow Ollama pass —
- *    across rows that completed fine or skipped for unrelated reasons)
- *  - the full five-field describe reset, not just `version`
- *  - the preview stage is untouched (whether preview needs a re-run is the
- *    describe handler's call; resetting it here would re-render previews that
- *    are present and fine)
- *  - the done-marker terminates the migration (the terminal video case
- *    re-writes the same `skip: preview-missing` string under the new code, so
- *    without the marker the candidate set refills and it loops forever)
- *
- * Skips when MongoDB is unreachable (mirrors the other migration tests).
+ * Two boundaries matter. The preview stage is deliberately NOT reset — whether
+ * it needs a re-run is the describe handler's call, and resetting it here would
+ * re-render previews that are present and fine. And the done-marker is what
+ * terminates the sweep: the terminal case re-writes the same skip string, so
+ * without the marker the migration would re-arm the very skip it just caused,
+ * forever.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { describe, it, expect } from 'bun:test';
 import {
   redrivePreviewMissingDescribe,
   PREVIEW_MISSING_REDRIVE_VERSION,
 } from './redrive-preview-missing-describe.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import {
+  assetRow,
+  createLibrary,
+  seedAsset,
+  seedLocation,
+  stageRow,
+  type MigrationLibrary,
+} from './migration.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_redrive_preview_missing_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const SEEDED_STAGES = ['exif', 'thumb', 'preview', 'describe'] as const;
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+/** The version each seeded stage sits at, so an untouched one is recognisable. */
+const SEEDED_VERSIONS: Record<string, number> = {
+  exif: 1,
+  thumb: 3,
+  preview: 4,
+  describe: 7,
+};
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[redrive-preview-missing-describe.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
-    await db.createCollection(name).catch(() => undefined);
-  }
-  const { closeDb, ensureIndexes } = await import('../../db/client.ts');
-  await closeDb();
-  await ensureIndexes();
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
-});
-
-const libId = new ObjectId();
-
-function stage(overrides: Record<string, unknown> = {}) {
-  return {
-    version: 7,
-    attempts: 0,
-    last_error: null,
-    processed_at: new Date().toISOString(),
-    dead: false,
-    ...overrides,
-  };
-}
-
-function makeAsset(
+function seedRow(
+  library: MigrationLibrary,
   filename: string,
-  opts: {
-    describeLastError?: string | null;
-    redriven?: boolean;
-  } = {},
-) {
-  const id = new ObjectId();
-  return {
-    _id: id,
-    maple_id: id.toHexString() + '0'.repeat(32 - 24),
-    fileinfo: [
-      {
-        path: 'media',
-        filename,
-        library_id: libId,
-        deleted_at: null,
-        missing_since: null,
-      },
-    ],
-    size: 1,
-    mtime: 0,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    deleted_at: null,
-    stages: {
-      exif: stage({ version: 1 }),
-      thumb: stage({ version: 3 }),
-      preview: stage({ version: 4 }),
-      describe: stage({ last_error: opts.describeLastError ?? null }),
-    },
-    ...(opts.redriven ? { preview_missing_redrive_version: PREVIEW_MISSING_REDRIVE_VERSION } : {}),
-  };
+  options: { describeLastError?: string | null; redriven?: boolean } = {},
+): string {
+  const id = seedAsset(library.db, {
+    stages: SEEDED_STAGES,
+    previewMissingRedriveVersion: options.redriven ? PREVIEW_MISSING_REDRIVE_VERSION : null,
+  });
+  seedLocation(library.db, { assetId: id, libraryId: library.folderId, path: 'media', filename });
+  for (const stage of SEEDED_STAGES) {
+    library.db.run(
+      `UPDATE stage_state SET version = ?, processed_at = '2026-01-01T00:00:00.000Z'
+        WHERE asset_id = ? AND stage = ?`,
+      [SEEDED_VERSIONS[stage]!, id, stage],
+    );
+  }
+  library.db.run(
+    `UPDATE stage_state SET last_error = ? WHERE asset_id = ? AND stage = 'describe'`,
+    [options.describeLastError ?? null, id],
+  );
+  return id;
 }
 
-async function reset(): Promise<void> {
-  await db!.collection('assets').deleteMany({});
-}
+const SKIPPED = { describeLastError: 'skip: preview-missing' };
 
 describe('redrivePreviewMissingDescribe — selection', () => {
   it('counts only rows skipped on a missing preview', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    await db!
-      .collection('assets')
-      .insertMany([
-        makeAsset('drifted.dng', { describeLastError: 'skip: preview-missing' }),
-        makeAsset('captioned.dng'),
-        makeAsset('stub.eip', { describeLastError: 'skip: stub-file' }),
-        makeAsset('flaky.dng', { describeLastError: 'LLM timeout' }),
-      ] as never[]);
+    using library = await createLibrary('maple-redrive-');
+    seedRow(library, 'drifted.dng', SKIPPED);
+    seedRow(library, 'captioned.dng');
+    seedRow(library, 'stub.eip', { describeLastError: 'skip: stub-file' });
+    seedRow(library, 'flaky.dng', { describeLastError: 'LLM timeout' });
 
     expect(await redrivePreviewMissingDescribe.countRemaining()).toBe(1);
   });
 
   it('excludes rows already stamped at the current re-drive version', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    await db!
-      .collection('assets')
-      .insertMany([
-        makeAsset('done.dng', { describeLastError: 'skip: preview-missing', redriven: true }),
-        makeAsset('todo.dng', { describeLastError: 'skip: preview-missing' }),
-      ] as never[]);
+    using library = await createLibrary('maple-redrive-');
+    seedRow(library, 'done.dng', { ...SKIPPED, redriven: true });
+    seedRow(library, 'todo.dng', SKIPPED);
 
     expect(await redrivePreviewMissingDescribe.countRemaining()).toBe(1);
   });
@@ -170,107 +88,92 @@ describe('redrivePreviewMissingDescribe — selection', () => {
 
 describe('redrivePreviewMissingDescribe — runBatch', () => {
   it('resets the describe stage to unprocessed and stamps the marker', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertOne(
-      makeAsset('drifted.dng', { describeLastError: 'skip: preview-missing' }) as never,
+    using library = await createLibrary('maple-redrive-');
+    const id = seedRow(library, 'drifted.dng', SKIPPED);
+
+    expect(await redrivePreviewMissingDescribe.runBatch(50)).toEqual({ processed: 1, errors: 0 });
+
+    expect(stageRow(library.db, id, 'describe')).toEqual({
+      version: 0,
+      attempts: 0,
+      last_error: null,
+      dead: 0,
+    });
+    expect(assetRow(library.db, id)!.preview_missing_redrive_version).toBe(
+      PREVIEW_MISSING_REDRIVE_VERSION,
     );
-
-    const res = await redrivePreviewMissingDescribe.runBatch(50);
-    expect(res).toEqual({ processed: 1, errors: 0 });
-
-    const d = (await coll.findOne({}))!;
-    expect(d.stages.describe.version).toBe(0);
-    expect(d.stages.describe.attempts).toBe(0);
-    expect(d.stages.describe.last_error).toBeNull();
-    expect(d.stages.describe.processed_at).toBeNull();
-    expect(d.stages.describe.dead).toBe(false);
-    expect(d.preview_missing_redrive_version).toBe(PREVIEW_MISSING_REDRIVE_VERSION);
   });
 
-  it('leaves the preview stage (and every other stage) untouched', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertOne(
-      makeAsset('drifted.dng', { describeLastError: 'skip: preview-missing' }) as never,
-    );
+  it('leaves the preview stage — and every other stage — untouched', async () => {
+    using library = await createLibrary('maple-redrive-');
+    const id = seedRow(library, 'drifted.dng', SKIPPED);
 
     await redrivePreviewMissingDescribe.runBatch(50);
 
-    // Whether preview needs regenerating is the describe handler's call under
-    // the new { rearm } branch — the migration itself must not force a
-    // re-render of previews that are present and fine.
-    const d = (await coll.findOne({}))!;
-    expect(d.stages.preview.version).toBe(4);
-    expect(d.stages.thumb.version).toBe(3);
-    expect(d.stages.exif.version).toBe(1);
+    expect(stageRow(library.db, id, 'preview')!.version).toBe(4);
+    expect(stageRow(library.db, id, 'thumb')!.version).toBe(3);
+    expect(stageRow(library.db, id, 'exif')!.version).toBe(1);
   });
 
   it('does not touch rows that skipped for other reasons or completed', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertMany([
-      makeAsset('captioned.dng'),
-      makeAsset('stub.eip', { describeLastError: 'skip: stub-file' }),
-      makeAsset('sweep.dng', { describeLastError: 'skip: preview-missing' }),
-    ] as never[]);
+    using library = await createLibrary('maple-redrive-');
+    const captioned = seedRow(library, 'captioned.dng');
+    const stub = seedRow(library, 'stub.eip', { describeLastError: 'skip: stub-file' });
+    seedRow(library, 'sweep.dng', SKIPPED);
 
     await redrivePreviewMissingDescribe.runBatch(50);
 
-    const captioned = await coll.findOne({ 'fileinfo.0.filename': 'captioned.dng' });
-    expect(captioned!.stages.describe.version).toBe(7);
-    expect(captioned!.preview_missing_redrive_version).toBeUndefined();
-    const stub = await coll.findOne({ 'fileinfo.0.filename': 'stub.eip' });
-    expect(stub!.stages.describe.version).toBe(7);
-    expect(stub!.stages.describe.last_error).toBe('skip: stub-file');
+    expect(stageRow(library.db, captioned, 'describe')!.version).toBe(7);
+    expect(assetRow(library.db, captioned)!.preview_missing_redrive_version).toBeNull();
+    expect(stageRow(library.db, stub, 'describe')!.version).toBe(7);
+    expect(stageRow(library.db, stub, 'describe')!.last_error).toBe('skip: stub-file');
   });
 
   it('honours batchSize', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    await db!
-      .collection('assets')
-      .insertMany([
-        makeAsset('a.dng', { describeLastError: 'skip: preview-missing' }),
-        makeAsset('b.dng', { describeLastError: 'skip: preview-missing' }),
-        makeAsset('c.dng', { describeLastError: 'skip: preview-missing' }),
-      ] as never[]);
+    using library = await createLibrary('maple-redrive-');
+    seedRow(library, 'a.dng', SKIPPED);
+    seedRow(library, 'b.dng', SKIPPED);
+    seedRow(library, 'c.dng', SKIPPED);
 
     expect((await redrivePreviewMissingDescribe.runBatch(2)).processed).toBe(2);
     expect(await redrivePreviewMissingDescribe.countRemaining()).toBe(1);
   });
 
-  it('converges: a row that re-skips under the new code does not re-enter', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertOne(
-      makeAsset('video-no-ffmpeg.mov', { describeLastError: 'skip: preview-missing' }) as never,
+  it('does not re-drive a row a worker re-stamped between the read and the write', async () => {
+    // The skip-marker half of the predicate is re-asserted at write time. A row
+    // whose describe stage was resolved in that window must keep its fresh
+    // state and must not be counted as processed.
+    using library = await createLibrary('maple-redrive-');
+    const raced = seedRow(library, 'raced.dng', SKIPPED);
+    library.db.run(
+      `UPDATE stage_state SET last_error = NULL, version = 8
+        WHERE asset_id = ? AND stage = 'describe'`,
+      [raced],
     );
+
+    // The candidate read happens inside runBatch, so simulate the race by
+    // resolving the row first and confirming the write declines it.
+    expect(await redrivePreviewMissingDescribe.runBatch(50)).toEqual({ processed: 0, errors: 0 });
+    expect(stageRow(library.db, raced, 'describe')!.version).toBe(8);
+    expect(assetRow(library.db, raced)!.preview_missing_redrive_version).toBeNull();
+  });
+
+  it('converges: a row that re-skips under the new code does not re-enter', async () => {
+    using library = await createLibrary('maple-redrive-');
+    const id = seedRow(library, 'video-no-ffmpeg.mov', SKIPPED);
 
     await redrivePreviewMissingDescribe.runBatch(50);
     expect(await redrivePreviewMissingDescribe.countRemaining()).toBe(0);
 
-    // The terminal case (video on a no-ffmpeg host) re-writes the SAME
-    // last_error string when describe re-runs. The done-marker is what keeps
-    // that out of the candidate set — without it the migration would re-arm
-    // the very skip it just caused, forever.
-    await coll.updateOne(
-      {},
-      {
-        $set: {
-          'stages.describe.version': 7,
-          'stages.describe.last_error': 'skip: preview-missing',
-        },
-      },
+    // The terminal case (video on a no-ffmpeg host) re-writes the SAME skip
+    // string when describe re-runs. The done-marker is what keeps that out of
+    // the candidate set.
+    library.db.run(
+      `UPDATE stage_state SET version = 7, last_error = 'skip: preview-missing'
+        WHERE asset_id = ? AND stage = 'describe'`,
+      [id],
     );
     expect(await redrivePreviewMissingDescribe.countRemaining()).toBe(0);
-    expect(await redrivePreviewMissingDescribe.runBatch(50)).toEqual({
-      processed: 0,
-      errors: 0,
-    });
+    expect(await redrivePreviewMissingDescribe.runBatch(50)).toEqual({ processed: 0, errors: 0 });
   });
 });

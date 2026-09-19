@@ -19,8 +19,8 @@
  */
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
-import type { PhotoKitAssetLink, AssetDoc } from '../db/schema.ts';
+import { listBackupState } from '../db/sqlite/repos/backup.repo.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 
 export const backupStateRoutes = new Elysia().get(
   '/api/libraries/:libraryId/backup/state',
@@ -45,47 +45,15 @@ export const backupStateRoutes = new Elysia().get(
       return { error: 'since must be a valid ISO timestamp' };
     }
 
-    // Resolve the folder so we can compute library-relative paths.
-    const folder = await (
-      await foldersCollection()
-    ).findOne<{ path: string }>({ _id: libraryId }, { projection: { path: 1 } });
+    // The library has to exist before we answer — an unknown id is a 404, not
+    // an empty feed the device would read as "nothing is backed up".
+    const folder = await findFolderById(libraryId);
     if (!folder) {
       set.status = 404;
       return { error: 'library not found' };
     }
 
-    type ProjectedAsset = Pick<AssetDoc, 'phasset_links' | 'maple_id' | 'fileinfo'> & {
-      _id: ObjectId;
-    };
-
-    const a = await assetsCollection();
-    const rows = await a
-      .find<ProjectedAsset>({
-        'fileinfo.library_id': libraryId,
-        phasset_links: { $elemMatch: { device_id: deviceId, first_seen: { $gte: since } } },
-      })
-      .project<ProjectedAsset>({ fileinfo: 1, phasset_links: 1, maple_id: 1 })
-      .toArray();
-
-    const out = rows.flatMap((r: ProjectedAsset) => {
-      const primary = (r.fileinfo ?? []).find(
-        (e) => !e.deleted_at && e.library_id.equals(libraryId),
-      );
-      if (!primary) return [];
-      const relPath =
-        primary.path === '' ? primary.filename : `${primary.path}/${primary.filename}`;
-      return (r.phasset_links ?? [])
-        .filter(
-          (l: PhotoKitAssetLink) => l.device_id === deviceId && new Date(l.first_seen) >= since,
-        )
-        .map((l: PhotoKitAssetLink) => ({
-          phasset_local_id: l.phasset_local_id,
-          first_seen: l.first_seen,
-          maple_id: r.maple_id,
-          rel_path: relPath,
-        }));
-    });
-    return { assets: out };
+    return { assets: await listBackupState(libraryId, deviceId, since) };
   },
   {
     params: t.Object({ libraryId: t.String() }),

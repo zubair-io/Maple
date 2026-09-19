@@ -1,7 +1,13 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { bootConfig, defineStage, notifyConfigChange, type WorkerConfig } from './stage-config.ts';
-import { makeConfigMock } from './run-stage.test-helpers.ts';
-import { WorkerConfigRepo } from './worker-config.repo.ts';
+import {
+  bootConfig,
+  defineStage,
+  notifyConfigChange,
+  type StageConfig,
+  type WorkerConfig,
+} from './stage-config.ts';
+import { createTestDatabase, testSqliteDb } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 
 const initial: WorkerConfig = {
   concurrency: 2,
@@ -18,15 +24,16 @@ const stage = defineStage({
   targetVersion: 1,
   dependsOn: [],
   defaults: { ...initial, pausedOnFirstBoot: true },
-  handler: async () => ({ patch: {} }),
-});
+  handler: async () => ({ patch: [] }),
+}) as StageConfig;
 
 describe('AI worker configuration lifecycle', () => {
   it('retains provider, model, instructions and label across worker boot', async () => {
-    const coll = makeConfigMock();
-    const repo = new WorkerConfigRepo(coll);
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const repo = new WorkerConfigRepo(db);
     await repo.upsert(stage.name, initial);
-    expect(await bootConfig(stage, coll)).toEqual(initial);
+    expect(await bootConfig(stage, db)).toEqual(initial);
     expect(await repo.load(stage.name)).toEqual(initial);
   });
 

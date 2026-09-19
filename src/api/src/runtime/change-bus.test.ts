@@ -1,7 +1,7 @@
-import { describe, expect, it } from "bun:test";
-import { ObjectId } from "mongodb";
-import { ChangeBus } from "./change-bus.ts";
-import type { AssetChangeWithId } from "../db/schema.ts";
+import { describe, expect, it } from 'bun:test';
+import { ObjectId } from 'mongodb';
+import { ChangeBus } from './change-bus.ts';
+import type { AssetChangeWithId } from '../db/schema.ts';
 
 function evt(cursor: number): AssetChangeWithId {
   return {
@@ -9,14 +9,14 @@ function evt(cursor: number): AssetChangeWithId {
     cursor,
     asset_id: new ObjectId(),
     folder_id: new ObjectId(),
-    kind: "update",
+    kind: 'update',
     abs_path: `/srv/photos/${cursor}.dng`,
     at: new Date(),
   } as AssetChangeWithId;
 }
 
-describe("ChangeBus", () => {
-  it("buffers events up to capacity (oldest dropped first)", () => {
+describe('ChangeBus', () => {
+  it('buffers events up to capacity (oldest dropped first)', () => {
     const bus = new ChangeBus({ capacity: 3 });
     bus.publish(evt(1));
     bus.publish(evt(2));
@@ -26,17 +26,15 @@ describe("ChangeBus", () => {
     expect(all.map((e) => e.cursor)).toEqual([2, 3, 4]);
   });
 
-  it("replays events strictly greater than the requested cursor", () => {
+  it('replays events strictly greater than the requested cursor', () => {
     const bus = new ChangeBus({ capacity: 10 });
     for (let i = 1; i <= 5; i++) bus.publish(evt(i));
     expect(bus.replay({ since: 2 }).map((e) => e.cursor)).toEqual([3, 4, 5]);
-    expect(bus.replay({ since: 0 }).map((e) => e.cursor)).toEqual([
-      1, 2, 3, 4, 5,
-    ]);
+    expect(bus.replay({ since: 0 }).map((e) => e.cursor)).toEqual([1, 2, 3, 4, 5]);
     expect(bus.replay({ since: 5 }).map((e) => e.cursor)).toEqual([]);
   });
 
-  it("isCursorReplayable returns false when below the buffer floor", () => {
+  it('isCursorReplayable returns false when below the buffer floor', () => {
     const bus = new ChangeBus({ capacity: 3 });
     for (let i = 1; i <= 5; i++) bus.publish(evt(i)); // buffer now holds [3,4,5]
     expect(bus.isCursorReplayable(1)).toBe(false);
@@ -46,7 +44,7 @@ describe("ChangeBus", () => {
     expect(bus.isCursorReplayable(99)).toBe(true); // future cursor is fine
   });
 
-  it("notifies subscribers in publish order", () => {
+  it('notifies subscribers in publish order', () => {
     const bus = new ChangeBus({ capacity: 10 });
     const received: number[] = [];
     const unsub = bus.subscribe((e) => received.push(e.cursor));
@@ -58,7 +56,7 @@ describe("ChangeBus", () => {
     expect(received).toEqual([1, 2, 3]);
   });
 
-  it("isCursorReplayable on empty buffer respects persisted high-watermark", () => {
+  it('isCursorReplayable on empty buffer respects persisted high-watermark', () => {
     const bus = new ChangeBus({ capacity: 10 });
     // No watermark set yet — every since is replayable (fresh server,
     // never had events).
@@ -74,10 +72,10 @@ describe("ChangeBus", () => {
     expect(bus.isCursorReplayable(600)).toBe(true);
   });
 
-  it("publish keeps the buffer cursor-sorted under out-of-order arrivals", () => {
+  it('publish keeps the buffer cursor-sorted under out-of-order arrivals', () => {
     const bus = new ChangeBus({ capacity: 10 });
     // Simulate the race in recordAndPublishAssetChange — cursor 1 gets
-    // allocated first but its Mongo insert + publish runs after cursor 2.
+    // allocated first but its insert + publish runs after cursor 2.
     bus.publish(evt(2));
     bus.publish(evt(1));
     bus.publish(evt(4));
@@ -87,7 +85,7 @@ describe("ChangeBus", () => {
     expect(bus.bufferFloor()).toBe(1);
   });
 
-  it("publish is idempotent on cursor — duplicate publishes are dropped", () => {
+  it('publish is idempotent on cursor — duplicate publishes are dropped', () => {
     const bus = new ChangeBus({ capacity: 10 });
     bus.publish(evt(1));
     bus.publish(evt(1));

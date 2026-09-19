@@ -448,7 +448,7 @@ describe('cross-surface file-operation outcome parity (#2633)', () => {
           return;
         case 'folder-rename':
           // Every corpus 'folder-rename' case today restricts `platforms`
-          // to exclude "api" (the API's folder rename is a Mongo-backed
+          // to exclude "api" (the API's folder rename is a database-backed
           // library operation, not a pure filesystem primitive — see the
           // corpus's own note on case_only_rename_folder_succeeds_with_contents).
           // This branch exists so a FUTURE case without that restriction

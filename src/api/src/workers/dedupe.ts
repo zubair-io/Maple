@@ -1,10 +1,9 @@
 /**
  * DeDuplicate worker — collapses an asset that has more than one live on-disk
- * location (`{$expr:{$gt:[{$size:'$fileinfo'},1]}}`, i.e. the byte-identical
- * same content found at several paths) down to a single kept copy. Every other
- * copy's original file (plus its paired XMP sidecars) is RELOCATED into
- * `<libraryRoot>/_duplicates/<original rel path>` and its entry is `$pull`ed
- * from `fileinfo`.
+ * location (the byte-identical same content found at several paths) down to a
+ * single kept copy. Every other copy's original file (plus its paired XMP
+ * sidecars) is RELOCATED into `<libraryRoot>/_duplicates/<original rel path>`
+ * and its location row is removed from the asset.
  *
  * Why this is safe under "originals are sacred": nothing is deleted. A duplicate
  * is *moved* into a reversible quarantine folder that the indexer skips (see
@@ -31,10 +30,10 @@
  *     path-keyed (not `maple_id`-keyed — see `cachePathForAsset`'s doc), so
  *     they have no such sharing to preserve: a moved copy's previews are
  *     always cleaned at its old location regardless of where the keeper
- *     lives. When the cache anchor (`fileinfo[0]`) is one of the moved
- *     copies, the `thumb`/`preview` stages are re-armed so the kept copy
- *     regenerates them at its location (the serving route 404s on a cache miss;
- *     it does not lazily render).
+ *     lives. When the cache anchor (the first location, `ordinal = 0`) is one
+ *     of the moved copies, the `thumb`/`preview` stages are re-armed so the
+ *     kept copy regenerates them at its location (the serving route 404s on a
+ *     cache miss; it does not lazily render).
  *
  * Not a per-asset version-claim stage: it runs its own interval loop (mirrors
  * `missing-reaper` / `migration`) and registers into the in-process
@@ -42,12 +41,13 @@
  * surface controls it. Started from `workers/maintenance.ts`.
  */
 
-import type { ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { isLiveFileInfo, liveAwareDuplicatePredicate } from '../indexer/images.repo.ts';
-import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
-import type { AssetDoc, FileInfo } from '../db/schema.ts';
+import { isLiveFileInfo } from '../indexer/images.repo.ts';
+import { recordAndPublishAssetChange } from '../db/sqlite/repos/changes.repo.ts';
+import {
+  listDuplicateCandidates,
+  type DuplicateCandidate,
+} from '../db/sqlite/repos/assets.sweeps.ts';
 import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
@@ -74,17 +74,10 @@ const DEFAULT_INTERVAL_MS = 300_000;
  * Keeps the resume-to-first-pass latency under this value (≤5 s). */
 const PAUSED_POLL_MS = 5_000;
 
-/** Minimal projected shape the pass needs from each candidate row. */
-interface DedupeCandidate {
-  _id: ObjectId;
-  fileinfo?: FileInfo[];
-  maple_id?: string | null;
-}
-
 export interface RunDeDuplicateOptions {
-  /** Max assets (rows with >1 fileinfo entry) to examine in one pass. */
+  /** Max assets (rows with ≥2 live locations) to examine in one pass. */
   batchSize?: number;
-  /** When true, log intended moves but mutate nothing on disk or in Mongo. */
+  /** When true, log intended moves but mutate nothing on disk or in the DB. */
   dryRun?: boolean;
 }
 
@@ -94,7 +87,6 @@ export async function runDeDuplicateOnce(
 ): Promise<DeDuplicateSummary> {
   const batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
   const dryRun = opts.dryRun ?? false;
-  const coll = await assetsCollection();
 
   let libs: ReadonlyMap<string, string>;
   try {
@@ -105,30 +97,26 @@ export async function runDeDuplicateOnce(
 
   const summary = emptySummary();
 
-  // Live-aware gate: ≥2 live (non-tombstoned) fileinfo entries. Backed by the
-  // `fileinfo_multi_location` partial index which narrows to multi-location rows,
-  // then `$expr`+`$filter` counts only non-tombstoned entries per row (#1290).
-  // Keeps in sync with the `/status` pending count (same predicate via
-  // `liveAwareDuplicatePredicate`) so the badge reaches 0 from deduplicate alone
-  // and wasted scan passes on sticky non-live rows are eliminated.
+  // Live-aware gate: ≥2 live (non-tombstoned) locations, and not trashed. It is
+  // a test on `live_location_count`, a column the `asset_locations` triggers
+  // maintain — where Mongo needed a partial index on `fileinfo.1` to narrow to
+  // multi-location rows and then an `$expr`/`$filter` pass to count each
+  // candidate's non-tombstoned entries in memory (#1290). Settings → Workers
+  // counts the badge on the same predicate, so the badge still reaches 0 from
+  // this worker alone and no pass is spent on sticky non-live rows.
   //
   // NOTE: a duplicate set whose every on-disk copy is pinned by a `.keep` marker
   // stays a candidate here (and in the pending count) by design — `.keep` is
-  // re-confirmed on disk per pass and the stored `fileinfo.keep` flag can go
-  // stale, so there is no DB-side predicate that could safely exclude such rows
-  // without risking permanently skipping a set whose marker was later removed.
-  // Each pass processes them cheaply (stat the folders, `skippedAllKept`, return).
-  const candidates = (await coll
-    .find(liveAwareDuplicatePredicate() as never, {
-      projection: { _id: 1, fileinfo: 1, maple_id: 1 },
-    })
-    .limit(batchSize)
-    .toArray()) as DedupeCandidate[];
+  // re-confirmed on disk per pass and the stored `keep` flag can go stale, so
+  // there is no DB-side predicate that could safely exclude such rows without
+  // risking permanently skipping a set whose marker was later removed. Each
+  // pass processes them cheaply (stat the folders, `skippedAllKept`, return).
+  const candidates = await listDuplicateCandidates(batchSize);
 
   for (const doc of candidates) {
     summary.scanned++;
     try {
-      await processAsset(coll, doc, libs, dryRun, summary);
+      await processAsset(doc, libs, dryRun, summary);
     } catch (err) {
       summary.errors++;
       log.warn(
@@ -165,24 +153,22 @@ export async function runDeDuplicateOnce(
  * disk, validate + tag any absent ones, require ≥2 real on-disk copies
  * before touching anything, resolve which copies survive (`.keep` pins or
  * the `selectKeeper` ranking), relocate the rest into `_duplicates/`, then
- * pull the moved entries from `fileinfo` and publish the change. Each phase
+ * drop the moved copies' location rows and publish the change. Each phase
  * function's own doc explains why it exists and what it guards against.
  */
 async function processAsset(
-  coll: Awaited<ReturnType<typeof assetsCollection>>,
-  doc: DedupeCandidate,
+  doc: DuplicateCandidate,
   libs: ReadonlyMap<string, string>,
   dryRun: boolean,
   summary: DeDuplicateSummary,
 ): Promise<void> {
-  const fileinfo = doc.fileinfo ?? [];
-  const liveEntries = fileinfo.filter((e) => isLiveFileInfo(e));
+  const liveEntries = doc.fileinfo.filter((e) => isLiveFileInfo(e));
   if (liveEntries.length < 2) return; // not a live duplicate set
 
   // Stat + validate + tag every live entry, bailing when fewer than two
   // copies are actually on disk right now — see `resolveOnDiskEntries`'s doc
   // for what each of the bundled phases guards against.
-  const resolved = await resolveOnDiskEntries(coll, doc._id, liveEntries, libs, dryRun);
+  const resolved = await resolveOnDiskEntries(doc._id, liveEntries, libs, dryRun);
   if ('skip' in resolved) {
     if (resolved.skip === 'offline') summary.skippedOffline++;
     else if (resolved.skip === 'missingFile') summary.skippedMissingFile++;
@@ -201,7 +187,7 @@ async function processAsset(
   }
 
   const { primaryKeeper, keeperAbs, keeperKeys, anchorMoves } = resolveKeeperContext(
-    doc as Pick<AssetDoc, 'fileinfo'>,
+    doc,
     keepers,
     libs,
   );
@@ -218,10 +204,10 @@ async function processAsset(
 
   if (dryRun) {
     summary.dryRun++;
-    return; // no Mongo mutation in dry-run
+    return; // no database mutation in dry-run
   }
 
-  await pullMovedEntriesFromFileinfo(coll, doc._id, moved, anchorMoves);
+  await pullMovedEntriesFromFileinfo(doc._id, moved, anchorMoves);
   summary.deduped++;
 
   // Publish an update keyed by the surviving primary so clients + search refresh.

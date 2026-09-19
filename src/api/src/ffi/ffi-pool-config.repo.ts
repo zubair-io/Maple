@@ -1,7 +1,7 @@
 /**
  * Persisted FFI decode-pool config. Mirrors the enrichment-config shape: a
- * single document in `app_settings` keyed by `_id: "performance"`, with one
- * field today — `ffi_workers`.
+ * single row in `app_settings` keyed `id = 'performance'`, with one field
+ * today — `ffi_workers`.
  *
  * Precedence (resolveFfiPoolConfig): DB row > env var (`MAPLE_FFI_WORKERS`) >
  * built-in default (1). Default 1 keeps the change pure opt-in: an upgraded
@@ -13,9 +13,12 @@
  * of dylib-loaded worker threads.
  */
 
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'performance';
 
 /** Built-in default when neither a DB row nor the env var is set. One worker
@@ -54,8 +57,7 @@ interface PerformanceConfigDoc {
  * default. */
 export async function loadPerformanceConfig(): Promise<PerformanceConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<PerformanceConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<PerformanceConfigDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -64,16 +66,13 @@ export async function loadPerformanceConfig(): Promise<PerformanceConfig | null>
 
 /** Upsert. Partial patches supported: only supplied fields are touched. */
 export async function savePerformanceConfig(patch: Partial<PerformanceConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = {
+  const set: Record<string, SettingsValue | undefined> = {
     'config.updated_at': Date.now(),
   };
   if (patch.ffi_workers !== undefined) {
     set['config.ffi_workers'] = patch.ffi_workers;
   }
-  await db
-    .collection<PerformanceConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }
 
 export interface ResolvedPerformanceConfig {

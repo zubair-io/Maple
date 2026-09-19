@@ -1,58 +1,73 @@
-import { describe, expect, it, afterAll, beforeEach, beforeAll } from 'bun:test';
-import type { Db } from 'mongodb';
+/**
+ * `/api/workers` end to end, against a real database.
+ *
+ * The one property worth restating on every test in here: nothing on this path
+ * counts anything. `/status` reads the snapshot the worker persisted and the
+ * `worker_config` rows, and that is all — which is why several tests below seed
+ * counts that no asset in the database could justify, and then assert the route
+ * reports them. A route that started deriving its own numbers would fail those,
+ * which is the point (#3491).
+ */
+
+import { describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { workerRoutes, sanitizeWorkerConfig } from './routes.ts';
-import type { WorkerConfigDoc } from './worker-config.repo.ts';
+import type { WorkerConfigDoc } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
-import { writeWorkerStatus } from './worker-status.repo.ts';
-import { WorkerConfigRepo } from './worker-config.repo.ts';
-import { closeDb, getDb } from '../db/client.ts';
+import {
+  readStatusCountsDemand,
+  writeStatusCounts,
+  writeWorkerStatus,
+} from '../db/sqlite/repos/worker-status.repo.ts';
 import type { StageStatusSnapshot } from './registry.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_workers_routes_${process.pid}`);
+function snapshotOf(
+  names: readonly string[],
+  overrides: Partial<StageStatusSnapshot> = {},
+): Record<string, StageStatusSnapshot> {
+  return Object.fromEntries(
+    names.map((name) => [
+      name,
+      {
+        status: 'stopped' as const,
+        inFlight: 0,
+        throughput: 0,
+        targetVersion: 1,
+        dependsOn: [],
+        lastError: null,
+        ...overrides,
+      },
+    ]),
+  );
+}
 
-// Captured here, not re-resolved in afterAll: withTestDb restores
-// MAPLE_MONGO_DB before this suite's teardown runs.
-let suiteDb: Db | null = null;
+/** The `/status` body, with the shape the assertions below read off it. */
+interface StatusBody {
+  stages: Array<{ name: string } & Record<string, unknown>>;
+  damaged: number;
+  newlyHiddenTotal: number;
+  countsAt: number | null;
+}
 
-let dbReachable = true;
-beforeAll(async () => {
-  try {
-    await closeDb();
-    suiteDb = await getDb();
-  } catch {
-    dbReachable = false;
-  }
-});
-beforeEach(async () => {
-  if (dbReachable) {
-    const db = await getDb();
-    await db
-      .collection<{ _id: string; [key: string]: unknown }>('worker_status')
-      .deleteMany({ _id: 'singleton' });
-    // `/status` derives each stage's pending/ready/dead from a live
-    // countDocuments over the `assets` collection. In the shared CI Mongo an
-    // earlier test file can leave asset docs behind, which makes the
-    // "zeroed on empty DB" assertions observe a stale backlog. Clear assets so
-    // every test in this file starts from a true 0/0/0 baseline.
-    await db.collection('assets').deleteMany({});
-  }
-});
-afterAll(async () => {
-  if (suiteDb) await suiteDb.dropDatabase();
-  await closeDb();
-});
+async function status(): Promise<StatusBody> {
+  const app = new Elysia().use(workerRoutes());
+  const res = await app.handle(new Request('http://localhost/api/workers/status'));
+  expect(res.status).toBe(200);
+  return (await res.json()) as StatusBody;
+}
 
 describe('sanitizeWorkerConfig', () => {
-  it('strips removed knobs (pollIntervalMs / batchSize) from a stale config doc', () => {
-    // A doc persisted before #674 still carries the removed knobs. The /status
-    // route + WS status frame must NOT leak them back out.
+  it('strips removed knobs (pollIntervalMs / batchSize) from a stale config', () => {
+    // A row written before #674 can still carry the removed knobs. The /status
+    // route and the WS status frame must NOT leak them back out.
     const stale = {
       name: 'thumb',
       concurrency: 4,
@@ -73,140 +88,72 @@ describe('sanitizeWorkerConfig', () => {
     });
     expect('pollIntervalMs' in clean).toBe(false);
     expect('batchSize' in clean).toBe(false);
-    // `name` is a Mongo key, not a WorkerConfig field — also dropped.
+    // `name` is the row's key, not a WorkerConfig field — also dropped.
     expect('name' in clean).toBe(false);
   });
 });
 
 describe('GET /api/workers/status', () => {
-  it('returns all known workers even when worker_status has no doc', async () => {
-    // No writeWorkerStatus call → readWorkerStatus returns null → statuses = {}
-    // assembleWorkersStatus now unions ALL_KNOWN_WORKER_NAMES, so every worker
-    // appears with status 'stopped' rather than an empty array.
+  it('returns every known worker even when nothing has been written yet', async () => {
+    using _live = await createLiveTestDatabase();
     const { ALL_KNOWN_WORKER_NAMES } = await import('./routes-status.ts');
-    const app = new Elysia().use(workerRoutes());
 
-    const res = await app.handle(new Request('http://localhost/api/workers/status'));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toHaveProperty('stages');
+    const body = await status();
+
     expect(Array.isArray(body.stages)).toBe(true);
     expect(body.stages).toHaveLength(ALL_KNOWN_WORKER_NAMES.length);
-    for (const s of body.stages) {
-      expect(s.status).toBe('stopped');
+    for (const row of body.stages) expect(row['status']).toBe('stopped');
+  });
+
+  it('surfaces every stage the worker wrote, plus the statically known workers', async () => {
+    using _live = await createLiveTestDatabase();
+    const names = ['exif', 'thumb', 'preview', 'face-detect', 'describe', 'geocode', 'meili'];
+    await writeWorkerStatus(snapshotOf(names), Date.now());
+
+    const body = await status();
+
+    const rows = body.stages as Array<{ name: string; status: string }>;
+    const returned = new Set(rows.map((s) => s.name));
+    for (const name of names) expect(returned.has(name)).toBe(true);
+    for (const row of rows) {
+      if (names.includes(row.name)) expect(row.status).toBe('stopped');
     }
   });
 
-  // Regression test for PR #164 review issue 1: the worker writes snapshots for
-  // every pre-registered stage (even those mid-retry / stopped) to worker_status.
-  // The API reads that snapshot and surfaces all stage names. Since PR #892 the
-  // response also includes every other known worker (missing-reaper, migration,
-  // discover) even when the worker process is not running, so the check is now
-  // a superset: all snapshot names appear, plus the static known names.
-  it('surfaces stages written by the worker to worker_status', async () => {
-    if (!dbReachable) return;
-    const names = [
-      'exif',
-      'thumb',
-      'preview',
-      'face-detect',
-      'face-embed',
-      'describe',
-      'geocode',
-      'meili',
-    ];
-    const snapshot: Record<string, StageStatusSnapshot> = {};
-    for (const n of names) {
-      snapshot[n] = {
-        status: 'stopped',
-        inFlight: 0,
-        throughput: 0,
-        targetVersion: 1,
-        dependsOn: [],
-        lastError: null,
-      };
-    }
-    await writeWorkerStatus(snapshot, Date.now());
+  it('zeroes every stage row before the worker has counted', async () => {
+    using _live = await createLiveTestDatabase();
+    await writeWorkerStatus(snapshotOf(['exif', 'thumb']), Date.now());
 
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(new Request('http://localhost/api/workers/status'));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    const returnedNames = new Set(
-      (body.stages as Array<{ name: string; status: string }>).map((s) => s.name),
-    );
-    // All snapshot names must be present.
-    for (const n of names) {
-      expect(returnedNames.has(n)).toBe(true);
-    }
-    // Stages written by the worker carry their written status.
-    for (const s of body.stages as Array<{ name: string; status: string }>) {
-      if (names.includes(s.name)) {
-        expect(s.status).toBe('stopped');
-      }
-    }
-  });
+    const body = await status();
 
-  it('includes pending/ready/blocked on every stage row (zeroed on empty DB)', async () => {
-    if (!dbReachable) return;
-    const snapshot: Record<string, StageStatusSnapshot> = {
-      exif: {
-        status: 'running',
-        inFlight: 0,
-        throughput: 0,
-        targetVersion: 2,
-        dependsOn: [],
-        lastError: null,
-      },
-      thumb: {
-        status: 'running',
-        inFlight: 0,
-        throughput: 0,
-        targetVersion: 2,
-        dependsOn: [{ name: 'exif', minVersion: 1 }],
-        lastError: null,
-      },
-    };
-    await writeWorkerStatus(snapshot, Date.now());
-
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(new Request('http://localhost/api/workers/status'));
-    const body = await res.json();
-    const rows = body.stages as Array<{
-      name: string;
-      pending: number;
-      ready: number;
-      blocked: number;
-    }>;
-    // Only the asset-processing stages are zeroed on an empty assets DB. Non-stage
-    // workers in the union (e.g. migration, whose `pending` is the unapplied-migration
-    // count) have their own pending semantics and aren't asserted here.
-    const stageRows = rows.filter((r) => (ALL_STAGE_NAMES as readonly string[]).includes(r.name));
-    expect(stageRows.length).toBe(ALL_STAGE_NAMES.length);
-    for (const r of stageRows) {
-      expect(r).toHaveProperty('ready');
-      expect(r).toHaveProperty('blocked');
-      // Empty assets collection → counts are 0, blocked is clamped pending−ready.
-      expect(r.pending).toBe(0);
-      expect(r.ready).toBe(0);
-      expect(r.blocked).toBe(0);
+    const rows = (
+      body.stages as Array<{
+        name: string;
+        pending: number;
+        ready: number;
+        blocked: number;
+      }>
+    ).filter((row) => (ALL_STAGE_NAMES as readonly string[]).includes(row.name));
+    expect(rows.length).toBe(ALL_STAGE_NAMES.length);
+    for (const row of rows) {
+      expect(row.pending).toBe(0);
+      expect(row.ready).toBe(0);
+      expect(row.blocked).toBe(0);
     }
   });
 
   it('serves the counts the worker persisted, stamped with countsAt (#3491)', async () => {
-    if (!dbReachable) return;
-    const { writeStatusCounts } = await import('./worker-status.repo.ts');
+    using live = await createLiveTestDatabase();
+    // A backlog in the database that disagrees with the snapshot: if the route
+    // ever counted for itself, these assets are what it would report instead.
+    const libraryId = insertFolder(live.db);
+    for (let i = 0; i < 3; i++) {
+      const assetId = insertAsset(live.db);
+      insertLocation(live.db, { assetId, libraryId, path: `dir-${i}` });
+      live.db.run(`INSERT INTO stage_state (asset_id, stage) VALUES (?, 'exif')`, [assetId]);
+    }
     await writeWorkerStatus(
-      {
-        exif: {
-          status: 'running',
-          inFlight: 0,
-          throughput: 0,
-          targetVersion: 2,
-          dependsOn: [],
-          lastError: null,
-        },
-      },
+      snapshotOf(['exif'], { status: 'running', targetVersion: 2 }),
       Date.now(),
     );
     const computedAt = Date.now();
@@ -219,12 +166,9 @@ describe('GET /api/workers/status', () => {
       computed_at: computedAt,
       duration_ms: 17,
     });
-    // No assets in the DB at all — every number below must come from the
-    // persisted snapshot, never from a live countDocuments.
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(new Request('http://localhost/api/workers/status'));
-    expect(res.status).toBe(200);
-    const body = await res.json();
+
+    const body = await status();
+
     const byName = new Map(
       (body.stages as Array<{ name: string } & Record<string, unknown>>).map((s) => [s.name, s]),
     );
@@ -236,179 +180,205 @@ describe('GET /api/workers/status', () => {
   });
 
   it('reports countsAt: null before the worker has ever counted', async () => {
-    if (!dbReachable) return;
-    const app = new Elysia().use(workerRoutes());
-    const body = await (
-      await app.handle(new Request('http://localhost/api/workers/status'))
-    ).json();
-    expect(body.countsAt).toBeNull();
+    using _live = await createLiveTestDatabase();
+    expect((await status()).countsAt).toBeNull();
   });
 
   it('pokes the worker demand flag so counts refresh while the page is watched', async () => {
-    if (!dbReachable) return;
+    using _live = await createLiveTestDatabase();
     const { _resetDemandThrottleForTests, COUNTS_DEMAND_WINDOW_MS } =
       await import('./routes-status.ts');
-    const { readStatusCountsDemand } = await import('./worker-status.repo.ts');
     _resetDemandThrottleForTests();
     const before = Date.now();
-    const app = new Elysia().use(workerRoutes());
-    await app.handle(new Request('http://localhost/api/workers/status'));
-    const until = await readStatusCountsDemand();
-    expect(until).toBeGreaterThanOrEqual(before + COUNTS_DEMAND_WINDOW_MS);
+
+    await status();
+
+    expect(await readStatusCountsDemand()).toBeGreaterThanOrEqual(before + COUNTS_DEMAND_WINDOW_MS);
   });
 
   it("the migration row's pending is the enabled migrations' persisted remaining", async () => {
-    if (!dbReachable) return;
+    using _live = await createLiveTestDatabase();
     const { patchMigrationState } = await import('./migration-config.repo.ts');
     await patchMigrationState('refile-backups', { enabled: true, remaining: 40 });
     await patchMigrationState('refile-legacy-daydir', { enabled: false, remaining: 99 });
-    try {
-      const app = new Elysia().use(workerRoutes());
-      const body = await (
-        await app.handle(new Request('http://localhost/api/workers/status'))
-      ).json();
-      const row = (body.stages as Array<{ name: string; pending: number }>).find(
-        (s) => s.name === 'migration',
-      );
-      expect(row?.pending).toBe(40);
-    } finally {
-      await (await getDb())
-        .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-        .deleteOne({ _id: 'migration' as never });
-    }
+
+    const body = await status();
+
+    const row = (body.stages as Array<{ name: string; pending: number }>).find(
+      (s) => s.name === 'migration',
+    );
+    expect(row?.pending).toBe(40);
   });
 
-  it("surfaces a stage as 'error' when written that way by the worker", async () => {
-    if (!dbReachable) return;
-    const snapshot: Record<string, StageStatusSnapshot> = {
-      face: {
-        status: 'error',
-        inFlight: 0,
-        throughput: 0,
-        targetVersion: 1,
-        dependsOn: [],
-        lastError: 'ONNX model not found',
-      },
-    };
-    await writeWorkerStatus(snapshot, Date.now());
+  it("surfaces a stage as 'error' when the worker wrote it that way", async () => {
+    using _live = await createLiveTestDatabase();
+    await writeWorkerStatus(
+      snapshotOf(['face'], { status: 'error', lastError: 'ONNX model not found' }),
+      Date.now(),
+    );
 
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(new Request('http://localhost/api/workers/status'));
-    const body = await res.json();
+    const body = await status();
+
     const face = (
-      body.stages as Array<{
-        name: string;
-        status: string;
-        lastError: string | null;
-      }>
+      body.stages as Array<{ name: string; status: string; lastError: string | null }>
     ).find((s) => s.name === 'face');
-    expect(face).toBeDefined();
-    expect(face!.status).toBe('error');
-    expect(face!.lastError).toBe('ONNX model not found');
+    expect(face).toMatchObject({ status: 'error', lastError: 'ONNX model not found' });
   });
 });
 
-describe('POST /api/workers/:name/pause', () => {
-  it('returns 404 for unknown stage', async () => {
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request('http://localhost/api/workers/nonexistent/pause', {
-        method: 'POST',
-      }),
-    );
-    expect(res.status).toBe(404);
+async function post(path: string): Promise<Response> {
+  const app = new Elysia().use(workerRoutes());
+  return app.handle(new Request(`http://localhost/api/workers/${path}`, { method: 'POST' }));
+}
+
+describe('pause and resume', () => {
+  it('404s an unknown worker on both', async () => {
+    expect((await post('nonexistent/pause')).status).toBe(404);
+    expect((await post('nonexistent/resume')).status).toBe(404);
   });
 
-  it('writes worker_config.paused=true (cross-process channel)', async () => {
-    if (!dbReachable) return;
-    const db = await getDb();
-    // Clean up any prior doc.
-    await db.collection('worker_config').deleteOne({ name: 'thumb' });
+  it('writes the paused flag the worker re-reads on its next tick', async () => {
+    using _live = await createLiveTestDatabase();
+    const repo = new WorkerConfigRepo();
 
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request('http://localhost/api/workers/thumb/pause', { method: 'POST' }),
-    );
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
+    expect((await post('thumb/pause')).status).toBe(200);
+    expect((await repo.load('thumb'))?.paused).toBe(true);
 
-    const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
-    const cfg = await repo.load('thumb');
-    expect(cfg?.paused).toBe(true);
-
-    await db.collection('worker_config').deleteOne({ name: 'thumb' });
-  });
-});
-
-describe('POST /api/workers/:name/resume', () => {
-  it('returns 404 for unknown stage', async () => {
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request('http://localhost/api/workers/nonexistent/resume', {
-        method: 'POST',
-      }),
-    );
-    expect(res.status).toBe(404);
+    expect((await post('thumb/resume')).status).toBe(200);
+    expect((await repo.load('thumb'))?.paused).toBe(false);
   });
 
-  it('writes worker_config.paused=false (cross-process channel)', async () => {
-    if (!dbReachable) return;
-    const db = await getDb();
-    // Seed a paused doc first.
-    const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
-    await repo.patch('thumb', { paused: true });
+  it('clears a self-imposed pause reason on resume', async () => {
+    using _live = await createLiveTestDatabase();
+    const repo = new WorkerConfigRepo();
+    await repo.patch('meili', { paused: true, pause_reason: 'embedder address rejected' });
 
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request('http://localhost/api/workers/thumb/resume', { method: 'POST' }),
-    );
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
+    await post('meili/resume');
 
-    const cfg = await repo.load('thumb');
+    // The reason describes the pause it arrived with, so a resume drops it —
+    // cleared to NULL in the row, which reads back as an absent key.
+    const cfg = await repo.load('meili');
     expect(cfg?.paused).toBe(false);
-
-    await db.collection('worker_config').deleteOne({ name: 'thumb' });
+    expect(cfg?.pause_reason ?? null).toBeNull();
   });
 });
 
-describe('POST /api/workers/:name/retry-dead', () => {
-  it('returns 404 for unknown stage', async () => {
+describe('the dead-letter and damaged surfaces', () => {
+  it('404s an unknown stage', async () => {
+    const app = new Elysia().use(workerRoutes());
+    expect((await post('nonexistent/retry-dead')).status).toBe(404);
+    expect(
+      (await app.handle(new Request('http://localhost/api/workers/nonexistent/dead'))).status,
+    ).toBe(404);
+  });
+
+  it('lists a stage’s dead assets and re-queues them on retry', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db, { path: '/lib' });
+    const assetId = insertAsset(live.db);
+    insertLocation(live.db, { assetId, libraryId, path: 'a', filename: 'broken.dng' });
+    live.db.run(
+      `INSERT INTO stage_state (asset_id, stage, version, attempts, dead, last_error, processed_at)
+       VALUES (?, 'exif', 0, 3, 1, 'Unknown file format', '2026-01-01T00:00:00Z')`,
+      [assetId],
+    );
+
+    const app = new Elysia().use(workerRoutes());
+    const listed = await (
+      await app.handle(new Request('http://localhost/api/workers/exif/dead'))
+    ).json();
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]).toMatchObject({
+      id: assetId,
+      abs_path: '/lib/a/broken.dng',
+      last_error: 'Unknown file format',
+      attempts: 3,
+    });
+
+    const retried = await (await post('exif/retry-dead')).json();
+    expect(retried).toEqual({ ok: true, reset: 1 });
+    const after = await (
+      await app.handle(new Request('http://localhost/api/workers/exif/dead'))
+    ).json();
+    expect(after.items).toHaveLength(0);
+  });
+
+  it('lists damaged assets and clears the tag with the tagging stages', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db, { path: '/lib' });
+    const assetId = insertAsset(live.db);
+    insertLocation(live.db, { assetId, libraryId, path: 'a', filename: 'corrupt.cr2' });
+    live.db.run(
+      `UPDATE assets SET damaged_since = '2026-01-01T00:00:00Z', damaged_stage = 'exif',
+              damaged_reason = 'Unknown file format', maple_id = 'abc' WHERE id = ?`,
+      [assetId],
+    );
+    for (const stage of ['exif', 'thumb', 'preview']) {
+      live.db.run(`INSERT INTO stage_state (asset_id, stage, attempts, dead) VALUES (?, ?, 3, 1)`, [
+        assetId,
+        stage,
+      ]);
+    }
+
+    const app = new Elysia().use(workerRoutes());
+    const listed = await (
+      await app.handle(new Request('http://localhost/api/workers/damaged'))
+    ).json();
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]).toMatchObject({
+      id: assetId,
+      maple_id: 'abc',
+      abs_path: '/lib/a/corrupt.cr2',
+      stage: 'exif',
+      reason: 'Unknown file format',
+    });
+
+    const cleared = await (
+      await app.handle(
+        new Request('http://localhost/api/workers/damaged/clear', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: assetId }),
+        }),
+      )
+    ).json();
+    expect(cleared).toEqual({ ok: true, cleared: 1 });
+
+    // Un-parked AND genuinely re-tried: the tag is gone and every tagging
+    // stage's dead-letter went with it, which is the half that used to be a
+    // separate write and could come apart.
+    const row = live.db.query(`SELECT damaged_since FROM assets WHERE id = ?`).get(assetId) as {
+      damaged_since: string | null;
+    };
+    expect(row.damaged_since).toBeNull();
+    const stillDead = live.db
+      .query(`SELECT COUNT(*) AS n FROM stage_state WHERE asset_id = ? AND dead = 1`)
+      .get(assetId) as { n: number };
+    expect(stillDead.n).toBe(0);
+  });
+
+  it('rejects a malformed asset id on clear rather than clearing everything', async () => {
+    using _live = await createLiveTestDatabase();
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
-      new Request('http://localhost/api/workers/nonexistent/retry-dead', {
+      new Request('http://localhost/api/workers/damaged/clear', {
         method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: 'not-an-id' }),
       }),
     );
-    expect(res.status).toBe(404);
-  });
-});
-
-describe('GET /api/workers/:name/dead', () => {
-  it('returns 404 for unknown stage', async () => {
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(new Request('http://localhost/api/workers/nonexistent/dead'));
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(400);
   });
 });
 
 describe('PATCH /api/workers/:name/config', () => {
-  it('returns 404 for unknown stage', async () => {
-    const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request('http://localhost/api/workers/nonexistent/config', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ concurrency: 4 }),
-      }),
-    );
+  it('returns 404 for an unknown stage', async () => {
+    const res = await patch('nonexistent', { concurrency: 4 });
     expect(res.status).toBe(404);
   });
 
-  // Register a fake live entry so the route's `has()` check passes and the
-  // body schema (not the 404) is what gates the request.
+  // Register a fake live entry so the route's `has()` check passes and the body
+  // schema, not the 404, is what gates the request.
   function registerFakeStage(name: string): void {
     stageRegistry._resetForTests();
     stageRegistry.register(name, {
@@ -434,36 +404,32 @@ describe('PATCH /api/workers/:name/config', () => {
     );
   }
 
-  it('rejects concurrency above the new 100 ceiling (422)', async () => {
+  it('rejects concurrency above the 100 ceiling (422)', async () => {
     registerFakeStage('thumb');
-    const res = await patch('thumb', { concurrency: 101 });
-    expect(res.status).toBe(422);
+    expect((await patch('thumb', { concurrency: 101 })).status).toBe(422);
   });
 
-  it('accepts concurrency at the new 100 ceiling (passes body validation)', async () => {
+  it('persists a config at the 100 ceiling and reads it back', async () => {
+    using _live = await createLiveTestDatabase();
     registerFakeStage('thumb');
+
     const res = await patch('thumb', { concurrency: 100 });
-    // No DB in this unit test, so the handler may 500 on getDb — but it must
-    // NOT be the 422 a schema violation would produce. The point is the
-    // 1–100 clamp now admits 100 (the old ceiling was 32).
-    expect(res.status).not.toBe(422);
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).config).toMatchObject({ concurrency: 100 });
   });
 
   it('rejects the removed pollIntervalMs knob with 400', async () => {
     registerFakeStage('thumb');
     const res = await patch('thumb', { pollIntervalMs: 1000 });
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(String(body.error)).toContain('pollIntervalMs');
+    expect(String((await res.json()).error)).toContain('pollIntervalMs');
   });
 
   it('rejects the removed batchSize knob with 400', async () => {
     registerFakeStage('thumb');
     const res = await patch('thumb', { batchSize: 5 });
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(String(body.error)).toContain('batchSize');
+    expect(String((await res.json()).error)).toContain('batchSize');
   });
 });
-
-// --- #1290: deduplicate ready/pending count must be live-aware ---

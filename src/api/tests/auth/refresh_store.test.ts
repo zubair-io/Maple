@@ -1,125 +1,89 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
-import { ObjectId } from 'mongodb';
+/**
+ * Refresh rotation across more than one family (#858).
+ *
+ * One family's rotation — the compare-and-swap, the grace window, reuse
+ * detection — is covered against the repository in
+ * `db/sqlite/repos/auth.sessions.repo.test.ts`. What is left, and what this
+ * file is for, is the behaviour that only shows up with two families or two
+ * callers: logging one device out must not sign the others out, logging out
+ * everywhere must, and two tabs refreshing the same token at the same instant
+ * must not be mistaken for theft.
+ *
+ * It also drives `auth/refresh_store.ts` rather than the repository directly,
+ * which is deliberate: that module is what every route imports, so these cases
+ * are also the check that its exports still resolve to the SQLite store.
+ */
+
+import { describe, it, expect } from 'bun:test';
+import type { ObjectId } from 'mongodb';
 import {
   issueRefreshToken,
-  rotateRefreshToken,
-  revokeFamily,
-  revokeFamilyByToken,
   revokeChain,
-  REFRESH_GRACE_MS,
+  revokeFamilyByToken,
+  rotateRefreshToken,
 } from '../../src/auth/refresh_store.ts';
-import { refreshTokensCollection } from '../../src/db/client.ts';
+import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-const userId = new ObjectId();
-
-beforeEach(async () => {
-  const c = await refreshTokensCollection();
-  await c.deleteMany({});
-});
-
-/** Push every revoked token's `revoked_at` outside the grace window. */
-async function ageOutGrace() {
-  const c = await refreshTokensCollection();
-  await c.updateMany(
-    { revoked_at: { $ne: null } },
-    { $set: { revoked_at: new Date(Date.now() - REFRESH_GRACE_MS - 5_000).toISOString() } },
+async function seedUser(live: LiveTestDatabase, email = 'owner@maple.test'): Promise<ObjectId> {
+  return await insertUser(
+    { email, role: 'owner', created_at: new Date().toISOString(), last_seen_at: null },
+    live.handle,
   );
 }
 
-describe('refresh rotation (#858)', () => {
-  it('rotates a live token (atomic CAS) into a new token in the same family', async () => {
-    const t1 = await issueRefreshToken(userId, 'iPhone');
-    const t2 = await rotateRefreshToken(t1.raw);
-    expect(t2.raw).not.toBe(t1.raw);
-    const rows = await (await refreshTokensCollection()).find({ user_id: userId }).toArray();
-    expect(new Set(rows.map((r) => String(r.family_id))).size).toBe(1);
+describe('refresh rotation across families', () => {
+  it('revoking one device family leaves another family live', async () => {
+    using live = await createLiveTestDatabase();
+    const userId = await seedUser(live);
+    const iPhone = await issueRefreshToken(userId, 'iPhone');
+    const iPad = await issueRefreshToken(userId, 'iPad');
+
+    await revokeFamilyByToken(iPhone.raw); // log out the iPhone only
+    await expect(rotateRefreshToken(iPhone.raw)).rejects.toThrow();
+    expect((await rotateRefreshToken(iPad.raw)).raw).toBeDefined();
   });
 
-  it('re-mints within grace when the family is live (lost-response / concurrent retry, NOT a logout)', async () => {
-    const t1 = await issueRefreshToken(userId, 'iPhone');
-    const t2 = await rotateRefreshToken(t1.raw); // t1 revoked, t2 live
-    // Replay the just-rotated t1 (a lost-response retry): re-mints, does not throw.
-    const t1b = await rotateRefreshToken(t1.raw);
-    expect(t1b.raw).not.toBe(t1.raw);
-    expect(t1b.raw).not.toBe(t2.raw);
-    // t2 is still usable.
-    expect((await rotateRefreshToken(t2.raw)).raw).toBeDefined();
+  it('revokeChain signs every one of a user’s devices out', async () => {
+    using live = await createLiveTestDatabase();
+    const userId = await seedUser(live);
+    const iPhone = await issueRefreshToken(userId, 'iPhone');
+    const iPad = await issueRefreshToken(userId, 'iPad');
+
+    await revokeChain(userId);
+    await expect(rotateRefreshToken(iPhone.raw)).rejects.toThrow();
+    await expect(rotateRefreshToken(iPad.raw)).rejects.toThrow();
   });
 
-  it('rapid rotation then replay of an older token within grace re-mints (no false reuse)', async () => {
-    const t1 = await issueRefreshToken(userId, 'iPhone');
-    const t2 = await rotateRefreshToken(t1.raw);
-    await rotateRefreshToken(t2.raw); // family head is now two steps ahead of t1
-    // t1 is two rotations behind, but the family still has a live head → re-mint.
-    expect((await rotateRefreshToken(t1.raw)).raw).toBeDefined();
-  });
+  it('revokeChain does not reach another account', async () => {
+    using live = await createLiveTestDatabase();
+    const mine = await seedUser(live, 'a@maple.test');
+    const theirs = await seedUser(live, 'b@maple.test');
+    const ours = await issueRefreshToken(mine, 'iPhone');
+    const others = await issueRefreshToken(theirs, 'iPhone');
 
-  it('REJECTS a within-grace replay after the family is revoked (logout actually logs out)', async () => {
-    const t1 = await issueRefreshToken(userId, 'iPhone');
-    const t2 = await rotateRefreshToken(t1.raw); // t1 revoked, t2 live
-    await revokeFamilyByToken(t2.raw); // logout — kills the whole family
-    await expect(rotateRefreshToken(t1.raw)).rejects.toThrow();
-    await expect(rotateRefreshToken(t2.raw)).rejects.toThrow();
-  });
-
-  it('revokes the family on reuse OUTSIDE the grace window', async () => {
-    const t1 = await issueRefreshToken(userId, 'iPhone');
-    const t2 = await rotateRefreshToken(t1.raw);
-    const t3 = await rotateRefreshToken(t2.raw); // t3 live
-    await ageOutGrace();
-    await expect(rotateRefreshToken(t1.raw)).rejects.toThrow(/reuse/i);
-    // The family is now dead — even the previously-live head no longer rotates.
-    await expect(rotateRefreshToken(t3.raw)).rejects.toThrow();
-  });
-
-  it('family-scoped: revoking one device family leaves another family live', async () => {
-    const a1 = await issueRefreshToken(userId, 'iPhone'); // family A
-    const b1 = await issueRefreshToken(userId, 'iPad'); // family B
-    await revokeFamilyByToken(a1.raw); // log out iPhone only
-    await expect(rotateRefreshToken(a1.raw)).rejects.toThrow();
-    expect((await rotateRefreshToken(b1.raw)).raw).toBeDefined(); // iPad still works
+    await revokeChain(mine);
+    await expect(rotateRefreshToken(ours.raw)).rejects.toThrow();
+    expect((await rotateRefreshToken(others.raw)).raw).toBeDefined();
   });
 
   it('two concurrent rotations of the same token never nuke the family', async () => {
-    const t1 = await issueRefreshToken(userId, 'iPhone');
+    using live = await createLiveTestDatabase();
+    const userId = await seedUser(live);
+    const first = await issueRefreshToken(userId, 'iPhone');
+
     const results = await Promise.allSettled([
-      rotateRefreshToken(t1.raw),
-      rotateRefreshToken(t1.raw),
+      rotateRefreshToken(first.raw),
+      rotateRefreshToken(first.raw),
     ]);
     expect(results.some((r) => r.status === 'fulfilled')).toBe(true);
-    // A live token survives — the family was not reuse-revoked by the race.
-    const live = await (
-      await refreshTokensCollection()
-    ).findOne({ user_id: userId, revoked_at: null });
-    expect(live).not.toBeNull();
-  });
-
-  it('rejects an expired token', async () => {
-    const t = await issueRefreshToken(userId, 'iPhone');
-    await (
-      await refreshTokensCollection()
-    ).updateMany({}, { $set: { expires_at: new Date(Date.now() - 1000) } });
-    await expect(rotateRefreshToken(t.raw)).rejects.toThrow(/expired/i);
-  });
-
-  it('rejects an unknown token', async () => {
-    await expect(rotateRefreshToken('no-such-token')).rejects.toThrow(/unknown/i);
-  });
-
-  it('revokeChain revokes all of a user’s families (log out everywhere)', async () => {
-    const a1 = await issueRefreshToken(userId, 'iPhone');
-    const b1 = await issueRefreshToken(userId, 'iPad');
-    await revokeChain(userId);
-    await expect(rotateRefreshToken(a1.raw)).rejects.toThrow();
-    await expect(rotateRefreshToken(b1.raw)).rejects.toThrow();
-  });
-
-  it('revokeFamily revokes only the matching family', async () => {
-    const a1 = await issueRefreshToken(userId, 'iPhone');
-    const c = await refreshTokensCollection();
-    const a = await c.findOne({ token_hash: { $exists: true } });
-    if (!a?.family_id) throw new Error('Expected refresh-token family');
-    await revokeFamily(a.family_id);
-    await expect(rotateRefreshToken(a1.raw)).rejects.toThrow();
+    // A live token survives — the race was not read as reuse.
+    const live_rows = live.db
+      .query(`SELECT id FROM refresh_tokens WHERE revoked_at IS NULL`)
+      .all() as Array<{ id: string }>;
+    expect(live_rows.length).toBeGreaterThan(0);
   });
 });

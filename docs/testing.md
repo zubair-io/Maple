@@ -339,6 +339,20 @@ CI stands up two real services rather than mocking them: `mongo:7` on 27017 and 
 
 Mongo-backed suites **skip-pass when Mongo is unreachable** — each connects with a 1.5s server-selection timeout and, on failure, closes the half-open client and marks itself unreachable. So `bun test` on a laptop without Mongo is green but has proven much less than CI did.
 
+SQLite-backed suites have no such caveat, because there is no service to reach. [`src/api/src/db/sqlite/test-sqlite.test-helpers.ts`](../src/api/src/db/sqlite/test-sqlite.test-helpers.ts) gives each test its own database with the schema already applied, and disposes of it when the test's block exits:
+
+```ts
+test('rejects a duplicate filename', async () => {
+  using handle = await createTestDatabase();
+  const db = handle.db;
+  // …
+});
+```
+
+The isolation is per _test_, not per suite, so two tests can insert the same primary key — the unique-index collision between fixtures that #2491 documents — without interfering. `using` disposes the handle even when an assertion throws, and because nothing about the handle is module-level state, tests written this way run correctly under `test.concurrent`; the harness's own [self-test](../src/api/src/db/sqlite/test-sqlite.test-helpers.test.ts) proves that by holding eight databases open simultaneously at a barrier, each with the same asset id in it, and failing loudly if the run turns out to be serialised.
+
+Most of the suite is still Mongo-backed and will stay that way until the repository ports (#3746–#3751) land, so a local mongod is still what makes a full local `bun test` meaningful today.
+
 Database naming is the subtle part. Bun evaluates every module body during the import phase, before any test runs, so a suite that assigns `process.env.MAPLE_MONGO_DB` at module scope renames the database for the whole process: the last import wins, other suites' `getDb()` connect to it, and one suite's teardown can drop a database another is still using. The fix is [`src/api/src/db/test-db.test-helpers.ts`](../src/api/src/db/test-db.test-helpers.ts):
 
 ```ts

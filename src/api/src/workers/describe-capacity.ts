@@ -22,9 +22,11 @@ import {
   type DescribeServerConfig,
 } from '../enrichment/describe-servers.ts';
 import type { ResolvedEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
-import { getDb } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
+// The SQLite repo (#3787). It resolves the process-wide handle itself, so
+// there is no database to open and no collection to name here — the two reads
+// below are the whole of this module's storage surface.
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 
 const log = childLogger('describe:capacity');
 
@@ -35,8 +37,7 @@ export async function syncDescribeStageCapacity(rawCapacity: number): Promise<vo
   // concurrency the workers route would refuse.
   const capacity = Math.min(rawCapacity, MAX_TOTAL_DESCRIBE_CAPACITY);
   try {
-    const db = await getDb();
-    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+    const repo = new WorkerConfigRepo();
     const current = await repo.load('describe');
     if (current?.concurrency === capacity) return;
     await repo.patch('describe', { concurrency: capacity });
@@ -52,9 +53,7 @@ export async function syncDescribeStageCapacity(rawCapacity: number): Promise<vo
  * exists yet (fresh install). */
 async function readDescribeStageConcurrency(): Promise<number | null> {
   try {
-    const db = await getDb();
-    const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-    return (await repo.load('describe'))?.concurrency ?? null;
+    return (await new WorkerConfigRepo().load('describe'))?.concurrency ?? null;
   } catch {
     return null;
   }

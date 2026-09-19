@@ -8,7 +8,21 @@
     "src/thumbs/imgdecode.child.ts",
     "src/thumbs/hdr-decode.child.ts",
     "src/enrichment/face-pool.child.ts",
+    "src/db/sqlite/db.worker.ts",
     "scripts/seed-fake-workers.ts",
+    "scripts/sqlite-bench/run.ts",
+    "scripts/sqlite-bench/list-items-compare.ts",
+    "scripts/mongo-to-sqlite.ts",
+    "scripts/e2e-cutover.ts",
+
+    // #3748 — the stage-runtime comparison benchmarks. Entry points, run by
+    // hand, so their exports have no importer and read as dead code without
+    // this. Appended rather than merged into the line above so a sibling port
+    // branch adding its own script conflicts on one line, not on this block.
+    "scripts/sqlite-bench/stage-claim-compare.ts",
+    "scripts/sqlite-bench/stage-claim-roundtrip.ts",
+    "scripts/sqlite-bench/search-compare.ts",
+    "scripts/sqlite-bench/search-relevance.ts",
     "src/people/clustering-quality-harness.ts",
     "tools/export-search-corpus.ts",
     "src/runtime/__fixtures__/stderr-crash-child.ts",

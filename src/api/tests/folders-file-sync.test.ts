@@ -1,97 +1,62 @@
+/**
+ * The File Provider's "sync every file type" surface: files that are not
+ * still images have no asset row, so the client reaches them by
+ * library-relative path through `/api/folders/:id/file` and `/file-meta`.
+ *
+ * Real files in a tmp directory, real SQLite installed as the process-wide
+ * handle for the file (#3787).
+ */
+
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { signAccessToken } from '../src/auth/tokens.ts';
+import { Elysia } from 'elysia';
+import { fakeAuth } from './helpers/test-auth.ts';
 import { listDirContents } from '../src/fs/browse.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 
-// JWT bootstrap MUST run before any module that touches `requireAuth`.
-process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const BEARER =
-  'Bearer ' +
-  (await signAccessToken(
-    {
-      file_access: true,
-      sub: '00000000000000000000000a',
-      email: 'tester@maple.local',
-      role: 'owner',
-    },
-    process.env.MAPLE_JWT_SECRET!,
-  ));
+const ROOT = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'maple-file-sync-')));
+withTestEnv('MAPLE_ROOTS', ROOT);
 
-const TEST_DB = `maple_test_file_sync_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+let live: LiveTestDatabase;
+let folderId: string;
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let realTmpRoot: string;
-let folderId: ObjectId;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
+async function get(suffix: string): Promise<Response> {
+  const { foldersRoutes } = await import('../src/routes/folders.ts');
+  const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+  return app.handle(new Request(`http://localhost/api/folders/${folderId}${suffix}`));
 }
 
 describe('FileProvider: sync all file types', () => {
   beforeAll(async () => {
-    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-file-sync-'));
-    realTmpRoot = await fs.realpath(tmpRoot);
-    process.env.MAPLE_ROOTS = realTmpRoot;
-
     // A mix of non-image regular files, an extensionless file, and a subdir.
-    // No image files — keeps `listDirContents` off the Mongo asset-link path
-    // (and off the browse-index enqueue), so the unit test below is hermetic.
-    await fs.writeFile(path.join(realTmpRoot, 'notes.txt'), 'hello');
-    await fs.writeFile(path.join(realTmpRoot, 'clip.mov'), 'fakevideo');
-    await fs.writeFile(path.join(realTmpRoot, 'README'), 'readme-bytes');
-    await fs.mkdir(path.join(realTmpRoot, 'sub'));
+    await fs.writeFile(path.join(ROOT, 'notes.txt'), 'hello');
+    await fs.writeFile(path.join(ROOT, 'clip.mov'), 'fakevideo');
+    await fs.writeFile(path.join(ROOT, 'README'), 'readme-bytes');
+    await fs.mkdir(path.join(ROOT, 'sub'));
 
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) return;
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-    folderId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: folderId,
-      path: realTmpRoot,
-      label: 'test',
-      created_at: new Date().toISOString(),
-      file_count: 0,
-    } as never);
+    live = await createLiveTestDatabase();
+    folderId = insertFolder(live.db, { path: ROOT, slug: 'file-sync-test' });
+    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
   });
 
   afterAll(async () => {
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    if (mongo) await mongo.close();
-    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
-    if (PRIOR_MAPLE_ROOTS === undefined) delete process.env.MAPLE_ROOTS;
-    else process.env.MAPLE_ROOTS = PRIOR_MAPLE_ROOTS;
-    if (realTmpRoot) await fs.rm(realTmpRoot, { recursive: true, force: true }).catch(() => {});
+    live.close();
+    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+    await fs.rm(ROOT, { recursive: true, force: true }).catch(() => {});
   });
 
-  // listDirContents is exercised directly (no route, no Mongo) since there
-  // are no still images in the fixture.
   test('listDirContents surfaces video files in `images` and other non-image files in `files`', async () => {
-    const res = await listDirContents(realTmpRoot);
+    const res = await listDirContents(ROOT);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const { data } = res;
@@ -113,7 +78,7 @@ describe('FileProvider: sync all file types', () => {
     expect(byName.get('README')!.ext).toBe('');
     for (const f of data.files) {
       expect(typeof f.path).toBe('string');
-      expect(f.path.startsWith(realTmpRoot)).toBe(true);
+      expect(f.path.startsWith(ROOT)).toBe(true);
       expect(typeof f.size).toBe('number');
       expect(f.size).toBeGreaterThan(0);
       expect(typeof f.mtime).toBe('string');
@@ -121,27 +86,13 @@ describe('FileProvider: sync all file types', () => {
   });
 
   test('GET /:id/file streams the raw bytes of a non-indexed file', async () => {
-    if (!mongoReachable) return;
-    const { app } = await import('../src/index.ts');
-    const res = await app.handle(
-      new Request(
-        `http://localhost/api/folders/${folderId.toHexString()}/file?path=${encodeURIComponent('notes.txt')}`,
-        { headers: { Authorization: BEARER } },
-      ),
-    );
+    const res = await get(`/file?path=${encodeURIComponent('notes.txt')}`);
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('hello');
   });
 
   test('GET /:id/file-meta returns stat without bytes', async () => {
-    if (!mongoReachable) return;
-    const { app } = await import('../src/index.ts');
-    const res = await app.handle(
-      new Request(
-        `http://localhost/api/folders/${folderId.toHexString()}/file-meta?path=${encodeURIComponent('clip.mov')}`,
-        { headers: { Authorization: BEARER } },
-      ),
-    );
+    const res = await get(`/file-meta?path=${encodeURIComponent('clip.mov')}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { name: string; size: number; ext: string; mtime: string };
     expect(body.name).toBe('clip.mov');
@@ -151,26 +102,12 @@ describe('FileProvider: sync all file types', () => {
   });
 
   test('GET /:id/file rejects a path-escape attempt', async () => {
-    if (!mongoReachable) return;
-    const { app } = await import('../src/index.ts');
-    const res = await app.handle(
-      new Request(
-        `http://localhost/api/folders/${folderId.toHexString()}/file?path=${encodeURIComponent('../../etc/passwd')}`,
-        { headers: { Authorization: BEARER } },
-      ),
-    );
+    const res = await get(`/file?path=${encodeURIComponent('../../etc/passwd')}`);
     expect(res.status).toBe(400);
   });
 
   test('GET /:id/file 404s for a missing file', async () => {
-    if (!mongoReachable) return;
-    const { app } = await import('../src/index.ts');
-    const res = await app.handle(
-      new Request(
-        `http://localhost/api/folders/${folderId.toHexString()}/file?path=${encodeURIComponent('nope.bin')}`,
-        { headers: { Authorization: BEARER } },
-      ),
-    );
+    const res = await get(`/file?path=${encodeURIComponent('nope.bin')}`);
     expect(res.status).toBe(404);
   });
 });

@@ -1,12 +1,12 @@
 /**
- * Pure-path-math tests for the cache-path resolvers in `xmp.ts`. No Mongo, no
+ * Pure-path-math tests for the cache-path resolvers in `xmp.ts`. No database, no
  * filesystem. BOTH tiers are path-keyed off the source's own filename — thumbs
  * as `sha256_prefix16(filename)`, previews as `<filename>.<suffix>` — so every
  * resolver names a file that can be found from a path alone, with no DB lookup.
  * See `resolveThumbPathForAsset`'s doc for why thumbs are not content-addressed.
  *
- * The skip-when-Mongo-unreachable pattern from `libraries.cache.test.ts` is
- * not needed here.
+ * Nothing here touches a database, so the suite needs none of the
+ * skip-when-the-store-is-unreachable scaffolding the MongoDB-era suites carried.
  */
 import { describe, test, expect } from 'bun:test';
 import { ObjectId } from 'mongodb';

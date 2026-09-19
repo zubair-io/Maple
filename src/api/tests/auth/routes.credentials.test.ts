@@ -1,32 +1,36 @@
-// src/api/tests/auth/routes.credentials.test.ts
-import { describe, it, expect, beforeEach } from 'bun:test';
+/**
+ * Passkey management on an existing account: listing the passkeys on `/me`, and
+ * the removal rule that an account can never be left without one.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), so the routes reach it through the same `sqliteDb()`
+ * they use in production and each test starts from an account with exactly the
+ * passkeys it seeded.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { authRoutes } from '../../src/routes/auth.ts';
 import { accountRoutes } from '../../src/routes/auth-account.ts';
 import { signAccessToken, signStepUpToken } from '../../src/auth/tokens.ts';
-import { credentialsCollection, usersCollection } from '../../src/db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedCredential, seedUser } from '../helpers/sqlite-fixtures.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 // /me + /credentials live in accountRoutes (#861 extraction); mount both.
 const app = new Elysia().use(authRoutes).use(accountRoutes);
 
+let live: LiveTestDatabase;
 let userId: ObjectId;
 let jwt: string;
 let stepUp: string;
 
 beforeEach(async () => {
-  await (await usersCollection()).deleteMany({});
-  await (await credentialsCollection()).deleteMany({});
-  const ins = await (
-    await usersCollection()
-  ).insertOne({
-    email: 'u@m.c',
-    role: 'member',
-    created_at: new Date().toISOString(),
-    last_seen_at: null,
-  });
-  userId = ins.insertedId;
+  live = await createLiveTestDatabase();
+  userId = seedUser(live.db, { email: 'u@m.c', role: 'member' });
   jwt = await signAccessToken(
     { file_access: true, sub: userId.toHexString(), email: 'u@m.c', role: 'member' },
     'x'.repeat(32),
@@ -35,22 +39,19 @@ beforeEach(async () => {
   stepUp = await signStepUpToken(userId.toHexString(), 'x'.repeat(32));
 });
 
+afterEach(() => {
+  live.close();
+});
+
 describe('credentials', () => {
   it('returns 409 when removing the last credential', async () => {
-    const credIns = await (
-      await credentialsCollection()
-    ).insertOne({
-      user_id: userId,
-      credential_id: 'c1',
-      public_key: Buffer.from('k'),
-      counter: 0,
-      transports: [],
-      device_label: 'iPhone',
-      created_at: new Date().toISOString(),
-      last_used_at: null,
+    const credId = seedCredential(live.db, {
+      userId,
+      credentialId: 'c1',
+      deviceLabel: 'iPhone',
     });
     const r = await app.handle(
-      new Request(`http://localhost/api/auth/credentials/${credIns.insertedId.toHexString()}`, {
+      new Request(`http://localhost/api/auth/credentials/${credId.toHexString()}`, {
         method: 'DELETE',
         headers: { authorization: `Bearer ${jwt}`, 'x-step-up': stepUp },
       }),
@@ -59,32 +60,10 @@ describe('credentials', () => {
   });
 
   it('removes a credential when more than one exists', async () => {
-    const a = await (
-      await credentialsCollection()
-    ).insertOne({
-      user_id: userId,
-      credential_id: 'c1',
-      public_key: Buffer.from('k'),
-      counter: 0,
-      transports: [],
-      device_label: 'iPhone',
-      created_at: new Date().toISOString(),
-      last_used_at: null,
-    });
-    await (
-      await credentialsCollection()
-    ).insertOne({
-      user_id: userId,
-      credential_id: 'c2',
-      public_key: Buffer.from('k'),
-      counter: 0,
-      transports: [],
-      device_label: 'Mac',
-      created_at: new Date().toISOString(),
-      last_used_at: null,
-    });
+    const a = seedCredential(live.db, { userId, credentialId: 'c1', deviceLabel: 'iPhone' });
+    seedCredential(live.db, { userId, credentialId: 'c2', deviceLabel: 'Mac' });
     const r = await app.handle(
-      new Request(`http://localhost/api/auth/credentials/${a.insertedId.toHexString()}`, {
+      new Request(`http://localhost/api/auth/credentials/${a.toHexString()}`, {
         method: 'DELETE',
         headers: { authorization: `Bearer ${jwt}`, 'x-step-up': stepUp },
       }),
@@ -93,24 +72,13 @@ describe('credentials', () => {
   });
 
   it('/me returns credentials list', async () => {
-    await (
-      await credentialsCollection()
-    ).insertOne({
-      user_id: userId,
-      credential_id: 'c1',
-      public_key: Buffer.from('k'),
-      counter: 0,
-      transports: [],
-      device_label: 'iPhone',
-      created_at: new Date().toISOString(),
-      last_used_at: null,
-    });
+    seedCredential(live.db, { userId, credentialId: 'c1', deviceLabel: 'iPhone' });
     const r = await app.handle(
       new Request('http://localhost/api/auth/me', {
         headers: { authorization: `Bearer ${jwt}` },
       }),
     );
-    const body = await r.json();
+    const body = (await r.json()) as { credentials: { device_label: string }[] };
     expect(body.credentials).toHaveLength(1);
     expect(body.credentials[0].device_label).toBe('iPhone');
   });

@@ -1,35 +1,29 @@
 /**
- * cf-thumb-sync stage handler tests. Real Mongo + real tmp filesystem
- * (skip-pass when Mongo is unreachable, mirroring every other DB-backed
- * suite in this repo). `fetch` is stubbed globally rather than mocking
- * `r2-client.ts`, same technique used throughout `src/cloudflare/`.
+ * cf-thumb-sync stage handler tests. Real SQLite (one in-memory database per
+ * test, installed as the process-wide handle so the handler's own
+ * `loadCloudflareConfig` and library-root lookups reach it) and a real tmp
+ * filesystem. `fetch` is stubbed globally rather than mocking `r2-client.ts`,
+ * the same technique used throughout `src/cloudflare/`.
+ *
+ * The success assertion is on the new shape: a handler returns the statements
+ * the runner commits alongside its stage row, not a map of document fields it
+ * folds into a `$set` (#3787).
  */
 
 import { describe, expect, it, beforeAll, afterAll, afterEach, beforeEach } from 'bun:test';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import cfThumbSyncStage from './cf-thumb-sync.ts';
 import { resolveThumbPath } from '../../fs/xmp.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_cf_thumb_sync_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+import { patchAppSettings } from '../../db/sqlite/repos/app-settings.repo.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 
 const CF_CONFIG = {
   enabled: true,
@@ -40,9 +34,7 @@ const CF_CONFIG = {
 };
 
 describe('cf-thumb-sync stage', () => {
-  let mongo: MongoClient | null = null;
-  let mongoReachable = false;
-  let db: Db | null = null;
+  let live: LiveTestDatabase;
   let dir: string;
   let libId: ObjectId;
   const realFetch = globalThis.fetch;
@@ -74,71 +66,42 @@ describe('cf-thumb-sync stage', () => {
   }
 
   beforeAll(async () => {
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) {
-      console.log('[cf-thumb-sync.test] skipping: MongoDB unreachable');
-      return;
-    }
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-    const { closeDb } = await import('../../db/client.ts');
-    await closeDb();
     dir = await mkdtemp(path.join(os.tmpdir(), 'cf-thumb-sync-'));
-    const { foldersCollection } = await import('../../db/client.ts');
-    const { invalidateLibraryRoots } = await import('../../indexer/libraries.cache.ts');
-    libId = new ObjectId();
-    const folders = await foldersCollection();
-    await folders.insertOne({
-      _id: libId,
-      slug: 'cf-thumb-sync-lib',
-      path: dir,
-      label: 'cf-thumb-sync-lib',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
-    invalidateLibraryRoots();
   });
 
   beforeEach(async () => {
-    if (!mongoReachable) return;
-    await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .updateOne({ _id: 'cloudflare' } as never, { $set: { config: CF_CONFIG } }, { upsert: true });
+    live = await createLiveTestDatabase();
+    libId = new ObjectId(insertFolder(live.db, { path: dir, slug: 'cf-thumb-sync-lib' }));
+    invalidateLibraryRoots();
+    await patchAppSettings('cloudflare', { config: CF_CONFIG });
   });
 
   afterEach(() => {
     globalThis.fetch = realFetch;
+    invalidateLibraryRoots();
+    live.close();
   });
 
   afterAll(async () => {
-    if (mongoReachable) {
-      const { closeDb } = await import('../../db/client.ts');
-      await closeDb();
-      try {
-        await mongo!.db(TEST_DB).dropDatabase();
-      } catch {}
-      try {
-        await mongo!.close();
-      } catch {}
-      await rm(dir, { recursive: true, force: true });
-    }
+    await rm(dir, { recursive: true, force: true });
   });
 
-  it('uploads the thumbnail and returns a patch stamping cf_thumb_synced_at', async () => {
-    if (!mongoReachable) return;
+  it('uploads the thumbnail and returns the statement stamping cf_thumb_synced_at', async () => {
     stubFetch(200);
     const asset = await makeAsset('a.jpg', 'a'.repeat(32));
 
     const result = await cfThumbSyncStage.handler(asset as never, {} as never);
     expect(result).toHaveProperty('patch');
-    const patch = (result as { patch: { cf_thumb_synced_at: string } }).patch;
-    expect(typeof patch.cf_thumb_synced_at).toBe('string');
+    const [statement, ...rest] = (result as { patch: { sql: string; params: unknown[] }[] }).patch;
+    expect(rest).toHaveLength(0);
+    expect(statement!.sql).toContain('cf_thumb_synced_at');
+    // The stamp is a timestamp and it addresses this asset — the two things the
+    // runner's transaction will actually write.
+    expect(typeof statement!.params[0]).toBe('string');
+    expect(statement!.params[1]).toBe(asset._id.toHexString());
   });
 
   it('skips a hidden asset without touching R2', async () => {
-    if (!mongoReachable) return;
     let fetchCalled = false;
     globalThis.fetch = (async () => {
       fetchCalled = true;
@@ -152,7 +115,6 @@ describe('cf-thumb-sync stage', () => {
   });
 
   it('cleans up R2 if a hidden asset is marked as synced', async () => {
-    if (!mongoReachable) return;
     let fetchCalled = false;
     let fetchMethod = '';
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -170,7 +132,6 @@ describe('cf-thumb-sync stage', () => {
   });
 
   it('skips terminally (no-thumb) when the thumbnail has not been generated yet', async () => {
-    if (!mongoReachable) return;
     stubFetch(200);
     const asset = await makeAsset('nothumb.jpg', 'b'.repeat(32), { noThumb: true });
 
@@ -178,9 +139,8 @@ describe('cf-thumb-sync stage', () => {
     expect(result).toEqual({ skip: 'no-thumb' });
   });
 
-  it('throws when Cloudflare config is not complete/enabled, for run-stage.ts to retry/dead-letter', async () => {
-    if (!mongoReachable) return;
-    await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
+  it('throws when Cloudflare config is not complete/enabled, for the runner to retry/dead-letter', async () => {
+    await patchAppSettings('cloudflare', { config: { ...CF_CONFIG, enabled: false } });
     stubFetch(200);
     const asset = await makeAsset('c.jpg', 'c'.repeat(32));
 
@@ -189,8 +149,7 @@ describe('cf-thumb-sync stage', () => {
     );
   });
 
-  it('propagates an R2 upload failure by throwing (retry/backoff owned by run-stage.ts)', async () => {
-    if (!mongoReachable) return;
+  it('propagates an R2 upload failure by throwing (retry/backoff owned by the runner)', async () => {
     stubFetch(500);
     const asset = await makeAsset('d.jpg', 'd'.repeat(32));
 

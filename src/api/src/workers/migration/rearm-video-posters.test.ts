@@ -1,200 +1,112 @@
 /**
- * Tests for the rearm-video-posters migration (#1649).
+ * The video-poster re-arm sweep.
  *
- * The migration exists because every video in an existing library is already
- * stamped `version = targetVersion` on the thumb / preview / describe / face
- * stages — the pre-#1649 handlers skipped video on extension, and a `skip`
- * marks a stage permanently done. Poster-frame rendering would therefore never
- * run for a single existing video without this reset.
+ * Before poster extraction existed, every video was terminally skipped by the
+ * thumb, preview, describe and face stages — and a skip writes the stage's
+ * target version, so all of them consider every existing video permanently
+ * handled. Teaching the pipeline to extract poster frames therefore changes
+ * nothing on its own; this migration is what makes those rows claimable again.
  *
- * The properties worth pinning down, and why each would be a real bug:
- *  - videos are selected, stills are NOT (a still sweep would cascade a
- *    cf-thumb-sync reset across the whole library and re-upload every
- *    thumbnail to R2 — the billable event that ruled out a targetVersion bump)
- *  - the full five-field stage reset, not just `version` (a dead-lettered
- *    asset left at `dead: true` is never re-claimed, so it would silently
- *    never get a poster)
- *  - `exif` is untouched (resetting it would undo `backfill-video-exif`)
- *  - the done-marker terminates the migration (without it the candidate set
- *    refills as soon as the thumb stage re-stamps, and it loops forever)
- *  - soft-deleted / missing locations are excluded
- *
- * Skips when MongoDB is unreachable (mirrors the other migration tests).
+ * Three things are worth failing over. The reset is all five fields, so a video
+ * whose thumb stage dead-lettered is genuinely re-claimable. The exif stage is
+ * left alone, because video EXIF belongs to `backfill-video-exif` and re-running
+ * it here would undo that migration's work. And with no runnable ffmpeg the
+ * sweep does nothing at all rather than stamping a marker the operator cannot
+ * clear.
  */
 
 import { describe, it, expect, beforeAll, afterAll, spyOn } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { rearmVideoPosters, VIDEO_POSTER_REARM_VERSION } from './rearm-video-posters.ts';
 import * as videoPosterModule from '../../thumbs/video-poster.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
+import { rearmVideoPosters, VIDEO_POSTER_REARM_VERSION } from './rearm-video-posters.ts';
+import {
+  assetRow,
+  createLibrary,
+  seedAsset,
+  seedLocation,
+  stageRow,
+  type MigrationLibrary,
+} from './migration.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_rearm_video_posters_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+/** Every stage an existing video is currently sitting "done" in. */
+const SEEDED_STAGES = [
+  'exif',
+  'thumb',
+  'preview',
+  'describe',
+  'face-detect',
+  'face-embed',
+  'cf-thumb-sync',
+] as const;
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+/** The stages this migration re-arms — every one except exif. */
+const REARMED = SEEDED_STAGES.filter((stage) => stage !== 'exif');
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[rearm-video-posters.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
-    await db.createCollection(name).catch(() => undefined);
-  }
-  const { closeDb, ensureIndexes } = await import('../../db/client.ts');
-  await closeDb();
-  await ensureIndexes();
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
-});
-
-const libId = new ObjectId();
-
-/** A stage entry in the "already processed, done" state every existing video
- * is currently sitting in. */
-function doneStage(version = 3) {
-  return {
-    version,
-    attempts: 0,
-    last_error: null,
-    processed_at: new Date().toISOString(),
-    dead: false,
-  };
-}
-
-function makeAsset(
+function seedMedia(
+  library: MigrationLibrary,
   filename: string,
-  opts: {
-    rearmed?: boolean;
-    deleted?: boolean;
-    missing?: boolean;
-    stages?: Record<string, ReturnType<typeof doneStage>>;
-  } = {},
-) {
-  const id = new ObjectId();
-  return {
-    _id: id,
-    maple_id: id.toHexString() + '0'.repeat(32 - 24),
-    media_kind: classifyMediaType(filename),
-    fileinfo: [
-      {
-        path: 'media',
-        filename,
-        library_id: libId,
-        deleted_at: opts.deleted ? new Date().toISOString() : null,
-        missing_since: opts.missing ? new Date().toISOString() : null,
-      },
-    ],
-    size: 1,
-    mtime: 0,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    deleted_at: null,
-    stages: opts.stages ?? {
-      exif: doneStage(1),
-      thumb: doneStage(3),
-      preview: doneStage(1),
-      describe: doneStage(1),
-      'face-detect': doneStage(1),
-      'face-embed': doneStage(1),
-      'cf-thumb-sync': doneStage(1),
-    },
-    ...(opts.rearmed ? { video_poster_rearm_version: VIDEO_POSTER_REARM_VERSION } : {}),
-  };
-}
-
-async function reset(): Promise<void> {
-  await db!.collection('assets').deleteMany({});
+  options: { rearmed?: boolean; deleted?: boolean; missing?: boolean } = {},
+): string {
+  const id = seedAsset(library.db, {
+    mediaKind: classifyMediaType(filename),
+    stages: SEEDED_STAGES,
+    videoPosterRearmVersion: options.rearmed ? VIDEO_POSTER_REARM_VERSION : null,
+  });
+  seedLocation(library.db, {
+    assetId: id,
+    libraryId: library.folderId,
+    path: 'media',
+    filename,
+    deletedAt: options.deleted ? '2026-01-01T00:00:00.000Z' : null,
+    missingSince: options.missing ? '2026-01-01T00:00:00.000Z' : null,
+  });
+  // Every seeded stage is "already processed"; thumb is the one the assertions
+  // read, so it gets a distinct version from exif's.
+  library.db.run(`UPDATE stage_state SET version = 1 WHERE asset_id = ?`, [id]);
+  library.db.run(`UPDATE stage_state SET version = 3 WHERE asset_id = ? AND stage = 'thumb'`, [id]);
+  return id;
 }
 
 describe('rearmVideoPosters — selection', () => {
   it('counts videos that have not been re-armed, and ignores stills', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertMany([
-      makeAsset('IMG_1.MOV'),
-      makeAsset('clip.mp4'),
-      makeAsset('photo.dng'),
-      makeAsset('scan.jpg'),
-    ] as never[]);
+    using library = await createLibrary('maple-poster-');
+    seedMedia(library, 'IMG_1.MOV');
+    seedMedia(library, 'clip.mp4');
+    seedMedia(library, 'photo.dng');
+    seedMedia(library, 'scan.jpg');
 
     expect(await rearmVideoPosters.countRemaining()).toBe(2);
   });
 
   it('excludes videos already stamped at the current re-arm version', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    await db!
-      .collection('assets')
-      .insertMany([makeAsset('done.mov', { rearmed: true }), makeAsset('todo.mov')] as never[]);
+    using library = await createLibrary('maple-poster-');
+    seedMedia(library, 'done.mov', { rearmed: true });
+    seedMedia(library, 'todo.mov');
 
     expect(await rearmVideoPosters.countRemaining()).toBe(1);
   });
 
   it('excludes soft-deleted and missing video locations', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    await db!
-      .collection('assets')
-      .insertMany([
-        makeAsset('gone.mov', { deleted: true }),
-        makeAsset('vanished.mov', { missing: true }),
-      ] as never[]);
+    using library = await createLibrary('maple-poster-');
+    seedMedia(library, 'gone.mov', { deleted: true });
+    seedMedia(library, 'vanished.mov', { missing: true });
 
     expect(await rearmVideoPosters.countRemaining()).toBe(0);
   });
 
   it('matches video extensions case-insensitively', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    await db!
-      .collection('assets')
-      .insertMany([makeAsset('UPPER.MOV'), makeAsset('lower.mkv')] as never[]);
+    using library = await createLibrary('maple-poster-');
+    seedMedia(library, 'UPPER.MOV');
+    seedMedia(library, 'lower.mkv');
 
     expect(await rearmVideoPosters.countRemaining()).toBe(2);
   });
 });
 
 /**
- * `runBatch` refuses to act without a decoder (see below), so every test that
- * exercises the actual re-arm pins ffmpeg as present. Pinned rather than read
- * from the host so these assert the same thing on a dev Mac and on CI.
+ * `runBatch` refuses to act without a decoder, so every test that exercises the
+ * actual re-arm pins ffmpeg as present — pinned rather than read from the host,
+ * so these assert the same thing on a dev Mac and on CI.
  */
 describe('rearmVideoPosters — runBatch', () => {
   let ffmpegSpy: ReturnType<typeof spyOn>;
@@ -206,143 +118,112 @@ describe('rearmVideoPosters — runBatch', () => {
   });
 
   it('resets every poster-dependent stage to unprocessed and stamps the marker', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertOne(makeAsset('IMG_9.MOV') as never);
+    using library = await createLibrary('maple-poster-');
+    const id = seedMedia(library, 'IMG_9.MOV');
 
-    const res = await rearmVideoPosters.runBatch(50);
-    expect(res).toEqual({ processed: 1, errors: 0 });
+    expect(await rearmVideoPosters.runBatch(50)).toEqual({ processed: 1, errors: 0 });
 
-    const doc = await coll.findOne({});
-    for (const stage of [
-      'thumb',
-      'preview',
-      'describe',
-      'face-detect',
-      'face-embed',
-      'cf-thumb-sync',
-    ]) {
-      expect(doc!.stages[stage].version).toBe(0);
+    for (const stage of REARMED) {
+      expect(stageRow(library.db, id, stage)!.version).toBe(0);
     }
-    expect(doc!.video_poster_rearm_version).toBe(VIDEO_POSTER_REARM_VERSION);
+    expect(assetRow(library.db, id)!.video_poster_rearm_version).toBe(VIDEO_POSTER_REARM_VERSION);
   });
 
-  it('clears attempts / last_error / processed_at / dead, not just version', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    // A video whose thumb stage previously dead-lettered. Resetting `version`
-    // alone would leave `dead: true`, and `buildClaimQuery` would never hand
-    // this asset to the stage again — it would silently never get a poster.
-    await coll.insertOne(
-      makeAsset('dead.mov', {
-        stages: {
-          thumb: {
-            version: 3,
-            attempts: 5,
-            last_error: 'no still frame to thumbnail',
-            processed_at: new Date().toISOString(),
-            dead: true,
-          },
-        } as never,
-      }) as never,
+  it('clears attempts / last_error / dead, not just the version', async () => {
+    using library = await createLibrary('maple-poster-');
+    // A video whose thumb stage previously dead-lettered. Resetting the version
+    // alone leaves it parked, and the claim query would never hand this asset
+    // to the stage again — it would silently never get a poster.
+    const id = seedMedia(library, 'dead.mov');
+    library.db.run(
+      `UPDATE stage_state
+          SET attempts = 5, last_error = 'no still frame to thumbnail', dead = 1,
+              processed_at = '2026-01-01T00:00:00.000Z'
+        WHERE asset_id = ? AND stage = 'thumb'`,
+      [id],
     );
 
     await rearmVideoPosters.runBatch(50);
 
-    const t = (await coll.findOne({}))!.stages.thumb;
-    expect(t.version).toBe(0);
-    expect(t.attempts).toBe(0);
-    expect(t.last_error).toBeNull();
-    expect(t.processed_at).toBeNull();
-    expect(t.dead).toBe(false);
+    expect(stageRow(library.db, id, 'thumb')).toEqual({
+      version: 0,
+      attempts: 0,
+      last_error: null,
+      dead: 0,
+    });
   });
 
   it('leaves the exif stage untouched', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertOne(makeAsset('has-exif.mov') as never);
+    using library = await createLibrary('maple-poster-');
+    const id = seedMedia(library, 'has-exif.mov');
 
     await rearmVideoPosters.runBatch(50);
 
     // Video EXIF is owned by backfill-video-exif (#1525). Resetting it here
     // would re-run that migration's work and could re-file the asset.
-    expect((await coll.findOne({}))!.stages.exif.version).toBe(1);
+    expect(stageRow(library.db, id, 'exif')!.version).toBe(1);
   });
 
   it('does not touch stills', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertMany([makeAsset('keep.dng'), makeAsset('sweep.mov')] as never[]);
+    using library = await createLibrary('maple-poster-');
+    const still = seedMedia(library, 'keep.dng');
+    seedMedia(library, 'sweep.mov');
 
     await rearmVideoPosters.runBatch(50);
 
-    const still = await coll.findOne({ 'fileinfo.0.filename': 'keep.dng' });
-    expect(still!.stages.thumb.version).toBe(3);
-    expect(still!.video_poster_rearm_version).toBeUndefined();
+    expect(stageRow(library.db, still, 'thumb')!.version).toBe(3);
+    expect(assetRow(library.db, still)!.video_poster_rearm_version).toBeNull();
   });
 
   it('honours batchSize', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    await db!
-      .collection('assets')
-      .insertMany([makeAsset('a.mov'), makeAsset('b.mov'), makeAsset('c.mov')] as never[]);
+    using library = await createLibrary('maple-poster-');
+    seedMedia(library, 'a.mov');
+    seedMedia(library, 'b.mov');
+    seedMedia(library, 'c.mov');
 
     expect((await rearmVideoPosters.runBatch(2)).processed).toBe(2);
     expect(await rearmVideoPosters.countRemaining()).toBe(1);
   });
 
   it('converges: a second pass finds nothing and is a no-op', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertOne(makeAsset('once.mov') as never);
+    using library = await createLibrary('maple-poster-');
+    const id = seedMedia(library, 'once.mov');
 
     await rearmVideoPosters.runBatch(50);
     expect(await rearmVideoPosters.countRemaining()).toBe(0);
 
-    // The done-marker is what terminates this. Simulating the thumb stage
-    // re-stamping the asset after it renders a poster must NOT put it back in
-    // the candidate set — without the marker the migration would loop forever,
-    // re-arming the very work it just caused.
-    await coll.updateOne({}, { $set: { 'stages.thumb.version': 3 } });
+    // The done-marker is what terminates this. The thumb stage re-stamping the
+    // asset after it renders a poster must NOT put it back in the candidate
+    // set — without the marker the migration would loop forever, re-arming the
+    // very work it just caused.
+    library.db.run(`UPDATE stage_state SET version = 3 WHERE asset_id = ? AND stage = 'thumb'`, [
+      id,
+    ]);
     expect(await rearmVideoPosters.countRemaining()).toBe(0);
-
-    expect(await rearmVideoPosters.runBatch(50)).toEqual({
-      processed: 0,
-      errors: 0,
-    });
+    expect(await rearmVideoPosters.runBatch(50)).toEqual({ processed: 0, errors: 0 });
   });
 });
 
 /**
  * The no-decoder hold-off. Without it this migration has a dead end: re-arming
- * while ffmpeg is absent stamps the marker on every asset AND lets thumb /
- * preview immediately re-skip them with `no-video-decoder`, after which
- * `countRemaining()` reads 0 and re-running the migration does nothing — the
- * operator cannot recover without bumping `VIDEO_POSTER_REARM_VERSION` or
- * editing Mongo by hand.
+ * while ffmpeg is absent stamps the marker on every asset AND lets thumb and
+ * preview immediately re-skip them with `no-video-decoder`, after which the
+ * remaining count reads zero and re-running does nothing — the operator cannot
+ * recover without bumping the constant or editing the database by hand.
  */
 describe('rearmVideoPosters — no ffmpeg on the host', () => {
   it('does nothing and leaves the backlog intact and visible', async () => {
-    if (!mongoReachable) return;
+    using library = await createLibrary('maple-poster-');
     const ffmpegSpy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
     try {
-      await reset();
-      const coll = db!.collection('assets');
-      await coll.insertMany([makeAsset('hold-a.mov'), makeAsset('hold-b.mov')] as never[]);
+      const ids = [seedMedia(library, 'hold-a.mov'), seedMedia(library, 'hold-b.mov')];
 
       expect(await rearmVideoPosters.runBatch(50)).toEqual({ processed: 0, errors: 0 });
 
       // Nothing stamped — the marker is what would strand these.
-      const docs = await coll.find({}).toArray();
-      for (const d of docs) {
-        expect(d.video_poster_rearm_version).toBeUndefined();
-        expect(d.stages.thumb.version).toBe(3);
+      for (const id of ids) {
+        expect(assetRow(library.db, id)!.video_poster_rearm_version).toBeNull();
+        expect(stageRow(library.db, id, 'thumb')!.version).toBe(3);
       }
       // Still counted as outstanding, so Settings → Workers shows real work
       // pending rather than a silently "finished" migration.
@@ -353,10 +234,8 @@ describe('rearmVideoPosters — no ffmpeg on the host', () => {
   });
 
   it('picks the work up on a later tick once ffmpeg appears, with no restart', async () => {
-    if (!mongoReachable) return;
-    await reset();
-    const coll = db!.collection('assets');
-    await coll.insertOne(makeAsset('later.mov') as never);
+    using library = await createLibrary('maple-poster-');
+    const id = seedMedia(library, 'later.mov');
 
     const absent = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue(null);
     try {
@@ -368,7 +247,7 @@ describe('rearmVideoPosters — no ffmpeg on the host', () => {
     const present = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue('/usr/bin/ffmpeg');
     try {
       expect((await rearmVideoPosters.runBatch(50)).processed).toBe(1);
-      expect((await coll.findOne({}))!.stages.thumb.version).toBe(0);
+      expect(stageRow(library.db, id, 'thumb')!.version).toBe(0);
     } finally {
       present.mockRestore();
     }

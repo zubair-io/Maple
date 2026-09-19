@@ -4,7 +4,8 @@
  * this as one niced child; a crash/runaway here can never touch the HTTP server.
  */
 import { installChildHardening } from '../runtime/child-process-worker.ts';
-import { getDb, ensureIndexes, closeDb } from '../db/client.ts';
+import { closeSqlitePool, openSqlitePool } from '../db/sqlite/index.ts';
+import { sqliteDatabasePath } from '../db/sqlite/boot-migration.ts';
 import { startWorkers, stopWorkers } from './start-workers.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { flushOtelBeforeExit, initOtel, installOtelFatalFlush } from '../otel.ts';
@@ -23,12 +24,16 @@ installOtelFatalFlush();
 const log = childLogger('worker-main');
 
 async function main(): Promise<void> {
-  await getDb();
-  try {
-    await ensureIndexes();
-  } catch (e) {
-    log.warn({ err: e instanceof Error ? e.message : e }, 'ensureIndexes failed — continuing');
-  }
+  // This tier opens the database and never migrates it. The cutover (#3752)
+  // belongs to the API process alone, which does not spawn this child until it
+  // has finished — so by the time anything here runs, the library is complete.
+  // A second migrator would be a second writer against a half-built file, and
+  // the importer's resume checkpoints assume one.
+  //
+  // This is the whole of the tier's database setup now (#3787). There is no
+  // second connection to open and no index set to ensure: the schema is the
+  // migration's output, and every repository below reaches this one pool.
+  await openSqlitePool({ path: sqliteDatabasePath() });
   try {
     await initOtel(resolveObservabilityConfig(await loadObservabilityConfig()), 'worker');
   } catch (e) {
@@ -65,7 +70,7 @@ async function main(): Promise<void> {
     // the line above — reach the collector instead of dying with the
     // process (#2196). The API process does the same in its own shutdown.
     await flushOtelBeforeExit();
-    await closeDb();
+    closeSqlitePool();
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown());

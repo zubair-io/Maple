@@ -1,21 +1,22 @@
 /**
  * observability-config.repo unit tests.
  *
- * `resolveObservabilityConfig` + `validateHttpUrl` are pure functions — no
- * Mongo required, so the precedence + validation cases run everywhere. The
- * load/save round-trip is Mongo-gated and skip-passes when Mongo is
- * unreachable (per-test DB named with `process.pid`, mirroring the other
- * repo + route tests).
+ * `resolveObservabilityConfig` + `validateHttpUrl` are pure functions, so the
+ * precedence + validation cases need no database at all. The load/save
+ * round-trip goes through `readAppSettings` / `patchAppSettings`, which reach
+ * `sqliteDb()` with no override, so those cases install a real SQLite database
+ * as the process-wide handle for the length of each test.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, type Db } from 'mongodb';
+import { describe, it, expect } from 'bun:test';
 import {
+  loadObservabilityConfig,
   resolveObservabilityConfig,
+  saveObservabilityConfig,
   validateHttpUrl,
   type ObservabilityConfig,
 } from '../src/observability/observability-config.repo.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 
 describe('resolveObservabilityConfig — defaults (no db row)', () => {
   it('returns the documented defaults', () => {
@@ -126,72 +127,15 @@ describe('validateHttpUrl', () => {
   });
 });
 
-// ── Mongo-gated load/save round-trip ──────────────────────────────────────
-const TEST_DB = withTestDb(`maple_test_observability_repo_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
-describe('loadObservabilityConfig / saveObservabilityConfig (Mongo)', () => {
-  beforeAll(async () => {
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) {
-      console.log(
-        '[observability-config.repo.test] skipping Mongo round-trip: MongoDB unreachable',
-      );
-      return;
-    }
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-  });
-
-  beforeEach(async () => {
-    if (!mongoReachable) return;
-    await db!.collection('app_settings').deleteMany({});
-  });
-
-  afterAll(async () => {
-    if (mongo) {
-      await mongo.db(TEST_DB).dropDatabase();
-      await mongo.close();
-    }
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-  });
-
+// ── load/save round-trip against a real database ──────────────────────────
+describe('loadObservabilityConfig / saveObservabilityConfig', () => {
   it('returns null when no row exists', async () => {
-    if (!mongoReachable) return;
-    const { loadObservabilityConfig } =
-      await import('../src/observability/observability-config.repo.ts');
+    using live = await createLiveTestDatabase();
     expect(await loadObservabilityConfig()).toBeNull();
   });
 
   it('round-trips a partial patch, preserving untouched fields', async () => {
-    if (!mongoReachable) return;
-    const { loadObservabilityConfig, saveObservabilityConfig } =
-      await import('../src/observability/observability-config.repo.ts');
+    using live = await createLiveTestDatabase();
     await saveObservabilityConfig({ endpoint: 'https://a.test', ingestion_key: 'k1' });
     // A second patch touching only `enabled` must not clobber endpoint/key.
     await saveObservabilityConfig({ enabled: false });
@@ -205,9 +149,7 @@ describe('loadObservabilityConfig / saveObservabilityConfig (Mongo)', () => {
   });
 
   it('clears a field to null when null is saved', async () => {
-    if (!mongoReachable) return;
-    const { loadObservabilityConfig, saveObservabilityConfig } =
-      await import('../src/observability/observability-config.repo.ts');
+    using live = await createLiveTestDatabase();
     await saveObservabilityConfig({ ingestion_key: 'secret' });
     await saveObservabilityConfig({ ingestion_key: null });
     const loaded = await loadObservabilityConfig();

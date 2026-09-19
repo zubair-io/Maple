@@ -1,5 +1,5 @@
 /**
- * copy.ts integration tests — real temp dirs, no Mongo.
+ * copy.ts integration tests — real temp dirs, no database.
  *
  * Covers: atomic copy (parent dirs created, no temp left behind, source
  * untouched), identical-content skip, and distinct-content sibling fallback.

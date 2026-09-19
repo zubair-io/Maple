@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ObjectId } from 'mongodb';
-import type { ImageDoc, StageContext, StageState } from '../run-stage.ts';
+import type { ImageDoc, StageContext, StageResult, StageState } from '../run-stage.ts';
 import type { AssetFaceDoc } from '../../db/schema.ts';
 import type { DetectedFace, FaceDetector } from '../../enrichment/face-detector.ts';
 import {
@@ -18,6 +18,50 @@ import {
   THUMB_MISSING_REASON,
   THUMB_UNDECODABLE_REASON,
 } from './face-detect.ts';
+import type { SqlStatement } from '../../db/sqlite/protocol.ts';
+
+/**
+ * The per-face INSERTs the handler asked the runner to run.
+ *
+ * Detections are rows now rather than an array on the asset document, so a
+ * patch is a `DELETE` that clears this asset's faces followed by one `INSERT`
+ * per surviving detection. Asserting the leading delete here means every
+ * caller below gets the "a re-detect replaces, never merges" guarantee
+ * checked for free.
+ */
+function faceInserts(result: StageResult): SqlStatement[] {
+  if (!('patch' in result)) throw new Error(`expected a patch, got ${JSON.stringify(result)}`);
+  const [clear, ...inserts] = result.patch;
+  if (clear === undefined || !clear.sql.includes('DELETE FROM faces')) {
+    throw new Error("expected the patch to start by clearing the asset's faces");
+  }
+  return inserts;
+}
+
+/** One INSERT's bound parameters, back in the shape the detector emitted. */
+function decodeFace(statement: SqlStatement): AssetFaceDoc {
+  const [, confidence, x, y, w, h, landmarks] = statement.params as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    string,
+  ];
+  return {
+    bbox: { x, y, w, h },
+    confidence,
+    person_id: null,
+    hidden: false,
+    landmarks: JSON.parse(landmarks) as AssetFaceDoc['landmarks'],
+  };
+}
+
+/** Every detection in a patch, decoded. */
+function patchedFaces(result: StageResult): AssetFaceDoc[] {
+  return faceInserts(result).map((statement) => decodeFace(statement));
+}
 
 const noopCtx: StageContext = {
   log: {
@@ -148,19 +192,21 @@ describe('faceDetectHandler — happy path', () => {
       setDefaultFaceDetectorForTests(mockDetector([fakeDetection()]));
       const result = await faceDetectHandler(doc, noopCtx);
       expect(result).toHaveProperty('patch');
-      const faces = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces;
-      expect(faces).toHaveLength(1);
-      const face = faces[0]!;
+      const inserts = faceInserts(result);
+      expect(inserts).toHaveLength(1);
+      const statement = inserts[0]!;
+      // Detection stage does NOT embed: the INSERT never names either column,
+      // so `face-embed` fills them in afterwards against a NULL.
+      expect(statement.sql).not.toContain('embedding');
+      // person_id and hidden are written as literals, not bound, so a new
+      // detection always starts unassigned and visible.
+      expect(statement.sql).toContain('NULL');
+      const face = decodeFace(statement);
       expect(face.confidence).toBeCloseTo(0.95);
       expect(face.bbox.x).toBeCloseTo(0.1);
-      expect(face.person_id).toBeNull();
-      expect(face.hidden).toBe(false);
       // Landmarks persisted so face-embed can align without re-detecting.
       expect(face.landmarks).toHaveLength(5);
       expect(face.landmarks![0]!.x).toBeCloseTo(0.2);
-      // Detection stage does NOT embed.
-      expect(face.embedding).toBeUndefined();
-      expect(face.embedding_version).toBeUndefined();
     } finally {
       teardown();
     }
@@ -174,7 +220,7 @@ describe('faceDetectHandler — happy path', () => {
       writeFileSync(thumbPath, 'stub-jpeg');
       setDefaultFaceDetectorForTests(mockDetector([]));
       const result = await faceDetectHandler(doc, noopCtx);
-      expect((result as { patch: { faces: unknown[] } }).patch.faces).toEqual([]);
+      expect(patchedFaces(result)).toEqual([]);
     } finally {
       teardown();
     }
@@ -203,7 +249,7 @@ describe('faceDetectHandler — video files (#1649)', () => {
       // A returned face is proof the detector ran: the pre-#1649 guard would
       // have short-circuited to a skip before reaching it.
       expect(result).toHaveProperty('patch');
-      expect((result as { patch: { faces: AssetFaceDoc[] } }).patch.faces).toHaveLength(1);
+      expect(patchedFaces(result)).toHaveLength(1);
     } finally {
       teardown();
     }
@@ -320,7 +366,7 @@ describe('faceDetectHandler — minimum face size filter', () => {
       writeFileSync(thumbPath, 'stub-jpeg');
       setDefaultFaceDetectorForTests(mockDetector([fakeDetection()]));
       const result = await faceDetectHandler(doc, noopCtx);
-      const faces = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces;
+      const faces = patchedFaces(result);
       // fakeDetection() has w=0.4, h=0.5 — both ≥ 0.06.
       expect(faces).toHaveLength(1);
     } finally {
@@ -337,7 +383,7 @@ describe('faceDetectHandler — minimum face size filter', () => {
       // Mix: one tiny face (should be dropped) + one normal face (kept).
       setDefaultFaceDetectorForTests(mockDetector([tinyDetection(), fakeDetection()]));
       const result = await faceDetectHandler(doc, noopCtx);
-      const faces = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces;
+      const faces = patchedFaces(result);
       // Only the normal detection survives.
       expect(faces).toHaveLength(1);
       expect(faces[0]!.bbox.w).toBeCloseTo(0.4);
@@ -354,7 +400,7 @@ describe('faceDetectHandler — minimum face size filter', () => {
       writeFileSync(thumbPath, 'stub-jpeg');
       setDefaultFaceDetectorForTests(mockDetector([tinyDetection(), tinyDetection()]));
       const result = await faceDetectHandler(doc, noopCtx);
-      const faces = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces;
+      const faces = patchedFaces(result);
       expect(faces).toHaveLength(0);
     } finally {
       teardown();

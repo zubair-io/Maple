@@ -1,50 +1,70 @@
 /**
  * Async phase helpers for `dedupe.ts`'s `processAsset` — stat'ing live entries
  * on disk, tagging/validating absent ones, resolving `.keep`-pinned keepers,
- * and the two Mongo/fs mutation passes (move-to-`_duplicates/`, `$pull` from
- * `fileinfo`). Split out purely to keep `processAsset` itself a short,
+ * and the two database/fs mutation passes (move-to-`_duplicates/`, remove the
+ * moved locations). Split out purely to keep `processAsset` itself a short,
  * readable orchestrator over these phases (#1988, fallow CRITICAL complexity)
  * — none of this is meant to be called from anywhere but `dedupe.ts`.
  *
  * Every function here is a single phase of the pipeline `processAsset` runs
  * in order; see that function's own comments for why each phase exists and
- * what it guards against. No behavior changed in this split — every branch,
- * early return, and side-effect ordering is preserved exactly.
+ * what it guards against.
+ *
+ * ## What the SQLite port changed here (#3787)
+ *
+ * Nothing about the policy — the ranking, the `.keep` pins, the quarantine
+ * moves and the cache cleanup are byte-for-byte the same decisions. What went
+ * away is the collection handle every phase used to thread through: a location
+ * is a row in `asset_locations` now, and the repository functions in
+ * `db/sqlite/repos/assets.sweeps.ts` resolve the process-wide database handle
+ * themselves, so these phases take an asset id and nothing else.
  */
 
 import * as path from 'node:path';
 import type { ObjectId } from 'mongodb';
-import type { assetsCollection } from '../db/client.ts';
 import * as fs from '../fs/mirrored.ts';
-import { updateLiveLocationCount, assetPrimaryFileInfo } from '../indexer/images.repo.ts';
+import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
+import {
+  reconcileLocations,
+  tagLocationsMissing,
+  type LocationAddress,
+} from '../db/sqlite/repos/assets.sweeps.ts';
+import {
+  stageRearmStatements,
+  RELOCATE_CACHE_STAGES,
+} from '../db/sqlite/repos/assets.stage-rearm.ts';
 import { child as childLogger } from '../log.ts';
 import { statKind, libraryRootAvailable } from './missing-reaper.helpers.ts';
 import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
 import { cleanPreviewsCacheForLocation } from '../fs/preview-cache-cleanup.ts';
-import {
-  folderKey,
-  sameEntry,
-  selectKeeper,
-  reArmCacheStages,
-  type DeDuplicateSummary,
-} from './dedupe.helpers.ts';
+import { folderKey, sameEntry, selectKeeper, type DeDuplicateSummary } from './dedupe.helpers.ts';
 
 const log = childLogger('deduplicate');
 
+/** Why an absent entry was tagged, for the missing-reaper's triage. */
+const ABSENT_REASON = 'dedupe-absent';
+
 /** Minimal projected shape `processAsset` needs from each candidate row —
- * mirrors `DedupeCandidate` in `dedupe.ts` without importing it (that file
- * imports this one). */
+ * mirrors `DuplicateCandidate` in `db/sqlite/repos/assets.sweeps.ts` without
+ * requiring the rest of it. */
 interface DedupeAssetRef {
   _id: ObjectId;
   maple_id?: string | null;
 }
 
-type AssetsCollection = Awaited<ReturnType<typeof assetsCollection>>;
-
-/** POSIX `path` field → segment array, matching how `fileinfo.path` is stored. */
+/** POSIX `path` field → segment array, matching how a location's path is stored. */
 function pathSegments(p: string): string[] {
   return p === '' ? [] : p.split('/');
+}
+
+/** One location as the sweep repository addresses it. */
+function locationAddress(entry: FileInfo): LocationAddress {
+  return {
+    libraryId: entry.library_id.toHexString(),
+    path: entry.path,
+    filename: entry.filename,
+  };
 }
 
 /**
@@ -97,59 +117,30 @@ async function allAbsentEntryRootsAvailable(
 
 /**
  * Tag any absent entries so the missing-reaper can prune them after the
- * cooldown period. Only stamps entries that are NOT already tagged —
- * resetting `missing_since` on every pass would restart the reaper's cooldown
- * clock, preventing stale entries from ever aging out. Recomputes the live
- * count afterward, but only if the tag write actually applied.
+ * cooldown period.
+ *
+ * An entry that already carries a tag keeps its original timestamp — stamping
+ * it again on every pass would restart the reaper's cooldown clock and strand
+ * the entry on disk forever. That first-detection-wins rule is the statement's
+ * own `WHERE … AND missing_since IS NULL` now, rather than the Mongo version's
+ * `arrayFilters` condition, so it is enforced by the write instead of by the
+ * caller remembering to ask for it.
+ *
+ * Nothing recomputes the asset's live-location count afterwards: it is a column
+ * maintained by triggers on `asset_locations`, so it and the rows it counts
+ * commit together and cannot drift.
  */
-async function tagAbsentEntries(
-  coll: AssetsCollection,
-  assetId: ObjectId,
-  absentEntries: FileInfo[],
-): Promise<void> {
-  const now = new Date().toISOString();
-  const tagged = await coll
-    .updateOne(
-      { _id: assetId },
-      {
-        $set: {
-          'fileinfo.$[e].missing_since': now,
-          'fileinfo.$[e].missing_reason': 'dedupe-absent',
-        },
-      },
-      {
-        arrayFilters: [
-          {
-            $and: [
-              { $or: [{ 'e.missing_since': { $exists: false } }, { 'e.missing_since': null }] },
-              {
-                $or: absentEntries.map((e) => ({
-                  'e.library_id': e.library_id,
-                  'e.path': e.path,
-                  'e.filename': e.filename,
-                })),
-              },
-            ],
-          },
-        ],
-      },
-    )
-    .then(() => true)
-    .catch((err) => {
-      log.warn(
-        { _id: String(assetId), err: err instanceof Error ? err.message : err },
-        'deduplicate: failed to tag absent entries',
-      );
-      return false;
-    });
-  if (tagged) {
-    await updateLiveLocationCount(coll, assetId).catch((err) => {
-      log.warn(
-        { _id: String(assetId), err: err instanceof Error ? err.message : err },
-        'deduplicate: failed to recompute live_location_count after tagging',
-      );
-    });
-  }
+async function tagAbsentEntries(assetId: ObjectId, absentEntries: FileInfo[]): Promise<void> {
+  await tagLocationsMissing(
+    assetId.toHexString(),
+    absentEntries.map(locationAddress),
+    ABSENT_REASON,
+  ).catch((err) => {
+    log.warn(
+      { _id: String(assetId), err: err instanceof Error ? err.message : err },
+      'deduplicate: failed to tag absent entries',
+    );
+  });
 }
 
 /**
@@ -170,7 +161,6 @@ export type OnDiskSkipReason = 'offline' | 'missingFile' | 'none';
  * three separate guard clauses.
  */
 export async function resolveOnDiskEntries(
-  coll: AssetsCollection,
   assetId: ObjectId,
   liveEntries: FileInfo[],
   libs: ReadonlyMap<string, string>,
@@ -182,7 +172,7 @@ export async function resolveOnDiskEntries(
 
   if (absentEntries.length > 0) {
     if (!(await allAbsentEntryRootsAvailable(absentEntries, libs))) return { skip: 'offline' };
-    if (!dryRun) await tagAbsentEntries(coll, assetId, absentEntries);
+    if (!dryRun) await tagAbsentEntries(assetId, absentEntries);
   }
 
   // Fewer than two copies on disk → not a real duplicate set right now (the
@@ -198,8 +188,8 @@ export async function resolveOnDiskEntries(
 /**
  * `.keep` override: any on-disk copy whose folder holds a `.keep` marker is
  * PINNED and must survive. Re-confirmed on disk here (authoritative) rather
- * than trusting the stored `fileinfo.keep` flag, which can go stale if the
- * marker was added or removed after the file was first indexed. Folders are
+ * than trusting the location row's stored `keep` flag, which can go stale if
+ * the marker was added or removed after the file was first indexed. Folders are
  * cached so a folder shared by several copies is stat'd once.
  */
 async function pinnedEntries(
@@ -335,37 +325,32 @@ export async function moveEntriesToDuplicates(
 }
 
 /**
- * Pulls the moved entries from `fileinfo`, one `$pull` per entry.
+ * Drop the relocated copies' locations from the asset, and re-arm the
+ * location-keyed cache stages when the cache anchor was one of them.
  *
- * MongoDB does NOT support `$or` inside a `$pull` filter expression — it is
- * silently ignored and the update modifies 0 documents (the file gets moved
- * but the DB entry stays, so the asset keeps showing as a duplicate). The
- * correct approach for compound-key matches is one `$pull` per entry.
+ * One transaction for the whole asset, which is a guarantee the Mongo version
+ * could not offer. There it was one `$pull` per entry, and not by choice:
+ * MongoDB silently ignores an `$or` inside a `$pull` filter, so a compound-key
+ * match written the obvious way removes nothing at all — the file is moved into
+ * quarantine while the row still claims it, and the asset keeps reporting as a
+ * duplicate forever. That whole class of bug cannot be expressed against rows;
+ * each location is one `DELETE … WHERE asset_id = ? AND library_id = ? AND
+ * path = ? AND filename = ?` and the batch commits or it does not.
  *
- * The cache-stage re-arm (`$set`) is fused into the first pull so it lands
- * atomically with the first fileinfo removal. Subsequent pulls are pure
- * `$pull` calls (one round-trip each; typically only one or two entries).
+ * The re-arm rides along as `extra` for the same reason it used to be fused
+ * into the first `$pull`: a crash between the removal and the re-arm would
+ * leave the kept copy's thumb and preview pointing at a folder nothing lives
+ * in any more, with nothing queued to regenerate them.
  */
 export async function pullMovedEntriesFromFileinfo(
-  coll: AssetsCollection,
   assetId: ObjectId,
   moved: FileInfo[],
   anchorMoves: boolean,
 ): Promise<void> {
-  for (let i = 0; i < moved.length; i++) {
-    const m = moved[i];
-    const pullUpdate: Record<string, unknown> = {
-      $pull: {
-        fileinfo: {
-          library_id: m.library_id,
-          path: m.path,
-          filename: m.filename,
-        },
-      },
-    };
-    if (i === 0 && anchorMoves) pullUpdate['$set'] = reArmCacheStages();
-    await coll.updateOne({ _id: assetId }, pullUpdate as never);
-  }
-  // Recompute live count after pulling moved entries from fileinfo.
-  await updateLiveLocationCount(coll, assetId);
+  const assetIdHex = assetId.toHexString();
+  await reconcileLocations({
+    assetId: assetIdHex,
+    prune: moved.map(locationAddress),
+    extra: anchorMoves ? stageRearmStatements(assetIdHex, RELOCATE_CACHE_STAGES) : [],
+  });
 }

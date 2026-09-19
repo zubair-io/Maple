@@ -1,5 +1,5 @@
 /**
- * Single-asset trash + restore orchestration (#2630) — the Mongo+FS
+ * Single-asset trash + restore orchestration (#2630) — the database+FS
  * workflow shared by the per-asset HTTP routes (`routes/assets/trash.ts`)
  * and the recursive folder-trash orchestrator (`library/folder-trash.ts`).
  *
@@ -27,14 +27,18 @@ import * as path from 'node:path';
 // direct `node:fs/promises` import, per the oxlint fs-import guardrail.
 import { stat } from '../fs/mirrored.ts';
 import type { ObjectId } from 'mongodb';
-import { foldersCollection } from '../db/client.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { moveToTrash, moveOutOfTrash } from '../fs/trash.ts';
 import { composeSearchBlob } from '../enrichment/search-blob.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
-import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
+import { recordAndPublishAssetChange } from '../db/sqlite/repos/changes.repo.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
-import { findCoreInfoById, markSoftDeleted, restoreFromTrash } from '../db/assets.repo.ts';
-import type { AssetCoreInfo } from '../db/assets.repo.ts';
+import {
+  findCoreInfoById,
+  markSoftDeleted,
+  restoreFromTrash,
+} from '../db/sqlite/repos/assets.repo.ts';
+import type { AssetCoreInfo } from '../db/sqlite/repos/assets.repo.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -43,7 +47,7 @@ const log = childLogger('library/asset-trash');
 /** Identifies exactly one fileinfo entry: the library it belongs to, plus
  * its `(path, filename)` within that library. The single currency both
  * `trashAssetById` and `restoreAssetById` resolve down to before touching
- * disk or Mongo — see `resolveEntrySpec`. */
+ * disk or the database — see `resolveEntrySpec`. */
 export interface AssetLocationEntry {
   libraryId: ObjectId;
   path: string;
@@ -98,12 +102,12 @@ function resolveEntrySpec(
   return explicit ?? toEntrySpec(activeFileInfo(fileinfo));
 }
 
-/** Best-effort Meilisearch tombstone on trash — mirrors the indexer's
- * `softDelete()` pattern. Mongo is canonical; a failure here must NOT roll
- * back the soft-delete. The caller's `markSoftDeleted` already reset
- * `stages.meili` in the same atomic update that stamped `deleted_at`, so
- * the meili stage's own handler tombstones the document with retry/backoff
- * even when this inline call fails (#2354) — this is a fast-path only. */
+/** Best-effort Meilisearch tombstone on trash. The catalogue is canonical;
+ * a failure here must NOT roll back the soft-delete. The caller's
+ * `markSoftDeleted` already re-armed the meili stage in the same transaction
+ * that stamped `deleted_at`, so the stage's own handler tombstones the
+ * document with retry/backoff even when this inline call fails (#2354) —
+ * this is a fast-path only. */
 async function tombstoneInSearch(assetId: ObjectId, mapleId: string | null): Promise<void> {
   if (!mapleId) return;
   try {
@@ -115,7 +119,7 @@ async function tombstoneInSearch(assetId: ObjectId, mapleId: string | null): Pro
         mapleId,
         err: err instanceof Error ? err.message : String(err),
       },
-      'meilisearch tombstone on trash failed — Mongo is canonical, search will exclude via deleted_at filter',
+      'meilisearch tombstone on trash failed — the catalogue is canonical, search will exclude via deleted_at filter',
     );
   }
 }
@@ -172,8 +176,7 @@ export async function trashAssetById(
   if (!entrySpec) return { kind: 'no-location' };
   const { libraryId, path: entryPath, filename: entryFilename } = entrySpec;
 
-  const folders = await foldersCollection();
-  const folder = await folders.findOne({ _id: libraryId });
+  const folder = await findFolderById(libraryId);
   if (!folder) return { kind: 'no-folder' };
   const absPathResolved = path.join(folder.path, entryPath, entryFilename);
 
@@ -364,12 +367,12 @@ async function restatRestoredFile(
 }
 
 /** Best-effort Meilisearch re-index — symmetric with `tombstoneInSearch`.
- * `restoreFromTrash` resets `stages.meili` in the same update that clears
- * `deleted_at`, which is the correctness guarantee (#2354); this is a
- * fast-path convenience only. `search_blob` / `hidden` aren't on the typed
- * `AssetCoreInfo` projection (the fields predate that DTO), so they're
- * read through an untyped view here — same pattern `assets.transform.ts`
- * uses for `description_meta`. */
+ * `restoreFromTrash` re-arms the meili stage in the same transaction that
+ * clears `deleted_at`, which is the correctness guarantee (#2354); this is a
+ * fast-path convenience only. The blob is recomposed from the fields the core
+ * info carries rather than read back from storage: `asset_search` holds a row
+ * only for an asset with a non-empty blob, so there is nothing to read for the
+ * assets most likely to be restored. */
 async function reindexRestoredInSearch(
   assetId: ObjectId,
   info: AssetCoreInfo,
@@ -377,26 +380,25 @@ async function reindexRestoredInSearch(
   assetFolderId: ObjectId,
 ): Promise<void> {
   if (!info.maple_id) return;
-  const rawInfo = info as unknown as { search_blob?: string | null; hidden?: boolean };
   try {
     await meilisearchClient().upsert({
       id: info.maple_id,
       filename: restoredFilename,
-      searchBlob:
-        rawInfo.search_blob ??
-        composeSearchBlob({
-          place: info.place,
-          description: info.description,
-          ocrText: info.ocr_text,
-          capturedMonth: info.exif?.captured_month,
-        }),
+      searchBlob: composeSearchBlob({
+        place: info.place,
+        description: info.description,
+        ocrText: info.ocr_text,
+        capturedMonth: info.exif?.captured_month,
+      }),
       description: info.description,
       ocrText: info.ocr_text,
       folderId: assetFolderId.toHexString(),
       capturedAt: info.exif?.captured_at ?? null,
       deletedAt: null,
       mediaType: classifyMediaType(restoredFilename),
-      hidden: rawInfo.hidden === true,
+      // Not on the core-info projection; the meili stage's own pass carries the
+      // real value, and a restored asset is visible until it says otherwise.
+      hidden: false,
     });
   } catch (err) {
     log.warn(
@@ -405,7 +407,7 @@ async function reindexRestoredInSearch(
         mapleId: info.maple_id,
         err: err instanceof Error ? err.message : String(err),
       },
-      'meilisearch re-index on restore failed — Mongo restored OK, search will lag until next meili stage pass',
+      'meilisearch re-index on restore failed — the row restored OK, search will lag until next meili stage pass',
     );
   }
 }
@@ -440,8 +442,7 @@ export async function restoreAssetById(
   if (!entrySpec) return { kind: 'no-location' };
   const assetFolderId = entrySpec.libraryId;
 
-  const folders = await foldersCollection();
-  const folder = await folders.findOne({ _id: assetFolderId });
+  const folder = await findFolderById(assetFolderId);
   if (!folder) return { kind: 'no-folder' };
   const trashedAbsPath = path.join(folder.path, entrySpec.path, entrySpec.filename);
 

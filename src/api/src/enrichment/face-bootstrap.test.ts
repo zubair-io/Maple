@@ -8,7 +8,7 @@ import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
  * `face-detect` + `face-embed`; the toggle must cover BOTH stage keys, not
  * the retired `face` key, or the split pipeline becomes uncontrollable from
  * the UI. These pure assertions guard against the list drifting out of sync
- * with the manifest (no Mongo / ONNX needed).
+ * with the manifest (no database / ONNX needed).
  */
 describe('FACE_STAGE_NAMES', () => {
   it('targets both split stages, not the legacy `face` key', () => {

@@ -1,8 +1,17 @@
 /**
  * routes/map-config.ts integration tests (Map T2, #2826).
  *
- * Uses a real MongoDB on :27077 (throwaway — never touches :27017), mirroring
- * routes/pano.test.ts and routes/network.test.ts.
+ * Drives the mounted route against SQLite (#3787). The tile-source setting is
+ * one document in `app_settings`, read and written through
+ * `readAppSettings` / `patchAppSettings`, so the assertions go through those
+ * rather than through a collection handle.
+ *
+ * `createLiveTestDatabase()` installs a private in-memory database as the
+ * process-wide handle for the test that opened it, which is what the route's
+ * `sqliteDb()` (no override) resolves to. A fresh database per test replaces
+ * the `deleteMany({})` the Mongo version needed to get back to "no operator has
+ * touched this yet", and nothing skips: there is no external service to be
+ * unreachable, so a pass means the assertions ran.
  *
  * Covers:
  *   - GET /api/map/config returns the default OSM tile URL when unset
@@ -12,66 +21,28 @@
  *   - PUT with tile_url: null clears an override back to the default
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, type Db } from 'mongodb';
 
 import { mapConfigRoutes } from './map-config.ts';
 import { DEFAULT_MAP_TILE_URL } from '../map/map-config.repo.ts';
-
-// Standalone test DB — never touches the dev DB on :27017.
-const MONGO_URL = 'mongodb://localhost:27077';
-const TEST_DB = `maple_map_config_test_${process.pid}`;
-
-// getDb() is a singleton pinned to whichever env was live at the first
-// connect in the process, and bun test's file order varies — captured and
-// restored around a real MongoDB the same way routes/pano.test.ts does.
-// Unlike that file, the capture/mutation itself happens INSIDE beforeAll,
-// not at module scope: bun evaluates every test file's module body during
-// the import/collection phase, before any file's tests actually run, so a
-// module-scope `process.env` write here would leak into every other file's
-// collection phase and race with their own env, not just this file's tests.
-let PRIOR_MONGO_URI: string | undefined;
-let PRIOR_MONGO_DB: string | undefined;
+import { readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
+import type { MapConfig } from '../map/map-config.repo.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 const app = new Elysia().use(mapConfigRoutes);
 
-let client: MongoClient | null = null;
-let db: Db | null = null;
-let mongoReachable = false;
-
-beforeAll(async () => {
-  PRIOR_MONGO_URI = process.env.MAPLE_MONGO_URI;
-  PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-  process.env.MAPLE_MONGO_URI = MONGO_URL;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-  try {
-    client = new MongoClient(MONGO_URL, { serverSelectionTimeoutMS: 1000 });
-    await client.connect();
-    db = client.db(TEST_DB);
-    mongoReachable = true;
-  } catch {
-    mongoReachable = false;
-  }
-});
-
-afterAll(async () => {
-  if (db) await db.dropDatabase().catch(() => {});
-  await client?.close().catch(() => {});
-  if (PRIOR_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
-  else process.env.MAPLE_MONGO_URI = PRIOR_MONGO_URI;
-  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
+let live: LiveTestDatabase;
 
 beforeEach(async () => {
-  if (!mongoReachable || !db) return;
-  await db.collection('app_settings').deleteMany({});
+  live = await createLiveTestDatabase();
+});
+
+afterEach(() => {
+  live.close();
 });
 
 async function getReq(url: string): Promise<Response> {
@@ -88,9 +59,14 @@ async function putJson(url: string, body: unknown): Promise<Response> {
   );
 }
 
+/** The stored document, as the settings repository hands it back. */
+async function storedConfig(): Promise<MapConfig | null> {
+  const doc = await readAppSettings<{ config: MapConfig }>('map');
+  return doc?.config ?? null;
+}
+
 describe('GET /api/map/config', () => {
   it('returns the default OSM tile URL + source "default" when unset', async () => {
-    if (!mongoReachable) return;
     const res = await getReq('/api/map/config');
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -99,12 +75,13 @@ describe('GET /api/map/config', () => {
     };
     expect(body.tile_url).toBe(DEFAULT_MAP_TILE_URL);
     expect(body.source.tile_url).toBe('default');
+    // Nothing was written just by reading.
+    expect(await storedConfig()).toBeNull();
   });
 });
 
 describe('PUT /api/map/config', () => {
   it('persists a valid override and round-trips through GET', async () => {
-    if (!mongoReachable) return;
     const override = 'https://tiles.example.com/{z}/{x}/{y}.png';
     const putRes = await putJson('/api/map/config', { tile_url: override });
     expect(putRes.status).toBe(200);
@@ -119,10 +96,12 @@ describe('PUT /api/map/config', () => {
     };
     expect(getBody.tile_url).toBe(override);
     expect(getBody.source.tile_url).toBe('db');
+
+    // And it really landed in the settings document, not just in a cache.
+    expect((await storedConfig())?.tile_url).toBe(override);
   });
 
   it('rejects a malformed URL with 400 and a clear error, and does not persist it', async () => {
-    if (!mongoReachable) return;
     const res = await putJson('/api/map/config', { tile_url: 'not a url' });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -135,20 +114,20 @@ describe('PUT /api/map/config', () => {
     };
     expect(getBody.tile_url).toBe(DEFAULT_MAP_TILE_URL);
     expect(getBody.source.tile_url).toBe('default');
+    expect(await storedConfig()).toBeNull();
   });
 
   it('rejects a non-http(s) protocol', async () => {
-    if (!mongoReachable) return;
     const res = await putJson('/api/map/config', {
       tile_url: 'ftp://tiles.example.com/{z}/{x}/{y}.png',
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain('Unsupported protocol');
+    expect(await storedConfig()).toBeNull();
   });
 
   it('clears a saved override back to the default when tile_url is null', async () => {
-    if (!mongoReachable) return;
     await putJson('/api/map/config', {
       tile_url: 'https://tiles.example.com/{z}/{x}/{y}.png',
     });
@@ -160,5 +139,7 @@ describe('PUT /api/map/config', () => {
     };
     expect(clearBody.tile_url).toBe(DEFAULT_MAP_TILE_URL);
     expect(clearBody.source.tile_url).toBe('default');
+    // The document survives the clear — only the override is gone.
+    expect((await storedConfig())?.tile_url).toBeNull();
   });
 });

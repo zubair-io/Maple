@@ -1,19 +1,33 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+/**
+ * The two login/refresh behaviours that need no ceremony: `/login/options`
+ * answers every caller with discoverable options (so there is no
+ * account-existence oracle), and `/refresh` turns away a request with no
+ * usable token.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), so the handlers reach it through the same `sqliteDb()`
+ * they use in production. Each test gets its own, so there is nothing to clean
+ * up between them.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { authRoutes } from '../../src/routes/auth.ts';
 import {
-  usersCollection,
-  refreshTokensCollection,
-  challengesCollection,
-} from '../../src/db/client.ts';
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const app = new Elysia().use(authRoutes);
 
+let live: LiveTestDatabase;
+
 beforeEach(async () => {
-  for (const c of [usersCollection, refreshTokensCollection, challengesCollection]) {
-    await (await c()).deleteMany({});
-  }
+  live = await createLiveTestDatabase();
+});
+
+afterEach(() => {
+  live.close();
 });
 
 describe('login flow', () => {

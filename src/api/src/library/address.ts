@@ -120,8 +120,8 @@ export async function resolveAddressString(addr: string): Promise<ResolvedAddres
  * no `.`/`..` segment. Empty string always passes (callers treat it as
  * "the root itself"). Split out of `resolveRelPathUnderRoot` so an HTTP
  * boundary can reject an obviously-hostile string (`../../etc/passwd`, an
- * absolute path, a backslash variant) with a fast 400 before touching Mongo
- * or the filesystem — the deeper symlink-jail check below still runs
+ * absolute path, a backslash variant) with a fast 400 before touching the
+ * database or the filesystem — the deeper symlink-jail check below still runs
  * wherever the library root is known, as defense in depth for callers that
  * skip (or can't reach) the HTTP layer.
  */
