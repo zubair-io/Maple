@@ -160,12 +160,22 @@ async function applyVisibility(
 ): Promise<number> {
   if (ids.length === 0) return 0;
   const hexes = ids.map(toHex);
+  const params = [...hexes, toHex(libraryId), path];
+  const scope = `WHERE a.id IN (${placeholders(hexes.length)}) AND ${predicate}`;
   const results = await db.transaction([
-    {
-      sql: `UPDATE assets AS a SET ${assignment}
-             WHERE a.id IN (${placeholders(hexes.length)}) AND ${predicate}`,
-      params: [...hexes, toHex(libraryId), path],
-    },
+    // How many assets this pass actually flips, counted before it flips them.
+    //
+    // The count cannot come off the assignment below. `bun:sqlite` reports
+    // every row a statement wrote, trigger writes included, and changing
+    // `hidden` fans out to four satellite tables (`ddl/facet-state.ts`), so
+    // that statement's count is the assets plus all of their locations, faces,
+    // subjects and detail rows. This one writes a column no trigger watches,
+    // under the same predicate and in the same transaction, so it counts
+    // exactly the rows the next statement changes and nothing can slip between
+    // the two. Both predicates still hold at this point: neither hide nor
+    // un-hide turns on `hidden_ack`.
+    { sql: `UPDATE assets AS a SET hidden_ack = hidden_ack\n             ${scope}`, params },
+    { sql: `UPDATE assets AS a SET ${assignment}\n             ${scope}`, params },
     ...stages.map((stage) => stageRearmBatchStatement(hexes, stage)),
   ]);
   return results[0]?.changes ?? 0;

@@ -173,19 +173,111 @@ describe('facet indexes', () => {
     const spelled = planOf(
       db,
       `SELECT vision_scene_type, COUNT(*) AS n FROM asset_detail
-        WHERE vision_scene_type IS NOT NULL AND vision_scene_type <> ''
+        WHERE asset_live = 1 AND vision_scene_type IS NOT NULL AND vision_scene_type <> ''
         GROUP BY vision_scene_type`,
     );
     expect(spelled).toContain('asset_detail_scene_type');
 
     // The bare grouping is the shape the map used to claim. It scans the
     // largest table in the database; the test records that, so the map and
-    // the route keep spelling the exclusion the facet needs anyway.
-    const bare = planOf(
-      db,
+    // the route keep spelling the exclusion the facet needs anyway. Dropping
+    // `asset_live = 1` alone is enough to lose the index, which is the whole
+    // point of the implication test being textual.
+    for (const sql of [
       `SELECT vision_scene_type, COUNT(*) AS n FROM asset_detail GROUP BY vision_scene_type`,
-    );
-    expect(bare).toContain('SCAN asset_detail');
+      `SELECT vision_scene_type, COUNT(*) AS n FROM asset_detail
+        WHERE vision_scene_type IS NOT NULL AND vision_scene_type <> ''
+        GROUP BY vision_scene_type`,
+    ]) {
+      expect(planOf(db, sql)).toContain('SCAN asset_detail');
+    }
+  });
+
+  test('the six that used to leave the asset row now group one index (#3768)', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    // The query-to-index map for the facets that group a table other than
+    // `assets`, executed. Each one is the statement
+    // `repos/search.facets.sql.ts` builds for an unfiltered request, and each
+    // has to answer without reaching `assets` at all — the probe it used to
+    // make per candidate row is what cost between 252 and 1,134 ms at 335,377
+    // assets.
+    const cases: Array<[string, string]> = [
+      [
+        'asset_detail_scene_type',
+        `SELECT d.vision_scene_type AS value, COUNT(*) AS count
+           FROM asset_detail d INDEXED BY asset_detail_scene_type
+          WHERE d.asset_live = 1 AND d.asset_hidden = 0
+            AND d.vision_scene_type IS NOT NULL AND d.vision_scene_type <> ''
+          GROUP BY d.vision_scene_type`,
+      ],
+      [
+        'asset_detail_activity',
+        `SELECT d.vision_activity AS value, COUNT(*) AS count
+           FROM asset_detail d INDEXED BY asset_detail_activity
+          WHERE d.asset_live = 1 AND d.asset_hidden = 0
+            AND d.vision_activity IS NOT NULL AND d.vision_activity <> ''
+          GROUP BY d.vision_activity`,
+      ],
+      [
+        'asset_locations_facet_extension',
+        `SELECT l.extension AS value, COUNT(*) AS count
+           FROM asset_locations l INDEXED BY asset_locations_facet_extension
+          WHERE l.asset_live = 1 AND l.asset_hidden = 0
+            AND l.ordinal = 0 AND l.extension <> ''
+          GROUP BY l.extension`,
+      ],
+      [
+        'asset_subjects_facet',
+        `SELECT s.subject AS value, COUNT(*) AS count
+           FROM asset_subjects s INDEXED BY asset_subjects_facet
+          WHERE s.asset_live = 1 AND s.asset_hidden = 0
+          GROUP BY s.subject`,
+      ],
+      [
+        'faces_facet_person',
+        `SELECT f.person_id AS id, COUNT(DISTINCT f.asset_id) AS count
+           FROM faces f INDEXED BY faces_facet_person
+          WHERE f.asset_live = 1 AND f.asset_hidden = 0
+            AND f.person_id IS NOT NULL AND f.hidden = 0
+          GROUP BY f.person_id`,
+      ],
+      [
+        'assets_facet_iso',
+        `SELECT MIN(assets.iso) AS min, MAX(assets.iso) AS max
+           FROM assets INDEXED BY assets_facet_iso
+          WHERE deleted_at IS NULL AND live_location_count > 0 AND assets.hidden = 0`,
+      ],
+    ];
+    for (const [index, sql] of cases) {
+      const plan = planOf(db, sql);
+      expect(plan).toContain(index);
+      expect(plan).not.toContain('TEMP B-TREE FOR GROUP BY');
+      // Nothing but the grouped table: the join that used to answer liveness
+      // and visibility is gone, and the mirrored columns answer it instead.
+      expect(plan).not.toContain('assets_live_id');
+    }
+  });
+
+  test('every facet index carries the mirrored visibility column', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    // The satellite half of the rule `hidden` follows on `assets`: a column of
+    // the index, never part of its `WHERE`, because `hidden=only` and
+    // `hidden=all` are real wire values and a partial index over
+    // `asset_hidden = 0` would lose the index for both.
+    for (const index of [
+      'asset_detail_scene_type',
+      'asset_detail_activity',
+      'asset_locations_facet_extension',
+      'faces_facet_person',
+      'asset_subjects_facet',
+    ]) {
+      expect(indexColumns(db, index)).toContain('asset_hidden');
+    }
+    // And `assets_live_id`, which answers the probe every *filtered* facet
+    // still makes, carries the real one.
+    expect(indexColumns(db, 'assets_live_id')).toEqual(['id', 'hidden']);
   });
 
   test('asset_detail is a rowid table, which is what makes that index usable', async () => {

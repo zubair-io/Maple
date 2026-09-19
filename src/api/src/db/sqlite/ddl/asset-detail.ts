@@ -45,15 +45,16 @@
  * extra B-tree for the primary key and one extra probe on the detail-view
  * lookup, against a facet that was 70x slower.
  *
- * What neither detail fixes is the liveness join. Grouping the index is cheap;
- * restricting the facet to live, non-hidden assets costs a probe between the
- * two tables per candidate, and that is where the time goes once the index
- * works — the benchmark reports the facet with and without it for exactly that
- * reason, and the gap is two orders of magnitude. Closing it would mean
- * liveness being visible from this table, a denormalisation the repository
- * port should argue for on its own evidence rather than one the schema assumes
- * ahead of a caller. Tracked rather than guessed; the numbers are in
- * docs/sqlite-schema.md.
+ * What neither detail fixed was the liveness join. Grouping the index is cheap;
+ * restricting the facet to live, non-hidden assets cost a probe between the two
+ * tables per candidate, and that is where the time went once the index worked —
+ * the benchmark reports the facet with and without it for exactly that reason,
+ * and the gap was two orders of magnitude. #3768 closed it, with the evidence
+ * the schema declined to assume: this table now carries `asset_live` and
+ * `asset_hidden`, mirrored from the asset by trigger, and the two indexes below
+ * are rebuilt over them by `0002-facet-state`. See `./facet-state.ts` — the
+ * columns are added there rather than here, because this table's
+ * `CREATE TABLE` shipped at the cutover and a shipped migration is frozen.
  */
 export const ASSET_DETAIL_TABLE_DDL = `
 CREATE TABLE asset_detail (
@@ -100,6 +101,11 @@ CREATE TABLE asset_detail (
 export const ASSET_DETAIL_INDEX_DDL = `
 -- The two vision facets on /api/search/facets. Both are full-collection
 -- $group pipelines today with no index behind them.
+--
+-- Superseded by ./facet-state.ts, which drops and rebuilds both over the
+-- mirrored liveness columns. They are still created here because this is what
+-- 0001-initial-schema declared and that migration is frozen; a fresh install
+-- builds them once and rebuilds them in 0002.
 --
 -- Partial, and the facet query has to spell the predicate: a bare
 -- 'GROUP BY vision_scene_type' does not imply 'vision_scene_type IS NOT NULL',
