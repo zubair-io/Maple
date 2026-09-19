@@ -12,13 +12,22 @@
  * `0001-initial-schema` never re-runs it, so the freeze starts at the cutover
  * (#3752) and not before — and `0002` is the first change that landed after a
  * real library was already carrying `0001`.
+ *
+ * A number is claimed by whichever change merges first, not by whichever was
+ * written first: `0003-facet-state` was authored as `0002` and renumbered when
+ * `0002-stage-state-media-kind` landed ahead of it. That is the whole cost of
+ * the rule, and it is cheap — two branches that both ship a `0002` would leave
+ * two installs recording the same id for different schemas, which nothing
+ * downstream could tell apart.
  */
 
 import type { Migration } from '../migrate.ts';
 import { initialSchemaMigration } from './0001-initial-schema.ts';
 import { stageStateMediaKindMigration } from './0002-stage-state-media-kind.ts';
+import { facetStateMigration } from './0003-facet-state.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
   stageStateMediaKindMigration,
+  facetStateMigration,
 ];

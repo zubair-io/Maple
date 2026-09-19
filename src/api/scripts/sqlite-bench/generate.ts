@@ -18,6 +18,10 @@ import {
   ASSET_LOCATIONS_TRIGGER_NAMES,
 } from '../../src/db/sqlite/ddl/asset-locations.ts';
 import {
+  FACET_STATE_TRIGGER_DDL,
+  FACET_STATE_TRIGGER_NAMES,
+} from '../../src/db/sqlite/ddl/facet-state.ts';
+import {
   ASSET_SEARCH_TRIGGER_DDL,
   ASSET_SEARCH_TRIGGER_NAMES,
 } from '../../src/db/sqlite/ddl/search.ts';
@@ -434,6 +438,7 @@ function dropDerivedTriggers(db: Database): void {
     ...ASSET_LOCATIONS_TRIGGER_NAMES,
     ...ASSET_SEARCH_TRIGGER_NAMES,
     ...STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
+    ...FACET_STATE_TRIGGER_NAMES,
   ];
   for (const name of names) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
 }
@@ -452,6 +457,7 @@ function restoreDerivedTriggers(db: Database): void {
   db.exec(ASSET_SEARCH_TRIGGER_DDL);
   db.exec(STAGE_STATE_MEDIA_KIND_TRIGGER_DDL);
   db.exec(STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL);
+  db.exec(FACET_STATE_TRIGGER_DDL);
 }
 
 function seedPeople(db: Database, now: string): string[] {

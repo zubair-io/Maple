@@ -50,6 +50,11 @@ import {
   LIVE_LOCATION_COUNT_RECOMPUTE_SQL,
 } from '../ddl/asset-locations.ts';
 import {
+  FACET_STATE_RECOMPUTE_SQL,
+  FACET_STATE_TRIGGER_DDL,
+  FACET_STATE_TRIGGER_NAMES,
+} from '../ddl/facet-state.ts';
+import {
   ASSET_SEARCH_TRIGGER_DDL,
   ASSET_SEARCH_TRIGGER_NAMES,
   ASSETS_FTS_OPTIMIZE_SQL,
@@ -110,6 +115,7 @@ const TRIGGER_NAMES = [
   ...ASSET_LOCATIONS_TRIGGER_NAMES,
   ...ASSET_SEARCH_TRIGGER_NAMES,
   ...STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
+  ...FACET_STATE_TRIGGER_NAMES,
 ];
 
 /**
@@ -385,8 +391,12 @@ function restoreDerived(db: Database): void {
   db.exec(ASSET_LOCATIONS_TRIGGER_DDL);
   db.exec(ASSET_SEARCH_TRIGGER_DDL);
   db.exec(STAGE_STATE_MEDIA_KIND_TRIGGER_DDL);
+  db.exec(FACET_STATE_TRIGGER_DDL);
   db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
   db.exec(STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL);
+  // After the location counts, never before: the mirrored `asset_live` on
+  // every satellite is derived from the column that statement rebuilds.
+  db.exec(FACET_STATE_RECOMPUTE_SQL);
   // 'rebuild' discards the whole inverted index and re-derives it from the
   // content table, so it needs no clearing step and is safe to repeat.
   db.exec(ASSETS_FTS_REBUILD_SQL);

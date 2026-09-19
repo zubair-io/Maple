@@ -1,36 +1,26 @@
 /**
- * Every statement the ported search and facet queries run, in one place.
+ * The page, the count and the seek — every statement a search runs that is not
+ * a facet.
  *
  * Separated from the functions that call them for the same reason
  * `assets.sql.ts` is: the shape of these queries *is* the performance argument,
  * and a reviewer should be able to read all of it at once and check it against
  * the query-to-index map in `docs/sqlite-schema.md` without stepping through
- * TypeScript.
+ * TypeScript. The twelve facet aggregations were here too until #3768 gave six
+ * of them a second shape; they are in `search.facets.sql.ts` now, and the three
+ * composition helpers below are exported for it.
  *
- * ## What each facet costs, and why
+ * ## Why the count is milliseconds
  *
- * Facet counts are the slowest thing the API does today — 4.7 to 5.7 seconds
- * each on production, warm or cold, because `assets` occupies 8.8 GB against a
- * 1.5 GB cache and every pass reads from disk. Three things make them
- * milliseconds here:
- *
- *  1. **The group keys are the index.** `assets_facet_camera` is
- *     `(camera_make, camera_model)` over live rows, so the camera facet is an
- *     index-only scan that never reads an asset row at all. Same for lens,
- *     place and screenshot.
- *  2. **`live_location_count` is a column.** Every facet's base predicate is
- *     the live one, and as a column it folds into each partial index's `WHERE`.
- *     Written as an `EXISTS` sub-select instead, the same count costs 151 ms at
- *     335k rows and 460 ms at 1M, against 3.7 ms and 13.4 ms — which is why
- *     that column survived the migration.
- *  3. **They run on readers.** `SqlitePool.read` picks the least busy reader
- *     thread, so twelve concurrent aggregates cannot delay a grid page on the
- *     writer. This is the reason the pool has readers at all.
- *
- * Three facets cannot be index-only, and it is worth knowing which. Extensions
- * must reach `asset_locations` for a filename; scene and activity must reach
- * `asset_detail`; people must scan `faces`. Each of those is a keyed probe into
- * an index built for it, not a scan.
+ * Counting live assets is the slowest thing the API does on MongoDB — 4.7 to
+ * 5.7 seconds, warm or cold, because `assets` occupies 8.8 GB against a 1.5 GB
+ * cache and every pass reads from disk. Two things make it 6 ms here.
+ * `live_location_count` is a column, so the live predicate folds into a partial
+ * index's `WHERE`; written as an `EXISTS` sub-select the same count costs
+ * 151 ms at 335k rows and 460 ms at 1M, against 3.7 ms and 13.4 ms. And it runs
+ * on a reader — `SqlitePool.read` picks the least busy reader thread, so a
+ * dozen concurrent aggregates cannot delay a grid page on the writer, which is
+ * the reason the pool has readers at all.
  *
  * ## The one rule a change here can silently break
  *
@@ -71,7 +61,7 @@ export interface BoundStatement {
  * expression to hand `MATCH`, the `WHERE` is the constant `0`, and joining an
  * inverted index to prove that is work for nothing.
  */
-function fromClause(where: SearchWhere): string {
+export function fromClause(where: SearchWhere): string {
   if (where.match.kind !== 'match') return 'FROM assets';
   return `FROM assets_fts
       JOIN asset_search ON asset_search.rowid = assets_fts.rowid
@@ -79,7 +69,7 @@ function fromClause(where: SearchWhere): string {
 }
 
 /**
- * Whether the page and capture-range statements may name their index.
+ * Whether the page and the range facets may name their index.
  *
  * `INDEXED BY` is an instruction the planner must be able to honour, and it
  * cannot honour one on a statement whose `WHERE` it has already folded to
@@ -87,12 +77,20 @@ function fromClause(where: SearchWhere): string {
  * query gives up the hint, which costs nothing: the statement returns no rows
  * either way.
  */
-function canNameIndex(where: SearchWhere): boolean {
+export function canNameIndex(where: SearchWhere): boolean {
   return where.match.kind === 'none';
 }
 
-/** `SELECT <projection> FROM … WHERE …`, with `suffix` appended verbatim. */
-function statement(
+/**
+ * `SELECT <projection> FROM … WHERE …`, with `suffix` appended verbatim.
+ *
+ * The one place a search statement is assembled, so every one of them carries
+ * the live predicate, the visibility filter and the residuals in the same order
+ * with their parameters bound in the order the placeholders appear. A facet
+ * that composed its own `WHERE` could disagree with the count about which
+ * assets exist, which is the defect `search.facets.test.ts` exists to catch.
+ */
+export function statement(
   projection: string,
   where: SearchWhere,
   suffix = '',
@@ -257,160 +255,6 @@ export function seekPredicate(cursor: {
     params: [cursor.v, cursor.v, cursor.i],
   };
 }
-
-/**
- * The twelve facet aggregations, in the order the route destructures them.
- *
- * Each is a separate statement rather than one pass with twelve counters,
- * because each wants its own index and the pool can run them concurrently on
- * different readers. That is also how the Mongo route does it, so the shapes
- * line up one to one.
- */
-export function facetStatements(where: SearchWhere): Record<FacetName, BoundStatement> {
-  return {
-    total: countSql(where),
-    cameras: statement(
-      'assets.camera_make AS make, assets.camera_model AS model, COUNT(*) AS count',
-      where,
-      'GROUP BY assets.camera_make, assets.camera_model ORDER BY count DESC LIMIT 50',
-    ),
-    lenses: statement(
-      'assets.lens AS value, COUNT(*) AS count',
-      where,
-      'GROUP BY assets.lens ORDER BY count DESC LIMIT 50',
-    ),
-    // The one facet that must read a filename. `rtrim`/`replace` is the
-    // standard SQLite idiom for "text after the last dot", and it degenerates
-    // the same way `$split` + `$arrayElemAt: -1` does: a name with no dot
-    // reports itself, a name ending in one reports the empty string, and the
-    // HAVING drops the latter exactly as the Mongo `$nin: [null, '']` did.
-    //
-    // `ordinal = 0` stands in for `$arrayElemAt(…, 0)`, and the two agree only
-    // while ordinals stay dense. They do: `asset_locations` is written in three
-    // places, and each either rewrites an entry in place or replaces the whole
-    // set with one entry at ordinal 0 (`assets.trash.ts`), so no path can
-    // remove the canonical entry and leave the rest at 1, 2, 3. If one ever
-    // could, an asset with no ordinal-0 row would count towards `total` and
-    // into no extension bucket, and this is the only facet whose buckets could
-    // then sum to less than the headline — every other one groups the same
-    // `FROM assets` the count does. Joining the *lowest* ordinal instead of
-    // ordinal 0 would hold under a sparse set, and it gives up
-    // `asset_locations_primary_entry`, which is partial over `ordinal = 0` and
-    // covering: measured over 335,377 assets, 539 ms against 460. That is the
-    // wrong trade for a state no writer produces, and #3768 — which redesigns
-    // exactly this facet's index — is where it stops being a trade at all.
-    extensions: statement(
-      `lower(replace(l.filename, rtrim(l.filename, replace(l.filename, '.', '')), '')) AS value,
-           COUNT(*) AS count`,
-      where,
-      `GROUP BY value HAVING value <> '' ORDER BY count DESC LIMIT 50`,
-      undefined,
-      [],
-      `${fromClause(where)}\n      JOIN asset_locations l ON l.asset_id = assets.id AND l.ordinal = 0`,
-    ),
-    // The one facet with no index behind it, by design: nothing groups or
-    // sorts on ISO, so the schema leaves it in the `exif` JSON and this reads
-    // every matching row. Measured at 43.8 ms over 60,000 assets.
-    iso_range: statement('MIN(assets.iso) AS min, MAX(assets.iso) AS max', where),
-    // `min`/`max` rather than the `from`/`to` the wire uses: both are SQL
-    // keywords, and the caller has to rename one pair or quote the other.
-    //
-    // `INDEXED BY` because the planner does not find this one on its own. Left
-    // to itself it seeks `assets_live` — which answers the live predicate and
-    // nothing else — and then reads every matching row for its capture date.
-    // `assets_live_captured` already holds the date, so the whole aggregate is
-    // an index scan: 41.2 ms against 3.3 ms over 60,000 assets.
-    capture_range: statement(
-      'MIN(assets.captured_at) AS min, MAX(assets.captured_at) AS max',
-      where,
-      '',
-      undefined,
-      [],
-      canNameIndex(where) ? 'FROM assets INDEXED BY assets_live_captured' : fromClause(where),
-    ),
-    scene_types: detailFacetSql(where, 'vision_scene_type', 20),
-    activities: detailFacetSql(where, 'vision_activity', 50),
-    subjects: statement(
-      'subject.value AS value, COUNT(*) AS count',
-      where,
-      `GROUP BY value HAVING value <> '' ORDER BY count DESC LIMIT 50`,
-      undefined,
-      [],
-      `${fromClause(where)}
-      JOIN asset_detail d ON d.asset_id = assets.id,
-           json_each(COALESCE(json_extract(d.vision, '$.subjects'), '[]')) AS subject`,
-    ),
-    // Two buckets, not three. The column is NOT NULL DEFAULT 0, so "never
-    // classified" and "classified as not a screenshot" are one value; the route
-    // reports `unknown: 0`. Tracked as #3761 — if that ticket makes the column
-    // nullable, a third group appears here and the route's mapping already has
-    // a place to put it.
-    is_screenshot: statement(
-      'assets.is_screenshot AS bucket, COUNT(*) AS count',
-      where,
-      'GROUP BY assets.is_screenshot',
-    ),
-    // Counts assets per person, not faces: a group shot with the same person
-    // detected twice counts once, which is what `$setUnion` gave on Mongo.
-    // `faces` leads because it is the smaller table and `faces_person` is
-    // `(person_id, asset_id)` partial over assigned, unhidden faces — so the
-    // scan is index-only and the probe into `assets` is by primary key.
-    people: statement(
-      'f.person_id AS id, COUNT(DISTINCT f.asset_id) AS count',
-      where,
-      'GROUP BY f.person_id ORDER BY count DESC LIMIT 100',
-      { sql: 'f.person_id IS NOT NULL AND f.hidden = 0', params: [] },
-      [],
-      `FROM faces f\n      JOIN assets ON assets.id = f.asset_id${
-        where.match.kind === 'match'
-          ? `\n      JOIN asset_search ON asset_search.asset_id = assets.id
-      JOIN assets_fts ON assets_fts.rowid = asset_search.rowid`
-          : ''
-      }`,
-    ),
-    places: statement(
-      'assets.place_locality AS locality, assets.place_region AS region, COUNT(*) AS count',
-      where,
-      `GROUP BY assets.place_locality, assets.place_region ORDER BY count DESC LIMIT 100`,
-      {
-        sql: `((assets.place_locality IS NOT NULL AND assets.place_locality <> '')
-          OR (assets.place_region IS NOT NULL AND assets.place_region <> ''))`,
-        params: [],
-      },
-    ),
-  };
-}
-
-/** The two `asset_detail` facets, which differ only in column and cap. */
-function detailFacetSql(
-  where: SearchWhere,
-  column: 'vision_scene_type' | 'vision_activity',
-  limit: number,
-): BoundStatement {
-  return statement(
-    `d.${column} AS value, COUNT(*) AS count`,
-    where,
-    `GROUP BY value ORDER BY count DESC LIMIT ${limit}`,
-    { sql: `d.${column} IS NOT NULL AND d.${column} <> ''`, params: [] },
-    [],
-    `${fromClause(where)}\n      JOIN asset_detail d ON d.asset_id = assets.id`,
-  );
-}
-
-/** The keys of {@link facetStatements}, which are the response's own fields. */
-export type FacetName =
-  | 'total'
-  | 'cameras'
-  | 'lenses'
-  | 'extensions'
-  | 'iso_range'
-  | 'capture_range'
-  | 'scene_types'
-  | 'activities'
-  | 'subjects'
-  | 'is_screenshot'
-  | 'people'
-  | 'places';
 
 /**
  * The timeline histogram: one row per (year, month) that has photos in it.

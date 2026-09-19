@@ -11,6 +11,7 @@
 
 import { Database } from 'bun:sqlite';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
+import { FACET_STATE_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/facet-state.ts';
 import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
 import { ASSETS_FTS_OPTIMIZE_SQL, ASSETS_FTS_REBUILD_SQL } from '../../src/db/sqlite/ddl/search.ts';
 import { fromBunSqlite, runMigrations } from '../../src/db/sqlite/migrate.ts';
@@ -58,11 +59,14 @@ export async function ensureBenchDir(): Promise<void> {
 }
 
 /**
- * What the bulk load deferred: the derived location counts, the FTS5 index and
- * the planner statistics. The importer (#3744) does the same three things.
+ * What the bulk load deferred: the derived location counts, the mirrored facet
+ * state, the FTS5 index and the planner statistics. The importer (#3744) does
+ * the same four things, in this order — every satellite's `asset_live` is
+ * derived from the counts the first statement rebuilds.
  */
 function finishBulkLoad(db: Database): void {
   db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
+  db.exec(FACET_STATE_RECOMPUTE_SQL);
   db.exec(ASSETS_FTS_REBUILD_SQL);
   db.exec(ASSETS_FTS_OPTIMIZE_SQL);
   db.exec('ANALYZE');
