@@ -162,6 +162,27 @@ describe('mongo → sqlite import', () => {
     expect(byId.get(ids.assets.legacy.toHexString())).toBe(0);
   });
 
+  it('stamps asset_claimable on the imported stage rows', () => {
+    if (client === null || ids === null) return;
+    // The recompute has to run before the trigger is restored, or the import
+    // would be correct but spend four million single-row writes getting there
+    // (#3804) — and if it ran after the trigger it would be neither.
+    const db = open();
+    const rows = db
+      .query(
+        `SELECT asset_id, MIN(asset_claimable) AS claimable
+           FROM stage_state GROUP BY asset_id`,
+      )
+      .all() as Array<{ asset_id: string; claimable: number }>;
+    db.close();
+    const byId = new Map(rows.map((row) => [row.asset_id, row.claimable]));
+    // One live location each.
+    expect(byId.get(ids.assets.rich.toHexString())).toBe(1);
+    expect(byId.get(ids.assets.multiLocation.toHexString())).toBe(1);
+    // No locations at all, so no stage may claim it.
+    expect(byId.get(ids.assets.legacy.toHexString())).toBe(0);
+  });
+
   it('rebuilds the full-text index from the imported search blobs', () => {
     if (client === null || ids === null) return;
     const db = open();
