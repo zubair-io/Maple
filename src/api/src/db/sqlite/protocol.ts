@@ -156,23 +156,26 @@ const CORES_RESERVED_FOR_WORKER_CHILD = 2;
 /**
  * Fewest readers the pool will size itself to, however small the box.
  *
- * Three is the number the process can occupy on its own, and this is that plus
- * a spare. A pool of N tolerates N−1 sustained long reads and collapses at N
- * (measured — `scripts/sqlite-bench/reader-pool.ts`), so the floor is set by
- * how many long reads the process generates rather than by the core count:
- * the worker tier's per-stage backlog counts, the change feed, and an operator
- * with the Workers page open, which tightens that counts pass precisely when
- * an incident makes them open it.
+ * The floor is set by how many long reads this process can have running at once
+ * rather than by the core count, because a pool of N tolerates N−1 sustained
+ * long reads and collapses at N — measured, and reproducible with
+ * `scripts/sqlite-bench/reader-pool.ts`. Four leaves room for three: the worker
+ * tier's per-stage backlog counts (one at a time, deliberately — see
+ * `workers/status-counts.ts`), the change feed, and whatever a request happens
+ * to be doing. It is the smallest count that is not one step from the edge, and
+ * it is also where a 12-wide search fan-out is fastest.
  */
 const READER_FLOOR = 4;
 
 /**
  * Most readers the pool will size itself to unasked.
  *
- * Past this the request-path read is already flat — the measured difference
- * between 8 and 16 readers under load is inside the noise — and every further
- * thread is one more SQLite page cache and one more scheduler client competing
- * with the worker child. An operator who wants more sets {@link READER_COUNT_ENV}.
+ * More readers is not monotonically better, which is why there is a ceiling at
+ * all. Past four, a burst of concurrent CPU-bound reads gets slower rather than
+ * faster — the work is fixed and the threads only compete — while the property
+ * worth buying, a request-path read staying flat while long reads run beside
+ * it, keeps improving. Eight is where those two stop trading against each other
+ * usefully. An operator who wants more sets {@link READER_COUNT_ENV}.
  */
 const READER_CEILING = 8;
 
