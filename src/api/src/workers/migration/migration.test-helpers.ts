@@ -17,13 +17,10 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { ObjectId } from 'mongodb';
 import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
 import { toObjectId } from '../../db/sqlite/repos/values.ts';
-import { createLiveTestDatabase, insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { createTempLibrary } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
 /** A registered library rooted at a real temporary directory. */
 export interface MigrationLibrary extends Disposable {
@@ -33,23 +30,8 @@ export interface MigrationLibrary extends Disposable {
 }
 
 export async function createLibrary(prefix = 'maple-migration-'): Promise<MigrationLibrary> {
-  const live = await createLiveTestDatabase();
-  const root = mkdtempSync(join(tmpdir(), prefix));
-  try {
-    const folderId = toObjectId(insertFolder(live.db, { path: root }));
-    const close = (): void => {
-      try {
-        live.close();
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
-    };
-    return { db: live.db, root, folderId, [Symbol.dispose]: close };
-  } catch (err) {
-    live.close();
-    rmSync(root, { recursive: true, force: true });
-    throw err;
-  }
+  const library = await createTempLibrary(prefix);
+  return { ...library, folderId: toObjectId(library.folderId) };
 }
 
 /** Everything a migration's candidate predicate can look at. */
@@ -226,7 +208,7 @@ export function locationsOf(
   }>;
 }
 
-/** One stage's bookkeeping, or null when no row was seeded. */
+/** One stage's bookkeeping for an asset, or null when no row was seeded. */
 export function stageRow(
   db: Database,
   assetId: string,

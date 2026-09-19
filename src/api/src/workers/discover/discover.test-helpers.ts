@@ -19,12 +19,9 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { ObjectId } from 'mongodb';
 import { toObjectId } from '../../db/sqlite/repos/values.ts';
-import { createLiveTestDatabase, insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { createTempLibrary } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
 /** A registered library rooted at a real temporary directory. */
 export interface DiscoverLibrary extends Disposable {
@@ -35,23 +32,8 @@ export interface DiscoverLibrary extends Disposable {
 }
 
 export async function createDiscoverLibrary(prefix: string): Promise<DiscoverLibrary> {
-  const live = await createLiveTestDatabase();
-  const root = mkdtempSync(join(tmpdir(), prefix));
-  try {
-    const folderId = toObjectId(insertFolder(live.db, { path: root }));
-    const close = (): void => {
-      try {
-        live.close();
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
-    };
-    return { db: live.db, root, folderId, [Symbol.dispose]: close };
-  } catch (err) {
-    live.close();
-    rmSync(root, { recursive: true, force: true });
-    throw err;
-  }
+  const library = await createTempLibrary(prefix);
+  return { ...library, folderId: toObjectId(library.folderId) };
 }
 
 /**
@@ -214,6 +196,16 @@ export function allAssets(db: Database): AssetRow[] {
   return db.query(`SELECT ${ASSET_COLUMNS} FROM assets ORDER BY id`).all() as AssetRow[];
 }
 
+/** The change-feed rows for one absolute path, oldest cursor first. */
+export function changesFor(
+  db: Database,
+  absPath: string,
+): Array<{ cursor: number; kind: string; asset_id: string | null }> {
+  return db
+    .query(`SELECT cursor, kind, asset_id FROM asset_changes WHERE abs_path = ? ORDER BY cursor`)
+    .all(absPath) as Array<{ cursor: number; kind: string; asset_id: string | null }>;
+}
+
 /** One stage's bookkeeping for an asset, or null when no row was seeded. */
 export function stageRow(
   db: Database,
@@ -231,16 +223,6 @@ export function stageRow(
     last_error: string | null;
     dead: number;
   } | null;
-}
-
-/** The change-feed rows for one absolute path, oldest cursor first. */
-export function changesFor(
-  db: Database,
-  absPath: string,
-): Array<{ cursor: number; kind: string; asset_id: string | null }> {
-  return db
-    .query(`SELECT cursor, kind, asset_id FROM asset_changes WHERE abs_path = ? ORDER BY cursor`)
-    .all(absPath) as Array<{ cursor: number; kind: string; asset_id: string | null }>;
 }
 
 /** Park a stage the way a dead-lettered worker would, so a re-arm is visible. */

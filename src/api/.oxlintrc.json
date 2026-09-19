@@ -264,15 +264,13 @@
         "src/db/sqlite/test-sqlite.test-helpers.ts",
         "src/db/sqlite/test-sqlite.test-helpers.test.ts",
 
-        // #3787. Six reads-only / temp-path callers, five of them scaffolding
+        // #3787. Four reads-only / temp-path callers, three of them scaffolding
         // split out of a file already on this list when a suite outgrew the
         // 600-line budget during the cutover. The cutover guard reads source
-        // files to check the import graph; the other five mint a temp library
-        // under os.tmpdir() and delete it again. None writes into a library, so
-        // none has a mirror to replicate to.
+        // files to check the import graph; the other three write fixtures under
+        // os.tmpdir(). None writes into a library, so none has a mirror to
+        // replicate to.
         "src/db/no-mongo-on-the-serving-path.test.ts",
-        "src/workers/discover/discover.test-helpers.ts",
-        "src/workers/migration/migration.test-helpers.ts",
         "src/workers/stages/sidecar-metadata-index.projection.test.ts",
         "src/workers/stages/sidecar-metadata-index.test-helpers.ts",
         "src/routes/folders.rescan.test.ts"

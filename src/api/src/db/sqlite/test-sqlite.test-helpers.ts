@@ -426,3 +426,41 @@ export async function createLiveTestDatabase(
     [Symbol.dispose]: close,
   };
 }
+
+/**
+ * A registered library: a live database plus a real temporary directory
+ * registered as its root, disposed together.
+ *
+ * Every suite that drives something reading files off a library root needs
+ * exactly this pair, and needs them torn down together — the directory has to
+ * outlive the database's last read and go away whether or not registering it
+ * threw. Two copies of the ritual existed under `workers/`; one that a test
+ * gets wrong leaves a temp directory behind on every run.
+ */
+export interface RegisteredTempLibrary extends Disposable {
+  readonly db: Database;
+  /** Absolute path of the library root on disk. */
+  readonly root: string;
+  /** The `folders` row's id, as the `library_id` of a location. */
+  readonly folderId: string;
+}
+
+export async function createTempLibrary(prefix: string): Promise<RegisteredTempLibrary> {
+  const live = await createLiveTestDatabase();
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  try {
+    const folderId = insertFolder(live.db, { path: root });
+    const close = (): void => {
+      try {
+        live.close();
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    };
+    return { db: live.db, root, folderId, [Symbol.dispose]: close };
+  } catch (err) {
+    live.close();
+    rmSync(root, { recursive: true, force: true });
+    throw err;
+  }
+}
