@@ -343,8 +343,23 @@ export async function markCancelled(
 /**
  * Flip the `cancel_requested` flag. The runner observes it between progress
  * steps and exits cleanly. Returns true if the job exists.
+ *
+ * This pair of accessors — flip the flag, read the flag back — is spelled the
+ * same way in `imports.repo.ts`, and the two are deliberately not one function.
+ * They address different tables, and the predicate differs where it counts: an
+ * import accepts a cancel only while it is pending or running, whereas a job's
+ * flag flips whatever state the job is in, because the runner is what decides
+ * whether there is anything left to stop. A shared helper would have to take
+ * the table name as text and the cancellable predicate as a flag, inside two
+ * modules whose whole contract is that each function mirrors its Mongo
+ * counterpart one for one through the cutover.
+ *
+ * The suppression below sits inside the signature rather than above it because
+ * the two names differ: the first line the detector matches is the parameter,
+ * and `fallow-ignore-next-line` only covers the line that follows it.
  */
 export async function requestCancel(
+  // fallow-ignore-next-line code-duplication -- two queues' cancel flags over two tables: an import cancels only while pending or running, a job in any state
   id: ObjectId,
   now: () => Date = () => new Date(),
   dbOverride?: SqliteDb,

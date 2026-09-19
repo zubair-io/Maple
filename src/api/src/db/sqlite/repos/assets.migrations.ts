@@ -317,7 +317,16 @@ interface LocationRow {
   keep: number;
 }
 
-/** Every location of every asset in the batch, grouped and in array order. */
+/**
+ * Every location of every asset in the batch, grouped and in array order.
+ *
+ * Shared with the folder-`.hidden` reconcile in `assets.folder-hidden.ts`, which
+ * pages through candidates the same way and needs the same entries. Every key is
+ * present, including the nullable ones the wire's `toFileInfo` omits when unset:
+ * both readers compare paths and tombstones in TypeScript rather than
+ * serialising them, so a sparse entry would buy nothing and cost each reader a
+ * presence check.
+ */
 export async function loadCandidateLocations(
   db: SqliteDb,
   ids: readonly string[],

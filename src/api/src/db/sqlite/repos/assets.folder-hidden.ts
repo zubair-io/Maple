@@ -30,9 +30,10 @@
 
 import type { ObjectId } from 'mongodb';
 import type { FileInfo } from '../../schema.ts';
+import { loadCandidateLocations } from './assets.migrations.ts';
 import { stageRearmBatchStatement } from './assets.stage-rearm.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
-import { placeholders, toBool, toHex, toObjectId } from './values.ts';
+import { placeholders, toHex, toObjectId } from './values.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
@@ -106,36 +107,14 @@ async function loadCandidates(
     [toHex(libraryId), path, after, limit],
   );
   if (rows.length === 0) return [];
-  const ids = rows.map((row) => row.id);
-  const locations = await db.read<{
-    asset_id: string;
-    library_id: string;
-    path: string;
-    filename: string;
-    deleted_at: string | null;
-    missing_since: string | null;
-    missing_reason: string | null;
-    keep: number;
-  }>(
-    `SELECT asset_id, library_id, path, filename, deleted_at, missing_since, missing_reason, keep
-       FROM asset_locations WHERE asset_id IN (${placeholders(ids.length)})
-      ORDER BY asset_id, ordinal`,
-    ids,
+  // The same batch read the file-moving migrations do, and the same entry shape:
+  // every key present, including the ones the wire omits when they are null.
+  // Both callers compare paths and tombstones rather than serialising them, so a
+  // sparse entry would only mean each reader checking for the key first.
+  const byAsset = await loadCandidateLocations(
+    db,
+    rows.map((row) => row.id),
   );
-  const byAsset = new Map<string, FileInfo[]>();
-  for (const row of locations) {
-    const list = byAsset.get(row.asset_id) ?? [];
-    list.push({
-      library_id: toObjectId(row.library_id),
-      path: row.path,
-      filename: row.filename,
-      deleted_at: row.deleted_at,
-      missing_since: row.missing_since,
-      missing_reason: row.missing_reason,
-      keep: toBool(row.keep),
-    });
-    byAsset.set(row.asset_id, list);
-  }
   return rows.map((row) => ({
     id: toObjectId(row.id),
     cfThumbSyncedAt: row.cf_thumb_synced_at,

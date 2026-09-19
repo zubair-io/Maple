@@ -60,6 +60,37 @@ async function idsByFilenames(
   return { ids, locations };
 }
 
+/**
+ * The shape the three asset-row lookups below share: resolve the basenames
+ * once, run one projection over exactly the ids that came back, and hand each
+ * row its own `fileinfo[]`. (The fourth, {@link findAssetLocationsByFilenames},
+ * needs no projection — the basename lookup already holds everything it
+ * answers with.)
+ *
+ * That order is the semi-join rule from the module comment, made structural
+ * rather than restated per function. The basename query is the only thing that
+ * decides *which* assets are in the answer; everything after it can only fill
+ * rows in. A projection that joined `asset_locations` a second time would
+ * return a row per copy and quietly reintroduce the duplicates this module
+ * exists to avoid, and no caller could tell from the outside.
+ *
+ * Nothing runs when the basenames match no asset. That is not just an
+ * optimisation: the projections build their `IN` list from the id count, and
+ * `IN ()` is a syntax error in SQLite.
+ */
+async function projectByFilenames<Row extends { id: string }, Result>(
+  filenames: readonly string[],
+  dbOverride: SqliteDb | undefined,
+  project: (db: SqliteDb, ids: string[]) => Promise<Row[]>,
+  build: (row: Row, fileinfo: FileInfo[]) => Result,
+): Promise<Result[]> {
+  const db = sqliteDb(dbOverride);
+  const { ids, locations } = await idsByFilenames(db, filenames);
+  if (ids.length === 0) return [];
+  const rows = await project(db, ids);
+  return rows.map((row) => build(row, toFileInfo(locations.get(row.id) ?? [])));
+}
+
 /** An asset reduced to what a path reconciliation needs: its id and its copies. */
 export interface AssetLocationsRow {
   _id: ObjectId;
@@ -112,38 +143,43 @@ interface SnapshotAssetRow {
   metadata_override: string | null;
 }
 
+/** A snapshot row and its locations as the route reads them. */
+function toMetadataSnapshotRow(row: SnapshotAssetRow, fileinfo: FileInfo[]): MetadataSnapshotRow {
+  return {
+    _id: toObjectId(row.id),
+    fileinfo,
+    exif: json<AssetExif>(row.exif),
+    metadata_override: json<MetadataOverride>(row.metadata_override),
+    rating: row.rating,
+    flag: row.flag as -1 | 0 | 1,
+    color_label: row.color_label,
+  };
+}
+
 /**
  * The metadata snapshot rows for a set of basenames.
  *
  * Returned in no particular order: the route keys the result by reconstructed
  * absolute path and answers in request order from that map.
  */
-export async function findMetadataByFilenames(
+export function findMetadataByFilenames(
   filenames: readonly string[],
   dbOverride?: SqliteDb,
 ): Promise<MetadataSnapshotRow[]> {
-  const db = sqliteDb(dbOverride);
-  const { ids, locations } = await idsByFilenames(db, filenames);
-  if (ids.length === 0) return [];
-
-  const rows = await db.read<SnapshotAssetRow>(
-    `SELECT a.id AS id, a.rating AS rating, a.flag AS flag, a.color_label AS color_label,
-            a.exif AS exif, d.metadata_override AS metadata_override
-       FROM assets a
-       LEFT JOIN asset_detail d ON d.asset_id = a.id
-      WHERE a.id IN (${placeholders(ids.length)})`,
-    ids,
+  return projectByFilenames(
+    filenames,
+    dbOverride,
+    (db, ids) =>
+      db.read<SnapshotAssetRow>(
+        `SELECT a.id AS id, a.rating AS rating, a.flag AS flag, a.color_label AS color_label,
+                a.exif AS exif, d.metadata_override AS metadata_override
+           FROM assets a
+           LEFT JOIN asset_detail d ON d.asset_id = a.id
+          WHERE a.id IN (${placeholders(ids.length)})`,
+        ids,
+      ),
+    toMetadataSnapshotRow,
   );
-
-  return rows.map((row) => ({
-    _id: toObjectId(row.id),
-    fileinfo: toFileInfo(locations.get(row.id) ?? []),
-    exif: json<AssetExif>(row.exif),
-    metadata_override: json<MetadataOverride>(row.metadata_override),
-    rating: row.rating,
-    flag: row.flag as -1 | 0 | 1,
-    color_label: row.color_label,
-  }));
 }
 
 /**
@@ -198,35 +234,13 @@ const RELOCATE_CANDIDATE_SQL = `
     LEFT JOIN asset_detail d ON d.asset_id = a.id
     LEFT JOIN stage_state s ON s.asset_id = a.id AND s.stage = ?`;
 
-/**
- * The relocate candidates behind a set of basenames, with the named stage's
- * version on each.
- *
- * `stage_state` is joined rather than queried separately, and `COALESCE(…, 0)`
- * is what makes a missing row read as "never run" — the same thing a missing
- * `stages.<name>` subdocument meant on Mongo. Stage rows are seeded densely, so
- * a missing one is rare, but reading it as "already at target" would silently
- * skip the reconcile the route exists to do.
- */
-export async function findRelocateCandidatesByFilenames(
-  filenames: readonly string[],
-  stage: string,
-  dbOverride?: SqliteDb,
-): Promise<RelocateCandidateRow[]> {
-  const db = sqliteDb(dbOverride);
-  const { ids, locations } = await idsByFilenames(db, filenames);
-  if (ids.length === 0) return [];
-
-  const rows = await db.read<RelocateAssetRow>(
-    `${RELOCATE_CANDIDATE_SQL}\n   WHERE a.id IN (${placeholders(ids.length)})`,
-    [stage, ...ids],
-  );
-
-  return rows.map((row) => ({
+/** A relocate candidate row and its locations as `/api/library/relocate` reads them. */
+function toRelocateCandidate(row: RelocateAssetRow, fileinfo: FileInfo[]): RelocateCandidateRow {
+  return {
     sidecarStageVersion: row.stage_version,
     doc: {
       _id: toObjectId(row.id),
-      fileinfo: toFileInfo(locations.get(row.id) ?? []),
+      fileinfo,
       size: row.size,
       mtime: row.mtime,
       indexed_at: row.indexed_at,
@@ -243,7 +257,34 @@ export async function findRelocateCandidatesByFilenames(
       ...(row.maple_id === null ? {} : { maple_id: row.maple_id }),
       ...(row.apple_rendered_path === null ? {} : { apple_rendered_path: row.apple_rendered_path }),
     },
-  }));
+  };
+}
+
+/**
+ * The relocate candidates behind a set of basenames, with the named stage's
+ * version on each.
+ *
+ * `stage_state` is joined rather than queried separately, and `COALESCE(…, 0)`
+ * is what makes a missing row read as "never run" — the same thing a missing
+ * `stages.<name>` subdocument meant on Mongo. Stage rows are seeded densely, so
+ * a missing one is rare, but reading it as "already at target" would silently
+ * skip the reconcile the route exists to do.
+ */
+export function findRelocateCandidatesByFilenames(
+  filenames: readonly string[],
+  stage: string,
+  dbOverride?: SqliteDb,
+): Promise<RelocateCandidateRow[]> {
+  return projectByFilenames(
+    filenames,
+    dbOverride,
+    (db, ids) =>
+      db.read<RelocateAssetRow>(
+        `${RELOCATE_CANDIDATE_SQL}\n   WHERE a.id IN (${placeholders(ids.length)})`,
+        [stage, ...ids],
+      ),
+    toRelocateCandidate,
+  );
 }
 
 /**
@@ -258,6 +299,22 @@ export interface ListingAssetRow {
   deleted_at: string | null;
 }
 
+interface ListingRow {
+  id: string;
+  exif: string | null;
+  deleted_at: string | null;
+}
+
+/** A listing row and its locations as `/api/fs/dir` reads them. */
+function toListingAssetRow(row: ListingRow, fileinfo: FileInfo[]): ListingAssetRow {
+  return {
+    _id: toObjectId(row.id),
+    fileinfo,
+    exif: json<AssetExif>(row.exif),
+    deleted_at: row.deleted_at,
+  };
+}
+
 /**
  * The rows behind one directory listing.
  *
@@ -267,23 +324,18 @@ export interface ListingAssetRow {
  * the listing entirely. Filtering here would leave that name looking un-indexed
  * and browse would offer to index it again.
  */
-export async function findListingAssetsByFilenames(
+export function findListingAssetsByFilenames(
   filenames: readonly string[],
   dbOverride?: SqliteDb,
 ): Promise<ListingAssetRow[]> {
-  const db = sqliteDb(dbOverride);
-  const { ids, locations } = await idsByFilenames(db, filenames);
-  if (ids.length === 0) return [];
-
-  const rows = await db.read<{ id: string; exif: string | null; deleted_at: string | null }>(
-    `SELECT id, exif, deleted_at FROM assets WHERE id IN (${placeholders(ids.length)})`,
-    ids,
+  return projectByFilenames(
+    filenames,
+    dbOverride,
+    (db, ids) =>
+      db.read<ListingRow>(
+        `SELECT id, exif, deleted_at FROM assets WHERE id IN (${placeholders(ids.length)})`,
+        ids,
+      ),
+    toListingAssetRow,
   );
-
-  return rows.map((row) => ({
-    _id: toObjectId(row.id),
-    fileinfo: toFileInfo(locations.get(row.id) ?? []),
-    exif: json<AssetExif>(row.exif),
-    deleted_at: row.deleted_at,
-  }));
 }

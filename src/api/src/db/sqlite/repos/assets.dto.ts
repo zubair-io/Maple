@@ -105,8 +105,15 @@ const ENRICHMENT_STAGES = ['geocode', 'face', 'describe'] as const;
  * defaults to the same pending shape a freshly-skeletoned Mongo document had.
  * The one-table-per-state design means a missing row and a never-written
  * subdocument are the same thing, which is what makes that reuse exact.
+ *
+ * Exported because the stage runner's document loader
+ * (`stage-documents.repo.ts`) rebuilds the same subdocument for the handlers,
+ * and the list of stage names above is the reason the two have to agree: a
+ * fourth enrichment stage added to one copy and not the other would leave that
+ * stage's state silently missing from whichever document did not learn about
+ * it, with nothing failing to say so.
  */
-function toEnrichment(rows: readonly EnrichmentRow[]): Enrichment {
+export function toEnrichment(rows: readonly EnrichmentRow[]): Enrichment {
   const partial: Partial<Enrichment> = {};
   for (const row of rows) {
     const stage = ENRICHMENT_STAGES.find((name) => name === row.stage);

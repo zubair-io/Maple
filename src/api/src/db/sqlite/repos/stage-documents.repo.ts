@@ -28,14 +28,13 @@
  */
 
 import { ObjectId } from 'mongodb';
-import type { AssetExif, Enrichment, Place, VisionDoc, VisionMeta } from '../../schema.ts';
-import { normaliseEnrichment } from '../../schema.ts';
+import type { AssetExif, Place, VisionDoc, VisionMeta } from '../../schema.ts';
 import type { ImageDoc, StageState } from '../../../workers/stage-config.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
+import { toEnrichment } from './assets.dto.ts';
 import {
   groupByAsset,
   json,
-  toEnrichmentStage,
   toFace,
   toFileInfo,
   type EnrichmentRow,
@@ -119,8 +118,26 @@ interface StageStateRow {
   next_attempt_at: string | null;
 }
 
-/** The stage names whose state the `enrichment` subdocument carries. */
-const ENRICHMENT_STAGES = ['geocode', 'face', 'describe'] as const;
+/**
+ * The detail columns an asset with no `asset_detail` row reads as.
+ *
+ * An asset is given a detail row the first time something enriches it, so for
+ * an unenriched one the join simply finds nothing. Collapsing that here rather
+ * than at each of the ten fields below is what keeps the document assembly a
+ * list of columns instead of ten repetitions of "and if there is no row".
+ */
+const NO_DETAIL: Omit<DetailRow, 'asset_id'> = {
+  description: null,
+  description_meta: null,
+  ocr_text: null,
+  ocr_meta: null,
+  vision: null,
+  vision_meta: null,
+  transcript: null,
+  video_description: null,
+  video_description_meta: null,
+  metadata_override: null,
+};
 
 /**
  * The documents for a claim batch, keyed by asset id.
@@ -185,6 +202,13 @@ export async function loadStageDocuments(
  * `stages/`. The `NOT NULL` boolean columns are always emitted, which is the
  * same accommodation `assets.rows.ts` documents for the DTO path: absent and
  * `false` were interchangeable for every reader.
+ *
+ * Every part of the document that carries a decision of its own is a named
+ * helper below — the side table's payloads, the keys that stay absent, the
+ * damage record — so this function is the list of parts rather than the list of
+ * rules. That is deliberate: a document assembled column by column grows one
+ * more branch every time the table does, and this one reached thirty of them
+ * before it was split (#3789).
  */
 function toImageDoc(
   row: StageAssetRow,
@@ -194,28 +218,6 @@ function toImageDoc(
   enrichment: readonly EnrichmentRow[],
   stages: readonly StageStateRow[],
 ): ImageDoc {
-  const optional = {
-    ...(row.maple_id === null ? {} : { maple_id: row.maple_id }),
-    ...(row.sha1_head === null ? {} : { sha1_head: row.sha1_head }),
-    ...(row.apple_rendered_path === null ? {} : { apple_rendered_path: row.apple_rendered_path }),
-    ...(row.cf_thumb_synced_at === null ? {} : { cf_thumb_synced_at: row.cf_thumb_synced_at }),
-    ...(row.semantic_vector_fingerprint === null
-      ? {}
-      : { semantic_vector_fingerprint: row.semantic_vector_fingerprint }),
-    ...(row.geo_backfill_skipped === null
-      ? {}
-      : { geo_backfill_skipped: row.geo_backfill_skipped as 'no-donor' | 'skip' }),
-    ...(row.damaged_since === null
-      ? {}
-      : {
-          damaged: {
-            since: row.damaged_since,
-            stage: row.damaged_stage ?? '',
-            reason: row.damaged_reason ?? '',
-          },
-        }),
-  };
-
   return {
     _id: new ObjectId(row.id),
     fileinfo: toFileInfo(locations),
@@ -231,6 +233,9 @@ function toImageDoc(
     hidden: row.hidden === 1,
     hidden_reason: row.hidden_reason as ImageDoc['hidden_reason'],
     hidden_ack: row.hidden_ack === 1,
+    // Tri-state, and the third state has to survive: NULL means the classifier
+    // has not looked at this asset, which is a different claim from "not a
+    // screenshot" and the one `false` would erase.
     is_screenshot: row.is_screenshot === null ? undefined : row.is_screenshot === 1,
     deleted_at: row.deleted_at,
     live_location_count: row.live_location_count,
@@ -238,37 +243,86 @@ function toImageDoc(
     exif: json<AssetExif>(row.exif),
     place: json<Place>(row.place),
     faces: faces.map((face) => toFace(face)),
-    description: detail?.description ?? null,
-    ocr_text: detail?.ocr_text ?? null,
-    ocr_meta: json<NonNullable<ImageDoc['ocr_meta']>>(detail?.ocr_meta ?? null),
-    vision: json<VisionDoc>(detail?.vision ?? null),
-    vision_meta: json<VisionMeta>(detail?.vision_meta ?? null),
-    transcript: json<NonNullable<ImageDoc['transcript']>>(detail?.transcript ?? null) ?? undefined,
-    video_description: json<NonNullable<ImageDoc['video_description']>>(
-      detail?.video_description ?? null,
-    ),
-    video_description_meta: json<NonNullable<ImageDoc['video_description_meta']>>(
-      detail?.video_description_meta ?? null,
-    ),
-    // Read by `sidecar-metadata-index`, which re-arms `geocode` only when the
-    // sidecar's coordinates differ from the ones already stored here.
-    metadata_override: json<NonNullable<ImageDoc['metadata_override']>>(
-      detail?.metadata_override ?? null,
-    ),
+    ...detailFields(detail),
     enrichment: toEnrichment(enrichment),
     stages: toStageStates(stages),
-    ...optional,
+    ...sparseFields(row),
   } as ImageDoc;
 }
 
-/** The `enrichment` subdocument, rebuilt from its rows. */
-function toEnrichment(rows: readonly EnrichmentRow[]): Enrichment {
-  const partial: Partial<Enrichment> = {};
-  for (const row of rows) {
-    const stage = ENRICHMENT_STAGES.find((name) => name === row.stage);
-    if (stage) partial[stage] = toEnrichmentStage(row);
-  }
-  return normaliseEnrichment(partial);
+/**
+ * The fields that come from the `asset_detail` side table.
+ *
+ * Each payload is stored as JSON text and handed back as the object the
+ * document carried, so a handler that reads `vision.tags` reads it the way it
+ * did on Mongo. `transcript` is the one field that is omitted rather than
+ * nulled: it is declared optional on the document instead of nullable, so an
+ * asset with no transcript carries no key at all, which is the shape the
+ * collection held and the shape `meili` reads through `image.transcript?.text`.
+ */
+function detailFields(detail: DetailRow | undefined) {
+  const columns = detail ?? NO_DETAIL;
+  return {
+    description: columns.description,
+    ocr_text: columns.ocr_text,
+    ocr_meta: json<NonNullable<ImageDoc['ocr_meta']>>(columns.ocr_meta),
+    vision: json<VisionDoc>(columns.vision),
+    vision_meta: json<VisionMeta>(columns.vision_meta),
+    transcript: json<NonNullable<ImageDoc['transcript']>>(columns.transcript) ?? undefined,
+    video_description: json<NonNullable<ImageDoc['video_description']>>(columns.video_description),
+    video_description_meta: json<NonNullable<ImageDoc['video_description_meta']>>(
+      columns.video_description_meta,
+    ),
+    // Read by `sidecar-metadata-index`, which re-arms `geocode` only when the
+    // sidecar's coordinates differ from the ones already stored here.
+    metadata_override: json<NonNullable<ImageDoc['metadata_override']>>(columns.metadata_override),
+  };
+}
+
+/**
+ * The columns whose key the document left out entirely when they were unset.
+ *
+ * A nullable column and an absent key are the same state here, and which of the
+ * two a handler sees matters: `maple_id`, `apple_rendered_path` and
+ * `cf_thumb_synced_at` each gate a branch somewhere under `stages/` by testing
+ * the key, so emitting an explicit `null` would send those branches down the
+ * "yes, there is one" path with nothing in it.
+ */
+function sparseFields(row: StageAssetRow) {
+  return {
+    ...(row.maple_id === null ? {} : { maple_id: row.maple_id }),
+    ...(row.sha1_head === null ? {} : { sha1_head: row.sha1_head }),
+    ...(row.apple_rendered_path === null ? {} : { apple_rendered_path: row.apple_rendered_path }),
+    ...(row.cf_thumb_synced_at === null ? {} : { cf_thumb_synced_at: row.cf_thumb_synced_at }),
+    ...(row.semantic_vector_fingerprint === null
+      ? {}
+      : { semantic_vector_fingerprint: row.semantic_vector_fingerprint }),
+    ...(row.geo_backfill_skipped === null
+      ? {}
+      : { geo_backfill_skipped: row.geo_backfill_skipped as 'no-donor' | 'skip' }),
+    ...damageRecord(row),
+  };
+}
+
+/**
+ * The `damaged` subdocument, present only for an asset a stage gave up on.
+ *
+ * `damaged_since` alone decides whether the record exists, because the three
+ * columns are set by one statement and cleared by another — there is no write
+ * that leaves a stage or a reason behind without a timestamp. A row carrying a
+ * timestamp and nothing else predates those columns, and the empty strings keep
+ * the subdocument's declared shape rather than making each reader test three
+ * fields instead of one.
+ */
+function damageRecord(row: StageAssetRow) {
+  if (row.damaged_since === null) return {};
+  return {
+    damaged: {
+      since: row.damaged_since,
+      stage: row.damaged_stage ?? '',
+      reason: row.damaged_reason ?? '',
+    },
+  };
 }
 
 /**

@@ -38,14 +38,23 @@ export async function personIdsForNames(
 }
 
 /**
- * Display names for a batch of person ids, keyed by canonical lowercase hex.
+ * The shared body of the two name lookups below: canonicalise the ids, run the
+ * given statement over them, and key the answer by the same lowercase hex the
+ * callers hold.
  *
- * Auto-generated "Person 12" names are filtered out in SQL so they never reach
- * the facet picker — an operator picking faces by name has no use for a cluster
- * nobody has named yet.
+ * The visibility rule is the only thing that separates those two lookups, and
+ * it lives entirely in SQL — so what varies here is the statement, not a flag.
+ * Everything around it stays identical because both callers hand over ids they
+ * read out of the database themselves: the facet buckets' keys on one side, the
+ * person ids on an asset's faces on the other. So an id that does not parse is
+ * a stale row rather than a bad request and is dropped instead of rejected, an
+ * empty batch answers without a round trip, and a person the statement withheld
+ * is simply absent from the map — which every caller already treats as "no name
+ * to show".
  */
-export async function namesForPersonIds(
-  hexIds: string[],
+async function namesByIds(
+  hexIds: readonly string[],
+  statement: (count: number) => string,
   dbOverride?: SqliteDb,
 ): Promise<Map<string, string>> {
   const valid = hexIds
@@ -53,12 +62,25 @@ export async function namesForPersonIds(
     .filter((id): id is NonNullable<typeof id> => id !== null)
     .map((id) => id.toHexString());
   if (valid.length === 0) return new Map();
-  const db = peopleDb(dbOverride);
-  const rows = await db.read<{ id: string; name: string }>(
-    personNamesByIdsSql(valid.length),
+  const rows = await peopleDb(dbOverride).read<{ id: string; name: string }>(
+    statement(valid.length),
     valid,
   );
   return new Map(rows.map((row) => [row.id, row.name] as const));
+}
+
+/**
+ * Display names for a batch of person ids, keyed by canonical lowercase hex.
+ *
+ * Auto-generated "Person 12" names are filtered out in SQL so they never reach
+ * the facet picker — an operator picking faces by name has no use for a cluster
+ * nobody has named yet.
+ */
+export function namesForPersonIds(
+  hexIds: string[],
+  dbOverride?: SqliteDb,
+): Promise<Map<string, string>> {
+  return namesByIds(hexIds, personNamesByIdsSql, dbOverride);
 }
 
 /**
@@ -72,20 +94,11 @@ export async function namesForPersonIds(
  * means. The facet picker keeps the looser rule because exclusion is applied to
  * its results afterwards.
  */
-export async function indexableNamesForPersonIds(
+export function indexableNamesForPersonIds(
   hexIds: readonly string[],
   dbOverride?: SqliteDb,
 ): Promise<Map<string, string>> {
-  const valid = hexIds
-    .map((hex) => safeObjectId(hex))
-    .filter((id): id is NonNullable<typeof id> => id !== null)
-    .map((id) => id.toHexString());
-  if (valid.length === 0) return new Map();
-  const rows = await peopleDb(dbOverride).read<{ id: string; name: string }>(
-    indexableNamesByIdsSql(valid.length),
-    valid,
-  );
-  return new Map(rows.map((row) => [row.id, row.name] as const));
+  return namesByIds(hexIds, indexableNamesByIdsSql, dbOverride);
 }
 
 /**

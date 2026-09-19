@@ -115,6 +115,30 @@ async function locationsFor(
   return byAsset;
 }
 
+/**
+ * A page of candidate rows as the sweeper's own shape, with each asset's
+ * `fileinfo[]` attached.
+ *
+ * Every candidate query here is the same two steps: one statement decides which
+ * assets are in the page, and a second fetches the locations for exactly those
+ * ids. Keeping the second step in one place is what stops a sweep from drifting
+ * into a lookup per asset, which on a trash backlog is one round trip per row
+ * on the pool's readers every time the timer fires. What each sweeper does with
+ * the result differs — the purge reads the delete reason, the deduplicate
+ * worker reads `maple_id` — so the shape stays the caller's to build.
+ */
+async function withFileinfo<Row extends { id: string }, Candidate>(
+  db: SqliteDb,
+  rows: readonly Row[],
+  build: (row: Row, fileinfo: FileInfo[]) => Candidate,
+): Promise<Candidate[]> {
+  const locations = await locationsFor(
+    db,
+    rows.map((row) => row.id),
+  );
+  return rows.map((row) => build(row, toFileInfo(locations.get(row.id) ?? [])));
+}
+
 // ---------------------------------------------------------------------------
 // Candidate sets
 // ---------------------------------------------------------------------------
@@ -138,14 +162,10 @@ export async function listTrashedBefore(
       ORDER BY deleted_at`,
     [cutoffIso],
   );
-  const locations = await locationsFor(
-    db,
-    rows.map((row) => row.id),
-  );
-  return rows.map((row) => ({
+  return withFileinfo(db, rows, (row, fileinfo) => ({
     _id: toObjectId(row.id),
     deleted_reason: row.deleted_reason,
-    fileinfo: toFileInfo(locations.get(row.id) ?? []),
+    fileinfo,
   }));
 }
 
@@ -237,14 +257,10 @@ export async function listDuplicateCandidates(
       LIMIT ?`,
     [limit],
   );
-  const locations = await locationsFor(
-    db,
-    rows.map((row) => row.id),
-  );
-  return rows.map((row) => ({
+  return withFileinfo(db, rows, (row, fileinfo) => ({
     _id: toObjectId(row.id),
     maple_id: row.maple_id,
-    fileinfo: toFileInfo(locations.get(row.id) ?? []),
+    fileinfo,
   }));
 }
 
