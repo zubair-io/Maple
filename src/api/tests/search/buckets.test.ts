@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { fmtAuth } from './_setup.ts';
-import { seedSearchAsset, type SeedAsset } from '../../src/db/sqlite/repos/search.test-helpers.ts';
+import { seedSearchAsset, type SeedAsset } from '../../src/db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

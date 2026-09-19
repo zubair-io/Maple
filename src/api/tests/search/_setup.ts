@@ -14,7 +14,7 @@
 
 import type { Database } from 'bun:sqlite';
 import { signAccessToken } from '../../src/auth/tokens.ts';
-import { seedSearchAsset, type SeedAsset } from '../../src/db/sqlite/repos/search.test-helpers.ts';
+import { seedSearchAsset, type SeedAsset } from '../../src/db/repos/search.test-helpers.ts';
 import { insertFolder } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
 // JWT bootstrap MUST run before any module that touches `requireAuth`.

@@ -10,7 +10,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { quantizedKey } from '../src/enrichment/coordinate-cache.ts';
-import { setCachedPlace } from '../src/db/sqlite/repos/geocode-cache.repo.ts';
+import { setCachedPlace } from '../src/db/repos/geocode-cache.repo.ts';
 import { geocodeReverseRoutes } from '../src/routes/geocode-reverse.ts';
 import {
   createLiveTestDatabase,

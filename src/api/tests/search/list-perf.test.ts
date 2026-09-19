@@ -5,7 +5,7 @@
  *
  * What survives here is the second half: `total` is cached for 30 s keyed on
  * the filter set, mirroring the buckets cache. The first half — the plan
- * shape — moved with the query itself: `db/sqlite/repos/search.query-plan.test.ts`
+ * shape — moved with the query itself: `db/repos/search.query-plan.test.ts`
  * pins the page statement to the ordered live index with `EXPLAIN QUERY PLAN`,
  * including the filtered case that was the original bug, and it does so
  * against the statement the route actually issues rather than a filter
@@ -18,7 +18,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { fmtAuth } from './_setup.ts';
 import { newObjectIdHex } from '../../src/db/object-id.ts';
-import { seedSearchAsset } from '../../src/db/sqlite/repos/search.test-helpers.ts';
+import { seedSearchAsset } from '../../src/db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

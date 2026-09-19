@@ -3,7 +3,7 @@
  *
  * The pure prefix parsing is unit-tested in
  * `src/enrichment/meilisearch-vector-coverage.test.ts`, and the SQL behind the
- * update in `src/db/sqlite/repos/assets.meilisearch.test.ts`. This file drives
+ * update in `src/db/repos/assets.meilisearch.test.ts`. This file drives
  * the entry point the rest of the server calls, because that is where a mistake
  * would hide: `advanceKnownVectorCoverage` runs unconditionally on every boot
  * (`meilisearch-http-bootstrap.ts`), so a too-permissive filter silently marks

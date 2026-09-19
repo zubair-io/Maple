@@ -13,7 +13,7 @@ process.env.MAPLE_RP_ID = 'localhost';
 
 import { describe, it, expect } from 'bun:test';
 import { buildRegistrationOptions } from '../../src/auth/webauthn.ts';
-import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import { insertUser } from '../../src/db/repos/auth.users.repo.ts';
 import { createLiveTestDatabase } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
 const EMAIL = 'owner@maple.test';

@@ -6,7 +6,7 @@
  * faces on it" is three inserts across three tables — the shape below, so that
  * a test still reads as the situation it is describing.
  *
- * `db/sqlite/repos/people.test-helpers.ts` already has `insertPerson`,
+ * `db/repos/people.test-helpers.ts` already has `insertPerson`,
  * `insertFace` and `insertLiveAsset`; what it does not have is one call that
  * creates a live asset *and* the faces hanging off it, which is what every
  * route test here starts from. The read-back helpers exist for the same reason:
@@ -15,7 +15,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { insertFace, insertLiveAsset } from '../../src/db/sqlite/repos/people.test-helpers.ts';
+import { insertFace, insertLiveAsset } from '../../src/db/repos/people.test-helpers.ts';
 import type { Bbox } from '../../src/db/schema.ts';
 
 /** One face as a route test describes it. */

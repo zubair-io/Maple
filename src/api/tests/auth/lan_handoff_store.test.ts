@@ -3,14 +3,14 @@
  *
  * The single-use guarantee and the refusal of an expired or unknown code are
  * covered against the repository in
- * `db/sqlite/repos/auth.sessions.repo.test.ts`. This file covers the module
+ * `db/repos/auth.sessions.repo.test.ts`. This file covers the module
  * `routes/auth-lan-handoff.ts` imports: that both operations still resolve and
  * now write to SQLite.
  */
 
 import { describe, it, expect } from 'bun:test';
 import { issueLanHandoffCode, redeemLanHandoffCode } from '../../src/auth/lan_handoff_store.ts';
-import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import { insertUser } from '../../src/db/repos/auth.users.repo.ts';
 import { createLiveTestDatabase } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
 describe('LAN handoff codes through the auth module', () => {

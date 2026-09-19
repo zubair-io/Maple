@@ -3,7 +3,7 @@
  *
  * One family's rotation — the compare-and-swap, the grace window, reuse
  * detection — is covered against the repository in
- * `db/sqlite/repos/auth.sessions.repo.test.ts`. What is left, and what this
+ * `db/repos/auth.sessions.repo.test.ts`. What is left, and what this
  * file is for, is the behaviour that only shows up with two families or two
  * callers: logging one device out must not sign the others out, logging out
  * everywhere must, and two tabs refreshing the same token at the same instant
@@ -22,7 +22,7 @@ import {
   revokeFamilyByToken,
   rotateRefreshToken,
 } from '../../src/auth/refresh_store.ts';
-import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import { insertUser } from '../../src/db/repos/auth.users.repo.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
