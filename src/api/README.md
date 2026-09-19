@@ -254,8 +254,10 @@ flowchart LR
 Maple uses Let's Encrypt **DNS-01**, creating `_acme-challenge.<hostname>` TXT
 records through the Cloudflare API and checking public DNS propagation. It does
 not modify the hostname's A/AAAA records, open WAN ports, or change tunnel config.
-Certificates and the ACME account key persist in MongoDB's internal
-`managed_certificates` collection. Settings and the write-only token live in
+Certificates and the ACME account key persist in the database's own
+`managed_certificates` table, and the MongoDB → SQLite importer carries it
+across so a cutover does not force a re-issue (#3797). Settings and the
+write-only token live in
 `app_settings`; credentials follow the existing server-side Cloudflare settings
 storage policy, so protect DB access and backups. Neither certificate keys nor
 API tokens are returned in settings/discovery responses.
