@@ -168,6 +168,41 @@ function bootImportOptions(path: string): ImportOptions {
  * The caller must not spawn the worker tier or start listening until this
  * resolves.
  */
+/**
+ * Which end of the import failed, said in the operator's terms (#3792).
+ *
+ * `openImportSession` opens the destination file first and only then connects
+ * to the source, so a single message naming MongoDB reported a destination
+ * problem as a source problem. That cost a production cutover: the server
+ * restart-looped saying MongoDB was unreachable while MongoDB was healthy, and
+ * the one fact that would have solved it — the path it had tried — appeared
+ * only in the nested cause.
+ *
+ * The two failures have different fixes, so they get different sentences. The
+ * refusal to serve is unchanged; only the explanation is.
+ */
+function openFailureMessage(
+  cause: unknown,
+  options: { mongoUri: string; sqlitePath: string },
+): string {
+  const name = cause instanceof Error ? cause.name : '';
+  const text = cause instanceof Error ? cause.message : String(cause);
+  const destination = name.startsWith('SQLite') || /unable to open database file/i.test(text);
+  if (destination) {
+    return (
+      `cannot migrate to SQLite: the destination at ${options.sqlitePath} could not be opened. ` +
+      'Its directory must exist and be writable by the server — inside a container that means a ' +
+      'mounted volume, because this file is the library. Set MAPLE_SQLITE_PATH to an absolute ' +
+      'path on that volume. The server will not serve an unmigrated library.'
+    );
+  }
+  return (
+    `cannot migrate to SQLite: the source database at ${options.mongoUri} is not reachable. ` +
+    'The server will not serve an unmigrated library. Start MongoDB and restart the server, ' +
+    'or point MAPLE_SQLITE_PATH at a database that has already been migrated.'
+  );
+}
+
 export async function migrateAtBoot(): Promise<BootMigrationOutcome> {
   const path = sqliteDatabasePath();
   const recorded = readCutoverMarker(path);
@@ -184,12 +219,7 @@ export async function migrateAtBoot(): Promise<BootMigrationOutcome> {
 
   const startedAt = performance.now();
   const session = await openImportSession(options).catch((cause: unknown) => {
-    throw new BootMigrationError(
-      `cannot migrate to SQLite: the source database at ${options.mongoUri} is not reachable. ` +
-        'The server will not serve an unmigrated library. Start MongoDB and restart the server, ' +
-        `or point MAPLE_SQLITE_PATH at a database that has already been migrated.`,
-      { cause },
-    );
+    throw new BootMigrationError(openFailureMessage(cause, options), { cause });
   });
 
   try {

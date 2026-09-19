@@ -75,6 +75,7 @@
         "src/tests/pano-injection.test.ts",
         "src/enrichment/place-parser.test.ts",
         "src/db/sqlite/pool.test-helpers.ts",
+        "src/db/sqlite/boot-migration-errors.test.ts",
         "src/fs/mirrored.ts",
         "src/fs/mirror-read.ts",
         "src/fs/mirror-read.test.ts",
