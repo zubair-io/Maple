@@ -16,10 +16,9 @@
  *   400 — missing header or invalid body
  *   404 — library not found
  */
+import { backupLibrary, backupLibraryId } from './backup-id.ts';
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
 import { markDeletedFromPhotos } from '../db/sqlite/repos/backup.repo.ts';
-import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('backup-notify-deleted');
@@ -27,14 +26,8 @@ const log = childLogger('backup-notify-deleted');
 export const backupNotifyDeletedRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/notify-deleted',
   async ({ params, headers, body, set }) => {
-    // Validate library id.
-    let libraryId: ObjectId;
-    try {
-      libraryId = new ObjectId(params.libraryId);
-    } catch {
-      set.status = 400;
-      return { error: 'invalid library id' };
-    }
+    const libraryId = backupLibraryId(params.libraryId);
+    if (libraryId instanceof Response) return libraryId;
 
     // Extract + validate required headers.
     const deviceId = headers['x-maple-device-id'];
@@ -44,11 +37,8 @@ export const backupNotifyDeletedRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await findFolderById(libraryId);
-    if (!folder) {
-      set.status = 404;
-      return { error: 'library not found' };
-    }
+    const folder = await backupLibrary(libraryId);
+    if (folder instanceof Response) return folder;
 
     // Parse and validate JSON body.
     const parsed =

@@ -21,9 +21,9 @@
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
-import { backupId, backupChunkRange } from './backup-id.ts';
+import { backupId, backupChunkRange, backupLibrary, backupLibraryId } from './backup-id.ts';
+import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
 import {
   appendBackupLocation,
   findIngestDedupTarget,
@@ -31,10 +31,8 @@ import {
   linkPhasset,
   type PhassetLink,
 } from '../db/sqlite/repos/backup.repo.ts';
-import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
-import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
+import { uploadSessions } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
-import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
 import { containedJoin } from '../backup/path-safety.ts';
 import {
   atomicMove,
@@ -54,21 +52,12 @@ const log = childLogger('backup-ingest');
 export const backupIngestRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/ingest',
   async ({ params, headers, body, set }) => {
-    // Validate library id.
-    let libraryId: ObjectId;
-    try {
-      libraryId = new ObjectId(params.libraryId);
-    } catch {
-      set.status = 400;
-      return { error: 'invalid library id' };
-    }
+    const libraryId = backupLibraryId(params.libraryId);
+    if (libraryId instanceof Response) return libraryId;
 
     // Check library exists.
-    const folder = await findFolderById(libraryId);
-    if (!folder) {
-      set.status = 404;
-      return { error: 'library not found' };
-    }
+    const folder = await backupLibrary(libraryId);
+    if (folder instanceof Response) return folder;
 
     // Extract + validate required headers.
     const deviceId = headers['x-maple-device-id'];
@@ -82,8 +71,8 @@ export const backupIngestRoutes = new Elysia().post(
     const totalBytesRaw = headers['x-maple-total-bytes'];
     const latRaw = headers['x-maple-lat'];
     const lonRaw = headers['x-maple-lon'];
-    const mapleId = backupId(headers['x-maple-maple-id'], 'x-maple-maple-id');
-    if (mapleId instanceof Response) return mapleId;
+    const mapleIdHeader = backupId(headers['x-maple-maple-id'], 'x-maple-maple-id');
+    if (mapleIdHeader instanceof Response) return mapleIdHeader;
     const range = headers['content-range'];
 
     if (!deviceId || !phid || !captureRaw || !filename || !totalBytesRaw || !range) {
@@ -91,7 +80,7 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: 'missing required headers' };
     }
 
-    const chunk = backupChunkRange(totalBytesRaw, range, mapleId);
+    const chunk = backupChunkRange(totalBytesRaw, range, mapleIdHeader);
     if (chunk instanceof Response) return chunk;
     const { start, end, rangeTotal, totalBytes } = chunk;
 
@@ -127,34 +116,17 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: e?.message ?? 'invalid filename' };
     }
 
-    // Open or resume the upload session.
-    let session;
-    let didReset = false;
-    let alreadyComplete = false;
-    try {
-      const r = await uploadSessions.openOrResume({
-        libraryId,
-        deviceId,
-        phassetLocalId: phid,
-        totalBytes,
-        chunkSize: end - start + 1,
-        targetRelPath,
-        phassetCloudId: phCloudId,
-      });
-      session = r.session;
-      didReset = r.reset;
-      alreadyComplete = r.alreadyComplete;
-    } catch (e: any) {
-      if (e instanceof BusyElsewhereError) {
-        set.status = 423;
-        return {
-          error: e.message,
-          retry_after_seconds: e.retryAfterSeconds,
-        };
-      }
-      set.status = 409;
-      return { error: e?.message ?? 'session metadata mismatch on resume' };
-    }
+    const opened = await openChunkSession({
+      libraryId,
+      deviceId,
+      phassetLocalId: phid,
+      totalBytes,
+      chunkSize: end - start + 1,
+      targetRelPath,
+      phassetCloudId: phCloudId,
+    });
+    if (opened instanceof Response) return opened;
+    const { session, didReset, alreadyComplete } = opened;
 
     // Short-circuit when the upload already finished server-side. The device
     // is retrying because something AFTER the original ingest (sidecar /
@@ -188,91 +160,23 @@ export const backupIngestRoutes = new Elysia().post(
     // if a genuinely different asset already occupies the computed path.
     let resolvedTargetRelPath = session.target_rel_path;
 
-    // Write chunk to a per-session tmp file.
-    const tmpFile = path.join(BACKUP_CHUNK_DIR, `${session._id.toHexString()}.part`);
-    await fs.mkdir(BACKUP_CHUNK_DIR, { recursive: true });
-
-    // The session was reset in place (metadata mismatch self-heal). Clear any
-    // stale tmp bytes from the previous attempt so the next appendFile starts
-    // at offset 0 cleanly. Only ENOENT is tolerable — anything else means we
-    // could end up appending fresh bytes onto stale ones (start === 0 skips
-    // the tmp-size check below) and silently corrupt the assembled upload.
-    if (didReset) {
-      try {
-        await fs.unlink(tmpFile);
-      } catch (e: any) {
-        if (e?.code !== 'ENOENT') {
-          set.status = 500;
-          return {
-            error: `could not clear stale tmp file: ${e?.message ?? 'unlink failed'}`,
-          };
-        }
-      }
-    }
-
-    // Enforce resume offset — reject if client is behind or ahead.
-    if (session.received_bytes !== start) {
-      set.status = 409;
-      return {
-        error: 'resume offset mismatch',
-        expected_offset: session.received_bytes,
-      };
-    }
-
-    const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
-
-    // Verify body length matches Content-Range claim.
-    const expectedChunkLen = end - start + 1;
-    if (buf.byteLength !== expectedChunkLen) {
-      set.status = 400;
-      return {
-        error: `body length ${buf.byteLength} does not match Content-Range span ${expectedChunkLen}`,
-      };
-    }
-
-    // Verify tmp file size is consistent with DB state before appending.
-    if (start !== 0) {
-      let tmpStat: Awaited<ReturnType<typeof fs.stat>> | null = null;
-      try {
-        tmpStat = await fs.stat(tmpFile);
-      } catch {
-        // File missing but start != 0 — DB is out of sync with disk.
-        await uploadSessions.resetForRestart(session._id);
-        set.status = 409;
-        return {
-          error: 'tmp file missing — restart required',
-          expected_offset: 0,
-        };
-      }
-      if (tmpStat.size !== session.received_bytes) {
-        set.status = 409;
-        return {
-          error: 'tmp file size mismatch — restart required',
-          expected_offset: tmpStat.size,
-        };
-      }
-    }
-
-    await fs.appendFile(tmpFile, buf);
-    await uploadSessions.recordChunk({
-      sessionId: session._id,
-      bytesReceived: buf.byteLength,
+    const chunkResult = await takeChunk({
+      session,
+      didReset,
+      start,
+      end,
+      rangeTotal,
+      body,
+      mapleId: mapleIdHeader,
     });
-
-    const isFinalChunk = end + 1 === rangeTotal;
-    if (!isFinalChunk) {
-      set.status = 202;
-      return { next_offset: end + 1 };
-    }
+    if (chunkResult instanceof Response) return chunkResult;
+    // The upload is assembled and `mapleId` is known to be present: every
+    // earlier return above is the chunk protocol's, not this route's.
+    const { tmpFile, mapleId } = chunkResult;
 
     // -----------------------------------------------------------------------
     // Final chunk — dedup check first, then move assembled file into place.
     // -----------------------------------------------------------------------
-
-    if (!mapleId) {
-      set.status = 400;
-      return { error: 'X-Maple-Maple-Id required on final chunk' };
-    }
 
     // 1. Dedup lookup BEFORE any filesystem operations. It answers three
     //    things at once: which asset already carries this content, whether

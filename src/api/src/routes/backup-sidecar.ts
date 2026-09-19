@@ -25,15 +25,13 @@
  *   404 — library not found, or no prior upload (neither maple_id nor device+phasset matched)
  *   413 — body exceeds 256 KB
  */
-import { backupId } from './backup-id.ts';
+import { backupId, backupLibrary, backupLibraryId } from './backup-id.ts';
 import { atomicMove } from '../backup/fs-util.ts';
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
 import {
   findLiveAssetIdByMapleId,
   findLiveAssetIdByPhassetLink,
 } from '../db/sqlite/repos/assets.repo.ts';
-import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the sidecar publish (atomicMove → rename/copyFile)
 // replicates to the library's backup root(s).
@@ -62,14 +60,8 @@ function isSafeRelPath(relPath: string): boolean {
 export const backupSidecarRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/sidecar',
   async ({ params, headers, body, set }) => {
-    // Validate library id.
-    let libraryId: ObjectId;
-    try {
-      libraryId = new ObjectId(params.libraryId);
-    } catch {
-      set.status = 400;
-      return { error: 'invalid library id' };
-    }
+    const libraryId = backupLibraryId(params.libraryId);
+    if (libraryId instanceof Response) return libraryId;
 
     // Extract + validate required headers.
     const deviceId = headers['x-maple-device-id'];
@@ -91,11 +83,8 @@ export const backupSidecarRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await findFolderById(libraryId);
-    if (!folder) {
-      set.status = 404;
-      return { error: 'library not found' };
-    }
+    const folder = await backupLibrary(libraryId);
+    if (folder instanceof Response) return folder;
 
     // Verify prior asset upload — sidecar without prior upload is an error.
     // Scope by a LIVE location in this library, not the retired top-level
