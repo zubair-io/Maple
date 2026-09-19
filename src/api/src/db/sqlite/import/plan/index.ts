@@ -30,11 +30,13 @@ import { AUTH_PLANS } from './auth.ts';
 import { LIBRARY_PLANS } from './library.ts';
 import { lensProfilesPlan } from './lens-profiles.ts';
 import { OPERATIONS_PLANS } from './operations.ts';
+import { SETTINGS_PLANS } from './settings.ts';
 
 /**
  * Every plan, in execution order: the roots the rest of the graph points at,
  * then assets and their fan-out, then users, then the queues — which reference
- * both a library root and a user.
+ * both a library root and a user — then the settings singletons, one of which
+ * (the Meilisearch redrive list) points at an asset.
  *
  * The lens-profile bucket sits at the end because it references nothing: a
  * profile is addressed by the hash of its own bytes, and no row in the schema
@@ -46,13 +48,9 @@ export const IMPORT_PLAN: readonly CollectionPlan[] = [
   assetsPlan,
   ...AUTH_PLANS,
   ...OPERATIONS_PLANS,
+  ...SETTINGS_PLANS,
   lensProfilesPlan,
 ];
 
 export { DEFAULT_CHANGES_WINDOW } from './library.ts';
-export {
-  MANAGED_CERTIFICATES_WARNING,
-  SKIPPED_COLLECTIONS,
-  uncoveredCollections,
-  uncoveredMessage,
-} from './coverage.ts';
+export { SKIPPED_COLLECTIONS, uncoveredCollections, uncoveredMessage } from './coverage.ts';
