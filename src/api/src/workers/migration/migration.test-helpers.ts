@@ -63,69 +63,140 @@ export interface SeedAsset {
   location?: { libraryId: ObjectId; path?: string; filename: string; missingSince?: string | null };
 }
 
+/** A value bound into one of the columns below. */
+type ColumnValue = string | number | null;
+
+/**
+ * Every `assets` column a fixture can set, with the value it takes when the
+ * fixture does not set one.
+ *
+ * This is a table rather than a run of `x ?? null` fallbacks inside the insert
+ * because {@link SeedAsset} grows by one optional field per migration: written
+ * as fallbacks, every new done-marker column added another branch to the one
+ * function that wrote them all, and that function ended up branching more than
+ * two dozen ways. As data, a new column is one line here and no new decision
+ * anywhere.
+ *
+ * `maple_id` defaults to the asset's own id because the migrations that select
+ * on it only care that a backup-origin asset has one at all.
+ */
+function defaultColumns(id: string): Record<string, ColumnValue> {
+  return {
+    maple_id: id,
+    media_kind: 'image',
+    is_screenshot: null,
+    place: null,
+    exif: null,
+    apple_rendered_path: null,
+    deleted_at: null,
+    backup_layout_version: null,
+    legacy_daydir_version: null,
+    video_meta_version: null,
+    video_poster_rearm_version: null,
+    video_screenshot_clear_version: null,
+    preview_missing_redrive_version: null,
+    geo_backfill_skipped: null,
+  };
+}
+
+/**
+ * The columns this fixture actually asked for, in the same vocabulary.
+ *
+ * A column the caller left out is dropped rather than passed as null, so the
+ * defaults above survive the merge. An explicit `null` is dropped too, which is
+ * what the old fallback chain did as well: to these suites "I did not set this"
+ * and "I set this to nothing" have always meant the same thing.
+ */
+function requestedColumns(asset: SeedAsset): Record<string, ColumnValue> {
+  const requested: Record<string, ColumnValue | undefined> = {
+    maple_id: asset.mapleId,
+    media_kind: asset.mediaKind,
+    is_screenshot: asBit(asset.isScreenshot),
+    place: asJson(asset.place),
+    exif: asJson(asset.exif),
+    apple_rendered_path: asset.appleRenderedPath,
+    deleted_at: asset.deletedAt,
+    backup_layout_version: asset.backupLayoutVersion,
+    legacy_daydir_version: asset.legacyDaydirVersion,
+    video_meta_version: asset.videoMetaVersion,
+    video_poster_rearm_version: asset.videoPosterRearmVersion,
+    video_screenshot_clear_version: asset.videoScreenshotClearVersion,
+    preview_missing_redrive_version: asset.previewMissingRedriveVersion,
+    geo_backfill_skipped: asset.geoBackfillSkipped,
+  };
+  return Object.fromEntries(
+    Object.entries(requested).filter((entry): entry is [string, ColumnValue] => entry[1] != null),
+  );
+}
+
+/** SQLite has no boolean: a flag is 1 or 0, and an unasked question is null. */
+function asBit(flag: boolean | null | undefined): number | null {
+  if (flag == null) return null;
+  return flag ? 1 : 0;
+}
+
+/** JSON columns take text; an object the fixture did not supply stays null. */
+function asJson(value: object | null | undefined): string | null {
+  return value == null ? null : JSON.stringify(value);
+}
+
 /** Insert one asset in the state a migration's predicate is meant to judge. */
 export function seedAsset(db: Database, asset: SeedAsset): string {
   const id = asset.id ?? newObjectIdHex();
+  const columns = { ...defaultColumns(id), ...requestedColumns(asset) };
+  const names = Object.keys(columns);
   db.run(
-    `INSERT INTO assets
-       (id, size, mtime, indexed_at, maple_id, media_kind, is_screenshot, place, exif,
-        apple_rendered_path, deleted_at,
-        backup_layout_version, legacy_daydir_version, video_meta_version,
-        video_poster_rearm_version, video_screenshot_clear_version,
-        preview_missing_redrive_version, geo_backfill_skipped)
-     VALUES (?, 1024, 0, '2026-01-01T00:00:00.000Z', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      id,
-      asset.mapleId ?? id,
-      asset.mediaKind ?? 'image',
-      asset.isScreenshot === undefined || asset.isScreenshot === null
-        ? null
-        : asset.isScreenshot
-          ? 1
-          : 0,
-      asset.place == null ? null : JSON.stringify(asset.place),
-      asset.exif == null ? null : JSON.stringify(asset.exif),
-      asset.appleRenderedPath ?? null,
-      asset.deletedAt ?? null,
-      asset.backupLayoutVersion ?? null,
-      asset.legacyDaydirVersion ?? null,
-      asset.videoMetaVersion ?? null,
-      asset.videoPosterRearmVersion ?? null,
-      asset.videoScreenshotClearVersion ?? null,
-      asset.previewMissingRedriveVersion ?? null,
-      asset.geoBackfillSkipped ?? null,
-    ],
+    `INSERT INTO assets (id, size, mtime, indexed_at, ${names.join(', ')})
+     VALUES (?, 1024, 0, '2026-01-01T00:00:00.000Z', ${names.map(() => '?').join(', ')})`,
+    [id, ...Object.values(columns)],
   );
-  if (asset.vision !== undefined || asset.geoInferred !== undefined) {
-    db.run(
-      `INSERT INTO asset_detail (asset_id, vision, geo_inferred) VALUES (?, json(?), json(?))`,
-      [
-        id,
-        asset.vision == null ? null : JSON.stringify(asset.vision),
-        asset.geoInferred == null ? null : JSON.stringify(asset.geoInferred),
-      ],
-    );
-  }
-  for (const device of asset.phassetDevices ?? []) {
+  seedDetail(db, id, asset);
+  seedPhassetLinks(db, id, asset.phassetDevices);
+  seedStages(db, id, asset.stages);
+  seedSoleLocation(db, id, asset.location);
+  return id;
+}
+
+/**
+ * The `asset_detail` row, which only exists when a fixture asks for one.
+ *
+ * `undefined` means "no row at all", which is the state of an asset the
+ * describe stage has never looked at. An explicit `null` writes a row with a
+ * null column instead — what a describe run that found nothing leaves behind —
+ * and the two select differently, so the distinction is load-bearing.
+ */
+function seedDetail(db: Database, id: string, asset: SeedAsset): void {
+  if (asset.vision === undefined && asset.geoInferred === undefined) return;
+  db.run(`INSERT INTO asset_detail (asset_id, vision, geo_inferred) VALUES (?, json(?), json(?))`, [
+    id,
+    asJson(asset.vision),
+    asJson(asset.geoInferred),
+  ]);
+}
+
+/** One PHAsset link per device id — what "came from a mobile backup" means. */
+function seedPhassetLinks(db: Database, id: string, devices: readonly string[] = []): void {
+  for (const device of devices) {
     db.run(
       `INSERT INTO asset_phasset_links (asset_id, device_id, phasset_local_id, first_seen)
        VALUES (?, ?, ?, '2026-01-01T00:00:00.000Z')`,
       [id, device, `${device}-${id}`],
     );
   }
-  for (const stage of asset.stages ?? []) {
+}
+
+/** Stage rows at their schema defaults — a migration that re-arms a stage needs
+ * one to exist before it can observe the re-arm. */
+function seedStages(db: Database, id: string, stages: readonly string[] = []): void {
+  for (const stage of stages) {
     db.run(`INSERT INTO stage_state (asset_id, stage) VALUES (?, ?)`, [id, stage]);
   }
-  if (asset.location) {
-    seedLocation(db, {
-      assetId: id,
-      libraryId: asset.location.libraryId,
-      path: asset.location.path,
-      filename: asset.location.filename,
-      missingSince: asset.location.missingSince,
-    });
-  }
-  return id;
+}
+
+/** The one location almost every predicate needs the asset to have. */
+function seedSoleLocation(db: Database, id: string, location: SeedAsset['location']): void {
+  if (!location) return;
+  seedLocation(db, { assetId: id, ...location });
 }
 
 /** Insert one location for a seeded asset. */
@@ -208,35 +279,11 @@ export function locationsOf(
   }>;
 }
 
-/** One stage's bookkeeping for an asset, or null when no row was seeded. */
-export function stageRow(
-  db: Database,
-  assetId: string,
-  stage: string,
-): { version: number; attempts: number; last_error: string | null; dead: number } | null {
-  return db
-    .query(
-      `SELECT version, attempts, last_error, dead FROM stage_state
-        WHERE asset_id = ? AND stage = ?`,
-    )
-    .get(assetId, stage) as {
-    version: number;
-    attempts: number;
-    last_error: string | null;
-    dead: number;
-  } | null;
-}
-
-/** Park a stage the way a dead-lettered worker would, so a re-arm is visible. */
-export function parkStage(db: Database, assetId: string, stage: string, lastError = 'boom'): void {
-  db.run(
-    `UPDATE stage_state
-        SET version = 3, dead = 1, attempts = 5, last_error = ?,
-            processed_at = '2026-01-01T00:00:00.000Z'
-      WHERE asset_id = ? AND stage = ?`,
-    [lastError, assetId, stage],
-  );
-}
+// The stage-table fixtures are shared with the discover suites — the reader and
+// the parker are the same two operations there, so they live one directory up
+// in `stage-state.test-helpers.ts` and are re-exported here, so a migration
+// suite still gets everything it needs from one import.
+export { parkStage, stageRow } from '../stage-state.test-helpers.ts';
 
 /** The describe stage's stored screenshot verdict, for the flag-clearing sweep. */
 export function visionScreenshot(db: Database, assetId: string): unknown {

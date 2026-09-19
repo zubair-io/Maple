@@ -36,7 +36,6 @@
 
 import {
   countCandidates,
-  listCandidateIds,
   unstamped,
   type CandidateScope,
 } from '../../db/sqlite/repos/assets.migrations.ts';
@@ -46,6 +45,7 @@ import {
 } from '../../db/sqlite/repos/assets.video-migrations.ts';
 import { child as childLogger } from '../../log.ts';
 
+import { runRowBatch } from './row-batch.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 
 const log = childLogger('migration:video-screenshot');
@@ -80,30 +80,26 @@ export const clearVideoScreenshotFlags: Migration = {
     return countCandidates(candidateScope());
   },
 
-  async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    // This migration only moves flags and stage bookkeeping, so a whole batch
-    // is one transaction rather than the per-asset loop the file-moving
-    // migrations need.
-    const ids = await listCandidateIds(candidateScope(), batchSize);
-    if (ids.length === 0) return { processed: 0, errors: 0 };
-
-    try {
-      // One transaction covering both homes of the flag, the done-marker and
-      // the stage re-arms. The Mongo version needed two `updateMany` calls in a
-      // specific order to avoid stranding a row that carried the flag only in
-      // its vision payload — cleared by the first write, then excluded from the
-      // retry if the second failed. Either everything lands here or nothing
-      // does, so the whole batch is simply retried.
-      const modified = await clearFlags(ids, VIDEO_SCREENSHOT_CLEAR_VERSION);
-      log.info({ modified }, 'cleared video screenshot flags');
-      return { processed: modified, errors: 0 };
-    } catch (err) {
-      // Left unstamped, so the next tick retries this same batch.
-      log.error(
-        { count: ids.length, err: err instanceof Error ? err.message : err },
-        'clear batch failed — left for retry',
-      );
-      return { processed: 0, errors: ids.length };
-    }
+  // This migration only moves flags and stage bookkeeping, so a whole batch is
+  // one transaction rather than the per-asset loop the file-moving migrations
+  // need — see `row-batch.ts`.
+  //
+  // That one transaction covers both homes of the flag, the done-marker and the
+  // stage re-arms. The Mongo version needed two `updateMany` calls in a specific
+  // order to avoid stranding a row that carried the flag only in its vision
+  // payload — cleared by the first write, then excluded from the retry if the
+  // second failed. Either everything lands here or nothing does, so the whole
+  // batch is simply retried.
+  runBatch(batchSize: number): Promise<MigrationBatchResult> {
+    return runRowBatch(
+      candidateScope(),
+      batchSize,
+      log,
+      {
+        done: 'cleared video screenshot flags',
+        failed: 'clear batch failed — left for retry',
+      },
+      (ids) => clearFlags(ids, VIDEO_SCREENSHOT_CLEAR_VERSION),
+    );
   },
 };

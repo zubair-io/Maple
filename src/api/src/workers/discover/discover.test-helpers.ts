@@ -206,35 +206,13 @@ export function changesFor(
     .all(absPath) as Array<{ cursor: number; kind: string; asset_id: string | null }>;
 }
 
-/** One stage's bookkeeping for an asset, or null when no row was seeded. */
-export function stageRow(
-  db: Database,
-  assetId: string,
-  stage: string,
-): { version: number; attempts: number; last_error: string | null; dead: number } | null {
-  return db
-    .query(
-      `SELECT version, attempts, last_error, dead FROM stage_state
-        WHERE asset_id = ? AND stage = ?`,
-    )
-    .get(assetId, stage) as {
-    version: number;
-    attempts: number;
-    last_error: string | null;
-    dead: number;
-  } | null;
-}
-
-/** Park a stage the way a dead-lettered worker would, so a re-arm is visible. */
-export function deadLetterStage(db: Database, assetId: string, stage: string): void {
-  db.run(
-    `UPDATE stage_state
-        SET version = 3, dead = 1, attempts = 5, last_error = 'boom',
-            processed_at = '2024-01-01T00:00:00.000Z'
-      WHERE asset_id = ? AND stage = ?`,
-    [assetId, stage],
-  );
-}
+// The stage-table fixtures are shared with the migration suites — the reader
+// and the parker are the same two operations there, so they live one directory
+// up in `stage-state.test-helpers.ts`. They are re-exported here so a discover
+// suite still gets everything it needs from one import. `deadLetterStage` is
+// this directory's name for the parker: these suites are about what a discover
+// pass does to a stage a worker already gave up on, and that name says so.
+export { parkStage as deadLetterStage, stageRow } from '../stage-state.test-helpers.ts';
 
 /** Set one stage's version, standing in for "a worker processed this asset". */
 export function setStageVersion(

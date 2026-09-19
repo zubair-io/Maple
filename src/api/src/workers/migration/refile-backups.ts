@@ -28,10 +28,10 @@ import type { ObjectId } from 'mongodb';
 import type { FileInfo, Place, AssetExif } from '../../db/schema.ts';
 import {
   countCandidates,
-  listCandidates,
   stampMarker,
   unstamped,
   type CandidateScope,
+  type MigrationCandidate,
 } from '../../db/sqlite/repos/assets.migrations.ts';
 import { findBackupAssetById, REFILE_BACKUP_SCOPE } from '../../db/sqlite/repos/assets.refile.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
@@ -39,6 +39,7 @@ import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { backupLocationSegments } from '../../backup/location-segments.ts';
 import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../../backup/path-formatter.ts';
 import { child as childLogger } from '../../log.ts';
+import { runCandidateBatch, type CandidateOutcome, type LibraryRoots } from './candidate-batch.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 import { SourceMissingError } from './restructure-fs.ts';
 import { moveBackupAsset, type MoveOutcome } from './move-backup-asset.ts';
@@ -147,114 +148,107 @@ export const refileBackups: Migration = {
     return countCandidates(candidateScope());
   },
 
-  async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    let libs: ReadonlyMap<string, string>;
-    try {
-      libs = await loadLibraryRoots();
-    } catch {
-      libs = new Map();
-    }
-
-    const docs = await listCandidates(candidateScope(), batchSize);
-
-    let processed = 0;
-    let errors = 0;
-    let skippedNoRoot = 0;
-    for (const doc of docs) {
-      // The canonical entry is the first LIVE fileinfo, not blindly `fileinfo[0]`:
-      // delete-then-readd docs carry a soft-deleted tombstone at index 0 with the
-      // live file later in the array (#1519).
-      const primary = assetPrimaryFileInfo(doc);
-      if (!primary) {
-        // No live entry to refile (an all-tombstone doc the selector should not
-        // surface). Stamp it done so it drops out instead of head-of-line-blocking
-        // the unsorted batch forever.
-        await stampMarker(MARKER.name, MARKER.version, [doc.id]);
-        processed++;
-        continue;
-      }
-      const root = libs.get(primary.library_id.toHexString());
-      if (!root) {
-        // Library unregistered / offline — skip without erroring; retried once a
-        // tick until the mount returns. Never delete on an offline mount. Counted
-        // + logged after the loop so a fleet-wide root-resolution stall is visible
-        // instead of masquerading as a clean "batch complete".
-        skippedNoRoot++;
-        continue;
-      }
-
-      const newDir = computeCanonicalDir(doc);
-      if (newDir == null) {
-        // No determinable year (pathological). Stamp so the asset isn't reselected
-        // forever; leave the file exactly where it is.
-        await stampMarker(MARKER.name, MARKER.version, [doc.id]);
-        log.warn(
-          { _id: String(doc.id), maple_id: doc.maple_id, path: primary?.path },
-          'refile: could not determine year — stamped, left in place',
-        );
-        processed++;
-        continue;
-      }
-
-      try {
-        const result = await moveBackupAsset(doc, root, newDir, MARKER);
-        // 'moved' (relocated + stamped) and 'noop' (already in place, stamped) both
-        // reduce the remaining count. 'skipped' is a concurrent-change revert —
-        // left UNstamped for a later tick to re-attempt.
-        if (result === 'moved') {
-          log.info(
-            {
-              _id: String(doc.id),
-              maple_id: doc.maple_id,
-              from: primary?.path,
-              to: newDir,
-            },
-            'refile: moved',
-          );
-        }
-        if (result === 'moved' || result === 'noop') processed++;
-      } catch (err) {
-        if (err instanceof SourceMissingError) {
-          // The source original is gone from disk — nothing to move. Stamp it so
-          // the asset drops out of the candidate set instead of being re-fetched
-          // every tick; an entire batch of missing sources would otherwise
-          // head-of-line-block the rest of the library. The missing-reaper owns
-          // the row's eventual cleanup.
-          await stampMarker(MARKER.name, MARKER.version, [doc.id]);
-          log.warn(
-            {
-              _id: String(doc.id),
-              maple_id: doc.maple_id,
-              from: primary?.path,
-              err: err.message,
-            },
-            'refile: source missing — stamped, left for the reaper',
-          );
-          processed++;
-          continue;
-        }
-        errors++;
-        log.error(
-          {
-            _id: String(doc.id),
-            maple_id: doc.maple_id,
-            from: primary?.path,
-            to: newDir,
-            err: err instanceof Error ? err.message : err,
-          },
-          'refile: asset move failed — left in place for retry',
-        );
-      }
-    }
-    if (skippedNoRoot > 0) {
-      log.warn(
-        { skippedNoRoot, batchSize: docs.length, processed },
+  runBatch(batchSize: number): Promise<MigrationBatchResult> {
+    return runCandidateBatch({
+      scope: candidateScope(),
+      batchSize,
+      log,
+      skippedWarning:
         'refile: assets skipped — library root unresolved (offline mount?); will retry next tick',
-      );
-    }
-    return { processed, errors };
+      process: refileOneAsset,
+    });
   },
 };
+
+/** Stamp the done-marker without moving anything — for a candidate this
+ * migration has fully evaluated and has nothing to move. It drops out of the
+ * candidate set instead of head-of-line-blocking the unsorted batch forever. */
+async function stampDone(id: MigrationCandidate['id']): Promise<CandidateOutcome> {
+  await stampMarker(MARKER.name, MARKER.version, [id]);
+  return 'processed';
+}
+
+/** Work out where one asset belongs and, if that is somewhere else, move it. */
+async function refileOneAsset(
+  libs: LibraryRoots,
+  doc: MigrationCandidate,
+): Promise<CandidateOutcome> {
+  // The canonical entry is the first LIVE fileinfo, not blindly `fileinfo[0]`:
+  // delete-then-readd docs carry a soft-deleted tombstone at index 0 with the
+  // live file later in the array (#1519).
+  const primary = assetPrimaryFileInfo(doc);
+  // No live entry to refile (an all-tombstone doc the selector should not
+  // surface).
+  if (!primary) return stampDone(doc.id);
+
+  const root = libs.get(primary.library_id.toHexString());
+  // Library unregistered / offline — skip without erroring; retried once a tick
+  // until the mount returns. Never delete on an offline mount. Counted + logged
+  // per batch so a fleet-wide root-resolution stall is visible instead of
+  // masquerading as a clean "batch complete".
+  if (!root) return 'skipped-no-root';
+
+  const newDir = computeCanonicalDir(doc);
+  if (newDir == null) {
+    // No determinable year (pathological). Stamp so the asset isn't reselected
+    // forever; leave the file exactly where it is.
+    log.warn(
+      { _id: String(doc.id), maple_id: doc.maple_id, path: primary.path },
+      'refile: could not determine year — stamped, left in place',
+    );
+    return stampDone(doc.id);
+  }
+
+  return attemptRefileMove(doc, primary.path, root, newDir);
+}
+
+/** The move itself, for a candidate whose destination is already settled. */
+async function attemptRefileMove(
+  doc: MigrationCandidate,
+  from: string,
+  root: string,
+  newDir: string,
+): Promise<CandidateOutcome> {
+  try {
+    const result = await moveBackupAsset(doc, root, newDir, MARKER);
+    if (result === 'moved') {
+      log.info({ _id: String(doc.id), maple_id: doc.maple_id, from, to: newDir }, 'refile: moved');
+    }
+    // 'moved' (relocated + stamped) and 'noop' (already in place, stamped) both
+    // reduce the remaining count. 'skipped' is a concurrent-change revert —
+    // left UNstamped for a later tick to re-attempt.
+    return result === 'moved' || result === 'noop' ? 'processed' : 'retry-later';
+  } catch (err) {
+    if (err instanceof SourceMissingError) return handleSourceMissing(doc, from, err);
+    log.error(
+      {
+        _id: String(doc.id),
+        maple_id: doc.maple_id,
+        from,
+        to: newDir,
+        err: err instanceof Error ? err.message : err,
+      },
+      'refile: asset move failed — left in place for retry',
+    );
+    return 'error';
+  }
+}
+
+/** The source original is gone from disk — nothing to move. Stamp it so the
+ * asset drops out of the candidate set instead of being re-fetched every tick;
+ * an entire batch of missing sources would otherwise head-of-line-block the rest
+ * of the library. The missing-reaper owns the row's eventual cleanup. */
+function handleSourceMissing(
+  doc: MigrationCandidate,
+  from: string,
+  err: SourceMissingError,
+): Promise<CandidateOutcome> {
+  log.warn(
+    { _id: String(doc.id), maple_id: doc.maple_id, from, err: err.message },
+    'refile: source missing — stamped, left for the reaper',
+  );
+  return stampDone(doc.id);
+}
 
 /**
  * On-the-fly relocation for the describe stage. When the qwen2.5-vl verdict flips

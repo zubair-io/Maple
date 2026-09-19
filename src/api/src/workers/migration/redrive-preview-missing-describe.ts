@@ -29,15 +29,16 @@
  * Bump `PREVIEW_MISSING_REDRIVE_VERSION` to sweep again.
  */
 
+import type { ObjectId } from 'mongodb';
 import {
   countCandidates,
-  listCandidateIds,
   rearmStagesAndStamp,
   unstamped,
   type CandidateScope,
 } from '../../db/sqlite/repos/assets.migrations.ts';
 import { child as childLogger } from '../../log.ts';
 
+import { runRowBatch } from './row-batch.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 
 const log = childLogger('migration:preview-missing-redrive');
@@ -88,36 +89,40 @@ export const redrivePreviewMissingDescribe: Migration = {
     return countCandidates(candidateScope());
   },
 
-  async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    // No file I/O. This only moves stage bookkeeping; the actual
-    // preview/describe work is done by the stage workers on their own
-    // schedule, under their own concurrency limits, once these rows become
-    // claimable again. So a whole batch is one transaction.
-    const ids = await listCandidateIds(candidateScope(), batchSize);
-    if (ids.length === 0) return { processed: 0, errors: 0 };
-
-    try {
-      // The skip-marker half of the candidate predicate is re-asserted at write
-      // time: a row can change between the read and the write (a worker just
-      // re-stamped the describe stage), and an id-only update would reset that
-      // fresh state and stamp the done-marker on a non-candidate. A raced-away
-      // row is simply not modified — and not counted.
-      const modified = await rearmStagesAndStamp(
-        ids,
-        REARMED_STAGES,
-        'preview_missing_redrive_version',
-        PREVIEW_MISSING_REDRIVE_VERSION,
-        SKIPPED_ON_PREVIEW,
-      );
-      log.info({ modified }, 're-drove preview-missing describe rows');
-      return { processed: modified, errors: 0 };
-    } catch (err) {
-      // Left unstamped, so the next tick retries this same batch.
-      log.error(
-        { count: ids.length, err: err instanceof Error ? err.message : err },
-        're-drive batch failed — left for retry',
-      );
-      return { processed: 0, errors: ids.length };
-    }
+  // No file I/O. This only moves stage bookkeeping; the actual preview/describe
+  // work is done by the stage workers on their own schedule, under their own
+  // concurrency limits, once these rows become claimable again. So a whole batch
+  // is one transaction — see `row-batch.ts`.
+  runBatch(batchSize: number): Promise<MigrationBatchResult> {
+    return runRowBatch(
+      candidateScope(),
+      batchSize,
+      log,
+      {
+        done: 're-drove preview-missing describe rows',
+        failed: 're-drive batch failed — left for retry',
+      },
+      redriveRows,
+    );
   },
 };
+
+/**
+ * The write: re-arm describe and stamp the done-marker, for the rows that still
+ * carry the pre-#2177 skip.
+ *
+ * The skip-marker half of the candidate predicate is re-asserted here, at write
+ * time, rather than trusted from the read: a row can change in between (a worker
+ * just re-stamped the describe stage), and an id-only update would reset that
+ * fresh state and stamp the done-marker on something that is no longer a
+ * candidate. A row that raced away is simply not modified — and not counted.
+ */
+function redriveRows(ids: readonly ObjectId[]): Promise<number> {
+  return rearmStagesAndStamp(
+    ids,
+    REARMED_STAGES,
+    'preview_missing_redrive_version',
+    PREVIEW_MISSING_REDRIVE_VERSION,
+    SKIPPED_ON_PREVIEW,
+  );
+}

@@ -185,57 +185,80 @@ describe('startStatusCountsRefresher — loop', () => {
   });
 });
 
+interface SeedAssetOptions {
+  libraryId: string;
+  stage?: { name: string; version?: number; dead?: number };
+  locations?: number;
+  missingLocations?: number;
+  deletedLocations?: number;
+  damaged?: boolean;
+  newlyHidden?: boolean;
+}
+
+const AT = '2026-01-01T00:00:00Z';
+
+/** The three kinds of location a fixture can ask for, in the order they are
+ * added: which option counts them, how many there are when it is absent, and
+ * the columns that kind sets. A table rather than three near-identical loops,
+ * because the only thing that differs between them is that last column. */
+const LOCATION_KINDS = [
+  { count: 'locations', fallback: 1, extra: {} },
+  { count: 'missingLocations', fallback: 0, extra: { missingSince: AT } },
+  { count: 'deletedLocations', fallback: 0, extra: { deletedAt: AT } },
+] as const;
+
+/** The whole-asset states a fixture can flip on after the insert. Each is a
+ * fixed statement, so they are data too. */
+const ASSET_STATES = {
+  damaged: `UPDATE assets SET damaged_since = '${AT}' WHERE id = ?`,
+  newlyHidden: `UPDATE assets SET hidden = 1, hidden_ack = 0, hidden_reason = 'nudity' WHERE id = ?`,
+} as const;
+
 /** One asset with `locations` live locations and a stage row at `version`. */
-function seedAsset(
-  db: Database,
-  options: {
-    libraryId: string;
-    stage?: { name: string; version?: number; dead?: number };
-    locations?: number;
-    missingLocations?: number;
-    deletedLocations?: number;
-    damaged?: boolean;
-    newlyHidden?: boolean;
-  },
-): string {
+function seedAsset(db: Database, options: SeedAssetOptions): string {
   const assetId = insertAsset(db);
-  let ordinal = 0;
-  // `(library_id, path, filename)` is unique, so each location of an asset
-  // needs a distinct directory — the same thing two copies of one file on disk
-  // would have.
-  const add = (extra: { missingSince?: string; deletedAt?: string } = {}): void => {
-    insertLocation(db, {
-      assetId,
-      libraryId: options.libraryId,
-      ordinal,
-      path: `dir-${ordinal++}`,
-      ...extra,
-    });
-  };
-  for (let i = 0; i < (options.locations ?? 1); i++) add();
-  for (let i = 0; i < (options.missingLocations ?? 0); i++) {
-    add({ missingSince: '2026-01-01T00:00:00Z' });
-  }
-  for (let i = 0; i < (options.deletedLocations ?? 0); i++) {
-    add({ deletedAt: '2026-01-01T00:00:00Z' });
-  }
-  if (options.stage) {
-    db.run(`INSERT INTO stage_state (asset_id, stage, version, dead) VALUES (?, ?, ?, ?)`, [
-      assetId,
-      options.stage.name,
-      options.stage.version ?? 0,
-      options.stage.dead ?? 0,
-    ]);
-  }
-  if (options.damaged === true) {
-    db.run(`UPDATE assets SET damaged_since = '2026-01-01T00:00:00Z' WHERE id = ?`, [assetId]);
-  }
-  if (options.newlyHidden === true) {
-    db.run(`UPDATE assets SET hidden = 1, hidden_ack = 0, hidden_reason = 'nudity' WHERE id = ?`, [
-      assetId,
-    ]);
-  }
+  seedLocations(db, assetId, options);
+  seedStage(db, assetId, options.stage);
+  seedStates(db, assetId, options);
   return assetId;
+}
+
+/** Every location the fixture asked for, live ones first. `(library_id, path,
+ * filename)` is unique, so each location of an asset needs a distinct directory
+ * — the same thing two copies of one file on disk would have. The ordinal runs
+ * across all three kinds, not per kind. */
+function seedLocations(db: Database, assetId: string, options: SeedAssetOptions): void {
+  let ordinal = 0;
+  for (const kind of LOCATION_KINDS) {
+    const wanted = options[kind.count] ?? kind.fallback;
+    for (let i = 0; i < wanted; i++) {
+      insertLocation(db, {
+        assetId,
+        libraryId: options.libraryId,
+        ordinal,
+        path: `dir-${ordinal++}`,
+        ...kind.extra,
+      });
+    }
+  }
+}
+
+/** The one stage row, when the fixture wants this asset to have stage state. */
+function seedStage(db: Database, assetId: string, stage: SeedAssetOptions['stage']): void {
+  if (!stage) return;
+  db.run(`INSERT INTO stage_state (asset_id, stage, version, dead) VALUES (?, ?, ?, ?)`, [
+    assetId,
+    stage.name,
+    stage.version ?? 0,
+    stage.dead ?? 0,
+  ]);
+}
+
+/** The asset-level states — damaged, newly hidden — the fixture switched on. */
+function seedStates(db: Database, assetId: string, options: SeedAssetOptions): void {
+  for (const [state, sql] of Object.entries(ASSET_STATES)) {
+    if (options[state as keyof typeof ASSET_STATES] === true) db.run(sql, [assetId]);
+  }
 }
 
 const EXIF_STATUS = {
