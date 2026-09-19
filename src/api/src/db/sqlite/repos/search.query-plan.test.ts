@@ -17,7 +17,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
-import { countSql, facetStatements, pageSql } from './search.sql.ts';
+import { facetStatements } from './search.facets.sql.ts';
+import { countSql, pageSql } from './search.sql.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 import { seedSearchLibrary, type SeededLibrary } from './search.test-helpers.ts';
 import type { SearchQuery } from '../../../routes/search/query-schema.ts';
@@ -236,29 +237,90 @@ describe('every facet groups an index over the live predicate', () => {
     });
   });
 
-  test('the people facet leads with the covering face index', async () => {
+  test('the six that group another table read one index and never join', async () => {
     await withLibrary(async (db) => {
-      const plan = planOf(db, facetStatements(translate({})).people.sql);
-      expect(plan).toContain('COVERING INDEX faces_person');
-      expect(plan).toContain('assets USING INDEX sqlite_autoindex_assets_1');
+      // #3768. Each of these used to group its own index cheaply and then ask
+      // `assets` one question per candidate row — live, and visible? — which
+      // cost between 252 and 1,134 ms at 335,377 assets and could not be
+      // indexed away, because the answer was not in the grouped table. It is
+      // now (`ddl/facet-state.ts`), so an unfiltered facet has nothing left to
+      // ask and the join is gone entirely.
+      const statements = facetStatements(translate({}));
+      const expected: Array<[keyof typeof statements, string]> = [
+        ['extensions', 'asset_locations_facet_extension'],
+        ['scene_types', 'asset_detail_scene_type'],
+        ['activities', 'asset_detail_activity'],
+        ['subjects', 'asset_subjects_facet'],
+        ['people', 'faces_facet_person'],
+      ];
+      for (const [facet, index] of expected) {
+        const plan = planOf(db, statements[facet].sql);
+        expect(plan).toContain(index);
+        expect(plan).not.toContain('assets');
+        expect(plan).not.toContain('TEMP B-TREE FOR GROUP BY');
+      }
+      // The sixth is the ISO range, which needed no mirror — only an index
+      // over the generated column it takes MIN/MAX of, named because the
+      // planner prefers `assets_live` and then re-parses every exif payload:
+      // 265 ms against 12 ms.
+      expect(planOf(db, statements.iso_range.sql)).toContain(
+        'SCAN assets USING INDEX assets_facet_iso',
+      );
     });
   });
 
-  test('the facets that must reach another table do so by key', async () => {
+  test('a filtered facet joins again, with assets pinned as the outer loop', async () => {
     await withLibrary(async (db) => {
-      const statements = facetStatements(translate({}));
-      expect(planOf(db, statements.extensions.sql)).toContain(
-        'SEARCH l USING INDEX sqlite_autoindex_asset_locations_1 (asset_id=? AND ordinal=?)',
-      );
-      // `asset_detail` is a rowid table, so its primary key is an index rather
-      // than the row order, and the seek names that index. It is still a seek —
-      // which is the property this test is about — and the rowid table is the
-      // measured choice: SQLite will not answer a grouping from an index over a
-      // generated column on a `WITHOUT ROWID` table, which cost the vision
-      // facets 69.8 ms against 1.0 ms.
-      expect(planOf(db, statements.scene_types.sql)).toContain(
-        'SEARCH d USING INDEX sqlite_autoindex_asset_detail_1 (asset_id=?)',
-      );
+      // The other half of the rule. A camera filter is a question only
+      // `assets` can answer, so the join comes back, and the mirrored
+      // predicates come out — the join already restricts the facet to live,
+      // visible assets, and repeating it from the satellite only persuades the
+      // planner to lead with the satellite, which measured 383 ms against
+      // 145 ms for this facet and 1,132 ms against 136 ms for subjects.
+      //
+      // `CROSS JOIN` is what pins the order. Asserted against the statement
+      // rather than the plan because the planner's choice depends on
+      // statistics a thirteen-asset fixture does not have, and because the
+      // pinned order is exactly what this test is about.
+      for (const facet of [
+        'scene_types',
+        'activities',
+        'extensions',
+        'subjects',
+        'people',
+      ] as const) {
+        const { sql } = facetStatements(translate({ camera: 'iPhone' }))[facet];
+        expect(sql).toContain('CROSS JOIN');
+        expect(sql).toContain('.asset_id = assets.id');
+        expect(sql).toContain('assets.camera_make LIKE ?');
+        expect(sql).not.toContain('asset_live');
+        expect(sql).not.toContain('INDEXED BY');
+      }
+      // And both shapes count the same assets, which is the property the
+      // mirror has to keep and the only one that matters. `rating=0` is a
+      // residual that excludes nothing, so the only difference between the two
+      // statements is the shape itself.
+      const run = (query: SearchQuery): unknown[] => {
+        const statement = facetStatements(translate(query)).scene_types;
+        const rows = db.query(statement.sql).all(...(statement.params as never[]));
+        // Equal counts may come back either way round: neither facet carries a
+        // tie-breaker, and the wire meaning is the bucket, not the order.
+        return rows.map((row) => JSON.stringify(row)).sort();
+      };
+      expect(run({})).toEqual(run({ rating: '0' }));
+    });
+  });
+
+  test('assets_live_id answers the liveness probe without reading a row', async () => {
+    await withLibrary(async (db) => {
+      // Widened from (id) to (id, hidden) by #3768. Keyed on id alone the
+      // probe answered liveness from the index and then read the whole asset
+      // row to test `hidden`: the people facet measured 637 ms against 199 ms
+      // over 335,377 assets on that column alone.
+      const columns = (
+        db.query(`PRAGMA index_info(assets_live_id)`).all() as Array<{ name: string | null }>
+      ).map((row) => row.name);
+      expect(columns).toEqual(['id', 'hidden']);
     });
   });
 

@@ -63,10 +63,10 @@ import {
   pathPrefixTerm,
   peopleTerm,
   placeLabelTerm,
+  screenshotTerms,
   scopeTerms,
   subjectsTerm,
   text,
-  visibilityTerms,
   visionTerm,
   type Term,
 } from './search.terms.ts';
@@ -94,6 +94,21 @@ export interface SearchWhere {
   clauses: readonly string[];
   params: readonly SqlValue[];
   match: TextFilter;
+  /**
+   * The always-on visibility filter: `0` excludes hidden assets (the default),
+   * `1` is `hidden=only`, `null` is `hidden=all`.
+   *
+   * A field of its own rather than one more residual, because it is the one
+   * predicate every single query carries and the only one a facet can answer
+   * from a table that is not `assets`. Each satellite a facet groups —
+   * `asset_detail`, `asset_locations`, `faces`, `asset_subjects` — mirrors the
+   * asset's `hidden` into a column of its own facet index (see
+   * `ddl/facet-state.ts`), so an unfiltered facet reads one index and never
+   * joins. Left inside `clauses` as the string `assets.hidden = 0`, those
+   * builders would have to recognise it by its text to translate it, which is
+   * the kind of thing that works until someone renames a column.
+   */
+  hidden: 0 | 1 | null;
 }
 
 /** A translated query, or the 400 the route should answer instead. */
@@ -172,7 +187,7 @@ export function buildSearchWhere(
     ...placeAndPeopleTerms(q, excludedPersonIds, peoplePersonIds),
     ...exifTerms(q),
     ...gradeTerms(q, q.flag === undefined || q.flag === '' ? undefined : FLAG_BY_NAME[q.flag]),
-    ...visibilityTerms(q),
+    ...screenshotTerms(q),
     ...visionTerms(q),
     ...fileTerms(q, extensions),
     ...scopeTerms(q.scope),
@@ -182,7 +197,14 @@ export function buildSearchWhere(
     clauses: terms.map((term) => term.sql),
     params: terms.flatMap((term) => term.params),
     match: toTextFilter(text(q.placeQuery) ?? ''),
+    hidden: hiddenFilter(q),
   };
+}
+
+/** The `hidden` wire values, as the tri-state {@link SearchWhere} carries. */
+function hiddenFilter(q: SearchQuery): 0 | 1 | null {
+  if (q.hidden === 'only') return 1;
+  return q.hidden === 'all' ? null : 0;
 }
 
 /** The two substring filters over EXIF text. */
@@ -309,6 +331,7 @@ export function searchWhereSql(where: SearchWhere, extra?: BoundPredicate): Boun
   const clauses = [
     ...(lead ? [lead.sql] : []),
     QUALIFIED_LIVE_PREDICATE,
+    ...(where.hidden === null ? [] : [`assets.hidden = ${where.hidden}`]),
     ...where.clauses,
     ...(extra ? [extra.sql] : []),
   ];

@@ -29,7 +29,8 @@ import { MongoClient, type Collection, type Db } from 'mongodb';
 // come from the module that owns them, because this benchmark times each facet
 // separately and `searchFacets` deliberately issues all twelve at once.
 import { buildSearchWhere, type SearchWhere } from '../../src/db/sqlite/repos/search.repo.ts';
-import { countSql, facetStatements, pageSql } from '../../src/db/sqlite/repos/search.sql.ts';
+import { facetStatements } from '../../src/db/sqlite/repos/search.facets.sql.ts';
+import { countSql, pageSql } from '../../src/db/sqlite/repos/search.sql.ts';
 import {
   benchDbPath,
   buildLibrary,
