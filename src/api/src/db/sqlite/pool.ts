@@ -232,10 +232,10 @@ export class SqlitePool {
     const spawn = options.spawnWorker ?? spawnDatabaseWorker;
     const timeout = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     const writer = new SqliteWorkerHandle('writer', spawn, timeout);
-    // The readers' death hook needs the pool, which needs the readers. Until
-    // the pool exists this resolves to null, and that is the correct answer: a
-    // death before `open` returns is a failed startup, which fails closed
-    // rather than respawning its way to a pool nobody asked for.
+    // The readers' death hook needs the pool, which needs the readers, so until
+    // the constructor runs this resolves to null and the death goes unheard.
+    // `sweepStartupDeaths` below is what makes that safe — see it for the
+    // window, which is wider than it looks.
     let pool: SqlitePool | null = null;
     const readers = Array.from(
       { length: readerCount },
@@ -261,7 +261,34 @@ export class SqlitePool {
       options.onReaderRespawn ?? (() => {}),
       options.respawnDelaysMs ?? RESPAWN_DELAYS_MS,
     );
+    pool.sweepStartupDeaths();
     return pool;
+  }
+
+  /**
+   * Respawn any reader that died after its handshake but before this object
+   * existed to hear about it.
+   *
+   * The window is not the instant between the last `await` and the constructor.
+   * `Promise.all` waits for every reader, so a reader whose handshake completed
+   * first is a live, idle thread for the whole of the remaining startup — and
+   * anything that kills it in that time calls a death hook that resolves to
+   * null and is silently dropped. Without this sweep the pool would open with a
+   * permanently dead reader and no ladder, which is exactly the failure #3782
+   * exists to remove, arrived at through the one path the respawn machinery
+   * could not see.
+   *
+   * A death *before* a handshake completes is a different thing and keeps the
+   * old behaviour: `start()` rejects, `open()` terminates everything and
+   * throws, and the process refuses to serve. The line is the handshake — once
+   * a reader has opened its connection it is a pool member, and a member that
+   * dies is respawned.
+   */
+  private sweepStartupDeaths(): void {
+    this.readers.forEach((reader, index) => {
+      if (!reader.alive)
+        this.onReaderDied(index, reader.deathReason ?? 'worker died during startup');
+    });
   }
 
   /** Run one statement on a reader and return its rows. */
@@ -393,12 +420,19 @@ export class SqlitePool {
   private async respawnReader(index: number, death: string): Promise<void> {
     const state = this.respawns[index]!;
     const reader = this.readers[index]!;
-    let reason = death;
+    // Why the last attempt failed, which is not the same question as why the
+    // reader died. A `respawned` event reports the death, because "it is back,
+    // and here is what happened to it" is the useful line; a `failed` event
+    // reports its own error. Folding the two into one variable made a
+    // successful second attempt report the first attempt's error as the cause
+    // of a death it had nothing to do with.
+    let lastFailure: string | null = null;
 
     while (!this.closed) {
       const delay = this.respawnDelaysMs[state.attempt];
       if (delay === undefined) {
         state.retired = true;
+        const reason = lastFailure ?? death;
         this.report({ reader: index, attempt: state.attempt, outcome: 'retired', reason });
         break;
       }
@@ -415,11 +449,11 @@ export class SqlitePool {
           break;
         }
         state.completedAtRestart = reader.stats().completed;
-        this.report({ reader: index, attempt, outcome: 'respawned', reason });
+        this.report({ reader: index, attempt, outcome: 'respawned', reason: death });
         break;
       } catch (e) {
-        reason = e instanceof Error ? e.message : String(e);
-        this.report({ reader: index, attempt, outcome: 'failed', reason });
+        lastFailure = e instanceof Error ? e.message : String(e);
+        this.report({ reader: index, attempt, outcome: 'failed', reason: lastFailure });
       }
     }
 
