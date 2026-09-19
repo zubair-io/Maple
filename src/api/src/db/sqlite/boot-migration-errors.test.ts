@@ -11,7 +11,7 @@
  * type, because the type was already right and the sentence was what was wrong.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,7 +24,18 @@ import { migrateAtBoot } from './boot-migration.ts';
  */
 const DEAD_MONGO = 'mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=500';
 
-const saved = { path: process.env.MAPLE_SQLITE_PATH, uri: process.env.MAPLE_MONGO_URI };
+/**
+ * Captured in `beforeAll`, not at module scope: Bun evaluates every module body
+ * during the import phase, before any test runs, so a module-scope read can
+ * capture a value another suite has already replaced and then restore the wrong
+ * one on the way out.
+ */
+const saved: { path?: string; uri?: string } = {};
+
+beforeAll(() => {
+  saved.path = process.env.MAPLE_SQLITE_PATH;
+  saved.uri = process.env.MAPLE_MONGO_URI;
+});
 
 afterEach(() => {
   if (saved.path === undefined) delete process.env.MAPLE_SQLITE_PATH;
