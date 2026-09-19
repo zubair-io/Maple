@@ -49,6 +49,7 @@ import {
   toEnum,
   toIso,
   toJsonText,
+  toNullableBit,
   toNumber,
   toText,
 } from '../values.ts';
@@ -206,7 +207,7 @@ function assetRow(doc: Record<string, unknown>, id: string, ctx: MapContext): Ro
     toBit(doc.hidden),
     toEnum(doc.hidden_reason, HIDDEN_REASONS),
     toBit(doc.hidden_ack),
-    toBit(doc.is_screenshot),
+    toNullableBit(doc.is_screenshot),
     toIso(doc.deleted_at),
     doc.deleted_reason === 'reaped' ? 'reaped' : null,
     toText(doc.original_path),
