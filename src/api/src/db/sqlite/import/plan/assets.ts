@@ -54,7 +54,7 @@ import {
 } from '../values.ts';
 import { DETAIL_SOURCE_FIELDS, ENRICHMENT_STAGES } from './asset-fields.ts';
 import { assetExpectedCounts } from './assets-counts.ts';
-import { docId } from './shared.ts';
+import { docId, objectIdTimestamp } from './shared.ts';
 
 const HIDDEN_REASONS = ['manual', 'nudity', 'nudity-burst', 'folder'] as const;
 const MEDIA_KINDS = ['image', 'video', 'audio'] as const;
@@ -184,7 +184,7 @@ function indexedAt(doc: Record<string, unknown>, id: string, ctx: MapContext): s
   const stored = toIso(doc.indexed_at);
   if (stored !== null) return stored;
   ctx.note('assets.indexed_at derived from the ObjectId timestamp');
-  return new Date(Number.parseInt(id.slice(0, 8), 16) * 1000).toISOString();
+  return objectIdTimestamp(id);
 }
 
 function assetRow(doc: Record<string, unknown>, id: string, ctx: MapContext): Row {
@@ -244,6 +244,12 @@ function assetRow(doc: Record<string, unknown>, id: string, ctx: MapContext): Ro
  * kind of damage, and it is the one every Mongo read path already makes by
  * walking past the entry.
  *
+ * An entry that lost its `(library_id, path, filename)` to a better claim costs
+ * the same and no more, for the same reason. Which entry that is was decided
+ * for the whole collection before any document was mapped, because the conflict
+ * is between two documents and this function only ever sees one — see
+ * `plan/contested-locations.ts`.
+ *
  * The ordinal stays the position in the source array rather than being
  * renumbered, so a surviving row still says where it came from — gaps are
  * expected in this column anyway, because the repair pass deletes into it.
@@ -260,6 +266,7 @@ function locationRows(doc: Record<string, unknown>, id: string, ctx: MapContext)
       ctx.note('asset_locations skipped for an unusable library_id');
       return [];
     }
+    if (ctx.releasedLocation(id, ordinal)) return [];
     return [
       [
         id,

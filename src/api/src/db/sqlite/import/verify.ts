@@ -28,6 +28,7 @@ import type { Database } from 'bun:sqlite';
 import type { Db, Document, Filter } from 'mongodb';
 import { ALL_STAGE_NAMES } from '../../../workers/stages/stage-names.ts';
 import { derivedRestored, readMeta, readRejects } from './bookkeeping.ts';
+import { releasedTo, type LocationEntry } from './location-holder.ts';
 import { IMPORT_PLAN } from './plan/index.ts';
 import {
   foreignKeyViolations,
@@ -48,10 +49,19 @@ import type {
 } from './types.ts';
 import { verifyAssetFields } from './verify-assets.ts';
 
-/** A context that discards notes — verification does not re-count them. */
+/**
+ * A context that discards notes — verification does not re-count them.
+ *
+ * It also maps as though NOTHING had been released, which is deliberate: handing
+ * the verifier the importer's own released set would make every check agree with
+ * the importer by construction. The mapper therefore produces the full set of
+ * location rows here, and each one the destination does not hold has to be
+ * justified against the destination instead — see `absentByDesign`.
+ */
 const VERIFY_CONTEXT: MapContext = {
   stageNames: ALL_STAGE_NAMES,
   note: () => {},
+  releasedLocation: () => false,
 };
 
 /** Reads back the filter a plan's import actually used. */
@@ -155,14 +165,33 @@ function afterRepair(sqlite: Database, table: string, columns: readonly string[]
   return repaired;
 }
 
+/** A mapped `asset_locations` row, read back by column name. */
+function locationEntry(columns: readonly string[], row: Row): LocationEntry {
+  const at = (column: string): unknown => row[columns.indexOf(column)] ?? null;
+  const text = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+  return {
+    assetId: String(at('asset_id')),
+    ordinal: Number(at('ordinal')),
+    libraryId: String(at('library_id')),
+    path: String(at('path')),
+    filename: String(at('filename')),
+    deletedAt: text(at('deleted_at')),
+    missingSince: text(at('missing_since')),
+  };
+}
+
 /**
  * Why a mapped row is legitimately absent, or null when it should be there.
  *
- * The repair pass drops a row whose NOT NULL foreign key does not resolve — a
- * location under a library root that was unregistered, say — so the mapper
- * producing a row the database does not hold is the correct outcome, not a
- * failure. Re-asking the same question the repair asked is what tells the two
- * cases apart.
+ * Two things make a row's absence correct rather than a failure, and both are
+ * confirmed by re-asking the question the importer asked rather than by
+ * trusting that it asked it:
+ *
+ *  - the repair pass drops a row whose NOT NULL foreign key does not resolve —
+ *    a location under a library root that was unregistered, say;
+ *  - a location entry that lost its address to a better claim is released, and
+ *    `releasedTo` re-runs the ranking against the row that holds it, so an
+ *    importer that kept the wrong side of a contest fails here.
  */
 function absentByDesign(
   sqlite: Database,
@@ -170,6 +199,10 @@ function absentByDesign(
   columns: readonly string[],
   row: Row,
 ): string | null {
+  if (table === 'asset_locations') {
+    const released = releasedTo(sqlite, locationEntry(columns, row));
+    if (released !== null) return released;
+  }
   for (const fk of REQUIRED_FOREIGN_KEYS) {
     if (fk.table !== table) continue;
     const index = columns.indexOf(fk.column);

@@ -132,6 +132,8 @@ const EMPTY_REPORT: ImportReport = {
   danglingNulled: {},
   danglingDropped: {},
   substitutions: {},
+  locationsReleased: {},
+  contestedAddresses: 0,
   unknownStages: [],
   changesCursorFloor: null,
   windowOverrides: [],

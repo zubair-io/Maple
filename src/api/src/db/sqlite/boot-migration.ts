@@ -217,7 +217,20 @@ export async function migrateAtBoot(): Promise<BootMigrationOutcome> {
     recordCutover(session.sqlite, completedAt);
     const assets = assetCount(session.sqlite);
     const elapsedMs = Math.round(performance.now() - startedAt);
-    log.info({ path, assets, elapsedMs }, 'SQLite cutover complete — serving on SQLite');
+    // The released locations are in the log rather than only in the report an
+    // unattended boot never prints: a library that carried two entries for one
+    // file path comes out of this with one, and an operator should hear the
+    // number from the run that decided it.
+    log.info(
+      {
+        path,
+        assets,
+        elapsedMs,
+        contestedAddresses: report.contestedAddresses,
+        locationsReleased: report.locationsReleased,
+      },
+      'SQLite cutover complete — serving on SQLite',
+    );
     return { status: 'migrated', elapsedMs, assets };
   } catch (err) {
     if (err instanceof BootMigrationError) throw err;

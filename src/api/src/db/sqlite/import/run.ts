@@ -12,11 +12,16 @@
  *    bulk load into a few million single-row `UPDATE`s and index writes. The
  *    schema exports both trigger sets and the statements that rebuild what they
  *    maintain, precisely so an importer can do this.
- * 3. Walk the plan in foreign-key order, one collection at a time, batching on
+ * 3. Decide, over the whole source, which `fileinfo` entry keeps an address
+ *    that more than one of them claims. The destination allows one row per
+ *    `(library_id, path, filename)` and a mapper only ever sees one document,
+ *    so the contest cannot be resolved document by document — see
+ *    `plan/contested-locations.ts`.
+ * 4. Walk the plan in foreign-key order, one collection at a time, batching on
  *    `_id` ascending.
- * 4. Put the triggers back, recompute `live_location_count` in one statement,
+ * 5. Put the triggers back, recompute `live_location_count` in one statement,
  *    rebuild and optimise the FTS index.
- * 5. Resolve the references the source could not enforce, then confirm with
+ * 6. Resolve the references the source could not enforce, then confirm with
  *    `PRAGMA foreign_key_check`.
  *
  * ## Why batches are keyed on `_id`
@@ -32,7 +37,7 @@
  *
  * Not for speed. The source has a genuine cycle — a face points at a person, a
  * person's cover points at an asset — so no ordering of collections satisfies
- * every constraint at insert time. Enforcement moves to step 5, where it
+ * every constraint at insert time. Enforcement moves to step 6, where it
  * becomes a single pass that can also report what it found. See `repair.ts`.
  */
 
@@ -68,6 +73,7 @@ import {
   writeReject,
 } from './bookkeeping.ts';
 import { discardDestination } from './destination.ts';
+import { locationKey, resolveLocationContests } from './plan/contested-locations.ts';
 import { CHANGES_FLOOR_KEY } from './plan/library.ts';
 import { IMPORT_PLAN, uncoveredCollections, uncoveredMessage } from './plan/index.ts';
 import { repairForeignKeys } from './repair.ts';
@@ -370,19 +376,27 @@ export async function runImportOn(
   const startedAt = performance.now();
   const substitutions: Record<string, number> = {};
   const unknownStages = new Set<string>();
-  const ctx: MapContext = {
-    stageNames: ALL_STAGE_NAMES,
-    note(kind) {
-      if (kind.startsWith('stage:')) unknownStages.add(kind.slice('stage:'.length));
-      else substitutions[kind] = (substitutions[kind] ?? 0) + 1;
-    },
-  };
 
   // Before anything is written, and before the triggers come off: a collection
   // nobody here has decided about is a collection the cutover would leave
   // behind in silence, which is the one failure this tool must not have.
   const uncovered = await uncoveredCollections(session.mongo, IMPORT_PLAN);
   if (uncovered.length > 0) throw new Error(uncoveredMessage(uncovered));
+
+  // Which `fileinfo` entry keeps an address two of them claim, decided over the
+  // whole collection before the first document is mapped. The assets plan is
+  // unbounded — every asset is read — so every entry can contest, and a resumed
+  // run recomputes the same answer from the same source rather than inheriting
+  // it from how far the last one got.
+  const released = await resolveLocationContests(session.mongo, {});
+  const ctx: MapContext = {
+    stageNames: ALL_STAGE_NAMES,
+    note(kind) {
+      if (kind.startsWith('stage:')) unknownStages.add(kind.slice('stage:'.length));
+      else substitutions[kind] = (substitutions[kind] ?? 0) + 1;
+    },
+    releasedLocation: (assetId, ordinal) => released.keys.has(locationKey(assetId, ordinal)),
+  };
 
   const overrides = windowOverrides(session.sqlite, options);
   dropDerivedTriggers(session.sqlite);
@@ -408,6 +422,8 @@ export async function runImportOn(
     danglingNulled: repair.nulled,
     danglingDropped: repair.dropped,
     substitutions,
+    locationsReleased: released.byRule,
+    contestedAddresses: released.contestedAddresses,
     unknownStages: [...unknownStages].sort(),
     changesCursorFloor: floor === null ? null : Number(floor),
     windowOverrides: overrides,

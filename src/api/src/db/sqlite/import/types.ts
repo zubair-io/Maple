@@ -32,6 +32,16 @@ export interface MapContext {
   stageNames: readonly string[];
   /** Recorded whenever a mapper had to substitute a value to satisfy a CHECK. */
   note(kind: string): void;
+  /**
+   * True when this `fileinfo` entry lost its `(library_id, path, filename)` to
+   * a better claim and must not become a row.
+   *
+   * Decided for the whole collection before any document is mapped, because the
+   * conflict is between documents and a mapper only ever sees one — see
+   * `plan/contested-locations.ts`. A mapper still takes no database and stays a
+   * pure function of one document plus this context.
+   */
+  releasedLocation(assetId: string, ordinal: number): boolean;
 }
 
 /** How a collection's `_id` sorts, which is also how a resume cursor is read back. */
@@ -151,6 +161,16 @@ export interface ImportReport {
   danglingDropped: Record<string, number>;
   /** Values substituted to satisfy a CHECK constraint, by kind. */
   substitutions: Record<string, number>;
+  /**
+   * Location entries that lost their address to a better claim, by the rule
+   * that decided it, and how many addresses were contested at all.
+   *
+   * Counted from the resolution rather than from the mapping, so a resumed run
+   * reports the same numbers as the run it continues: the decision is a
+   * property of the source, not of how far the import got.
+   */
+  locationsReleased: Record<string, number>;
+  contestedAddresses: number;
   /** Stage names found on assets that are not in the canonical list. */
   unknownStages: string[];
   /** The change-log cursor floor actually imported, or null for a full import. */

@@ -26,7 +26,7 @@ import { lensProfilesPlan } from './lens-profiles.ts';
 import { IMPORT_PLAN, uncoveredCollections } from './index.ts';
 import type { MapContext } from '../types.ts';
 
-const CTX: MapContext = { stageNames: [], note: () => {} };
+const CTX: MapContext = { stageNames: [], note: () => {}, releasedLocation: () => false };
 
 function digestOf(bytes: Uint8Array): string {
   return Buffer.from(blake3(bytes)).toString('hex');

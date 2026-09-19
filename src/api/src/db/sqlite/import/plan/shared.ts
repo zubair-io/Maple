@@ -57,6 +57,18 @@ export function docId(doc: Record<string, unknown>): string {
   return requireIdHex(doc._id, '_id');
 }
 
+/**
+ * The creation time an ObjectId carries in its first four bytes, as ISO 8601.
+ *
+ * It IS when the row was created, which makes it the closest true answer
+ * available for the handful of the oldest production documents that predate
+ * `indexed_at` — a field the destination declares NOT NULL and the contest
+ * ranking reads.
+ */
+export function objectIdTimestamp(hex: string): string {
+  return new Date(Number.parseInt(hex.slice(0, 8), 16) * 1000).toISOString();
+}
+
 /** The `_id` of a natural-key collection, which is already a string. */
 export function docKey(doc: Record<string, unknown>): string {
   const value = doc._id;

@@ -17,6 +17,7 @@
 
 import type { Db, Document, Filter } from 'mongodb';
 import { DETAIL_SOURCE_FIELDS, ENRICHMENT_STAGES } from './asset-fields.ts';
+import { locationEntryStages } from './contested-locations.ts';
 
 /** Runs a `$group`-to-one pipeline and reads the single `total` back. */
 async function total(db: Db, filter: Filter<Document>, perDocument: Document): Promise<number> {
@@ -50,38 +51,31 @@ function objectKeys(path: string): Document {
 }
 
 /**
- * Locations, after the rule `locationRows` applies: an entry whose
- * `library_id` is neither an ObjectId nor a 24-character hex string is not a
- * row, because there is no foreign key it could carry.
+ * Locations: one row per distinct `(library_id, path, filename)` the source's
+ * usable entries name.
  *
- * Spelled as nested `$cond`s rather than an `$and`, because `$toLower` errors
- * on an ObjectId and only `$cond` is documented to leave the branch it did not
- * take unevaluated.
+ * Not one row per usable entry, which is what this counted until #3790. The
+ * destination's `asset_locations_lib_path_name` is UNIQUE over that triple, so
+ * an address more than one entry claims becomes ONE row and the entries that
+ * lost it are released — the number of rows the destination should hold is
+ * therefore the number of addresses, and that is what is counted here.
+ *
+ * Stated against the source rather than by subtracting a tally the importer
+ * kept, which is the stronger of the two: it needs no bookkeeping to survive a
+ * resumed run, and an importer that released a row it should have written
+ * fails this check instead of agreeing with its own record of having done so.
+ * The entry-level stages are shared with the resolution itself, so the two
+ * cannot disagree about what an address is.
  */
-function locationCount(): Document {
-  const usable = {
-    $cond: [
-      { $eq: [{ $type: '$$f.library_id' }, 'objectId'] },
-      true,
-      {
-        $cond: [
-          { $eq: [{ $type: '$$f.library_id' }, 'string'] },
-          {
-            $regexMatch: {
-              input: { $toLower: '$$f.library_id' },
-              regex: '^[0-9a-f]{24}$',
-            },
-          },
-          false,
-        ],
-      },
-    ],
-  };
-  return {
-    $size: {
-      $filter: { input: { $ifNull: ['$fileinfo', []] }, as: 'f', cond: usable },
-    },
-  };
+async function locationCount(db: Db, filter: Filter<Document>): Promise<number> {
+  const rows = await db
+    .collection('assets')
+    .aggregate<{ total: number }>(
+      [...locationEntryStages(filter), { $group: { _id: '$address' } }, { $count: 'total' }],
+      { allowDiskUse: true },
+    )
+    .toArray();
+  return rows[0]?.total ?? 0;
 }
 
 /**
@@ -136,7 +130,7 @@ export async function assetExpectedCounts(
   const [assetCount, locations, links, faces, detail, search, stages, enrichment] =
     await Promise.all([
       assets.countDocuments(filter),
-      total(db, filter, locationCount()),
+      locationCount(db, filter),
       total(db, filter, linkCount()),
       total(db, filter, { $size: { $ifNull: ['$faces', []] } }),
       assets.countDocuments(detailFilter),

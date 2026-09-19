@@ -28,8 +28,9 @@
 
 import type { Database } from 'bun:sqlite';
 import type { Collection, Db, Document, Filter } from 'mongodb';
+import { releasedTo, type LocationEntry } from './location-holder.ts';
 import type { FieldCheck } from './types.ts';
-import { asArray, asRecord, normaliseJson } from './values.ts';
+import { asArray, asRecord, normaliseJson, toIso } from './values.ts';
 
 /** One field: what the source says it should be, and what the row holds. */
 type Cell = [expected: unknown, actual: unknown];
@@ -160,6 +161,23 @@ const LOCATION_SQL = `
 SELECT ordinal, library_id, path, filename, keep
   FROM asset_locations WHERE asset_id = ? ORDER BY ordinal`;
 
+/** One source `fileinfo` entry as the address it claims, stated from the document. */
+function sourceEntry(
+  entry: Record<string, unknown>,
+  assetId: string,
+  ordinal: number,
+): LocationEntry {
+  return {
+    assetId,
+    ordinal,
+    libraryId: String(entry.library_id ?? ''),
+    path: String(entry.path ?? ''),
+    filename: String(entry.filename ?? ''),
+    deletedAt: toIso(entry.deleted_at),
+    missingSince: toIso(entry.missing_since),
+  };
+}
+
 function probeLocations(sqlite: Database, doc: Record<string, unknown>, id: string): FieldCheck[] {
   const rows = sqlite.query(LOCATION_SQL).all(id) as Array<Record<string, unknown>>;
   // Rows are matched by ORDINAL, not by position in the result set: a location
@@ -169,7 +187,17 @@ function probeLocations(sqlite: Database, doc: Record<string, unknown>, id: stri
   // closing the gap.
   const byOrdinal = new Map(rows.map((row) => [row.ordinal as number, row]));
   const source = asArray(doc.fileinfo).map(asRecord);
-  const live = new Set(source.filter((entry) => libraryExists(sqlite, entry.library_id)));
+  // An entry is expected to have a row unless its library root went, or a
+  // better claim holds its address. The second is re-decided here against the
+  // row that holds it rather than read from the importer's own record of what
+  // it released — see `location-holder.ts`.
+  const live = new Set(
+    source.filter(
+      (entry, ordinal) =>
+        libraryExists(sqlite, entry.library_id) &&
+        releasedTo(sqlite, sourceEntry(entry, id, ordinal)) === null,
+    ),
+  );
 
   const out = checks(id, { 'fileinfo.length': [live.size, rows.length] });
   for (const [ordinal, entry] of source.entries()) {

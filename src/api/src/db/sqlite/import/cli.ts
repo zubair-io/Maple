@@ -190,6 +190,18 @@ function renderNotes(report: ImportReport): string[] {
     );
   }
 
+  if (report.contestedAddresses > 0) {
+    out.push(
+      '',
+      `${report.contestedAddresses} file path(s) were claimed by more than one location entry. ` +
+        'One entry keeps each path and the others were released — their assets are imported ' +
+        'whole, without that one location. Decided by:',
+      ...Object.keys(report.locationsReleased)
+        .sort()
+        .map((rule) => `  ${rule}: ${report.locationsReleased[rule]}`),
+    );
+  }
+
   const sections: Array<[string, Record<string, number>]> = [
     ['Dangling references nulled', report.danglingNulled],
     ['Rows dropped for a missing required reference', report.danglingDropped],
