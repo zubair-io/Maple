@@ -121,12 +121,11 @@ export function computeCanonicalDir(doc: {
  * no-op) asset is stamped with the current generation and drops out, so
  * `countRemaining` reaches 0.
  *
- * Liveness is gated with the shared `liveFileInfoElemMatch()` ("has ≥1 live
- * entry"), NOT `'fileinfo.0.deleted_at': null`. The old form leaked
- * delete-then-readd docs (a soft-deleted tombstone at `fileinfo[0]` + a live
- * entry later) through MongoDB's array null-path matching; the migration then took
- * the tombstone as primary, `moveBackupAsset` skipped it without stamping, and —
- * the fetch being unsorted — those un-stampable docs head-of-line-blocked every
+ * Liveness is gated on "has at least one live entry", NOT on the first entry
+ * alone. The narrower form leaked delete-then-readd assets — a soft-deleted
+ * tombstone in front of a live location — and the migration then took the
+ * tombstone as primary, `moveBackupAsset` skipped it without stamping, and,
+ * the fetch being unsorted, those un-stampable rows head-of-line-blocked every
  * batch (#1519). */
 function candidateScope(): CandidateScope {
   return unstamped(REFILE_BACKUP_SCOPE, 'backup_layout_version', BACKUP_LAYOUT_VERSION);

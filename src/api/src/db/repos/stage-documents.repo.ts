@@ -37,6 +37,7 @@ import {
   json,
   toFace,
   toFileInfo,
+  type DetailRow as AssetDetailRow,
   type EnrichmentRow,
   type FaceRow,
   type LocationRow,
@@ -92,17 +93,12 @@ interface StageAssetRow {
   place: string | null;
 }
 
-interface DetailRow {
-  asset_id: string;
-  description: string | null;
-  description_meta: string | null;
-  ocr_text: string | null;
-  ocr_meta: string | null;
-  vision: string | null;
-  vision_meta: string | null;
-  transcript: string | null;
-  video_description: string | null;
-  video_description_meta: string | null;
+/**
+ * The same `asset_detail` row the DTO path reads, plus the one column only this
+ * reader selects: a stage handler needs the operator's metadata override to
+ * decide whether it may write over a field, and no DTO carries it.
+ */
+interface DetailRow extends AssetDetailRow {
   metadata_override: string | null;
 }
 

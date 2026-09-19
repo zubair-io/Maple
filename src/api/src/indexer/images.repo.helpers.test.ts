@@ -5,7 +5,6 @@ import {
   assetLibraryPath,
   assetPrimaryFileInfo,
   isLiveFileInfo,
-  liveFileInfoElemMatch,
 } from './images.repo.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 
@@ -93,14 +92,6 @@ describe('isLiveFileInfo', () => {
     expect(isLiveFileInfo({ deleted_at: 'now' })).toBe(false);
     expect(isLiveFileInfo({ missing_since: 'now' })).toBe(false);
     expect(isLiveFileInfo({ deleted_at: 'now', missing_since: 'now' })).toBe(false);
-  });
-});
-
-describe('liveFileInfoElemMatch', () => {
-  test('selects ≥1 live entry; null/absent count as live', () => {
-    expect(liveFileInfoElemMatch()).toEqual({
-      fileinfo: { $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } } },
-    });
   });
 });
 
