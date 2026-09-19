@@ -164,12 +164,11 @@ export class ObjectId {
   /**
    * As {@link toHexString}, so `String(id)` and `` `${id}` `` both give hex.
    *
-   * Nothing calls this by name and nothing should — the callers are the string
-   * coercions themselves, which is why the dead-code analyser cannot see them.
-   * The library-roots map is keyed on `String(entry.library_id)`; a route that
-   * interpolates an id into a log line or a path is the same thing.
+   * Almost nothing calls this by name — the real callers are the string
+   * coercions themselves. The library-roots map is keyed on
+   * `String(entry.library_id)`; a route that interpolates an id into a log line
+   * or a path is the same thing.
    */
-  // fallow-ignore-next-line unused-class-members
   toString(): string {
     return this.#hex;
   }
@@ -179,11 +178,10 @@ export class ObjectId {
    *
    * This is the client contract, and it is invoked by `JSON.stringify` rather
    * than by any caller — every DTO carrying an `_id` reaches the wire through
-   * it. Removing it would serialise ids as `{}` and break every client at once,
-   * which is why `object-id.test.ts` asserts the serialised form rather than
-   * just the method.
+   * it. Removing it would serialise every id as `{}` and break every client at
+   * once, which is why `object-id.test.ts` asserts the serialised form and not
+   * only the method.
    */
-  // fallow-ignore-next-line unused-class-members
   toJSON(): string {
     return this.#hex;
   }

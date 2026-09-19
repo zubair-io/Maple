@@ -100,8 +100,9 @@ export function classifyMediaType(filename: string): MediaKind {
 
 /** `media_kind` for an asset with several locations: `video` if ANY is a
  * video file (a Live Photo backup pairs `still.HEIC` with `clip.MOV` on one
- * row), else `audio` if any is audio, else `image`. Pipeline twin:
- * `mediaKindExpression` in `db/media-kind.ts`. */
+ * row), else `audio` if any is audio, else `image`. The single place that
+ * answers the question — writers call it and store the result, and the
+ * `stage_state` trigger copies the stored value onward. */
 export function mediaKindOfFilenames(filenames: readonly string[]): MediaKind {
   const kinds = new Set(filenames.map(classifyMediaType));
   return kinds.has('video') ? 'video' : kinds.has('audio') ? 'audio' : 'image';
@@ -205,36 +206,3 @@ export const STUB_IMAGE_EXTENSIONS = withoutLeadingDot(STUB_IMAGE_EXTS);
 /** `AUDIO_EXTS` in no-dot form (see #1835): metadata-only stubs, same as
  * `STUB_IMAGE_EXTENSIONS`. */
 export const AUDIO_EXTENSIONS = withoutLeadingDot(AUDIO_EXTS);
-
-/** `^.*\.(mov|mp4|…)$` source for one extension set — case-insensitivity is
- * applied by the caller (`$regexMatch` `options: 'i'`). */
-function extensionRegexSource(exts: ReadonlySet<string>): string {
-  return `\\.(${[...exts].map((e) => e.slice(1)).join('|')})$`;
-}
-
-/** Aggregation expression computing `media_kind` from the `fileinfo`
- * filenames — the pipeline twin of `mediaKindOfFilenames`. An asset is a
- * `video` when ANY of its locations is a video file (a Live Photo backup
- * carries `still.HEIC` + `clip.MOV` on one row, and the video-scoped stages
- * and migrations must still see it), else `audio` when any is audio, else
- * `image`. */
-export function mediaKindExpression(): Record<string, unknown> {
-  const anyMatches = (exts: ReadonlySet<string>) => ({
-    $anyElementTrue: {
-      $map: {
-        input: { $ifNull: ['$fileinfo.filename', []] },
-        as: 'f',
-        in: {
-          $regexMatch: {
-            input: { $ifNull: ['$$f', ''] },
-            regex: extensionRegexSource(exts),
-            options: 'i',
-          },
-        },
-      },
-    },
-  });
-  return {
-    $cond: [anyMatches(VIDEO_EXTS), 'video', { $cond: [anyMatches(AUDIO_EXTS), 'audio', 'image'] }],
-  };
-}

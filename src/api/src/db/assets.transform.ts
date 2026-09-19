@@ -1,83 +1,39 @@
 /**
- * Assets repository — BSON ↔ wire-DTO transform layer.
+ * The shapes the HTTP API returns for an asset.
  *
- * Split out of `assets.repo.ts` so the file budget per #205 stays under
- * 400 LOC. The transforms here are the single boundary between Mongo
- * documents and the JSON the API ships to clients; the repo modules
- * import these helpers and never mutate the shapes inline.
+ * Three DTOs and the small types they are built from, and nothing else: no
+ * database access, no transform. They live in their own module so that the
+ * repository which builds them (`db/repos/assets.dto.ts`) and the route
+ * handlers which return them name the same declarations, and a field that
+ * changes on one side stops compiling on the other instead of quietly
+ * disagreeing.
  *
- * Wire-DTO convention (preserves the existing contract — the Swift
- * client and the Angular shell both read snake_case keys today):
- *   - `_id` is rendered as `id` (hex string).
- *   - `folder_id` ObjectId is rendered as the same hex string.
- *   - Every other persisted snake_case field name passes through
- *     verbatim. Renaming to camelCase is a separate breaking change
- *     and is not in scope for this PR.
- *   - The detail DTO `mtime` carries the value in epoch *milliseconds* —
- *     same unit the document stores. The working-set list endpoint at
- *     `/api/assets` returns seconds and has its own DTO shape
- *     (`AssetListItemDto`) that explicitly divides by 1000; do not
- *     conflate the two.
+ * Wire conventions, all of them load-bearing for clients that exist today —
+ * the Swift app and the Angular shell both read these keys:
+ *   - `id` and `folder_id` are hex strings; `AssetCoreInfo` is the one
+ *     internal shape that keeps them as `ObjectId`s, because its callers hand
+ *     them straight back to another repository call.
+ *   - Field names are snake_case throughout. Renaming to camelCase would be a
+ *     breaking change for both clients and is deliberately not attempted here.
+ *   - `AssetDetailDto.mtime` is epoch *milliseconds*; `AssetListItemDto.mtime`
+ *     is epoch *seconds*, because the Swift File Provider decodes it through
+ *     `Date(timeIntervalSince1970:)`. The two are genuinely different units on
+ *     two endpoints — do not conflate them.
  */
 
-import * as path from 'node:path';
 import { type ObjectId } from './object-id.ts';
 import {
-  normaliseEnrichment,
   type AssetDoc,
   type AssetExif,
   type AssetFaceDoc,
-  type AssetWithId,
   type Enrichment,
   type FileInfo,
   type Place,
-  type TranscriptDoc,
   type VideoDescriptionDoc,
   type VideoDescriptionMeta,
   type VisionDoc,
   type VisionMeta,
 } from './schema.ts';
-
-/**
- * Resolve the canonical wire fields for an asset's primary location from
- * its `fileinfo` array and the supplied libraries map. Returns nulls when
- * the asset has no live fileinfo entry or its library is no longer
- * registered — the transforms surface those as empty strings on the wire
- * (existing contract) and the resolved string when present.
- */
-function resolvePrimary(
-  fileinfo: FileInfo[] | undefined,
-  libraries: ReadonlyMap<string, string>,
-): {
-  folder_id: ObjectId | null;
-  filename: string;
-  abs_path: string;
-  fileinfo: FileInfo[] | undefined;
-} {
-  if (!fileinfo || fileinfo.length === 0) {
-    return { folder_id: null, filename: '', abs_path: '', fileinfo };
-  }
-  // Primary = first LIVE location (neither replaced nor missing from disk), so
-  // the DTO's path points at a file that actually exists. Mirrors
-  // `assetPrimaryFileInfo`. Falls back to `fileinfo[0]` when nothing is live so
-  // a fully-gone row still resolves a `folder_id` (always set from the chosen
-  // entry's `library_id`); only `abs_path` is empty — when the library root is
-  // unregistered. Callers tolerate the empty `abs_path`.
-  const primary = fileinfo.find((e) => !e.deleted_at && !e.missing_since) ?? fileinfo[0]!;
-  const root = libraries.get(primary.library_id.toHexString()) ?? '';
-  const segments = primary.path === '' ? [] : primary.path.split('/');
-  const abs_path = root ? path.join(root, ...segments, primary.filename) : '';
-  return {
-    folder_id: primary.library_id,
-    filename: primary.filename,
-    abs_path,
-    fileinfo,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// DTO shapes returned over the wire.
-// ---------------------------------------------------------------------------
 
 /**
  * Full single-asset DTO returned by `GET /api/assets/:id`.
@@ -100,7 +56,7 @@ export interface AssetDetailDto {
   /** Canonical location records — populated by discover / backup-ingest. */
   fileinfo?: FileInfo[];
   size: number;
-  /** Epoch milliseconds (same unit the document stores). The list
+  /** Epoch milliseconds (same unit the `assets` row stores). The list
    * endpoint at `/api/assets` returns seconds and uses its own DTO. */
   mtime: number;
   rating: number;
@@ -141,7 +97,7 @@ export interface AssetDetailDto {
 }
 
 /** A detected face plus its resolved person display name. `name` is the
- * `people` collection `name` for `person_id`, or `null` when the face is
+ * `people` row's `name` for `person_id`, or `null` when the face is
  * unassigned or the person has no name / was not found. The web + Apple info
  * panes render `name` (falling back to `person_id`) instead of the raw id. */
 export type DetailFaceDto = AssetFaceDoc & { name: string | null };
@@ -182,10 +138,10 @@ export interface AssetListItemDto {
 
 /** Minimal shape used by routes that need to drive FS / change-feed
  * side effects (xmp, trash, overrides) but don't ship the full DTO to
- * the client. Keeps callers from holding a raw Mongo document.
+ * the client. Keeps callers from handling raw database rows.
  *
- * `folder_id` / `filename` / `abs_path` are RESOLVED at transform time
- * from `fileinfo[0]` + the libraries map. They are `null` / `""` when
+ * `folder_id` / `filename` / `abs_path` are RESOLVED when the DTO is built,
+ * from the asset's locations + the libraries map. They are `null` / `""` when
  * the primary entry's library is no longer registered; callers MUST
  * tolerate that (skip / 404 / log) — the underlying `fileinfo` array
  * is retained on this shape for any caller that needs to inspect the
@@ -213,122 +169,4 @@ export interface AssetCoreInfo {
   description: string | null;
   ocr_text: string | null;
   exif: AssetExif | null;
-}
-
-// ---------------------------------------------------------------------------
-// Transform layer (the single BSON → DTO boundary for the assets repo).
-// ---------------------------------------------------------------------------
-
-/** Project the stored `TranscriptDoc` to its display DTO, dropping the
- * per-segment timing array the info pane does not render. */
-function toTranscriptDto(t: TranscriptDoc): TranscriptDto {
-  return {
-    text: t.text,
-    language: t.language,
-    model: t.model,
-    duration_sec: t.duration_sec,
-    generated_at: t.generated_at,
-  };
-}
-
-export function toDetailDto(
-  doc: AssetWithId,
-  libraries: ReadonlyMap<string, string>,
-  /** `person_id` hex → display name, resolved by the caller from the `people`
-   * collection. Defaults to empty so callers that don't need names (and tests)
-   * still compile — those faces just carry `name: null`. */
-  personNames: ReadonlyMap<string, string> = new Map(),
-): AssetDetailDto {
-  // `description_meta` is not typed on `AssetDoc` (the describe stage
-  // added it after the schema froze). Read through `Record<string,
-  // unknown>` so we don't drop the field on the wire — same pattern the
-  // pre-refactor `routes/assets/metadata.ts` used inline.
-  const rawDoc = doc as unknown as Record<string, unknown>;
-  const resolved = resolvePrimary(doc.fileinfo, libraries);
-  return {
-    id: doc._id.toHexString(),
-    folder_id: resolved.folder_id ? resolved.folder_id.toHexString() : '',
-    filename: resolved.filename,
-    abs_path: resolved.abs_path,
-    fileinfo: resolved.fileinfo,
-    size: doc.size,
-    mtime: doc.mtime,
-    rating: doc.rating,
-    sidecar_ver: doc.sidecar_ver ?? 0,
-    flag: doc.flag,
-    color_label: doc.color_label,
-    indexed_at: doc.indexed_at,
-    place: doc.place ?? null,
-    faces: (doc.faces ?? []).map((f) => ({
-      ...f,
-      // Lowercase the id so the lookup is case-insensitive vs the map's
-      // `_id.toHexString()` keys (see `loadPersonNames`).
-      name: f.person_id ? (personNames.get(f.person_id.toLowerCase()) ?? null) : null,
-    })),
-    description: doc.description ?? null,
-    description_meta: rawDoc.description_meta ?? null,
-    ocr_text: doc.ocr_text ?? null,
-    ocr_meta: doc.ocr_meta ?? null,
-    vision: doc.vision ?? null,
-    vision_meta: doc.vision_meta ?? null,
-    is_screenshot: doc.is_screenshot ?? null,
-    transcript: doc.transcript ? toTranscriptDto(doc.transcript) : null,
-    video_description: doc.video_description ?? null,
-    video_description_meta: doc.video_description_meta ?? null,
-    hidden: doc.hidden,
-    hidden_reason: doc.hidden_reason,
-    hidden_ack: doc.hidden_ack,
-    enrichment: normaliseEnrichment(doc.enrichment),
-  };
-}
-
-export function toListItemDto(
-  doc: AssetWithId,
-  libraries: ReadonlyMap<string, string>,
-): AssetListItemDto {
-  const resolved = resolvePrimary(doc.fileinfo, libraries);
-  return {
-    id: doc._id.toHexString(),
-    folder_id: resolved.folder_id ? resolved.folder_id.toHexString() : '',
-    filename: resolved.filename,
-    abs_path: resolved.abs_path,
-    fileinfo: resolved.fileinfo,
-    // `AssetDoc.mtime` is epoch ms (from `stat.mtimeMs`). The list
-    // endpoint reports seconds so the Swift File Provider's
-    // `Date(timeIntervalSince1970:)` round-trips into a sensible date.
-    mtime: Math.floor(doc.mtime / 1000),
-    rating: doc.rating,
-    has_xmp: doc.has_xmp ?? false,
-    hidden: doc.hidden,
-    hidden_reason: doc.hidden_reason,
-    hidden_ack: doc.hidden_ack,
-  };
-}
-
-export function toCoreInfo(
-  doc: AssetWithId,
-  libraries: ReadonlyMap<string, string>,
-): AssetCoreInfo {
-  const rawDoc = doc as unknown as Record<string, unknown>;
-  const mapleId = rawDoc.maple_id;
-  const originalPath = rawDoc.original_path;
-  const resolved = resolvePrimary(doc.fileinfo, libraries);
-  return {
-    id: doc._id,
-    folder_id: resolved.folder_id,
-    filename: resolved.filename,
-    abs_path: resolved.abs_path,
-    fileinfo: doc.fileinfo,
-    size: doc.size,
-    mtime: doc.mtime,
-    maple_id: typeof mapleId === 'string' && mapleId.length > 0 ? mapleId : null,
-    deleted_at: doc.deleted_at ?? null,
-    deleted_reason: rawDoc.deleted_reason === 'reaped' ? 'reaped' : null,
-    original_path:
-      typeof originalPath === 'string' && originalPath.length > 0 ? originalPath : null,
-    place: doc.place ?? null,
-    description: doc.description ?? null,
-    ocr_text: doc.ocr_text ?? null,
-    exif: doc.exif ?? null,
-  };
 }
