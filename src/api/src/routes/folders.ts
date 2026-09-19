@@ -11,7 +11,7 @@ import { ObjectId } from 'mongodb';
 // Mirror-aware drop-in: uploads, folder moves, and mkdir replicate to the
 // library's backup root(s). `rename` is directory-aware for folder moves.
 import { readdir, open, rename, stat, unlink, mkdir, utimes } from '../fs/mirrored.ts';
-import type { Dirent } from 'node:fs';
+import type { Dirent, Stats } from 'node:fs';
 import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { sha1 } from '@noble/hashes/legacy.js';
@@ -53,6 +53,8 @@ import { realpathJailCheck } from '../library/address.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
+import { safeObjectId } from '../db/safe-object-id.ts';
+import type { FolderWithId } from '../db/schema.ts';
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
 // duplicate upload whose content is byte-identical to the file being
@@ -199,6 +201,78 @@ async function resolveFolderRelPath(
   // `..`/`.`/backslash/absolute, realpath-resolves the target and the root, and
   // confirms the result stays inside the library root.
   return realpathJailCheck(folderPath, rawPath);
+}
+
+/**
+ * The library a `:id` route addresses, or the response to send instead.
+ *
+ * Six handlers opened by parsing the id, refusing an unparseable one with 400,
+ * looking the row up and refusing a missing one with 404 — thirteen identical
+ * lines each, which is most of what the duplication gate was seeing in this
+ * file. The two scan routes are deliberately NOT folded in: their bodies carry
+ * `ok: false` alongside the message and spell the field `folderId`, and both
+ * are on the wire.
+ *
+ * Callers that need the id read it back from the row as `folder._id`, which is
+ * the same value the parse produced.
+ */
+async function folderOrError(rawId: string): Promise<FolderWithId | Response> {
+  const id = safeObjectId(rawId);
+  if (id === null) return Response.json({ error: 'Invalid folder id' }, { status: 400 });
+  const folder = await findFolderById(id);
+  return folder ?? Response.json({ error: 'Folder not found' }, { status: 404 });
+}
+
+/**
+ * One regular file inside a library, addressed by its library-relative path —
+ * or the response to send instead.
+ *
+ * The two path-addressed reads the File Provider uses for non-indexed files
+ * (`/:id/file` streams the bytes, `/:id/file-meta` answers size and mtime)
+ * agree exactly on how to get from a `?path=` to a file, and disagree only on
+ * what they do with it. The jail check, the `stat`, and the refusal to serve
+ * anything that is not a regular file are that agreement.
+ */
+async function folderFileOrError(
+  folderPath: string,
+  rawPath: string | undefined,
+): Promise<Response | { real: string; stat: Stats }> {
+  const resolved = await resolveFolderRelPath(folderPath, rawPath);
+  if (!resolved.ok) return Response.json({ error: resolved.error }, { status: resolved.status });
+  const st = await stat(resolved.real).catch(() => null);
+  if (st === null) return Response.json({ error: 'file not found' }, { status: 404 });
+  if (!st.isFile()) return Response.json({ error: 'not a regular file' }, { status: 404 });
+  return { real: resolved.real, stat: st };
+}
+
+/**
+ * As {@link folderOrError}, for the two scan routes, whose refusals carry
+ * `ok: false` and spell the field `folderId`.
+ *
+ * A second function rather than a flag on the first: both envelopes are on the
+ * wire, and a boolean argument that silently decides which one a client parses
+ * is the kind of thing that gets passed wrong once and is never noticed.
+ */
+async function scanTargetOrError(rawId: string): Promise<FolderWithId | Response> {
+  const id = safeObjectId(rawId);
+  if (id === null) {
+    return Response.json({ ok: false, error: 'Invalid folderId' }, { status: 400 });
+  }
+  const folder = await findFolderById(id);
+  return folder ?? Response.json({ ok: false, error: 'Folder not found' }, { status: 404 });
+}
+
+/**
+ * Re-walks a library and stamps the time it finished, which is what both scan
+ * routes mean by scanning: the walk pushes every supported file through the
+ * discover producer, and `last_scan` is what the de-bounce on `/:id/scan`
+ * reads afterwards. Returns the stamp so the caller can hand it back.
+ */
+async function rewalkFolder(folder: FolderWithId): Promise<string> {
+  await scanFolderAndDiscover(folder.path, folder._id, folder.path);
+  const scannedAt = new Date().toISOString();
+  await setFolderLastScan(folder._id, scannedAt);
+  return scannedAt;
 }
 
 export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
@@ -413,18 +487,11 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // library. The stage controllers pick them up on their next poll cycle.
   .post(
     '/:id/rescan',
-    async ({ params, set }) => {
+    async ({ params }) => {
       const folderIdStr = params.id;
-      if (!ObjectId.isValid(folderIdStr)) {
-        set.status = 400;
-        return { ok: false, error: 'Invalid folderId' };
-      }
-      const id = new ObjectId(folderIdStr);
-      const folder = await findFolderById(id);
-      if (!folder) {
-        set.status = 404;
-        return { ok: false, error: 'Folder not found' };
-      }
+      const folder = await scanTargetOrError(folderIdStr);
+      if (folder instanceof Response) return folder;
+      const id = folder._id;
       const scanRoot = folder.path;
 
       // Zero every stage's version and clear dead/attempts/last_error so the
@@ -439,9 +506,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // it could not recover a file whose only fileinfo was a soft-deleted old
       // path. The walk runs to completion within the request: libraries are
       // bounded and the dedup path is idempotent + concurrency-safe.
-      await scanFolderAndDiscover(scanRoot, id, scanRoot);
-      const scannedAt = new Date().toISOString();
-      await setFolderLastScan(id, scannedAt);
+      const scannedAt = await rewalkFolder(folder);
 
       log.info(
         {
@@ -475,18 +540,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // get an authoritative "scan done" before refreshing their listing.
   .post(
     '/:id/scan',
-    async ({ params, set }) => {
+    async ({ params }) => {
       const folderIdStr = params.id;
-      if (!ObjectId.isValid(folderIdStr)) {
-        set.status = 400;
-        return { ok: false, error: 'Invalid folderId' };
-      }
-      const id = new ObjectId(folderIdStr);
-      const folder = await findFolderById(id);
-      if (!folder) {
-        set.status = 404;
-        return { ok: false, error: 'Folder not found' };
-      }
+      const folder = await scanTargetOrError(folderIdStr);
+      if (folder instanceof Response) return folder;
 
       // last_scan de-bounce: skip the re-walk when the folder was scanned
       // within the recent window. Repeated/concurrent calls are safe either
@@ -503,9 +560,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         };
       }
 
-      await scanFolderAndDiscover(folder.path, id, folder.path);
-      const scannedAt = new Date().toISOString();
-      await setFolderLastScan(id, scannedAt);
+      const scannedAt = await rewalkFolder(folder);
 
       log.info(
         { folderId: folderIdStr, path: folder.path },
@@ -533,19 +588,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   .post(
     '/:id/upload',
     async ({ params, headers, request, set }) => {
-      let folderId: ObjectId;
-      try {
-        folderId = new ObjectId(params.id);
-      } catch {
-        set.status = 400;
-        return { error: 'Invalid folder id' };
-      }
-
-      const folder = await findFolderById(folderId);
-      if (!folder) {
-        set.status = 404;
-        return { error: 'Folder not found' };
-      }
+      const folder = await folderOrError(params.id);
+      if (folder instanceof Response) return folder;
+      const folderId = folder._id;
 
       const validated = decodeAndValidateTargetPath(headers);
       if (!validated.ok) {
@@ -871,36 +916,13 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Stream the raw bytes of a file addressed by its library-relative path.
   // Used by the File Provider to materialize non-indexed files (which have
   // no AssetDoc, so the `/api/assets/:id/raw` route can't reach them).
-  .get('/:id/file', async ({ params, query, set }) => {
-    let folderId: ObjectId;
-    try {
-      folderId = new ObjectId(params.id);
-    } catch {
-      set.status = 400;
-      return { error: 'Invalid folder id' };
-    }
-    const folder = await findFolderById(folderId);
-    if (!folder) {
-      set.status = 404;
-      return { error: 'Folder not found' };
-    }
-    const resolved = await resolveFolderRelPath(folder.path, query.path);
-    if (!resolved.ok) {
-      set.status = resolved.status;
-      return { error: resolved.error };
-    }
-    let st: Awaited<ReturnType<typeof stat>>;
-    try {
-      st = await stat(resolved.real);
-    } catch {
-      set.status = 404;
-      return { error: 'file not found' };
-    }
-    if (!st.isFile()) {
-      set.status = 404;
-      return { error: 'not a regular file' };
-    }
-    return new Response(Bun.file(resolved.real).stream(), {
+  .get('/:id/file', async ({ params, query }) => {
+    const folder = await folderOrError(params.id);
+    if (folder instanceof Response) return folder;
+    const file = await folderFileOrError(folder.path, query.path);
+    if (file instanceof Response) return file;
+    const { real, stat: st } = file;
+    return new Response(Bun.file(real).stream(), {
       status: 200,
       headers: {
         'Content-Type': 'application/octet-stream',
@@ -913,40 +935,17 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Stat a file addressed by its library-relative path. Lets the File
   // Provider resolve a bare `.file(folderID, relativePath)` identifier to an
   // item (size + mtime) without downloading the bytes.
-  .get('/:id/file-meta', async ({ params, query, set }) => {
-    let folderId: ObjectId;
-    try {
-      folderId = new ObjectId(params.id);
-    } catch {
-      set.status = 400;
-      return { error: 'Invalid folder id' };
-    }
-    const folder = await findFolderById(folderId);
-    if (!folder) {
-      set.status = 404;
-      return { error: 'Folder not found' };
-    }
-    const resolved = await resolveFolderRelPath(folder.path, query.path);
-    if (!resolved.ok) {
-      set.status = resolved.status;
-      return { error: resolved.error };
-    }
-    let st: Awaited<ReturnType<typeof stat>>;
-    try {
-      st = await stat(resolved.real);
-    } catch {
-      set.status = 404;
-      return { error: 'file not found' };
-    }
-    if (!st.isFile()) {
-      set.status = 404;
-      return { error: 'not a regular file' };
-    }
-    const name = nodePath.basename(resolved.real);
+  .get('/:id/file-meta', async ({ params, query }) => {
+    const folder = await folderOrError(params.id);
+    if (folder instanceof Response) return folder;
+    const file = await folderFileOrError(folder.path, query.path);
+    if (file instanceof Response) return file;
+    const { real, stat: st } = file;
+    const name = nodePath.basename(real);
     const dot = name.lastIndexOf('.');
     return {
       name,
-      path: resolved.real,
+      path: real,
       size: st.size,
       mtime: new Date(st.mtimeMs).toISOString(),
       ext: dot >= 0 ? name.slice(dot + 1).toLowerCase() : '',
@@ -967,19 +966,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   .post(
     '/:id/mkdir',
     async ({ params, headers, set }) => {
-      let folderId: ObjectId;
-      try {
-        folderId = new ObjectId(params.id);
-      } catch {
-        set.status = 400;
-        return { error: 'Invalid folder id' };
-      }
-
-      const folder = await findFolderById(folderId);
-      if (!folder) {
-        set.status = 404;
-        return { error: 'Folder not found' };
-      }
+      const folder = await folderOrError(params.id);
+      if (folder instanceof Response) return folder;
 
       const validated = decodeAndValidateTargetPath(headers);
       if (!validated.ok) {
@@ -1018,19 +1006,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   .post(
     '/:id/move',
     async ({ params, headers, set }) => {
-      let folderId: ObjectId;
-      try {
-        folderId = new ObjectId(params.id);
-      } catch {
-        set.status = 400;
-        return { error: 'Invalid folder id' };
-      }
-
-      const folder = await findFolderById(folderId);
-      if (!folder) {
-        set.status = 404;
-        return { error: 'Folder not found' };
-      }
+      const folder = await folderOrError(params.id);
+      if (folder instanceof Response) return folder;
 
       const source = validateRelPathHeader(headers['x-maple-source-path'], 'X-Maple-Source-Path');
       if (!source.ok) {
@@ -1109,19 +1086,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   .get(
     '/:id/trash',
     async ({ params, query, set }) => {
-      let folderId: ObjectId;
-      try {
-        folderId = new ObjectId(params.id);
-      } catch {
-        set.status = 400;
-        return { error: 'Invalid folder id' };
-      }
-
-      const folder = await findFolderById(folderId);
-      if (!folder) {
-        set.status = 404;
-        return { error: 'Folder not found' };
-      }
+      const folder = await folderOrError(params.id);
+      if (folder instanceof Response) return folder;
+      const folderId = folder._id;
 
       // Parse + validate `limit`. `Number("abc")` is `NaN`, which
       // `Math.min/max` preserve, and a `NaN` bound as a `LIMIT` is not a
