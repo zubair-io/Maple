@@ -248,6 +248,186 @@ UPDATE stage_state
 `;
 
 /**
+ * The three `assets` columns that decide whether a stage may claim an asset,
+ * as one expression over a given table alias (`''` for an unqualified
+ * reference, `'NEW'` / `'OLD'` inside a trigger).
+ *
+ * The first two are `LIVE_ASSET_PREDICATE` verbatim — not a paraphrase of
+ * it, which `stage-state.asset-claimable.test.ts` pins by substring — and the
+ * third is the operator-clearable damaged tag. Together they are exactly the
+ * question `ASSET_CLAIMABLE_SQL` asks per candidate row in the claim.
+ */
+export function assetClaimableExpression(qualifier = ''): string {
+  const q = qualifier === '' ? '' : `${qualifier}.`;
+  return `(${q}deleted_at IS NULL AND ${q}live_location_count > 0 AND ${q}damaged_since IS NULL)`;
+}
+
+/**
+ * `stage_state.asset_claimable` — whether the asset behind this stage row is
+ * live and undamaged, denormalised onto the stage row so the Workers page's
+ * backlog counts can be answered from an index (#3804).
+ *
+ * ## What it costs today
+ *
+ * `countStageBacklog` asks the claim's question without the claim's `LIMIT`, so
+ * each of its two counts walks the whole backlog for the stage and probes
+ * `assets` once per row. The probe is keyed, but `assets_live_id` is partial on
+ * liveness only, so `damaged_since IS NULL` still has to read the asset row —
+ * and the asset row is the widest in the schema. Measured on a generated
+ * library of the production shape (335,377 assets, 4.02 M stage rows), the
+ * twelve stages' pending counts cost 2,082 ms and `describe`'s alone 350 ms.
+ *
+ * This is the same shape {@link STAGE_STATE_MEDIA_KIND_DDL} fixed for the
+ * media-only stages, and the fix is the same: put the asset-level fact in the
+ * stage row, and put the stage row's copy in the index the scan already reads.
+ *
+ * ## Here the mirror is authoritative, and that is the difference
+ *
+ * `media_kind` narrows and leaves `assets` to decide, because it feeds a claim
+ * and a claim that skipped an asset on a stale mirror would strand it. These
+ * two counts drop the `EXISTS` entirely, because narrowing would buy nothing —
+ * almost every asset is live, so the probe would still run on almost every row.
+ *
+ * That is a smaller step than it reads. `live_location_count` is itself a
+ * trigger-maintained roll-up that `LIVE_ASSET_PREDICATE` already treats as
+ * authoritative everywhere in this schema, claims included; this column is the
+ * same kind of value one hop further out, with the same trigger ownership and
+ * the same one-statement repair. And the claim is untouched — it keeps its
+ * `EXISTS` over `assets`, so the set of assets a stage actually claims is
+ * unchanged, and a drifted mirror could only ever misreport a number on a
+ * settings page.
+ *
+ * ## `stage_dep` is the other half
+ *
+ * With the probe gone, `ready`'s remaining cost is its `dependsOn` gate: an
+ * `EXISTS` on the dependency's own stage row, keyed on the primary key of a
+ * 4 million-row `WITHOUT ROWID` table whose B-tree carries every row body — 324
+ * MB pulled through the page cache to read one integer per probe.
+ * `stage_dep` answers the same question from 167 MB of covering index whose hot
+ * region is the one dependency stage's 13 MB, and the claim's own `dependsOn`
+ * probe picks it up for free. `ready` for the twelve stages falls from 3,584 ms
+ * to 814 ms; the whole pass goes 5,666 ms to 896 ms.
+ *
+ * Under the refresher's own cadence (`STAGE_COUNTS_MIN_INTERVAL_MS` 5 s,
+ * `BACKOFF_FACTOR` 3) that is the difference between a pass that throttles
+ * itself and one that does not: anything slower than 1.67 s earns a rest longer
+ * than the 5 s floor, so today's pass holds about a quarter of a reader
+ * continuously and still refreshes the page more slowly than it asked to.
+ *
+ * It is deliberately NOT partial on the four stages that are dependencies
+ * today. `stage` is free-form data precisely so that registering a stage is an
+ * insert rather than a schema change, and an index that listed the dependency
+ * graph would silently stop covering the first `dependsOn` edge added to a
+ * stage outside the list.
+ *
+ * `DEFAULT 1` makes the `ALTER TABLE` metadata-only on 4 million rows, and
+ * leaves the backfill only the minority to stamp.
+ */
+export const STAGE_STATE_ASSET_CLAIMABLE_DDL = `
+ALTER TABLE stage_state ADD COLUMN asset_claimable INTEGER NOT NULL DEFAULT 1;
+
+-- Both claim indexes gain the column as a trailing member, so the backlog
+-- counts read it from the entry the scan is already on rather than seeking into
+-- the row. Trailing, so the leading columns keep the order the claim's range
+-- scan and its free ORDER BY depend on.
+DROP INDEX stage_claim;
+CREATE INDEX stage_claim
+  ON stage_state (stage, version, dead, next_attempt_at, asset_id, asset_claimable);
+
+DROP INDEX stage_claim_media;
+CREATE INDEX stage_claim_media
+  ON stage_state (stage, version, dead, next_attempt_at, asset_id, media_kind, asset_claimable)
+  WHERE media_kind IN ('video', 'audio');
+
+-- The dependency probe: one stage's rows in asset_id order, carrying the
+-- version the gate compares. Covering, so the probe never touches the table.
+CREATE INDEX stage_dep
+  ON stage_state (stage, asset_id, version);
+`;
+
+/**
+ * The gate a backlog count applies in place of the claim's `EXISTS` over
+ * `assets`.
+ *
+ * Qualified by table name because the counts splice a stage's own residual into
+ * the same `WHERE`, and a bare `asset_claimable` beside a correlated subquery
+ * that also has the column in scope reads ambiguously to someone, even where
+ * SQLite resolves it. Same reason {@link STAGE_STATE_MEDIA_NARROWING} is
+ * qualified.
+ */
+export const STAGE_STATE_CLAIMABLE_NARROWING = `stage_state.asset_claimable = 1`;
+
+/**
+ * Keeps `stage_state.asset_claimable` in step with `assets`.
+ *
+ * Exported apart from the rest of the DDL so a bulk load can drop them, run
+ * {@link STAGE_STATE_ASSET_CLAIMABLE_RECOMPUTE_SQL} once and put them back —
+ * the same trade the media-kind and location-count triggers make, and a sharper
+ * one here: a triggerless load leaves every asset at `live_location_count = 0`,
+ * so restoring this trigger BEFORE the location counts are recomputed would
+ * turn that one statement into 4 million single-row stage updates. Both
+ * `import/run.ts` and the benchmark generator recompute first for that reason.
+ *
+ * The insert trigger is guarded by a `WHEN`, so the common case — a stage row
+ * seeded for a live asset, which already reads 1 — costs one keyed lookup and
+ * no write. The update trigger is narrowed to the three columns that can change
+ * the answer and guarded on the answer actually flipping, so an ordinary EXIF
+ * patch does not reach it and a re-run of the location-count recompute costs
+ * one boolean comparison per asset rather than a write.
+ */
+export const STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_DDL = `
+CREATE TRIGGER stage_state_asset_claimable_ai AFTER INSERT ON stage_state
+WHEN NEW.asset_claimable IS NOT
+     (SELECT ${assetClaimableExpression()} FROM assets WHERE id = NEW.asset_id)
+BEGIN
+  UPDATE stage_state
+     SET asset_claimable =
+           (SELECT ${assetClaimableExpression()} FROM assets WHERE id = NEW.asset_id)
+   WHERE asset_id = NEW.asset_id AND stage = NEW.stage;
+END;
+
+CREATE TRIGGER assets_claimable_stage_state_au
+AFTER UPDATE OF deleted_at, live_location_count, damaged_since ON assets
+WHEN ${assetClaimableExpression('NEW')} IS NOT ${assetClaimableExpression('OLD')}
+BEGIN
+  UPDATE stage_state
+     SET asset_claimable = ${assetClaimableExpression('NEW')}
+   WHERE asset_id = NEW.id;
+END;
+`;
+
+/** Names of the triggers above, so a bulk load can drop them by name. */
+export const STAGE_STATE_ASSET_CLAIMABLE_TRIGGER_NAMES = [
+  'stage_state_asset_claimable_ai',
+  'assets_claimable_stage_state_au',
+] as const;
+
+/**
+ * Rebuilds every `stage_state.asset_claimable` from `assets`.
+ *
+ * Migration `0003`'s backfill, the pass a triggerless bulk load runs before it
+ * restores the triggers, and the repair any operator can run if the column is
+ * ever doubted.
+ *
+ * Two statements rather than one blanket `UPDATE … SET asset_claimable = (SELECT
+ * …)`, for the reason the media-kind recompute gives: that form rewrites all 4
+ * million rows to put almost all of them back the way they were. The first
+ * statement lifts the minority that currently read 0 — found through
+ * `stage_claim`, which carries the column, so it is a covering scan and not a
+ * table read — and the second stamps the minority that should. Measured at
+ * 352 ms on the production shape against a full rewrite's minutes.
+ */
+export const STAGE_STATE_ASSET_CLAIMABLE_RECOMPUTE_SQL = `
+UPDATE stage_state SET asset_claimable = 1 WHERE asset_claimable = 0;
+
+UPDATE stage_state
+   SET asset_claimable = 0
+ WHERE asset_id IN (
+         SELECT id FROM assets WHERE NOT ${assetClaimableExpression()}
+       );
+`;
+
+/**
  * `enrichment_state` — the older per-stage bookkeeping under `enrichment.*`.
  *
  * Deliberately a second table rather than extra columns on `stage_state`: the
