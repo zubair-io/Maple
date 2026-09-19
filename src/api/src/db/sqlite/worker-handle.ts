@@ -109,11 +109,32 @@ export class SqliteWorkerHandle {
    */
   async start(path: string): Promise<void> {
     const worker = this.spawnOrThrow();
-    worker.addEventListener('message', (event: MessageEvent) => this.onMessage(event));
-    worker.addEventListener('error', (event: ErrorEvent) =>
-      this.onDeath(`worker errored — ${event.message || 'unknown error'}`),
-    );
-    worker.addEventListener('close', () => this.onDeath('worker exited'));
+    /**
+     * Whether this event came from the thread the handle owns *now*.
+     *
+     * A handle outlives its worker. `restart()` kills the old thread and then
+     * clears the death flag so the replacement can hand-shake, and a thread
+     * being killed emits `close` a turn of the loop later — by which time the
+     * replacement is the one that would be marked dead by it. Worse, the
+     * likeliest reason to be here is an `error` without an exit, where the old
+     * thread is genuinely still running when the respawn kills it, so the event
+     * is certain rather than a race.
+     *
+     * Without this the first uncaught throw inside a reader cost the pool every
+     * rung of its ladder — four replacements, each killed by the previous
+     * corpse — and retired the slot. One bad query, reads down until restart:
+     * the exact outage #3782 exists to prevent, delivered by its own fix.
+     */
+    const isCurrent = (): boolean => this.worker === worker;
+    worker.addEventListener('message', (event: MessageEvent) => {
+      if (isCurrent()) this.onMessage(event);
+    });
+    worker.addEventListener('error', (event: ErrorEvent) => {
+      if (isCurrent()) this.onDeath(`worker errored — ${event.message || 'unknown error'}`);
+    });
+    worker.addEventListener('close', () => {
+      if (isCurrent()) this.onDeath('worker exited');
+    });
     this.worker = worker;
 
     try {
