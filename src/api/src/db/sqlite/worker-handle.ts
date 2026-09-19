@@ -109,6 +109,13 @@ export class SqliteWorkerHandle {
    */
   async start(path: string): Promise<void> {
     const worker = this.spawnOrThrow();
+    // Claimed before the listeners go on, so that `isCurrent` below is already
+    // true for anything the new thread emits. A worker that fails immediately —
+    // a bad module URL, say — can fire `error` very early, and with the
+    // assignment after the listeners that event would be read as coming from a
+    // worker this handle does not own and dropped, turning a startup failure
+    // that names itself into one that waits out the request timeout.
+    this.worker = worker;
     /**
      * Whether this event came from the thread the handle owns *now*.
      *
@@ -135,7 +142,6 @@ export class SqliteWorkerHandle {
     worker.addEventListener('close', () => {
       if (isCurrent()) this.onDeath('worker exited');
     });
-    this.worker = worker;
 
     try {
       await this.send({ kind: 'open', id: 0, path, role: this.role });
