@@ -222,6 +222,39 @@ describe('asset_subjects is derived from the payload, not written beside it', ()
   });
 });
 
+describe('the other triggers on assets', () => {
+  test('a write that fires both trigger sets satisfies both (#3795, #3768)', async () => {
+    using handle = await createTestDatabase();
+    const { db } = handle;
+    const { id } = seedOne(db, { filename: 'clip.mp4', mediaKind: 'image' });
+    run(
+      db,
+      `INSERT INTO stage_state (asset_id, stage, version, attempts, dead) VALUES (?, 'thumb', 0, 0, 0)`,
+      id,
+    );
+
+    // Two independent triggers watch `assets`, on disjoint columns: #3795
+    // stamps `media_kind` onto `stage_state`, and #3768 mirrors liveness and
+    // visibility onto the four facet satellites. One statement assigns a
+    // column each of them watches, which is the case a clean textual merge of
+    // the two branches would never have exercised.
+    run(db, `UPDATE assets SET media_kind = 'video', hidden = 1 WHERE id = ?`, id);
+
+    expect(db.query(`SELECT media_kind FROM stage_state WHERE asset_id = ?`).get(id)).toEqual({
+      media_kind: 'video',
+    });
+    expect((await facetsOf(db)).total).toBe(0);
+    expect((await facetsOf(db, { hidden: 'only' })).subjects).toHaveLength(2);
+
+    // And the reverse order, on the same row.
+    run(db, `UPDATE assets SET hidden = 0, media_kind = 'audio' WHERE id = ?`, id);
+    expect(db.query(`SELECT media_kind FROM stage_state WHERE asset_id = ?`).get(id)).toEqual({
+      media_kind: 'audio',
+    });
+    expect((await facetsOf(db)).total).toBe(1);
+  });
+});
+
 describe('a row count still means rows of assets', () => {
   test('hiding a folder reports the assets it hid, not the rows it wrote', async () => {
     using handle = await createTestDatabase();
