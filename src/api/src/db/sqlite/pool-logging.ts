@@ -43,7 +43,13 @@ export function logReaderRespawn(event: ReaderRespawnEvent): void {
     return;
   }
   if (event.outcome === 'failed') {
-    log.warn(fields, 'sqlite reader respawn attempt failed — retrying');
+    // Deliberately does not say "retrying". This fires once per rung, and on
+    // the last rung the pool discovers the ladder is spent and retires the slot
+    // in the same millisecond — so the promise would be broken by the very next
+    // line, during an outage, which is the worst moment to be reading a log
+    // that tells you to wait. What happens next is said by the line that
+    // follows, either a respawn or a retirement, within ten seconds at most.
+    log.warn(fields, 'sqlite reader respawn attempt failed');
     return;
   }
   log.error(
