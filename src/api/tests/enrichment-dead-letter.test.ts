@@ -5,7 +5,7 @@
  *
  * The storage-level behaviour — the index-ordered list, the histogram's
  * grouping, the guard that stops a reset touching a row that is not parked —
- * is pinned in `src/db/sqlite/repos/enrichment-state.repo.test.ts`. What this
+ * is pinned in `src/db/repos/enrichment-state.repo.test.ts`. What this
  * file adds is the policy this module owns (the default and maximum limit, the
  * 80-character error class) and the HTTP surface.
  */
@@ -26,7 +26,7 @@ import {
   insertFolder,
   insertLocation,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { insertEnrichmentState } from '../src/db/sqlite/repos/assets.test-helpers.ts';
+import { insertEnrichmentState } from '../src/db/repos/assets.test-helpers.ts';
 
 // Mounted WITHOUT requireAuth — mirrors enrichment-route.test.ts.
 const app = new Elysia().use(enrichmentAdminRoutes);

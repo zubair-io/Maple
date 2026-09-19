@@ -3,7 +3,7 @@
  *
  * The PKCE properties — single use, and a wrong verifier that neither succeeds
  * nor burns the code — are covered against the repository in
- * `db/sqlite/repos/auth.sessions.repo.test.ts`. This file covers the module the
+ * `db/repos/auth.sessions.repo.test.ts`. This file covers the module the
  * native auth routes actually import: that its three operations and the
  * re-exported `pkceS256` still resolve, and that they now write to SQLite.
  */
@@ -15,7 +15,7 @@ import {
   pkceS256,
   redeemNativeCode,
 } from '../../src/auth/native_code_store.ts';
-import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import { insertUser } from '../../src/db/repos/auth.users.repo.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

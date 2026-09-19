@@ -20,7 +20,7 @@ import {
   createLiveTestDatabase,
   type LiveTestDatabase,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { insertDetail, insertEnrichmentState } from '../src/db/sqlite/repos/assets.test-helpers.ts';
+import { insertDetail, insertEnrichmentState } from '../src/db/repos/assets.test-helpers.ts';
 import { fakeAuth } from './helpers/test-auth.ts';
 import {
   enrichmentStateRow,

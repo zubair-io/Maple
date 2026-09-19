@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { cloudflareRoutes } from '../src/routes/cloudflare.ts';
-import { readAppSettings } from '../src/db/sqlite/repos/app-settings.repo.ts';
+import { readAppSettings } from '../src/db/repos/app-settings.repo.ts';
 import { newObjectIdHex } from '../src/db/object-id.ts';
 import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 

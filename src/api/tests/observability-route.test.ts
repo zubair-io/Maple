@@ -22,7 +22,7 @@
 import { describe, it, expect, afterAll, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { observabilityRoutes } from '../src/routes/observability.ts';
-import { patchAppSettings, readAppSettings } from '../src/db/sqlite/repos/app-settings.repo.ts';
+import { patchAppSettings, readAppSettings } from '../src/db/repos/app-settings.repo.ts';
 import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 
 const app = new Elysia().use(observabilityRoutes);

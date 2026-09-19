@@ -20,7 +20,7 @@ import {
   createLiveTestDatabase,
   type LiveTestDatabase,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { insertDetail } from '../src/db/sqlite/repos/assets.test-helpers.ts';
+import { insertDetail } from '../src/db/repos/assets.test-helpers.ts';
 import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 import {
   assetRow,

@@ -13,7 +13,7 @@
  * harness does not already cover. `insertFolder` / `insertAsset` /
  * `insertLocation` (in `db/sqlite/test-sqlite.test-helpers.ts`) and
  * `insertDetail` / `insertEnrichmentState` (in
- * `db/sqlite/repos/assets.test-helpers.ts`) are the building blocks; nothing
+ * `db/repos/assets.test-helpers.ts`) are the building blocks; nothing
  * below re-implements one.
  */
 

@@ -3,7 +3,7 @@
  *
  * The invite rules themselves — the four distinct 410s, creation order, the
  * `Date` the DTO promises — are covered against the repository in
- * `db/sqlite/repos/auth.enrolment.repo.test.ts`. This file exists for the one
+ * `db/repos/auth.enrolment.repo.test.ts`. This file exists for the one
  * thing that test cannot see: that the module `routes/auth.ts` imports still
  * exports those four operations, and that they now land in SQLite rather than
  * in a collection nothing opens any more.
@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import { createInvite, listInvites, redeemInvite, rescindInvite } from '../../src/auth/invites.ts';
-import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import { insertUser } from '../../src/db/repos/auth.users.repo.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
