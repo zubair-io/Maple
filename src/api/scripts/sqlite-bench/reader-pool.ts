@@ -55,6 +55,9 @@ const SLOW_SQL = stagePendingCountSql();
  */
 const SLOW_PARAMS = ['describe', 1_000_000] as const;
 
+const sleep = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 /** The request-path read: one asset by id, served by the primary key. */
 const POINT_SQL = `SELECT id, size, rating, media_kind FROM assets WHERE id = ?`;
 
@@ -130,31 +133,45 @@ function startSlowLoad(pool: SqlitePool, count: number): () => Promise<void> {
   };
 }
 
+/**
+ * One request-path read, timed — or null when the pool had no live reader to
+ * run it on, which is a read that did not happen rather than a slow one.
+ *
+ * The null path yields a real macrotask before returning. A pool with no live
+ * reader rejects on the microtask queue, so a caller that retries with no delay
+ * never lets the queue drain, and the respawn's backoff is a `setTimeout` on
+ * the other side of it. Without the yield the two-readers-killed row reported
+ * 5,832,410 failed reads and no respawn — the rig starving the fix rather than
+ * the fix not working. No production caller retries a rejected read in a tight
+ * loop; each is an HTTP handler that returns, or a poll loop with an interval.
+ */
+async function timedRead(pool: SqlitePool, id: string): Promise<number | null> {
+  const startedAt = performance.now();
+  try {
+    const rows = await pool.read(POINT_SQL, [id]);
+    if (rows.length !== 1) {
+      throw new Error(`reader-pool bench: point lookup returned ${rows.length} rows`);
+    }
+    return performance.now() - startedAt;
+  } catch (error) {
+    if (!isExpectedReaderDeath(error)) throw error;
+    await sleep(1);
+    return null;
+  }
+}
+
 /** One request-path read at a time for `WINDOW_MS`, timed individually. */
 async function sampleRequestPath(pool: SqlitePool, id: string): Promise<Sample> {
   const samples: number[] = [];
   const until = performance.now() + WINDOW_MS;
   let errors = 0;
   while (performance.now() < until) {
-    const startedAt = performance.now();
-    try {
-      const rows = await pool.read(POINT_SQL, [id]);
-      if (rows.length !== 1)
-        throw new Error(`reader-pool bench: point lookup returned ${rows.length} rows`);
-      samples.push(performance.now() - startedAt);
-    } catch (error) {
-      if (!isExpectedReaderDeath(error)) throw error;
-      // The window the pool has no reader to run on. Counted rather than timed:
-      // it is a read that did not happen, not a slow one, and averaging it into
-      // the latency would flatter exactly the case worth seeing.
-      errors += 1;
-    }
+    const elapsed = await timedRead(pool, id);
+    if (elapsed === null) errors += 1;
+    else samples.push(elapsed);
   }
   return summarise(samples, errors);
 }
-
-const sleep = (milliseconds: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /**
  * A pool, warmed so no cell pays for statement preparation.
@@ -164,21 +181,21 @@ const sleep = (milliseconds: number): Promise<void> =>
  * lock it held is released by the OS a moment later. The next open can lose
  * that race and see SQLITE_BUSY. A rig artefact, not a pool defect.
  */
+async function openOnce(readers: number, respawn: boolean): Promise<SqlitePool> {
+  // An empty ladder retires a dead reader on the spot, which is exactly the
+  // behaviour that shipped before #3782 — so the same rig measures both sides
+  // of that change without a second code path.
+  const pool = await SqlitePool.open(
+    respawn ? { path: DB_PATH, readers } : { path: DB_PATH, readers, respawnDelaysMs: [] },
+  );
+  await Promise.all(Array.from({ length: readers }, () => pool.read(SLOW_SQL, [...SLOW_PARAMS])));
+  return pool;
+}
+
 async function openWarm(readers: number, respawn = true): Promise<SqlitePool> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const pool = await SqlitePool.open({
-        path: DB_PATH,
-        readers,
-        // An empty ladder retires a dead reader on the spot, which is exactly
-        // the behaviour that shipped before #3782 — so the same rig measures
-        // both sides of that change without a second code path.
-        ...(respawn ? {} : { respawnDelaysMs: [] }),
-      });
-      await Promise.all(
-        Array.from({ length: readers }, () => pool.read(SLOW_SQL, [...SLOW_PARAMS])),
-      );
-      return pool;
+      return await openOnce(readers, respawn);
     } catch (error) {
       if (attempt >= 5) throw error;
       await sleep(250);
