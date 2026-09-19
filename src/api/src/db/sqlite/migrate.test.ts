@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import type { Database } from 'bun:sqlite';
 import {
   appliedMigrations,
   assertMigrationOrder,
@@ -289,11 +290,17 @@ describe('the migrated schema', () => {
         .all() as Array<{ name: string }>
     ).map((r) => r.name);
 
-    // Three, and none of them per-stage: the claim scan, the dead-letter list,
-    // and the claim scan for a stage narrowed to video or audio (#3795).
-    // Registering a stage is still an insert rather than two more indexes,
-    // which is the property the count is here to protect.
-    expect(stageIndexes.sort()).toEqual(['stage_claim', 'stage_claim_media', 'stage_dead']);
+    // Four, and none of them per-stage: the claim scan, the dead-letter list,
+    // the claim scan for a stage narrowed to video or audio (#3795), and the
+    // dependency probe the backlog counts lean on (#3804). Registering a stage
+    // is still an insert rather than two more indexes, which is the property
+    // the count is here to protect.
+    expect(stageIndexes.sort()).toEqual([
+      'stage_claim',
+      'stage_claim_media',
+      'stage_dead',
+      'stage_dep',
+    ]);
   });
 });
 
@@ -353,5 +360,71 @@ describe('0002 on a database that already carries 0001', () => {
       media_kind: string;
     };
     expect(row.media_kind).toBe('audio');
+  });
+});
+
+/**
+ * `0003`'s upgrade path, which has one more way to be wrong than `0002`'s.
+ *
+ * The backfill has to find rows that already exist AND rebuild two indexes that
+ * already exist, in an order where each step can still see what it needs: the
+ * backfill's first statement reads `asset_claimable` through `stage_claim`, so
+ * the index has to carry the column by then, and the triggers have to arrive
+ * last or the backfill becomes a per-row write (#3804).
+ */
+describe('0003 on a database that already carries 0001 and 0002', () => {
+  /** One live asset and one soft-deleted one, each with a stage row. */
+  function seedTwoAssets(db: Database): { live: string; trashed: string } {
+    const live = 'c'.repeat(24);
+    const trashed = 'd'.repeat(24);
+    for (const id of [live, trashed]) {
+      db.run(
+        `INSERT INTO assets (id, size, mtime, indexed_at, live_location_count)
+         VALUES (?, 1, 1, '2026-01-01T00:00:00Z', 1)`,
+        [id],
+      );
+      db.run(`INSERT INTO stage_state (asset_id, stage) VALUES (?, 'exif')`, [id]);
+    }
+    db.run(`UPDATE assets SET deleted_at = '2026-02-01T00:00:00Z' WHERE id = ?`, [trashed]);
+    return { live, trashed };
+  }
+
+  const claimableOf = (db: Database, id: string): number =>
+    (
+      db.query(`SELECT asset_claimable FROM stage_state WHERE asset_id = ?`).get(id) as {
+        asset_claimable: number;
+      }
+    ).asset_claimable;
+
+  test('backfills the mirror onto the stage rows that were already there', async () => {
+    using handle = createBlankTestDatabase();
+    const { db, migrationDb } = handle;
+    await runMigrations(migrationDb, ALL_MIGRATIONS.slice(0, 2));
+    const { live, trashed } = seedTwoAssets(db);
+
+    // No column to read yet — that is the state the migration starts from.
+    expect(
+      (
+        db.query(`SELECT name FROM pragma_table_info('stage_state')`).all() as Array<{
+          name: string;
+        }>
+      ).map((r) => r.name),
+    ).not.toContain('asset_claimable');
+
+    await runMigrations(migrationDb, ALL_MIGRATIONS);
+
+    expect(claimableOf(db, live)).toBe(1);
+    expect(claimableOf(db, trashed)).toBe(0);
+  });
+
+  test('leaves the triggers in charge afterwards', async () => {
+    using handle = createBlankTestDatabase();
+    const { db, migrationDb } = handle;
+    await runMigrations(migrationDb, ALL_MIGRATIONS.slice(0, 2));
+    const { live } = seedTwoAssets(db);
+    await runMigrations(migrationDb, ALL_MIGRATIONS);
+
+    db.run(`UPDATE assets SET damaged_since = '2026-03-01T00:00:00Z' WHERE id = ?`, [live]);
+    expect(claimableOf(db, live)).toBe(0);
   });
 });
