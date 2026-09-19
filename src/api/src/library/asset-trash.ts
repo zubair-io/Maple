@@ -33,11 +33,7 @@ import { composeSearchBlob } from '../enrichment/search-blob.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
 import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
-import {
-  findCoreInfoById,
-  markSoftDeleted,
-  restoreFromTrash,
-} from '../db/repos/assets.repo.ts';
+import { findCoreInfoById, markSoftDeleted, restoreFromTrash } from '../db/repos/assets.repo.ts';
 import type { AssetCoreInfo } from '../db/repos/assets.repo.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';

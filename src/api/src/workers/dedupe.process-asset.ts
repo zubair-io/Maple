@@ -30,10 +30,7 @@ import {
   tagLocationsMissing,
   type LocationAddress,
 } from '../db/repos/assets.sweeps.ts';
-import {
-  stageRearmStatements,
-  RELOCATE_CACHE_STAGES,
-} from '../db/repos/assets.stage-rearm.ts';
+import { stageRearmStatements, RELOCATE_CACHE_STAGES } from '../db/repos/assets.stage-rearm.ts';
 import { child as childLogger } from '../log.ts';
 import { statKind, libraryRootAvailable } from './missing-reaper.helpers.ts';
 import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';

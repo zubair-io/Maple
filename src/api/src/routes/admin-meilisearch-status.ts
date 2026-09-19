@@ -1,9 +1,6 @@
 import { Elysia } from 'elysia';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
-import {
-  readBackfillState,
-  type BackfillStateRow,
-} from '../db/repos/meilisearch-backfill.repo.ts';
+import { readBackfillState, type BackfillStateRow } from '../db/repos/meilisearch-backfill.repo.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { EMBEDDER_NAME, meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {

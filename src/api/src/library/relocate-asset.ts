@@ -34,10 +34,7 @@
 import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
 import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
-import {
-  findLiveOccupantAssetId,
-  repointAssetLocation,
-} from '../db/repos/assets.relocate.repo.ts';
+import { findLiveOccupantAssetId, repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
   relocateFile,
