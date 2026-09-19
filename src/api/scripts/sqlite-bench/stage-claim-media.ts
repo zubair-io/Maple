@@ -42,6 +42,7 @@ import {
 import {
   benchDbPath,
   buildLibrary,
+  queryPlanLines,
   removeDatabase,
   sizeArgument,
   timeStatement,
@@ -88,18 +89,14 @@ const SUBJECTS: Subject[] = [
   { stage: 'describe', targetVersion: 4, dependsOn: [['preview', 1]] },
 ];
 
-function planOf(db: Database, sql: string, params: readonly unknown[]): string {
-  const rows = db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...(params as never[])) as Array<{
-    detail: string;
-  }>;
-  return rows.map((row) => row.detail).join('\n        ');
-}
-
 /** The claim's candidate scan, one tick of it, with its plan. */
 function measureClaim(db: Database, subject: Subject, residual: string | undefined) {
   const sql = stageClaimCandidatesSql(subject.dependsOn.length, 0, residual);
   const params = [subject.stage, subject.targetVersion, NOW, ...subject.dependsOn.flat(), LIMIT];
-  return { ...timeStatement(db, sql, params, RUNS), plan: planOf(db, sql, params) };
+  return {
+    ...timeStatement(db, sql, params, RUNS),
+    plan: queryPlanLines(db, sql, params).join('\n        '),
+  };
 }
 
 /** The Workers page's two backlog counts, which apply the same residual. */
@@ -123,28 +120,41 @@ function line(label: string, ms: number, rows: number): string {
   return `    ${label.padEnd(34)} ${ms.toFixed(2).padStart(9)} ms   ${rows} row(s)`;
 }
 
-function reportSubject(db: Database, subject: Subject, showPlans: boolean): void {
-  console.log(`\n  ${subject.stage}`);
-  if (subject.before === undefined || subject.after === undefined) {
-    const now = measureClaim(db, subject, undefined);
-    const counts = measureCounts(db, subject, undefined);
-    console.log(line('claim tick', now.ms, now.rows));
-    console.log(line('pending count', counts.pending, 1));
-    console.log(line('ready count', counts.ready, 1));
-    if (showPlans) console.log(`        ${now.plan}`);
-    return;
-  }
+/** A stage with nothing to compare — the control. */
+function reportPlain(db: Database, subject: Subject, showPlans: boolean): void {
+  const claim = measureClaim(db, subject, undefined);
+  const counts = measureCounts(db, subject, undefined);
+  console.log(line('claim tick', claim.ms, claim.rows));
+  console.log(line('pending count', counts.pending, 1));
+  console.log(line('ready count', counts.ready, 1));
+  if (showPlans) console.log(`        ${claim.plan}`);
+}
 
-  const before = measureClaim(db, subject, subject.before);
-  const after = measureClaim(db, subject, subject.after);
+/**
+ * The two residual spellings side by side.
+ *
+ * They differ only in the narrowing term, which is AND-ed in front of an
+ * authoritative test both of them carry, so they must select the same assets —
+ * and a benchmark comparing a fast query against a query that answers a
+ * different question is worse than no benchmark. Hence the check rather than a
+ * comment claiming it.
+ */
+function reportComparison(
+  db: Database,
+  subject: Subject,
+  spellings: { before: string; after: string },
+  showPlans: boolean,
+): void {
+  const before = measureClaim(db, subject, spellings.before);
+  const after = measureClaim(db, subject, spellings.after);
   if (before.rows !== after.rows) {
     throw new Error(
       `${subject.stage}: the two residual spellings disagree — ` +
         `${before.rows} rows before, ${after.rows} after. They must select the same assets.`,
     );
   }
-  const beforeCounts = measureCounts(db, subject, subject.before);
-  const afterCounts = measureCounts(db, subject, subject.after);
+  const beforeCounts = measureCounts(db, subject, spellings.before);
+  const afterCounts = measureCounts(db, subject, spellings.after);
   console.log(line('claim tick — residual only', before.ms, before.rows));
   console.log(line('claim tick — narrowed', after.ms, after.rows));
   console.log(line('pending count — residual only', beforeCounts.pending, 1));
@@ -156,7 +166,17 @@ function reportSubject(db: Database, subject: Subject, showPlans: boolean): void
   console.log(`      after:\n        ${after.plan}`);
 }
 
-function shapeOf(db: Database): Record<string, number> {
+function reportSubject(db: Database, subject: Subject, showPlans: boolean): void {
+  console.log(`\n  ${subject.stage}`);
+  const { before, after } = subject;
+  if (before === undefined || after === undefined) {
+    reportPlain(db, subject, showPlans);
+    return;
+  }
+  reportComparison(db, subject, { before, after }, showPlans);
+}
+
+function reportShape(db: Database): void {
   const row = db
     .query(
       `SELECT (SELECT COUNT(*) FROM assets) AS assets,
@@ -168,7 +188,10 @@ function shapeOf(db: Database): Record<string, number> {
                 WHERE stage = 'transcribe' AND version = 0) AS transcribe_at_0`,
     )
     .get() as Record<string, number>;
-  return row;
+  console.log('\nlibrary shape:');
+  for (const [key, value] of Object.entries(row)) {
+    console.log(`  ${key.padEnd(22)} ${value.toLocaleString().padStart(12)}`);
+  }
 }
 
 /**
@@ -192,16 +215,21 @@ function drain(db: Database): void {
   db.exec('ANALYZE');
 }
 
+/** The generated library is 1.6 GB; `--keep` is for looking at it afterwards. */
+async function disposeOf(path: string): Promise<void> {
+  if (process.argv.includes('--keep')) {
+    console.log(`\nkept ${path}`);
+    return;
+  }
+  await removeDatabase(path);
+}
+
 async function main(): Promise<void> {
   const size = sizeArgument(process.argv.slice(2), 335_377);
   const path = benchDbPath('stage-claim-media');
   console.log(`building a ${size.toLocaleString()}-asset library at ${path} …`);
   const db = await buildLibrary(path, size);
-
-  console.log('\nlibrary shape:');
-  for (const [key, value] of Object.entries(shapeOf(db))) {
-    console.log(`  ${key.padEnd(22)} ${value.toLocaleString().padStart(12)}`);
-  }
+  reportShape(db);
 
   console.log('\n=== work available — the stage has a backlog it can act on');
   for (const subject of SUBJECTS) reportSubject(db, subject, false);
@@ -211,11 +239,7 @@ async function main(): Promise<void> {
   for (const subject of SUBJECTS) reportSubject(db, subject, true);
 
   db.close();
-  if (process.argv.includes('--keep')) {
-    console.log(`\nkept ${path}`);
-    return;
-  }
-  await removeDatabase(path);
+  await disposeOf(path);
 }
 
 await main();
