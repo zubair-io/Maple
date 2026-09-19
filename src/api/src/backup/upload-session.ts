@@ -26,7 +26,7 @@
  *
  * ## Where the queries went (#3787)
  *
- * The whole surface moved to `db/sqlite/repos/upload-sessions.repo.ts`, split
+ * The whole surface moved to `db/repos/upload-sessions.repo.ts`, split
  * across that module, `upload-sessions.open.ts` (the decision tree behind
  * `openOrResume`) and `upload-sessions.rows.ts` (the row shape). This file is
  * the import path `routes/backup-ingest.ts`, `routes/backup-rendered.ts` and
@@ -43,4 +43,4 @@ export {
   BusyElsewhereError,
   uploadSessions,
   type OpenOrResumeResult,
-} from '../db/sqlite/repos/upload-sessions.repo.ts';
+} from '../db/repos/upload-sessions.repo.ts';

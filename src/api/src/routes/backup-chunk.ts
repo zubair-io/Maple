@@ -34,7 +34,7 @@ import fs from '../fs/mirrored.ts';
 
 import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
 import { BusyElsewhereError, uploadSessions } from '../backup/upload-session.ts';
-import type { OpenOrResumeArgs } from '../db/sqlite/repos/upload-sessions.repo.ts';
+import type { OpenOrResumeArgs } from '../db/repos/upload-sessions.repo.ts';
 import type { UploadSessionDoc } from '../db/schema.ts';
 
 /** An upload session, open and ready for this request's chunk. */

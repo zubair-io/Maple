@@ -7,7 +7,7 @@
  *
  * The queue's own properties — coalescing a re-detection onto an existing row,
  * the claim lease, the dead-letter arithmetic — belong to
- * `db/sqlite/repos/mirror-queue.repo.test.ts` and are not repeated here. What
+ * `db/repos/mirror-queue.repo.test.ts` and are not repeated here. What
  * this file owns is what the worker does between claiming a row and completing
  * it.
  */

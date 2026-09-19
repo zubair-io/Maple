@@ -30,7 +30,7 @@ import {
   insertBackupAsset,
   linkPhasset,
   type PhassetLink,
-} from '../db/sqlite/repos/backup.repo.ts';
+} from '../db/repos/backup.repo.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
 import { containedJoin } from '../backup/path-safety.ts';

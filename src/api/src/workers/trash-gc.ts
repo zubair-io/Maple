@@ -24,8 +24,8 @@
  */
 
 import { unlink } from 'node:fs/promises';
-import { listTrashedBefore, type TrashedAsset } from '../db/sqlite/repos/assets.sweeps.ts';
-import { hardDelete } from '../db/sqlite/repos/assets.trash.ts';
+import { listTrashedBefore, type TrashedAsset } from '../db/repos/assets.sweeps.ts';
+import { hardDelete } from '../db/repos/assets.trash.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';

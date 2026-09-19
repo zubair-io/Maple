@@ -3,7 +3,7 @@
  * shape (`docs/indexer-enrichment.md` §3.1) but at job granularity rather than
  * per-stage state.
  *
- * Every operation now lives in `db/sqlite/repos/jobs.repo.ts` (#3787), and this
+ * Every operation now lives in `db/repos/jobs.repo.ts` (#3787), and this
  * module is the seam the runner, the HTTP routes and the handlers keep
  * importing. Two things stay here rather than moving down:
  *
@@ -24,7 +24,7 @@
 
 import { batchScopes } from './batch-scope.ts';
 import type { JobWithId } from '../db/schema.ts';
-import { createJob as createJobRow, type CreateJobInput } from '../db/sqlite/repos/jobs.repo.ts';
+import { createJob as createJobRow, type CreateJobInput } from '../db/repos/jobs.repo.ts';
 
 export {
   claimJob,
@@ -40,8 +40,8 @@ export {
   resumeBatchJob,
   saveJobCheckpoint,
   updateProgress,
-} from '../db/sqlite/repos/jobs.repo.ts';
-export type { CreateJobInput } from '../db/sqlite/repos/jobs.repo.ts';
+} from '../db/repos/jobs.repo.ts';
+export type { CreateJobInput } from '../db/repos/jobs.repo.ts';
 
 /**
  * Insert a queued job. Returns the new row with all defaults.

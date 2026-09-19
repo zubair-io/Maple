@@ -2,7 +2,7 @@
  * Which assets are covered by the current embedder generation, and how that
  * coverage is carried forward.
  *
- * Storage is `db/sqlite/repos/assets.meilisearch.ts`. The Mongo-era
+ * Storage is `db/repos/assets.meilisearch.ts`. The Mongo-era
  * `LIVE_ASSET_FILTER` — a `deleted_at` check plus an `$elemMatch` over
  * `fileinfo` — is gone, because "live" is one predicate on the assets table
  * (`LIVE_ASSET_PREDICATE`) that the repository spells verbatim so its partial
@@ -16,7 +16,7 @@ import {
   countLiveAssetRows,
   countLiveAssetRowsWithFingerprint,
   markAssetRowsVectorized,
-} from '../db/sqlite/repos/assets.meilisearch.ts';
+} from '../db/repos/assets.meilisearch.ts';
 
 /** How many live assets the library holds — vector coverage's denominator. */
 export async function countLiveAssets(): Promise<number> {

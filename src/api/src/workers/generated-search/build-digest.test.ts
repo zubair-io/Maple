@@ -17,8 +17,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { saveGeneratedSearches } from '../../db/sqlite/repos/generated-searches.repo.ts';
-import { insertPerson } from '../../db/sqlite/repos/people.test-helpers.ts';
+import { saveGeneratedSearches } from '../../db/repos/generated-searches.repo.ts';
+import { insertPerson } from '../../db/repos/people.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertAsset,

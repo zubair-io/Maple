@@ -9,14 +9,14 @@ import {
   type VerifiedRegistrationResponse,
   type VerifiedAuthenticationResponse,
 } from '@simplewebauthn/server';
-import { consumeChallenge, storeChallenge } from '../db/sqlite/repos/auth.challenges.repo.ts';
-import { listCredentialDescriptorsForUser } from '../db/sqlite/repos/auth.users.repo.ts';
+import { consumeChallenge, storeChallenge } from '../db/repos/auth.challenges.repo.ts';
+import { listCredentialDescriptorsForUser } from '../db/repos/auth.users.repo.ts';
 import { allowedBrowserOrigins } from '../runtime/allowed-origins.ts';
 import type { CredentialDoc } from '../db/schema.ts';
 
 // The ceremony logic is `@simplewebauthn/server` and has no database in it.
 // The two things here that did — recording a challenge and spending it — moved
-// to `db/sqlite/repos/auth.challenges.repo.ts` at the cutover (#3787), along
+// to `db/repos/auth.challenges.repo.ts` at the cutover (#3787), along
 // with the five-minute lifetime and both of the error messages the register
 // and login routes surface. A challenge is still spendable exactly once: the
 // `findOneAndDelete` became a read followed by a delete whose row count

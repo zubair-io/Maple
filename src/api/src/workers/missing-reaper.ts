@@ -22,7 +22,7 @@
  *      (default 30 days), and discover revives it on a content-hash re-discover
  *      in the meantime.
  *
- * The candidate set comes from `listMissingTagged` (`db/sqlite/repos/
+ * The candidate set comes from `listMissingTagged` (`db/repos/
  * assets.sweeps.ts`) and is served by the `asset_locations_missing` partial
  * index, `WHERE missing_since IS NOT NULL`. That is the SQLite equivalent of
  * the `fileinfo_missing_since_1` partial index the old query's `$type: "string"`
@@ -82,7 +82,7 @@
  */
 
 import * as path from 'node:path';
-import { listMissingTagged, type MissingTaggedAsset } from '../db/sqlite/repos/assets.sweeps.ts';
+import { listMissingTagged, type MissingTaggedAsset } from '../db/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';

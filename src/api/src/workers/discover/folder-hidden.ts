@@ -28,7 +28,7 @@ import {
   listFolderUnhideCandidates,
   unhideAssetsInFolder,
   type FolderHiddenCandidate,
-} from '../../db/sqlite/repos/assets.folder-hidden.ts';
+} from '../../db/repos/assets.folder-hidden.ts';
 import type { FileInfo } from '../../db/schema.ts';
 import { toPosixRelDir } from './types.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';

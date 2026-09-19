@@ -44,7 +44,7 @@ import {
 } from './face-stage-shared.ts';
 import { FACE_DETECT_TARGET_VERSION } from './face-detect.ts';
 import { clusterCoordinator } from '../../people/cluster-coordinator.ts';
-import { faceEmbeddingStatements } from '../../db/sqlite/repos/faces.stage-patches.ts';
+import { faceEmbeddingStatements } from '../../db/repos/faces.stage-patches.ts';
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 

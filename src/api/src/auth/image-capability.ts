@@ -3,7 +3,7 @@
  *
  * The request gate stays here and the row lookup moved: this module decides
  * whether a request is even eligible to present a capability, and
- * `db/sqlite/repos/auth.image-capability.repo.ts` decides whether the token it
+ * `db/repos/auth.image-capability.repo.ts` decides whether the token it
  * presents is live for that exact path.
  *
  * The two halves kept different names because they answer different
@@ -18,11 +18,11 @@
  * already true on Mongo — its TTL monitor ran once a minute and left an expired
  * document readable until it fired — so nothing here got weaker. The
  * periodic `DELETE` that keeps the table small is
- * `db/sqlite/repos/auth.expiry.ts`.
+ * `db/repos/auth.expiry.ts`.
  */
 
-import { imageCapabilityIsValid } from '../db/sqlite/repos/auth.image-capability.repo.ts';
-import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+import { imageCapabilityIsValid } from '../db/repos/auth.image-capability.repo.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 
 /** A 32-byte value in base64url — what `issueImageCapability` hands out. */
 const IMAGE_CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;

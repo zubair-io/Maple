@@ -18,9 +18,9 @@
  * spread through — every field is copied by name.
  */
 
-import { personIdsToDrop } from '../../db/sqlite/repos/people.visibility.ts';
-import { personIdsForNames } from '../../db/sqlite/repos/people.search-filter.ts';
-import { buildSearchWhere, type SearchWhere } from '../../db/sqlite/repos/search.where.ts';
+import { personIdsToDrop } from '../../db/repos/people.visibility.ts';
+import { personIdsForNames } from '../../db/repos/people.search-filter.ts';
+import { buildSearchWhere, type SearchWhere } from '../../db/repos/search.where.ts';
 import { extractDatesFromQuery, peopleNames, type SearchQuery } from '../../routes/search/query.ts';
 import type { GeneratedQuery } from './validate.ts';
 

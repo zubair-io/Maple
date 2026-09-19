@@ -4,7 +4,7 @@
  * carries a lease, so a crashed sweeper's directory is retaken rather than
  * stranded.
  *
- * The bodies moved to `db/sqlite/repos/discover-frontier.repo.ts` at the
+ * The bodies moved to `db/repos/discover-frontier.repo.ts` at the
  * cutover (#3787); this module is the import path `sweeper.ts` and `index.ts`
  * already use, kept so the move is one file rather than every call site.
  *
@@ -20,5 +20,5 @@ export {
   enqueueDirs,
   remainingForGen,
   seedRoot,
-} from '../../db/sqlite/repos/discover-frontier.repo.ts';
-export type { FrontierDir } from '../../db/sqlite/repos/discover-frontier.repo.ts';
+} from '../../db/repos/discover-frontier.repo.ts';
+export type { FrontierDir } from '../../db/repos/discover-frontier.repo.ts';

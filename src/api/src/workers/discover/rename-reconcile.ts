@@ -33,7 +33,7 @@ import * as fs from '../../fs/mirrored.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
-import { repointLocation, restoreLocation } from '../../db/sqlite/repos/assets.discover.sweep.ts';
+import { repointLocation, restoreLocation } from '../../db/repos/assets.discover.sweep.ts';
 import { buildFileinfoEntry } from './types.ts';
 import { child } from '../../log.ts';
 import type { AssetExif, FileInfo } from '../../db/schema.ts';

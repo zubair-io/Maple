@@ -7,7 +7,7 @@
 // freshly-minted, device-scoped tokens. A raw refresh token therefore never
 // rides in a redirect URL.
 //
-// The storage moved to `db/sqlite/repos/auth.codes.repo.ts` under the same
+// The storage moved to `db/repos/auth.codes.repo.ts` under the same
 // names. The two properties that matter are unchanged: a code is spendable
 // exactly once, and a wrong verifier neither succeeds nor burns it, because
 // the challenge match is still part of the compare-and-swap's predicate rather
@@ -24,4 +24,4 @@ export {
   pkceS256,
   redeemNativeCode,
   type RedeemedNativeCode,
-} from '../db/sqlite/repos/auth.codes.repo.ts';
+} from '../db/repos/auth.codes.repo.ts';

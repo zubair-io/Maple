@@ -11,7 +11,7 @@
  * flags keep faces assigned and the row alive as a clustering seed, so
  * restoring brings back a fully-populated cluster.
  *
- * The implementation lives in `db/sqlite/repos/people.visibility.ts`.
+ * The implementation lives in `db/repos/people.visibility.ts`.
  */
 
 export {
@@ -22,4 +22,4 @@ export {
   personIdsToDrop,
   unexcludePerson,
   unhidePerson,
-} from '../db/sqlite/repos/people.visibility.ts';
+} from '../db/repos/people.visibility.ts';

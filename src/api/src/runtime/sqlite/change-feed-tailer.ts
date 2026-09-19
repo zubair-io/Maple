@@ -53,7 +53,7 @@ import {
   highestCursor,
   listChangesSince,
   type SqliteDb,
-} from '../../db/sqlite/repos/changes.repo.ts';
+} from '../../db/repos/changes.repo.ts';
 import { getChangeBus } from '../change-bus.ts';
 
 const log = childLogger('change-feed-tailer-sqlite');

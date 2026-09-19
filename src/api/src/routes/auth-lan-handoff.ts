@@ -13,7 +13,7 @@
 // repeating the ceremony there.
 import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
-import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
+import { findUserById } from '../db/repos/auth.users.repo.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
 import { accessClaimsFor, toPublicAuthUser } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';

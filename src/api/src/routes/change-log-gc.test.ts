@@ -19,7 +19,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
-import { recordAssetChange } from '../db/sqlite/repos/changes.repo.ts';
+import { recordAssetChange } from '../db/repos/changes.repo.ts';
 import { runChangeLogGcOnce } from '../workers/change-log-gc.ts';
 import { saveChangeLogGcConfig } from '../workers/change-log-gc-config.repo.ts';
 

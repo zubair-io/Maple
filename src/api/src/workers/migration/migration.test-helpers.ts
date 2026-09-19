@@ -19,7 +19,7 @@
 import type { Database } from 'bun:sqlite';
 import type { ObjectId } from '../../db/object-id.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
-import { toObjectId } from '../../db/sqlite/repos/values.ts';
+import { toObjectId } from '../../db/repos/values.ts';
 import { createTempLibrary } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
 /** A registered library rooted at a real temporary directory. */

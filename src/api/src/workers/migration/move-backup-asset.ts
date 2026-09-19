@@ -37,11 +37,11 @@ import type { FileInfo } from '../../db/schema.ts';
 import type {
   MigrationCandidate,
   MigrationMarker,
-} from '../../db/sqlite/repos/assets.migrations.ts';
+} from '../../db/repos/assets.migrations.ts';
 import {
   repointBackupLocation,
   stampMarkerIfUnmoved,
-} from '../../db/sqlite/repos/assets.refile.ts';
+} from '../../db/repos/assets.refile.ts';
 import { child as childLogger } from '../../log.ts';
 import { finalize, planAndPlace, revertCreated } from './restructure-fs.ts';
 

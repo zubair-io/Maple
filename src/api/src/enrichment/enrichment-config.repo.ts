@@ -16,7 +16,7 @@ import {
   patchAppSettings,
   readAppSettings,
   type SettingsValue,
-} from '../db/sqlite/repos/app-settings.repo.ts';
+} from '../db/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
 import type { DescribeProviderName } from './describe-providers/index.ts';
 import type { DescribeServerConfig } from './describe-servers.ts';

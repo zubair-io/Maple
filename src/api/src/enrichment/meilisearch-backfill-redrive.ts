@@ -23,8 +23,8 @@ import {
   deleteBackfillFailures,
   listOldestBackfillFailures,
   type BackfillFailureRow,
-} from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
-import { loadMeiliAssetsByIds } from '../db/sqlite/repos/assets.meilisearch.ts';
+} from '../db/repos/meilisearch-backfill.repo.ts';
+import { loadMeiliAssetsByIds } from '../db/repos/assets.meilisearch.ts';
 import { child as childLogger } from '../log.ts';
 import { loadNamedPeople, peopleNamesForFaces } from '../workers/stages/meili.ts';
 import type { MeilisearchClient } from './meilisearch-client.ts';

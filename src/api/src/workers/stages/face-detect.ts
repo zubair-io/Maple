@@ -44,7 +44,7 @@ import {
 } from './face-stage-shared.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
-import { faceDetectionStatements } from '../../db/sqlite/repos/faces.stage-patches.ts';
+import { faceDetectionStatements } from '../../db/repos/faces.stage-patches.ts';
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 

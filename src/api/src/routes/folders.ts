@@ -23,17 +23,17 @@ import {
   listFolders,
   registerFolder,
   setFolderLastScan,
-} from '../db/sqlite/repos/folders.repo.ts';
+} from '../db/repos/folders.repo.ts';
 import {
   listFolderAssets,
   listFolderTrash,
   resetFolderStages,
-} from '../db/sqlite/repos/folder-assets.repo.ts';
+} from '../db/repos/folder-assets.repo.ts';
 import {
   findAssetToReplaceAtAddress,
   upsertUploadedAsset,
-} from '../db/sqlite/repos/assets.address.ts';
-import { hardDelete, markSoftDeleted } from '../db/sqlite/repos/assets.trash.ts';
+} from '../db/repos/assets.address.ts';
+import { hardDelete, markSoftDeleted } from '../db/repos/assets.trash.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';
 import { rootsConnected } from '../fs/root-connectivity.ts';

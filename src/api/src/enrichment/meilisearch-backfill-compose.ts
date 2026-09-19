@@ -9,13 +9,13 @@
 // Type-only: `fileinfo[].library_id` is still an `ObjectId` on the wire, and
 // `toFileInfo` is what mints it. No query in this module uses the driver.
 import type { ObjectId } from '../db/object-id.ts';
-import { recordBackfillFailure } from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
+import { recordBackfillFailure } from '../db/repos/meilisearch-backfill.repo.ts';
 import type {
   MeiliAssetBatch,
   MeiliAssetRow,
   MeiliFaceRow,
-} from '../db/sqlite/repos/assets.meilisearch.ts';
-import { toFileInfo } from '../db/sqlite/repos/assets.rows.ts';
+} from '../db/repos/assets.meilisearch.ts';
+import { toFileInfo } from '../db/repos/assets.rows.ts';
 import type { AssetFaceDoc, FileInfo, Place, TranscriptDoc, VisionDoc } from '../db/schema.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';

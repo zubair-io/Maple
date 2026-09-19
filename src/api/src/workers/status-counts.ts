@@ -32,13 +32,13 @@
  * reader tempted to move `countStageBacklog` into the route because it is fast
  * should read #3491 first.
  */
-import { countStageBacklog, type StageBacklogQuery } from '../db/sqlite/repos/stage-state.repo.ts';
+import { countStageBacklog, type StageBacklogQuery } from '../db/repos/stage-state.repo.ts';
 import {
   countDamagedAssets,
   countDuplicateAssets,
   countMissingTaggedAssets,
   countNewlyHiddenAssets,
-} from '../db/sqlite/repos/worker-admin.repo.ts';
+} from '../db/repos/worker-admin.repo.ts';
 import { ALL_STAGE_NAMES, stageManifest } from './stages/manifest.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
@@ -50,7 +50,7 @@ import {
   readStatusCountsDemand,
   writeStatusCounts,
   type StatusCountsSnapshot,
-} from '../db/sqlite/repos/worker-status.repo.ts';
+} from '../db/repos/worker-status.repo.ts';
 import { MIGRATIONS } from './migration/index.ts';
 import type { Migration } from './migration/types.ts';
 import { patchMigrationState, type MigrationState } from './migration-config.repo.ts';

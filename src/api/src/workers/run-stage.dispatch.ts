@@ -36,15 +36,15 @@ import * as path from 'node:path';
 import { child as childLogger } from '../log.ts';
 import { assetAbsPath, assetPrimaryFileInfo, isEnoentError } from '../indexer/images.repo.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
-import { loadLibraries } from '../db/sqlite/repos/assets.read.ts';
-import { assetsDb, type SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+import { loadLibraries } from '../db/repos/assets.read.ts';
+import { assetsDb, type SqliteDb } from '../db/repos/db-handle.ts';
 import {
   claimStageBatch,
   type ClaimedStageRow,
   type ResolvedStageDep,
-} from '../db/sqlite/repos/stage-claim.ts';
-import { loadStageDocuments } from '../db/sqlite/repos/stage-documents.repo.ts';
-import { StageWritebackBatch } from '../db/sqlite/repos/stage-writeback.batch.ts';
+} from '../db/repos/stage-claim.ts';
+import { loadStageDocuments } from '../db/repos/stage-documents.repo.ts';
+import { StageWritebackBatch } from '../db/repos/stage-writeback.batch.ts';
 import {
   claimRollbackStatement,
   stageFailureStatements,
@@ -52,7 +52,7 @@ import {
   tagDamagedStatement,
   tagLocationMissingByAddressStatement,
   type StageTarget,
-} from '../db/sqlite/repos/stage-writeback.ts';
+} from '../db/repos/stage-writeback.ts';
 import { deriveBatchSize, retryDelayMs } from './loop-policy.ts';
 import { libraryRootAvailable, statKind } from './missing-reaper.helpers.ts';
 import { dispatchPool } from './dispatch-pool.ts';

@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 import type { Database } from 'bun:sqlite';
 import { Elysia } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
-import { listChangesSince } from '../db/sqlite/repos/changes.repo.ts';
+import { listChangesSince } from '../db/repos/changes.repo.ts';
 import {
   createLiveTestDatabase,
   insertAsset,

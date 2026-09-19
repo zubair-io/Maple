@@ -13,8 +13,8 @@ import { Elysia } from 'elysia';
 import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { peopleRoutes } from '../people.ts';
-import { insertFaceRow, insertPersonRow } from '../../db/sqlite/repos/assets.test-helpers.ts';
-import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import { insertFaceRow, insertPersonRow } from '../../db/repos/assets.test-helpers.ts';
+import { seedSearchAsset } from '../../db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

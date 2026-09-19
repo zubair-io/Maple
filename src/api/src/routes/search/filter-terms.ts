@@ -35,7 +35,7 @@ export function parsePlaceLabels(raw: string | undefined): string[] {
 const BLANK_HALF = { $in: [null, ''] };
 
 /** Mongo clause for one place label, inverting the label rule the facets
- * endpoint uses (`placeLabel` in `db/sqlite/repos/search.facets.ts`):
+ * endpoint uses (`placeLabel` in `db/repos/search.facets.ts`):
  * "locality, region" splits on
  * the LAST ", " back into the exact rollup tuple; a bare label is either a
  * locality with a blank region or a region with a blank locality, so it

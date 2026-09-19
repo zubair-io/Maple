@@ -12,7 +12,7 @@
  *
  * ## Where the queries went (#3787)
  *
- * Every database verb now lives in `db/sqlite/repos/apns-devices.repo.ts`
+ * Every database verb now lives in `db/repos/apns-devices.repo.ts`
  * and is re-exported below by name. The names are spelled out one per line
  * rather than forwarded wholesale, so a signature that changed on the SQLite
  * side fails to compile here instead of being swapped in silently.
@@ -28,7 +28,7 @@ export {
   pruneDeviceTokens,
   registerDeviceToken,
   unregisterDeviceToken,
-} from '../db/sqlite/repos/apns-devices.repo.ts';
+} from '../db/repos/apns-devices.repo.ts';
 
 /**
  * APNs device tokens are hex-encoded bytes (`PKPushCredentials.token`,

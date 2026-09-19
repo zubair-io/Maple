@@ -7,7 +7,7 @@ import {
   type WorkerConfig,
 } from './stage-config.ts';
 import { createTestDatabase, testSqliteDb } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 
 const initial: WorkerConfig = {
   concurrency: 2,

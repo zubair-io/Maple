@@ -7,7 +7,7 @@
  *
  * ## Where the queries went (#3787)
  *
- * The implementation is `db/sqlite/repos/mirror-queue.repo.ts`; this module is
+ * The implementation is `db/repos/mirror-queue.repo.ts`; this module is
  * now the import path its five callers already use, re-exported name by name so
  * a changed signature surfaces as a compile error here rather than being
  * swapped in unnoticed.
@@ -29,4 +29,4 @@ export {
   failMirrorCopy,
   mirrorQueueCounts,
   retryDeadMirrorCopies,
-} from '../db/sqlite/repos/mirror-queue.repo.ts';
+} from '../db/repos/mirror-queue.repo.ts';

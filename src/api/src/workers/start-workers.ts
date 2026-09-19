@@ -22,7 +22,7 @@
  */
 
 import { child as childLogger } from '../log.ts';
-import { listLibraryRoots } from '../db/sqlite/repos/folders.repo.ts';
+import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 import { startAllStages, stopAllStages } from './orchestrator.ts';
 import { stageRegistry } from './registry.ts';
 import { registerDiscoverWorker, unregisterDiscoverWorker } from './discover/register.ts';
@@ -36,7 +36,7 @@ import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
 import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
-import { writeWorkerStatus } from '../db/sqlite/repos/worker-status.repo.ts';
+import { writeWorkerStatus } from '../db/repos/worker-status.repo.ts';
 import { startStatusCountsRefresher, type RefresherHandle } from './status-counts.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
 import { flushPendingMirrorOps } from '../fs/mirrored.ts';

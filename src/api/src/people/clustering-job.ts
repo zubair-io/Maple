@@ -10,7 +10,7 @@
  * Centroids are the L2-normalised mean of a person's assigned face embeddings,
  * which is what collapses cosine similarity to a dot product.
  *
- * The write side lives in `db/sqlite/repos/people.clustering-job.ts` and the
+ * The write side lives in `db/repos/people.clustering-job.ts` and the
  * load + compute stage it dispatches to lives in `people.cluster-load.ts`,
  * running on the clustering worker. This module is the stable import path for
  * the route, the coordinator and the tests.
@@ -19,11 +19,11 @@
 export {
   backfillCoverAssets,
   runOnlineClustering,
-} from '../db/sqlite/repos/people.clustering-job.ts';
+} from '../db/repos/people.clustering-job.ts';
 export type {
   RunOnlineClusteringOptions,
   RunOnlineClusteringResult,
-} from '../db/sqlite/repos/people.clustering-job.ts';
+} from '../db/repos/people.clustering-job.ts';
 
 // The pure-function clustering core. Callers that only need the math prefer
 // importing `./cluster-embeddings.ts` directly, so the quality harness can pull

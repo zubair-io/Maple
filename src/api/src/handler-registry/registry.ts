@@ -12,7 +12,7 @@
  * table is empty or the handle is unavailable.
  */
 
-import { listEnabledStageHandlers } from '../db/sqlite/repos/stage-handlers.repo.ts';
+import { listEnabledStageHandlers } from '../db/repos/stage-handlers.repo.ts';
 import type { StageHandlerDoc } from '../db/schema.ts';
 
 /**

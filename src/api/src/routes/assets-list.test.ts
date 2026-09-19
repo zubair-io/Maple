@@ -6,7 +6,7 @@
  * garbage input, and that each parsed filter reaches the repository. The
  * repository's own answers — ordering, the live-location predicate, the
  * seconds-resolution mtime — are pinned in
- * `db/sqlite/repos/assets.list.test.ts`, which is why the fixture here stays as
+ * `db/repos/assets.list.test.ts`, which is why the fixture here stays as
  * small as three assets (#3787).
  */
 

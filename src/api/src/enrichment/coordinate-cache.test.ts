@@ -5,7 +5,7 @@
  * The class reaches storage with no database override, the way production does,
  * so these use `createLiveTestDatabase()` — it installs the test's own database
  * as the process-wide handle for the block. The repository functions underneath
- * have their own tests in `db/sqlite/repos/geocode-cache.repo.test.ts`; what is
+ * have their own tests in `db/repos/geocode-cache.repo.test.ts`; what is
  * worth checking here is that the key the class computes is the key it stores
  * under, and that its injectable clock still reaches the stored row.
  */

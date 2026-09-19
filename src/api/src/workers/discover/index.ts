@@ -27,7 +27,7 @@
  */
 import type { ObjectId } from '../../db/object-id.ts';
 import { child } from '../../log.ts';
-import { listLibraryRoots } from '../../db/sqlite/repos/folders.repo.ts';
+import { listLibraryRoots } from '../../db/repos/folders.repo.ts';
 import { closeSqlitePool, openSqlitePool } from '../../db/sqlite/index.ts';
 import { logReaderRespawn } from '../../db/sqlite/pool-logging.ts';
 import { sqliteDatabasePath } from '../../db/sqlite/database-path.ts';
@@ -37,7 +37,7 @@ import { SweeperLoop } from './sweeper.ts';
 import { loadDiscoverConfig } from './discover-config.repo.ts';
 import { seedRoot, remainingForGen } from './frontier.repo.ts';
 import { mostSpecificRoot } from '../../fs/root-match.ts';
-import { readCheckpoint } from '../../db/sqlite/repos/indexer-checkpoints.repo.ts';
+import { readCheckpoint } from '../../db/repos/indexer-checkpoints.repo.ts';
 
 // Public re-exports — external consumers (`src/api/src/index.ts`,
 // `src/api/src/routes/folders.ts`, the test suite) import these from

@@ -11,7 +11,7 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { toObjectId } from '../../db/sqlite/repos/values.ts';
+import { toObjectId } from '../../db/repos/values.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { relocateBackupScreenshot } from './refile-backups.ts';
 import {

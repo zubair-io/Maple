@@ -37,8 +37,8 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
 import * as nodePath from 'node:path';
-import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
-import { findLiveAssetIdAtAddress } from '../db/sqlite/repos/assets.address.ts';
+import { findFolderById } from '../db/repos/folders.repo.ts';
+import { findLiveAssetIdAtAddress } from '../db/repos/assets.address.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import {
   realpathJailCheck,

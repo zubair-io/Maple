@@ -22,7 +22,7 @@
  * file should collapse into a call to it.
  */
 
-import { listLibraryRoots } from '../../db/sqlite/repos/folders.repo.ts';
+import { listLibraryRoots } from '../../db/repos/folders.repo.ts';
 
 /** Library id (hex) → root path, and library id (hex) → slug. */
 export interface LibraryMaps {

@@ -33,7 +33,7 @@
  */
 
 import { isSqliteOpen } from '../db/sqlite/index.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('preview-ondemand-limiter');

@@ -9,7 +9,7 @@
  * The route lives behind `requireAuth`, so it is registered after that
  * middleware in `src/index.ts`.
  *
- * The data layer lives in `db/sqlite/repos/search.repo.ts`: these three
+ * The data layer lives in `db/repos/search.repo.ts`: these three
  * handlers translate the query string once with `buildSearchWhere` and hand
  * the result to `searchPage`/`searchCount`, `searchFacets` and
  * `searchBuckets`. Nothing here composes SQL.

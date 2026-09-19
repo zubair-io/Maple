@@ -24,7 +24,7 @@ import {
   insertFolder,
   insertLocation,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { insertStageState } from '../db/sqlite/repos/assets.test-helpers.ts';
+import { insertStageState } from '../db/repos/assets.test-helpers.ts';
 import { setLibraryBySlugForTests, setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 import {
   SIDECAR_METADATA_INDEX_STAGE_NAME,

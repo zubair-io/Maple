@@ -40,7 +40,7 @@ import {
   unstamped,
   LIVE_VIDEO,
   type CandidateScope,
-} from '../../db/sqlite/repos/assets.migrations.ts';
+} from '../../db/repos/assets.migrations.ts';
 import { child as childLogger } from '../../log.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 

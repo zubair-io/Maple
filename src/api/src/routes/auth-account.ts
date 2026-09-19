@@ -16,7 +16,7 @@ import {
   listCredentialDescriptorsForUser,
   listCredentialSummariesForUser,
   touchCredential,
-} from '../db/sqlite/repos/auth.users.repo.ts';
+} from '../db/repos/auth.users.repo.ts';
 import {
   buildRegistrationOptions,
   consumeChallenge,

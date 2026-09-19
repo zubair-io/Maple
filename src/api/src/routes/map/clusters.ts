@@ -12,16 +12,16 @@
  * the number of *cells* the viewport can show, not by library size (root
  * CLAUDE.md performance invariants).
  *
- * The grouping itself lives in `db/sqlite/repos/map-clusters.repo.ts`;
+ * The grouping itself lives in `db/repos/map-clusters.repo.ts`;
  * everything in this file is viewport arithmetic and wire shaping.
  */
 
 import { Elysia, t } from 'elysia';
-import { mapClusters } from '../../db/sqlite/repos/map-clusters.repo.ts';
-import { buildSearchWhere } from '../../db/sqlite/repos/search.where.ts';
+import { mapClusters } from '../../db/repos/map-clusters.repo.ts';
+import { buildSearchWhere } from '../../db/repos/search.where.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { personIdsToDrop } from '../../db/sqlite/repos/people.visibility.ts';
+import { personIdsToDrop } from '../../db/repos/people.visibility.ts';
 import { clampInt, SearchQueryT, type SearchQuery } from '../search/query.ts';
 
 /** The `/api/map/clusters` query-string contract: every `/api/search`

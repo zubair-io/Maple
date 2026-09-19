@@ -20,7 +20,7 @@ import { Elysia } from 'elysia';
 import { overrideRoutes } from './overrides.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
-import { insertDetail } from '../../db/sqlite/repos/assets.test-helpers.ts';
+import { insertDetail } from '../../db/repos/assets.test-helpers.ts';
 import {
   registerLibrary,
   searchBlob,

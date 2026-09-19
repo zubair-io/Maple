@@ -21,7 +21,7 @@ import {
   patchAppSettings,
   readAppSettings,
   type SettingsValue,
-} from '../db/sqlite/repos/app-settings.repo.ts';
+} from '../db/repos/app-settings.repo.ts';
 
 const DOC_ID = 'render';
 

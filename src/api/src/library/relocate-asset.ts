@@ -33,11 +33,11 @@
 
 import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
-import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
+import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
 import {
   findLiveOccupantAssetId,
   repointAssetLocation,
-} from '../db/sqlite/repos/assets.relocate.repo.ts';
+} from '../db/repos/assets.relocate.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
   relocateFile,
@@ -273,7 +273,7 @@ async function resolveDestinationPlan(
  *
  * The old address goes into the repoint's own `WHERE`, which is what makes a
  * row count of zero mean "the entry changed underneath us" rather than "the
- * write did nothing". See `db/sqlite/repos/assets.relocate.repo.ts`. */
+ * write did nothing". See `db/repos/assets.relocate.repo.ts`. */
 function buildRepointHook(
   input: RelocateAssetInput,
   primary: FileInfo,

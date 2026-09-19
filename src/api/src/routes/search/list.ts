@@ -26,7 +26,7 @@
  */
 
 import { Elysia } from 'elysia';
-import { buildSearchWhere, searchPage } from '../../db/sqlite/repos/search.repo.ts';
+import { buildSearchWhere, searchPage } from '../../db/repos/search.repo.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import { projectAsset } from './project.ts';
