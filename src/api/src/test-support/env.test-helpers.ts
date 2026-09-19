@@ -1,10 +1,10 @@
 /**
  * Per-suite scoping of an environment variable.
  *
- * This lived in `db/test-db.test-helpers.ts` because the variable it was
- * written for was `MAPLE_MONGO_DB`. It has nothing to do with MongoDB, eleven
- * suites use it for `MAPLE_ROOTS`, `MAPLE_DEV_AUTH` and others, and that file
- * is going away with the cutover (#3787) — so it moved here.
+ * It started life in the old test harness, scoping the variable that named the
+ * throwaway database each suite got. It has nothing to do with databases —
+ * eleven suites use it for `MAPLE_ROOTS`, `MAPLE_DEV_AUTH` and others — so it
+ * outlived that harness and lives here instead.
  *
  * The rule it exists to enforce: Bun evaluates every module body during the
  * import phase, before any test runs. A suite that assigns `process.env.X` at

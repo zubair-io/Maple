@@ -63,7 +63,7 @@ public struct MuiPageSettings: View {
                         .edit(MuiSettingsEditableRow(id: "storage", label: "Storage path", icon: "externaldrive", value: storagePathValue, help: "Where originals and sidecars are kept.")),
                         .navigate(MuiSettingsNavigableRow(id: "backups", label: "Backups", value: "Nightly", icon: "clock.arrow.circlepath")),
                     ],
-                    banner: MuiSettingsSectionBanner(message: "Self Hosted is running on Bun + Elysia + MongoDB.", variant: .info),
+                    banner: MuiSettingsSectionBanner(message: "Self Hosted is running on Bun + Elysia + SQLite.", variant: .info),
                     fieldChanged: { _, value in storagePathValue = value }
                 )
             case .devices:
