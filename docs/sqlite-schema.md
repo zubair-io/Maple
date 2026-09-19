@@ -1,12 +1,9 @@
 # SQLite schema for the Self Hosted backend
 
-The relational schema that replaces the MongoDB collections in `src/api`. This
-document is the design record and the query-to-index map; the DDL itself lives
-in `src/api/src/db/sqlite/ddl/` and the migration runner in
-`src/api/src/db/sqlite/migrate.ts`.
-
-No repository code is ported here — that is a separate piece of work. Moving an
-existing library's data across is the importer, `docs/sqlite-import.md`.
+The schema behind the Self Hosted library database — one SQLite file, and the
+only datastore the API has. This document is the design record and the
+query-to-index map; the DDL itself lives in `src/api/src/db/sqlite/ddl/` and the
+migration runner in `src/api/src/db/sqlite/migrate.ts`.
 
 ## How it works, in five sentences
 
@@ -20,21 +17,15 @@ table keyed by asset and stage name, which is what collapses 24 near-identical
 indexes into 2. The bulky describe-stage payloads live in `asset_detail`, a 1:1
 side table a grid page never touches, and the small ones that queries reach into
 (`exif`, `place`) stay as JSON on the asset row with generated columns over the
-paths that are actually indexed. The synthesised `search_blob` moved to
-`asset_search` with an FTS5 index over it, replacing the single Mongo text
-index.
+paths that are actually indexed. The synthesised `search_blob` lives in
+`asset_search`, with an FTS5 index over it.
 
 ## Why narrowness is the whole point
 
-Measured against production on 2026-09-17: the `assets` collection holds 335,377
-documents averaging 8 KB, p90 28 KB, max 261 KB, occupying 8.8 GB against a
-1.5 GB WiredTiger cache. Anything that touches the whole collection therefore
-reads from disk every time, which is why a facet count takes about five seconds
-warm or cold.
-
-Porting that document into a single JSON column per row would reproduce the
-problem exactly: every filtered query would decode 8 KB per row and the result
-would be slower than Mongo, not faster. The win depends on the grid and filter
+A library of 335,377 assets carries roughly 8 KB of metadata each — p90 28 KB,
+max 261 KB. Keeping all of that in one JSON payload per row would mean every
+filtered query decoding 8 KB per row it examines, so a facet count would read
+the whole library from disk every time. The win depends on the grid and filter
 fields being real columns, so the working set stays in the page cache.
 
 Three rules follow, and they are the ones to push back on in review:
@@ -53,63 +44,54 @@ Three rules follow, and they are the ones to push back on in review:
    asked for, so a narrow `SELECT` never follows the overflow pages they can
    spill onto.
 
-## Primary keys are TEXT, holding the existing ObjectId hex
+## Primary keys are TEXT, holding a 24-character hex id
 
-Every client-visible primary key is `TEXT PRIMARY KEY` storing the same
-24-character lowercase hex string MongoDB produces today, and every foreign key
-referencing one is TEXT too.
+Every client-visible primary key is `TEXT PRIMARY KEY` storing a 24-character
+lowercase hex string, and every foreign key referencing one is TEXT too.
 
-This is not a preference. `src/api/src/db/assets.transform.ts` emits
-`id: doc._id.toHexString()` and `folder_id: …toHexString()` into the DTOs the
-HTTP API returns, so those strings are already part of the public contract.
-Apple, Web and Windows clients hold them, compare them and derive cache keys
-from them — `src/web/projects/maple-common/src/lib/trash/trash.service.ts` has a
-`resolveMongoId()` path. The migration's stated non-goal is that clients change,
-so the identifiers survive unchanged.
+This is not a preference. Those strings are part of the public contract:
+`src/api/src/db/assets.transform.ts` emits `id` and `folder_id` into the DTOs
+the HTTP API returns, and Apple, Web and Windows clients hold them, compare them
+and derive cache keys from them. Changing the format would break every client's
+stored state, so it does not change.
 
-Rows created after the migration need identifiers of the same shape, so
-`src/api/src/db/sqlite/object-id.ts` mints them: MongoDB's 12-byte layout
-(4-byte seconds, 5-byte per-process random, 3-byte counter) rendered as hex, so
-values stay sortable by creation time and `ObjectId.isValid` keeps accepting
-them for as long as any mixed-mode path exists. `INTEGER PRIMARY KEY` rowid
-aliases are used freely for the internal tables whose ids never reach a client:
+`src/api/src/db/object-id.ts` mints them — 4 bytes of seconds, 5 of
+per-process randomness and a 3-byte counter, rendered as hex — so ids stay
+sortable by creation time. `INTEGER PRIMARY KEY` rowid aliases are used freely
+for the internal tables whose ids never reach a client:
 `asset_locations`, `faces`, `asset_phasset_links`, `import_files`,
 `indexer_queue`, `discover_frontier` and `mirror_queue`.
 
 ## Tables
 
-| Table                                                                                                                                                                  | Replaces                                                                                                                      | Notes                                                                                  |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `assets`                                                                                                                                                               | `assets` document root                                                                                                        | Narrow. Scalars plus `exif` / `place` JSON and 14 generated columns.                   |
-| `asset_locations`                                                                                                                                                      | `fileinfo[]`                                                                                                                  | `ordinal` keeps the array position; `ordinal = 0` is the canonical entry.              |
-| `asset_detail`                                                                                                                                                         | `vision`, `description`, `ocr_*`, `transcript`, `video_description*`, `metadata_override`, `derivative_audit`, `geo_inferred` | 1:1. The bulk of the old document. A rowid table, deliberately — see the facets below. |
-| `asset_subjects`                                                                                                                                                       | `vision.subjects[]`                                                                                                           | One row per (asset, subject), derived from the payload by trigger (#3768).             |
-| `asset_search` + `assets_fts`                                                                                                                                          | `search_blob` + `search_blob_text`                                                                                            | FTS5 in external-content mode.                                                         |
-| `asset_phasset_links`                                                                                                                                                  | `phasset_links[]`                                                                                                             | Indexed on `(device_id, phasset_local_id)` — the index that does not exist today.      |
-| `faces`                                                                                                                                                                | `faces[]`                                                                                                                     | `face_index` keeps the array position, which is on the wire.                           |
-| `stage_state`                                                                                                                                                          | `stages.<name>.*`                                                                                                             | `(asset_id, stage)`, `WITHOUT ROWID`, one row per asset per stage.                     |
-| `enrichment_state`                                                                                                                                                     | `enrichment.<stage>.*`                                                                                                        | The older lease-based claim for `geocode` / `face` / `describe`.                       |
-| `people`, `person_merge_dismissals`                                                                                                                                    | same                                                                                                                          | `cover_bbox` and the merge-suggestion head flattened to columns.                       |
-| `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                                                                 | same                                                                                                                          |                                                                                        |
-| `jobs`, `imports`, `import_files`, `indexer_queue`, `discover_frontier`, `worker_config`, `stage_handlers`, `backup_sessions`, `upload_sessions`, `apns_device_tokens` | same                                                                                                                          | Queues and configuration.                                                              |
-| `app_settings`                                                                                                                                                         | same                                                                                                                          | One JSON document per settings domain, keyed by the id the `_id` carries today.        |
-| `worker_status`, `managed_certificates`, `meilisearch_backfill_state`, `meilisearch_backfill_leases`                                                                   | same                                                                                                                          | Single-row singletons; the id is pinned by a CHECK.                                    |
-| `indexer_checkpoints`, `generated_searches`, `video_geo_backfill_audit`, `meilisearch_backfill_failures`                                                               | same                                                                                                                          | Worker bookkeeping. See `ddl/settings.ts`.                                             |
-| `users`, `credentials`, `invites`, `refresh_tokens`, `service_api_keys`, `challenges`, `native_auth_codes`, `lan_handoff_codes`, `image_access_tokens`                 | same                                                                                                                          |                                                                                        |
-| `schema_migrations`                                                                                                                                                    | `migrations`                                                                                                                  | The runner's sentinel.                                                                 |
+| Table                                                                                                                                                                  | Notes                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `assets`                                                                                                                                                               | Narrow. Scalars plus `exif` / `place` JSON and 14 generated columns.                                                                   |
+| `asset_locations`                                                                                                                                                      | One row per on-disk copy. `ordinal` keeps the order; `ordinal = 0` is the canonical entry.                                             |
+| `asset_detail`                                                                                                                                                         | 1:1 side table for the bulky describe-stage payloads — vision, caption, OCR, transcript. A rowid table, deliberately — see the facets. |
+| `asset_search` + `assets_fts`                                                                                                                                          | The synthesised search text and the FTS5 index over it, in external-content mode.                                                      |
+| `asset_phasset_links`                                                                                                                                                  | Apple Photos links, indexed on `(device_id, phasset_local_id)`.                                                                        |
+| `faces`                                                                                                                                                                | One row per detection. `face_index` keeps the position, which is on the wire.                                                          |
+| `stage_state`                                                                                                                                                          | `(asset_id, stage)`, `WITHOUT ROWID`, one row per asset per stage.                                                                     |
+| `enrichment_state`                                                                                                                                                     | The older lease-based claim for `geocode` / `face` / `describe`.                                                                       |
+| `people`, `person_merge_dismissals`                                                                                                                                    | `cover_bbox` and the merge-suggestion head flattened to columns.                                                                       |
+| `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                                                                 |                                                                                                                                        |
+| `jobs`, `imports`, `import_files`, `indexer_queue`, `discover_frontier`, `worker_config`, `stage_handlers`, `backup_sessions`, `upload_sessions`, `apns_device_tokens` | Queues and configuration.                                                                                                              |
+| `app_settings`                                                                                                                                                         | One JSON document per settings domain, keyed by name.                                                                                  |
+| `worker_status`, `managed_certificates`, `meilisearch_backfill_state`, `meilisearch_backfill_leases`                                                                   | Single-row singletons; the id is pinned by a CHECK.                                                                                    |
+| `indexer_checkpoints`, `generated_searches`, `video_geo_backfill_audit`, `meilisearch_backfill_failures`                                                               | Worker bookkeeping. See `ddl/settings.ts`.                                                                                             |
+| `users`, `credentials`, `invites`, `refresh_tokens`, `service_api_keys`, `challenges`, `native_auth_codes`, `lan_handoff_codes`, `image_access_tokens`                 |                                                                                                                                        |
+| `schema_migrations`                                                                                                                                                    | The migration runner's sentinel.                                                                                                       |
 
-Every collection `src/api` opens has a table here; `src/api/src/db/sqlite/schema.indexes.test.ts`
-fails if one stops being true. The nine in the three rows above were missing
-from the first draft of this schema, `app_settings` most consequentially: it is
-where every DB-backed setting lives, which is where Maple's operator-facing
-configuration belongs by policy.
+Every table the API opens is declared here, and
+`src/api/src/db/sqlite/schema.indexes.test.ts` fails if that stops being true.
 
 ### `app_settings` is the one table that is a document, and why
 
 Every other table follows the rule that a field a query filters on is a
 column. `app_settings` is the exception, because nothing ever filters it:
 all twenty-odd `*-config.repo.ts` modules read one row by its id and write a
-flat `$set` back. The documents have nothing in common — the observability row
+flat update back. The rows have nothing in common — the observability row
 holds an OTLP endpoint, the describe row a model name and a spend cap, the
 migration row a map of per-migration enable flags — so columns would mean
 either a table per settings domain or a wide table of mutually exclusive
@@ -118,8 +100,8 @@ nullable fields that every new knob has to migrate.
 One JSON document per id keeps the storage as boring as the access pattern,
 and `json_set` keeps the partial update atomic rather than a read-modify-write:
 a concurrent save to a different key survives, and the function creates the
-intermediate objects a dotted Mongo path like
-`migrations.refile-backups.enabled` needs.
+intermediate objects a nested path like `migrations.refile-backups.enabled`
+needs.
 
 ### Migrations, and where the freeze starts
 
@@ -164,7 +146,7 @@ The corrections themselves survive, in the DDL rather than on top of it:
 
 | Table                 | What the first draft got wrong                                                                                                                                                                                                                                                                                                                                         |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `image_access_tokens` | Modelled from the collection's name. The row the code writes is keyed by the 64-character token hash and carries the bound `path` and a `purpose`, not a `user_id`.                                                                                                                                                                                                    |
+| `image_access_tokens` | Modelled from its name alone. The row the code writes is keyed by the 64-character token hash and carries the bound `path` and a `purpose`, not a `user_id`.                                                                                                                                                                                                           |
 | `worker_config`       | Every scalar was `NOT NULL`, but `WorkerConfigRepo.patch` upserts a partial — a stage's first write can create a row holding only a name and a `paused` flag. A defaulted `paused = 0` is the subtler half: indistinguishable from an operator resume, it would tell `bootConfig` a stage is running and suppress the `pausedOnFirstBoot` parking `geocode` relies on. |
 | `asset_changes`       | Carried foreign keys to `assets` and `folders`. The most important row in this table is a `delete`, written _after_ the asset row is gone, so a key either rejects that insert or blanks the id the event exists to carry.                                                                                                                                             |
 | `people`              | Uniqueness leaned on `COLLATE NOCASE`, which folds A–Z and nothing else, so `josé` and `JOSÉ` were two people and a rename silently failed to merge. A stored `name_key` holds the folded spelling instead.                                                                                                                                                            |
@@ -183,18 +165,16 @@ The repetition is deliberate. SQLite only uses a partial index when the query's
 own `WHERE` provably implies the index's, and the implication test is textual
 enough that a paraphrase loses the index. Repo modules must use this spelling.
 
-One Mongo call site does not mean this by "live", and the port changes it.
-`findListItems` — the `GET /api/assets` working-set enumerator — filters on
-`deleted_at: null` alone, so it also returns assets whose every location has
-been tagged `missing_since`. Every other live surface, via `LIVE_ASSET_FILTER`
-in `enrichment/meilisearch-vector-coverage.ts`, requires the `$elemMatch` as
-well. The SQLite port uses the predicate above, which brings that endpoint into
-line with the rest of the product and is what makes `assets_live_captured`
-usable; `assets.list.test.ts` pins the exact row the two disagree about.
+`findListItems` — the `GET /api/assets` working-set enumerator — used to mean
+something narrower by "live", excluding only soft-deleted assets and so
+returning ones whose every location had been tagged `missing_since`. It now uses
+the predicate above, in line with every other live surface, which is also what
+makes `assets_live_captured` usable for it; `assets.list.test.ts` pins the exact
+row the two definitions disagree about.
 
 One more term rides along with it on every browse, search and facet query:
-`buildFilter` emits `hidden: { $ne: true }` unless the caller asks for hidden
-assets, which is `hidden = 0` here. It is a trailing **column** of the indexes
+hidden assets are excluded unless the caller asks for them, which is
+`hidden = 0`. It is a trailing **column** of the indexes
 below rather than part of their `WHERE`, because `hidden=only` and `hidden=all`
 are real wire values and a partial index on `hidden = 0` would lose both. As a
 column it keeps the group keys leading, so the scan stays index-only and still
@@ -209,24 +189,20 @@ value is unknown when the statement is planned. So the dedup probe against an
 index declared `WHERE maple_id IS NOT NULL AND maple_id <> ''` planned as
 `SCAN assets` — a full pass per discovered file.
 
-MongoDB taught the same lesson on the same column: `maple_id_1` carried
-`partialFilterExpression: { maple_id: { $type: 'string' } }`, which its planner
-would not match against a literal-string equality either, and
-`swap-maple-id-partial-filter-2026-05-23` rebuilt the index as `{ $gt: '' }` to
-fix it. The SQLite translation copied the `$gt: ''` spelling and reintroduced
-the bug in a planner that reasons differently. Here the two halves are split:
-`IS NOT NULL` is the index predicate, and "non-empty" is a CHECK on the column,
-so the guarantee survives without standing between the query and the index.
+The first draft of this index carried both halves in its predicate and so was
+never used. Here the two are split: `IS NOT NULL` is the index predicate, and
+"non-empty" is a CHECK on the column, so the guarantee survives without standing
+between the query and the index.
 
 The rule that follows: a partial index's predicate holds only what an ordinary
 query's `WHERE` will contain verbatim. Anything else belongs in a CHECK.
 
 ### What the list page's sort costs
 
-`findListItems` orders by `captured_at DESC, id`, replacing a Mongo `find` with
-no sort at all. That is what lets the ordered partial index serve the page, and
-it makes the endpoint pageable and stable across calls, which an unsorted
-limited find is not. It also means an asset with no EXIF capture date — the
+`findListItems` orders by `captured_at DESC, id`. That is what lets the ordered
+partial index serve the page, and it makes the endpoint pageable and stable
+across calls, which an unsorted limited read is not. It also means an asset with
+no EXIF capture date — the
 generated column is NULL, since `indexer/exif.ts` derives it from
 `DateTimeOriginal ?? CreateDate` with no fallback — sorts behind every dated
 row, so a page smaller than the live set never reaches one. #3779 carries the
@@ -235,34 +211,33 @@ over it, which is DDL rather than a repo change.
 
 ## Every query pattern in `src/api/src/db/`, and the index that serves it
 
-Sources: `assets.repo.ts`, `assets.trash.ts`, `changes.repo.ts`, `media-kind.ts`,
-`relocate-cache-reset.ts`, `migrations.ts`, `migrations.merge-duplicates.ts`,
-`migrations.person-face-count.ts`, `backup-sessions.repo.ts`, plus the facet,
-search, people and backup call sites those files' helpers serve.
+Sources: `assets.repo.ts`, `assets.trash.ts`, `changes.repo.ts` and
+`backup-sessions.repo.ts`, plus the repository modules under `db/repos/` and the
+facet, search, people, worker and backup call sites they serve.
 
 ### Reads on one asset
 
-| Call site                            | Mongo filter                                      | SQLite                                | Index                                         |
-| ------------------------------------ | ------------------------------------------------- | ------------------------------------- | --------------------------------------------- |
-| `findDetailById`, `findCoreInfoById` | `{ _id: id }`                                     | `WHERE id = ?`                        | `assets` primary key                          |
-| `findDetailsByIds`                   | `{ _id: { $in: ids } }`                           | `WHERE id IN (…)`                     | `assets` primary key                          |
-| `findDetailByAddress`                | `fileinfo.$elemMatch{library_id, path, filename}` | one row of `asset_locations`          | `asset_locations_lib_path_name` (UNIQUE)      |
-| detail DTO's `fileinfo` array        | the array itself                                  | `WHERE asset_id = ? ORDER BY ordinal` | `asset_locations` `UNIQUE(asset_id, ordinal)` |
-| detail DTO's faces + person names    | `faces[]` + a `people` `$in`                      | join `faces` → `people`               | `faces_person`, `people` primary key          |
+| Call site                            | SQLite                                | Index                                         |
+| ------------------------------------ | ------------------------------------- | --------------------------------------------- |
+| `findDetailById`, `findCoreInfoById` | `WHERE id = ?`                        | `assets` primary key                          |
+| `findDetailsByIds`                   | `WHERE id IN (…)`                     | `assets` primary key                          |
+| `findDetailByAddress`                | one row of `asset_locations`          | `asset_locations_lib_path_name` (UNIQUE)      |
+| detail DTO's `fileinfo` array        | `WHERE asset_id = ? ORDER BY ordinal` | `asset_locations` `UNIQUE(asset_id, ordinal)` |
+| detail DTO's faces + person names    | join `faces` → `people`               | `faces_person`, `people` primary key          |
 
 ### Browse, search and the grid
 
-| Call site                            | Mongo                                                          | SQLite                                                                 | Index                                                    |
-| ------------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
-| `findListItems`                      | `{ deleted_at: null, … }`, limit 1000                          | live predicate + optional `rating`, `has_xmp`, `captured_at` residuals | `assets_live_captured`                                   |
-| default search sort                  | `{ 'fileinfo.library_id': 1, 'exif.captured_at': -1, _id: 1 }` | ordered scan of `assets`, semi-join for the library                    | `assets_live_captured` + `asset_locations_primary_entry` |
-| `name` sort                          | `fileinfo_filename_1`                                          | `ORDER BY filename`                                                    | `asset_locations_filename`                               |
-| library scope                        | `'fileinfo.library_id'` dotted                                 | `EXISTS (… l.library_id = ?)`                                          | `asset_locations_library_live`                           |
-| free-text `q` regex on filename/path | `$or` of two regexes over `fileinfo`                           | `LIKE` over `asset_locations`                                          | `asset_locations_filename` (prefix only)                 |
-| timeline subtree scope               | `^prefix(\/\|$)` anchored regex, case-sensitive                | `l.path = ?` or `substr(l.path, 1, length(?)) = ?`                     | `UNIQUE(asset_id, ordinal)`, `path` a residual           |
-| `scope=people`                       | `'faces.0': { $exists: true }`                                 | `EXISTS (SELECT 1 FROM faces …)`                                       | `faces_person` / `faces_unassigned`                      |
-| person filter                        | `faces.$elemMatch{person_id ∈ …}`                              | `EXISTS (… f.person_id IN (…))`                                        | `faces_person`                                           |
-| excluded people                      | `faces: { $not: { $elemMatch … } }`                            | `NOT EXISTS (…)`                                                       | `faces_person`                                           |
+| Call site                            | SQLite                                                                 | Index                                                    |
+| ------------------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------- |
+| `findListItems`                      | live predicate + optional `rating`, `has_xmp`, `captured_at` residuals | `assets_live_captured`                                   |
+| default search sort                  | ordered scan of `assets`, semi-join for the library                    | `assets_live_captured` + `asset_locations_primary_entry` |
+| `name` sort                          | `ORDER BY filename`                                                    | `asset_locations_filename`                               |
+| library scope                        | `EXISTS (… l.library_id = ?)`                                          | `asset_locations_library_live`                           |
+| free-text `q` on filename/path       | `LIKE` over `asset_locations`                                          | `asset_locations_filename` (prefix only)                 |
+| timeline subtree scope               | `l.path = ?` or `substr(l.path, 1, length(?)) = ?`                     | `UNIQUE(asset_id, ordinal)`, `path` a residual           |
+| `scope=people`                       | `EXISTS (SELECT 1 FROM faces …)`                                       | `faces_person` / `faces_unassigned`                      |
+| person filter                        | `EXISTS (… f.person_id IN (…))`                                        | `faces_person`                                           |
+| excluded people                      | `NOT EXISTS (…)`                                                       | `faces_person`                                           |
 
 The grid query is written as a semi-join rather than an inner join. What the
 shape guarantees is which table leads: `EXISTS` gives the planner nothing to
@@ -308,21 +283,20 @@ the index entirely.
 Every row below carries `live AND hidden = 0` as its `WHERE`; only the part
 that differs is written out.
 
-| Call site                                                              | Mongo                                                     | SQLite                                                  | Index                                               |
-| ---------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------- |
-| facet total, Meili live count, generated-search preview, buckets total | `countDocuments(live)`                                    | `COUNT(*)`                                              | `assets_live`                                       |
-| camera facet                                                           | `$group { exif.camera_make, exif.camera_model }`          | `GROUP BY camera_make, camera_model`                    | `assets_facet_camera`                               |
-| lens facet                                                             | `$group '$exif.lens'`                                     | `GROUP BY lens`                                         | `assets_facet_lens`                                 |
-| places facet                                                           | `$group { place.rollups.locality, place.rollups.region }` | `GROUP BY place_locality, place_region`                 | `assets_facet_place_label`                          |
-| country drill-down                                                     | the `place_rollups` index's purpose                       | `GROUP BY place_country_code`                           | `assets_facet_place`                                |
-| timeline buckets                                                       | `$group { exif.captured_year, exif.captured_month }`      | `GROUP BY captured_year, captured_month`                | `assets_live_captured_ym`                           |
-| screenshot tri-state                                                   | `$cond` bucket over `is_screenshot`                       | `GROUP BY is_screenshot`                                | `assets_facet_screenshot`                           |
-| scene / activity facets                                                | `$group '$vision.scene_type'`, `{ $nin: [null, ''] }`     | `GROUP BY` it, over the mirrored live-and-visible rows  | `asset_detail_scene_type`, `asset_detail_activity`  |
-| subjects facet                                                         | `$unwind '$vision.subjects'` then `$group`                | `GROUP BY subject` over `asset_subjects`                | `asset_subjects_facet`                              |
-| capture range, ISO range                                               | `$min` / `$max`                                           | `MIN` / `MAX`, each naming its index                    | `assets_live_captured`, `assets_facet_iso`          |
-| extension facet                                                        | `$split` on `fileinfo.filename`                           | `GROUP BY` a generated `extension` column               | `asset_locations_facet_extension`                   |
-| people facet                                                           | `$setUnion` over `faces` then `$unwind`                   | `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces` | `faces_facet_person`                                |
-| Meili vector coverage                                                  | `LIVE_ASSET_FILTER` + `semantic_vector_fingerprint`       | `WHERE semantic_vector_fingerprint = ?`                 | `assets_vector_fingerprint` (new — unindexed today) |
+| Call site                                                              | SQLite                                                                      | Index                                               |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------- |
+| facet total, Meili live count, generated-search preview, buckets total | `COUNT(*)`                                                                  | `assets_live`                                       |
+| camera facet                                                           | `GROUP BY camera_make, camera_model`                                        | `assets_facet_camera`                               |
+| lens facet                                                             | `GROUP BY lens`                                                             | `assets_facet_lens`                                 |
+| places facet                                                           | `GROUP BY place_locality, place_region`                                     | `assets_facet_place_label`                          |
+| country drill-down                                                     | `GROUP BY place_country_code`                                               | `assets_facet_place`                                |
+| timeline buckets                                                       | `GROUP BY captured_year, captured_month`                                    | `assets_live_captured_ym`                           |
+| screenshot tri-state                                                   | `GROUP BY is_screenshot`                                                    | `assets_facet_screenshot`                           |
+| scene / activity facets                                                | `JOIN assets` + `WHERE vision_scene_type IS NOT NULL AND <> '' GROUP BY` it | `asset_detail_scene_type`, `asset_detail_activity`  |
+| capture range, ISO range                                               | `MIN` / `MAX`                                                               | `assets_live_captured`, table scan for ISO          |
+| extension facet                                                        | `GROUP BY` a suffix expression                                              | `asset_locations_filename` scan                     |
+| people facet                                                           | `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces`                     | `faces_person`                                      |
+| Meili vector coverage                                                  | `WHERE semantic_vector_fingerprint = ?`                                     | `assets_vector_fingerprint` (new — unindexed today) |
 
 The vision facets are the one row where the exclusion is load-bearing rather
 than decorative. A bare `GROUP BY vision_scene_type` implies nothing about
@@ -418,73 +392,67 @@ in pages the multi-kilobyte rows already occupied. `asset_locations` and
 
 ### Pipeline, workers and maintenance
 
-| Call site                         | Mongo                                                     | SQLite                                                                        | Index                                                    |
-| --------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------- |
-| stage claim                       | `stages.<name>.version < target`, `dead != true`, backoff | `WHERE stage = ? AND version < ? AND dead = 0 AND …`                          | `stage_claim`                                            |
-| stage claim, video/audio only     | the same filter plus `media_kind`, on one document        | the same, plus `stage_state.media_kind IN ('video','audio')`                  | `stage_claim_media`                                      |
-| stage dead count and list         | `stage_<name>_dead` partial index                         | `WHERE stage = ? AND dead = 1`                                                | `stage_dead`                                             |
-| stage backlog: pending            | `countDocuments` per stage on `/status`                   | `WHERE stage = ? AND version < ? AND dead = 0 AND asset_claimable = 1`        | `stage_claim`, covering                                  |
-| stage backlog: ready              | the same plus the backoff and `dependsOn` gates           | the same, plus the retry gate and one `EXISTS` per dependency                 | `stage_claim` + `stage_dep` per dependency               |
-| legacy enrichment claim           | `enrichment.<stage>.done_at: null` + lease                | `WHERE stage = ? AND done_at IS NULL`                                         | `enrichment_claim`                                       |
-| `listEnrichmentDeadLetter`        | `enrichment.<stage>.dead_letter_at != null`, sorted       | `WHERE stage = ? AND dead_letter_at IS NOT NULL ORDER BY dead_letter_at DESC` | `enrichment_dead_letter` (new — a collection scan today) |
-| damaged list and count            | `'damaged.since': { $type: 'string' }`                    | `WHERE damaged_since IS NOT NULL`                                             | `assets_damaged`                                         |
-| missing-reaper sweep              | `'fileinfo.missing_since'` partial                        | `WHERE missing_since IS NOT NULL`                                             | `asset_locations_missing`                                |
-| deduplicate candidates and badge  | `fileinfo.1` partial + `$expr`/`$filter`                  | `GROUP BY asset_id HAVING COUNT(*) >= 2` over live entries                    | `asset_locations_live_by_asset`                          |
-| trash GC sweep                    | `deleted_at` partial                                      | `WHERE deleted_at < ?`                                                        | `assets_trashed`                                         |
-| content dedup                     | `maple_id_gt_1` unique partial                            | `WHERE maple_id = ?`                                                          | `assets_maple_id` (UNIQUE, partial on `IS NOT NULL`)     |
-| dedup fallback                    | `sha1_head_1` sparse                                      | `WHERE sha1_head = ?`                                                         | `assets_sha1_head`                                       |
-| hidden review list and badge      | `hidden_pending` partial                                  | `WHERE hidden = 1 AND hidden_ack = 0`                                         | `assets_hidden_pending`                                  |
-| video/audio claims and migrations | `media_kind_av` partial                                   | `WHERE media_kind IN ('video','audio')`                                       | `assets_media_kind_av`                                   |
-| map bbox clusters                 | `exif_gps_bbox` partial                                   | `WHERE gps_lat BETWEEN ? AND ? AND gps_lng BETWEEN ? AND ?`                   | `assets_gps_bbox`                                        |
-| geo-backfill donor lookup         | `exif_captured_at_gps_lat` partial                        | `WHERE captured_at BETWEEN ? AND ? AND gps_lat IS NOT NULL`                   | `assets_gps_captured`                                    |
-| refile-backups sweep              | `backup_layout_version` partial                           | `WHERE backup_layout_version IS NOT ?`                                        | `assets_backup_layout`                                   |
-| `mergeDuplicateAssets`            | `$group '$maple_id'` having count > 1                     | `WHERE maple_id IS NOT NULL GROUP BY maple_id HAVING COUNT(*) > 1`            | `assets_maple_id`, covering                              |
-| `backfillPersonFaceCount`         | `$unwind` + `$group '$faces.person_id'`                   | `GROUP BY person_id` over live assets                                         | `faces_person`                                           |
-| `relocateCacheStageReset`         | `stages.thumb.*` / `stages.preview.*` reset               | `UPDATE stage_state … WHERE asset_id = ? AND stage IN ('thumb','preview')`    | `stage_state` primary key                                |
+| Call site                         | SQLite                                                                        | Index                                                |
+| --------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------- |
+| stage claim                       | `WHERE stage = ? AND version < ? AND dead = 0 AND …`                          | `stage_claim`                                        |
+| stage claim, video/audio only     | the same, plus `stage_state.media_kind IN ('video','audio')`                  | `stage_claim_media`                                  |
+| stage dead count and list         | `WHERE stage = ? AND dead = 1`                                                | `stage_dead`                                         |
+| legacy enrichment claim           | `WHERE stage = ? AND done_at IS NULL`                                         | `enrichment_claim`                                   |
+| `listEnrichmentDeadLetter`        | `WHERE stage = ? AND dead_letter_at IS NOT NULL ORDER BY dead_letter_at DESC` | `enrichment_dead_letter`                             |
+| damaged list and count            | `WHERE damaged_since IS NOT NULL`                                             | `assets_damaged`                                     |
+| missing-reaper sweep              | `WHERE missing_since IS NOT NULL`                                             | `asset_locations_missing`                            |
+| deduplicate candidates and badge  | `GROUP BY asset_id HAVING COUNT(*) >= 2` over live entries                    | `asset_locations_live_by_asset`                      |
+| trash GC sweep                    | `WHERE deleted_at < ?`                                                        | `assets_trashed`                                     |
+| content dedup                     | `WHERE maple_id = ?`                                                          | `assets_maple_id` (UNIQUE, partial on `IS NOT NULL`) |
+| dedup fallback                    | `WHERE sha1_head = ?`                                                         | `assets_sha1_head`                                   |
+| hidden review list and badge      | `WHERE hidden = 1 AND hidden_ack = 0`                                         | `assets_hidden_pending`                              |
+| video/audio claims and migrations | `WHERE media_kind IN ('video','audio')`                                       | `assets_media_kind_av`                               |
+| map bbox clusters                 | `WHERE gps_lat BETWEEN ? AND ? AND gps_lng BETWEEN ? AND ?`                   | `assets_gps_bbox`                                    |
+| geo-backfill donor lookup         | `WHERE captured_at BETWEEN ? AND ? AND gps_lat IS NOT NULL`                   | `assets_gps_captured`                                |
+| refile-backups sweep              | `WHERE backup_layout_version IS NOT ?`                                        | `assets_backup_layout`                               |
+| `mergeDuplicateAssets`            | `WHERE maple_id IS NOT NULL GROUP BY maple_id HAVING COUNT(*) > 1`            | `assets_maple_id`, covering                          |
+| `backfillPersonFaceCount`         | `GROUP BY person_id` over live assets                                         | `faces_person`                                       |
+| `relocateCacheStageReset`         | `UPDATE stage_state … WHERE asset_id = ? AND stage IN ('thumb','preview')`    | `stage_state` primary key                            |
 
 ### Backup and File Provider
 
-| Call site                 | Mongo                                                                               | SQLite                                            | Index                              |
-| ------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------- |
-| backup-sidecar fallback   | `'phasset_links.device_id'` + `'phasset_links.phasset_local_id'`, dotted, unindexed | `WHERE device_id = ? AND phasset_local_id = ?`    | `asset_phasset_links_device_local` |
-| backup-state delta        | `phasset_links.$elemMatch{device_id, first_seen ≥ …}`                               | `WHERE device_id = ? AND first_seen >= ?`         | `asset_phasset_links_device_seen`  |
-| notify-deleted            | `phasset_links.$elemMatch{device_id, phasset_local_id ∈ …}`                         | `WHERE device_id = ? AND phasset_local_id IN (…)` | `asset_phasset_links_device_local` |
-| cross-device timeline     | `phasset_cloud_id`                                                                  | `WHERE phasset_cloud_id = ?`                      | `asset_phasset_links_cloud`        |
-| `listChangesSince`        | `{ cursor: { $gt: … } }` sorted                                                     | `WHERE cursor > ? ORDER BY cursor`                | `asset_changes` primary key        |
-| `highestCursor`           | `sort({ cursor: -1 }).limit(1)`                                                     | `SELECT MAX(cursor)`                              | `asset_changes` primary key        |
-| per-folder change routing | `{ folder_id, cursor }`                                                             | same                                              | `asset_changes_folder_cursor`      |
-| `upsertProgress`          | `{ library_id, device_id }` upsert                                                  | `ON CONFLICT (library_id, device_id)`             | `backup_sessions` UNIQUE           |
+| Call site                 | SQLite                                            | Index                              |
+| ------------------------- | ------------------------------------------------- | ---------------------------------- |
+| backup-sidecar fallback   | `WHERE device_id = ? AND phasset_local_id = ?`    | `asset_phasset_links_device_local` |
+| backup-state delta        | `WHERE device_id = ? AND first_seen >= ?`         | `asset_phasset_links_device_seen`  |
+| notify-deleted            | `WHERE device_id = ? AND phasset_local_id IN (…)` | `asset_phasset_links_device_local` |
+| cross-device timeline     | `WHERE phasset_cloud_id = ?`                      | `asset_phasset_links_cloud`        |
+| `listChangesSince`        | `WHERE cursor > ? ORDER BY cursor`                | `asset_changes` primary key        |
+| `highestCursor`           | `SELECT MAX(cursor)`                              | `asset_changes` primary key        |
+| per-folder change routing | same                                              | `asset_changes_folder_cursor`      |
+| `upsertProgress`          | `ON CONFLICT (library_id, device_id)`             | `backup_sessions` UNIQUE           |
 
 ### Full-text search
 
-`$text` has two real query call sites, not the 45 the ticket estimates — that
-count came from a grep whose hits are mostly prose in doc comments. The two are
-`routes/search/query.ts` (the `placeQuery` filter) and
-`routes/service-asset-search.ts` (which sorts by `{ $meta: 'textScore' }`).
-Both become `assets_fts MATCH ?`, with `bm25(assets_fts)` in place of the text
-score. The `porter unicode61` tokenizer gives the English stemming the Mongo
-index got from `default_language: 'english'`.
+Two call sites run a free-text query: `routes/search/query.ts` (the `placeQuery`
+filter) and `routes/service-asset-search.ts` (which ranks by relevance). Both
+are `assets_fts MATCH ?`, ranked by `bm25(assets_fts)`. The `porter unicode61`
+tokenizer supplies English stemming, and folds accents and case.
 
-A user's string cannot be forwarded to `MATCH` as it stands. `$text` takes a
-search string in which anything unrecognised is just a term; `MATCH` takes a
+A user's string cannot be forwarded to `MATCH` as it stands. `MATCH` takes a
 query expression in which `*`, `:`, `^`, `-`, parentheses and the bare words
 `AND` / `OR` / `NOT` / `NEAR` are operators, and a syntax error there raises
 rather than matching nothing — so `C++ (2019)` would 500 the search route.
-`db/sqlite/repos/search.fts.ts` re-emits every term as a quoted FTS5 string,
-splitting bare terms on punctuation the way `$text` tokenizes them so
-`harbour.dng` stays two OR'd terms rather than becoming a two-word phrase.
-Measured against `$text` over an identical 14,429-document corpus, eleven query
-shapes matched the same number of documents on both engines; the orderings
-differ, because BM25 weighs document length and term rarity more strongly than
-MongoDB's text score does.
+`db/repos/search.fts.ts` re-emits every term as a quoted FTS5 string, splitting
+bare terms on punctuation so `harbour.dng` stays two OR'd terms rather than
+becoming a two-word phrase.
+
+Ranking sorts the other way from a conventional relevance score: `bm25()`
+returns a negative number whose magnitude grows with relevance, so the best
+match is the smallest value and the sort is ascending. `FTS_RANK_SQL` and
+`FTS_RANK_ORDER` are the pair that keeps that straight.
 
 The translation answers one of three things, and the third is the one that is
 easy to get wrong. A blank query carries no text filter. A query with terms
 becomes an expression. A query whose terms all cancel — `???`, `-boat`, `((((`
 — is a filter that matches nothing, which is not the same as having no filter:
 collapsing the two would answer the whole live library for a query the user
-typed to narrow it. `$text` returns zero documents for every one of those
-inputs, measured rather than assumed, so the port does too. There is no length
+typed to narrow it. There is no length
 cap here; the term cap bounds the cost, and refusing a long query outright was
 itself a way of answering the whole library for a pasted caption. An unmatchable
 query becomes the constant `0`, which SQLite folds before planning — the
@@ -494,19 +462,13 @@ and the statements that would otherwise name an index drop the hint, because an
 
 ### Index count
 
-|                                 | Mongo                                                                          | SQLite                                            |
-| ------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
-| Per-stage indexes on `assets`   | 24 (12 stages × 2), plus stale ones for retired stages that were never dropped | 2, and they do not grow with the stage list       |
-| Other named indexes on `assets` | 26                                                                             | 36 across `assets` and the seven tables beside it |
-| Registering a new stage         | two more index definitions, rebuilt on the next boot                           | an insert                                         |
+Two indexes carry every stage, and they do not grow when the stage list does —
+registering a stage is an insert, not a pair of new index definitions. Another
+33 named indexes span `assets` and the six tables its arrays became.
 
-The ticket's "28 of 54" counts production's live index list, which carries
-indexes for stages that no longer exist; 24 of 50 is what the current source
-declares.
+## Design decisions worth knowing
 
-## What changed behaviourally
-
-Differences a reviewer should know about, rather than discover.
+Things a reviewer should know about, rather than discover.
 
 **The change feed holds ids, not references.** `asset_changes.asset_id` and
 `folder_id` are plain TEXT with no foreign key. The rows are an append-only
@@ -536,58 +498,38 @@ while `WHERE name = ?` still compares BINARY, so the two never meet and the
 lookup scans. For `people` that was more than slow: `findByNameCI` is what
 decides whether renaming a person merges into an existing cluster, so a missed
 match would send the caller into an insert that the unique index then rejects,
-turning a merge into a `UNIQUE constraint failed`. NOCASE is ASCII-only where
-Mongo's `{ locale: 'en', strength: 2 }` folds accents too; that narrower
-equality is tracked on #3767, and it is a uniqueness question rather than a
-lookup one.
+turning a merge into a `UNIQUE constraint failed`. NOCASE is ASCII-only, so it
+does not fold accents; that narrower equality is tracked on #3767, and it is a
+uniqueness question rather than a lookup one.
 
-**Same-entry matching is now structural.** MongoDB gives two different answers
-for an array of subdocuments: `$elemMatch` requires one entry to satisfy every
-condition, while dotted paths let different entries satisfy different
-conditions. Getting that wrong is a live bug — `routes/backup-sidecar.ts` matches
-the device and the local id as dotted paths, so an asset linked to
-`(deviceA, id1)` and `(deviceB, id2)` answers a lookup for `(deviceA, id2)`.
-Every sibling route uses `$elemMatch`. As rows, the mismatch cannot be written.
+**Same-entry matching is structural.** A lookup that has to match two things
+about the _same_ location or link — this device and this local id, not this
+device on one link and this id on another — is one row's two columns here, so
+the mismatch cannot be written. The backup-sidecar fallback in particular used
+to answer a lookup for `(deviceA, id2)` on an asset linked to `(deviceA, id1)`
+and `(deviceB, id2)`.
 
-**One file path, one location row — and the live entry gets it** (#3790).
-`asset_locations_lib_path_name` is UNIQUE over `(library_id, path, filename)`,
-which is what makes a relocate safe: a file whose content changed has its old
-row released rather than tagged, because a tagged row would occupy the key.
-MongoDB's counterpart index is NOT unique, so a production library has
-addresses that a tombstone and a live entry both claim — 3,478 of them on the
-owner's, 2,519 with a live entry involved. The importer decides each one before
-it maps a document: an entry with no `deleted_at` beats a tombstone, an
-untagged entry beats one tagged `missing_since`, an entry on a live asset beats
-one on a soft-deleted asset, and otherwise the more recently indexed asset
-keeps the path. The entries that lose are released — the row is not written,
-the asset is imported whole, and the ordinal of a surviving sibling is not
-renumbered. On the owner's library that is 3,495 entries: 3,282 tombstones, 17
-on trashed assets, and 196 genuine live-against-live duplicates where both
-assets survive and only one of them can name the file. The rule and the
-measurements are in `import/plan/contested-locations.ts`; verification asks the
-source for its number of DISTINCT addresses, which is what the destination
-should hold, rather than for its number of entries.
+**One file path, one location row.** `asset_locations_lib_path_name` is UNIQUE
+over `(library_id, path, filename)`, which is what makes a relocate safe: a file
+whose content changed has its old row released rather than tagged, because a
+tagged row would occupy the key.
 
-**`live_location_count` stays, but is derived.** What the ticket retires is the
-hand-maintained version — a denormalised number updated at every liveness
-mutation site, which could drift. Triggers on `asset_locations` derive it now, so
-it cannot. It survives because "live" is the base predicate of every facet, and
-written as an `EXISTS` sub-select it costs one B-tree probe per candidate row.
-Measured on 600,000 generated assets, the same count is 11.5 ms against the
-roll-up column and 271 ms via `EXISTS`. As a column it folds into the partial
-index's `WHERE`; as a sub-select it cannot.
+**`live_location_count` is derived, not maintained.** Triggers on
+`asset_locations` keep it, rather than every liveness mutation site remembering
+to, so it cannot drift. It exists at all because "live" is the base predicate of
+every facet: written as an `EXISTS` sub-select it costs one B-tree probe per
+candidate row, and on 600,000 generated assets the same count is 11.5 ms against
+the roll-up column and 271 ms via `EXISTS`. As a column it folds into the
+partial index's `WHERE`; as a sub-select it cannot.
 
-**TTL indexes become a sweep.** Six collections rely on Mongo's TTL monitor to
-delete expired rows. SQLite has no TTL monitor, so expiry becomes an explicit
-periodic `DELETE … WHERE expires_at < ?`, and each table carries an index on
+**Expiry is a sweep, not a background collector.** SQLite deletes nothing on its
+own, so rows with an `expires_at` are removed by an explicit periodic
+`DELETE … WHERE expires_at < ?`, and each such table carries an index on
 `expires_at` to make that a range scan. `EXPIRY_INDEX_DDL` in `ddl/auth.ts` is
 the list, and `upload_sessions` is a seventh table in the same position.
-Nothing gets less safe: every one of these tables
-already had to check expiry at read time, because Mongo's monitor only runs once
-a minute and an expired document is fully readable until it fires.
 
 The sweep itself is `sweepExpiredAuthRows` in
-`db/sqlite/repos/auth.expiry.ts`, and it is garbage collection rather than
+`db/repos/auth.expiry.ts`, and it is garbage collection rather than
 enforcement — each repository's own `expires_at > ?` predicate is what refuses
 an expired row, whether or not the sweep has run. One table's failure therefore
 does not abort the pass; the result reports what it removed and what it could
@@ -596,20 +538,19 @@ not.
 **A write cannot return rows, so a claim is a compare-and-swap.** The pool's
 `write` reports `{ changes, lastInsertRowid }` and nothing else, and `read` runs
 on a read-only connection, so `UPDATE … RETURNING` is unavailable in both
-directions. Every Mongo `findOneAndUpdate` therefore becomes an `UPDATE` whose
-`WHERE` carries the whole filter, with `changes === 1` as the proof that this
-caller won — identical safety, because the winner is established by the write
-rather than by a preceding read. Where the caller does not already know the
+directions. So a claim is an `UPDATE` whose `WHERE` carries the whole filter,
+with `changes === 1` as the proof that this caller won — the winner is
+established by the write itself rather than by a preceding read, which is what
+makes it safe. Where the caller does not already know the
 row's key (claiming the oldest free row of a queue), it reads a short list of
 candidate ids first and CASes them in order; a candidate another worker took in
 between simply reports zero rows changed and the next one is tried.
 
-**Stage rows are seeded, not lazy.** On Mongo a missing `stages.<name>` subdoc
-is claimable, because BSON orders a missing field below any number so
-`{ version: { $lt: target } }` matches it. The SQL equivalent of that is an
-anti-join against `assets`, which cannot use an index on `stage_state` at all.
-So every asset gets one row per registered stage at `version = 0` when it is
-created, and the claim becomes a plain index range scan — 0.06 ms for 500
+**Stage rows are seeded, not lazy.** Leaving a stage's row absent until its
+first attempt would make the claim an anti-join against `assets`, which cannot
+use an index on `stage_state` at all. So every asset gets one row per registered
+stage at `version = 0` when it is created, and the claim becomes a plain index
+range scan — 0.06 ms for 500
 candidates over 12 million rows. Registering a thirteenth stage is then one
 `INSERT … SELECT id, 'new-stage' FROM assets`.
 
@@ -673,10 +614,9 @@ applies.
 
 **Case-insensitive uniqueness is a stored key, not a collation** (#3749).
 `people_name_unique` is what makes naming two clusters the same thing a merge,
-and the Mongo index it replaces is declared `{ locale: 'en', strength: 2 }`.
-SQLite's `NOCASE` is not that collation: it folds ASCII `A`–`Z` and nothing
-else, so under it "josé" and "JOSÉ" are two names, the lookup misses, the index
-permits the second row and the merge silently does not happen. `bun:sqlite`
+and SQLite's `NOCASE` is not equal to the job: it folds ASCII `A`–`Z` and
+nothing else, so under it "josé" and "JOSÉ" are two names, the lookup misses,
+the index permits the second row and the merge silently does not happen. `bun:sqlite`
 cannot register a collation of our own, so `people` carries a `name_key` column
 folded by `caseFoldKey` (`db/sqlite/case-fold.ts`, NFKC then `toLowerCase`) and
 the unique index is built over that. Every comparison in `repos/people.sql.ts`
@@ -690,9 +630,8 @@ repo, since a NOT NULL key column with no writer proves nothing.
 is a denormalised number adjusted by hand at every membership change — assign,
 unassign, hide, merge — and then rewritten wholesale once per clustering pass by
 a block whose own comment says it is there to heal the drift those incremental
-sites cause. It has to be denormalised on Mongo because counting means
-`$unwind`-ing the faces array of every asset that mentions the person. As rows
-it is one `COUNT(*)` over `faces_person` joined to `assets` for liveness, so the
+sites cause. As rows it is one `COUNT(*)` over `faces_person` joined to `assets`
+for liveness, so the
 column does not exist and neither do the adjust and heal helpers. The count is
 computed where it is read, in `repos/people.face-count.ts`, and the drift cannot
 be reintroduced by a write path forgetting to call something.
@@ -708,21 +647,19 @@ which asks for all of them, takes the grouped scan.
 
 **The clustering worker gets a path, not a connection** (#3749). The clustering
 pass runs on its own thread and writes — `recomputeCentroids` persists refreshed
-centroids before the seeds are read back. The Mongo worker opens its own database
-handle from parameters in the dispatch message, and reproducing that here would
-mean a second SQLite writer, which is exactly what the pool exists to prevent.
-Instead the worker opens the file `readonly` for its own queries, so the
+centroids before the seeds are read back. Letting it open its own writable
+handle would mean a second SQLite writer, which is exactly what the pool exists
+to prevent. Instead the worker opens the file `readonly` for its own queries, so the
 embeddings stay on its thread, and sends every write to the host, which runs it
 on the pool's single writer. `db/sqlite/worker-db.ts` carries the argument,
 including why the write-then-reload path in the clustering pass still observes
 its own write.
 
-**A stage claim holds a lease, and the lease is in the row.** The Mongo runner
-keeps the set of assets it is working on in process memory and excludes them
-from its next filter, which protects one process from itself and nothing from a
-second one — another API process, the importer, or the same process across a
-restart. The claim writes `next_attempt_at` a fixed interval ahead instead, so
-the exclusion travels with the data. That column already means "the earliest
+**A stage claim holds a lease, and the lease is in the row.** Keeping the set
+of assets a runner is working on in process memory would protect that process
+from itself and nothing from a second one — another API process or the same
+process across a restart. The claim writes `next_attempt_at` a fixed interval
+ahead instead, so the exclusion travels with the data. That column already means "the earliest
 this row may be claimed again", so the claim and the retry backoff share one
 gate rather than needing a second column, and the writeback overwrites it on
 every terminal path: cleared on success, replaced by the real backoff on
@@ -737,7 +674,7 @@ now holds. `renewStageLease` pushes the lease out for a handler that
 legitimately runs longer than one — `transcribe` runs the length of a video —
 and returns null when the claim is already gone, which is how that handler
 learns to drop its work rather than write it. And the version-bump reset leaves
-`next_attempt_at` alone, exactly as the Mongo original did: a restart across a
+`next_attempt_at` alone: a restart across a
 bump has the outgoing process still draining handlers while the incoming one
 boots and re-queues, and clearing the column there would drop the leases those
 handlers hold. Nothing is stranded by leaving it, because every path that parks
@@ -765,17 +702,17 @@ returning-capable primitive is not worth adding to the pool for it.
 
 ## The migration runner
 
-`src/api/src/db/sqlite/migrate.ts`, the engine-agnostic successor to
-`db/migrations.ts`. The sentinel table `schema_migrations` records one row per
-applied migration id, so a boot that has already migrated short-circuits.
+`src/api/src/db/sqlite/migrate.ts`, run at boot by
+`db/sqlite/boot-schema.ts` before the pool opens. The sentinel table
+`schema_migrations` records one row per applied migration id, so a boot that has
+already migrated short-circuits, and a migration that fails stops the boot
+rather than serving a half-changed schema.
 
-Two things improve on the Mongo runner. SQLite runs DDL inside transactions, so
-a migration and its sentinel row commit together — the Mongo version had to
-accept a rare double-run when the process died in between, and that window does
-not exist here. And `BEGIN IMMEDIATE` takes the write lock up front, so two
-processes booting against the same file serialise; the loser re-reads the
-sentinel inside its own transaction and skips, rather than racing into a
-duplicate-key error it has to swallow.
+Two properties make it safe. SQLite runs DDL inside transactions, so a
+migration and its sentinel row commit together and a process that dies partway
+through leaves nothing behind. And `BEGIN IMMEDIATE` takes the write lock up
+front, so two processes booting against the same file serialise; the loser
+re-reads the sentinel inside its own transaction and skips.
 
 The write lock is taken only for migrations that are actually pending. The
 runner reads the applied set once, before the loop, so a boot with nothing to
@@ -811,8 +748,9 @@ Generated libraries at three sizes, on an M-series Mac, SQLite 3.54.0 under Bun
 
 The bolded column is the set every browse, search and facet query actually
 touches: the 18 partial indexes on `assets` plus the six on `asset_locations`
-and the latter's uniqueness index. At production's row count it is 209 MB,
-against the 8.8 GB Mongo collection that does not fit a 1.5 GB cache. It grew
+and the latter's uniqueness index. At production's row count it is 209 MB — a
+working set that fits in page cache, which is the whole point of the narrow
+row. It grew
 from 194 MB when `hidden` was appended to eight of those indexes, which is the
 cheapest 15 MB in the schema: without it every facet fetches each candidate row
 to test a column it could have read from the index. `asset_detail` is the
@@ -879,77 +817,21 @@ magnitude faster.
 ### The same facets through the ported route (#3750, #3768)
 
 The table above times the queries the schema was designed around. These time the
-statements `db/sqlite/repos/search.facets.sql.ts` actually generates for an
-unfiltered `GET /api/search/facets`, which differ in one way that turned out to
-matter: they all carry the always-on `hidden = 0` filter. Median of five at
-335,377 generated assets, from
+statements `db/repos/search.sql.ts` actually generates for an unfiltered
+`GET /api/search/facets`, which differ in one way that turned out to matter: they
+all carry the always-on `hidden = 0` filter. At 335,377 assets:
 
-```bash
-cd src/api && bun scripts/sqlite-bench/search-compare.ts 335377 --no-mongo
-```
+The script that produced these numbers, `scripts/sqlite-bench/search-compare.ts`,
+went with the rest of the MongoDB comparison harness (#3785). A SQLite-only
+replacement is tracked by #3807; until it lands these figures cannot be
+re-measured, and a plan regression on any of the six rewritten facets would go
+unnoticed. `scripts/sqlite-bench/run.ts` still covers the five older facets.
 
-which prints the plan beside each timing, because a facet's cost is entirely a
-question of which index it reads:
-
-| facet                   | before   | after   | reads now                         |
-| ----------------------- | -------- | ------- | --------------------------------- |
-| total                   | 6.1 ms   | 6.3 ms  | `assets_live`                     |
-| camera make + model     | 16.3 ms  | 17.4 ms | `assets_facet_camera`             |
-| lens                    | 14.0 ms  | 15.9 ms | `assets_facet_lens`               |
-| place locality + region | 17.3 ms  | 17.2 ms | `assets_facet_place_label`        |
-| screenshot              | 9.3 ms   | 9.7 ms  | `assets_facet_screenshot`         |
-| capture range           | 21.0 ms  | 22.1 ms | `assets_live_captured`            |
-| grid page, 200 rows     | 0.15 ms  | 0.14 ms | `assets_live_captured`            |
-| **ISO range**           | 256 ms   | 12.1 ms | `assets_facet_iso`                |
-| **extensions**          | 465 ms   | 16.0 ms | `asset_locations_facet_extension` |
-| **scene type**          | 810 ms   | 13.5 ms | `asset_detail_scene_type`         |
-| **activity**            | 706 ms   | 12.2 ms | `asset_detail_activity`           |
-| **people**              | 643 ms   | 29.9 ms | `faces_facet_person`              |
-| **subjects**            | 1,193 ms | 37.0 ms | `asset_subjects_facet`            |
-
-The route waits for the slowest of the twelve, so it costs 37 ms rather than
-1.2 s — and the pool, which has two reader threads, now does about 210 ms of
-work per faceted search instead of about 4 s. That second number is the one
-that mattered: with two readers, twelve aggregations at up to a second each is
-enough to build a queue on its own.
-
-The six in bold are the ones the mirrored facet state fixed; the argument and
-the storage it costs are in "The mirrored facet state" above. The first seven
-rows are unchanged, which is the point of listing them — every one of them is
-within run-to-run noise of where it was.
-
-**A filtered search still joins**, because a camera, a place, a date or a
-person is a question only `assets` can answer, and the mirror does not help
-with it. Those statements keep the shape they had, with `assets` pinned as the
-outer loop by `CROSS JOIN`, and none of them is slower than before. Measured
-with `rating >= 4`, the worst kind of residual — one no index can serve, so the
-live set has to be walked whatever the plan — with both statements timed in one
-run against one database, which is the only way the two columns can be compared
-at all:
-
-| facet         | before | after  |
-| ------------- | ------ | ------ |
-| extensions    | 151 ms | 155 ms |
-| ISO range     | 136 ms | 135 ms |
-| scene type    | 150 ms | 150 ms |
-| activity      | 151 ms | 149 ms |
-| subjects      | 177 ms | 147 ms |
-| people        | 660 ms | 145 ms |
-| capture range | 548 ms | 148 ms |
-
-Four of them are unchanged, and about 150 ms is what walking the live set costs
-— the residual sets that floor and nothing in this ticket can lower it. Three
-improve. People was led from `faces`, so it probed `assets` once per assigned
-face rather than the other way round. The capture range named
-`assets_live_captured` on every request including filtered ones, which made the
-statement walk the whole live set in the index's order and fetch each row for
-the residual; both range facets now name their index only when the statement
-can be answered from it alone.
-
-A caution about reading any of these against a figure taken on another day:
-the same filtered set measured 25% slower across every row, including one whose
-plan this ticket does not touch, on a machine that had just run the test suite.
-Two numbers are comparable when they come out of the same run.
+The first seven are the ones every index in this schema was built for, and they
+are where its case lies. The last six each have to leave the `assets` row to
+answer, and none of them has an index that covers what it needs; the schema
+already flagged the scene, activity and ISO cases as unindexed, and the ported
+measurement puts numbers on them. Closing that gap is #3768.
 
 ## Reproducing the measurements
 
@@ -958,12 +840,9 @@ cd src/api
 bun scripts/sqlite-bench/run.ts                 # 335k, 600k and 1M assets
 bun scripts/sqlite-bench/run.ts 335377 --keep   # one size, leave the file behind
 
-# The ported search and facet queries, against both engines (#3750, #3768).
-# Prints a plan per facet under "What each one reads", so a timing here can be
-# checked against the index the map above claims for it.
-bun scripts/sqlite-bench/search-compare.ts              # 60,000 assets
-bun scripts/sqlite-bench/search-compare.ts 335377 --no-mongo
-bun scripts/sqlite-bench/search-relevance.ts            # $text vs FTS5
+# Stage-claim round trips and the media-narrowed claim
+bun scripts/sqlite-bench/stage-claim-roundtrip.ts
+bun scripts/sqlite-bench/stage-claim-media.ts
 ```
 
 The generator is seeded, so a re-run reproduces the same library, spread over

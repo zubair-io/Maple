@@ -52,7 +52,7 @@ non-test files**. `.github/workflows/api.yml` executes Bun tests but does not ru
 this command.
 
 Examples: stale `./channel.ts` type import in `src/api/src/indexer/indexer.repo.ts`,
-MongoDB identifier types in configuration repositories, and stale auth payloads
+mismatched identifier types in configuration repositories, and stale auth payloads
 in tests. A successful runtime test run cannot establish that these types agree.
 The missing import is in apparently retired repository code, so it is not evidence
 that the live server fails at startup.

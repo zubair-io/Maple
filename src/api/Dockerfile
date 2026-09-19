@@ -10,19 +10,23 @@
 # Build:
 #   docker build -f src/api/Dockerfile -t maple .
 #
-# Run (MongoDB must be accessible at MAPLE_MONGO_URI):
+# Run (no database service to point at — Maple keeps its library index in one
+# SQLite file at /app/data/maple.sqlite, created on first boot):
 #   docker run -p 3000:3000 \
-#     -e MAPLE_MONGO_URI=mongodb://host.docker.internal:27017 \
+#     -v maple_data:/app/data \
 #     -v /path/to/photos:/photos \
 #     -e MAPLE_ROOTS=/photos \
 #     -v maple_config:/app/config \
 #     maple
 #
-# The JWT signing secret is stored in MongoDB (server_state.jwt_secret), so it
-# survives container recreates and is shared across instances on its own. The
-# -v maple_config:/app/config mount only persists the on-disk FALLBACK secret
-# used if Mongo is unreachable at boot — keeping it stabilises that degraded
-# path too.
+# The -v maple_data:/app/data mount is the one that matters. That file is the
+# library — folders, assets, settings, and the JWT signing secret — and the
+# container filesystem does not survive a recreate, so leaving it out means
+# starting over with an empty library on every redeploy. Because the secret
+# lives in there too, it also survives recreates and is shared by every
+# instance opening the same file. The -v maple_config:/app/config mount only
+# persists the on-disk FALLBACK secret used if the database cannot be opened
+# at boot — keeping it stabilises that degraded path too.
 
 # ---------------------------------------------------------------------------
 # Stage 0: build the raw-wasm image-pipeline blob from source.
@@ -201,14 +205,18 @@ COPY --from=rust-builder /libraw_ffi.so native/
 ENV MAPLE_NATIVE_LIB=/app/native/libraw_ffi.so
 
 ENV PORT=3000
-ENV MAPLE_MONGO_URI=mongodb://localhost:27017
-ENV MAPLE_MONGO_DB=maple
+# The library database. /app/data is meant to be a mounted volume — see the
+# header. On first boot the server creates the directory and the file, applies
+# the pending schema migrations, and serves an empty library for the indexer
+# to fill.
+ENV MAPLE_SQLITE_PATH=/app/data/maple.sqlite
 ENV MAPLE_UI_DIST=/app/ui
-# JWT secret: the primary store is the DB (server_state.jwt_secret), which
-# persists in Mongo and is shared across instances — see src/auth/jwt-secret.repo.ts.
-# This path is only the FALLBACK used when Mongo is unreachable at boot. Point
-# it at the persistent /app/config volume (not the ephemeral container layer)
-# so even the degraded path doesn't rotate the secret on every recreate.
+# JWT secret: the primary store is the database (server_state.jwt_secret), so
+# it rides along on the /app/data volume and is shared by every instance
+# opening that file — see src/auth/jwt-secret.repo.ts. This path is only the
+# FALLBACK used when the database cannot be opened at boot. Point it at the
+# persistent /app/config volume (not the ephemeral container layer) so even the
+# degraded path doesn't rotate the secret on every recreate.
 ENV MAPLE_JWT_SECRET_FILE=/app/config/jwt.secret
 
 EXPOSE 3000 3443/tcp 3443/udp

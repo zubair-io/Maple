@@ -155,7 +155,7 @@ New UI composes `mui-*` components from `src/web/projects/maple-common/src/lib/u
 
 ---
 
-## API — Bun, Elysia, MongoDB
+## API — Bun, Elysia, SQLite
 
 **Route families are prefixed Elysia instances**, one exported const per file under `src/api/src/routes/`:
 
@@ -171,7 +171,7 @@ Bodies and params validate through Elysia's TypeBox `t` schemas at the route, no
 
 **Errors are `set.status` plus a single-field body**: `return { error: 'file access permission required' }` with `set.status = 403` (`src/api/src/auth/middleware.ts`). There is no second `message` field.
 
-**Data access lives in `*.repo.ts`** under `src/api/src/db/` (`assets.repo.ts`, `changes.repo.ts`, `backup-sessions.repo.ts`) and in per-domain repos like `src/api/src/workers/worker-config.repo.ts`. Route handlers call repo functions; they don't reach for the Mongo driver.
+**Data access lives in `*.repo.ts`** under `src/api/src/db/` (`assets.repo.ts`, `changes.repo.ts`, `backup-sessions.repo.ts`), in `src/api/src/db/repos/`, and in per-domain repos like `src/api/src/workers/worker-config.repo.ts`. Route handlers call repo functions; they don't write SQL themselves. The connection is a worker-backed pool rather than an in-process handle for a specific reason: every in-process SQLite call in Bun blocks the event loop, and the API and the whole worker tier share one process, so a query run there would stall every concurrent request (`src/api/src/db/sqlite/pool.ts`).
 
 ### The filesystem-import guardrail
 
@@ -179,21 +179,21 @@ Bodies and params validate through Elysia's TypeBox `t` schemas at the route, no
 
 ### Tests
 
-`bun test` is the gate (`src/api/package.json`). Mongo-backed suites need a real database — they skip-pass when none is reachable.
+`bun test` is the gate (`src/api/package.json`). Nothing has to be running first: a test that needs a database calls `createTestDatabase()` from `src/api/src/db/sqlite/test-sqlite.test-helpers.ts` and gets its own file with the schema already applied, disposed when the test's block exits. Isolation is per _test_, not per suite, so two tests can insert the same primary key without interfering.
 
-Scope every environment override to the suite with the helpers in `src/api/src/db/test-db.test-helpers.ts`:
+Scope every environment override to the suite with `withTestEnv` from `src/api/src/test-support/env.test-helpers.ts`:
 
 ```typescript
-const dbName = withTestDb('maple_test_folders'); // sets MAPLE_MONGO_DB for this suite only
+withTestEnv('MAPLE_ROOTS', '/tmp/fixture-library'); // this suite only
 ```
 
-This is not a style preference. Bun evaluates every module body during the import phase, before any test runs, so a suite that assigns `process.env.MAPLE_MONGO_DB` at module scope renames the database for the whole process: the last import wins, other suites' `getDb()` connect to it, and one suite's teardown drops a database another is still using. `withTestEnv` / `withTestDb` claim the value in `beforeAll` and restore it in `afterAll`, so an override is live only while its owner runs. Capturing the previous value at module scope is the same bug in disguise. Use `tryConnectTestMongo()` for the skip-pass check rather than rolling your own timeouts.
+This is not a style preference. Bun evaluates every module body during the import phase, before any test runs, so a suite that assigns `process.env.X` at module scope sets it for the whole process: the last import wins and every other suite sees that suite's value. `withTestEnv` claims the value in `beforeAll` and restores it in `afterAll`, so an override is live only while its owner runs. Capturing the previous value at module scope is the same bug in disguise — two suites overriding the same variable capture each other's override as their "prior" and restore the wrong value on the way out.
 
 ### Configuration goes in settings, not new environment variables
 
-Runtime configuration belongs in Maple's database-backed settings — the `worker_config` and enrichment-config collections, surfaced on the Settings pages (`/settings/workers`, `/settings/sources`, `/settings/pano`, `/settings/map`, `/settings/network`, …). A DB-backed setting is toggleable at runtime with no restart and no shell access, and it is visible in the UI. An environment variable is invisible and needs a redeploy.
+Runtime configuration belongs in Maple's database-backed settings — the `worker_config` and enrichment-config tables, surfaced on the Settings pages (`/settings/workers`, `/settings/sources`, `/settings/pano`, `/settings/map`, `/settings/network`, …). A DB-backed setting is toggleable at runtime with no restart and no shell access, and it is visible in the UI. An environment variable is invisible and needs a redeploy.
 
-Reserve environment variables for bootstrap that must be known before the database is reachable: port, `MAPLE_MONGO_URI`, `MAPLE_JWT_SECRET`, process role. A new feature toggle or threshold ships with its control on the relevant settings page, in the same change as the backend.
+Reserve environment variables for bootstrap that must be known before the database is open: port, `MAPLE_SQLITE_PATH`, `MAPLE_JWT_SECRET`, process role. A new feature toggle or threshold ships with its control on the relevant settings page, in the same change as the backend.
 
 ### Ongoing per-asset work is a stage, not a job
 
@@ -297,8 +297,8 @@ Anything that exists in two languages is single-sourced. Color matrices, the adj
 | `import { Type, value }` from one module               | a separate `import type`                     |
 | `fetch()` in Angular code                              | `HttpClient`                                 |
 | `node:fs` in `src/api`                                 | `src/api/src/fs/mirrored.ts`                 |
-| `process.env.X = …` at test module scope               | `withTestEnv` / `withTestDb`                 |
-| A raw Mongo driver call in a route handler             | a `*.repo.ts` function                       |
+| `process.env.X = …` at test module scope               | `withTestEnv`                                |
+| Raw SQL in a route handler                             | a `*.repo.ts` function                       |
 | A new environment variable for a feature toggle        | a DB-backed setting with a Settings control  |
 | A JobRunner job for ongoing per-asset work             | a `defineStage()` stage                      |
 | `unwrap()` in Rust library code                        | `Result<T, E>`                               |
