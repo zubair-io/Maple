@@ -51,10 +51,16 @@ describe('the default reader count', () => {
   });
 
   test('never climbs above eight unasked', () => {
-    // Past eight the request-path read is already flat under load and a 12-wide
-    // search fan-out starts getting slower rather than faster, because the work
-    // is CPU-bound and the threads only compete. An operator who wants more
-    // sets the override.
+    // Eight rather than six, and `protocol.ts` carries the argument because the
+    // benchmark has a table that appears to contradict it: a 12-wide fan-out of
+    // full backlog scans is faster on four readers than on eight. That workload
+    // is the one #3768 removes — with the facets served from an index the same
+    // fan-out is monotonically better with more readers — while the property
+    // that took production down, tolerating concurrent long reads, keeps
+    // improving. Eight tolerates seven; six collapses at six.
+    //
+    // Eight rather than more because both processes open a pool, so the count
+    // is doubled on the box. An operator who wants more sets the override.
     expect(defaultReaderCount()).toBeLessThanOrEqual(8);
   });
 });

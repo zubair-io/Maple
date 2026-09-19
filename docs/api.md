@@ -117,6 +117,8 @@ Every read in the process shares that pool, so "search is slow", "the grid will 
 
 The symptom to match: reads timing out across unrelated features at once, while the process is pinned at high CPU. Set the variable above the default, restart, and confirm from the logs that the pool came up at the width you asked for. A reader costs one thread and about 8 MB.
 
+The default's ceiling of eight is deliberately conservative rather than a limit worth respecting: the API process and the worker child each open a pool, so the number is doubled on the box, and the gain past eight is fractions of a millisecond per search. On a large machine there is no reason not to go higher if the pool is the bottleneck — that is what this variable is for.
+
 This is an environment variable rather than a Settings page row, which is the exception to the rule stated at the top of this section and not an oversight: the pool is what settings are read _through_, so there is no row to consult at the moment its width is decided.
 
 A reader that crashes is respawned automatically (#3782) on a ladder of four attempts over about twelve seconds. `sqlite reader died and was respawned` in the logs is a thread that came back; repeats are worth investigating. `sqlite reader could not be respawned and has been retired` means the pool is permanently one thread narrower until a restart — on a pool at the floor, that is one step from the cliff above.
