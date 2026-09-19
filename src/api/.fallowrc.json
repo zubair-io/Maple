@@ -7,7 +7,6 @@
     "src/thumbs/hdr-decode.child.ts",
     "src/enrichment/face-pool.child.ts",
     "src/db/sqlite/db.worker.ts",
-    "scripts/seed-fake-workers.ts",
     "scripts/sqlite-bench/run.ts",
 
     // The benchmarks. Entry points, run by hand, so their exports have no
