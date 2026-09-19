@@ -55,6 +55,11 @@ import {
   ASSETS_FTS_OPTIMIZE_SQL,
   ASSETS_FTS_REBUILD_SQL,
 } from '../ddl/search.ts';
+import {
+  STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL,
+  STAGE_STATE_MEDIA_KIND_TRIGGER_DDL,
+  STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
+} from '../ddl/stage-state.ts';
 import { fromBunSqlite, runMigrations } from '../migrate.ts';
 import { ALL_MIGRATIONS } from '../migrations/index.ts';
 import {
@@ -101,7 +106,11 @@ const LOAD_PRAGMAS = [
   'PRAGMA temp_store = MEMORY',
 ] as const;
 
-const TRIGGER_NAMES = [...ASSET_LOCATIONS_TRIGGER_NAMES, ...ASSET_SEARCH_TRIGGER_NAMES];
+const TRIGGER_NAMES = [
+  ...ASSET_LOCATIONS_TRIGGER_NAMES,
+  ...ASSET_SEARCH_TRIGGER_NAMES,
+  ...STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
+];
 
 /**
  * The `_id` a resumed run continues after: an `ObjectId` for most collections,
@@ -358,11 +367,12 @@ async function importCollection(
  * Drops the derived triggers for the bulk load, and records that it did.
  *
  * A file whose triggers are dropped opens cleanly and answers every query —
- * and silently indexes nothing new into the FTS5 table and stops maintaining
- * `assets.live_location_count`, so a server pointed at it shows every
- * newly-located asset as dead and finds nothing new in search. A run that is
- * killed between here and `restoreDerived` leaves exactly that file, and
- * nothing said so. The marker is what verification and the report read to
+ * and silently indexes nothing new into the FTS5 table, stops maintaining
+ * `assets.live_location_count` and stops maintaining `stage_state.media_kind`,
+ * so a server pointed at it shows every newly-located asset as dead, finds
+ * nothing new in search, and never transcribes a newly imported video. A run
+ * that is killed between here and `restoreDerived` leaves exactly that file,
+ * and nothing said so. The marker is what verification and the report read to
  * refuse to call such a file finished; re-running the same command restores it.
  */
 function dropDerivedTriggers(db: Database): void {
@@ -374,7 +384,9 @@ function dropDerivedTriggers(db: Database): void {
 function restoreDerived(db: Database): void {
   db.exec(ASSET_LOCATIONS_TRIGGER_DDL);
   db.exec(ASSET_SEARCH_TRIGGER_DDL);
+  db.exec(STAGE_STATE_MEDIA_KIND_TRIGGER_DDL);
   db.exec(LIVE_LOCATION_COUNT_RECOMPUTE_SQL);
+  db.exec(STAGE_STATE_MEDIA_KIND_RECOMPUTE_SQL);
   // 'rebuild' discards the whole inverted index and re-derives it from the
   // content table, so it needs no clearing step and is safe to repeat.
   db.exec(ASSETS_FTS_REBUILD_SQL);

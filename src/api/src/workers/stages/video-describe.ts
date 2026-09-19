@@ -68,6 +68,7 @@ import {
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { loadWorkerConfigSafe } from '../worker-config.repo.ts';
 import type { VideoDescriptionMeta } from '../../db/schema.ts';
+import { STAGE_STATE_VIDEO_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { videoDescriptionStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
@@ -294,13 +295,14 @@ const videoDescribeStage = defineStage({
   // extraction.
   dependsOn: ['preview'],
   // Never sweeps the (much larger) photo library — mirrors `transcribe`'s
-  // claim-residual narrowing. An `EXISTS` over `assets` rather than a join,
-  // because the claim scans `stage_state` and this has to stay a probe per
-  // candidate row; `media_kind` has a partial index over exactly the two
-  // minority kinds (#3492), so the probe is a seek.
+  // claim-residual narrowing, and see there for what the two halves each do.
+  // The `EXISTS` over `assets` is the authoritative test and is unchanged;
+  // `STAGE_STATE_VIDEO_NARROWING` is what selects the partial index and skips
+  // the audio rows it still holds, both from the index alone (#3795).
   claimResidual: {
-    sql: `EXISTS (SELECT 1 FROM assets
-                   WHERE id = stage_state.asset_id AND media_kind = ?)`,
+    sql: `${STAGE_STATE_VIDEO_NARROWING}
+          AND EXISTS (SELECT 1 FROM assets
+                       WHERE id = stage_state.asset_id AND media_kind = ?)`,
     params: ['video'],
   },
   defaults: {
