@@ -1,6 +1,7 @@
 /**
- * The seeded operational, auth and change-log documents, plus the four
- * collections the importer deliberately leaves behind.
+ * The seeded operational, auth and change-log documents, plus the collections
+ * the importer deliberately leaves behind. The settings singletons are next
+ * door in `seed-settings.test-helpers.ts`.
  *
  * The point of seeding the last group is that "not imported" is a decision the
  * tests should hold the importer to, not an omission: if a later change quietly
@@ -425,5 +426,13 @@ export async function seedNotImported(db: Db, ids: SeedIds): Promise<void> {
     attempts: 3,
     firstFailedAt: iso(2),
     lastFailedAt: iso(3),
+  } as never);
+  // The backfill lease, whose two neighbours ARE imported (#3797). Seeded with
+  // a live, unexpired claim so a change that started carrying it across would
+  // land exactly the row that keeps the new install's first runner waiting.
+  await db.collection('meilisearch_backfill_leases').insertOne({
+    _id: 'assets',
+    owner: 'backfill-worker-a',
+    expires_at: Date.now() + 60_000,
   } as never);
 }
