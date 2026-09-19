@@ -16,10 +16,7 @@
  * the route, the coordinator and the tests.
  */
 
-export {
-  backfillCoverAssets,
-  runOnlineClustering,
-} from '../db/repos/people.clustering-job.ts';
+export { backfillCoverAssets, runOnlineClustering } from '../db/repos/people.clustering-job.ts';
 export type {
   RunOnlineClusteringOptions,
   RunOnlineClusteringResult,

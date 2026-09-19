@@ -13,7 +13,4 @@
  * Each name is re-exported explicitly rather than with `export *`, so a name
  * whose shape changed fails to compile here instead of being swapped silently.
  */
-export {
-  loadDiscoverConfig,
-  patchDiscoverConfig,
-} from '../../db/repos/worker-config.repo.ts';
+export { loadDiscoverConfig, patchDiscoverConfig } from '../../db/repos/worker-config.repo.ts';

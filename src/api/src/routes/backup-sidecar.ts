@@ -28,10 +28,7 @@
 import { backupId, backupLibrary, backupLibraryId } from './backup-id.ts';
 import { atomicMove } from '../backup/fs-util.ts';
 import { Elysia, t } from 'elysia';
-import {
-  findLiveAssetIdByMapleId,
-  findLiveAssetIdByPhassetLink,
-} from '../db/repos/assets.repo.ts';
+import { findLiveAssetIdByMapleId, findLiveAssetIdByPhassetLink } from '../db/repos/assets.repo.ts';
 import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the sidecar publish (atomicMove → rename/copyFile)
 // replicates to the library's backup root(s).

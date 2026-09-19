@@ -13,10 +13,7 @@
  */
 
 import * as path from 'node:path';
-import {
-  listLiveLocationsAfter,
-  type LiveLocationRow,
-} from '../../db/repos/assets.sweeps.ts';
+import { listLiveLocationsAfter, type LiveLocationRow } from '../../db/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { resolveMirrorTargets, isMirroringActive } from '../../fs/mirror-registry.ts';
 import { enqueueMirrorCopy } from '../../fs/mirror-queue.repo.ts';
