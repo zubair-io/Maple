@@ -18,14 +18,14 @@
  */
 
 import type { ObjectId } from '../../db/object-id.ts';
-import { countCandidates, listCandidates } from '../../db/sqlite/repos/assets.migrations.ts';
+import { countCandidates, listCandidates } from '../../db/repos/assets.migrations.ts';
 import {
   findGeoDonors,
   GEO_AUDIT_SCOPE,
   GEO_NO_TIMESTAMP_SCOPE,
   type GeoDonor,
-} from '../../db/sqlite/repos/assets.video-migrations.ts';
-import { recordAuditDecision } from '../../db/sqlite/repos/video-geo-audit.repo.ts';
+} from '../../db/repos/assets.video-migrations.ts';
+import { recordAuditDecision } from '../../db/repos/video-geo-audit.repo.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { child as childLogger } from '../../log.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';

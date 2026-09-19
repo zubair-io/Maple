@@ -20,7 +20,7 @@ import { resolveAddressString } from '../library/address.ts';
 import {
   findMetadataByFilenames,
   type MetadataSnapshotRow,
-} from '../db/sqlite/repos/assets.by-filename.ts';
+} from '../db/repos/assets.by-filename.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import type { AssetDoc } from '../db/schema.ts';

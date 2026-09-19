@@ -18,7 +18,7 @@
  */
 import { backupLibrary, backupLibraryId } from './backup-id.ts';
 import { Elysia, t } from 'elysia';
-import { markDeletedFromPhotos } from '../db/sqlite/repos/backup.repo.ts';
+import { markDeletedFromPhotos } from '../db/repos/backup.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('backup-notify-deleted');

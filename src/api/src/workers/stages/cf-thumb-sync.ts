@@ -50,7 +50,7 @@ import {
 import { uploadThumbToR2 } from '../../cloudflare/r2-client.ts';
 import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
 import { cleanupR2ThumbForHiddenAsset } from '../../cloudflare/hidden-cleanup.ts';
-import { cfThumbSyncedStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { cfThumbSyncedStatements } from '../../db/repos/assets.stage-patches.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 /** Bounds a single upload attempt's wall-clock — `run-stage.ts` retries the

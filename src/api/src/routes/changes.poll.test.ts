@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
 import { changesRoutes } from './changes.ts';
-import { recordAssetChange, recordAssetChangeRow } from '../db/sqlite/repos/changes.repo.ts';
+import { recordAssetChange, recordAssetChangeRow } from '../db/repos/changes.repo.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import {
   createLiveTestDatabase,

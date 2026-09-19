@@ -388,7 +388,7 @@ export function wildcardSlugParams() {
  * Get the asset record for a specific (library_id, path, filename) tuple.
  * Keyed on the UNIQUE `asset_locations_lib_path_name` index.
  */
-import { findAssetAtAddress } from '../../db/sqlite/repos/assets.address.ts';
+import { findAssetAtAddress } from '../../db/repos/assets.address.ts';
 import type { ObjectId } from '../../db/object-id.ts';
 
 export async function findAssetByAddress(libraryId: ObjectId, relPath: string, filename: string) {

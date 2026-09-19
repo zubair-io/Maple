@@ -61,13 +61,13 @@ import type { ObjectId } from '../db/object-id.ts';
 import {
   findRelocateCandidatesByFilenames,
   type RelocateCandidateRow,
-} from '../db/sqlite/repos/assets.by-filename.ts';
-import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
-import { loadStageDocuments } from '../db/sqlite/repos/stage-documents.repo.ts';
+} from '../db/repos/assets.by-filename.ts';
+import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
+import { loadStageDocuments } from '../db/repos/stage-documents.repo.ts';
 import {
   recordOffClaimStageResults,
   type OffClaimStageResult,
-} from '../db/sqlite/repos/stage-state.repo.ts';
+} from '../db/repos/stage-state.repo.ts';
 import {
   sidecarMetadataIndexHandler,
   SIDECAR_METADATA_INDEX_VERSION,

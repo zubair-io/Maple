@@ -30,7 +30,7 @@
  * belongs with — a crash in the gap leaves the new coordinates stored with
  * `geocode` still marked done against the old ones, and nothing notices. Named
  * in `invalidates` instead, all three are statements in the same transaction as
- * this stage's own success row (`db/sqlite/repos/stage-writeback.ts`), so either
+ * this stage's own success row (`db/repos/stage-writeback.ts`), so either
  * everything lands or nothing does.
  *
  * Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
@@ -44,7 +44,7 @@ import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { parseXmpMetadata, xmpMetadataToOverridePatch } from '../../xmp/metadata-parser.ts';
 import { parseYearMonth } from '../../metadata/override-resolver.ts';
 import type { MetadataOverride } from '../../db/schema.ts';
-import { sidecarMetadataStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { sidecarMetadataStatements } from '../../db/repos/assets.stage-patches.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';

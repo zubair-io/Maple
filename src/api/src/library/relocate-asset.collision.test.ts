@@ -21,8 +21,8 @@ import {
   insertLocation,
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { insertStageState } from '../db/sqlite/repos/assets.test-helpers.ts';
-import { findLiveOccupantAssetId } from '../db/sqlite/repos/assets.relocate.repo.ts';
+import { insertStageState } from '../db/repos/assets.test-helpers.ts';
+import { findLiveOccupantAssetId } from '../db/repos/assets.relocate.repo.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 import { relocateAsset } from './relocate-asset.ts';
 

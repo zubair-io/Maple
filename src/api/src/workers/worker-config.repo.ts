@@ -1,5 +1,5 @@
 /**
- * `worker_config` now lives at `db/sqlite/repos/worker-config.repo.ts`.
+ * `worker_config` now lives at `db/repos/worker-config.repo.ts`.
  *
  * This file is what is left of the MongoDB repository after the cutover
  * (#3787): no statements, no collection, nothing but the names, so the fifteen
@@ -13,4 +13,4 @@
  * it does accept is a test's SQLite handle.
  */
 
-export { loadWorkerConfigSafe } from '../db/sqlite/repos/worker-config.repo.ts';
+export { loadWorkerConfigSafe } from '../db/repos/worker-config.repo.ts';

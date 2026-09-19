@@ -3,7 +3,7 @@
  *
  * The get-or-create's own guarantees — racing boots converging, a half-written
  * row being filled, an existing secret never being overwritten — are covered
- * against the repository in `db/sqlite/repos/server-state.repo.test.ts`. This
+ * against the repository in `db/repos/server-state.repo.test.ts`. This
  * file covers what `auth/jwt-bootstrap.ts` depends on: that the function it
  * calls at startup resolves, persists under the documented id, and reports
  * `created` only for the boot that actually minted the secret.

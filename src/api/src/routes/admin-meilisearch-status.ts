@@ -3,8 +3,8 @@ import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import {
   readBackfillState,
   type BackfillStateRow,
-} from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+} from '../db/repos/meilisearch-backfill.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { EMBEDDER_NAME, meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
   DEFAULT_MEILISEARCH_EMBEDDER_MODEL,

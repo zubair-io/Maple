@@ -2,7 +2,7 @@
 import { ObjectId } from '../../db/object-id.ts';
 import { readFile } from '../../fs/mirrored.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
-import { loadAssetLocationViews } from '../../db/sqlite/repos/assets.locations.repo.ts';
+import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { DEFAULT_EXPORT_RECIPE } from '../../generated/export-recipe.generated.ts';

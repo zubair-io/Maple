@@ -24,7 +24,7 @@
  * stamps `nextCursor: null` on the response.
  */
 
-import { searchByMapleIds, type SearchWhere } from '../../db/sqlite/repos/search.repo.ts';
+import { searchByMapleIds, type SearchWhere } from '../../db/repos/search.repo.ts';
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { projectAsset, type SearchResult } from './project.ts';

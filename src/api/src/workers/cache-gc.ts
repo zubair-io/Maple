@@ -44,7 +44,7 @@ import type { Dirent } from 'node:fs';
 // (readdir/stat) pass straight through.
 import * as fs from '../fs/mirrored.ts';
 import * as path from 'node:path';
-import { liveLocationsByDirectory } from '../db/sqlite/repos/assets.sweeps.ts';
+import { liveLocationsByDirectory } from '../db/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { sourceFilenameForPreviewCacheName } from '../fs/preview-cache-cleanup.ts';
 import { sha256Prefix16 } from '../fs/xmp.ts';

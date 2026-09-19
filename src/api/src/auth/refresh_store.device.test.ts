@@ -4,7 +4,7 @@
  *
  * The listing and revoke rules — only platform-marked families, ownership
  * checks, a dead family dropping off — are covered against the repository in
- * `db/sqlite/repos/auth.sessions.repo.test.ts`. What is left here is the seam
+ * `db/repos/auth.sessions.repo.test.ts`. What is left here is the seam
  * `routes/auth-device-sessions.ts` sits on: the panel's two functions are
  * re-exported from the refresh module alongside the token operations, and the
  * `platform` marker that decides what a device session even is survives a
@@ -18,7 +18,7 @@ import {
   revokeDeviceSession,
   rotateRefreshToken,
 } from './refresh_store.ts';
-import { insertUser } from '../db/sqlite/repos/auth.users.repo.ts';
+import { insertUser } from '../db/repos/auth.users.repo.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

@@ -6,7 +6,7 @@
  * are claimable, dependencies, the retry gate, the lease, crash exhaustion) and
  * the writeback's (success, skip, re-arm, damaged, failure, the ENOENT park)
  * belong to the repository and are covered by its suites — `stage-claim*`,
- * `stage-retry-backoff` and `stage-writeback*` under `db/sqlite/repos/`. The
+ * `stage-retry-backoff` and `stage-writeback*` under `db/repos/`. The
  * five Mongo-mock suites that used to restate them here went away with the
  * mocks.
  *
@@ -23,7 +23,7 @@ import {
   insertFolder,
   insertLocation,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { _test, defineStage, runOnce, type StageConfig } from './run-stage.ts';
 import type { SqlStatement } from '../db/sqlite/protocol.ts';
 

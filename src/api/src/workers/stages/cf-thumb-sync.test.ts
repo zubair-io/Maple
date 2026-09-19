@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
 import cfThumbSyncStage from './cf-thumb-sync.ts';
 import { resolveThumbPath } from '../../fs/xmp.ts';
-import { patchAppSettings } from '../../db/sqlite/repos/app-settings.repo.ts';
+import { patchAppSettings } from '../../db/repos/app-settings.repo.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

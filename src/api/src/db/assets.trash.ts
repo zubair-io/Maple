@@ -1,10 +1,9 @@
 /**
  * Trash workflows — soft-delete, hard-delete, restore.
  *
- * The bodies moved to `sqlite/repos/assets.trash.ts` at the cutover (#3787);
- * this file stays as the import surface its callers already name, and so the
- * cutover merge reverts as one unit (#3752). See `assets.repo.ts` for why every
- * re-export here is named rather than a star.
+ * The bodies live in `repos/assets.trash.ts`; this file is the import surface
+ * its callers name. See `assets.repo.ts` for why every re-export here is named
+ * rather than a star.
  *
  * Two shape changes came across with the port, both deliberate:
  *
@@ -22,4 +21,4 @@
  * the fields are unchanged.
  */
 
-export { hardDelete } from './sqlite/repos/assets.trash.ts';
+export { hardDelete } from './repos/assets.trash.ts';

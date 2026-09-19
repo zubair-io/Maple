@@ -4,7 +4,7 @@
  *
  * Both stores own this collection now — the Mongo one in
  * `./worker-config.repo.ts` and the SQLite port in
- * `db/sqlite/repos/worker-config.repo.ts` (#3751) — and both have to answer
+ * `db/repos/worker-config.repo.ts` (#3751) — and both have to answer
  * `GET /api/workers/status` with the same body. A second copy of
  * {@link sanitizeWorkerConfig} would be a second set of omissions to keep in
  * step, and the omissions are the part that is actually on the wire.

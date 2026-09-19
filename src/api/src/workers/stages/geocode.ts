@@ -22,7 +22,7 @@ import { parseNominatimResponse } from '../../enrichment/place-parser.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { backupLocationSegments } from '../../backup/location-segments.ts';
-import { placeStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { placeStatements } from '../../db/repos/assets.stage-patches.ts';
 import type { SqlStatement } from '../../db/sqlite/protocol.ts';
 import type { Place } from '../../db/schema.ts';
 

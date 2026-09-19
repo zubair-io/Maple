@@ -5,7 +5,7 @@
  * subsequent clustering run) and advancing both docs to their next ranked
  * candidate immediately so the UI doesn't wait for the next run.
  *
- * The implementation lives in `db/sqlite/repos/people.merge-suggestions.ts`.
+ * The implementation lives in `db/repos/people.merge-suggestions.ts`.
  */
 
-export { dismissMergeSuggestion } from '../db/sqlite/repos/people.merge-suggestions.ts';
+export { dismissMergeSuggestion } from '../db/repos/people.merge-suggestions.ts';

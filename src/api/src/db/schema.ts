@@ -1,11 +1,18 @@
 /**
- * MongoDB schema types for Maple Self Hosted.
+ * The document shapes the API works in, for Maple Self Hosted.
  *
- * Collections:
+ * These are not the table definitions — those live in `db/sqlite/ddl/`, and one
+ * of these interfaces usually spans several tables. They are the shape a route
+ * handler, a worker stage or a DTO transform holds in memory, and the
+ * repositories in `db/repos/` are what assemble one from rows and take one
+ * apart into writes. Keeping the two apart is deliberate: the storage layout is
+ * free to normalise, denormalise and index however it needs to, and none of
+ * that reaches the code above it.
+ *
+ * The main shapes:
  *   - folders   : registered library roots
  *   - assets    : per-file metadata index (non-authoritative; sidecars are truth)
- *   - indexer_queue : pending background tasks
- *   - users, credentials, invites, refresh_tokens, challenges : auth (Phase A)
+ *   - users, credentials, invites, refresh_tokens, challenges : auth
  */
 
 import type { ObjectId, WithId } from './object-id.ts';

@@ -11,7 +11,7 @@
  * INTEGER PRIMARY KEY — a rowid alias — and the value is handed out by the
  * `asset_changes_cursor` row of `server_state`: the counter bump and the row
  * insert go in as one `BEGIN IMMEDIATE` batch, and that insert's
- * `lastInsertRowid` IS the cursor (`db/sqlite/repos/changes.repo.ts`). Emptying
+ * `lastInsertRowid` IS the cursor (`db/repos/changes.repo.ts`). Emptying
  * the journal therefore leaves the counter standing, which is exactly what lets
  * a swept server still answer 409 instead of silently serving nothing:
  * `isChangeCursorTooOld` compares a client's saved cursor against the surviving
@@ -31,7 +31,7 @@
  *    event-loop starvation and runaway sweeps.
  *
  * This module decides *when* and *how much*; every statement it drives lives
- * beside the table in `db/sqlite/repos/changes.retention.ts`, including the
+ * beside the table in `db/repos/changes.retention.ts`, including the
  * binary search that finds the cutoff cursor without an index on `at`.
  */
 
@@ -39,8 +39,8 @@ import {
   countChanges,
   findRetentionCutoffCursor,
   pruneChangesBatch,
-} from '../db/sqlite/repos/changes.retention.ts';
-import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+} from '../db/repos/changes.retention.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { child as childLogger } from '../log.ts';
 import { loadChangeLogGcConfig, recordChangeLogGcRun } from './change-log-gc-config.repo.ts';
 

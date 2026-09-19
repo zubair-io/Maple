@@ -38,7 +38,7 @@ import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
-import { describeStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { describeStatements } from '../../db/repos/assets.stage-patches.ts';
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import { describeServersForRuntime } from '../describe-capacity.ts';
 import {

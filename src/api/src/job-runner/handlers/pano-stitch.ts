@@ -32,8 +32,8 @@
 import { mkdir, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
-import { loadAssetLocationViews } from '../../db/sqlite/repos/assets.locations.repo.ts';
-import { upsertAssetByMapleId } from '../../db/sqlite/repos/assets.upsert.ts';
+import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
+import { upsertAssetByMapleId } from '../../db/repos/assets.upsert.ts';
 import { hashFileForId } from '../../indexer/id.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';

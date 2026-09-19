@@ -30,12 +30,12 @@
  * Spec: GitHub issue #1529.
  */
 
-import { countCandidates, listCandidates } from '../../db/sqlite/repos/assets.migrations.ts';
+import { countCandidates, listCandidates } from '../../db/repos/assets.migrations.ts';
 import {
   applyGeoBackfill,
   setGeoBackfillSkipped,
   GEO_APPLY_SCOPE,
-} from '../../db/sqlite/repos/assets.video-migrations.ts';
+} from '../../db/repos/assets.video-migrations.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { child as childLogger } from '../../log.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';

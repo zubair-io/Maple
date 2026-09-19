@@ -40,7 +40,7 @@ import type { JobWithId } from '../db/schema.ts';
 import {
   findAssetLocationsByFilenames,
   type AssetLocationsRow,
-} from '../db/sqlite/repos/assets.by-filename.ts';
+} from '../db/repos/assets.by-filename.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 

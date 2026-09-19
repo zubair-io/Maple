@@ -7,7 +7,7 @@
  * the way there, the guard that stops a non-damage-tagging stage doing the
  * same, and the derived claim batch size.
  *
- * The statements behind each of those belong to `db/sqlite/repos/`, and their
+ * The statements behind each of those belong to `db/repos/`, and their
  * own suites assert them in isolation. What is asserted here is that the runner
  * reaches for the right one, which is exactly the part no repository test can
  * see.

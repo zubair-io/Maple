@@ -31,7 +31,7 @@ import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { child as childLogger } from '../log.ts';
-import { findFolderById, setFolderMirrors } from '../db/sqlite/repos/folders.repo.ts';
+import { findFolderById, setFolderMirrors } from '../db/repos/folders.repo.ts';
 import { safeObjectId } from '../db/object-id.ts';
 import type { FolderWithId } from '../db/schema.ts';
 import { validateRoot } from '../fs/root.ts';

@@ -46,9 +46,9 @@ import {
   insertLocation,
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { insertStageState } from '../db/sqlite/repos/assets.test-helpers.ts';
-import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
-import { claimStageBatch } from '../db/sqlite/repos/stage-claim.ts';
+import { insertStageState } from '../db/repos/assets.test-helpers.ts';
+import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
+import { claimStageBatch } from '../db/repos/stage-claim.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { generateThumb } from '../indexer/thumbnailer.ts';

@@ -16,7 +16,7 @@ import {
   patchAppSettings,
   readAppSettings,
   type SettingsValue,
-} from '../db/sqlite/repos/app-settings.repo.ts';
+} from '../db/repos/app-settings.repo.ts';
 import type { ResolvedCloudflareConfig } from './r2-client.ts';
 
 const DOC_ID = 'cloudflare';

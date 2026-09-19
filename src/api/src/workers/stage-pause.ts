@@ -16,7 +16,7 @@
  */
 
 import { stageRegistry } from './registry.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 
 export async function pauseStageWithReason(name: string, reason: string): Promise<void> {
   await new WorkerConfigRepo().patch(name, { paused: true, pause_reason: reason });

@@ -18,9 +18,9 @@ import {
   allocatedCursor,
   isChangeCursorTooOld,
   recordAssetChange,
-} from '../db/sqlite/repos/changes.repo.ts';
-import { countChanges, findRetentionCutoffCursor } from '../db/sqlite/repos/changes.retention.ts';
-import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+} from '../db/repos/changes.repo.ts';
+import { countChanges, findRetentionCutoffCursor } from '../db/repos/changes.retention.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { createTestDatabase, run, testSqliteDb } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { loadChangeLogGcConfig, saveChangeLogGcConfig } from './change-log-gc-config.repo.ts';
 import { runChangeLogGcOnce, startChangeLogGc } from './change-log-gc.ts';

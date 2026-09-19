@@ -1,7 +1,7 @@
 /**
  * `GET /api/search/buckets` — year/month histogram for the Timeline view.
  *
- * The two aggregations behind it live in `db/sqlite/repos/search.buckets.ts`:
+ * The two aggregations behind it live in `db/repos/search.buckets.ts`:
  * the dated rows group a partial index whose keys are the group keys, and the
  * undated ones are a count over the live index. Splitting them is what lets
  * each use its own index, and they run concurrently on separate readers.
@@ -12,7 +12,7 @@
  */
 
 import { Elysia } from 'elysia';
-import { buildSearchWhere, searchBuckets } from '../../db/sqlite/repos/search.repo.ts';
+import { buildSearchWhere, searchBuckets } from '../../db/repos/search.repo.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
 import { resolveSearchScope } from './scope.ts';
 

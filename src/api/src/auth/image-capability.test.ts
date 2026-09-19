@@ -4,7 +4,7 @@
  * What this module owns is the decision to look at all: GET only, one of two
  * route families, and a token of exactly the shape the issuer mints. Whether a
  * given token is live for a given path belongs to
- * `db/sqlite/repos/auth.image-capability.repo.ts` and is tested there, so the
+ * `db/repos/auth.image-capability.repo.ts` and is tested there, so the
  * cases below are about the gate and about the one path through it that
  * reaches storage.
  */
@@ -12,8 +12,8 @@
 import { describe, expect, test } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { verifyImageCapability } from './image-capability.ts';
-import { issueImageCapability } from '../db/sqlite/repos/auth.image-capability.repo.ts';
-import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+import { issueImageCapability } from '../db/repos/auth.image-capability.repo.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { createTestDatabase, testSqliteDb } from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 const PATH = '/api/thumb/photos/a.jpg';

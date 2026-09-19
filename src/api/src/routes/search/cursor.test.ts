@@ -2,7 +2,7 @@
  * Unit tests for the seek-cursor codec (#2129).
  *
  * These are pure — no database. The range predicate a cursor becomes lives in
- * `db/sqlite/repos/search.sql.ts` beside the page statement whose order it has
+ * `db/repos/search.sql.ts` beside the page statement whose order it has
  * to agree with, and is covered there; the end-to-end paging behaviour
  * (including the undated group, which is the part easiest to get wrong) is
  * covered against a real database in `cursor-paging.test.ts`.

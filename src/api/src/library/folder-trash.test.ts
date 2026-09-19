@@ -20,8 +20,8 @@ import {
   insertLocation,
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { __resetChangeFolderPathCacheForTests } from '../db/sqlite/repos/changes.repo.ts';
-import { listTrashedBefore } from '../db/sqlite/repos/assets.sweeps.ts';
+import { __resetChangeFolderPathCacheForTests } from '../db/repos/changes.repo.ts';
+import { listTrashedBefore } from '../db/repos/assets.sweeps.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { trashFolderRecursive, restoreFolderRecursive } from './folder-trash.ts';
 

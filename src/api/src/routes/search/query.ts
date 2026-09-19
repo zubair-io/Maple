@@ -13,7 +13,7 @@
  * free-text `placeQuery` and folds it into the structured `from`/`to` bounds.
  *
  * Nothing here builds a query. Translating a parsed query into SQL is the job
- * of `db/sqlite/repos/search.where.ts` (the predicates and their bound
+ * of `db/repos/search.where.ts` (the predicates and their bound
  * values), `search.terms.ts` (the individual clauses) and `search.page.ts`
  * (paging). Those import the vocabularies below rather than restating them,
  * so a value the route accepts and the builder rejects cannot drift apart.

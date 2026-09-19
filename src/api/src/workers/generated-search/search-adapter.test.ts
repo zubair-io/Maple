@@ -28,7 +28,7 @@ import {
   insertLocation,
   run,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
-import { insertFace, insertPerson } from '../../db/sqlite/repos/people.test-helpers.ts';
+import { insertFace, insertPerson } from '../../db/repos/people.test-helpers.ts';
 import { runGeneratedSearch } from './search-adapter.ts';
 import { toSearchQuery } from './execute.ts';
 

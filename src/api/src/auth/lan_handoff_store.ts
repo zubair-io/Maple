@@ -13,9 +13,9 @@
 // short-TTL code carries the same guarantee.
 //
 // Both handoff tables are ported together in
-// `db/sqlite/repos/auth.codes.repo.ts`, because they are the same mechanism
+// `db/repos/auth.codes.repo.ts`, because they are the same mechanism
 // with and without PKCE. The single-use guarantee survives the move: what was
 // one `findOneAndUpdate` is now one `UPDATE` carrying the same conditions in
 // its `WHERE`, and a row count of 1 is what says this caller spent the code.
 
-export { issueLanHandoffCode, redeemLanHandoffCode } from '../db/sqlite/repos/auth.codes.repo.ts';
+export { issueLanHandoffCode, redeemLanHandoffCode } from '../db/repos/auth.codes.repo.ts';

@@ -32,7 +32,7 @@
 import {
   countLiveLocationCountDrift,
   repairLiveLocationCounts,
-} from '../../db/sqlite/repos/assets.migrations.ts';
+} from '../../db/repos/assets.migrations.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 
 const MIGRATION_ID = 'backfill-live-location-count';

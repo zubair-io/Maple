@@ -11,7 +11,7 @@
  * the exact path, and tags only on a confirmed absence.
  *
  * `claimRollbackStatement`'s own behaviour — the attempt given back, the lease
- * cleared — is asserted in `db/sqlite/repos/stage-writeback.test.ts`. What is
+ * cleared — is asserted in `db/repos/stage-writeback.test.ts`. What is
  * asserted here is the decision in front of it, which the repository cannot
  * see: whether to reach for the tag at all.
  *

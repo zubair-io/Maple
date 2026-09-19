@@ -20,7 +20,7 @@ import {
   findUserById,
   listUsers,
   updateUser,
-} from '../db/sqlite/repos/auth.users.repo.ts';
+} from '../db/repos/auth.users.repo.ts';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import { userFileAccess } from '../auth/permissions.ts';
 import type { UserDoc, UserWithId } from '../db/schema.ts';

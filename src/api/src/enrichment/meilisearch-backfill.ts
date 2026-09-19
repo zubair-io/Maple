@@ -2,8 +2,8 @@
  * The Meilisearch vector backfill's cursor pass.
  *
  * Storage lives in two repository modules —
- * `db/sqlite/repos/meilisearch-backfill.repo.ts` for the resume state, and
- * `db/sqlite/repos/assets.meilisearch.ts` for the asset scan — so everything
+ * `db/repos/meilisearch-backfill.repo.ts` for the resume state, and
+ * `db/repos/assets.meilisearch.ts` for the asset scan — so everything
  * here is the policy around them: which generation is current, what a batch
  * does with the rows, and how a failed write is retried.
  *
@@ -22,12 +22,12 @@ import {
   setBackfillRemaining,
   clearBackfillRetry,
   type BackfillStateRow,
-} from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
+} from '../db/repos/meilisearch-backfill.repo.ts';
 import {
   countMeiliAssetsAfter,
   hasMeiliAssetsAfter,
   loadMeiliAssetsAfter,
-} from '../db/sqlite/repos/assets.meilisearch.ts';
+} from '../db/repos/assets.meilisearch.ts';
 import { loadNamedPeople, peopleNamesForFaces } from '../workers/stages/meili.ts';
 import { meilisearchClient } from './meilisearch-client.ts';
 import { ASSET_DOC_SHAPE_VERSION } from './meilisearch-embedder-template.ts';

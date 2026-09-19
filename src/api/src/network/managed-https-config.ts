@@ -2,7 +2,7 @@
  * existing Cloudflare settings storage policy and never leave this module's
  * server-side callers. Certificate material is in a separate internal row. */
 import { isIP } from 'node:net';
-import { patchAppSettings, readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
+import { patchAppSettings, readAppSettings } from '../db/repos/app-settings.repo.ts';
 import { SERVER_PORT } from '../runtime/server-port.ts';
 
 const DOC_ID = 'managed_https';

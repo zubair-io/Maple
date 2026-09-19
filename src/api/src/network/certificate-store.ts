@@ -3,7 +3,7 @@
  *
  * The ACME account key, the issued LAN certificate and any in-flight DNS-01
  * challenges live in one row of `managed_certificates`. Every query moved to
- * `db/sqlite/repos/managed-certificates.repo.ts` (#3787) and is re-exported
+ * `db/repos/managed-certificates.repo.ts` (#3787) and is re-exported
  * below one name at a time, so a signature that changed on the SQLite side
  * breaks the build here instead of being substituted silently.
  *
@@ -11,7 +11,7 @@
  * window with no database in it.
  */
 
-import type { StoredCertificate } from '../db/sqlite/repos/managed-certificates.repo.ts';
+import type { StoredCertificate } from '../db/repos/managed-certificates.repo.ts';
 
 export {
   claimCertificateLease,
@@ -23,7 +23,7 @@ export {
   writeCertificateState,
   type DnsChallengeRecord,
   type StoredCertificate,
-} from '../db/sqlite/repos/managed-certificates.repo.ts';
+} from '../db/repos/managed-certificates.repo.ts';
 
 /** Renew at two thirds of the actual lifetime, at most 30 days before expiry.
  * Does not assume Let's Encrypt certificates always last 90 days. */

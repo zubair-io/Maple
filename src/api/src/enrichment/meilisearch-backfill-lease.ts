@@ -2,7 +2,7 @@
  * The vector backfill's single-runner lease: it serialises the migration
  * worker, the admin route and the reset operation against each other.
  *
- * Storage is `db/sqlite/repos/meilisearch-backfill.repo.ts`. The claim there is
+ * Storage is `db/repos/meilisearch-backfill.repo.ts`. The claim there is
  * one conditional upsert, so the duplicate-key catch this module used to need —
  * two racing Mongo upserts can both miss the document, and one then loses the
  * insert — has no equivalent: a claim either changes the row or it does not.
@@ -13,7 +13,7 @@ import {
   acquireBackfillLease,
   releaseBackfillLease,
   renewBackfillLease,
-} from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
+} from '../db/repos/meilisearch-backfill.repo.ts';
 
 const LEASE_MS = 2 * 60 * 1000;
 

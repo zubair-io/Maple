@@ -6,8 +6,8 @@
  * Mongo-gated batch runner is covered by `refile-legacy-daydir.e2e.test.ts`.
  */
 import { describe, test, expect } from 'bun:test';
-import { countCandidates, unstamped } from '../../db/sqlite/repos/assets.migrations.ts';
-import { LEGACY_DAYDIR_SCOPE } from '../../db/sqlite/repos/assets.refile.ts';
+import { countCandidates, unstamped } from '../../db/repos/assets.migrations.ts';
+import { LEGACY_DAYDIR_SCOPE } from '../../db/repos/assets.refile.ts';
 import {
   LEGACY_DAYDIR_WITH_LOCATION_RE,
   LEGACY_DAYDIR_NO_LOCATION_RE,

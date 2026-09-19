@@ -42,7 +42,7 @@ import { newObjectIdHex } from '../object-id.ts';
 // it from the declaration rather than the re-export keeps this file's imports
 // pointing at one module per name.
 import type { SqlParams, SqlRow, SqlStatement, SqlValue, SqlWriteResult } from './protocol.ts';
-import type { SqliteDb } from './repos/db-handle.ts';
+import type { SqliteDb } from '../repos/db-handle.ts';
 
 /**
  * Where a test database lives.

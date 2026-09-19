@@ -18,11 +18,11 @@ import {
   insertUser,
   touchCredential,
   touchUserLastSeen,
-} from '../db/sqlite/repos/auth.users.repo.ts';
+} from '../db/repos/auth.users.repo.ts';
 // The peek below is the one invite operation `auth/invites.ts` does not
 // re-export, because it has no Mongo predecessor: reading an invite without
 // spending it only became a separate call when the inline query went away.
-import { findInviteByCode } from '../db/sqlite/repos/auth.invites.repo.ts';
+import { findInviteByCode } from '../db/repos/auth.invites.repo.ts';
 import {
   buildRegistrationOptions,
   consumeChallenge,

@@ -17,8 +17,8 @@ import {
   writeAuditMarks,
   type AuditCandidate,
   type AuditMark,
-} from '../../db/sqlite/repos/assets.sweeps.ts';
-import { stageRearmStatements } from '../../db/sqlite/repos/assets.stage-rearm.ts';
+} from '../../db/repos/assets.sweeps.ts';
+import { stageRearmStatements } from '../../db/repos/assets.stage-rearm.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.cache.ts';
 import { statOrNull } from '../mirror/replicate.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';

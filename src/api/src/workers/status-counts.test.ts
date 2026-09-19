@@ -16,7 +16,7 @@ import {
   insertFolder,
   insertLocation,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { readWorkerStatus } from '../db/sqlite/repos/worker-status.repo.ts';
+import { readWorkerStatus } from '../db/repos/worker-status.repo.ts';
 import {
   BACKOFF_FACTOR,
   MIGRATION_COUNTS_MIN_INTERVAL_MS,

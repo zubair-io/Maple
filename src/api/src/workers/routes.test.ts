@@ -12,15 +12,15 @@
 import { describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { workerRoutes, sanitizeWorkerConfig } from './routes.ts';
-import type { WorkerConfigDoc } from '../db/sqlite/repos/worker-config.repo.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import type { WorkerConfigDoc } from '../db/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import {
   readStatusCountsDemand,
   writeStatusCounts,
   writeWorkerStatus,
-} from '../db/sqlite/repos/worker-status.repo.ts';
+} from '../db/repos/worker-status.repo.ts';
 import type { StageStatusSnapshot } from './registry.ts';
 import {
   createLiveTestDatabase,

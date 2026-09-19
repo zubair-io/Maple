@@ -13,7 +13,7 @@
  * already in. Neither the discover suites nor the migration suites own the
  * stage table, so the pair lives here rather than in either one's own helpers.
  *
- * `db/sqlite/repos/stage-runtime.test-helpers.ts` has a `stageRow` of its own,
+ * `db/repos/stage-runtime.test-helpers.ts` has a `stageRow` of its own,
  * and it stays separate on purpose: that one selects the whole row, lease and
  * retry bookkeeping included, because those columns are the subject of the repo
  * suites. The suites here compare the row with `toEqual`, so widening it would

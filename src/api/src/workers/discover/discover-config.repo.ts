@@ -4,7 +4,7 @@
  * table the stages and the missing-reaper use). Tunable on /settings/workers,
  * NOT an env var (repo convention).
  *
- * The bodies moved to `db/sqlite/repos/worker-config.repo.ts` at the cutover
+ * The bodies moved to `db/repos/worker-config.repo.ts` at the cutover
  * (#3787), which is where they belong: the discover row and a stage row are
  * rows of one table differing only in which columns they fill in, so putting
  * two modules' statements on that table was the thing worth avoiding. This
@@ -16,4 +16,4 @@
 export {
   loadDiscoverConfig,
   patchDiscoverConfig,
-} from '../../db/sqlite/repos/worker-config.repo.ts';
+} from '../../db/repos/worker-config.repo.ts';

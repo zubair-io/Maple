@@ -23,7 +23,7 @@
  *
  * ## Concurrency
  * A face is a row, so the removal is one `DELETE` over the same predicate the
- * audit counted — see `db/sqlite/repos/faces.purge.ts`. That is a genuine
+ * audit counted — see `db/repos/faces.purge.ts`. That is a genuine
  * improvement on the `$pull` it replaces and not just a translation: `$pull`
  * compacted the `faces[]` array, shifting every later element's index, so an
  * in-flight `face-embed` write addressed by index could land on the wrong
@@ -36,7 +36,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { auditSubthresholdFaces, purgeSubthresholdFaces } from '../db/sqlite/repos/faces.purge.ts';
+import { auditSubthresholdFaces, purgeSubthresholdFaces } from '../db/repos/faces.purge.ts';
 import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { recomputePersonFaceCount } from '../people/people-face-count.repo.ts';
@@ -57,7 +57,7 @@ const QuerySchema = t.Object({
  * loop does not run at all. The count is derived from the rows rather than
  * stored, so this reads rather than writes — the name survives from when
  * `people.face_count` was a denormalised column (see
- * `db/sqlite/repos/people.face-count.ts`).
+ * `db/repos/people.face-count.ts`).
  */
 async function recountAffectedPeople(
   personIds: Iterable<string>,

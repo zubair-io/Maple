@@ -22,8 +22,8 @@ import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
-import { listTrashedBefore } from '../db/sqlite/repos/assets.sweeps.ts';
-import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+import { listTrashedBefore } from '../db/repos/assets.sweeps.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import type { SqlParams, SqlValue } from '../db/sqlite/protocol.ts';
 import {
   createLiveTestDatabase,

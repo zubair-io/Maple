@@ -19,7 +19,7 @@ import {
   saveChangeLogGcConfig,
   type ChangeLogGcConfig,
 } from '../workers/change-log-gc-config.repo.ts';
-import { countChanges } from '../db/sqlite/repos/changes.retention.ts';
+import { countChanges } from '../db/repos/changes.retention.ts';
 
 /** How many rows the journal holds — the same count the sweep itself reports,
  * so the panel's "rows" and its last pass's "remaining" cannot disagree. Soft-

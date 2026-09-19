@@ -11,13 +11,13 @@ import type { ObjectId } from '../../db/object-id.ts';
 import {
   listRecordedInDirectory,
   type RecordedInDirectory,
-} from '../../db/sqlite/repos/assets.discover.sweep.ts';
+} from '../../db/repos/assets.discover.sweep.ts';
 import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
 import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
-import { readCheckpoint, writeCheckpoint } from '../../db/sqlite/repos/indexer-checkpoints.repo.ts';
+import { readCheckpoint, writeCheckpoint } from '../../db/repos/indexer-checkpoints.repo.ts';
 import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import { child } from '../../log.ts';
 import {

@@ -7,7 +7,7 @@
 //   POST /api/auth/native-code/redeem  (public) — the native app redeems it
 import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
-import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
+import { findUserById } from '../db/repos/auth.users.repo.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import { accessClaimsFor, toPublicAuthUser } from '../auth/permissions.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';

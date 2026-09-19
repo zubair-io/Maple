@@ -4,7 +4,7 @@
  * `PUT`/`DELETE /api/assets/:id/xmp` each write the sidecar, flip `has_xmp` and
  * append a row to the journal. The journal is `asset_changes` in SQLite now, so
  * the assertion reads it back through `listChangesSince` from
- * `db/sqlite/repos/changes.repo.ts` (#3787).
+ * `db/repos/changes.repo.ts` (#3787).
  *
  * Each test gets a private database installed as the process-wide handle — what
  * the route resolves — plus its own temp library root.
@@ -19,7 +19,7 @@ import { assetsRoutes } from './assets.ts';
 import {
   listChangesSince,
   __resetChangeFolderPathCacheForTests,
-} from '../db/sqlite/repos/changes.repo.ts';
+} from '../db/repos/changes.repo.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { registerLibrary, seedRouteAsset } from '../../tests/helpers/assets-route-fixtures.ts';
 import {

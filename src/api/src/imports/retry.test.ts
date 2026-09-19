@@ -2,7 +2,7 @@
  * `imports/retry.ts` — the two behaviours the repository's own suites leave
  * uncovered.
  *
- * `retryImport` moved to `db/sqlite/repos/imports.retry.ts` at the cutover
+ * `retryImport` moved to `db/repos/imports.retry.ts` at the cutover
  * (#3787), and `imports.retry.test.ts` beside it covers the retryable guard,
  * the split between re-scanning and per-file recovery, and the refusal to
  * resurrect a file whose destination could never be validated. Re-asserting any

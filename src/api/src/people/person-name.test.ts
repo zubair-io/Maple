@@ -2,7 +2,7 @@
  * The person-name rule (#2877) — the pure predicate.
  *
  * The repository guards that enforce the same rule are exercised against the
- * real store in `db/sqlite/repos/people.names.test.ts`, which is where every
+ * real store in `db/repos/people.names.test.ts`, which is where every
  * other naming behaviour (the case-insensitive uniqueness, the merge on
  * collision) already lives.
  */

@@ -1,6 +1,6 @@
 /**
  * The frontier's behaviour is covered in depth by
- * `db/sqlite/repos/discover-frontier.repo.test.ts`, which drives the repository
+ * `db/repos/discover-frontier.repo.test.ts`, which drives the repository
  * functions directly. What is left to check here is that this module still
  * hands the sweeper the same five verbs, resolving against the process-wide
  * handle the way production reaches them — a re-export that named a function
@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { createLiveTestDatabase, insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
-import { toObjectId } from '../../db/sqlite/repos/values.ts';
+import { toObjectId } from '../../db/repos/values.ts';
 import * as frontier from './frontier.repo.ts';
 
 describe('frontier.repo', () => {

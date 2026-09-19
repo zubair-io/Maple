@@ -1,34 +1,26 @@
 /**
  * Assets repository — the import surface every `/api/assets/*` route uses.
  *
- * At the cutover (#3787) this stopped being an implementation and became the
- * seam. The bodies live in `db/sqlite/repos/`, split by responsibility:
+ * One name for a surface the implementation splits four ways. The bodies live
+ * in `db/repos/`, by responsibility:
  *
- *   - `sqlite/repos/assets.repo.ts`       reads (detail, list, core info)
- *   - `sqlite/repos/assets.mutations.ts`  non-trash writes
- *   - `sqlite/repos/assets.trash.ts`      soft-delete / hard-delete / restore
- *   - `sqlite/repos/assets.dto.ts`        row → wire-DTO transforms
+ *   - `repos/assets.repo.ts`       reads (detail, list, core info)
+ *   - `repos/assets.mutations.ts`  non-trash writes
+ *   - `repos/assets.trash.ts`      soft-delete / hard-delete / restore
+ *   - `repos/assets.dto.ts`        row → wire-DTO transforms
  *
- * The DTO *shapes* stay in `assets.transform.ts`, which never touched Mongo —
- * it is the wire contract, and both sides of the port already read it.
- *
- * Kept as a file rather than deleted and its ~40 call sites rewritten, because
- * the merge that performs the cutover has to be revertible as a unit (#3752):
- * reverting it puts the Mongo bodies back here and nothing else moves. The
- * removal slice (#3785) is what collapses this file into its twin.
+ * That split is about file size and about keeping a reader on one concern at a
+ * time; it is not a distinction the ~40 call sites care about, and forty
+ * imports naming four modules by guesswork would be worse than one that says
+ * "the assets repository". The DTO *shapes* stay in `assets.transform.ts`,
+ * which is the wire contract rather than a data-access concern.
  *
  * **Every re-export below is named on purpose.** `export * from` would have
  * been shorter and is the wrong tool: it forwards whatever the other module
  * happens to export today, so a function whose parameters or return type
- * changed on the SQLite side would be swapped in silently and the call sites
- * would keep compiling against a different contract. Naming each one means the
- * swap is a compile error when the shapes stop agreeing. `isChangeCursorTooOld`
- * in `changes.repo.ts` is the case that made this concrete — see #3784.
- *
- * The one deliberate signature change across the whole surface: the optional
- * `dbOverride` tail parameter is a `SqliteDb` rather than a Mongo `Db`. No
- * production call site passes it; tests do, and they pass
- * `testSqliteDb(handle.db)` now.
+ * changed would be swapped in silently and the call sites would keep compiling
+ * against a different contract. Naming each one means the swap is a compile
+ * error when the shapes stop agreeing.
  */
 
 export type { AssetCoreInfo } from './assets.transform.ts';
@@ -41,7 +33,7 @@ export {
   findCoreInfoById,
   findListItems,
   type ListFilter,
-} from './sqlite/repos/assets.repo.ts';
+} from './repos/assets.repo.ts';
 
 export {
   setHasXmp,
@@ -49,6 +41,6 @@ export {
   setPlaceOverride,
   setDescriptionOverride,
   requeueEnrichmentStage,
-} from './sqlite/repos/assets.mutations.ts';
+} from './repos/assets.mutations.ts';
 
 export { hardDelete } from './assets.trash.ts';

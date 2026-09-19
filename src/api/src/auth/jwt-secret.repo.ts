@@ -3,7 +3,7 @@
  * (#3787).
  *
  * The secret lives in `server_state` under the id `jwt_secret`, and the
- * get-or-create moved to `db/sqlite/repos/server-state.repo.ts` with the same
+ * get-or-create moved to `db/repos/server-state.repo.ts` with the same
  * name, signature and `created` semantics. It is still owned by the server
  * rather than configured through the environment, and it still exists to close
  * the two ways an auto-generated secret silently rotates and turns every
@@ -20,4 +20,4 @@
  * database is unchanged and still lives in `./jwt-bootstrap.ts`.
  */
 
-export { getOrCreateJwtSecret, JWT_SECRET_DOC_ID } from '../db/sqlite/repos/server-state.repo.ts';
+export { getOrCreateJwtSecret, JWT_SECRET_DOC_ID } from '../db/repos/server-state.repo.ts';

@@ -22,7 +22,7 @@ import {
   recordAssetChange,
   type RecordChangeInput,
   type SqliteDb,
-} from '../../db/sqlite/repos/changes.repo.ts';
+} from '../../db/repos/changes.repo.ts';
 import {
   createTestDatabase,
   run,

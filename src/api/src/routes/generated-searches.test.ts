@@ -24,8 +24,8 @@ import {
   run,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { insertPerson } from '../db/sqlite/repos/people.test-helpers.ts';
-import { seedSearchAsset, type SeedAsset } from '../db/sqlite/repos/search.test-helpers.ts';
+import { insertPerson } from '../db/repos/people.test-helpers.ts';
+import { seedSearchAsset, type SeedAsset } from '../db/repos/search.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
 import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';

@@ -1,7 +1,7 @@
 /**
  * The `worker_config` row's own behaviour — defaults, clamping, the mixture of
  * stage and sweeper columns on one row — is covered by
- * `db/sqlite/repos/worker-config.repo.test.ts`. What matters here is that the
+ * `db/repos/worker-config.repo.test.ts`. What matters here is that the
  * sweeper's import path still reaches it against the process-wide handle.
  */
 import { describe, it, expect } from 'bun:test';

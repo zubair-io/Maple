@@ -17,7 +17,7 @@
  */
 
 import type { ObjectId } from '../../db/object-id.ts';
-import { listCandidateIds, type CandidateScope } from '../../db/sqlite/repos/assets.migrations.ts';
+import { listCandidateIds, type CandidateScope } from '../../db/repos/assets.migrations.ts';
 import type { Logger } from 'pino';
 import type { MigrationBatchResult } from './types.ts';
 

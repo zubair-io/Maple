@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'bun:test';
 import { MAX_TOTAL_DESCRIBE_CAPACITY } from '../enrichment/describe-servers.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { describeServersForRuntime, syncDescribeStageCapacity } from './describe-capacity.ts';
 import type { ResolvedEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 

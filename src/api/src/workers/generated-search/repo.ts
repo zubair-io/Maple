@@ -9,7 +9,7 @@
  * Workers, the Maple TV shelf, the Apple widget) read a `GeneratedSearchDoc`.
  *
  * The storage itself moved to SQLite (#3787) and lives in
- * `db/sqlite/repos/generated-searches.repo.ts`. The three functions are
+ * `db/repos/generated-searches.repo.ts`. The three functions are
  * re-exported from there rather than being re-implemented or having their call
  * sites rewritten, so `run.ts` keeps the import it has always had and the
  * engine swap is invisible above this line.
@@ -55,4 +55,4 @@ export interface GeneratedSearchDoc extends GeneratedSearchInput {
 export {
   saveGeneratedSearches,
   pruneGeneratedSearches,
-} from '../../db/sqlite/repos/generated-searches.repo.ts';
+} from '../../db/repos/generated-searches.repo.ts';

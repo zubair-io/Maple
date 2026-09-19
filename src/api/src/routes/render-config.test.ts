@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { renderConfigRoutes } from './render-config.ts';
-import { readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
+import { readAppSettings } from '../db/repos/app-settings.repo.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

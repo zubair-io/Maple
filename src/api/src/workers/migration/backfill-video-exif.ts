@@ -25,12 +25,12 @@ import {
   unstamped,
   type CandidateScope,
   type MigrationCandidate,
-} from '../../db/sqlite/repos/assets.migrations.ts';
+} from '../../db/repos/assets.migrations.ts';
 import {
   applyVideoExif,
   stampVideoMetaVersion,
   BACKUP_VIDEO_SCOPE,
-} from '../../db/sqlite/repos/assets.video-migrations.ts';
+} from '../../db/repos/assets.video-migrations.ts';
 import { assetAbsPath, isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { readExif } from '../../indexer/exif.ts';

@@ -32,8 +32,8 @@ import {
   unstamped,
   type CandidateScope,
   type MigrationCandidate,
-} from '../../db/sqlite/repos/assets.migrations.ts';
-import { findBackupAssetById, REFILE_BACKUP_SCOPE } from '../../db/sqlite/repos/assets.refile.ts';
+} from '../../db/repos/assets.migrations.ts';
+import { findBackupAssetById, REFILE_BACKUP_SCOPE } from '../../db/repos/assets.refile.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { backupLocationSegments } from '../../backup/location-segments.ts';

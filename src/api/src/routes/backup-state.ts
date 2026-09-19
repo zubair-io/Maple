@@ -19,8 +19,8 @@
  */
 import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
-import { listBackupState } from '../db/sqlite/repos/backup.repo.ts';
-import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
+import { listBackupState } from '../db/repos/backup.repo.ts';
+import { findFolderById } from '../db/repos/folders.repo.ts';
 
 export const backupStateRoutes = new Elysia().get(
   '/api/libraries/:libraryId/backup/state',

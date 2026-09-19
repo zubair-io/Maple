@@ -16,7 +16,7 @@
  * slug to a library root with zero additional DB round-trips.
  */
 import type { ObjectId } from '../db/object-id.ts';
-import { listLibraryRoots } from '../db/sqlite/repos/folders.repo.ts';
+import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 
 /** Resolved library info keyed by slug. */
 export interface LibraryBySlug {

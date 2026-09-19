@@ -12,8 +12,8 @@ import {
   insertLocation,
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { insertDetail } from '../db/sqlite/repos/assets.test-helpers.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { insertDetail } from '../db/repos/assets.test-helpers.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { runMeilisearchBackfill } from './meilisearch-backfill.ts';
 import {
   ASSETS_INDEX,

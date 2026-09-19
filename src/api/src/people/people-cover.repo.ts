@@ -5,8 +5,8 @@
  * only `assetId` + `faceIndex`, never coordinates. A manually-set cover is
  * never clobbered by `backfillCoverAssets` (which only fills MISSING covers).
  *
- * The implementation lives in `db/sqlite/repos/people.cover.ts`, including the
+ * The implementation lives in `db/repos/people.cover.ts`, including the
  * verbatim error strings the web client renders.
  */
 
-export { setPersonCover } from '../db/sqlite/repos/people.cover.ts';
+export { setPersonCover } from '../db/repos/people.cover.ts';

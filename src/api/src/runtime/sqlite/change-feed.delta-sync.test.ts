@@ -34,7 +34,7 @@ import {
   recordAndPublishAssetChange,
   __resetChangeFolderPathCacheForTests,
   type SqliteDb,
-} from '../../db/sqlite/repos/changes.repo.ts';
+} from '../../db/repos/changes.repo.ts';
 import {
   createTestDatabase,
   insertFolder,

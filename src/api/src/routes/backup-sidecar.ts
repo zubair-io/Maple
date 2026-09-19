@@ -31,7 +31,7 @@ import { Elysia, t } from 'elysia';
 import {
   findLiveAssetIdByMapleId,
   findLiveAssetIdByPhassetLink,
-} from '../db/sqlite/repos/assets.repo.ts';
+} from '../db/repos/assets.repo.ts';
 import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the sidecar publish (atomicMove → rename/copyFile)
 // replicates to the library's backup root(s).

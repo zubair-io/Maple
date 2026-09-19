@@ -1,8 +1,8 @@
 /** Invalidate the selected on-disk copy, including non-primary deduplicated locations. */
 import { ObjectId } from '../../db/object-id.ts';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
-import { recordSidecarEditAtAddress } from '../../db/sqlite/repos/assets.relocate.repo.ts';
-import { recordAssetChangeRow } from '../../db/sqlite/repos/changes.repo.ts';
+import { recordSidecarEditAtAddress } from '../../db/repos/assets.relocate.repo.ts';
+import { recordAssetChangeRow } from '../../db/repos/changes.repo.ts';
 import { getChangeBus } from '../../runtime/change-bus.ts';
 import { getLibraryBySlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 

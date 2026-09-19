@@ -22,7 +22,7 @@ import { ObjectId } from '../../db/object-id.ts';
 import { listRoute } from './list.ts';
 import { _resetCacheForTests } from './total-cache.ts';
 import { encodeCursor } from './cursor.ts';
-import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import { seedSearchAsset } from '../../db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

@@ -23,7 +23,7 @@ import { child as childLogger } from '../log.ts';
 import { ThroughputWindow } from './throughput-window.ts';
 import { stageRegistry } from './registry.ts';
 import { POLL_INTERVAL_MS, nextPollDelay } from './loop-policy.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { runOnce } from './run-stage.dispatch.ts';
 import {
   bootConfig,

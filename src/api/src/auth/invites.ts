@@ -1,7 +1,7 @@
 /**
  * Invite codes — now stored in SQLite (#3787).
  *
- * The four operations moved verbatim to `db/sqlite/repos/auth.invites.repo.ts`
+ * The four operations moved verbatim to `db/repos/auth.invites.repo.ts`
  * under the same names and signatures, so this module is the re-export that
  * keeps `routes/auth.ts` importing the path it always has. The alphabet, the
  * generator, the lifetime and the redeemability assertion never moved: they
@@ -17,4 +17,4 @@ export {
   listInvites,
   redeemInvite,
   rescindInvite,
-} from '../db/sqlite/repos/auth.invites.repo.ts';
+} from '../db/repos/auth.invites.repo.ts';

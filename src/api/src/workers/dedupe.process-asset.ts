@@ -16,7 +16,7 @@
  * moves and the cache cleanup are byte-for-byte the same decisions. What went
  * away is the collection handle every phase used to thread through: a location
  * is a row in `asset_locations` now, and the repository functions in
- * `db/sqlite/repos/assets.sweeps.ts` resolve the process-wide database handle
+ * `db/repos/assets.sweeps.ts` resolve the process-wide database handle
  * themselves, so these phases take an asset id and nothing else.
  */
 
@@ -29,11 +29,11 @@ import {
   reconcileLocations,
   tagLocationsMissing,
   type LocationAddress,
-} from '../db/sqlite/repos/assets.sweeps.ts';
+} from '../db/repos/assets.sweeps.ts';
 import {
   stageRearmStatements,
   RELOCATE_CACHE_STAGES,
-} from '../db/sqlite/repos/assets.stage-rearm.ts';
+} from '../db/repos/assets.stage-rearm.ts';
 import { child as childLogger } from '../log.ts';
 import { statKind, libraryRootAvailable } from './missing-reaper.helpers.ts';
 import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
@@ -46,7 +46,7 @@ const log = childLogger('deduplicate');
 const ABSENT_REASON = 'dedupe-absent';
 
 /** Minimal projected shape `processAsset` needs from each candidate row —
- * mirrors `DuplicateCandidate` in `db/sqlite/repos/assets.sweeps.ts` without
+ * mirrors `DuplicateCandidate` in `db/repos/assets.sweeps.ts` without
  * requiring the rest of it. */
 interface DedupeAssetRef {
   _id: ObjectId;

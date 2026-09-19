@@ -14,7 +14,7 @@ import {
 } from './meili.ts';
 import { composeDocument } from '../../enrichment/meilisearch-backfill-compose.ts';
 import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
-import { insertPerson } from '../../db/sqlite/repos/people.test-helpers.ts';
+import { insertPerson } from '../../db/repos/people.test-helpers.ts';
 
 /**
  * The `asset_search` upsert the handler asked the runner to run.

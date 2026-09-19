@@ -13,7 +13,7 @@
  * established, and it did not become negotiable when the counts got cheap.
  */
 
-import { listWorkerConfigs, sanitizeWorkerConfig } from '../db/sqlite/repos/worker-config.repo.ts';
+import { listWorkerConfigs, sanitizeWorkerConfig } from '../db/repos/worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
 import { deriveBatchSize } from './loop-policy.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
@@ -22,7 +22,7 @@ import {
   pokeStatusCountsDemand,
   readWorkerStatus,
   type StatusCountsSnapshot,
-} from '../db/sqlite/repos/worker-status.repo.ts';
+} from '../db/repos/worker-status.repo.ts';
 import { ALL_KNOWN_WORKER_NAMES } from './status-counts.ts';
 import { enabledRemainingTotal, loadAllMigrationStates } from './migration-config.repo.ts';
 

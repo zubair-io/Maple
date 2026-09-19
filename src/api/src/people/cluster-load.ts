@@ -5,7 +5,7 @@
  * and the synchronous `clusterEmbeddings` pass itself.
  *
  * The work runs on the clustering worker rather than the HTTP thread, and the
- * implementation is `db/sqlite/repos/people.cluster-load.ts`. Its order is the
+ * implementation is `db/repos/people.cluster-load.ts`. Its order is the
  * contract — recompute → load centroids → read the auto-name high-water mark →
  * load unassigned faces → cluster — and `recomputeCentroids` deliberately
  * writes the normalised centroid back for `loadCentroids` to re-read and

@@ -8,7 +8,7 @@
  * config is operator-toggleable, not env-gated.
  */
 
-import { listFoldersWithMirrors } from '../db/sqlite/repos/folders.repo.ts';
+import { listFoldersWithMirrors } from '../db/repos/folders.repo.ts';
 import { setMirrorRoots } from './mirror-registry.ts';
 import { child as childLogger } from '../log.ts';
 

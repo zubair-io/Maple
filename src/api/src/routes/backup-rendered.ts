@@ -40,7 +40,7 @@
 import { backupId, backupChunkRange, backupLibrary, backupLibraryId } from './backup-id.ts';
 import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
-import { setAppleRenderedPath } from '../db/sqlite/repos/backup.repo.ts';
+import { setAppleRenderedPath } from '../db/repos/backup.repo.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
 import { child as childLogger } from '../log.ts';

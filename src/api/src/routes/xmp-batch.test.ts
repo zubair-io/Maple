@@ -20,7 +20,7 @@ import { Elysia } from 'elysia';
 import { xmpBatchRoutes } from './xmp-batch.ts';
 import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import { insertStageState } from '../db/sqlite/repos/assets.test-helpers.ts';
+import { insertStageState } from '../db/repos/assets.test-helpers.ts';
 import {
   SIDECAR_METADATA_INDEX_STAGE_NAME,
   SIDECAR_METADATA_INDEX_VERSION,

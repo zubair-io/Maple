@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
-import { acknowledgeHiddenAsset, findHiddenAssets } from '../db/sqlite/repos/assets.hidden.ts';
+import { acknowledgeHiddenAsset, findHiddenAssets } from '../db/repos/assets.hidden.ts';
 import { loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import { assetAddress } from '../indexer/images.repo.ts';
 

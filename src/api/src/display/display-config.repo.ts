@@ -1,4 +1,4 @@
-import { patchAppSettings, readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
+import { patchAppSettings, readAppSettings } from '../db/repos/app-settings.repo.ts';
 
 const DOC_ID = 'display';
 

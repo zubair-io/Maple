@@ -33,7 +33,7 @@
 
 import path from 'node:path';
 import { isSafeFilename } from '../backup/path-formatter.ts';
-import type { NearbyAssetCandidate } from '../db/sqlite/repos/assets.locations.repo.ts';
+import type { NearbyAssetCandidate } from '../db/repos/assets.locations.repo.ts';
 
 export interface Bucket {
   /** 4-digit UTC year, zero-padded. */

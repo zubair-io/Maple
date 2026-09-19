@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import { toSearchQuery } from './execute.ts';
-import { buildSearchWhere } from '../../db/sqlite/repos/search.where.ts';
+import { buildSearchWhere } from '../../db/repos/search.where.ts';
 
 const LIB = '507f1f77bcf86cd799439011';
 const HIDDEN = '651f1e4a2b3c4d5e6f708192';

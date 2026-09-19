@@ -34,7 +34,7 @@
  */
 
 import { child as childLogger } from '../../log.ts';
-import { searchCount, searchPage } from '../../db/sqlite/repos/search.page.ts';
+import { searchCount, searchPage } from '../../db/repos/search.page.ts';
 import { meiliPage } from '../../routes/search/list-meili.ts';
 import type { SearchQuery } from '../../routes/search/query.ts';
 import { resolveSearchWhere } from './execute.ts';

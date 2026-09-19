@@ -19,20 +19,20 @@ import { rejectLegacyAiWrite } from '../routes/ai-legacy-write.ts';
  *    4. Return { ok: true, config: WorkerConfig } (reads back saved config).
  *
  * The dead-letter and damaged surfaces below hold no SQL of their own: every
- * one of them is a call into `db/sqlite/repos/worker-admin.repo.ts`, which is
+ * one of them is a call into `db/repos/worker-admin.repo.ts`, which is
  * also where the damaged-clear's ordering (reset the stages, then drop the tag,
  * in one transaction) lives.
  */
 
 import { Elysia, t } from 'elysia';
 import { WorkerConfigBody } from './worker-config.schema.ts';
-import { parseAssetId } from '../db/sqlite/repos/assets.repo.ts';
+import { parseAssetId } from '../db/repos/assets.repo.ts';
 import {
   clearDamagedAssets,
   listDamagedAssets,
   listDeadAssets,
   retryDeadStage,
-} from '../db/sqlite/repos/worker-admin.repo.ts';
+} from '../db/repos/worker-admin.repo.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import {
   MAX_FFI_WORKERS,
@@ -42,7 +42,7 @@ import {
   resolveFfiPoolConfig,
   savePerformanceConfig,
 } from '../ffi/ffi-pool-config.repo.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import type { WorkerConfig } from './run-stage.ts';
 import { previewOndemandLimiter } from '../indexer/preview-ondemand-limiter.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';

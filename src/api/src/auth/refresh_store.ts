@@ -2,8 +2,8 @@
  * Refresh tokens and paired-device sessions — now stored in SQLite (#3787).
  *
  * Rotation, family revocation and the device-session panel moved to
- * `db/sqlite/repos/auth.refresh.repo.ts` and
- * `db/sqlite/repos/auth.device-sessions.repo.ts` under the same names and
+ * `db/repos/auth.refresh.repo.ts` and
+ * `db/repos/auth.device-sessions.repo.ts` under the same names and
  * signatures. Two questions asked of one table, so two modules: rotation is
  * about a single token, a device session is about a whole family.
  *
@@ -26,9 +26,9 @@ export {
   revokeChain,
   revokeFamilyByToken,
   rotateRefreshToken,
-} from '../db/sqlite/repos/auth.refresh.repo.ts';
+} from '../db/repos/auth.refresh.repo.ts';
 
 export {
   listDeviceSessions,
   revokeDeviceSession,
-} from '../db/sqlite/repos/auth.device-sessions.repo.ts';
+} from '../db/repos/auth.device-sessions.repo.ts';

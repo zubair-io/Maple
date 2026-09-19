@@ -8,7 +8,7 @@
  * operator clears the dead-letter via the routes built on top of these
  * functions.
  *
- * Storage lives in `db/sqlite/repos/enrichment-state.repo.ts`. This module is
+ * Storage lives in `db/repos/enrichment-state.repo.ts`. This module is
  * the domain surface the routes call: it owns the stage vocabulary, the limit
  * clamp and the error-class truncation length, and nothing else.
  */
@@ -17,7 +17,7 @@ import {
   clearDeadLetter,
   groupDeadLettered,
   listDeadLettered,
-} from '../db/sqlite/repos/enrichment-state.repo.ts';
+} from '../db/repos/enrichment-state.repo.ts';
 
 /**
  * Stages that participate in the slow-tier enrichment loop. Mirrors

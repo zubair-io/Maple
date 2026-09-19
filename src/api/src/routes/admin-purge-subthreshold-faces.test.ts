@@ -24,8 +24,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { saveEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
-import { insertFaceRow, insertPersonRow } from '../db/sqlite/repos/assets.test-helpers.ts';
-import { seedSearchAsset } from '../db/sqlite/repos/search.test-helpers.ts';
+import { insertFaceRow, insertPersonRow } from '../db/repos/assets.test-helpers.ts';
+import { seedSearchAsset } from '../db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

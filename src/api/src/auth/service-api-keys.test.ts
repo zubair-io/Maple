@@ -2,7 +2,7 @@
  * Service API keys: the format, and what authentication makes of it.
  *
  * The four storage operations are tested against the table in
- * `db/sqlite/repos/auth.enrolment.repo.test.ts`. What is left here — and what
+ * `db/repos/auth.enrolment.repo.test.ts`. What is left here — and what
  * these cases are about — is the half that never moved: a key is minted in one
  * piece and handed over once, only its hash is kept, and authentication
  * distinguishes an unknown key from a revoked one from an expired one from a
@@ -21,7 +21,7 @@ import {
   listServiceApiKeys,
   revokeServiceApiKey,
 } from './service-api-keys.ts';
-import { insertUser } from '../db/sqlite/repos/auth.users.repo.ts';
+import { insertUser } from '../db/repos/auth.users.repo.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

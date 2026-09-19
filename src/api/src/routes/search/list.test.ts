@@ -26,7 +26,7 @@ import {
   type MeilisearchClient,
   type MeilisearchSearchOptions,
 } from '../../enrichment/meilisearch-client.ts';
-import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import { seedSearchAsset } from '../../db/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

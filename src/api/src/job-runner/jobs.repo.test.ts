@@ -36,7 +36,7 @@ import {
 } from './jobs.repo.ts';
 import { createLiveTestDatabase, run } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import type { SqlParams } from '../db/sqlite/protocol.ts';
-import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 
 const EXPORT_PAYLOAD = { assetIds: ['a'], outputDir: '/tmp', quality: 80 };
 const CANDIDATE_QUERY = 'ORDER BY created_at, id LIMIT 8';

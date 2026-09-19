@@ -11,7 +11,7 @@
  *
  * Previously a GridFS bucket, which existed because a .lcp can exceed MongoDB's
  * 16 MiB document ceiling. The SQLite table stores the whole file in one BLOB
- * (`db/sqlite/repos/lens-profiles.repo.ts`), so the chunking is gone.
+ * (`db/repos/lens-profiles.repo.ts`), so the chunking is gone.
  *
  * ## The in-process cache is not an optimisation, it is a budget
  *
@@ -35,10 +35,7 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { sqliteDatabasePath } from '../db/sqlite/database-path.ts';
 import { isSqliteOpen, openSqlitePool } from '../db/sqlite/index.ts';
-import {
-  readLensProfileBytes,
-  saveLensProfileBytes,
-} from '../db/sqlite/repos/lens-profiles.repo.ts';
+import { readLensProfileBytes, saveLensProfileBytes } from '../db/repos/lens-profiles.repo.ts';
 import { lensProfileDigest, MAX_LCP_BYTES, type LensProfileInventory } from './types.ts';
 
 /**

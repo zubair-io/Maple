@@ -28,7 +28,7 @@
  */
 
 import type { ObjectId } from '../db/object-id.ts';
-import { clearCfThumbSyncedAt } from '../db/sqlite/repos/assets.mutations.ts';
+import { clearCfThumbSyncedAt } from '../db/repos/assets.mutations.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';

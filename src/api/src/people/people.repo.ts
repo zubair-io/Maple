@@ -8,7 +8,7 @@
  * survivor. The unique index on the folded name key is the safety net — the
  * merge logic is what the route calls.
  *
- * The implementation lives in `db/sqlite/repos/people.repo.ts`, with the
+ * The implementation lives in `db/repos/people.repo.ts`, with the
  * visibility toggles in `people.visibility.ts` and the listing body in
  * `people.list.ts`. Everything is re-exported by name here so the routes,
  * workers and the clustering job keep importing from the same place they
@@ -24,7 +24,7 @@ export {
   listPeople,
   readFaces,
   renamePerson,
-} from '../db/sqlite/repos/people.repo.ts';
+} from '../db/repos/people.repo.ts';
 
 export type { PersonWithCount } from './people-list-core.ts';
 

@@ -42,7 +42,7 @@ import {
   NEARBY_ASSET_WINDOW_MS,
   resolveSourceFolderContext,
 } from './dest.ts';
-import type { NearbyAssetCandidate } from '../db/sqlite/repos/assets.locations.repo.ts';
+import type { NearbyAssetCandidate } from '../db/repos/assets.locations.repo.ts';
 import { child as childLogger } from '../log.ts';
 import type { ImportFileEntry, ImportFileKind } from '../db/schema.ts';
 

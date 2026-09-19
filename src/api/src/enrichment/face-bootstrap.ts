@@ -38,7 +38,7 @@ import {
   type ResolvedEnrichmentConfig,
 } from './enrichment-config.resolve.ts';
 import { preloadFaceModelsOffThread } from './face-pool.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 
 const log = childLogger('face');
 
