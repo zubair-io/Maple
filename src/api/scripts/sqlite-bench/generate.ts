@@ -297,27 +297,29 @@ const CLAIMABLE_KINDS_BY_STAGE = new Map<string, ReadonlySet<string>>([
   ['video-describe', new Set(['video'])],
 ]);
 
+/** How far one stage row has got, and whether it is parked. */
+function stageRowState(
+  random: () => number,
+  stage: string,
+  mediaKind: string,
+): { version: number; dead: number } {
+  // Both draws happen for every stage regardless of the outcome, so changing
+  // the media mix does not shift the PRNG sequence for everything after it.
+  const version = either(random, 0.88, 1 + Math.floor(random() * 3), 0);
+  const dead = flag(random, 0.004);
+  const kinds = CLAIMABLE_KINDS_BY_STAGE.get(stage);
+  // A row the claim can never reach was never attempted, so it never left
+  // version 0 and never spent its attempt budget either.
+  if (kinds !== undefined && !kinds.has(mediaKind)) return { version: 0, dead: 0 };
+  return { version, dead };
+}
+
 /** One row per registered stage, seeded at version 0 when it has not run —
  * the same density the skeleton insert will write in production. */
 function writeStages(ctx: Context, shape: AssetShape): void {
-  const { random } = ctx;
   for (const stage of STAGE_NAMES) {
-    // Both draws happen for every stage regardless of the outcome, so changing
-    // the media mix does not shift the PRNG sequence for everything after it.
-    const drawnVersion = either(random, 0.88, 1 + Math.floor(random() * 3), 0);
-    const drawnDead = flag(random, 0.004);
-    const kinds = CLAIMABLE_KINDS_BY_STAGE.get(stage);
-    const unreachable = kinds !== undefined && !kinds.has(shape.mediaKind);
-    const version = unreachable ? 0 : drawnVersion;
-    ctx.st.stage.run(
-      shape.id,
-      stage,
-      version,
-      version === 0 ? null : ctx.now,
-      // Never attempted means never parked: a row the claim cannot reach
-      // cannot have spent its attempt budget either.
-      unreachable ? 0 : drawnDead,
-    );
+    const { version, dead } = stageRowState(ctx.random, stage, shape.mediaKind);
+    ctx.st.stage.run(shape.id, stage, version, version === 0 ? null : ctx.now, dead);
     ctx.counts.stage_state += 1;
   }
 }

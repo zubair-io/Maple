@@ -34,6 +34,7 @@ import {
   timed,
   withMongoDatabase,
 } from './compare-helpers.ts';
+import { queryPlanLines } from './bench-db.ts';
 import { generateLibrary } from './generate.ts';
 import { buildMongoLibrary } from './mongo-library.ts';
 
@@ -73,10 +74,7 @@ function sqlitePageBytes(db: Database): number {
 }
 
 function plan(db: Database, sql: string, ...params: unknown[]): string {
-  const rows = db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...(params as never[])) as Array<{
-    detail: string;
-  }>;
-  return rows.map((row) => row.detail).join(' / ');
+  return queryPlanLines(db, sql, params).join(' / ');
 }
 
 const PHASSET_LOOKUP_SQL = `SELECT p.asset_id FROM asset_phasset_links p
