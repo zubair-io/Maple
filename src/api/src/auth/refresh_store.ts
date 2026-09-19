@@ -28,7 +28,4 @@ export {
   rotateRefreshToken,
 } from '../db/repos/auth.refresh.repo.ts';
 
-export {
-  listDeviceSessions,
-  revokeDeviceSession,
-} from '../db/repos/auth.device-sessions.repo.ts';
+export { listDeviceSessions, revokeDeviceSession } from '../db/repos/auth.device-sessions.repo.ts';

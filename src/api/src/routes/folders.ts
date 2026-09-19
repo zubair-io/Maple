@@ -29,10 +29,7 @@ import {
   listFolderTrash,
   resetFolderStages,
 } from '../db/repos/folder-assets.repo.ts';
-import {
-  findAssetToReplaceAtAddress,
-  upsertUploadedAsset,
-} from '../db/repos/assets.address.ts';
+import { findAssetToReplaceAtAddress, upsertUploadedAsset } from '../db/repos/assets.address.ts';
 import { hardDelete, markSoftDeleted } from '../db/repos/assets.trash.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';

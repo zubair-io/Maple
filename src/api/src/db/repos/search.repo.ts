@@ -60,7 +60,6 @@
 export { buildSearchWhere } from './search.where.ts';
 export type { SearchWhere } from './search.where.ts';
 
-
 export { searchFacets } from './search.facets.ts';
 
 export { searchByMapleIds, searchCount, searchPage } from './search.page.ts';
