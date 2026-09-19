@@ -29,7 +29,7 @@
  * two passes at once; they share the same single-flight + coalescing.
  *
  * `runOnlineClustering` is injected (constructor dependency) so unit tests
- * can stub it and exercise the trigger/single-flight logic without Mongo.
+ * can stub it and exercise the trigger/single-flight logic without a database.
  */
 
 import { child as childLogger } from '../log.ts';

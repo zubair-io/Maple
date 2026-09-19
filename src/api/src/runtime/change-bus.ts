@@ -12,8 +12,8 @@
  * after a transient network drop.
  */
 
-import { EventEmitter } from "node:events";
-import type { AssetChangeWithId } from "../db/schema.ts";
+import { EventEmitter } from 'node:events';
+import type { AssetChangeWithId } from '../db/schema.ts';
 
 export interface ChangeBusOptions {
   capacity: number;
@@ -59,7 +59,7 @@ export class ChangeBus {
       this.buf.splice(i, 0, event);
     }
     while (this.buf.length > this.capacity) this.buf.shift();
-    this.emitter.emit("change", event);
+    this.emitter.emit('change', event);
   }
 
   /** Snapshot of the current buffer in cursor order. */
@@ -118,9 +118,9 @@ export class ChangeBus {
   }
 
   subscribe(listener: (event: AssetChangeWithId) => void): () => void {
-    this.emitter.on("change", listener);
+    this.emitter.on('change', listener);
     return () => {
-      this.emitter.off("change", listener);
+      this.emitter.off('change', listener);
     };
   }
 }

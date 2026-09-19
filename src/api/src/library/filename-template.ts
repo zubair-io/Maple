@@ -4,7 +4,7 @@
  * (`ffi/raw_ffi.ts`'s `renderFilenameTemplate`, backed by
  * `maple_render_filename_template_buf`). Kept separate from
  * `library/batch-rename.ts` so it's independently unit-testable (pure
- * functions, no Mongo, no filesystem) — see
+ * functions, no database, no filesystem) — see
  * docs/superpowers/specs/2026-08-04-file-management-design.md § "Core
  * architecture" → "the ONE piece of that epic that IS shared code."
  */

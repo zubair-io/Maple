@@ -9,11 +9,9 @@
  * stubbed except the auth context.
  *
  * The SSE route reads the bus and never the database, which is why it can be
- * exercised against the SQLite port before the cutover (#3752) moves the
- * polling route's repository import. The poll half cannot be driven through
- * `/api/changes` yet for the same reason — that handler still reads Mongo — so
- * the last test here pins the ported repository's verdict against the live
- * route's, cursor for cursor, on the scenario where the two have to match.
+ * exercised directly. The poll half is not driven through `/api/changes` here;
+ * instead the last test pins the repository's verdict against the live route's,
+ * cursor for cursor, on the scenario where the two have to match.
  *
  * The loop under test is the recovery one, and it has three steps the Apple
  * client performs in order: it is refused with a 409, it re-enumerates its

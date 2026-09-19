@@ -33,6 +33,9 @@ export async function initializeHttpSearch(): Promise<void> {
     await advanceKnownVectorCoverage(client.semanticFingerprint?.());
     log.info({ semanticEnabled: client.semanticConfigured() }, 'Meilisearch search sidecar ready');
   } catch (error) {
-    log.warn({ err: error }, 'Meilisearch setup failed — search will fall back to built-in text search');
+    log.warn(
+      { err: error },
+      'Meilisearch setup failed — search will fall back to built-in text search',
+    );
   }
 }

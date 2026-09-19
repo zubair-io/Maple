@@ -28,8 +28,8 @@ import {
 } from '../db/sqlite/repos/presets.repo.ts';
 import type { PresetDoc } from '../db/schema.ts';
 import {
-  isMongoSafeKey,
-  unsafeKeyError,
+  isStorableKey,
+  unstorableKeyError,
   validatePresetDocument,
 } from '../presets/preset-validation.ts';
 import { child as childLogger } from '../log.ts';
@@ -54,22 +54,24 @@ const CreateBody = t.Object(
  * onto the wire row on read. */
 const OWNED_KEYS = new Set(['schemaVersion', 'name', 'fields']);
 
-/** Depth-first scan of a preserved value for a Mongo-unsafe key. `extra`
- * is stored as a subdocument, so every nested object key is a document
- * key too — an unsafe one would turn the insert into a 500. Returns the
- * first offending key, or null when the whole value is safe. */
-function findMongoUnsafeKey(value: unknown): string | null {
+/** Depth-first scan of a preserved value for a key the store will not take.
+ * `extra` persists as JSON in a text column, so a NUL byte inside a key is a
+ * real hazard; `.` and a leading `$` are inherited from the document-key era
+ * and stay rejected because the accepted input set is part of the API
+ * contract, not because storage needs it. Returns the first offending key, or
+ * null when the whole value is safe. See `presets/preset-validation.ts`. */
+function findUnstorableKey(value: unknown): string | null {
   if (Array.isArray(value)) {
     for (const item of value) {
-      const bad = findMongoUnsafeKey(item);
+      const bad = findUnstorableKey(item);
       if (bad !== null) return bad;
     }
     return null;
   }
   if (value !== null && typeof value === 'object') {
     for (const [key, nested] of Object.entries(value)) {
-      if (!isMongoSafeKey(key)) return key;
-      const bad = findMongoUnsafeKey(nested);
+      if (!isStorableKey(key)) return key;
+      const bad = findUnstorableKey(nested);
       if (bad !== null) return bad;
     }
   }
@@ -115,10 +117,10 @@ export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
       const extra: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
         if (OWNED_KEYS.has(key)) continue;
-        const bad = isMongoSafeKey(key) ? findMongoUnsafeKey(value) : key;
+        const bad = isStorableKey(key) ? findUnstorableKey(value) : key;
         if (bad !== null) {
           set.status = 400;
-          return { error: unsafeKeyError(bad) };
+          return { error: unstorableKeyError(bad) };
         }
         extra[key] = value;
       }

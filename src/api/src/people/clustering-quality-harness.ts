@@ -11,7 +11,7 @@
  *     (`src/scripts/test_face_clustering.sh`) — if the fixture file is
  *     missing, the wrapper exits 0 without invoking this script.
  *
- * Standalone — no Mongo, no Elysia bootstrap. Run via:
+ * Standalone — no database, no Elysia bootstrap. Run via:
  *
  *     bun src/api/src/people/clustering-quality-harness.ts \\
  *         --fixtures test-fixtures/face-clustering/embeddings.jsonl \\
@@ -25,7 +25,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 // Import the pure clustering core directly so the harness doesn't load
-// the Mongo client / pino logger chain (`clustering-job.ts` pulls those
+// the database client / pino logger chain (`clustering-job.ts` pulls those
 // in transitively). The pure module has no I/O.
 import { clusterEmbeddings } from './cluster-embeddings.ts';
 import { allMetrics, type ClusteringMetrics } from './clustering-metrics.ts';

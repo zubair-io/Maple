@@ -1,5 +1,5 @@
 /**
- * mirror-read.ts integration tests — real temp dirs, no Mongo.
+ * mirror-read.ts integration tests — real temp dirs, no database.
  *
  * The safety-critical half of the read replica. What is asserted here:
  *   - originals round-robin across primary + mirror, but ONLY when the mirror

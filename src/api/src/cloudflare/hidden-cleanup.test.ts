@@ -5,9 +5,8 @@
  * stubbed for the R2 call — see `r2-client.test.ts`'s header comment for why.
  *
  * The library-slug map is seeded through `setLibraryBySlugForTests` rather than
- * from the database: `indexer/libraries.cache.ts` is still a MongoDB reader at
- * the time of writing, and this suite is about the cleanup's own behaviour, not
- * about how the slug map is populated.
+ * from the database, because this suite is about the cleanup's own behaviour,
+ * not about how the slug map is populated.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';

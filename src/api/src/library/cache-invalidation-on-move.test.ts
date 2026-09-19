@@ -22,12 +22,11 @@
  * claim without forcing one shared shape onto three architecturally different
  * cache designs.
  *
- * Two of the collaborators this suite used to drive are still MongoDB readers
- * while the cutover is in flight, so they are not called here: the thumb
- * stage's own handler (`workers/stages/thumb.ts`, for its `cf-thumb-sync`
- * cascade) and the orphan sweep (`workers/cache-gc.ts`). Where the handler
- * was re-run, this calls the same `assetAbsPath` + `resolveThumbPathForAsset`
- * + `generateThumb` trio it is built from, which is the part that proves the
+ * Two collaborators are deliberately not called here: the thumb stage's own
+ * handler (`workers/stages/thumb.ts`, for its `cf-thumb-sync` cascade) and the
+ * orphan sweep (`workers/cache-gc.ts`). Where the handler would have been
+ * re-run, this calls the same `assetAbsPath` + `resolveThumbPathForAsset` +
+ * `generateThumb` trio it is built from, which is the part that proves the
  * path-keyed cache regenerates; the sweep's own reclamation stays covered by
  * `workers/cache-gc.test.ts`.
  */
@@ -259,8 +258,7 @@ describe('cache invalidation on move (#2659)', () => {
     // The move itself neither relocates nor deletes the orphaned old file —
     // a synchronous per-file delete isn't part of this API's design (see
     // relocate-asset.ts's cache-stage doc comment). Reclaiming it is
-    // `cache-gc`'s sweep, which is still a MongoDB reader while the cutover
-    // is in flight and stays covered by `workers/cache-gc.test.ts`.
+    // `cache-gc`'s sweep, which stays covered by `workers/cache-gc.test.ts`.
     expect((await fs.stat(oldThumbPath)).size).toBeGreaterThan(0);
   });
 
@@ -329,7 +327,7 @@ describe('cache invalidation on move (#2659)', () => {
     // While trashed, the original-path thumb is an orphan (the row now points
     // into `.maple/trash/`) and cache-gc reclaims it — the state a restore
     // lands in. Removed directly here rather than by running the sweep, which
-    // is still a MongoDB reader and has its own suite.
+    // has its own suite.
     await fs.rm(liveThumbPath);
     // Simulate the thumb/preview workers having caught up on the trashed row,
     // so the restore-side reset below is distinguishable from the trash-side

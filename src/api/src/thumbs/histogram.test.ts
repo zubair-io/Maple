@@ -1,5 +1,5 @@
 /**
- * Pure-binning unit tests. No FFI, no Mongo — covers the bin/stride
+ * Pure-binning unit tests. No FFI, no database — covers the bin/stride
  * invariants the route relies on.
  */
 

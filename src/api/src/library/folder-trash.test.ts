@@ -286,10 +286,9 @@ describe('trashFolderRecursive — multi-location change-feed correctness (#2695
 });
 
 describe('folder-trashed assets are covered by the existing trash retention sweep', () => {
-  // The end-to-end purge (`runTrashGcOnce` in `workers/trash-gc.ts`) is still
-  // a MongoDB reader at the time of writing, so this asserts the half of it
-  // that the cutover has already moved: the sweep's candidate query, which is
-  // what decides whether a folder-trashed asset is covered at all. It reads
+  // This asserts one half of the end-to-end purge (`runTrashGcOnce` in
+  // `workers/trash-gc.ts`): the sweep's candidate query, which is what decides
+  // whether a folder-trashed asset is covered at all. It reads
   // the asset's own `deleted_at` and nothing else — no notion of "this came
   // from a folder trash" — which is the claim this test exists to pin. The
   // unlink-and-delete half stays covered by `workers/trash-gc.test.ts`.

@@ -1,5 +1,5 @@
 /**
- * Unit tests for `filename-template.ts` (#2636) — pure functions, no Mongo,
+ * Unit tests for `filename-template.ts` (#2636) — pure functions, no database,
  * no filesystem. Verifies the ISO→EXIF-wire conversion, stem/ext
  * splitting, and that `renderTemplatedName` reaches the real native
  * `raw-core` engine and surfaces its errors — skip gracefully when the

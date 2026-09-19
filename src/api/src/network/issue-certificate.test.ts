@@ -1,34 +1,25 @@
-import { afterAll, beforeAll, expect, it, spyOn } from 'bun:test';
+/**
+ * ACME issuance persists the account key and every in-flight DNS-01 challenge
+ * to the single `managed_certificates` row, through `network/certificate-store.ts`
+ * and the repository behind it. `issueCertificate` reaches that row with no
+ * database argument, so the test installs one as the process-wide handle for the
+ * duration of the case (#3787).
+ *
+ * A fresh database per case replaces what used to be a downloaded mongod plus a
+ * `dropDatabase()` on the way in: a migrated in-memory database costs
+ * milliseconds, and it is empty by construction rather than by being emptied.
+ */
+
+import { expect, it, spyOn } from 'bun:test';
 import { Client } from 'acme-client';
-import { MongoMemoryServer } from 'mongodb-memory-server';
-import { closeDb, getDb } from '../db/client.ts';
 import { CloudflareDns } from './cloudflare-dns.ts';
 import { DEFAULT_HTTPS } from './managed-https-config.ts';
 import { readCertificateState } from './certificate-store.ts';
 import { issueCertificate } from './issue-certificate.ts';
-
-let mongo: MongoMemoryServer;
-let originalEnv: { uri: string | undefined; db: string | undefined };
-beforeAll(async () => {
-  originalEnv = { uri: process.env.MAPLE_MONGO_URI, db: process.env.MAPLE_MONGO_DB };
-  mongo = await MongoMemoryServer.create({ binary: { version: '7.0.24' } });
-  process.env.MAPLE_MONGO_URI = mongo.getUri();
-  process.env.MAPLE_MONGO_DB = `https_issuance_test_${process.pid}`;
-}, 60_000);
-afterAll(async () => {
-  await closeDb();
-  await mongo?.stop();
-  for (const [key, value] of Object.entries({
-    MAPLE_MONGO_URI: originalEnv.uri,
-    MAPLE_MONGO_DB: originalEnv.db,
-  })) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-});
+import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 it('preserves the order error and attempts every cleanup, retaining failed records for retry', async () => {
-  await (await getDb()).dropDatabase();
+  using _live = await createLiveTestDatabase();
   const config = { ...DEFAULT_HTTPS, hostname: 'local.example.com', zone_id: 'a'.repeat(32) };
   const first = 'b'.repeat(32);
   const second = 'c'.repeat(32);

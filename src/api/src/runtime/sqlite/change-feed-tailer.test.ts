@@ -1,13 +1,13 @@
 /**
  * The ported tailer, and the hole the port closes.
  *
- * Most of this mirrors the Mongo suite: rows written by another process reach
+ * Most of this mirrored the Mongo suite: rows written by another process reach
  * the in-process bus, an event that already arrived in-process is not delivered
  * twice, and a restart leaves the bus knowing enough to refuse a stale cursor.
  *
  * The case worth reading is "a swept journal still refuses a dormant client".
  * Seeding the bus's high watermark from the journal's largest stored cursor —
- * what the Mongo tailer does — reports 0 once retention has emptied the table,
+ * what the Mongo tailer did — reports 0 once retention has emptied the table,
  * and `ChangeBus.isCursorReplayable` answers `since >= 0`, which is true for
  * every cursor any client could present. The client is told it is up to date,
  * gets an open stream carrying nothing, and silently never learns about the

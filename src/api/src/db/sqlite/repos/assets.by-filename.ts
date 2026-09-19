@@ -241,9 +241,7 @@ export async function findRelocateCandidatesByFilenames(
       // the wrong question for an asset the describe stage has not classified.
       ...(row.is_screenshot === null ? {} : { is_screenshot: row.is_screenshot === 1 }),
       ...(row.maple_id === null ? {} : { maple_id: row.maple_id }),
-      ...(row.apple_rendered_path === null
-        ? {}
-        : { apple_rendered_path: row.apple_rendered_path }),
+      ...(row.apple_rendered_path === null ? {} : { apple_rendered_path: row.apple_rendered_path }),
     },
   }));
 }

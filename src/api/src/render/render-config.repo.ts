@@ -59,7 +59,7 @@ export interface ResolvedRenderConfig {
 /**
  * Read the persisted config. Returns `null` when no row exists yet (fresh
  * database) or when the database is unreachable — `resolveRenderConfig` then
- * supplies the built-in default, so an operator with a broken Mongo gets
+ * supplies the built-in default, so an operator with a broken database gets
  * today's behaviour rather than an unrendered editor.
  */
 export async function loadRenderConfig(): Promise<RenderConfig | null> {

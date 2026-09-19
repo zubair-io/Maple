@@ -32,7 +32,6 @@
 import { Elysia, t } from 'elysia';
 import * as nodePath from 'node:path';
 import { resolveAddressString } from '../library/address.ts';
-import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { geoSegmentsFromOverride } from './library-relocate-helper.ts';
 
@@ -58,13 +57,22 @@ import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path
 import { relocateGeoAsset } from '../library/relocate-geo.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc } from '../db/schema.ts';
-import type { Collection, WithId } from 'mongodb';
+import type { ObjectId, WithId } from 'mongodb';
+import {
+  findRelocateCandidatesByFilenames,
+  type RelocateCandidateRow,
+} from '../db/sqlite/repos/assets.by-filename.ts';
+import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
+import { loadStageDocuments } from '../db/sqlite/repos/stage-documents.repo.ts';
+import {
+  recordOffClaimStageResults,
+  type OffClaimStageResult,
+} from '../db/sqlite/repos/stage-state.repo.ts';
 import {
   sidecarMetadataIndexHandler,
   SIDECAR_METADATA_INDEX_VERSION,
   SIDECAR_METADATA_INDEX_STAGE_NAME,
 } from '../workers/stages/sidecar-metadata-index.ts';
-import type { ImageDoc } from '../workers/run-stage.ts';
 
 const log = childLogger('routes/library-relocate');
 
@@ -146,9 +154,79 @@ function wouldRelocate(doc: WithId<AssetDoc>): boolean {
 }
 
 /**
- * Look up asset docs for the given absolute paths. No `phasset_links` filter —
- * any indexed asset is eligible. Post-filters by reconstructing each doc's
- * absolute path to prevent false matches on same-named files in other libraries.
+ * Keep only the candidates whose reconstructed absolute path is one the caller
+ * actually authorised.
+ *
+ * The lookup is by basename, so it can return same-named files from unrelated
+ * libraries; rebuilding each candidate's absolute path from its library root and
+ * intersecting with the resolved set is what stops one of those being moved.
+ */
+function matchByAbsPath(
+  candidates: readonly RelocateCandidateRow[],
+  libs: ReadonlyMap<string, string>,
+  absPaths: ReadonlySet<string>,
+): RelocateCandidateRow[] {
+  return candidates.filter((candidate) => {
+    const primary = assetActiveFileInfo(candidate.doc);
+    if (!primary) return false;
+    const root = libs.get(primary.library_id.toHexString());
+    if (!root) return false;
+    return absPaths.has(nodePath.join(root, primary.path, primary.filename));
+  });
+}
+
+/** How many sidecars are parsed at once during an on-the-fly reconcile. */
+const RECONCILE_CONCURRENCY = 4;
+
+/**
+ * Bring these assets' stored metadata up to date with their sidecars, by running
+ * the `sidecar-metadata-index` handler here instead of waiting for its poll
+ * loop.
+ *
+ * Without this the route would decide an asset's canonical folder from a
+ * `place_text` the user has already superseded — the batch metadata editor
+ * writes the sidecar and marks the stage dirty, and the relocate offer surfaces
+ * straight afterwards. A failed reconcile is logged and the asset is left out of
+ * the writeback entirely, so its stage row stays below target and the poll loop
+ * retries it properly rather than the route marking it handled.
+ */
+async function reconcileSidecarMetadata(ids: readonly ObjectId[]): Promise<void> {
+  const docs = [...(await loadStageDocuments(ids.map((id) => id.toHexString()))).values()];
+  const outcomes: OffClaimStageResult[] = [];
+
+  for (let i = 0; i < docs.length; i += RECONCILE_CONCURRENCY) {
+    await Promise.all(
+      docs.slice(i, i + RECONCILE_CONCURRENCY).map(async (doc) => {
+        const assetId = doc._id.toHexString();
+        try {
+          const result = await sidecarMetadataIndexHandler(doc, {
+            log,
+            signal: new AbortController().signal,
+          });
+          outcomes.push(
+            'patch' in result
+              ? { assetId, patch: result.patch, invalidates: result.invalidates }
+              : { assetId, skipReason: 'skip' in result ? result.skip : undefined },
+          );
+        } catch (err: unknown) {
+          log.warn(
+            { _id: assetId, err: err instanceof Error ? err.message : String(err) },
+            'library-relocate: failed to reconcile sidecar metadata on the fly',
+          );
+        }
+      }),
+    );
+  }
+
+  await recordOffClaimStageResults(
+    { name: SIDECAR_METADATA_INDEX_STAGE_NAME, targetVersion: SIDECAR_METADATA_INDEX_VERSION },
+    outcomes,
+  );
+}
+
+/**
+ * The asset docs behind the given absolute paths, with their sidecar metadata
+ * reconciled first. No `phasset_links` filter — any indexed asset is eligible.
  */
 async function findGeoDocs(
   absPaths: string[],
@@ -156,173 +234,36 @@ async function findGeoDocs(
 ): Promise<WithId<AssetDoc>[]> {
   if (absPaths.length === 0) return [];
   const filenames = [...new Set(absPaths.map((p) => nodePath.basename(p)).filter(Boolean))];
-  const c = await assetsCollection();
-  const docs = await c
-    .find<ImageDoc>(
-      { 'fileinfo.filename': { $in: filenames } },
-      {
-        projection: {
-          _id: 1,
-          fileinfo: 1,
-          maple_id: 1,
-          apple_rendered_path: 1,
-          place: 1,
-          'exif.captured_year': 1,
-          is_screenshot: 1,
-          'metadata_override.place_text': 1,
-          'metadata_override.is_screenshot': 1,
-          stages: 1,
-        },
-      },
-    )
-    .toArray();
-
-  // Reconstruct each doc's absolute path and intersect with the authorized set
-  // so same-named files in unrelated libraries cannot be moved accidentally.
   const absPathSet = new Set(absPaths);
-  const matchedDocs = docs.filter((doc) => {
-    const primary = assetActiveFileInfo(doc);
-    if (!primary) return false;
-    const root = libs.get(primary.library_id.toHexString());
-    if (!root) return false;
-    const absDocPath = nodePath.join(root, primary.path, primary.filename);
-    return absPathSet.has(absDocPath);
-  });
+  const load = async (): Promise<RelocateCandidateRow[]> =>
+    matchByAbsPath(
+      await findRelocateCandidatesByFilenames(filenames, SIDECAR_METADATA_INDEX_STAGE_NAME),
+      libs,
+      absPathSet,
+    );
 
-  // Reconcile sidecar metadata on the fly for any dirty docs
-  const dirtyDocs = matchedDocs.filter(
-    (doc) =>
-      doc.stages?.[SIDECAR_METADATA_INDEX_STAGE_NAME]?.version !== SIDECAR_METADATA_INDEX_VERSION,
+  const matched = await load();
+  const dirty = matched.filter(
+    (candidate) => candidate.sidecarStageVersion !== SIDECAR_METADATA_INDEX_VERSION,
   );
+  if (dirty.length === 0) return matched.map((candidate) => candidate.doc);
 
-  if (dirtyDocs.length > 0) {
-    const dirtyIds = dirtyDocs.map((d) => d._id);
-    // Fetch full documents to avoid partial projection issues in the handler
-    const fullDocs = await c.find<ImageDoc>({ _id: { $in: dirtyIds } }).toArray();
-    const fullDocMap = new Map(fullDocs.map((d) => [d._id.toHexString(), d]));
-
-    const bulkOps: any[] = [];
-    const setDeep = (obj: any, path: string, value: any): void => {
-      const parts = path.split('.');
-      let current = obj;
-      for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i];
-        if (part === '__proto__' || part === 'constructor' || part === 'prototype') {
-          return; // Prevent prototype pollution
-        }
-        if (!(part in current) || current[part] == null) {
-          current[part] = {};
-        }
-        current = current[part];
-      }
-      const lastPart = parts[parts.length - 1];
-      if (lastPart !== '__proto__' && lastPart !== 'constructor' && lastPart !== 'prototype') {
-        current[lastPart] = value;
-      }
-    };
-
-    const CONCURRENCY_LIMIT = 4;
-    for (let i = 0; i < dirtyDocs.length; i += CONCURRENCY_LIMIT) {
-      const chunk = dirtyDocs.slice(i, i + CONCURRENCY_LIMIT);
-      await Promise.all(
-        chunk.map(async (matchedDoc) => {
-          const fullDoc = fullDocMap.get(matchedDoc._id.toHexString());
-          if (!fullDoc) return;
-
-          try {
-            const result = await sidecarMetadataIndexHandler(fullDoc, {
-              log,
-              signal: new AbortController().signal,
-            });
-
-            const stageState = {
-              version: SIDECAR_METADATA_INDEX_VERSION,
-              attempts: 0,
-              last_error: null,
-              processed_at: new Date(),
-              dead: false,
-            };
-
-            matchedDoc.stages = matchedDoc.stages || {};
-            matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = stageState;
-
-            if ('patch' in result && result.patch) {
-              bulkOps.push({
-                updateOne: {
-                  filter: { _id: matchedDoc._id },
-                  update: {
-                    $set: {
-                      [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
-                      ...result.patch,
-                    },
-                  },
-                },
-              });
-              for (const [key, value] of Object.entries(result.patch)) {
-                setDeep(matchedDoc, key, value);
-              }
-            } else if ('skip' in result) {
-              const skipState = {
-                ...stageState,
-                last_error: `skip: ${result.skip}`,
-              };
-              matchedDoc.stages[SIDECAR_METADATA_INDEX_STAGE_NAME] = skipState;
-              bulkOps.push({
-                updateOne: {
-                  filter: { _id: matchedDoc._id },
-                  update: {
-                    $set: {
-                      [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: skipState,
-                    },
-                  },
-                },
-              });
-            } else {
-              // Success but no patch or empty patch. Mark completed to prevent infinite loops.
-              bulkOps.push({
-                updateOne: {
-                  filter: { _id: matchedDoc._id },
-                  update: {
-                    $set: {
-                      [`stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`]: stageState,
-                    },
-                  },
-                },
-              });
-            }
-          } catch (err: unknown) {
-            log.warn(
-              {
-                _id: String(matchedDoc._id),
-                err: err instanceof Error ? err.message : String(err),
-              },
-              'library-relocate: failed to reconcile sidecar metadata on the fly',
-            );
-          }
-        }),
-      );
-    }
-
-    if (bulkOps.length > 0) {
-      await c.bulkWrite(bulkOps);
-    }
-  }
-
-  return matchedDocs;
+  await reconcileSidecarMetadata(dirty.map((candidate) => candidate.doc._id));
+  // Re-read rather than fold the handler's output into the copies already in
+  // hand. The handler returns statements now, so the rows are the only faithful
+  // account of what it wrote — and replaying them in memory is exactly the kind
+  // of second implementation that drifts.
+  return (await load()).map((candidate) => candidate.doc);
 }
 
 /**
- * After a `moved` outcome, re-read the asset's repointed primary fileinfo and
+ * After a `moved` outcome, re-read the asset's repointed primary location and
  * report whether a collision auto-rename occurred — i.e. its new filename
- * differs from the one we started with. `moveBackupAsset` itself can't tell a
+ * differs from the one we started with. `relocateGeoAsset` itself can't tell a
  * plain move from a rename, so we compare here rather than guess.
  */
-async function didRename(
-  coll: Collection<AssetDoc>,
-  id: WithId<AssetDoc>['_id'],
-  originalFilename: string,
-): Promise<boolean> {
-  const fresh = await coll.findOne({ _id: id }, { projection: { fileinfo: 1 } });
+async function didRename(id: ObjectId, originalFilename: string): Promise<boolean> {
+  const fresh = await loadAssetLocationView(id);
   if (!fresh) return false;
   const primary = assetActiveFileInfo(fresh);
   return primary != null && primary.filename !== originalFilename;
@@ -446,7 +387,6 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
 
       const docs = await findGeoDocs(absPaths, libs);
 
-      const c = await assetsCollection();
       const results: Array<{
         address: string;
         ok: boolean;
@@ -495,14 +435,14 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
           // The sidecar (and, if present, the apple_rendered_path companion)
           // is included automatically (#2667).
           const originalFilename = primary?.filename;
-          const outcome = await relocateGeoAsset(c, doc, libRoot, newDir, primary!);
+          const outcome = await relocateGeoAsset(doc, libRoot, newDir, primary!);
           // `renamed` is only meaningful for an actual move. relocateGeoAsset
           // can't report a collision auto-rename directly, so re-read the
-          // repointed fileinfo and compare the new filename to the one we
+          // repointed location and compare the new filename to the one we
           // started with.
           const renamed =
             outcome === 'moved' && originalFilename != null
-              ? await didRename(c, doc._id, originalFilename)
+              ? await didRename(doc._id, originalFilename)
               : false;
           results.push({
             address: representativeAddress,
