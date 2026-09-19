@@ -113,6 +113,7 @@ export class SqliteWorkerHandle {
     }
   }
 
+  // fallow-ignore-next-line unused-class-member -- called from production by `SqlitePool.read`, on the `SqliteWorkerHandle | undefined` that `leastBusyReader()` returns; `write` and `transaction`, reached through a plain field, are not flagged
   read(sql: string, params?: SqlParams): Promise<SqlRow[]> {
     return this.send({ kind: 'read', id: 0, sql, params }).then((response) => {
       if (response.kind !== 'read' || !response.ok) throw mismatched('read', response);

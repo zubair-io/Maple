@@ -53,6 +53,24 @@ export const ONE_SECOND_QUERY = countingQuery(15_000_000);
  * never about rows — and lets a test stage what a real thread cannot be asked
  * to do on cue: exit, raise an `error` without exiting, swallow a request, and
  * answer one long after the pool gave up on it.
+ *
+ * ## Why six of its members carry a dead-code suppression
+ *
+ * Every one of them is called; the analysis cannot see it, for two different
+ * reasons, and deleting any would break `pool.resilience.test.ts` on the next
+ * run.
+ *
+ * Three are never named by a caller at all: the pool talks to whatever
+ * `asWorker()` hands it, which is the structural `Worker` interface, so the
+ * call site's type is `Worker` and this class is not mentioned. The other
+ * three are called from the resilience suite through a binding the analysis
+ * does not resolve back to this class — `spawned[1]` is `FakeWorker |
+ * undefined`, and the `for...of` over `spawned.filter(...)` fares no better.
+ * `goSilent` is the tell: it is called exactly the way the flagged three are
+ * and is NOT flagged, because this file happens to call it as well.
+ *
+ * Each member says which of the two it is, per the exit criteria on #3789: a
+ * suppression that names the symbol rather than one that covers the file.
  */
 export class FakeWorker {
   terminated = false;
@@ -63,16 +81,19 @@ export class FakeWorker {
 
   constructor(readonly role: SqliteWorkerRole) {}
 
+  // fallow-ignore-next-line unused-class-member -- called by worker-handle.ts through the structural `Worker` that `asWorker()` returns
   addEventListener(type: string, listener: (event: unknown) => void): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
+  // fallow-ignore-next-line unused-class-member -- same: the pool posts to a `Worker`, never to a `FakeWorker`
   postMessage(request: SqliteWorkerRequest): void {
     this.received.push(request);
     if (this.silent) return;
     queueMicrotask(() => this.emit('message', { data: reply(request) }));
   }
 
+  // fallow-ignore-next-line unused-class-member -- same: `SqlitePool.close()` terminates a `Worker`
   terminate(): void {
     this.terminated = true;
   }
@@ -86,6 +107,7 @@ export class FakeWorker {
    * Answer the request this worker swallowed, after the fact, and start
    * answering again: the reply that lost its race with the pool's timeout.
    */
+  // fallow-ignore-next-line unused-class-member -- called by pool.resilience.test.ts as `reader?.deliverLateReply()`
   deliverLateReply(): void {
     const last = this.received.at(-1);
     this.silent = false;
@@ -93,6 +115,7 @@ export class FakeWorker {
   }
 
   /** The thread exited: a `close` event, and nothing will answer again. */
+  // fallow-ignore-next-line unused-class-member -- called by pool.resilience.test.ts, both as `first?.exit()` and in a `for...of` over `spawned.filter(...)`
   exit(): void {
     this.silent = true;
     this.emit('close', {});
@@ -102,6 +125,7 @@ export class FakeWorker {
    * An uncaught throw inside the worker: an `error` event, while the thread —
    * and its open database file — carries on running.
    */
+  // fallow-ignore-next-line unused-class-member -- called by pool.resilience.test.ts as `writer?.raise()`
   raise(message = 'uncaught error in worker'): void {
     this.emit('error', { message });
   }
