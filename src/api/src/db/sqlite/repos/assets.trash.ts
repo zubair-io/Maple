@@ -236,7 +236,7 @@ export async function markSoftDeleted(args: {
 export async function hardDelete(id: ObjectId, dbOverride?: SqliteDb): Promise<DeleteOutcome> {
   const db = sqliteDb(dbOverride);
   const result = await db.write(`DELETE FROM assets WHERE id = ?`, [id.toHexString()]);
-  return deleteOutcome(result.changes > 0 ? 1 : 0);
+  return deleteOutcome(matchedOne(result.changes));
 }
 
 /**

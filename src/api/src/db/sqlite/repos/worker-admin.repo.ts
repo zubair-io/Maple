@@ -228,6 +228,21 @@ export async function retryDeadStage(stage: string, dbOverride?: SqliteDb): Prom
  *
  * One transaction, so an asset can never end up un-tagged with its stages still
  * dead-lettered — un-parked for reads and permanently ignored by the pipeline.
+ *
+ * ## Why the tag is dropped by two statements
+ *
+ * The count this returns is the operator's "cleared N", so it has to be assets
+ * and not rows. Clearing `damaged_since` un-parks the asset, which re-stamps
+ * `stage_state.asset_claimable` on every stage row it has (#3804), and
+ * `bun:sqlite` counts trigger writes in a statement's row count — so the single
+ * `UPDATE` this used to be would report one asset as a dozen.
+ *
+ * Splitting the write gives an exact answer without a second round trip. The
+ * first statement clears the two companion columns, which no trigger watches,
+ * so its row count IS the number of assets; the second clears the tag itself
+ * and its count is ignored. The order matters as much as the split: the second
+ * statement still selects on `damaged_since IS NOT NULL`, which the first
+ * deliberately leaves alone.
  */
 export async function clearDamagedAssets(
   assetId: string | null,
@@ -246,8 +261,12 @@ export async function clearDamagedAssets(
   const results = await assetsDb(dbOverride).transaction([
     ...resets,
     {
-      sql: `UPDATE assets
-               SET damaged_since = NULL, damaged_stage = NULL, damaged_reason = NULL
+      sql: `UPDATE assets SET damaged_stage = NULL, damaged_reason = NULL
+             WHERE damaged_since IS NOT NULL${scope}`,
+      params: scopeParams,
+    },
+    {
+      sql: `UPDATE assets SET damaged_since = NULL
              WHERE damaged_since IS NOT NULL${scope}`,
       params: scopeParams,
     },
