@@ -2,10 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
     "src/index.ts",
-    "src/indexer.ts",
     "src/workers/worker-main.ts",
     "src/ffi/raw_ffi.child.ts",
-    "src/thumbs/imgdecode.child.ts",
     "src/thumbs/hdr-decode.child.ts",
     "src/enrichment/face-pool.child.ts",
     "src/db/sqlite/db.worker.ts",
