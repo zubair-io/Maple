@@ -124,6 +124,13 @@ function startSlowLoad(pool: SqlitePool, count: number): () => Promise<void> {
         // A reader dying under an in-flight read is staged by this script. Any
         // other rejection is a defect in the rig and must not be swallowed.
         if (!isExpectedReaderDeath(error)) throw error;
+        // And the same macrotask yield {@link timedRead} needs, for the same
+        // reason and with sharper consequences: a rejection arrives on the
+        // microtask queue, so retrying with no delay starves every timer in the
+        // process — including the respawn that would end the outage. Without
+        // this the pool-of-two-with-both-killed row hung indefinitely, because
+        // the rig had made the recovery it was measuring impossible.
+        await sleep(1);
       }
     }
   });
