@@ -87,7 +87,11 @@ final class SearchViewModelTests: XCTestCase {
     vm.params.placeQuery = "cat"
     vm.queryChanged()             // schedules the 250 ms debounced submit
     vm.cancelPendingDebounce()    // ...which we cancel before it can fire
-    try await Task.sleep(for: .milliseconds(400))
+    // A fixed wait, because absence is the thing being proved and there is no
+    // condition to poll for. Generous — 6× the debounce — so that a loaded
+    // runner cannot pass this test by merely not having got round to firing
+    // yet, which is the failure mode its two positive siblings hit (#3800).
+    try await Task.sleep(for: .milliseconds(1500))
     XCTAssertEqual(counter.count, 0,
       "A cancelled debounce must issue no search request")
   }
@@ -99,8 +103,8 @@ final class SearchViewModelTests: XCTestCase {
     let vm = makeCountingVM(counter)
     vm.params.placeQuery = "cat"
     vm.queryChanged()
-    try await Task.sleep(for: .milliseconds(400))
-    XCTAssertGreaterThan(counter.count, 0,
+    let issued = try await counter.waitForRequest()
+    XCTAssertGreaterThan(issued, 0,
       "An un-cancelled debounce must issue at least one request")
   }
 
@@ -115,8 +119,8 @@ final class SearchViewModelTests: XCTestCase {
     vm.params.place = ["Portland, OR"]
     XCTAssertTrue(vm.hasUnifiedFilters)
     vm.queryChanged()
-    try await Task.sleep(for: .milliseconds(400))
-    XCTAssertGreaterThan(counter.count, 0,
+    let issued = try await counter.waitForRequest()
+    XCTAssertGreaterThan(issued, 0,
       "A filters-only search (empty text) must issue a request")
   }
 
@@ -354,6 +358,22 @@ final class RequestCounter: @unchecked Sendable {
   private var _count = 0
   var count: Int { lock.withLock { _count } }
   func increment() { lock.withLock { _count += 1 } }
+
+  /// Suspends until at least one request has been tallied, or `timeout`
+  /// elapses, and reports the count either way.
+  ///
+  /// Waiting for the condition rather than for a duration: the debounce is
+  /// 250 ms, but on a loaded CI runner the task is not always scheduled
+  /// inside any window picked in advance, so a fixed sleep fails for a reason
+  /// unrelated to the behaviour under test (#3800). The deadline is only a
+  /// backstop — a passing run returns as soon as the request lands.
+  func waitForRequest(timeout: Duration = .seconds(5)) async throws -> Int {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while count == 0, ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    return count
+  }
 }
 
 // MARK: - Test-only SearchViewModel extensions
