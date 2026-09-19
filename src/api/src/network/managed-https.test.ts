@@ -1,7 +1,24 @@
+/**
+ * The managed LAN HTTPS listener, end to end over its own two stores.
+ *
+ * Both of them are SQLite now: the operator-facing configuration is one
+ * `app_settings` document (`network/managed-https-config.ts`), and the account
+ * key, issued certificate, renewal lease and in-flight DNS challenges are the
+ * single `managed_certificates` row (`network/certificate-store.ts`). Neither
+ * takes a database argument — `ManagedHttps`, the route handlers and the
+ * certificate store all resolve the process-wide handle — so each case gets a
+ * migrated database installed as that handle and disposed on the way out
+ * (#3787). That per-case database is also what makes the lease cases meaningful:
+ * a claim is a conditional write whose row count decides the winner, and it can
+ * only decide once per database.
+ */
+
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Elysia } from 'elysia';
-import { getDb, closeDb } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { ManagedHttps } from './managed-https.ts';
 import {
   DEFAULT_HTTPS,
@@ -42,41 +59,29 @@ const certificate = {
 };
 
 describe('managed HTTPS settings and lifecycle', () => {
-  let mongo: MongoMemoryServer;
+  let live: LiveTestDatabase;
   let manager: ManagedHttps;
-  let originalEnv: { uri: string | undefined; db: string | undefined; jwt: string | undefined };
+  let originalJwtSecret: string | undefined;
   let issued: ReturnType<typeof spyOn<typeof issuer, 'issueCertificate'>>;
-  beforeAll(async () => {
-    originalEnv = {
-      uri: process.env.MAPLE_MONGO_URI,
-      db: process.env.MAPLE_MONGO_DB,
-      jwt: process.env.MAPLE_JWT_SECRET,
-    };
+  beforeAll(() => {
+    originalJwtSecret = process.env.MAPLE_JWT_SECRET;
     issued = spyOn(issuer, 'issueCertificate');
-    mongo = await MongoMemoryServer.create({ binary: { version: '7.0.24' } });
-    process.env.MAPLE_MONGO_URI = mongo.getUri();
-    process.env.MAPLE_MONGO_DB = `managed_https_test_${process.pid}`;
     process.env.MAPLE_JWT_SECRET = 'managed-https-test-signing-value';
-  }, 60_000);
+  });
   beforeEach(async () => {
-    await (await getDb()).dropDatabase();
+    live = await createLiveTestDatabase();
     manager = new ManagedHttps();
     issued.mockReset();
     issued.mockResolvedValue(certificate);
   });
-  afterEach(() => manager.stop());
-  afterAll(async () => {
+  afterEach(() => {
+    manager.stop();
+    live.close();
+  });
+  afterAll(() => {
     issued.mockRestore();
-    await closeDb();
-    await mongo?.stop();
-    for (const [key, value] of Object.entries({
-      MAPLE_MONGO_URI: originalEnv.uri,
-      MAPLE_MONGO_DB: originalEnv.db,
-      MAPLE_JWT_SECRET: originalEnv.jwt,
-    })) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
+    if (originalJwtSecret === undefined) delete process.env.MAPLE_JWT_SECRET;
+    else process.env.MAPLE_JWT_SECRET = originalJwtSecret;
   });
 
   it('validates hostname, port and consent without exposing the DNS token', () => {

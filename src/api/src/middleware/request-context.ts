@@ -195,6 +195,37 @@ function buildEnvelope(body: unknown, status: number, requestId: string): Record
 }
 
 /**
+ * Whether this error means the database could not be used at all, as opposed to
+ * a statement that was wrong.
+ *
+ * Deliberately a allowlist of availability failures rather than "anything from
+ * SQLite". `SQLITE_CONSTRAINT*` is the case this must not catch: a unique or
+ * foreign-key violation is a bug or a bad request, and answering it with
+ * "Database unavailable" would send an operator to check a file that is fine.
+ * `SQLITE_BUSY` is included because the pool's retry ladder has already been
+ * exhausted by the time an error reaches here — a lock held that long is a real
+ * problem, not contention.
+ */
+function isDatabaseUnavailable(error: unknown, message: string): boolean {
+  // The pool's own lifecycle failures: never opened, closed underneath a
+  // request, or a worker that could not spawn or open the file.
+  if (message.includes('sqlite pool:')) return true;
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code !== 'string') return false;
+  if (code.startsWith('SQLITE_CONSTRAINT')) return false;
+  return (
+    code.startsWith('SQLITE_CANTOPEN') ||
+    code.startsWith('SQLITE_IOERR') ||
+    code.startsWith('SQLITE_READONLY') ||
+    code.startsWith('SQLITE_CORRUPT') ||
+    code.startsWith('SQLITE_NOTADB') ||
+    code.startsWith('SQLITE_FULL') ||
+    code.startsWith('SQLITE_BUSY') ||
+    code.startsWith('SQLITE_PROTOCOL')
+  );
+}
+
+/**
  * Elysia plugin. Mount once at the root of `buildApp`.
  *
  * Adds two derived fields to the route context:
@@ -264,17 +295,20 @@ export const requestContext = new Elysia({ name: 'requestContext' })
     }
     set.status = status;
 
-    // Preserve the legacy DB-unavailable carve-out: surface the helpful tip at
-    // the top level so operators (and any existing diagnostic UI) still see it.
-    // The envelope-mandated `code` + `requestId` are added alongside.
+    // The DB-unavailable carve-out: a 503 with a tip, rather than a bare 500,
+    // when the request failed because the database itself was not usable.
     //
-    // The two substrings below are the ones `db/client.ts` produced; nothing in
-    // the SQLite layer raises either, so this branch is currently unreachable
-    // and a database failure surfaces as a plain 500. Restoring it means
-    // matching on what the SQLite layer actually throws — a behaviour change,
-    // tracked separately rather than smuggled into a comment sweep.
-    const isDbErr = message.includes('[db]') || message.includes('MongoDB');
-    if (isDbErr && status >= 500) {
+    // It used to match two substrings that `db/client.ts` produced, and when
+    // that module went so did every producer — leaving the branch unreachable
+    // and an unwritable database answering a plain 500 with no explanation.
+    // What replaces it has to distinguish two things SQLite reports through the
+    // same channel: the database being unreachable, which is an operator
+    // problem and deserves the tip, and a statement being wrong, which is a bug
+    // and must not be dressed up as an outage. A constraint violation is the
+    // case that matters — reporting `E11000`-equivalent as "Database
+    // unavailable" would send an operator to check a file that is perfectly
+    // healthy.
+    if (isDatabaseUnavailable(error, message) && status >= 500) {
       set.status = 503;
       log.error({ err: error }, 'request error (db unavailable)');
       return {
