@@ -64,7 +64,7 @@ namespace Maple.WinUI.Services.Cloud
         [JsonPropertyName("size")] public long Size { get; set; }
         /// <summary>Lowercase extension, no dot.</summary>
         [JsonPropertyName("ext")] public string Ext { get; set; } = string.Empty;
-        /// <summary>Mongo asset id — absent until the indexer has seen the
+        /// <summary>Server asset id — absent until the indexer has seen the
         /// file. Nothing in the browse path requires it.</summary>
         [JsonPropertyName("id")] public string? Id { get; set; }
         /// <summary>Indexed EXIF. null when indexed but unusable, absent when

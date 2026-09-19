@@ -182,14 +182,14 @@
           <p class="text-[11px] text-text-muted leading-[1.5] m-0">
             The Cloudflare Worker that fronts thumbnail requests validates the same bearer tokens
             this server issues. It needs the server's JWT signing secret, which this app does not
-            display — retrieve it directly from the server (MongoDB
+            display — retrieve it directly from the server's library database (the
             <code class="font-mono text-[10px] bg-surface-hover px-1 py-px rounded-[3px]"
               >server_state</code
             >
-            collection,
+            table,
             <code class="font-mono text-[10px] bg-surface-hover px-1 py-px rounded-[3px]"
-              >_id: "jwt_secret"</code
-            >, field
+              >id = 'jwt_secret'</code
+            >, column
             <code class="font-mono text-[10px] bg-surface-hover px-1 py-px rounded-[3px]"
               >value</code
             >) and run

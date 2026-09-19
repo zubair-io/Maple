@@ -2,8 +2,8 @@
 //
 // Surfaces the AI-derived, per-asset data the Self-Hosted worker stages
 // produce: the qwen3-vl description, recognised text (OCR), and the
-// speech-to-text transcript for video/audio. This data lives in Mongo
-// only (never the XMP sidecar), so it is fetched from the server via
+// speech-to-text transcript for video/audio. This data lives in the
+// server's database only (never the XMP sidecar), so it is fetched via
 // `GET /api/assets/:id` — mirroring how `HistogramBlock` sources its
 // curves from the server for cloud assets.
 //

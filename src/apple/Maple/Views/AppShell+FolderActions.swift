@@ -342,7 +342,7 @@ extension AppShell {
                 // sibling swiped to from a single-library cloud Timeline
                 // would otherwise match the ambient gate below and be handed
                 // a bogus `CloudSidecarStore` keyed on its PHAsset
-                // localIdentifier instead of a real Mongo asset id.
+                // localIdentifier instead of a real server asset id.
                 //
                 // #2555: route through PhotoKitSidecarStore instead of nil
                 // so edits persist into AppSupportSidecarStore (keyed by
