@@ -216,8 +216,9 @@ CREATE INDEX asset_detail_activity
   WHERE asset_live = 1 AND vision_activity IS NOT NULL;
 
 -- The extension facet. Partial over the canonical entry, because that is the
--- one the facet groups; 'extension <> \'\'' keeps the degenerate
--- "filename ends in a dot" rows out of the index rather than out of a HAVING.
+-- one the facet groups, and over a non-empty extension, which keeps the
+-- degenerate "filename ends in a dot" rows out of the index rather than out of
+-- a HAVING.
 CREATE INDEX asset_locations_facet_extension
   ON asset_locations (extension, asset_hidden, asset_id)
   WHERE ordinal = 0 AND asset_live = 1 AND extension <> '';
