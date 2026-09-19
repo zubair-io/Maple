@@ -256,19 +256,36 @@ export async function countLiveLocationCountDrift(dbOverride?: SqliteDb): Promis
   return rows[0]?.n ?? 0;
 }
 
-/** Recompute the count for at most `limit` drifted assets. Returns how many. */
+/**
+ * Recompute the count for at most `limit` drifted assets. Returns how many.
+ *
+ * The drifted ids are read first and the update addresses them by id, rather
+ * than the one statement with the drift predicate inlined that this used to be.
+ * Repairing the count can change whether the asset is live, which re-stamps
+ * `stage_state.asset_claimable` on every stage row it has (#3804), and
+ * `bun:sqlite` counts trigger writes in a statement's row count — so the
+ * statement's own count would report a handful of repairs as a few hundred.
+ * The list's length is the answer, and the `SET` is unconditional, so every id
+ * read is an id repaired.
+ */
 export async function repairLiveLocationCounts(
   limit: number,
   dbOverride?: SqliteDb,
 ): Promise<number> {
-  const result = await sqliteDb(dbOverride).write(
+  const db = sqliteDb(dbOverride);
+  const drifted = await db.read<{ id: string }>(
+    `SELECT a.id FROM assets a WHERE ${DRIFTED} LIMIT ?`,
+    [limit],
+  );
+  if (drifted.length === 0) return 0;
+  await db.write(
     `UPDATE assets SET live_location_count = (
        SELECT COUNT(*) FROM asset_locations l
         WHERE l.asset_id = assets.id AND l.deleted_at IS NULL AND l.missing_since IS NULL)
-      WHERE id IN (SELECT a.id FROM assets a WHERE ${DRIFTED} LIMIT ?)`,
-    [limit],
+      WHERE id IN (${placeholders(drifted.length)})`,
+    drifted.map((row) => row.id),
   );
-  return result.changes;
+  return drifted.length;
 }
 
 /**
