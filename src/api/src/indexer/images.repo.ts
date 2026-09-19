@@ -14,11 +14,13 @@
  * caller left, and the trash workflows they predate live in
  * `db/repos/assets.trash.ts`.
  *
- * Nothing here opens a collection any more. What is left is the document
- * helpers — the ones that read a `fileinfo` array and answer a question about
- * it — which are pure functions over a shape the SQLite rows are still
- * assembled into, plus a few query-fragment builders whose last callers are
- * going with them. Each of those is noted at its own declaration.
+ * Nothing here opens a collection or writes to one. The two denormalised
+ * fields this module used to hand-maintain — the live-location count and the
+ * asset's media kind — are now derived by database triggers instead, so there
+ * is no recompute for a caller to remember: `asset_locations` keeps
+ * `assets.live_location_count` in step on every insert, delete and liveness
+ * change (`db/sqlite/ddl/asset-locations.ts`), and `stage_state.media_kind`
+ * follows `assets.media_kind` the same way (`db/sqlite/ddl/stage-state.ts`).
  */
 
 import * as path from 'node:path';
@@ -30,7 +32,6 @@ import {
   type FileInfo,
   type Place,
 } from '../db/schema.ts';
-import { mediaKindExpression } from './media-types.ts';
 
 /**
  * Persisted face-detection result. Re-exported from the schema so existing
@@ -107,124 +108,6 @@ export function liveFileInfoElemMatch(): Record<string, unknown> {
       },
     },
   };
-}
-
-/**
- * MongoDB aggregation expression that counts live `fileinfo` entries (where
- * neither `deleted_at` nor `missing_since` is set). Identical liveness
- * definition as `isLiveFileInfo`. Used in pipeline `$set` stages so the
- * denormalized `live_location_count` field is recomputed atomically in the
- * same update that mutates the array (#1302).
- *
- * In aggregation context, absent fields evaluate to a missing-value that
- * `$eq: null` does NOT match — we use `$ifNull` to coerce absent → `null`
- * before comparing, matching `isLiveFileInfo` exactly.
- */
-function liveLocationCountExpression(): Record<string, unknown> {
-  return {
-    $size: {
-      $filter: {
-        input: { $ifNull: ['$fileinfo', []] },
-        cond: {
-          $and: [
-            { $eq: [{ $ifNull: ['$$this.deleted_at', null] }, null] },
-            { $eq: [{ $ifNull: ['$$this.missing_since', null] }, null] },
-          ],
-        },
-      },
-    },
-  };
-}
-
-/**
- * Recompute `live_location_count` from the stored `fileinfo` array for one
- * asset identified by `_id`. Called after any mutation that changes liveness
- * of an array element (set/clear `missing_since` or `deleted_at`, `$pull`).
- *
- * This helper issues its OWN single pipeline `updateOne` that atomically
- * recomputes `live_location_count` from `$fileinfo`. It is normally called as
- * a SEPARATE round-trip AFTER the mutation that changed liveness, so there is
- * a brief window where the stored count is stale. That window is safe because:
- * the dedupe worker counts live locations from the column directly
- * (drift-proof) and only the 2 s-cached `/status` count reads this field.
- *
- * Callers that already issue a pipeline update themselves (e.g. adding a new
- * entry via `$concatArrays`) should inline `liveLocationCountExpression()`
- * instead of calling this separately, to avoid a second round-trip.
- *
- * ── EXHAUSTIVE SITE REGISTRY ────────────────────────────────────────────────
- * Every site that adds/removes a fileinfo entry OR sets/clears a per-entry
- * `deleted_at` / `missing_since` MUST either call this function or inline
- * `liveLocationCountExpression()`. If you add a 9th site, add it here too.
- *
- * Site 1 — workers/discover/handle-event.ts
- *   • tag `fileinfo.$[e].missing_since` (remove event)   → updateLiveLocationCount
- *   • clear `fileinfo.$[entry].deleted_at + missing_since` (re-add known loc) → updateLiveLocationCount
- *   • replace fileinfo array with `$concatArrays` (new location)              → inline liveLocationCountExpression
- *   • tag `fileinfo.$[entry].deleted_at + missing_since` (stale-at-path)      → updateLiveLocationCount
- *   • clear during dedup-merge                                                 → updateLiveLocationCount ×2
- *
- * Site 2 — workers/dedupe.ts
- *   • tag `fileinfo.$[e].missing_since` (mark absent entries)  → updateLiveLocationCount
- *   • `$pull` entry (collapse to primary)                      → updateLiveLocationCount
- *
- * Site 3 — workers/tag-missing.ts
- *   • tag `fileinfo.$[e].missing_since` (stage runner ENOENT) → updateLiveLocationCount (best-effort)
- *
- * Site 4 — workers/missing-reaper.ts
- *   • clear `fileinfo.$[r].missing_since` (file recovered)    → updateLiveLocationCount
- *
- * Site 5 — workers/stages/exif.ts
- *   • clear `fileinfo.$[entry].deleted_at` (exif merge)       → updateLiveLocationCount ×2
- *
- * Site 6 — routes/backup-ingest.ts
- *   • `$push fileinfo` (cross-library dedup, add new entry)   → updateLiveLocationCount
- *   • `insertOne` (fresh asset)                               → live_location_count: 1 inline
- *
- * Site 7 — routes/folders.ts (upload route)
- *   • `$set { fileinfo: [singleEntry], deleted_at }` (re-upload-overwrite) → updateLiveLocationCount (#1302)
- *   • `findOneAndUpdate upsert` INSERT arm (`$setOnInsert`)                → live_location_count: 1 in $setOnInsert (#1302)
- *
- * Site 8 — workers/migration/move-backup-asset.ts :: dedupeLiveFileinfo
- *   • `$set { fileinfo: deduped }` (collapse discover-race dup entry)      → updateLiveLocationCount (#1302)
- *
- * NO-OP sites (do NOT require recompute):
- *   • db/assets.trash.ts markSoftDeleted / restoreFromTrash: rewrites the
- *     fileinfo entry's (path, filename) to the trash / restore path, and sets
- *     the TOP-LEVEL asset `deleted_at`. Per-entry `deleted_at` is NOT touched
- *     — the entry stays live throughout. Count is unchanged.
- *   • workers/trash-gc.ts: calls `deleteOne` — doc is gone, no recompute needed.
- *   • db/migrations.ts backfill-fileinfo-from-abs-path: one-time startup
- *     migration; `backfill-live-location-count` (also a startup migration)
- *     runs after and populates the field for all pre-existing rows.
- *   • db/client.ts missing_since migration: same — runs at startup before the
- *     backfill-live-location-count migration.
- *   • indexer/images.repo.ts softDelete: sets TOP-LEVEL `deleted_at` only.
- *   • workers/migration/move-backup-asset.ts moveBackupAsset positional $:
- *     updates `fileinfo.$.path / filename` of ONE entry — no change to liveness.
- * ────────────────────────────────────────────────────────────────────────────
- */
-/** Minimal structural interface so call sites don't need `as never` casts. */
-interface CollectionWithUpdateOne {
-  updateOne(filter: Record<string, unknown>, update: Record<string, unknown>[]): Promise<unknown>;
-}
-
-export async function updateLiveLocationCount(
-  collection: CollectionWithUpdateOne,
-  id: ObjectId,
-): Promise<void> {
-  // `media_kind` rides along (#3492): every site that appends a location
-  // (discover dedup, cross-library backup ingest) ends here, and a still
-  // asset that gains a `.MOV` location must become `video` for the media
-  // stages and migrations to see it.
-  await collection.updateOne({ _id: id as unknown }, [
-    {
-      $set: {
-        live_location_count: liveLocationCountExpression(),
-        media_kind: mediaKindExpression(),
-      },
-    },
-  ]);
 }
 
 /**

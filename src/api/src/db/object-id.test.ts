@@ -129,6 +129,11 @@ describe('ObjectId', () => {
     expect(`${id}`).toBe(hex);
     expect(String(id)).toBe(hex);
     expect(id.toHexString()).toBe(hex);
+    // The two methods the coercions above reach through, asserted by name as
+    // well: they have no other caller, so nothing else would notice one of them
+    // being dropped until a client did.
+    expect(id.toJSON()).toBe(hex);
+    expect(id.toString()).toBe(hex);
   });
 
   test('compares by value, never by reference', () => {
