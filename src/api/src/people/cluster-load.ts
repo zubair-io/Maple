@@ -31,10 +31,7 @@ import type { MergeSuggestion } from './people-merge-suggestions.ts';
 
 export {
   EMBEDDING_DIM,
-  loadCentroids,
-  loadMergeDismissals,
   loadUnassignedFaces,
-  maxAutoNameIndex,
   prepareClusteringPass,
   recomputeCentroids,
 } from '../db/sqlite/repos/people.cluster-load.ts';

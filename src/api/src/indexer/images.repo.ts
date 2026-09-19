@@ -110,65 +110,6 @@ export function liveFileInfoElemMatch(): Record<string, unknown> {
 }
 
 /**
- * Mongo predicate for "this asset has ≥2 *live* `fileinfo` entries", used by
- * both the deduplicate worker's candidate `find` and the `/status` pending
- * count so the two stay in sync (#1290).
- *
- * **Query strategy:** we first apply the `fileinfo.1 exists` partial-index
- * filter (`fileinfo_multi_location`) to restrict the scan to the small set of
- * multi-location rows, then use `$expr` + `$filter` to count only the live
- * subset of each row's `fileinfo` array in-memory. This avoids a full
- * COLLSCAN while giving an exact "≥2 live" count rather than the coarser
- * "≥2 total" that the bare index predicate would give.
- *
- * **Tradeoff:** `$expr` with `$filter` is not covered by the partial index
- * (MongoDB cannot use an index to evaluate `$expr` sub-expressions), so the
- * executor does:
- *   1. Index COUNT_SCAN / FETCH over the `fileinfo_multi_location` partial
- *      index (only duplicate-location rows, typically tiny).
- *   2. Per-row in-memory `$filter` over the `fileinfo` array to count live
- *      entries (array is small — usually 2–3 elements).
- *
- * This is safe under the 2 s status cache: step 1 is O(duplicates) not
- * O(total assets), and step 2 is O(fileinfo.length) per row. On a library
- * with 100 k assets but only 1 k duplicates the index prunes to 1 k rows;
- * the per-row work is negligible. A defensible cheaper alternative would be
- * `fileinfo.1 exists AND ≥1 live` (one `$elemMatch`), which also narrows via
- * the partial index and avoids `$expr` entirely, but would still count some
- * one-live + tombstoned-sibling rows. The exact predicate is preferred because
- * it lets the badge reach 0 from deduplicate alone.
- *
- * In `$expr`/`$filter` context, absent fields are NOT automatically `null` —
- * they evaluate to a missing-value that `$in: [null]` does not match. We use
- * `$ifNull` to coerce absent fields to `null` before comparing, so both
- * missing and explicit `null` are treated as "no tag" (live), exactly matching
- * `isLiveFileInfo` which checks `!entry.deleted_at && !entry.missing_since`.
- */
-export function liveAwareDuplicatePredicate(): Record<string, unknown> {
-  return {
-    'fileinfo.1': { $exists: true },
-    $expr: {
-      $gte: [
-        {
-          $size: {
-            $filter: {
-              input: { $ifNull: ['$fileinfo', []] },
-              cond: {
-                $and: [
-                  { $eq: [{ $ifNull: ['$$this.deleted_at', null] }, null] },
-                  { $eq: [{ $ifNull: ['$$this.missing_since', null] }, null] },
-                ],
-              },
-            },
-          },
-        },
-        2,
-      ],
-    },
-  };
-}
-
-/**
  * MongoDB aggregation expression that counts live `fileinfo` entries (where
  * neither `deleted_at` nor `missing_since` is set). Identical liveness
  * definition as `isLiveFileInfo`. Used in pipeline `$set` stages so the
@@ -179,7 +120,7 @@ export function liveAwareDuplicatePredicate(): Record<string, unknown> {
  * `$eq: null` does NOT match — we use `$ifNull` to coerce absent → `null`
  * before comparing, matching `isLiveFileInfo` exactly.
  */
-export function liveLocationCountExpression(): Record<string, unknown> {
+function liveLocationCountExpression(): Record<string, unknown> {
   return {
     $size: {
       $filter: {
@@ -204,8 +145,8 @@ export function liveLocationCountExpression(): Record<string, unknown> {
  * recomputes `live_location_count` from `$fileinfo`. It is normally called as
  * a SEPARATE round-trip AFTER the mutation that changed liveness, so there is
  * a brief window where the stored count is stale. That window is safe because:
- * the dedupe worker uses the exact `liveAwareDuplicatePredicate()` (drift-proof)
- * and only the 2 s-cached `/status` count reads this field.
+ * the dedupe worker counts live locations from the column directly
+ * (drift-proof) and only the 2 s-cached `/status` count reads this field.
  *
  * Callers that already issue a pipeline update themselves (e.g. adding a new
  * entry via `$concatArrays`) should inline `liveLocationCountExpression()`
@@ -319,20 +260,6 @@ export function assetAddress(
   if (!slug) return null;
   const relPath = primary.path ? `${primary.path}/${primary.filename}` : primary.filename;
   return `${slug}:${relPath}`;
-}
-
-/**
- * True when the asset HAS `fileinfo` entries but none of them is live — i.e.
- * it once had at least one on-disk location and all of them are now gone
- * (every entry `deleted_at` and/or `missing_since`). Distinct from "no
- * fileinfo at all" (a never-located skeleton row) and from "live entry but
- * library unregistered" (a transient/config condition). See `assetAbsPath`
- * for the three null cases.
- */
-export function hasOnlySoftDeletedFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): boolean {
-  const list = asset.fileinfo;
-  if (!list || list.length === 0) return false;
-  return assetPrimaryFileInfo(asset) === null;
 }
 
 /**

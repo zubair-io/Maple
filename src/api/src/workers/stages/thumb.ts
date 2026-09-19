@@ -138,7 +138,7 @@ const thumbStage = defineStage({
     // fileinfo entries soft-deleted (every on-disk location gone) — is the
     // genuinely-orphaned one: the runner stamps `missing_since` on that skip
     // instead of marking the stage done, so the missing-reaper sees it. See
-    // run-stage.ts (`hasOnlySoftDeletedFileInfo`).
+    // run-stage.ts.
     const libs = await loadLibraryRoots();
     const thumbPath = resolveThumbPathForAsset(image as never, libs);
     const absPath = assetAbsPath(image as never, libs);

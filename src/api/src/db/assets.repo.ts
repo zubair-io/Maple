@@ -53,4 +53,4 @@ export {
   requeueEnrichmentStage,
 } from './sqlite/repos/assets.mutations.ts';
 
-export { markSoftDeleted, hardDelete, restoreFromTrash } from './assets.trash.ts';
+export { hardDelete } from './assets.trash.ts';

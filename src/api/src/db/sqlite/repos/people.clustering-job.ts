@@ -374,7 +374,7 @@ async function doBackfillCoverAssets(dbOverride?: SqliteDb): Promise<void> {
 }
 
 /** Kept for the test suite, mirroring the Mongo module's escape hatch. */
-export const _internals = {
+const _internals = {
   materialise,
   writeAssignments,
   centroidStatements,

@@ -220,41 +220,6 @@ export function defineStage<TPatch = readonly SqlStatement[]>(
   return config;
 }
 
-/**
- * `$set` keys that mark each stage in `names` stale (version 0, bookkeeping
- * cleared) — the runner folds these into the SAME atomic write as a patch
- * result's field values, so a crash can never land the new fields without
- * also marking the downstream stage stale (or vice versa). Also reused by the
- * `rearm` result to reset an UPSTREAM stage (#2177). The writing stage's own
- * name is excluded: its state is owned by the runner in the same write. See
- * `StageResult`'s `invalidates` doc (#2172).
- */
-export function invalidationSets(
-  names: readonly string[] | undefined,
-  ownName: string,
-): Record<string, unknown> {
-  // Names are interpolated into `$set` paths — a `.`/`$`-bearing or empty
-  // value would silently create unintended nested fields (or throw
-  // mid-update). Stage names are compile-time constants, so any mismatch is
-  // a programming error: fail the attempt loudly rather than write a
-  // malformed update.
-  const invalid = (names ?? []).filter((s) => !/^[a-z][a-z0-9_-]*$/.test(s));
-  if (invalid.length > 0) {
-    throw new Error(`invalid stage name in invalidates: ${invalid.join(', ')}`);
-  }
-  return Object.fromEntries(
-    (names ?? [])
-      .filter((s) => s !== ownName)
-      .flatMap((s) => [
-        [`stages.${s}.version`, 0],
-        [`stages.${s}.attempts`, 0],
-        [`stages.${s}.dead`, false],
-        [`stages.${s}.last_error`, null],
-        [`stages.${s}.processed_at`, null],
-      ]),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Boot: load or seed worker_config for a stage.
 // ---------------------------------------------------------------------------

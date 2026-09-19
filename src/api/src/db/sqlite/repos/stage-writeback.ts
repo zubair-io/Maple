@@ -189,7 +189,7 @@ function assertNoStageState(statements: readonly SqlStatement[]): void {
  * churn. A pair that never converges dead-letters here rather than
  * ping-ponging forever.
  */
-export function stageRearmStatements(
+function stageRearmStatements(
   target: StageTarget,
   rearm: { stage: string; reason: string },
   dead: boolean,
@@ -216,7 +216,7 @@ export function stageRearmStatements(
  * `version` is deliberately not bumped — if an operator clears the tag, the
  * asset reprocesses from here.
  */
-export function stageDamagedStatements(
+function stageDamagedStatements(
   target: StageTarget,
   reason: string,
   at: Date = new Date(),

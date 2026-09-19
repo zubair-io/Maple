@@ -38,8 +38,8 @@ import type { Place } from '../src/db/schema.ts';
 
 /** The coordinate the happy-path GPS test sends, and the place it resolves to.
  * Warm in the cache, so the route never reaches for a live geocoder. */
-export const TOKYO_LAT = 35.68;
-export const TOKYO_LON = 139.69;
+const TOKYO_LAT = 35.68;
+const TOKYO_LON = 139.69;
 
 const TOKYO_PLACE: Place = {
   source: 'nominatim',

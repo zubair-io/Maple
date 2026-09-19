@@ -65,7 +65,6 @@ import type {
   FaceEnvelope,
   LoadedCentroid,
   PreparedClusteringPass,
-  SerializedCluster,
 } from '../../../people/cluster-load.ts';
 
 // The four result shapes are NOT re-exported from here. They are declared in
@@ -380,7 +379,7 @@ export async function recomputeCentroids(dbOverride?: SqliteDb): Promise<number>
  * to seed from, and `recomputeCentroids` has already had its chance to repair
  * them on this same pass.
  */
-export async function loadCentroids(dbOverride?: SqliteDb): Promise<LoadedCentroid[]> {
+async function loadCentroids(dbOverride?: SqliteDb): Promise<LoadedCentroid[]> {
   const db = peopleDb(dbOverride);
   const rows = await db.read<CentroidRow>(LIVE_CENTROIDS_SQL);
   return rows.flatMap((row) => {
@@ -448,11 +447,9 @@ export async function loadUnassignedFaces(dbOverride?: SqliteDb): Promise<Loaded
  * The highest "Person N" suffix in use, so new auto-names extend the run rather
  * than collide. Zero when no auto-named person exists.
  */
-export async function maxAutoNameIndex(dbOverride?: SqliteDb): Promise<number> {
+async function maxAutoNameIndex(dbOverride?: SqliteDb): Promise<number> {
   const db = peopleDb(dbOverride);
   const rows = await db.read<{ max_index: number | null }>(MAX_AUTO_NAME_INDEX_SQL);
   const max = rows[0]?.max_index ?? null;
   return max === null || !Number.isFinite(max) ? 0 : max;
 }
-
-export { loadMergeDismissals } from './people.merge-suggestions.ts';

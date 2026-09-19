@@ -68,7 +68,7 @@ const log = childLogger('sqlite:cutover');
  * a system directory, so a developer who sets nothing gets a working server and
  * an operator who sets it gets exactly the file they named.
  */
-export const DEFAULT_SQLITE_PATH = './data/maple.sqlite';
+const DEFAULT_SQLITE_PATH = './data/maple.sqlite';
 
 export function sqliteDatabasePath(): string {
   return process.env.MAPLE_SQLITE_PATH ?? DEFAULT_SQLITE_PATH;

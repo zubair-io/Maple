@@ -71,7 +71,7 @@ import {
  * persisted at claim time — is what stops a poison asset cycling forever in
  * the meantime.
  */
-export const CLAIM_LEASE_MS = 15 * 60_000;
+const CLAIM_LEASE_MS = 15 * 60_000;
 
 /** One `dependsOn` entry, normalised. Mirrors `resolveStageDeps`' output. */
 export interface ResolvedStageDep {

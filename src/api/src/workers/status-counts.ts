@@ -224,7 +224,7 @@ const REFRESH_POLL_MS = 2_000;
 /** Stage counts while watched: at least this often … */
 export const STAGE_COUNTS_MIN_INTERVAL_MS = 5_000;
 /** … and at most this rarely, however slow the last pass was. */
-export const STAGE_COUNTS_MAX_INTERVAL_MS = 120_000;
+const STAGE_COUNTS_MAX_INTERVAL_MS = 120_000;
 /** Stage counts while nobody is watching. */
 export const STAGE_COUNTS_IDLE_INTERVAL_MS = 10 * 60_000;
 export const MIGRATION_COUNTS_MIN_INTERVAL_MS = 30_000;

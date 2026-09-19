@@ -32,7 +32,7 @@
 import { placeholders } from './values.ts';
 
 /** Every `jobs` column, in declaration order. */
-export const JOB_COLUMNS = `
+const JOB_COLUMNS = `
   id, kind, status, locked_by, lease_expires_at, cancel_requested,
   progress_current, progress_total, error, created_at, updated_at,
   params, result, ledger, batch_scopes`;

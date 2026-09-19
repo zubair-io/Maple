@@ -58,7 +58,7 @@ function entryParams(assetId: string, entry: LocationAddress): (string | number)
 }
 
 /** Statements clearing the missing tag on each named entry. */
-export function clearLocationsMissingStatements(
+function clearLocationsMissingStatements(
   assetId: string,
   entries: readonly LocationAddress[],
 ): SqlStatement[] {
@@ -66,7 +66,7 @@ export function clearLocationsMissingStatements(
 }
 
 /** Statements removing each named entry from the asset. */
-export function deleteLocationsStatements(
+function deleteLocationsStatements(
   assetId: string,
   entries: readonly LocationAddress[],
 ): SqlStatement[] {

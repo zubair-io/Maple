@@ -17,7 +17,6 @@
  */
 
 export {
-  _internals,
   backfillCoverAssets,
   runOnlineClustering,
 } from '../db/sqlite/repos/people.clustering-job.ts';
@@ -47,4 +46,3 @@ export type {
 // `recomputeCentroids` runs on the worker as part of the load stage, but stays
 // part of this module's public surface — the route and the tests import it
 // from here.
-export { recomputeCentroids } from './cluster-load.ts';

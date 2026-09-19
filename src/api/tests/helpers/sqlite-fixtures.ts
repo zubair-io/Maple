@@ -126,7 +126,7 @@ export function seedInvite(
 }
 
 /** One PHAsset link on an existing asset. */
-export function seedPhassetLink(
+function seedPhassetLink(
   db: Database,
   opts: {
     assetId: ObjectId;

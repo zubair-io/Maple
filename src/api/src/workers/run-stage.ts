@@ -28,7 +28,6 @@ import { runOnce } from './run-stage.dispatch.ts';
 import {
   bootConfig,
   defineStage,
-  invalidationSets,
   notifyConfigChange,
   resolveStageDeps,
   versionBumpReset,
@@ -43,7 +42,7 @@ import type {
   WorkerConfig,
 } from './stage-config.ts';
 
-export { bootConfig, defineStage, resolveStageDeps, versionBumpReset, invalidationSets };
+export { defineStage, resolveStageDeps };
 export { runOnce } from './run-stage.dispatch.ts';
 export type {
   ImageDoc,
@@ -55,7 +54,7 @@ export type {
   WorkerConfig,
 };
 
-export { POLL_INTERVAL_MS, BACKOFF_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
+export { deriveBatchSize } from './loop-policy.ts';
 
 // ---------------------------------------------------------------------------
 // ThroughputWindow — rolling completion counter for the status API.

@@ -176,7 +176,7 @@ export async function clearVideoScreenshotFlags(
  * real ISO timestamp may enter the candidate set, because the donor search
  * compares those timestamps as strings.
  */
-export const GEO_CANDIDATE_SCOPE: CandidateScope = {
+const GEO_CANDIDATE_SCOPE: CandidateScope = {
   sql: `a.gps_lat IS NULL AND a.captured_at IS NOT NULL AND ${LIVE_GEO_VIDEO}`,
 };
 

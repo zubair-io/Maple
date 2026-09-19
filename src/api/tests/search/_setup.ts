@@ -24,7 +24,7 @@ process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
 const SECRET = process.env.MAPLE_JWT_SECRET!;
 
-export const BEARER =
+const BEARER =
   'Bearer ' +
   (await signAccessToken(
     {
@@ -42,8 +42,8 @@ export function fmtAuth(): Record<string, string> {
 
 // ── The two library roots every fixture below lives under ────────────────
 
-export const LIB_A_ROOT = '/lib-a';
-export const LIB_B_ROOT = '/lib-b';
+const LIB_A_ROOT = '/lib-a';
+const LIB_B_ROOT = '/lib-b';
 
 /** The library ids a seeded fixture created, for `libraryId=` assertions. */
 export interface SeededLibraries {
@@ -67,7 +67,7 @@ export function seedLibraries(db: Database): SeededLibraries {
  * pick out. `path: ''` puts every file directly under its library root, so
  * `abs_path` is `<root>/<filename>` and the wire assertions stay readable.
  */
-export function baseSeeds(folderA: string, folderB: string): Array<[string, SeedAsset]> {
+function baseSeeds(folderA: string, folderB: string): Array<[string, SeedAsset]> {
   return [
     [
       folderA,

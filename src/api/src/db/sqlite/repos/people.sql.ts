@@ -25,7 +25,7 @@
 import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
 
 /** The `people` columns every read selects, in one place so they cannot drift. */
-export const PERSON_COLUMNS = `
+const PERSON_COLUMNS = `
   id, name, created_at, updated_at,
   cover_asset_id, cover_bbox_x, cover_bbox_y, cover_bbox_w, cover_bbox_h,
   merged_into, hidden, excluded,

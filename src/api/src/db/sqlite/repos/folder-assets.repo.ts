@@ -171,7 +171,7 @@ const TRASH_COLUMNS = `a.id, a.size, a.mtime, a.deleted_at, a.deleted_reason, a.
  * planner uses `assets_trashed` for the leading term either way and the
  * explicit form is what the Mongo cursor said.
  */
-export function trashCursorPredicate(cursor: string | null): {
+function trashCursorPredicate(cursor: string | null): {
   sql: string;
   params: string[];
 } | null {

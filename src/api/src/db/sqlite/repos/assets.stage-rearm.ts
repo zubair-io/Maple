@@ -74,9 +74,8 @@ export function relocateCacheRearmStatements(assetId: string): SqlStatement[] {
  * a different handful of stages — `rearm-video-posters` takes six,
  * `clear-video-screenshot-flags` two, `apply-video-geo-backfill` one — and the
  * Mongo originals spelled the same five `$set` paths per stage by hand, in four
- * separate copies (`invalidationSets` in `workers/stage-config.ts`,
- * `reArmCacheStages` in `workers/dedupe.helpers.ts`, and one inline block per
- * migration). Resetting `version` alone is the mistake those copies exist to
+ * separate copies (a stage-config helper, `reArmCacheStages` in
+ * `workers/dedupe.helpers.ts`, and one inline block per migration). Resetting `version` alone is the mistake those copies exist to
  * prevent: an asset that previously dead-lettered would stay `dead = 1` and
  * never be claimed again, and a stale `last_error` would keep showing on
  * Settings → Workers for a stage that is about to be retried clean.

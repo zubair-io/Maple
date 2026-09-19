@@ -169,26 +169,3 @@ export function nearAxis(axis: number, jitter: number): number[] {
   vector[(axis + 2) % EMBEDDING_DIM] = jitter / 2;
   return vector;
 }
-
-/**
- * A deterministic pseudo-random embedding.
- *
- * Energy spread across every dimension puts the pairwise cosine scores in the
- * ambiguous 0.4–0.6 band rather than at the clean orthogonal extremes, which is
- * where a normalise that drifted by a few bits would flip an assignment. The
- * clean fixtures cannot catch that; these can.
- */
-export function pseudoRandom(seed: number): number[] {
-  const vector = new Array<number>(EMBEDDING_DIM).fill(0);
-  let state = seed * 2654435761;
-  for (let i = 0; i < EMBEDDING_DIM; i += 1) {
-    state = (state * 1103515245 + 12345) & 0x7fffffff;
-    vector[i] = (state / 0x7fffffff) * 2 - 1;
-  }
-  return vector;
-}
-
-/** Ascending object ids, so insertion order and id order are the same thing. */
-export function ascendingIds(count: number): string[] {
-  return Array.from({ length: count }, () => new ObjectId().toHexString()).sort();
-}

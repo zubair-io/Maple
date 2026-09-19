@@ -86,7 +86,7 @@ interface SuggestedMergeJson {
 }
 
 /** The four flattened bbox columns as a `Bbox`, or null when unset. */
-export function toBbox(
+function toBbox(
   x: number | null,
   y: number | null,
   w: number | null,

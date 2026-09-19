@@ -759,7 +759,7 @@ export interface AssetDoc {
    * migration. Indexed by `live_location_count_gte2` (partial index,
    * `{ $gte: 2 }`) so `countDocuments({ live_location_count: { $gte: 2 } })`
    * is an index COUNT_SCAN with no per-row FETCH, replacing the `$expr`+`$filter`
-   * scan that `liveAwareDuplicatePredicate` required (#1302).
+   * scan the predicate builder it succeeded required (#1302).
    *
    * Optional because legacy rows pre-date this field; the
    * `backfill-live-location-count` migration populates them. Absent rows are

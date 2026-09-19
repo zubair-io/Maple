@@ -338,7 +338,7 @@ export interface AuditMark {
 }
 
 /** One asset's stored audit marks, or null when it has never been audited. */
-export function parseAuditMarks(text: string | null): Record<string, AuditMark | undefined> | null {
+function parseAuditMarks(text: string | null): Record<string, AuditMark | undefined> | null {
   return parseJson<Record<string, AuditMark | undefined> | null>(text, null);
 }
 
@@ -437,8 +437,6 @@ export async function listAuditCandidatesAfter(
  * about what commits together.
  */
 export {
-  clearLocationsMissingStatements,
-  deleteLocationsStatements,
   reapAsset,
   reconcileLocations,
   tagLocationsMissing,

@@ -57,7 +57,7 @@
  * count. All three are recorded in `docs/sqlite-schema.md`.
  */
 
-export { buildSearchWhere, searchWhereSql } from './search.where.ts';
+export { buildSearchWhere } from './search.where.ts';
 export type { BoundPredicate, SearchWhere, SearchWhereResult } from './search.where.ts';
 
 export { toTextFilter } from './search.fts.ts';

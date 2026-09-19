@@ -11,5 +11,5 @@
  * `db/sqlite/repos/people.face-count.ts`.
  */
 
-export { mergeInto, mergePeopleInto } from '../db/sqlite/repos/people.merge.ts';
+export { mergePeopleInto } from '../db/sqlite/repos/people.merge.ts';
 export type { MergePeopleResult } from '../db/sqlite/repos/people.merge.ts';
