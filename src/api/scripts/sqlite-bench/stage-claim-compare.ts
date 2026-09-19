@@ -47,10 +47,8 @@ import type { Collection, Document } from 'mongodb';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
 import { claimStageBatch, type ClaimedStageRow } from '../../src/db/sqlite/repos/stage-claim.ts';
 import { stageResultStatements } from '../../src/db/sqlite/repos/stage-writeback.ts';
-import {
-  STAGE_DEAD_COUNT_SQL,
-  stageClaimCandidatesSql,
-} from '../../src/db/sqlite/repos/stage-runtime.sql.ts';
+import { STAGE_DEAD_COUNT_SQL } from '../../src/db/sqlite/repos/stage-backlog.sql.ts';
+import { stageClaimCandidatesSql } from '../../src/db/sqlite/repos/stage-runtime.sql.ts';
 import { testSqliteDb } from '../../src/db/sqlite/repos/assets.test-helpers.ts';
 import { buildClaimQuery } from '../../src/workers/claim-query.ts';
 import {

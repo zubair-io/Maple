@@ -27,11 +27,10 @@ import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import {
   STAGE_DEAD_COUNT_SQL,
-  stageClaimCandidatesSql,
-  stageClaimSql,
   stagePendingCountSql,
   stageReadyCountSql,
-} from './stage-runtime.sql.ts';
+} from './stage-backlog.sql.ts';
+import { stageClaimCandidatesSql, stageClaimSql } from './stage-runtime.sql.ts';
 import { STAGE_STATE_MEDIA_NARROWING, STAGE_STATE_VIDEO_NARROWING } from '../ddl/stage-state.ts';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 import type { SqlValue } from '../migrate.ts';
@@ -347,27 +346,31 @@ describe('the persisted counts', () => {
     expect(detail).toContain('USING COVERING INDEX stage_dead');
   });
 
-  test('the pending count walks stage_claim rather than the table', async () => {
+  test('the pending count reads stage_claim and nothing else', async () => {
     using handle = await createTestDatabase();
 
     const detail = plan(handle.db, stagePendingCountSql(), 'thumb', 2);
 
-    // Covering, in fact: the count never reads a stage_state row body, because
-    // every column it filters on is in the index.
-    expect(detail).toContain('USING COVERING INDEX stage_claim');
-    expect(detail).not.toContain('SCAN stage_state');
+    // One line, and it is a covering scan: the liveness and damaged gates come
+    // from `stage_state.asset_claimable`, which `stage_claim` carries, so there
+    // is no probe into `assets` and no stage_state row body is read (#3804).
+    expect(detail).toBe(
+      'SEARCH stage_state USING COVERING INDEX stage_claim (stage=? AND version<?)',
+    );
   });
 
-  test('the ready count reads the same index the claim scan does', async () => {
+  test('the ready count adds one covering probe per dependency, and no more', async () => {
     using handle = await createTestDatabase();
 
     const detail = plan(handle.db, stageReadyCountSql(1), 'describe', 2, NOW, 'preview', 1);
 
-    // It asks the claim's question, so it has to cost what the claim's scan
-    // costs — an index range over `stage_claim` with keyed probes hanging off
-    // it, not a walk of the stage's whole backlog per Workers-page refresh.
-    expect(detail.split('\n')[0]).toContain('USING COVERING INDEX stage_claim');
-    expect(detail).not.toContain('SCAN assets');
-    expect(detail).not.toContain('SCAN dep');
+    // It asks the claim's question, so its `dependsOn` gate is the claim's own
+    // `EXISTS`. What makes that affordable without a LIMIT is `stage_dep`,
+    // which answers it from the index instead of from the primary-key B-tree —
+    // and the B-tree of a WITHOUT ROWID table carries every row body with it.
+    expect(detail.split('\n')).toEqual([
+      'SEARCH stage_state USING COVERING INDEX stage_claim (stage=? AND version<?)',
+      'SEARCH dep EXISTS USING COVERING INDEX stage_dep (stage=? AND asset_id=? AND version>?)',
+    ]);
   });
 });
