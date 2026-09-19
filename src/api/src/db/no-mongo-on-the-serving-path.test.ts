@@ -147,6 +147,9 @@ describe('#3787 — the serving path does not reach MongoDB', () => {
         importsOf(file).some(
           (site) =>
             site.specifier.includes(harness) ||
+            // `db/client.ts` is deleted by this change, so a suite still
+            // naming it does not merely reach MongoDB — it will not resolve.
+            site.specifier.includes('db/client.ts') ||
             // A suite that opens its own client reaches MongoDB just as surely
             // as one that goes through the harness, and pointing the test run's
             // URI at a closed port would not stop one that hardcodes its own.
