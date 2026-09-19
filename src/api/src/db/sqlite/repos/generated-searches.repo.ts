@@ -18,13 +18,13 @@
  * table with no `Date` conversion at the boundary.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type {
   GeneratedSearchDoc,
   GeneratedSearchInput,
 } from '../../../workers/generated-search/repo.ts';
 import type { GeneratedQuery } from '../../../workers/generated-search/validate.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { parseJson, toObjectId } from './values.ts';
 

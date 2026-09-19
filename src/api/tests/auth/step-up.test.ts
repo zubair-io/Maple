@@ -12,7 +12,7 @@
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../src/db/object-id.ts';
 import { buildApp } from '../../src/index.ts';
 import { signAccessToken, signStepUpToken } from '../../src/auth/tokens.ts';
 import {

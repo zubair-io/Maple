@@ -37,11 +37,11 @@
  * {@link jobConflictMessage} no longer has to recognise one.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { isDeepStrictEqual } from 'node:util';
 import type { JobKind, JobStatus, JobWithId } from '../../schema.ts';
 import type { SqlValue } from '../protocol.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toClaimedJob, toJobDoc, type ClaimedJob, type JobRow } from './jobs.rows.ts';
 import {

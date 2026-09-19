@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { createImport, getImport, getImportFiles } from './imports.repo.ts';
 import { retryImport } from './imports.retry.ts';
 import {

@@ -17,7 +17,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { solidAvif } from '../../test-support/synth-image.ts';
 import type { VisionDoc } from '../../db/schema.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';

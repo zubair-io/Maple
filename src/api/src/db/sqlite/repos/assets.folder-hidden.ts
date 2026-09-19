@@ -28,7 +28,7 @@
  * `id > last` terminates whether or not the write changed anything.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { FileInfo } from '../../schema.ts';
 import { loadCandidateLocations } from './assets.migrations.ts';
 import { stageRearmBatchStatement } from './assets.stage-rearm.ts';

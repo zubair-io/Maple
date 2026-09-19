@@ -20,7 +20,7 @@ import { mkdtemp, rm, writeFile, stat, readdir } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { maple } from 'maple';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';

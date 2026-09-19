@@ -27,7 +27,7 @@
  * best-effort contract in `workers/stages/thumb.ts`).
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import { clearCfThumbSyncedAt } from '../db/sqlite/repos/assets.mutations.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';

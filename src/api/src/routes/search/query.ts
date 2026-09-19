@@ -1,37 +1,24 @@
 /**
- * Query parsing + Mongo filter construction for `/api/search*`.
+ * The `/api/search*` query string: how it is parsed, and the vocabulary the
+ * SQLite `WHERE` builder is written against.
  *
- * The HTTP route handlers all share the same query-string schema
- * (`SearchQueryT`) and reuse `buildFilter` to translate that string-bag
- * into a Mongo `Filter<AssetDoc>`. `applyLiveFilter` wraps the result
- * to exclude soft-deleted rows in a way that is safe even when the
- * caller injected `$or`/`$and` clauses.
+ * Every search endpoint (`/api/search`, `/facets`, `/buckets`, and
+ * `/api/map/clusters`) accepts the same bag of strings, declared once as
+ * `SearchQueryT` in `query-schema.ts` and re-exported here so importers keep
+ * a single entry point. What lives in this file is everything needed to turn
+ * those raw strings into values a query builder can trust: the closed
+ * vocabularies a bad value is checked against (colour labels, scene types,
+ * scope chips, flag names), the small numeric and date coercions, and
+ * `extractDatesFromQuery`, which lifts a natural-language date out of the
+ * free-text `placeQuery` and folds it into the structured `from`/`to` bounds.
  *
- * Filter strategy notes:
- *   - For free-text `q`, we use case-insensitive `$regex` against
- *     `fileinfo[].filename` (and a fallback regex against `fileinfo[].path`
- *     via `$or`). Post drop-abs-path-2026-05-21 the canonical filename and
- *     path live on `fileinfo[]` entries; Mongo array-element semantics make
- *     `fileinfo.filename` and `fileinfo.path` predicates match if ANY
- *     entry's value matches — same wire semantics as the old top-level
- *     `filename` / `abs_path` scans. We deliberately do NOT use the
- *     `$text` index here even though one exists: `$text` does not allow
- *     substring matches without word boundaries (e.g. "DJI" wouldn't
- *     match "dji_0001.dng" cleanly), and combining `$text` with the
- *     structured EXIF filters would require `$and` plumbing that the
- *     planner sometimes mis-costs. The text index is still kept for
- *     future ranked search.
- *   - All other filters are exact / range matches on indexed paths
- *     (see `ensureIndexes` in `src/db/client.ts`).
- *   - Default sort `{ "exif.captured_at": -1, _id: 1 }` is stable across
- *     pages — `_id` breaks ties when many assets share the same timestamp
- *     (e.g. burst frames).
+ * Nothing here builds a query. Translating a parsed query into SQL is the job
+ * of `db/sqlite/repos/search.where.ts` (the predicates and their bound
+ * values), `search.terms.ts` (the individual clauses) and `search.page.ts`
+ * (paging). Those import the vocabularies below rather than restating them,
+ * so a value the route accepts and the builder rejects cannot drift apart.
  */
 
-import { ObjectId } from 'mongodb';
-import type { Filter } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { parseNlDateRange } from './nl-date.ts';
 import { COLOR_LABELS as XMP_COLOR_LABELS } from '../../xmp/color-label.ts';
 import type { SearchQuery } from './query-schema.ts';
@@ -60,11 +47,6 @@ export const FLAG_BY_NAME: Record<string, -1 | 0 | 1> = {
   reject: -1,
 };
 
-/** Escape a string for use inside a `$regex` pattern. */
-export function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 export function clampInt(value: string | undefined, lo: number, hi: number, def: number): number {
   if (value === undefined) return def;
   const n = Number(value);
@@ -78,29 +60,10 @@ export function asNumber(value: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-// The `people`/`place` wire-term parsing and the place-label clause live
-// in `filter-terms.ts` (file-size budget split, mirroring `query-schema.ts`)
-// — re-exported here so importers keep one entry point.
-import { parsePlaceLabels, placeLabelClause } from './filter-terms.ts';
+// The `people`/`place` wire-term parsing and the place-label decomposition
+// live in `filter-terms.ts` (file-size budget split, mirroring
+// `query-schema.ts`) — re-exported here so importers keep one entry point.
 export { parsePlaceLabels, peopleNames, placeLabelClause } from './filter-terms.ts';
-
-/** Attach an OR-group to the filter without letting it clobber (or be
- * clobbered by) an existing top-level `$or` — Mongo allows one `$or` per
- * level, so a second group demotes both into `$and`. */
-function addOrGroup(filter: Filter<AssetDoc>, group: unknown[]): void {
-  const f = filter as { $or?: unknown[]; $and?: unknown[] };
-  if (f.$and) {
-    f.$and.push({ $or: group });
-    return;
-  }
-  if (f.$or) {
-    const existing = f.$or;
-    delete f.$or;
-    f.$and = [{ $or: existing }, { $or: group }];
-    return;
-  }
-  f.$or = group;
-}
 
 /** Bare-date detector: matches `YYYY-MM-DD` with no time component. */
 const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -111,8 +74,8 @@ export function widenFromDate(s: string): string {
   return BARE_DATE.test(s) ? `${s}T00:00:00.000Z` : s;
 }
 
-/** Widen a `to` date to the end of the day if no time component is set,
- * so `$lte` includes photos captured on that day. */
+/** Widen a `to` date to the end of the day if no time component is set, so
+ * the upper bound still includes photos captured on that day. */
 export function widenToDate(s: string): string {
   return BARE_DATE.test(s) ? `${s}T23:59:59.999Z` : s;
 }
@@ -125,8 +88,9 @@ export function widenToDate(s: string): string {
  *   - the matched date substring stripped from `placeQuery`.
  *
  * Conservative by construction — `parseNlDateRange` only fires on clear
- * date tokens, so non-date text is returned untouched. Pure; safe to call
- * before `buildFilter`. The `now` argument is injectable for tests.
+ * date tokens, so non-date text is returned untouched. Pure; call it on the
+ * parsed query before handing it to the where-builder. The `now` argument is
+ * injectable for tests.
  */
 export function extractDatesFromQuery(q: SearchQuery, now: Date = new Date()): SearchQuery {
   const placeQuery = q.placeQuery;
@@ -175,389 +139,3 @@ export function extractDatesFromQuery(q: SearchQuery, now: Date = new Date()): S
 // budget (CONTRIBUTING.md § "File-size budget").
 export type { SearchQuery } from './query-schema.ts';
 export { SearchQueryT } from './query-schema.ts';
-
-/**
- * Translate a query-string into a Mongo filter. Exported for testing.
- *
- * Returns `{ error }` when the query asks for something impossible (bad
- * libraryId, malformed extensions) — the caller should turn this into
- * a 400.
- */
-export function buildFilter(
-  q: SearchQuery,
-  /** Hex ids of people whose photos must be dropped from the result set,
-   * supplied by the (async) caller — kept as a parameter so this stays a
-   * pure, directly-testable function with no DB access. Callers build it
-   * from `excludedPersonIds()` (always, #2894) plus `hiddenPersonIds()`
-   * when the request opts in via `excludeHiddenPeople=true`. */
-  excludedPersonIds: string[] = [],
-  /** Hex person ids the `people` param's names resolved to, supplied by the
-   * (async) caller — same pattern as `hiddenPersonIds`. `null` means "no
-   * people filter requested"; `[]` means the names resolved to no live
-   * person and must match NOTHING (an empty `$in` does exactly that), not
-   * everything. Resolution lives in `people.repo.ts` (`personIdsForNames`). */
-  peoplePersonIds: string[] | null = null,
-): Filter<AssetDoc> | { error: string } {
-  const filter: Filter<AssetDoc> = {};
-
-  // Free-text q: case-insensitive substring on `fileinfo[].filename` and
-  // `fileinfo[].path`. Pre-PR 7 this scanned the top-level `filename` and
-  // `abs_path` fields; after the drop-abs-path-2026-05-21 migration both
-  // live on `fileinfo[]` entries instead. Mongo array-element semantics
-  // make a `fileinfo.filename` predicate match if ANY entry's filename
-  // matches — which is the same semantics as the old top-level scan.
-  if (q.q && q.q.trim().length > 0) {
-    const pattern = escapeRegex(q.q.trim());
-    (filter as Filter<AssetDoc> & { $or?: unknown[] }).$or = [
-      { 'fileinfo.filename': { $regex: pattern, $options: 'i' } },
-      { 'fileinfo.path': { $regex: pattern, $options: 'i' } },
-    ];
-  }
-
-  // Phase 3+: free-text search via the unified `asset.search_blob` text
-  // index. The blob covers place metadata, LLM caption (description),
-  // and OCR'd text (ocr_text). Mongo allows only one `$text` predicate
-  // per query and it must be at top-level — that composes correctly
-  // with the other structured filters (Mongo ANDs top-level fields)
-  // and with `applyLiveFilter`'s wrapper (`{ $and: [filter, liveClause] }`
-  // keeps `$text` at top-level of its sub-filter, which is the legal
-  // position).
-  if (q.placeQuery && q.placeQuery.trim().length > 0) {
-    (filter as Record<string, unknown>).$text = {
-      $search: q.placeQuery.trim(),
-    };
-  }
-
-  // Library scoping. After drop-abs-path-2026-05-21 the per-asset
-  // library pointer lives on `fileinfo[].library_id` (one row can span
-  // multiple library entries when the same content is observed under
-  // more than one root); we restrict to assets whose ANY entry is in
-  // the requested library.
-  if (q.libraryId) {
-    if (!ObjectId.isValid(q.libraryId)) {
-      return { error: 'Invalid libraryId' };
-    }
-    (filter as Record<string, unknown>)['fileinfo.library_id'] = new ObjectId(q.libraryId);
-  }
-
-  // Camera substring across make + model.
-  if (q.camera && q.camera.trim().length > 0) {
-    const pattern = escapeRegex(q.camera.trim());
-    // Combined with any prior $or (q) via $and so both sets remain restrictive.
-    addOrGroup(filter, [
-      { 'exif.camera_make': { $regex: pattern, $options: 'i' } },
-      { 'exif.camera_model': { $regex: pattern, $options: 'i' } },
-    ]);
-  }
-
-  // Structured place filter (#2864) — labels round-trip from the facets
-  // `places` bucket. OR within the field (any selected place matches), AND
-  // against everything else via the `addOrGroup` demotion.
-  const placeLabels = parsePlaceLabels(q.place);
-  if (placeLabels.length > 0) {
-    addOrGroup(
-      filter,
-      placeLabels.map((label) => placeLabelClause(label)),
-    );
-  }
-
-  // Explicit person picker (#2864). The Meilisearch branch filters on its
-  // `people` attribute by name; this is the Mongo-path equivalent, matching
-  // any face assigned to any of the resolved persons. Hidden faces can't
-  // slip in: hiding a face forces its `person_id` to null (see
-  // `AssetFaceDoc.hidden`), so the id match alone is sufficient.
-  if (peoplePersonIds !== null) {
-    (filter as Record<string, unknown>).faces = {
-      $elemMatch: { person_id: { $in: peoplePersonIds } },
-    };
-  }
-
-  // Lens substring.
-  if (q.lens && q.lens.trim().length > 0) {
-    (filter as Record<string, unknown>)['exif.lens'] = {
-      $regex: escapeRegex(q.lens.trim()),
-      $options: 'i',
-    };
-  }
-
-  // Numeric ranges.
-  const isoMin = asNumber(q.isoMin);
-  const isoMax = asNumber(q.isoMax);
-  if (isoMin !== undefined || isoMax !== undefined) {
-    const range: Record<string, number> = {};
-    if (isoMin !== undefined) range.$gte = isoMin;
-    if (isoMax !== undefined) range.$lte = isoMax;
-    (filter as Record<string, unknown>)['exif.iso'] = range;
-  }
-
-  const apMin = asNumber(q.apertureMin);
-  const apMax = asNumber(q.apertureMax);
-  if (apMin !== undefined || apMax !== undefined) {
-    const range: Record<string, number> = {};
-    if (apMin !== undefined) range.$gte = apMin;
-    if (apMax !== undefined) range.$lte = apMax;
-    (filter as Record<string, unknown>)['exif.aperture'] = range;
-  }
-
-  const focMin = asNumber(q.focalMin);
-  const focMax = asNumber(q.focalMax);
-  if (focMin !== undefined || focMax !== undefined) {
-    const range: Record<string, number> = {};
-    if (focMin !== undefined) range.$gte = focMin;
-    if (focMax !== undefined) range.$lte = focMax;
-    (filter as Record<string, unknown>)['exif.focal_length'] = range;
-  }
-
-  // Date range — captured_at is an ISO 8601 string; lexicographic compares
-  // are safe for ISO 8601 with constant-width fields.
-  // We may augment the same field below with `hasCapturedAt`'s `$ne: null`,
-  // so build the predicate object once and merge to avoid double-write.
-  // Bare-date inputs (`YYYY-MM-DD` with no `T`) are widened to the full day
-  // before lexicographic comparison — otherwise `$lte: "2025-07-31"` skips
-  // every photo captured on July 31 (their stored value is `"2025-07-31T..."`
-  // which compares greater than the bare date).
-  const capturedAtPredicate: Record<string, string | null> = {};
-  if (q.from) capturedAtPredicate.$gte = widenFromDate(q.from);
-  if (q.to) capturedAtPredicate.$lte = widenToDate(q.to);
-
-  // hasCapturedAt='true' requires an EXIF capture date to be present. We
-  // merge into the same predicate object as the from/to range so we don't
-  // accidentally clobber the date constraints when both are set.
-  if (q.hasCapturedAt === 'true') {
-    capturedAtPredicate.$ne = null;
-  }
-  if (Object.keys(capturedAtPredicate).length > 0) {
-    (filter as Record<string, unknown>)['exif.captured_at'] = capturedAtPredicate;
-  }
-
-  // Recurring month-of-year. `from`/`to` above are ONE continuous range over
-  // the ISO string, so they cannot express "every August" — this filters the
-  // month number the exif stage pre-extracts alongside `captured_year`, and
-  // composes with the range rather than replacing it ("Augusts since 2015").
-  // Out-of-range or non-integer input is dropped rather than passed through:
-  // a filter matching nothing is worse than no filter, because the
-  // generated-search worker reads the result count as a quality signal.
-  const month = asNumber(q.month);
-  if (month !== undefined && Number.isInteger(month) && month >= 1 && month <= 12) {
-    (filter as Record<string, unknown>)['exif.captured_month'] = month;
-  }
-
-  // Rating threshold (>= n).
-  const rating = asNumber(q.rating);
-  if (rating !== undefined) {
-    (filter as Record<string, unknown>).rating = { $gte: rating };
-  }
-
-  // Flag.
-  if (q.flag !== undefined && q.flag !== '') {
-    const f = FLAG_BY_NAME[q.flag];
-    if (f === undefined) return { error: `Invalid flag: ${q.flag}` };
-    (filter as Record<string, unknown>).flag = f;
-  }
-
-  // Color.
-  if (q.color !== undefined) {
-    if (!SEARCHABLE_COLOR_LABELS.has(q.color)) {
-      return { error: `Invalid color: ${q.color}` };
-    }
-    (filter as Record<string, unknown>).color_label = q.color;
-  }
-
-  // Path prefix — anchored regex on `fileinfo[].path`, used by the
-  // Timeline view to scope results to a subtree. `fileinfo[].path` is
-  // the directory portion (relative to the library root) without the
-  // filename. Pre-PR 7 this regex-anchored on the absolute `abs_path`;
-  // post-migration we strip leading AND trailing slashes off the
-  // caller's prefix and require a directory boundary after it, so a
-  // prefix like `/A/` matches `A` and `A/B` but NOT `A (1)` (which the
-  // pre-migration `^/A/` regex would also have rejected). Preserves
-  // wire semantics for callers that pass slash-anchored prefixes.
-  if (q.pathPrefix && q.pathPrefix.length > 0) {
-    if (q.pathPrefix.length > 1024) {
-      return { error: 'pathPrefix too long' };
-    }
-    const stripped = q.pathPrefix.replace(/^\/+/, '').replace(/\/+$/, '');
-    if (stripped.length > 0) {
-      (filter as Record<string, unknown>)['fileinfo.path'] = {
-        $regex: '^' + escapeRegex(stripped) + '(\\/|$)',
-      };
-    }
-  }
-
-  // Vision scene_type — closed union, exact match.
-  if (q.sceneType !== undefined && q.sceneType !== '') {
-    if (!SCENE_TYPES.has(q.sceneType)) {
-      return { error: `Invalid sceneType: ${q.sceneType}` };
-    }
-    (filter as Record<string, unknown>)['vision.scene_type'] = q.sceneType;
-  }
-
-  // Vision activity — open vocab, exact match. Trim only; do not regex
-  // because the FE picks from the facet endpoint's exact values.
-  if (q.activity && q.activity.trim().length > 0) {
-    (filter as Record<string, unknown>)['vision.activity'] = q.activity.trim();
-  }
-
-  // Vision subjects — comma-separated. Mongo array-contains semantics make
-  // `{ "vision.subjects": { $in: [...] } }` an OR within the field. Combined
-  // with the other top-level filters via Mongo's implicit AND.
-  if (q.subjects && q.subjects.trim().length > 0) {
-    const subjects = q.subjects
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    if (subjects.length > 0) {
-      (filter as Record<string, unknown>)['vision.subjects'] = {
-        $in: subjects,
-      };
-    }
-  }
-
-  // Screenshot filter. Boolean stringified as "true" / "false"; anything
-  // else (omitted, empty, "any") leaves both kinds in the result set.
-  if (q.isScreenshot === 'true') {
-    (filter as Record<string, unknown>).is_screenshot = true;
-  } else if (q.isScreenshot === 'false') {
-    // `$ne: true` rather than `false` so rows where is_screenshot was
-    // never written (pre-#175 indexes) still appear under "Photos only".
-    (filter as Record<string, unknown>).is_screenshot = { $ne: true };
-  }
-
-  // Hidden images filter
-  if (q.hidden === 'only') {
-    (filter as Record<string, unknown>).hidden = true;
-  } else if (q.hidden === 'all') {
-    // No filter on hidden, returns all.
-  } else {
-    // Default is to filter out hidden images.
-    (filter as Record<string, unknown>).hidden = { $ne: true };
-  }
-
-  // Extensions: comma-separated, alphanumeric only.
-  if (q.ext && q.ext.trim().length > 0) {
-    const exts = q.ext
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter((e) => e.length > 0);
-    for (const e of exts) {
-      if (!/^[a-z0-9]+$/.test(e)) {
-        return { error: `Invalid extension: ${e}` };
-      }
-    }
-    if (exts.length > 0) {
-      // Post-PR 7: filename moved onto `fileinfo[].filename`. Mongo
-      // array-element semantics: an entry-level regex matches if ANY
-      // fileinfo entry's filename satisfies it — same semantics as the
-      // pre-migration top-level field scan.
-      (filter as Record<string, unknown>)['fileinfo.filename'] = {
-        $regex: `\\.(?:${exts.join('|')})$`,
-        $options: 'i',
-      };
-    }
-  }
-
-  // Scope (S7 chip). `photos` and absent are no-ops — the default search
-  // already returns the full live photo set. `places` and `people` narrow
-  // by underlying field presence. `albums` is validated here but its
-  // short-circuit lives in the route handler (we don't want to build a
-  // pointless filter; the handler returns `notImplemented: true`).
-  if (q.scope !== undefined && q.scope !== '') {
-    if (!SEARCH_SCOPES.has(q.scope)) {
-      return { error: `Invalid scope: ${q.scope}` };
-    }
-    if (q.scope === 'places') {
-      // Use `exif.gps` (set by the EXIF stage at index time) rather than
-      // the post-geocode `place` field — `place` only populates once the
-      // Phase 2 geocode worker has run, so filtering on it would hide
-      // every freshly indexed photo until the worker catches up. The
-      // text-search path against geocoded place names is the separate
-      // `placeQuery` param.
-      (filter as Record<string, unknown>)['exif.gps'] = { $ne: null };
-    } else if (q.scope === 'people') {
-      // Any detected face counts — not just identified ones. Identity
-      // assignment only happens after the face-embed + clustering jobs
-      // run; gating on `person_id` would empty the People scope for
-      // every photo whose face hasn't been clustered yet.
-      (filter as Record<string, unknown>)['faces.0'] = { $exists: true };
-    }
-    // `albums` falls through here with no filter added — the handler
-    // short-circuits before reaching Mongo.
-    // `photos` falls through with no filter added (the default set).
-  }
-
-  // Drop assets showing any person in `excludedPersonIds`. Excludes the
-  // asset if ANY of its faces belongs to such a person — excluding/hiding
-  // someone is a deliberate "don't show me this person" action, so a group
-  // shot they appear in is still a photo of them. Complements the always-on
-  // hidden-IMAGE filter above. Whether hidden people participate is the
-  // CALLER's opt-in (`excludeHiddenPeople=true`); excluded people (#2894)
-  // are in the list unconditionally. A separate top-level key from
-  // `scope=people`'s `faces.0` presence check, so the two AND together
-  // rather than overwriting each other.
-  if (excludedPersonIds.length > 0) {
-    // Merge rather than assign — the explicit person picker above may have
-    // already put an `$elemMatch` on `faces`, and both operators are legal
-    // side by side on one field path (they AND together).
-    const existingFaces = (filter as Record<string, unknown>).faces as
-      | Record<string, unknown>
-      | undefined;
-    (filter as Record<string, unknown>).faces = {
-      ...(existingFaces ?? {}),
-      $not: { $elemMatch: { person_id: { $in: excludedPersonIds } } },
-    };
-  }
-
-  return filter;
-}
-
-/**
- * Wrap a query-built filter with the live-row constraint (excludes
- * soft-deleted rows). Always lifts existing top-level fields into a
- * single `$and` so user-supplied `$or`/`$and` clauses can't shadow the
- * deleted_at predicate.
- *
- * "Live" has two arms, ANDed:
- *   1. NOT user-trashed — root `deleted_at` is null/absent (the File Provider
- *      trash path is the only writer of root `deleted_at`).
- *   2. Has at least one *resolvable* location — `liveFileInfoElemMatch()`, a
- *      `fileinfo` entry with neither `deleted_at` nor `missing_since` set. This
- *      is the SAME liveness predicate the projection uses to resolve the primary
- *      location (`assetPrimaryFileInfo` / `assetAbsPath`). Search visibility must
- *      stay coupled to it: if a `missing_since`-only asset slipped through the
- *      filter, the projection would find no primary and emit `id: "fs:"` with an
- *      empty `abs_path`/`filename`/`folder_id` — a blank tile that renders no
- *      thumbnail (the FE builds `/api/fs/thumb?path=` from the empty path) and
- *      opens nothing on click. Requiring a resolvable location here keeps those
- *      rows out of results. The missing-reaper is the authority on real removal:
- *      it re-stats a `missing_since` file and either clears the tag (present
- *      again → the asset re-appears in search) or hard-deletes the record
- *      (genuinely gone). Stage-claim/dedupe use the same predicate.
- *
- * When `$text` is present, the filter must also be friendly to the
- * partial text index. The `search_blob_text` index uses
- * `partialFilterExpression: { deleted_at: null,
- *  search_blob: { $type: "string", $gt: "" } }`. Mongo's planner only
- * uses a partial index when the query implies the predicate, so when
- * `$text` is in play we keep `deleted_at: null` + `search_blob` as top-level
- * keys (the fileinfo arm rides alongside as a residual). The Phase 1 indexer
- * writes `deleted_at: null` on every skeleton row, so this is safe in
- * practice — we only filter out rows that were soft-deleted.
- */
-export function applyLiveFilter(filter: Filter<AssetDoc>): Filter<AssetDoc> {
-  const usesText = '$text' in (filter as Record<string, unknown>);
-  const liveFileinfo = liveFileInfoElemMatch();
-  const liveClause: Record<string, unknown> = usesText
-    ? {
-        deleted_at: null,
-        search_blob: { $type: 'string', $gt: '' },
-        ...liveFileinfo,
-      }
-    : {
-        $and: [{ $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] }, liveFileinfo],
-      };
-  const keys = Object.keys(filter);
-  if (keys.length === 0) {
-    return liveClause as unknown as Filter<AssetDoc>;
-  }
-  return { $and: [filter, liveClause] } as unknown as Filter<AssetDoc>;
-}

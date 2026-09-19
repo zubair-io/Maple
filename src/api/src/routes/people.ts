@@ -18,7 +18,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import { backfillCoverAssets } from '../people/clustering-job.ts';
 import { clusterCoordinator } from '../people/cluster-coordinator.ts';
 import {
@@ -42,7 +42,7 @@ import { dismissMergeSuggestion } from '../people/people-merge-suggestions.repo.
 import { setPersonCover } from '../people/people-cover.repo.ts';
 import { personNameError } from '../people/person-name.ts';
 import { child as childLogger } from '../log.ts';
-import { safeObjectId } from '../db/safe-object-id.ts';
+import { safeObjectId } from '../db/object-id.ts';
 
 const log = childLogger('people:routes');
 

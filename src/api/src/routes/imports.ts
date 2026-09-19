@@ -14,7 +14,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { ImportFileEntry, ImportStatus, ImportWithId } from '../db/schema.ts';

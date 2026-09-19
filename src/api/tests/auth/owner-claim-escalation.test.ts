@@ -16,7 +16,7 @@
  * seed, instead of one it has to carve out of a shared database.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../src/db/object-id.ts';
 import { buildApp } from '../../src/index.ts';
 import { OWNER_CLAIM_ID, backfillOwnershipClaim } from '../../src/auth/server_claim.ts';
 import {

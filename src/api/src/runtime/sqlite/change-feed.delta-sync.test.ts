@@ -23,7 +23,7 @@
 
 import { beforeEach, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { changesRoutes } from '../../routes/changes.ts';
 import { ChangeFeedTailer } from './change-feed-tailer.ts';
 import { __resetChangeBusForTests } from '../change-bus.ts';

@@ -36,7 +36,7 @@ import { SCHEMA_PRAGMAS } from './ddl/index.ts';
 import { fromBunSqlite, runMigrations, type MigrationDb } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
 import { setSqliteHandleForTests } from './index.ts';
-import { newObjectIdHex } from './object-id.ts';
+import { newObjectIdHex } from '../object-id.ts';
 // `protocol.ts` is where `SqlValue` is declared; `migrate.ts` re-exports it so
 // the migration runner's public surface does not depend on a pool type. Taking
 // it from the declaration rather than the re-export keeps this file's imports

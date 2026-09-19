@@ -33,7 +33,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';

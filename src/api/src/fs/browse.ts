@@ -10,6 +10,7 @@ import { readdir, realpath, stat } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 import type { OpResult } from './root.ts';
+import { ObjectId } from '../db/object-id.ts';
 import { findListingAssetsByFilenames } from '../db/sqlite/repos/assets.by-filename.ts';
 import { listFolders } from '../db/sqlite/repos/folders.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
@@ -1022,7 +1023,6 @@ async function findOwningFolder(absPath: string): Promise<{ id: string; root: st
  */
 async function enqueueBrowseIndex(dirPath: string, paths: string[]): Promise<void> {
   const { handleEvent } = await import('../workers/discover/index.ts');
-  const { ObjectId } = await import('mongodb');
 
   const folder = await findOwningFolder(dirPath);
   if (!folder) {

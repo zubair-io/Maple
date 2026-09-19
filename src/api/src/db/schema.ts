@@ -8,7 +8,7 @@
  *   - users, credentials, invites, refresh_tokens, challenges : auth (Phase A)
  */
 
-import type { ObjectId, WithId } from 'mongodb';
+import type { ObjectId, WithId } from './object-id.ts';
 import type { MediaKind } from '../indexer/media-types.ts';
 
 // ---------------------------------------------------------------------------

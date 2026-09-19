@@ -57,7 +57,7 @@ import { sanitizeLocationSegments, SCREENSHOT_DIR_SEGMENT } from '../backup/path
 import { relocateGeoAsset } from '../library/relocate-geo.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc, AssetWithId } from '../db/schema.ts';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import {
   findRelocateCandidatesByFilenames,
   type RelocateCandidateRow,

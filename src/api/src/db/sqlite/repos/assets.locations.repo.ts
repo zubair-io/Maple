@@ -29,7 +29,7 @@
  * branch has nothing left to guard.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import * as path from 'node:path';
 import type { FileInfo } from '../../schema.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';

@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import exifStage, { isLikelyScreenshot } from './exif.ts';
 import { EXIF_PICK_TAGS } from '../../indexer/exif.ts';
 import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';

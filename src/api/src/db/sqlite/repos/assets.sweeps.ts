@@ -40,7 +40,7 @@
  * rows it counts committing together.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { FileInfo } from '../../schema.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';

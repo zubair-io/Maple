@@ -15,7 +15,7 @@
  */
 
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { ChangeFeedTailer } from './change-feed-tailer.ts';
 import { getChangeBus, __resetChangeBusForTests } from '../change-bus.ts';
 import {

@@ -11,7 +11,7 @@
  * cover at any rectangle of any photo, including one holding somebody else.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import type { PersonFaceRow } from './people.rows.ts';
 import {

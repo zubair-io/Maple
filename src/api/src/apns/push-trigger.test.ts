@@ -5,13 +5,13 @@
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
   run,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { newObjectIdHex } from '../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../db/object-id.ts';
 import { getChangeBus, __resetChangeBusForTests } from '../runtime/change-bus.ts';
 import type { AssetChangeWithId } from '../db/schema.ts';
 import { registerDeviceToken, listAllDeviceTokens } from './apns-devices.repo.ts';

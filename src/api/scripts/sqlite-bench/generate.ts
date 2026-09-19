@@ -34,7 +34,7 @@ import {
   STAGE_STATE_MEDIA_KIND_TRIGGER_DDL,
   STAGE_STATE_MEDIA_KIND_TRIGGER_NAMES,
 } from '../../src/db/sqlite/ddl/stage-state.ts';
-import { newObjectIdHex } from '../../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../src/db/object-id.ts';
 import {
   ACTIVITIES,
   CAMERAS,

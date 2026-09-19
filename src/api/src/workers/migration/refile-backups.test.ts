@@ -5,7 +5,7 @@
  * The Mongo-gated migration + describe-hook e2e live in `refile-backups.e2e.test.ts`.
  */
 import { describe, test, expect } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { computeCanonicalDir } from './refile-backups.ts';
 import type { FileInfo, Place } from '../../db/schema.ts';
 

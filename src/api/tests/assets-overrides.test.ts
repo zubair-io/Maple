@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { assetsRoutes } from '../src/routes/assets.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

@@ -17,7 +17,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   findGeneratedSearchById,
   listGeneratedSearches,

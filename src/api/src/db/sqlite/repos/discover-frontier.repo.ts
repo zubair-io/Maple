@@ -42,7 +42,7 @@
  * count, not by the read, which is the same guarantee from the other side.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toBool, toHex, toObjectId } from './values.ts';
 

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   assetAbsPath,
   assetLibraryPath,

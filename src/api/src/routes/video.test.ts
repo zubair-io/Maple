@@ -3,7 +3,7 @@ import { Elysia } from 'elysia';
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import { invalidateLibraryRoots, setLibraryBySlugForTests } from '../indexer/libraries.cache.ts';
 import { videoRoutes } from './video.ts';

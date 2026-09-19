@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { overrideRoutes } from './overrides.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import { insertDetail } from '../../db/sqlite/repos/assets.test-helpers.ts';
 import {
   registerLibrary,

@@ -5,7 +5,7 @@
  * importing the full Elysia app.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import type { AssetDoc, FileInfo, Place } from '../../db/schema.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 

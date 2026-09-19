@@ -31,7 +31,7 @@
 
 import { mkdir, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { loadAssetLocationViews } from '../../db/sqlite/repos/assets.locations.repo.ts';
 import { upsertAssetByMapleId } from '../../db/sqlite/repos/assets.upsert.ts';
 import { hashFileForId } from '../../indexer/id.ts';

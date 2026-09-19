@@ -8,7 +8,7 @@
 
 // Type-only: `fileinfo[].library_id` is still an `ObjectId` on the wire, and
 // `toFileInfo` is what mints it. No query in this module uses the driver.
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import { recordBackfillFailure } from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
 import type {
   MeiliAssetBatch,

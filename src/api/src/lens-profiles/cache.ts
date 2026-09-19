@@ -33,6 +33,7 @@
  */
 
 import { blake3 } from '@noble/hashes/blake3.js';
+import { sqliteDatabasePath } from '../db/sqlite/database-path.ts';
 import { isSqliteOpen, openSqlitePool } from '../db/sqlite/index.ts';
 import {
   readLensProfileBytes,
@@ -45,19 +46,16 @@ import { lensProfileDigest, MAX_LCP_BYTES, type LensProfileInventory } from './t
  *
  * It is spawned by `ffi-pool.ts` to own the raw-ffi dylib, and this module is
  * the only database reader anywhere in its module graph — every other arm of
- * `raw_ffi-dispatch.ts` works on paths and bytes. Under MongoDB that was
- * invisible, because `getDb()` connects lazily and a child simply opened its own
- * client; SQLite's pool is opened once at startup by whoever owns the process,
- * and nobody owns this one.
+ * `raw_ffi-dispatch.ts` works on paths and bytes. The pool is opened once at
+ * startup by whoever owns the process, and nobody owns this one.
  *
  * So the pool is opened here, on the first profile a child actually needs, and
  * never for a child that only ever decodes thumbnails — which is almost all of
  * them. One reader is enough: a child handles one request at a time.
  *
- * The path resolver is imported dynamically because it lives in
- * `boot-migration.ts`, whose module graph is the whole MongoDB importer. That is
- * a lot to load into a decode child for one string, and this way a child that
- * never touches a profile never loads it at all.
+ * The child never migrates: the path resolver is a module with no imports of
+ * its own, so learning where the database lives costs this process nothing and
+ * brings neither the schema nor the migration runner along with it.
  *
  * **This child never writes, and that matters to a decision made elsewhere.**
  * `SqlitePool.open` always spawns a writer thread, so a decode child that has
@@ -76,15 +74,14 @@ async function ensureDatabase(): Promise<void> {
   if (isSqliteOpen()) return;
   // Serialised: `openSqlitePool` throws rather than waits when a second caller
   // arrives while the first is still spawning its threads.
-  opening ??= (async () => {
-    const { sqliteDatabasePath } = await import('../db/sqlite/boot-migration.ts');
-    await openSqlitePool({ path: sqliteDatabasePath(), readers: 1 });
-  })().catch((err: unknown) => {
-    // A failed open must not poison every later attempt with a settled
-    // rejection; the next caller retries.
-    opening = null;
-    throw err;
-  });
+  opening ??= openSqlitePool({ path: sqliteDatabasePath(), readers: 1 })
+    .then(() => undefined)
+    .catch((err: unknown) => {
+      // A failed open must not poison every later attempt with a settled
+      // rejection; the next caller retries.
+      opening = null;
+      throw err;
+    });
   await opening;
 }
 

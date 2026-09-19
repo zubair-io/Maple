@@ -48,7 +48,7 @@
  * it and the clause would otherwise not use the index at all.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { LIVE_ASSET_PREDICATE } from '../ddl/assets.ts';
 import { toTextFilter, type TextFilter } from './search.fts.ts';
 import {

@@ -15,7 +15,7 @@
  * together.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { changesAt, sqliteDb, type SqliteDb } from './db-handle.ts';

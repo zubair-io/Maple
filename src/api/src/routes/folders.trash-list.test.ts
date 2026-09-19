@@ -16,7 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { folderTrashStatement } from '../db/sqlite/repos/folder-assets.repo.ts';
 import {

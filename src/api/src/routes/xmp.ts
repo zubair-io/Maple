@@ -34,7 +34,7 @@
 
 import { Elysia, t } from 'elysia';
 import * as fs from 'node:fs/promises';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { mostSpecificRoot } from '../fs/root-match.ts';

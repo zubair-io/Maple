@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { createTestDatabase, insertAsset, insertLocation } from '../test-sqlite.test-helpers.ts';
 import { assignFaceToPerson, getPerson, hideFace, listPeople, readFaces } from './people.repo.ts';
 import { listExcludedPeople, listHiddenPeople, personIdsToDrop } from './people.visibility.ts';

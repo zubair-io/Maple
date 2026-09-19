@@ -12,7 +12,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { createTestDatabase, run, testSqliteDb } from '../test-sqlite.test-helpers.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import {
   JWT_SECRET_DOC_ID,
   OWNER_CLAIM_ID,

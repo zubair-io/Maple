@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import {
   createTestDatabase,
   insertAsset,

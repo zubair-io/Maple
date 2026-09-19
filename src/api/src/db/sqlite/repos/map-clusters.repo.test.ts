@@ -18,7 +18,7 @@ import {
   testSqliteDb,
 } from '../test-sqlite.test-helpers.ts';
 import type { Database } from 'bun:sqlite';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { mapClusters, type MapBbox } from './map-clusters.repo.ts';
 import { buildSearchWhere, type SearchWhere } from './search.where.ts';
 

@@ -7,7 +7,6 @@
 
 export {
   searchRoutes,
-  buildFilter,
   _resetBucketsCacheForTests,
   _resetCacheForTests,
   type SearchQuery,

@@ -13,7 +13,7 @@
 
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import { getLibraryBySlug } from '../indexer/libraries.cache.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 

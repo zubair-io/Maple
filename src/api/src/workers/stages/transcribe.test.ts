@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { STAGE_STATE_MEDIA_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import transcribeStage, {

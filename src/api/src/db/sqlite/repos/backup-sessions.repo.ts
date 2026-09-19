@@ -30,9 +30,9 @@
  * {@link toDate} converts on the way out.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { BackupSessionDoc } from '../../schema.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { nowIso, toDate, toObjectId } from './values.ts';
 

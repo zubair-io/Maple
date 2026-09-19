@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 import { createPerson, renamePerson } from './people.repo.ts';
 import { namesForPersonIds, personIdsForNames } from './people.search-filter.ts';

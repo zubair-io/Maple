@@ -1,5 +1,5 @@
 /** Backward-compatible JPEG jobs use the same developed-image recipe pipeline (#2438). */
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { readFile } from '../../fs/mirrored.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { loadAssetLocationViews } from '../../db/sqlite/repos/assets.locations.repo.ts';

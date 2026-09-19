@@ -1,5 +1,5 @@
-import type { ObjectId } from 'mongodb';
-import { safeObjectId } from '../db/safe-object-id.ts';
+import type { ObjectId } from '../db/object-id.ts';
+import { safeObjectId } from '../db/object-id.ts';
 import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import type { FolderWithId } from '../db/schema.ts';
 import { fromHex, isMapleId } from '../indexer/id.ts';

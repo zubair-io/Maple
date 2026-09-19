@@ -20,7 +20,7 @@
  */
 
 import { afterEach, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { recordAssetChange, type RecordChangeInput } from './changes.repo.ts';
 import { SqlitePool } from '../pool.ts';
 import { createTestDatabase, type TestDatabase } from '../test-sqlite.test-helpers.ts';

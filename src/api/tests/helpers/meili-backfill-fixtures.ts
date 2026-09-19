@@ -10,7 +10,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { newObjectIdHex } from '../../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../src/db/object-id.ts';
 import { insertDetail } from '../../src/db/sqlite/repos/assets.test-helpers.ts';
 import { insertFolder, insertLocation, run } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 

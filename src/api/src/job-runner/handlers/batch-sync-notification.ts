@@ -1,5 +1,5 @@
 /** Invalidate the selected on-disk copy, including non-primary deduplicated locations. */
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { recordSidecarEditAtAddress } from '../../db/sqlite/repos/assets.relocate.repo.ts';
 import { recordAssetChangeRow } from '../../db/sqlite/repos/changes.repo.ts';

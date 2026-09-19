@@ -23,7 +23,7 @@ import {
   adminMeilisearchStatusRoutes,
 } from '../src/routes/admin-meilisearch-status.ts';
 import { createLiveTestDatabase, run } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import { seedIndexableAsset } from './helpers/meili-backfill-fixtures.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
