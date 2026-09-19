@@ -45,6 +45,13 @@ export interface SqliteWorkerStats {
   completed: number;
   /** Requests that came back as an error, or were rejected by worker death. */
   failed: number;
+  /**
+   * Times this handle has been brought back after dying. Zero on a healthy
+   * process; a number that climbs is the evidence #3782 asked for that readers
+   * die in practice, and `alive: false` beside a non-zero count is a reader the
+   * pool has given up on.
+   */
+  restarts: number;
 }
 
 interface PendingRequest {
@@ -69,6 +76,17 @@ export class SqliteWorkerHandle {
   private peak = 0;
   private completed = 0;
   private failed = 0;
+  private restarts = 0;
+  /**
+   * True only between a completed open handshake and the worker's death.
+   *
+   * Separate from {@link deadReason} because a restart passes through a state
+   * that is neither: the previous thread is gone and the new one has not
+   * finished its handshake. Routing must skip the handle for the whole of that
+   * window, and `deadReason` cannot express it — {@link send} consults it, and
+   * the open handshake is itself a send.
+   */
+  private ready = false;
   /** Set once the worker dies or is closed; every later call rejects. */
   private deadReason: string | null = null;
 
@@ -76,6 +94,11 @@ export class SqliteWorkerHandle {
     readonly role: SqliteWorkerRole,
     private readonly spawn: SpawnWorker = spawnDatabaseWorker,
     private readonly requestTimeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
+    /**
+     * Told when this worker dies, so the pool can decide whether to bring it
+     * back. Called once per death, never for a handle that is already dead.
+     */
+    private readonly onWorkerDeath: (reason: string) => void = () => {},
   ) {}
 
   /**
@@ -95,12 +118,41 @@ export class SqliteWorkerHandle {
 
     try {
       await this.send({ kind: 'open', id: 0, path, role: this.role });
+      this.ready = true;
     } catch (e) {
       this.terminate();
       throw new Error(`sqlite pool: ${this.role} worker could not open ${path} — ${message(e)}`, {
         cause: e,
       });
     }
+  }
+
+  /**
+   * Bring a dead handle back: a new thread on the same slot, opened against the
+   * same file.
+   *
+   * The handle stays `alive === false` for the whole call, so routing cannot
+   * pick a connection that is not open yet, and it becomes alive again only
+   * when the handshake has actually succeeded. A failure leaves the handle dead
+   * exactly as it was, with this attempt's error — `start()` terminates on its
+   * own failure path, so there is nothing to unwind here.
+   *
+   * The lifetime counters deliberately survive: `completed` and `failed` are
+   * what an operator reads to tell a reader that crashed once from one that is
+   * crash-looping, and resetting them at every respawn would erase precisely
+   * that. `nextId` carries on climbing too, so a late reply from the thread
+   * that just died can never be mistaken for an answer to a new request.
+   */
+  async restart(path: string): Promise<void> {
+    const corpse = this.worker;
+    this.worker = null;
+    this.ready = false;
+    // An `error` without an exit leaves the old thread running and holding the
+    // file open (see `terminate`), so the corpse is killed rather than dropped.
+    corpse?.terminate();
+    this.deadReason = null;
+    await this.start(path);
+    this.restarts += 1;
   }
 
   private spawnOrThrow(): Worker {
@@ -141,12 +193,15 @@ export class SqliteWorkerHandle {
   }
 
   /**
-   * False once the thread has died or been terminated. Routing must consult
+   * Whether this handle has an open connection right now. Routing must consult
    * this rather than {@link inFlight} alone: a dead handle reports zero in
    * flight forever, which reads as the idlest worker in the pool.
+   *
+   * False before the first handshake completes, false once the thread has died
+   * or been terminated, and false for the duration of a {@link restart}.
    */
   get alive(): boolean {
-    return this.deadReason === null;
+    return this.ready && this.deadReason === null;
   }
 
   stats(): SqliteWorkerStats {
@@ -157,6 +212,7 @@ export class SqliteWorkerHandle {
       peakInFlight: this.peak,
       completed: this.completed,
       failed: this.failed,
+      restarts: this.restarts,
     };
   }
 
@@ -255,16 +311,20 @@ export class SqliteWorkerHandle {
     return pending;
   }
 
-  /** Fail every outstanding call and refuse later ones. */
+  /** Fail every outstanding call, refuse later ones, and tell the pool. */
   private onDeath(reason: string): void {
     if (this.deadReason) return;
     this.deadReason = reason;
+    this.ready = false;
     const error = new Error(`sqlite pool: ${this.role} ${reason}`);
     for (const id of [...this.pending.keys()]) {
       const pending = this.settle(id);
       this.failed += 1;
       pending?.reject(error);
     }
+    // Last, so the pool's respawn decision sees a fully settled handle rather
+    // than one that still reports requests in flight.
+    this.onWorkerDeath(reason);
   }
 }
 
