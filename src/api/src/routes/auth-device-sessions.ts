@@ -17,7 +17,7 @@ import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
 // login's token, asked while minting a paired-device family.
 import { hasLivePrimaryRefreshToken } from '../db/sqlite/repos/auth.device-sessions.repo.ts';
 import { signAccessToken } from '../auth/tokens.ts';
-import { userFileAccess } from '../auth/permissions.ts';
+import { accessClaimsFor } from '../auth/permissions.ts';
 import {
   issueRefreshToken,
   listDeviceSessions,
@@ -63,15 +63,7 @@ export const authDeviceSessionRoutes = new Elysia({ prefix: '/api/auth/device-se
         return { error: 'user gone' };
       }
       const minted = await issueRefreshToken(userId, body.label, { platform: body.platform });
-      const access_token = await signAccessToken(
-        {
-          sub: userId.toHexString(),
-          email: user.email,
-          role: user.role,
-          file_access: userFileAccess(user),
-        },
-        jwtSecret(),
-      );
+      const access_token = await signAccessToken(accessClaimsFor(user), jwtSecret());
       return { id: minted.familyId.toHexString(), access_token, refresh_token: minted.raw };
     },
     {

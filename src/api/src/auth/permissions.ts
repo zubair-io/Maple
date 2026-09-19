@@ -16,6 +16,28 @@ export function userFileAccess(user: { role: UserRole; file_access?: boolean }):
 }
 
 /**
+ * The claims an access token carries for a user row.
+ *
+ * Four mint sites — login, dev-login, refresh rotation and the two device
+ * handoffs — each wrote this object out. Getting it wrong is not a cosmetic
+ * bug: a site that forgot `file_access` would mint a token claiming the
+ * permission by default, so the four agree by construction instead.
+ */
+export function accessClaimsFor(user: UserWithId): {
+  sub: string;
+  email: string;
+  role: UserRole;
+  file_access: boolean;
+} {
+  return {
+    sub: user._id.toHexString(),
+    email: user.email,
+    role: user.role,
+    file_access: userFileAccess(user),
+  };
+}
+
+/**
  * The wire shape of a signed-in user in auth payloads (`/api/auth/me`,
  * every login/redeem flow). One builder so the five mint sites can't
  * drift on which fields ride along.

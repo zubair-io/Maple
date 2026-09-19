@@ -535,6 +535,51 @@ export function decodeCursor(s: string): number {
   return n;
 }
 
+/** The page of `visible` this request asked for, or the cursor's complaint. */
+interface PageWindow {
+  /** False when neither `cursor` nor `limit` was sent: one shot, no slicing. */
+  pagedMode: boolean;
+  slice: string[];
+  /** Where the next page starts, or null when this one ends the listing. */
+  nextOffset: number | null;
+}
+
+/**
+ * Slices a sorted listing into the page the caller asked for.
+ *
+ * Both listing endpoints page identically and differed only in how they
+ * rendered the same failure — one of them also re-checked an upper bound on
+ * the offset, which `decodeCursor` has already refused by the time the check
+ * could run.
+ *
+ * With neither `cursor` nor `limit` the result is the whole listing and a null
+ * next offset, which is the unpaged behaviour both endpoints kept.
+ */
+function pageWindow(
+  visible: string[],
+  opts: { cursor?: string; limit?: number },
+): PageWindow | { ok: false; error: string } {
+  const pagedMode = opts.cursor !== undefined || opts.limit !== undefined;
+  const decoded = decodeOffset(opts.cursor);
+  if (typeof decoded !== 'number') return decoded;
+  const limit = pagedMode ? Math.max(1, Math.min(2000, opts.limit ?? 500)) : visible.length;
+  return {
+    pagedMode,
+    slice: pagedMode ? visible.slice(decoded, decoded + limit) : visible,
+    nextOffset: pagedMode && decoded + limit < visible.length ? decoded + limit : null,
+  };
+}
+
+/** The offset a cursor carries, 0 when there is none, or the complaint. */
+function decodeOffset(cursor: string | undefined): number | { ok: false; error: string } {
+  if (cursor === undefined) return 0;
+  try {
+    return decodeCursor(cursor);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * List a single directory level: subdirectories + image files.
  *
@@ -590,18 +635,9 @@ export async function listDirContents(
   // Paging window. cursor === undefined AND limit === undefined keeps
   // the historical single-shot behaviour (no slicing, no next_cursor).
   // Any cursor OR limit query param triggers paged mode.
-  const pagedMode = opts.cursor !== undefined || opts.limit !== undefined;
-  let offset = 0;
-  if (opts.cursor !== undefined) {
-    try {
-      offset = decodeCursor(opts.cursor);
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-  const limit = pagedMode ? Math.max(1, Math.min(2000, opts.limit ?? 500)) : visible.length;
-  const slice = pagedMode ? visible.slice(offset, offset + limit) : visible;
-  const nextOffset = pagedMode && offset + limit < visible.length ? offset + limit : null;
+  const window = pageWindow(visible, opts);
+  if ('error' in window) return window;
+  const { pagedMode, slice, nextOffset } = window;
 
   // ── Cross-page sidecar pairing (issue #6 of PR #66 review) ─────────
   // Sidecars are paired to images by canonical filename base. When the
@@ -917,24 +953,9 @@ export async function listDirFast(
     .filter((n) => !n.toLowerCase().endsWith('.xmp'))
     .sort((a, b) => a.localeCompare(b));
 
-  const pagedMode = opts.cursor !== undefined || opts.limit !== undefined;
-  let offset = 0;
-  if (opts.cursor !== undefined) {
-    try {
-      offset = decodeCursor(opts.cursor);
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-    if (offset > CURSOR_MAX_OFFSET) {
-      return { ok: false, error: `cursor offset too large: ${offset}` };
-    }
-  }
-  const limit = pagedMode ? Math.max(1, Math.min(2000, opts.limit ?? 500)) : visible.length;
-  const slice = pagedMode ? visible.slice(offset, offset + limit) : visible;
-  const nextOffset = pagedMode && offset + limit < visible.length ? offset + limit : null;
+  const window = pageWindow(visible, opts);
+  if ('error' in window) return window;
+  const { slice, nextOffset } = window;
 
   const dirs: DirChild[] = [];
   const images: FastImageChild[] = [];

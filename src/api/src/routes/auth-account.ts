@@ -23,6 +23,7 @@ import {
   buildAuthenticationOptions,
   verifyAuthentication,
   consumeRegistrationCeremony,
+  credentialFromRegistration,
 } from '../auth/webauthn.ts';
 import { signStepUpToken, STEP_UP_TTL_SECONDS } from '../auth/tokens.ts';
 import { requireAuth, stepUpBeforeHandle } from '../auth/middleware.ts';
@@ -132,18 +133,15 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 400;
         return { error: ceremony.error };
       }
-      const reg = ceremony.registrationInfo;
-      const now = new Date().toISOString();
-      const insertedId = await insertCredential({
-        user_id: userId,
-        credential_id: reg.credential.id,
-        public_key: Buffer.from(reg.credential.publicKey),
-        counter: reg.credential.counter,
-        transports: (body.credential.response?.transports ?? []) as string[],
-        device_label: body.device_label,
-        created_at: now,
-        last_used_at: now,
-      });
+      const insertedId = await insertCredential(
+        credentialFromRegistration({
+          userId,
+          registrationInfo: ceremony.registrationInfo,
+          transports: body.credential.response?.transports as string[] | undefined,
+          deviceLabel: body.device_label,
+          now: new Date().toISOString(),
+        }),
+      );
       return { credential_id: insertedId.toHexString() };
     },
     {

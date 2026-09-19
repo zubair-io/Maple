@@ -29,10 +29,11 @@ import {
   buildDiscoverableAuthenticationOptions,
   verifyAuthentication,
   consumeRegistrationCeremony,
+  credentialFromRegistration,
 } from '../auth/webauthn.ts';
 import { redeemInvite, createInvite, listInvites, rescindInvite } from '../auth/invites.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
-import { toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
+import { accessClaimsFor, toPublicAuthUser, userFileAccess } from '../auth/permissions.ts';
 import type { UserWithId } from '../db/schema.ts';
 import {
   issueRefreshToken,
@@ -100,15 +101,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       // ownership sentinel so a later invited registration can't win it and
       // escalate (#2920). Idempotent; losing a race here is fine.
       await tryClaimOwnership();
-      const access_token = await signAccessToken(
-        {
-          sub: user._id.toHexString(),
-          email: user.email,
-          role: user.role,
-          file_access: userFileAccess(user),
-        },
-        jwtSecret(),
-      );
+      const access_token = await signAccessToken(accessClaimsFor(user), jwtSecret());
       const refresh = await issueRefreshToken(user._id, 'dev-login');
       cookie.maple_refresh.set({
         value: refresh.raw,
@@ -211,17 +204,15 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         const now = new Date().toISOString();
         userId = await insertUser({ email, role, created_at: now, last_seen_at: now });
 
-        const reg = ceremony.registrationInfo;
-        await insertCredential({
-          user_id: userId,
-          credential_id: reg.credential.id,
-          public_key: Buffer.from(reg.credential.publicKey),
-          counter: reg.credential.counter,
-          transports: (body.credential.response?.transports ?? []) as string[],
-          device_label: body.device_label,
-          created_at: now,
-          last_used_at: now,
-        });
+        await insertCredential(
+          credentialFromRegistration({
+            userId,
+            registrationInfo: ceremony.registrationInfo,
+            transports: body.credential.response?.transports as string[] | undefined,
+            deviceLabel: body.device_label,
+            now,
+          }),
+        );
 
         const access_token = await signAccessToken(
           { sub: userId.toHexString(), email, role, file_access: userFileAccess({ role }) },
@@ -339,15 +330,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         touchCredential(cred._id, verification.authenticationInfo.newCounter, nowIso),
         touchUserLastSeen(user._id, nowIso),
       ]);
-      const access_token = await signAccessToken(
-        {
-          sub: user._id.toHexString(),
-          email: user.email,
-          role: user.role,
-          file_access: userFileAccess(user),
-        },
-        jwtSecret(),
-      );
+      const access_token = await signAccessToken(accessClaimsFor(user), jwtSecret());
       await updates;
       const refresh = await issueRefreshToken(user._id, cred.device_label);
 
@@ -413,15 +396,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 401;
         return { error: 'user gone' };
       }
-      const access_token = await signAccessToken(
-        {
-          sub: user._id.toHexString(),
-          email: user.email,
-          role: user.role,
-          file_access: userFileAccess(user),
-        },
-        jwtSecret(),
-      );
+      const access_token = await signAccessToken(accessClaimsFor(user), jwtSecret());
       // Re-set the cookie only when the refresh was authenticated via the cookie
       // (not when a body token took precedence) — otherwise a request carrying
       // both would overwrite the cookie with a successor of an unrelated family.

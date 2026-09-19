@@ -68,6 +68,35 @@ export async function consumeRegistrationCeremony(args: {
   return { ok: true, challengeRow, registrationInfo: verification.registrationInfo };
 }
 
+/**
+ * The passkey row a verified registration becomes.
+ *
+ * Both registration flows — a new account in `auth.ts`, an extra device in
+ * `auth-account.ts` — reach this point with the same verified ceremony and
+ * wrote the same eight fields out of it. The public key is the one field that
+ * needs converting rather than copying: SimpleWebAuthn hands back a
+ * `Uint8Array` and the column holds a `Buffer`.
+ */
+export function credentialFromRegistration(args: {
+  userId: ObjectId;
+  registrationInfo: NonNullable<VerifiedRegistrationResponse['registrationInfo']>;
+  transports: string[] | undefined;
+  deviceLabel: string;
+  now: string;
+}): CredentialDoc {
+  const { credential } = args.registrationInfo;
+  return {
+    user_id: args.userId,
+    credential_id: credential.id,
+    public_key: Buffer.from(credential.publicKey),
+    counter: credential.counter,
+    transports: args.transports ?? [],
+    device_label: args.deviceLabel,
+    created_at: args.now,
+    last_used_at: args.now,
+  };
+}
+
 export async function buildRegistrationOptions(args: {
   email: string;
   inviteCode: string | null;
