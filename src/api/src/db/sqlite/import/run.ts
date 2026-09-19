@@ -209,15 +209,40 @@ interface Progress {
   lastId: ResumeCursor;
   documents: number;
   rejected: number;
+  /** Time the earlier runs of this collection already spent. */
+  carriedMs: number;
 }
 
 /** Where a collection resumes from, or a clean start when it has never run. */
 function startingProgress(checkpoint: Checkpoint | null): Progress {
-  if (checkpoint === null) return { lastId: null, documents: 0, rejected: 0 };
+  if (checkpoint === null) return { lastId: null, documents: 0, rejected: 0, carriedMs: 0 };
   return {
     lastId: (checkpoint.lastId ?? null) as ResumeCursor,
     documents: checkpoint.documents,
     rejected: checkpoint.rejected,
+    carriedMs: checkpoint.elapsedMs,
+  };
+}
+
+/**
+ * The result of a collection this run does not have to touch, or null when it
+ * does.
+ *
+ * A completed checkpoint is the resumption contract's other half: the rows and
+ * the checkpoint committed together, so "completed" means every document is
+ * already in the destination and re-reading them would only cost time.
+ */
+function alreadyComplete(
+  plan: CollectionPlan,
+  checkpoint: Checkpoint | null,
+): CollectionResult | null {
+  if (checkpoint === null || !checkpoint.completed) return null;
+  return {
+    source: plan.source,
+    documents: checkpoint.documents,
+    rejected: checkpoint.rejected,
+    elapsedMs: 0,
+    skipped: true,
   };
 }
 
@@ -256,15 +281,8 @@ async function importCollection(
 ): Promise<CollectionResult> {
   const { sqlite, mongo } = session;
   const checkpoint = readCheckpoint(sqlite, plan.source);
-  if (checkpoint?.completed === true) {
-    return {
-      source: plan.source,
-      documents: checkpoint.documents,
-      rejected: checkpoint.rejected,
-      elapsedMs: 0,
-      skipped: true,
-    };
-  }
+  const skipped = alreadyComplete(plan, checkpoint);
+  if (skipped !== null) return skipped;
 
   const filter = await resolveFilter(sqlite, mongo, plan, options);
   const collection = mongo.collection(plan.source);
@@ -272,8 +290,7 @@ async function importCollection(
 
   const writer = new RowWriter(sqlite);
   const startedAt = performance.now();
-  const carriedMs = checkpoint?.elapsedMs ?? 0;
-  let { lastId, documents, rejected } = startingProgress(checkpoint);
+  let { lastId, documents, rejected, carriedMs } = startingProgress(checkpoint);
 
   try {
     for (;;) {

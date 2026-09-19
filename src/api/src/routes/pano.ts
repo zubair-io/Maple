@@ -145,6 +145,54 @@ function projectJob(doc: JobWithId): JobView {
 
 // ── path → asset-id resolution (server-authoritative) ────────────────────────
 
+/** Every registered library root, as realpath sees it. */
+interface CanonicalRoots {
+  /** Canonical root → the folder that owns it. */
+  canonRootToFolderId: Map<string, ObjectId>;
+  /** The jail: the same roots, as a list to scan. */
+  canonRoots: string[];
+  /** Folder id → canonical root, for rebuilding an entry's absolute path. */
+  libIdToCanonRoot: Map<string, string>;
+}
+
+/**
+ * Canonicalises every registered root through `realpath`.
+ *
+ * Without this the jail check fails on macOS, where `/tmp` is really
+ * `/private/tmp` and a stored root of `/var/folders/…` never equals the
+ * realpath-resolved path of a file inside it. A root that does not exist on
+ * disk is kept as stored — an offline volume is not a reason to drop a library
+ * out of the jail.
+ */
+async function canonicaliseRoots(libs: ReadonlyMap<string, string>): Promise<CanonicalRoots> {
+  const canonRootToFolderId = new Map<string, ObjectId>();
+  const canonRoots: string[] = [];
+  const libIdToCanonRoot = new Map<string, string>();
+  for (const [id, root] of libs) {
+    const canonRoot = await fs.realpath(root).catch(() => root);
+    canonRootToFolderId.set(canonRoot, new ObjectId(id));
+    canonRoots.push(canonRoot);
+    libIdToCanonRoot.set(id, canonRoot);
+  }
+  return { canonRootToFolderId, canonRoots, libIdToCanonRoot };
+}
+
+/**
+ * Groups candidate rows by the filenames they hold, so matching one path walks
+ * only the rows that could match it rather than every row fetched.
+ */
+function byFilename(docs: readonly AssetLocationsRow[]): Map<string, AssetLocationsRow[]> {
+  const index = new Map<string, AssetLocationsRow[]>();
+  for (const doc of docs) {
+    for (const entry of doc.fileinfo) {
+      const rows = index.get(entry.filename);
+      if (rows === undefined) index.set(entry.filename, [doc]);
+      else rows.push(doc);
+    }
+  }
+  return index;
+}
+
 /**
  * Resolve a list of absolute filesystem paths to asset ids.
  *
@@ -173,31 +221,7 @@ async function resolveAssetPaths(
   paths: string[],
 ): Promise<{ resolvedIds: string[]; indexedCount: number }> {
   const libs = await loadLibraryRoots();
-
-  // Canonicalize every registered root via realpath so that the jail check
-  // works correctly on macOS (where e.g. /tmp → /private/tmp) and with
-  // symlinked library roots. This mirrors what browse.ts's browseRoots()
-  // does for MAPLE_ROOTS. Roots that don't exist on disk are kept as-is.
-  //
-  // We also build a `libIdToCanonRoot` map so that `findDocByPath` can
-  // construct the expected absolute path using the canonicalized root
-  // (matching the realpath-normalized `absPath`) instead of the raw stored
-  // root. Without this, the comparison would fail on macOS where the stored
-  // folder.path is /var/folders/… but realpath returns /private/var/folders/…
-  const canonRootToFolderId = new Map<string, ObjectId>();
-  const canonRoots: string[] = [];
-  const libIdToCanonRoot = new Map<string, string>();
-  for (const [id, root] of libs) {
-    let canonRoot: string;
-    try {
-      canonRoot = await fs.realpath(root);
-    } catch {
-      canonRoot = root;
-    }
-    canonRootToFolderId.set(canonRoot, new ObjectId(id));
-    canonRoots.push(canonRoot);
-    libIdToCanonRoot.set(id, canonRoot);
-  }
+  const { canonRootToFolderId, canonRoots, libIdToCanonRoot } = await canonicaliseRoots(libs);
 
   const resolvedIds: string[] = [];
   let indexedCount = 0;
@@ -234,17 +258,7 @@ async function resolveAssetPaths(
   const allFilenames = [...new Set(normalized.map((p) => p.filename))];
   const candidateDocs = await findAssetLocationsByFilenames(allFilenames);
 
-  // Index candidateDocs by filename so findInDocs only iterates the
-  // subset matching the requested filename — O(1) lookup instead of
-  // O(paths × candidateDocs) when many unique filenames are present.
-  const candidatesByFilename = new Map<string, AssetLocationsRow[]>();
-  for (const doc of candidateDocs) {
-    for (const entry of doc.fileinfo) {
-      const fn = entry.filename;
-      if (!candidatesByFilename.has(fn)) candidatesByFilename.set(fn, []);
-      candidatesByFilename.get(fn)!.push(doc);
-    }
-  }
+  const candidatesByFilename = byFilename(candidateDocs);
 
   // Helper to match a normalized path against a pre-filtered subset of docs
   // (keyed by filename) or a fresh flat list (used after on-demand indexing).

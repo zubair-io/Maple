@@ -114,6 +114,19 @@ async function boot(): Promise<void> {
   record('boot + migrate', up, up ? `serving on ${PORT}` : 'never became healthy');
 }
 
+/**
+ * The bearer token out of a dev-login body, under whichever of its three
+ * spellings this build answers with. The harness runs against a server it did
+ * not build, so it reads all three rather than pinning one.
+ */
+function bearerToken(body: Record<string, unknown>): string | null {
+  for (const key of ['access_token', 'accessToken', 'token']) {
+    const value = body[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
 async function login(): Promise<string | null> {
   const res = await fetch(`${BASE}/api/auth/dev-login`, {
     method: 'POST',
@@ -125,11 +138,7 @@ async function login(): Promise<string | null> {
     return null;
   }
   const body = (await res.json()) as Record<string, unknown>;
-  const token =
-    (body.access_token as string | undefined) ??
-    (body.accessToken as string | undefined) ??
-    (body.token as string | undefined) ??
-    null;
+  const token = bearerToken(body);
   record(
     'dev-login',
     token !== null,
@@ -144,6 +153,92 @@ async function get(path: string, token: string | null): Promise<Response> {
   });
 }
 
+/** Every row the fixture library holds, carried into SQLite. */
+function carriedEveryRow(counts: ReturnType<typeof countSqlite>): boolean {
+  return counts.assets === 6 && counts.folders === 2 && counts.asset_changes === 3;
+}
+
+/**
+ * The cursor a client should resume from, from either shape of answer: the
+ * highest cursor the journal still holds, or the floor a 409 names after a
+ * sweep.
+ */
+function resumeFrom(
+  status: number,
+  body: { changes?: Array<{ cursor: number }>; current?: number },
+): number {
+  if (status === 409) return body.current ?? 0;
+  return Math.max(0, ...(body.changes ?? []).map((row) => row.cursor));
+}
+
+/** One edit through the API, as the app would write it. */
+function putDescription(assetId: string, token: string | null): Promise<Response> {
+  return fetch(`${BASE}/api/assets/${assetId}/description`, {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ text: 'edited by the cutover harness' }),
+  });
+}
+
+/**
+ * Where the change feed says a client should resume from.
+ *
+ * Either the journal still holds the bottom of the log, or it has been swept
+ * and the 409 names where to resume. Both are correct answers; a 500, or a 200
+ * that skips a row, is not.
+ */
+async function changeFeedBaseline(token: string | null): Promise<number> {
+  const before = await get('/api/changes?since=0', token);
+  const raw = await before.text();
+  const body = JSON.parse(raw) as { changes?: Array<{ cursor: number }>; current?: number };
+  const baseline = resumeFrom(before.status, body);
+  record(
+    'change feed answers',
+    before.ok || before.status === 409,
+    `${before.status} resume-from=${baseline} ${raw.slice(0, 160)}`,
+  );
+  return baseline;
+}
+
+/**
+ * Writes one edit through the API and confirms the change feed carries it.
+ *
+ * This is the round trip the whole cutover exists to keep working: a write
+ * lands in SQLite, and a File Provider client polling the feed learns about it.
+ */
+async function editAndConfirm(
+  token: string | null,
+  searchBody: string,
+  baseline: number,
+): Promise<void> {
+  const parsed = JSON.parse(searchBody) as { results?: Array<{ _id?: string }> };
+  const assetId = parsed.results?.[0]?._id;
+  if (assetId === undefined) {
+    record('edit', false, 'no asset id in the search response to edit');
+    return;
+  }
+
+  const edit = await putDescription(assetId, token);
+  record('edit', edit.ok, `${edit.status} ${(await edit.text()).slice(0, 220)}`);
+  await confirmFeedCarriesTheEdit(token, baseline);
+}
+
+/** The second half of the round trip: a client polling from `baseline` sees it. */
+async function confirmFeedCarriesTheEdit(token: string | null, baseline: number): Promise<void> {
+  const after = await get(`/api/changes?since=${baseline}`, token);
+  const raw = await after.text();
+  const body = JSON.parse(raw) as { changes?: unknown[] };
+  const count = (body.changes ?? []).length;
+  record(
+    'change feed records the edit',
+    after.ok && count > 0,
+    `${after.status} since=${baseline} n=${count}`,
+  );
+}
+
 async function main(): Promise<void> {
   await seed();
   await boot();
@@ -154,9 +249,7 @@ async function main(): Promise<void> {
   const afterMigration = countSqlite();
   record(
     'migration carried every row',
-    afterMigration.assets === 6 &&
-      afterMigration.folders === 2 &&
-      afterMigration.asset_changes === 3,
+    carriedEveryRow(afterMigration),
     JSON.stringify(afterMigration),
   );
 
@@ -170,51 +263,8 @@ async function main(): Promise<void> {
   const searchBody = await search.text();
   record('search', search.ok, `${search.status} ${searchBody.slice(0, 220)}`);
 
-  const before = await get('/api/changes?since=0', token);
-  const beforeRaw = await before.text();
-  const beforeBody = JSON.parse(beforeRaw) as {
-    changes?: Array<{ cursor: number }>;
-    current?: number;
-  };
-  // Either the journal serves from the bottom, or it has been swept and the
-  // 409 names where to resume. Both are correct answers; only a 500 or a 200
-  // that skips a row would not be.
-  const baseline =
-    before.status === 409
-      ? (beforeBody.current ?? 0)
-      : Math.max(0, ...(beforeBody.changes ?? []).map((row) => row.cursor));
-  record(
-    'change feed answers',
-    before.ok || before.status === 409,
-    `${before.status} resume-from=${baseline} ${beforeRaw.slice(0, 160)}`,
-  );
-
-  // An edit: set a rating on the first asset the search returned.
-  const parsed = JSON.parse(searchBody) as { results?: Array<{ _id?: string }> };
-  const assetId = parsed.results?.[0]?._id;
-  if (assetId === undefined) {
-    record('edit', false, 'no asset id in the search response to edit');
-  } else {
-    const edit = await fetch(`${BASE}/api/assets/${assetId}/description`, {
-      method: 'PUT',
-      headers: {
-        'content-type': 'application/json',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ text: 'edited by the cutover harness' }),
-    });
-    record('edit', edit.ok, `${edit.status} ${(await edit.text()).slice(0, 220)}`);
-
-    const after = await get(`/api/changes?since=${baseline}`, token);
-    const afterRaw = await after.text();
-    const afterBody = JSON.parse(afterRaw) as { changes?: unknown[] };
-    const afterCount = (afterBody.changes ?? []).length;
-    record(
-      'change feed records the edit',
-      after.ok && afterCount > 0,
-      `${after.status} since=${baseline} n=${afterCount}`,
-    );
-  }
+  const baseline = await changeFeedBaseline(token);
+  await editAndConfirm(token, searchBody, baseline);
 
   // The worker tier is a separate child process that opens its own pool. A
   // cutover that left it on MongoDB would look fine from the API's routes and

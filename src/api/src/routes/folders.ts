@@ -229,15 +229,18 @@ async function folderOrError(rawId: string): Promise<FolderWithId | Response> {
  *
  * The two path-addressed reads the File Provider uses for non-indexed files
  * (`/:id/file` streams the bytes, `/:id/file-meta` answers size and mtime)
- * agree exactly on how to get from a `?path=` to a file, and disagree only on
- * what they do with it. The jail check, the `stat`, and the refusal to serve
- * anything that is not a regular file are that agreement.
+ * agree exactly on how to get from a `:id` and a `?path=` to a file, and
+ * disagree only on what they do with it. Looking the library up, the jail
+ * check, the `stat` and the refusal to serve anything that is not a regular
+ * file are that agreement.
  */
 async function folderFileOrError(
-  folderPath: string,
+  rawId: string,
   rawPath: string | undefined,
 ): Promise<Response | { real: string; stat: Stats }> {
-  const resolved = await resolveFolderRelPath(folderPath, rawPath);
+  const folder = await folderOrError(rawId);
+  if (folder instanceof Response) return folder;
+  const resolved = await resolveFolderRelPath(folder.path, rawPath);
   if (!resolved.ok) return Response.json({ error: resolved.error }, { status: resolved.status });
   const st = await stat(resolved.real).catch(() => null);
   if (st === null) return Response.json({ error: 'file not found' }, { status: 404 });
@@ -917,9 +920,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Used by the File Provider to materialize non-indexed files (which have
   // no AssetDoc, so the `/api/assets/:id/raw` route can't reach them).
   .get('/:id/file', async ({ params, query }) => {
-    const folder = await folderOrError(params.id);
-    if (folder instanceof Response) return folder;
-    const file = await folderFileOrError(folder.path, query.path);
+    const file = await folderFileOrError(params.id, query.path);
     if (file instanceof Response) return file;
     const { real, stat: st } = file;
     return new Response(Bun.file(real).stream(), {
@@ -936,9 +937,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Provider resolve a bare `.file(folderID, relativePath)` identifier to an
   // item (size + mtime) without downloading the bytes.
   .get('/:id/file-meta', async ({ params, query }) => {
-    const folder = await folderOrError(params.id);
-    if (folder instanceof Response) return folder;
-    const file = await folderFileOrError(folder.path, query.path);
+    const file = await folderFileOrError(params.id, query.path);
     if (file instanceof Response) return file;
     const { real, stat: st } = file;
     const name = nodePath.basename(real);

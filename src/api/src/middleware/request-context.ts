@@ -206,6 +206,17 @@ function buildEnvelope(body: unknown, status: number, requestId: string): Record
  * exhausted by the time an error reaches here — a lock held that long is a real
  * problem, not contention.
  */
+const UNAVAILABLE_CODES = [
+  'SQLITE_CANTOPEN',
+  'SQLITE_IOERR',
+  'SQLITE_READONLY',
+  'SQLITE_CORRUPT',
+  'SQLITE_NOTADB',
+  'SQLITE_FULL',
+  'SQLITE_BUSY',
+  'SQLITE_PROTOCOL',
+] as const;
+
 function isDatabaseUnavailable(error: unknown, message: string): boolean {
   // The pool's own lifecycle failures: never opened, closed underneath a
   // request, or a worker that could not spawn or open the file.
@@ -213,16 +224,7 @@ function isDatabaseUnavailable(error: unknown, message: string): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   if (typeof code !== 'string') return false;
   if (code.startsWith('SQLITE_CONSTRAINT')) return false;
-  return (
-    code.startsWith('SQLITE_CANTOPEN') ||
-    code.startsWith('SQLITE_IOERR') ||
-    code.startsWith('SQLITE_READONLY') ||
-    code.startsWith('SQLITE_CORRUPT') ||
-    code.startsWith('SQLITE_NOTADB') ||
-    code.startsWith('SQLITE_FULL') ||
-    code.startsWith('SQLITE_BUSY') ||
-    code.startsWith('SQLITE_PROTOCOL')
-  );
+  return UNAVAILABLE_CODES.some((prefix) => code.startsWith(prefix));
 }
 
 /**

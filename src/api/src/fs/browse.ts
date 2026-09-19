@@ -7,6 +7,7 @@
 // the filesystem root unless `showAll` is true.
 
 import { readdir, realpath, stat } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 import type { OpResult } from './root.ts';
 import { findListingAssetsByFilenames } from '../db/sqlite/repos/assets.by-filename.ts';
@@ -197,39 +198,10 @@ export function isUnderRoot(absPath: string, root: string): boolean {
 }
 
 export async function listDir(reqPath: string, showAll: boolean): Promise<OpResult<DirListing>> {
-  if (!path.isAbsolute(reqPath)) {
-    return { ok: false, error: 'Path must be absolute.' };
-  }
-
-  let real: string;
-  try {
-    real = await realpath(reqPath);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  const roots = await browseRoots();
-  if (!roots.some((r) => isUnderRoot(real, r))) {
-    return {
-      ok: false,
-      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
-    };
-  }
-
-  let rawEntries: { name: string }[];
-  try {
-    rawEntries = await readdir(real, { withFileTypes: false }).then((names) =>
-      names.map((n) => ({ name: n })),
-    );
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
+  const opened = await openDirectory(reqPath, browseRoots);
+  if ('error' in opened) return opened;
+  const { real, roots, names } = opened;
+  const rawEntries = names.map((name) => ({ name }));
 
   const atRoot = real === '/';
 
@@ -535,6 +507,59 @@ export function decodeCursor(s: string): number {
   return n;
 }
 
+/** A directory that resolved inside the jail, and what it holds. */
+interface OpenedDirectory {
+  /** The symlink-resolved path. Every child is re-checked against it. */
+  real: string;
+  /** The jail this listing was allowed through. */
+  roots: string[];
+  /** Raw entry names, as `readdir` gave them. */
+  names: string[];
+  /** The names a listing may show, sorted: no dotfiles, no `.hidden` markers. */
+  visible: string[];
+}
+
+/**
+ * Resolves a request path, confirms it is inside the jail, and reads it.
+ *
+ * The two listing endpoints open identically and jail against different root
+ * sets — the browse roots for one, the File Provider's for the other — so the
+ * root loader is the argument rather than a copy of the four checks.
+ *
+ * Each failure keeps the message it had: the three of them name the path the
+ * caller asked for, which is what makes a listing failure diagnosable from the
+ * response alone.
+ */
+async function openDirectory(
+  reqPath: string,
+  loadRoots: () => Promise<string[]>,
+): Promise<OpenedDirectory | { ok: false; error: string }> {
+  if (!path.isAbsolute(reqPath)) return { ok: false, error: 'Path must be absolute.' };
+
+  const real = await realpath(reqPath).catch((err: unknown) => err);
+  if (typeof real !== 'string') {
+    return { ok: false, error: `Cannot access "${reqPath}": ${errorText(real)}` };
+  }
+
+  const roots = await loadRoots();
+  if (!roots.some((r) => isUnderRoot(real, r))) {
+    return { ok: false, error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]` };
+  }
+
+  const names = await readdir(real).catch((err: unknown) => err);
+  if (!Array.isArray(names)) {
+    return { ok: false, error: `Cannot list "${real}": ${errorText(names)}` };
+  }
+  const visible = names
+    .filter((n: string) => !n.startsWith('.') && !n.endsWith('.hidden'))
+    .sort((a: string, b: string) => a.localeCompare(b));
+  return { real, roots, names, visible };
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** The page of `visible` this request asked for, or the cursor's complaint. */
 interface PageWindow {
   /** False when neither `cursor` nor `limit` was sent: one shot, no slicing. */
@@ -596,41 +621,9 @@ export async function listDirContents(
   reqPath: string,
   opts: ListDirOptions = {},
 ): Promise<OpResult<DirContents>> {
-  if (!path.isAbsolute(reqPath)) {
-    return { ok: false, error: 'Path must be absolute.' };
-  }
-
-  let real: string;
-  try {
-    real = await realpath(reqPath);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  const roots = await fileProviderBrowseRoots();
-  if (!roots.some((r) => isUnderRoot(real, r))) {
-    return {
-      ok: false,
-      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
-    };
-  }
-
-  let names: string[];
-  try {
-    names = await readdir(real);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  const visible = names
-    .filter((n) => !n.startsWith('.') && !n.endsWith('.hidden'))
-    .sort((a, b) => a.localeCompare(b));
+  const opened = await openDirectory(reqPath, fileProviderBrowseRoots);
+  if ('error' in opened) return opened;
+  const { real, roots, visible } = opened;
 
   // Paging window. cursor === undefined AND limit === undefined keeps
   // the historical single-shot behaviour (no slicing, no next_cursor).
@@ -706,29 +699,7 @@ export async function listDirContents(
   // below (without `asset_id`) invalid under strict TS.
   const sidecarRaw: Array<Omit<SidecarChild, 'asset_id'>> = [];
 
-  const results = await Promise.all(
-    slice.map(async (name) => {
-      const childCandidate = real === '/' ? '/' + name : `${real}/${name}`;
-
-      // Re-resolve realpath and re-check the jail (symlink-swap defence).
-      let childReal: string;
-      try {
-        childReal = await realpath(childCandidate);
-      } catch {
-        return null; // broken symlink / permission denied
-      }
-      if (!roots.some((r) => isUnderRoot(childReal, r))) return null;
-
-      let st: Awaited<ReturnType<typeof stat>>;
-      try {
-        st = await stat(childReal);
-      } catch {
-        return null;
-      }
-
-      return { name, path: childReal, st };
-    }),
-  );
+  const results = await scanChildren(slice, real, roots);
 
   for (const r of results) {
     if (!r) continue;
@@ -909,96 +880,95 @@ export interface FastDirContents {
   next_cursor?: string;
 }
 
+/** One surviving child of a listing: it resolved, and it is inside the jail. */
+interface ScannedEntry {
+  name: string;
+  path: string;
+  st: Stats;
+}
+
+/**
+ * Resolves and stats every name in a page, dropping the ones a listing must
+ * not show.
+ *
+ * The realpath re-check per child is the symlink-swap defence: the directory
+ * passed the jail, but a child could be a symlink pointing out of it, and a
+ * listing that trusted the parent's verdict would hand out a path outside
+ * every root. A null is that, a broken symlink, a permission denial, or a file
+ * that vanished between the readdir and the stat — all four mean the same
+ * thing to a caller, which is that there is nothing here to list.
+ */
+async function scanChildren(
+  slice: readonly string[],
+  real: string,
+  roots: readonly string[],
+): Promise<Array<ScannedEntry | null>> {
+  return Promise.all(
+    slice.map(async (name) => {
+      const childCandidate = real === '/' ? '/' + name : `${real}/${name}`;
+      const childReal = await realpath(childCandidate).catch(() => null);
+      if (childReal === null) return null;
+      if (!roots.some((r) => isUnderRoot(childReal, r))) return null;
+      const st = await stat(childReal).catch(() => null);
+      return st === null ? null : { name, path: childReal, st };
+    }),
+  );
+}
+
+/**
+ * Sorts scanned children into the two lists the fast listing answers with.
+ *
+ * Anything that is neither a directory nor a listable media file is dropped —
+ * including a file with no extension, which cannot be classified and is not
+ * something this endpoint offers. A null entry is a child that vanished or
+ * left the jail between the readdir and the stat.
+ */
+function splitEntries(entries: ReadonlyArray<ScannedEntry | null>): {
+  dirs: DirChild[];
+  images: FastImageChild[];
+} {
+  const dirs: DirChild[] = [];
+  const images: FastImageChild[] = [];
+  for (const entry of entries) {
+    if (entry === null) continue;
+    const { name, path: childReal, st } = entry;
+    if (st.isDirectory()) {
+      dirs.push({ name, path: childReal, mtime: st.mtime.toISOString() });
+      continue;
+    }
+    const ext = listableExt(name, st);
+    if (ext !== null) images.push(buildMediaListItem(name, childReal, st, ext));
+  }
+  return { dirs, images };
+}
+
+/** The extension this entry should be listed under, or null for "not listed". */
+function listableExt(name: string, st: Stats): string | null {
+  if (!st.isFile()) return null;
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return null;
+  const ext = name.slice(dot + 1).toLowerCase();
+  return isListableMediaExt(ext) ? ext : null;
+}
+
 export async function listDirFast(
   reqPath: string,
   opts: ListDirOptions = {},
 ): Promise<OpResult<FastDirContents>> {
-  if (!path.isAbsolute(reqPath)) {
-    return { ok: false, error: 'Path must be absolute.' };
-  }
-
-  let real: string;
-  try {
-    real = await realpath(reqPath);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  const roots = await browseRoots();
-  if (!roots.some((r) => isUnderRoot(real, r))) {
-    return {
-      ok: false,
-      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
-    };
-  }
-
-  let names: string[];
-  try {
-    names = await readdir(real);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  // Filter once before paging: drop hidden dot-files and `.xmp` sidecars
-  // (the latter aren't surfaced by this endpoint and shouldn't pay the
-  // realpath+stat cost per entry).
-  const visible = names
-    .filter((n) => !n.startsWith('.') && !n.endsWith('.hidden'))
-    .filter((n) => !n.toLowerCase().endsWith('.xmp'))
-    .sort((a, b) => a.localeCompare(b));
+  const opened = await openDirectory(reqPath, browseRoots);
+  if ('error' in opened) return opened;
+  const { real, roots } = opened;
+  // This endpoint does not surface `.xmp` sidecars, and they should not pay
+  // the realpath+stat cost per entry, so they come out before paging.
+  const visible = opened.visible.filter((n) => !n.toLowerCase().endsWith('.xmp'));
 
   const window = pageWindow(visible, opts);
   if ('error' in window) return window;
   const { slice, nextOffset } = window;
 
-  const dirs: DirChild[] = [];
-  const images: FastImageChild[] = [];
+  const results = await scanChildren(slice, real, roots);
 
-  const results = await Promise.all(
-    slice.map(async (name) => {
-      const childCandidate = real === '/' ? '/' + name : `${real}/${name}`;
-
-      // Re-resolve realpath and re-check the jail (symlink-swap defence).
-      let childReal: string;
-      try {
-        childReal = await realpath(childCandidate);
-      } catch {
-        return null;
-      }
-      if (!roots.some((r) => isUnderRoot(childReal, r))) return null;
-
-      let st: Awaited<ReturnType<typeof stat>>;
-      try {
-        st = await stat(childReal);
-      } catch {
-        return null;
-      }
-
-      return { name, path: childReal, st };
-    }),
-  );
-
-  for (const r of results) {
-    if (!r) continue;
-    const { name, path: childReal, st } = r;
-
-    if (st.isDirectory()) {
-      dirs.push({ name, path: childReal, mtime: st.mtime.toISOString() });
-    } else if (st.isFile()) {
-      const dot = name.lastIndexOf('.');
-      if (dot < 0) continue;
-      const ext = name.slice(dot + 1).toLowerCase();
-      if (isListableMediaExt(ext)) {
-        images.push(buildMediaListItem(name, childReal, st, ext));
-      }
-    }
-  }
+  const { dirs, images } = splitEntries(results);
 
   const isRoot = real === '/';
   return {

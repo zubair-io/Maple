@@ -30,9 +30,33 @@ import {
   markAssetRowsVectorized,
 } from './assets.meilisearch.ts';
 
+/** The columns an indexable asset carries when the caller says nothing. */
+function defaultColumns(id: string): Record<string, string | number | null> {
+  return {
+    maple_id: `maple-${id}`,
+    hidden: 0,
+    is_screenshot: null,
+    deleted_at: null,
+    semantic_vector_fingerprint: null,
+    exif: null,
+    place: null,
+  };
+}
+
+/** 1/0 for a boolean, and null or "not asked for" through unchanged. */
+function bit(value: boolean | null | undefined): number | null | undefined {
+  return typeof value === 'boolean' ? (value ? 1 : 0) : value;
+}
+
 /**
  * An asset whose id is chosen rather than random, so a test can assert the scan
  * order the cursor depends on.
+ *
+ * The overrides are a table merged over the defaults rather than a conditional
+ * per column, which keeps the difference between "not asked for" and "asked
+ * for as null" in one place: an absent key takes the default, and an explicit
+ * null is stored as null. `maple_id` and `is_screenshot` both depend on that
+ * distinction.
  */
 function insertIndexable(
   db: Database,
@@ -48,6 +72,19 @@ function insertIndexable(
   } = {},
 ): string {
   const id = args.id ?? newObjectIdHex();
+  const overrides = {
+    maple_id: args.mapleId,
+    hidden: bit(args.hidden),
+    is_screenshot: bit(args.isScreenshot),
+    deleted_at: args.deletedAt,
+    semantic_vector_fingerprint: args.fingerprint,
+    exif: args.exif,
+    place: args.place,
+  };
+  const row: Record<string, string | number | null> = {
+    ...defaultColumns(id),
+    ...omitUndefined(overrides),
+  };
   run(
     db,
     `INSERT INTO assets
@@ -56,19 +93,22 @@ function insertIndexable(
      VALUES (?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     '2026-01-01T00:00:00.000Z',
-    args.mapleId === undefined ? `maple-${id}` : args.mapleId,
-    args.hidden === true ? 1 : 0,
-    args.isScreenshot === undefined || args.isScreenshot === null
-      ? null
-      : args.isScreenshot
-        ? 1
-        : 0,
-    args.deletedAt ?? null,
-    args.fingerprint ?? null,
-    args.exif ?? null,
-    args.place ?? null,
+    row.maple_id,
+    row.hidden,
+    row.is_screenshot,
+    row.deleted_at,
+    row.semantic_vector_fingerprint,
+    row.exif,
+    row.place,
   );
   return id;
+}
+
+/** Every entry the caller actually asked for. */
+function omitUndefined<T extends Record<string, unknown>>(values: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
 }
 
 /** An id built from one repeated hex digit, so ordering is obvious to read. */

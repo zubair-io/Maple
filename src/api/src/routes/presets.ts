@@ -60,21 +60,25 @@ const OWNED_KEYS = new Set(['schemaVersion', 'name', 'fields']);
  * contract, not because storage needs it. Returns the first offending key, or
  * null when the whole value is safe. See `presets/preset-validation.ts`. */
 function findUnstorableKey(value: unknown): string | null {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const bad = findUnstorableKey(item);
-      if (bad !== null) return bad;
-    }
-    return null;
-  }
-  if (value !== null && typeof value === 'object') {
-    for (const [key, nested] of Object.entries(value)) {
-      if (!isStorableKey(key)) return key;
-      const bad = findUnstorableKey(nested);
-      if (bad !== null) return bad;
-    }
+  for (const [key, child] of childValues(value)) {
+    if (key !== null && !isStorableKey(key)) return key;
+    const bad = findUnstorableKey(child);
+    if (bad !== null) return bad;
   }
   return null;
+}
+
+/**
+ * What a preserved value contains, as `[key, child]` pairs.
+ *
+ * An array's items have no key of their own, which is what the null stands
+ * for; a scalar contains nothing and ends the walk. Saying that once here is
+ * what keeps the scan above a single loop rather than one per shape.
+ */
+function childValues(value: unknown): Array<[string | null, unknown]> {
+  if (Array.isArray(value)) return value.map((item) => [null, item]);
+  if (value !== null && typeof value === 'object') return Object.entries(value);
+  return [];
 }
 
 /** Wire shape: unknown preserved keys first so the owned keys win. */

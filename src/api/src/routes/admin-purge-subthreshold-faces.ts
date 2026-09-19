@@ -71,6 +71,85 @@ async function recountAffectedPeople(
   return recomputes;
 }
 
+/** What the caller asked for: audit only, or delete, and how much. */
+interface PurgeMode {
+  apply: boolean;
+  includeAssigned: boolean;
+}
+
+type Audit = Awaited<ReturnType<typeof auditSubthresholdFaces>>;
+type Applied = Awaited<ReturnType<typeof purgeSubthresholdFaces>>;
+
+/**
+ * Removes what the mode asks for, or nothing at all in dry-run.
+ *
+ * The audit's counts decide whether there is anything to delete: unassigned
+ * always, assigned only when the caller opted in. Hidden faces are never in
+ * either number — preserving them is not a mode.
+ */
+async function applyPurge(minSize: number, audit: Audit, mode: PurgeMode): Promise<Applied | null> {
+  if (!mode.apply) return null;
+  const removable = audit.unassigned + (mode.includeAssigned ? audit.assigned : 0);
+  if (removable === 0) return null;
+  return purgeSubthresholdFaces(minSize, mode.includeAssigned);
+}
+
+/**
+ * The report, which is the whole answer in dry-run and the receipt when the
+ * delete ran.
+ *
+ * `affectedPeople` lists every person holding sub-threshold assigned faces
+ * whether or not this run removed them, so a dry-run tells an operator who
+ * would be affected before they opt in. The `applied` block appears only in
+ * apply mode, and its numbers are what the delete actually removed rather than
+ * what the audit predicted — the two differ if a detection landed in between.
+ */
+function purgeSummary(args: {
+  minSize: number;
+  mode: PurgeMode;
+  audit: Audit;
+  applied: Applied | null;
+  personRecomputes: Array<{ personId: string; newCount: number }>;
+}): Record<string, unknown> {
+  const { minSize, mode, audit, applied, personRecomputes } = args;
+  return {
+    threshold: minSize,
+    mode: describeMode(mode),
+    assetsScanned: audit.assetsScanned,
+    assetsAffected: audit.assetsAffected,
+    subThresholdFaces: {
+      unassigned: audit.unassigned,
+      assigned: audit.assigned,
+      hidden: audit.hidden,
+      total: audit.unassigned + audit.assigned + audit.hidden,
+    },
+    policy: {
+      removesUnassigned: mode.apply,
+      removesAssigned: mode.apply && mode.includeAssigned,
+      preservesHidden: true,
+    },
+    affectedPeople: [...audit.personLoss.entries()].map(([personId, lossCount]) => ({
+      personId,
+      subThresholdFaces: lossCount,
+    })),
+    ...(mode.apply
+      ? {
+          applied: {
+            facesRemoved: applied?.facesRemoved ?? 0,
+            assetsUpdated: applied?.assetsUpdated ?? 0,
+            personCountsRecomputed: personRecomputes.length,
+            personRecomputes,
+          },
+        }
+      : {}),
+  };
+}
+
+function describeMode(mode: PurgeMode): string {
+  if (!mode.apply) return 'dry-run';
+  return mode.includeAssigned ? 'apply:all' : 'apply:unassigned-only';
+}
+
 export const purgeSubthresholdFacesRoutes = new Elysia({
   prefix: '/api/admin/faces',
 }).post(
@@ -88,69 +167,31 @@ export const purgeSubthresholdFacesRoutes = new Elysia({
       };
     }
 
-    const applyMode = query.apply === 'true';
-    const includeAssigned = query.includeAssigned === 'true';
+    const mode = {
+      apply: query.apply === 'true',
+      includeAssigned: query.includeAssigned === 'true',
+    };
 
     // The audit runs in both modes: it describes the same population the
     // delete acts on, and in dry-run mode it is the whole answer.
     const audit = await auditSubthresholdFaces(minSize);
-
-    // What the removable predicate matched: unassigned always, assigned only
-    // when opted in. Used to decide whether there is anything to delete at
-    // all; the applied block below reports what the delete actually removed,
-    // which is the same number unless a detection landed in between.
-    const removable = applyMode ? audit.unassigned + (includeAssigned ? audit.assigned : 0) : 0;
-
-    const applied =
-      applyMode && removable > 0 ? await purgeSubthresholdFaces(minSize, includeAssigned) : null;
+    const applied = await applyPurge(minSize, audit, mode);
 
     // Recompute only for people who actually lost assigned faces — which is
     // nobody unless the caller opted in.
     const personRecomputes =
-      applied !== null && includeAssigned
+      applied !== null && mode.includeAssigned
         ? await recountAffectedPeople(audit.personLoss.keys())
         : [];
 
     if (applied !== null) {
-      log.info({ ...applied, includeAssigned }, 'applied sub-threshold purge');
+      log.info(
+        { ...applied, includeAssigned: mode.includeAssigned },
+        'applied sub-threshold purge',
+      );
     }
 
-    // The audit's affectedPeople list: every person with sub-threshold
-    // assigned faces, regardless of whether this run removes them.
-    const affectedPeople = [...audit.personLoss.entries()].map(([personId, lossCount]) => ({
-      personId,
-      subThresholdFaces: lossCount,
-    }));
-
-    const summary = {
-      threshold: minSize,
-      mode: applyMode ? (includeAssigned ? 'apply:all' : 'apply:unassigned-only') : 'dry-run',
-      assetsScanned: audit.assetsScanned,
-      assetsAffected: audit.assetsAffected,
-      subThresholdFaces: {
-        unassigned: audit.unassigned,
-        assigned: audit.assigned,
-        hidden: audit.hidden,
-        total: audit.unassigned + audit.assigned + audit.hidden,
-      },
-      policy: {
-        removesUnassigned: applyMode,
-        removesAssigned: applyMode && includeAssigned,
-        preservesHidden: true,
-      },
-      affectedPeople,
-      ...(applyMode
-        ? {
-            applied: {
-              facesRemoved: applied?.facesRemoved ?? 0,
-              assetsUpdated: applied?.assetsUpdated ?? 0,
-              personCountsRecomputed: personRecomputes.length,
-              personRecomputes,
-            },
-          }
-        : {}),
-    };
-
+    const summary = purgeSummary({ minSize, mode, audit, applied, personRecomputes });
     log.info(summary, 'purge-subthreshold-faces complete');
     return summary;
   },
