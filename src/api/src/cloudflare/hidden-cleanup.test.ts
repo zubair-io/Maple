@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { cleanupR2ThumbForHiddenAsset, cleanupR2ThumbsForHiddenAssets } from './hidden-cleanup.ts';
 import { patchAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
 import {
@@ -20,7 +20,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots, setLibraryBySlugForTests } from '../indexer/libraries.cache.ts';
-import { newObjectIdHex } from '../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../db/object-id.ts';
 
 const LIBRARY_SLUG = 'hidden-cleanup-lib';
 const LIBRARY_ROOT = '/tmp/hidden-cleanup-lib';

@@ -20,7 +20,7 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
   insertAsset,

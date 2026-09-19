@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { fmtAuth } from './_setup.ts';
-import { newObjectIdHex } from '../../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../src/db/object-id.ts';
 import { seedSearchAsset } from '../../src/db/sqlite/repos/search.test-helpers.ts';
 import {
   createLiveTestDatabase,

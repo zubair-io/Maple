@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import { createDiscoverLibrary, seedAsset, seedLocation } from './discover.test-helpers.ts';
 import * as frontier from './frontier.repo.ts';
 import { advanceSweep, SweeperLoop, visitDirectory } from './sweeper.ts';

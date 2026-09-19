@@ -32,8 +32,8 @@
  */
 
 import path from 'node:path';
-import { ObjectId } from 'mongodb';
-import { newObjectIdHex } from '../object-id.ts';
+import { ObjectId } from '../../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { classifyMediaType, mediaKindOfFilenames } from '../../../indexer/media-types.ts';
 import { sqliteDb, updateOutcome, type SqliteDb, type UpdateOutcome } from './db-handle.ts';
 import { nowIso, placeholders, toHex } from './values.ts';

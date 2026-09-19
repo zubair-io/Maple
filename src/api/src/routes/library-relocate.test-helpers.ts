@@ -17,7 +17,7 @@
 
 import type { Database } from 'bun:sqlite';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { run } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import {
   insertAsset,

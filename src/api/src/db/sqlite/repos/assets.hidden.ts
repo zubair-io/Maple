@@ -16,7 +16,7 @@
  * are the same answer from the client's side.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { findDetailsByIds } from './assets.repo.ts';
 import { sqliteDb, updateOutcome, type SqliteDb, type UpdateOutcome } from './db-handle.ts';
 import type { AssetDetailDto } from '../../assets.transform.ts';

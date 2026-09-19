@@ -21,7 +21,7 @@ import {
   createLiveTestDatabase,
   type LiveTestDatabase,
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 import { readEnrichmentConfig } from './helpers/enrichment-route-fixtures.ts';
 

@@ -23,7 +23,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { closeSqlitePool, openSqlitePool } from '../src/db/sqlite/index.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import { shutdownClusterPool } from '../src/db/sqlite/repos/people.cluster-pool.ts';
 import { nearAxis } from '../src/db/sqlite/repos/people.test-helpers.ts';
 import {

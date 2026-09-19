@@ -6,7 +6,7 @@
  * up between them and nothing for a sibling suite to inherit.
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../src/db/object-id.ts';
 import { authedHandle } from './helpers/authed-handle.ts';
 import {
   createLiveTestDatabase,

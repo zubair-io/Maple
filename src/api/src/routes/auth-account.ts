@@ -6,7 +6,7 @@
 // requireAuth's scoped derive stays contained — same pattern as
 // auth-native-code.ts.
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   countCredentialsForUser,
   deleteCredential,

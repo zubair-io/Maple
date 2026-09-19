@@ -21,7 +21,7 @@ import {
   insertLocation,
   run,
 } from './test-sqlite.test-helpers.ts';
-import { newObjectIdHex } from './object-id.ts';
+import { newObjectIdHex } from '../object-id.ts';
 import { caseFoldKey } from './case-fold.ts';
 import type { Database } from 'bun:sqlite';
 

@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import {
   clearInflight,
   markInflight,

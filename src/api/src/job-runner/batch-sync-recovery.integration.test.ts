@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Database } from 'bun:sqlite';
 import { Elysia } from 'elysia';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

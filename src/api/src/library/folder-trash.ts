@@ -27,7 +27,7 @@
  */
 
 import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 // `readdir` is read-only, `rmdir` is the mirror-aware write — both routed
 // through `fs/mirrored.ts` (which re-exports the full `node:fs/promises`
 // surface) rather than a direct `node:fs/promises` import, per the oxlint

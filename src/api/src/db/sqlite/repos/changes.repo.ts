@@ -55,7 +55,7 @@
  * operations on Mongo.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { child as childLogger } from '../../../log.ts';
 import { getChangeBus } from '../../../runtime/change-bus.ts';
 import type { AssetChangeKind, AssetChangeWithId } from '../../schema.ts';

@@ -47,7 +47,7 @@
  * {@link findLiveAssetIdByPhassetLink}.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { toCoreInfo, toDetailDto, toListItemDto, EMPTY_BUNDLE } from './assets.dto.ts';
 import { loadBundles, loadCoreBundle, loadLibraries, loadLocations } from './assets.read.ts';
 import type { AssetCoreRow, ListItemRow } from './assets.rows.ts';

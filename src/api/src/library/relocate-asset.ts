@@ -32,7 +32,7 @@
  */
 
 import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
 import {
   findLiveOccupantAssetId,

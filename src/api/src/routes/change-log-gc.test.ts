@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { changeLogGcRoutes } from './change-log-gc.ts';
 import { changesRoutes } from './changes.ts';
 import {

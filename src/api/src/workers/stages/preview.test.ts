@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/p
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { maple, type ImageMetadata } from 'maple';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';

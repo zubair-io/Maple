@@ -31,7 +31,7 @@
 import { Elysia, t } from 'elysia';
 import { readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 import { cachePathFor, cachePathForAsset } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';

@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../src/db/object-id.ts';
 import { maple } from 'maple';
 import { solidRgb } from '../src/test-support/synth-image.ts';
 

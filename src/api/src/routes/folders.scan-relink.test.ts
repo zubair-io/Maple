@@ -18,7 +18,7 @@
  */
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';

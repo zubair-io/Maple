@@ -30,7 +30,7 @@
  * them.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import {
   normaliseEnrichment,
   type AssetDoc,

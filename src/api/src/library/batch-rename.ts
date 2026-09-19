@@ -21,7 +21,7 @@
  * does not stop the remaining items from being attempted.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
 import { activeFileInfo, relocateAsset, type RelocateAssetInput } from './relocate-asset.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';

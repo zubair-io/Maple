@@ -16,7 +16,7 @@ import { renameRoutes } from './rename.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { setRawFfiForTests, tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import { locationRows } from '../../../tests/helpers/assets-route-fixtures.ts';
 import {
   createLiveTestDatabase,

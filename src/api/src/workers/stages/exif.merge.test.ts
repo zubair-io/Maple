@@ -14,7 +14,7 @@
  * here instead of silently passing against a mock.
  */
 import { describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import type { Database } from 'bun:sqlite';
 import {
   createLiveTestDatabase,

@@ -7,7 +7,7 @@
  */
 import path from 'node:path';
 import { promises as fs, type Dirent } from 'node:fs';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import {
   listRecordedInDirectory,
   type RecordedInDirectory,

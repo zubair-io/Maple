@@ -29,7 +29,7 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

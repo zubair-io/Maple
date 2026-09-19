@@ -8,7 +8,7 @@ import { mkdir, writeFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import { imageRoutes } from './image.ts';
 import { setLibraryBySlugForTests, invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 
 let tmpDir = '';
 

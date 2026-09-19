@@ -23,12 +23,12 @@
  * `people.face-count.ts` is where the reasoning lives.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { child as childLogger } from '../../../log.ts';
 import { DEFAULT_SIMILARITY_THRESHOLD } from '../../../people/cluster-embeddings.ts';
 import { sortedPairKey, type MergeSuggestion } from '../../../people/people-merge-suggestions.ts';
 import { caseFoldKey } from '../case-fold.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { prepareClusteringPassOffThread } from './people.cluster-pool.ts';

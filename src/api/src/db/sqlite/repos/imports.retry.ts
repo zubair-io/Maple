@@ -23,7 +23,7 @@
  * the Mongo version can produce and nothing benefits from.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import type { ImportStatus } from '../../schema.ts';
 import { isSafeFilename } from '../../../backup/path-formatter.ts';

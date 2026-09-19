@@ -21,7 +21,7 @@
  * thrashing Meilisearch re-indexing and R2 thumbnail delete/upload cycles.
  */
 import path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import {
   hideAssetsInFolder,
   listFolderHideCandidates,

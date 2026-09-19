@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
-import { newObjectIdHex } from '../object-id.ts';
+import { ObjectId } from '../../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { createTestDatabase, testSqliteDb } from '../test-sqlite.test-helpers.ts';
 import {
   countAuditRows,

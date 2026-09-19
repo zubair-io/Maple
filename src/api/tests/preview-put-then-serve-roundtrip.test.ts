@@ -39,7 +39,7 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import { maple } from 'maple';
 import { solidAvif } from '../src/test-support/synth-image.ts';
 

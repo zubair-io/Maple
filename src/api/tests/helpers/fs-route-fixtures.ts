@@ -18,7 +18,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { newObjectIdHex } from '../../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../src/db/object-id.ts';
 import { run } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
 export interface IndexedAssetOptions {

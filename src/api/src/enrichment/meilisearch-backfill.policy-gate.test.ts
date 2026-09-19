@@ -5,7 +5,7 @@
 // through and clears the reason.
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { newObjectIdHex } from '../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

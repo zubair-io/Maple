@@ -9,7 +9,7 @@
  * skip-when-the-store-is-unreachable scaffolding the MongoDB-era suites carried.
  */
 import { describe, test, expect } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import * as path from 'node:path';
 import {
   resolveThumbPath,

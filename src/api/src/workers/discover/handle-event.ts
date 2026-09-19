@@ -15,7 +15,7 @@
  * chokepoint guards are about.
  */
 import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import type { WatchEvent } from './types.ts';
 import { ALL_STAGE_NAMES } from '../stages/manifest.ts';
 import { child } from '../../log.ts';

@@ -28,8 +28,8 @@
  * conflict — a strictly more permissive outcome, and never a lost one.
  */
 
-import type { ObjectId, WithId } from 'mongodb';
-import { newObjectIdHex } from '../object-id.ts';
+import type { ObjectId, WithId } from '../../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { deleteOutcome, sqliteDb, type DeleteOutcome, type SqliteDb } from './db-handle.ts';
 import { parseJson, toHex, toObjectId } from './values.ts';
 import type { PresetDoc } from '../../schema.ts';

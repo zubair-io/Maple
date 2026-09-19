@@ -45,8 +45,8 @@
  * another module they may never read.
  */
 
-import type { ObjectId, WithId } from 'mongodb';
-import { newObjectIdHex } from '../object-id.ts';
+import type { ObjectId, WithId } from '../../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { nowIso, parseJson, toHex, toObjectId } from './values.ts';
 import type { FolderDoc, MirrorLocation } from '../../schema.ts';

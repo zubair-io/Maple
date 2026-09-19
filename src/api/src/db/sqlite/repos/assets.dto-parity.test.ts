@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ObjectId, type DeleteResult, type UpdateResult } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import {
   toCoreInfo as mongoToCoreInfo,
   toDetailDto as mongoToDetailDto,
@@ -316,18 +316,33 @@ describe('signature parity with the Mongo repository', () => {
     ]);
   });
 
-  test('write outcomes are assignable to the driver result types', () => {
-    // These two annotations are the assertion: a missing or mistyped field
-    // fails the build rather than the test.
-    const update: UpdateResult = updateOutcome(1);
-    const remove: DeleteResult = deleteOutcome(2);
-    expect(update).toEqual({
+  test('write outcomes report the counts their callers branch on', () => {
+    // `UpdateOutcome`/`DeleteOutcome` (db-handle.ts) are Maple's own shapes
+    // now — the field names are the ones the routes were written against, and
+    // nothing external defines them any more, so every field is pinned here by
+    // value rather than by a type annotation.
+    //
+    // What each one means to a caller: `matchedCount` is how many rows the
+    // statement found, and `=== 0` is the only test any route makes ("no such
+    // asset" → 404). `modifiedCount` always equals it, because SQLite's
+    // `changes()` counts a row it rewrote with an identical value. `upsertedId`
+    // and `upsertedCount` are always null/0: nothing here upserts through a
+    // filter. `acknowledged` is always true — a failed write throws.
+    expect(updateOutcome(1)).toEqual({
       acknowledged: true,
       matchedCount: 1,
       modifiedCount: 1,
       upsertedCount: 0,
       upsertedId: null,
     });
-    expect(remove).toEqual({ acknowledged: true, deletedCount: 2 });
+    expect(updateOutcome(0)).toEqual({
+      acknowledged: true,
+      matchedCount: 0,
+      modifiedCount: 0,
+      upsertedCount: 0,
+      upsertedId: null,
+    });
+    expect(deleteOutcome(2)).toEqual({ acknowledged: true, deletedCount: 2 });
+    expect(deleteOutcome(0)).toEqual({ acknowledged: true, deletedCount: 0 });
   });
 });

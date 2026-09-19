@@ -7,12 +7,9 @@
  *   PORT               — listen port (default: 3000)
  *   MAPLE_SQLITE_PATH  — the library database file (default: ./data/maple.sqlite).
  *                        Read before anything else, since it names the database
- *                        the settings themselves live in. See
- *                        `db/sqlite/boot-migration.ts`.
- *   MAPLE_MONGO_URI    — MongoDB connection string (default: mongodb://localhost:27017).
- *                        Only read on a boot that still has to migrate (#3752);
- *                        once the cutover is recorded it is never contacted.
- *   MAPLE_MONGO_DB     — MongoDB database name (default: maple)
+ *                        the settings themselves live in. Created, along with
+ *                        the directory holding it, on a first boot. See
+ *                        `db/sqlite/boot-schema.ts`.
  *   MAPLE_ROOTS        — colon-separated allowed FS roots for browsing &
  *                        registered-folder access. Defaults to '/' (Docker
  *                        mount is the jail). Set explicitly when running
@@ -29,7 +26,7 @@
  *                        worker even when a URL is provided. Default on.
  *   MAPLE_MEILISEARCH_URL — base URL of a Meilisearch sidecar for typo-
  *                        tolerant place search. When unset, the search
- *                        route uses the Mongo $text fallback only. See
+ *                        route uses Maple's own full-text index only. See
  *                        `docs/operations/meilisearch.md`.
  *   MAPLE_MEILISEARCH_API_KEY — bearer key for the Meilisearch instance.
  *   MAPLE_FACE_ORT_INTRA_OP_THREADS — intra-op thread count passed to
@@ -82,7 +79,7 @@ import { authedApi } from './routes/authed-api.ts';
 
 import { openSqlitePool, closeSqlitePool } from './db/sqlite/index.ts';
 import { logReaderRespawn } from './db/sqlite/pool-logging.ts';
-import { migrateAtBoot, sqliteDatabasePath } from './db/sqlite/boot-migration.ts';
+import { ensureSchemaAtBoot, sqliteDatabasePath } from './db/sqlite/boot-schema.ts';
 import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { installMirrorQueueSink } from './workers/mirror/sink.ts';
@@ -260,24 +257,23 @@ export const app = buildApp({ stageNames: [] });
 // ---------------------------------------------------------------------------
 
 /**
- * The cutover, and the pool every repository reads through afterwards (#3752).
+ * The schema, and the pool every repository reads through afterwards.
  *
  * Runs before anything else in `start()`, because everything else in `start()`
- * — beginning with `ensureJwtSecret` on the next line — reads a database. And
- * it runs to completion before the server listens or the worker child is
- * spawned, which is what makes the downtime one bounded window rather than a
- * period of serving an empty library.
+ * — beginning with `ensureJwtSecret` on the next line — reads a database. A
+ * first boot creates the file and writes the schema here; every later boot
+ * finds nothing to do unless a release added a migration.
  *
  * Exiting is deliberate, and is the one place in this boot that does it. Every
- * other phase logs and continues, because a degraded subsystem beats no server;
- * an unmigrated library is the case where continuing is worse, since the File
- * Provider clients cannot tell it from a deleted one.
+ * other phase logs and continues, because a degraded subsystem beats no server.
+ * A schema this process could not bring up to date is the case where continuing
+ * is worse: the code above it would be writing into a shape it cannot trust.
  */
 async function startSqlite(): Promise<void> {
   try {
-    await migrateAtBoot();
+    await ensureSchemaAtBoot();
   } catch (err) {
-    log.fatal({ err }, 'SQLite migration failed — refusing to serve');
+    log.fatal({ err }, 'SQLite schema could not be prepared — refusing to serve');
     process.exit(1);
   }
   await openSqlitePool({ path: sqliteDatabasePath(), onReaderRespawn: logReaderRespawn });
@@ -291,7 +287,7 @@ async function start(): Promise<void> {
       version: '0.1.0',
       port: PORT,
       tls: TLS_ENABLED,
-      mongo_uri: process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017',
+      database: sqliteDatabasePath(),
     },
     'Maple Self Hosted starting',
   );
@@ -318,17 +314,15 @@ async function start(): Promise<void> {
     // pool respawns) and never the server. Nothing to warm here; the pool
     // spawns its first child lazily on the first decode request.
 
-    // No `getDb()` / `ensureIndexes()` here any more (#3787). The database is
-    // SQLite, its pool was opened before `listen`, and its schema arrived with
-    // the migration rather than being reconciled on every boot — there is no
-    // index to ensure and nothing to connect to lazily. The one place that
-    // still reaches MongoDB is `migrateAtBoot`, above, which reads it to fill
-    // SQLite and then never looks again.
+    // Nothing connects to a database here. The pool was opened before
+    // `listen`, and the schema was brought up to date before that, so there is
+    // no index to reconcile on every boot and nothing to connect to lazily.
     //
-    // This phase is no longer allowed to fail soft the way the Mongo one did.
-    // "MongoDB not available — DB-bound routes will 503" was a reasonable
-    // posture for a remote server that might come back; a missing SQLite file
-    // is not that, and the pool has already refused to open if it were.
+    // This phase is not allowed to fail soft the way a remote database's was.
+    // "the server is not answering — DB-bound routes will 503" was a reasonable
+    // posture for something that might come back; a database file this process
+    // could not open is not that, and the pool has already refused to open if
+    // it were.
     try {
       // #2920 — plant the ownership sentinel on installs whose owner predates
       // it (or came from dev-login), so an invited registration can never win
@@ -411,7 +405,7 @@ async function start(): Promise<void> {
     );
   }
 
-  // Reset received_bytes on every `state: 'open'` Mongo row. We just deleted
+  // Reset received_bytes on every `state: 'open'` row. We just deleted
   // their on-disk bytes; without this, a client retrying a previously
   // in-progress session would see 409 expected_offset > 0 and (when
   // received_bytes == total) fall out of the upload loop entirely.
@@ -448,7 +442,7 @@ async function shutdown(signal: string): Promise<void> {
     log.warn({ err: e }, 'error stopping event-loop lag monitor');
   }
   // Stop the change-feed tailer first — its self-scheduling setTimeout
-  // would otherwise keep the event loop alive after Mongo closes.
+  // would otherwise keep the event loop alive after the pool closes.
   try {
     getChangeFeedTailer().stop();
   } catch (e) {
@@ -485,10 +479,9 @@ async function shutdown(signal: string): Promise<void> {
   } catch {
     /* ignore */
   }
-  // Nothing to close on the Mongo side: the only connection this process opens
-  // to it belongs to the boot migration, which closes its own before serving.
   // Terminates the pool's writer and reader threads. Last, so anything above
-  // that still wanted a query got one.
+  // that still wanted a query got one. The boot's own connection is not among
+  // them: it closes itself once the schema is current, before the pool opens.
   try {
     closeSqlitePool();
   } catch {

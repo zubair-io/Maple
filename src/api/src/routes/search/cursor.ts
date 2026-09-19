@@ -56,7 +56,7 @@
 
 // Type-only: an asset id is still a 24-character hex string on the wire, and
 // `ObjectId` is how the document shape spells one. See the brief's note on ids.
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 
 /** Direction of the `(captured_at, _id)` seek. */
 export type CursorDirection = 'asc' | 'desc';

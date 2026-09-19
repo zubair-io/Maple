@@ -18,7 +18,7 @@
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { listBackupState } from '../db/sqlite/repos/backup.repo.ts';
 import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 

@@ -7,7 +7,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 // Mirror-aware drop-in: uploads, folder moves, and mkdir replicate to the
 // library's backup root(s). `rename` is directory-aware for folder moves.
 import { readdir, open, rename, stat, unlink, mkdir, utimes } from '../fs/mirrored.ts';
@@ -53,7 +53,7 @@ import { realpathJailCheck } from '../library/address.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
-import { safeObjectId } from '../db/safe-object-id.ts';
+import { safeObjectId } from '../db/object-id.ts';
 import type { FolderWithId } from '../db/schema.ts';
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a

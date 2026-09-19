@@ -10,7 +10,7 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import type { SqlParams, SqlRow, SqlStatement, SqlWriteResult } from '../protocol.ts';
 import type { SqliteDb } from './db-handle.ts';
 import { caseFoldKey } from '../case-fold.ts';

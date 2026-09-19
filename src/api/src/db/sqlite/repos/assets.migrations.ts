@@ -31,7 +31,7 @@
  * missing file that can only fail.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { VIDEO_EXTS } from '../../../indexer/media-types.ts';
 import type { AssetExif, FileInfo, Place } from '../../schema.ts';
 import { stageRearmBatchStatement } from './assets.stage-rearm.ts';

@@ -34,7 +34,7 @@
  */
 import { fromHex, isMapleId } from '../indexer/id.ts';
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { findMapleIdsPresentInLibrary } from '../db/sqlite/repos/backup.repo.ts';
 import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
 import { child as childLogger } from '../log.ts';

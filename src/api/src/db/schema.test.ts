@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from './object-id.ts';
 import type { AssetDoc, FileInfo, UploadSessionDoc, BackupSessionDoc } from './schema.ts';
 
 describe('PhotoKit backup schema additions', () => {

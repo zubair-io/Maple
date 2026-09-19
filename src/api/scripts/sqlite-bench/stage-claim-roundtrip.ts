@@ -36,7 +36,7 @@ import {
   stageClaimCandidatesSql,
   stageClaimSql,
 } from '../../src/db/sqlite/repos/stage-runtime.sql.ts';
-import { BENCH_DIR, median, openBenchDatabase, removeDatabase } from './compare-helpers.ts';
+import { BENCH_DIR, median, openBenchDatabase, removeDatabase } from './bench-db.ts';
 import { generateLibrary } from './generate.ts';
 
 const DEFAULT_ASSETS = 60_000;

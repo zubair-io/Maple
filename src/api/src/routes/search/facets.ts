@@ -14,7 +14,7 @@
  */
 
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { searchFacets } from '../../db/sqlite/repos/search.repo.ts';
 import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';

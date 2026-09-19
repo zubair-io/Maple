@@ -24,7 +24,7 @@ import { afterEach, beforeEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import type { Logger } from 'pino';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import type { ImageDoc } from '../run-stage.ts';

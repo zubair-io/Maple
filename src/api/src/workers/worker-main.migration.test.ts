@@ -1,5 +1,5 @@
 /**
- * Only the API process migrates, and only before it serves (#3752).
+ * Only the API process prepares the schema, and only before it serves.
  *
  * Both halves of that are structural rather than behavioural — they are
  * properties of which module calls what, in which order — so they are asserted
@@ -7,10 +7,16 @@
  * two processes against one file and catch a race that, by construction,
  * happens only when the invariant is already broken.
  *
- * It is worth a test because the failure is silent and expensive. A worker that
- * migrated would be a second writer against a half-built database whose resume
- * checkpoints assume one; a worker spawned early would claim stages against a
- * library that is still filling up, and mark assets done that have no rows yet.
+ * It is worth a test because the failure is silent and expensive. A worker
+ * spawned before the schema is current would claim stages against a database
+ * missing the columns its writeback names, and fail every one of them on a
+ * library that is otherwise healthy.
+ *
+ * The migration runner itself tolerates two processes racing — it takes the
+ * write lock and re-checks the sentinel inside it — so this is not a safety
+ * net against corruption. It is a statement about who owns the boot: one
+ * process decides the schema is ready, and the tier it spawns inherits that
+ * decision rather than re-deciding it.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -30,41 +36,43 @@ describe('the worker tier', () => {
     // It needs its own connection — the pool is per-process.
     expect(workerMain).toContain('openSqlitePool');
 
-    // And it must not reach for the cutover. Importing the path helper is
-    // fine and expected; calling the migration is what is forbidden.
-    expect(workerMain).not.toContain('migrateAtBoot');
+    // And it must not reach for the schema gate. Importing the path helper is
+    // fine and expected; running the migrations is what is forbidden.
+    expect(workerMain).not.toContain('ensureSchemaAtBoot');
+    expect(workerMain).not.toContain('runMigrations');
 
-    // One connection, and only one. After #3787 the tier has no MongoDB client
-    // and no index set to ensure — the schema is the migration's output — so a
-    // reappearing `getDb` here is a second database being opened, not a detail.
+    // One connection, and only one. The tier has no second store to reach and
+    // no index set to ensure — the schema is the migration's output — so either
+    // of these reappearing here is a second database being opened, not a
+    // detail.
     expect(workerMain).not.toContain('getDb');
     expect(workerMain).not.toContain('ensureIndexes');
   });
 });
 
 describe('the API process', () => {
-  it('finishes the migration before it spawns the worker or listens', () => {
+  it('finishes preparing the schema before it spawns the worker or listens', () => {
     const index = source('index.ts');
 
-    const migration = index.indexOf('await startSqlite()');
+    const schema = index.indexOf('await startSqlite()');
     const spawn = index.indexOf('startWorkerSupervisor(');
     const listen = index.indexOf('server.listen(');
 
-    expect(migration).toBeGreaterThan(-1);
-    expect(spawn).toBeGreaterThan(migration);
-    expect(listen).toBeGreaterThan(migration);
+    expect(schema).toBeGreaterThan(-1);
+    expect(spawn).toBeGreaterThan(schema);
+    expect(listen).toBeGreaterThan(schema);
   });
 
-  it('refuses to serve when the migration fails, rather than logging and continuing', () => {
+  it('refuses to serve when the schema cannot be prepared, rather than logging and continuing', () => {
     const index = source('index.ts');
     const startSqlite = index.slice(
       index.indexOf('async function startSqlite()'),
       index.indexOf('async function start()'),
     );
 
-    // Every other boot phase logs and carries on. This one exits: an empty
-    // library is indistinguishable from a deleted one to a File Provider
-    // client, and it would act on the difference.
+    // Every other boot phase logs and carries on. This one exits: a migration
+    // that failed leaves the schema in a shape the code above it does not
+    // expect, and every write from then on is into that shape.
     expect(startSqlite).toContain('process.exit(1)');
   });
 });

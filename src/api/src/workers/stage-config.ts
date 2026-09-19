@@ -15,7 +15,7 @@
  * unchanged for every stage file and test.
  */
 
-import type { WithId } from 'mongodb';
+import type { WithId } from '../db/object-id.ts';
 import type { Logger } from 'pino';
 import { type IndexerAssetDoc } from '../indexer/images.repo.ts';
 import type { SqlStatement } from '../db/sqlite/protocol.ts';

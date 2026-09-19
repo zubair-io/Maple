@@ -18,7 +18,7 @@ import {
   validateRelPathShape,
 } from './address';
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 
 let tmpRoot: string;
 const TEST_SLUG = 'test-library';

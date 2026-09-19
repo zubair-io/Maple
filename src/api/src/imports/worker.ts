@@ -32,7 +32,7 @@
 
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
 import { canonicalBaseFromSidecarFilename } from '../fs/browse.ts';
 import { hashFileForId as realHashFileForId } from '../indexer/id.ts';

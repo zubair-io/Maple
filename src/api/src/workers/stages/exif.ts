@@ -14,7 +14,7 @@
  * `maple_id` at insert time.
  */
 import * as fs from 'node:fs/promises';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 import { deriveId } from '../../indexer/id.ts';

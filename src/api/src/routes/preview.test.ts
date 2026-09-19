@@ -12,7 +12,7 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm, realpath, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { maple } from 'maple';
 
 import { previewPathRoutes } from './preview.ts';

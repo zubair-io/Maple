@@ -13,7 +13,7 @@
  * `FROM` leads with `faces` — a table that has a `hidden` column of its own.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { placeholders } from './values.ts';
 import type { SqlValue } from '../protocol.ts';
 import {

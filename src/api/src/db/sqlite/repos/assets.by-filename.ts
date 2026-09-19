@@ -27,7 +27,7 @@
  * that work once per copy and report duplicates.
  */
 
-import type { ObjectId, WithId } from 'mongodb';
+import type { ObjectId, WithId } from '../../object-id.ts';
 import type { AssetDoc, AssetExif, FileInfo, MetadataOverride, Place } from '../../schema.ts';
 import { json, toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';

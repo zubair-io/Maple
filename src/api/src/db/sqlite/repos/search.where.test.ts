@@ -1,54 +1,55 @@
 /**
- * The query string → `WHERE` translation, checked against the Mongo filter
- * builder it replaces.
+ * The query string → `WHERE` translation.
  *
- * The important half is validation parity. `buildFilter` answers `{ error }`
- * for seven kinds of malformed query and the route turns each into a 400 with
- * that sentence in the body, so a client that reads the message keeps working
- * only if the messages match — including which one wins when a query is wrong
- * in two ways at once. Rather than restate the sentences here, each case is run
- * through both builders and their answers compared, so the parity cannot rot
- * without a test failing.
+ * The first half is validation. `buildSearchWhere` answers `{ error }` for
+ * seven kinds of malformed query and the route turns each into a 400 with that
+ * sentence in the body, so the exact wording is part of the wire contract — as
+ * is which message wins when a query is wrong in two ways at once, since only
+ * one is reported. Both are pinned case by case below.
  */
 
 import { describe, expect, test } from 'bun:test';
-import { buildFilter } from '../../../routes/search/query.ts';
 import { buildSearchWhere, searchWhereSql } from './search.where.ts';
 import type { SearchQuery } from '../../../routes/search/query-schema.ts';
 
-/** Queries that must be rejected, and the ones that must not. */
-const VALIDATION_CASES: SearchQuery[] = [
-  { libraryId: 'not-an-object-id' },
-  { flag: 'maybe' },
-  { color: 'chartreuse' },
-  { pathPrefix: 'x'.repeat(1025) },
-  { sceneType: 'underwater' },
-  { ext: 'dng,../etc' },
-  { ext: 'DNG' },
-  { scope: 'albums' },
-  { scope: 'nonsense' },
-  // Wrong in two ways: both builders must pick the same one to report.
-  { libraryId: 'bad', flag: 'maybe' },
-  { flag: 'maybe', color: 'chartreuse' },
-  { color: 'chartreuse', sceneType: 'underwater' },
-  { sceneType: 'underwater', ext: '../etc' },
-  { ext: '../etc', scope: 'nonsense' },
-  // Accepted: an empty flag, an empty colour, an empty scope, a valid id.
-  { flag: '' },
-  { color: '' },
-  { scope: '' },
-  { flag: 'pick', color: 'blue', scope: 'photos' },
-  {},
+/**
+ * Every query that must be rejected paired with the sentence it earns, and
+ * every near-miss that must be accepted paired with `null`.
+ *
+ * The five doubly-wrong queries in the middle exist for the ordering: the
+ * checks run libraryId → flag → colour → pathPrefix → sceneType → extensions →
+ * scope, so each of those pairs proves the earlier check is the one that
+ * reports. Change the order and exactly one of them fails.
+ */
+const VALIDATION_CASES: ReadonlyArray<readonly [SearchQuery, string | null]> = [
+  [{ libraryId: 'not-an-object-id' }, 'Invalid libraryId'],
+  [{ flag: 'maybe' }, 'Invalid flag: maybe'],
+  [{ color: 'chartreuse' }, 'Invalid color: chartreuse'],
+  [{ pathPrefix: 'x'.repeat(1025) }, 'pathPrefix too long'],
+  [{ sceneType: 'underwater' }, 'Invalid sceneType: underwater'],
+  [{ ext: 'dng,../etc' }, 'Invalid extension: ../etc'],
+  [{ ext: 'DNG' }, null],
+  [{ scope: 'albums' }, null],
+  [{ scope: 'nonsense' }, 'Invalid scope: nonsense'],
+  // Wrong in two ways: the earlier check is the one that reports.
+  [{ libraryId: 'bad', flag: 'maybe' }, 'Invalid libraryId'],
+  [{ flag: 'maybe', color: 'chartreuse' }, 'Invalid flag: maybe'],
+  [{ color: 'chartreuse', sceneType: 'underwater' }, 'Invalid color: chartreuse'],
+  [{ sceneType: 'underwater', ext: '../etc' }, 'Invalid sceneType: underwater'],
+  [{ ext: '../etc', scope: 'nonsense' }, 'Invalid extension: ../etc'],
+  // Accepted: an empty flag, an empty colour, an empty scope, a valid trio.
+  [{ flag: '' }, null],
+  [{ color: '' }, null],
+  [{ scope: '' }, null],
+  [{ flag: 'pick', color: 'blue', scope: 'photos' }, null],
+  [{}, null],
 ];
 
-describe('validation parity with buildFilter', () => {
-  for (const query of VALIDATION_CASES) {
+describe('buildSearchWhere — which queries earn a 400, and with which sentence', () => {
+  for (const [query, expected] of VALIDATION_CASES) {
     test(JSON.stringify(query), () => {
-      const mongo = buildFilter(query);
-      const sqlite = buildSearchWhere(query);
-      const mongoError = 'error' in mongo ? mongo.error : null;
-      const sqliteError = 'error' in sqlite ? sqlite.error : null;
-      expect(sqliteError).toBe(mongoError);
+      const where = buildSearchWhere(query);
+      expect('error' in where ? where.error : null).toBe(expected);
     });
   }
 });
@@ -172,7 +173,7 @@ describe('buildSearchWhere — the clause list', () => {
     // mid-enrichment the photographs filter would return almost nothing — and
     // the generated-search worker forces isScreenshot: 'false' on every query
     // it evaluates, so it would have scored every collection it proposed at
-    // zero. `IS NOT 1` is the direct equivalent of the `$ne: true` it replaces.
+    // zero. `IS NOT 1` is the one spelling that keeps NULL in the set.
     const where = buildSearchWhere({ isScreenshot: 'false' });
     if ('error' in where) throw new Error(where.error);
     expect(where.clauses).toContain('assets.is_screenshot IS NOT 1');
@@ -196,7 +197,10 @@ describe('buildSearchWhere — the clause list', () => {
     expect(valid.clauses).toEqual(['assets.captured_month = ?']);
   });
 
-  test('bare dates widen to the whole day, as the Mongo builder does', () => {
+  test('bare dates widen to the whole day at both ends', () => {
+    // `to: '2024-12-31'` compares lexicographically below every timestamp
+    // recorded on that day, so without widening the last day of the range
+    // silently drops out of the results.
     const where = buildSearchWhere({ from: '2024-01-01', to: '2024-12-31' });
     if ('error' in where) throw new Error(where.error);
     expect(where.params).toEqual(['2024-01-01T00:00:00.000Z', '2024-12-31T23:59:59.999Z']);

@@ -6,7 +6,7 @@
 //   POST /api/auth/native-code         (authed) — the web app issues a code
 //   POST /api/auth/native-code/redeem  (public) — the native app redeems it
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import { accessClaimsFor, toPublicAuthUser } from '../auth/permissions.ts';

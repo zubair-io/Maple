@@ -8,7 +8,7 @@
 
 import type { Database } from 'bun:sqlite';
 import { caseFoldKey } from '../case-fold.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { run } from '../test-sqlite.test-helpers.ts';
 
 /** Inserts an `asset_detail` row. Every payload column is optional. */

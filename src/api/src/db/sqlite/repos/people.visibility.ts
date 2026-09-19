@@ -10,7 +10,7 @@
  * effect when a caller opts in.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import {
   listPeopleByFilter,

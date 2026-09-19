@@ -28,9 +28,9 @@
  * sites and hide that those are three different questions.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { FileInfo } from '../../schema.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';

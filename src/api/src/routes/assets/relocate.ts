@@ -28,7 +28,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { validateRelPathShape } from '../../library/address.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';

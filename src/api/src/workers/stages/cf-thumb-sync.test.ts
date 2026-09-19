@@ -14,7 +14,7 @@ import { describe, expect, it, beforeAll, afterAll, afterEach, beforeEach } from
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import cfThumbSyncStage from './cf-thumb-sync.ts';
 import { resolveThumbPath } from '../../fs/xmp.ts';
 import { patchAppSettings } from '../../db/sqlite/repos/app-settings.repo.ts';

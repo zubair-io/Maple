@@ -30,7 +30,7 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm, realpath, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../src/db/object-id.ts';
 
 import { previewPathRoutes } from '../src/routes/preview.ts';
 import { setLibraryRootsForTests, invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';

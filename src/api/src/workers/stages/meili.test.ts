@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
 import type { AssetFaceDoc } from '../../db/schema.ts';
 import type {

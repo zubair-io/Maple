@@ -1,5 +1,5 @@
 /** Shared creation responses keep first submissions and failed-only retries consistent. */
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../db/object-id.ts';
 import type { JobWithId } from '../db/schema.ts';
 import type { CreateJobInput } from '../job-runner/jobs.repo.ts';
 import {

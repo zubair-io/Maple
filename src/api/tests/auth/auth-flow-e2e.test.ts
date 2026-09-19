@@ -36,7 +36,7 @@ process.env.MAPLE_ORIGIN = 'http://localhost:3000';
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../src/db/object-id.ts';
 import { buildApp } from '../../src/index.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
 import { pkceS256 } from '../../src/auth/native_code_store.ts';

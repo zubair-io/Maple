@@ -8,7 +8,7 @@
  * different device alone, which only means something if the update already ran.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../src/db/object-id.ts';
 import { authedHandle } from './helpers/authed-handle.ts';
 import {
   createLiveTestDatabase,

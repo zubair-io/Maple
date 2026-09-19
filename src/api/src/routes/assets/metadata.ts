@@ -12,7 +12,7 @@
  */
 
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { resolveAddressString } from '../../library/address.ts';

@@ -17,7 +17,7 @@ import {
   liveLocationCount,
   run,
 } from './test-sqlite.test-helpers.ts';
-import { newObjectIdHex } from './object-id.ts';
+import { newObjectIdHex } from '../object-id.ts';
 
 describe('assets', () => {
   test('rejects an id that is not a 24-character hex string', async () => {

@@ -15,7 +15,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import { createTestDatabase } from '../test-sqlite.test-helpers.ts';
 import { insertStageState } from './assets.test-helpers.ts';
 import { MEILI_STAGE } from './assets.stage-rearm.ts';

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import type { ImageDoc } from '../run-stage.ts';
 import {
   RemoteError,

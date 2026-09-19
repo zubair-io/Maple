@@ -13,7 +13,7 @@
 // stateless trade `role` makes (see auth/middleware.ts).
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import type { UserRole } from '../db/schema.ts';
 import {
   countOtherOwners,

@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../src/db/object-id.ts';
 import { cachePathFor, cachePathForAsset } from '../src/fs/xmp.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../src/indexer/previewer.ts';
 import contract from './fixtures/preview-path-contract.json' with { type: 'json' };

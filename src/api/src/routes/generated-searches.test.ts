@@ -17,7 +17,7 @@
 
 import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
   insertFolder,

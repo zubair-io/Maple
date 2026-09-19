@@ -17,7 +17,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import {
   sidecarMetadataIndexHandler,
   SIDECAR_METADATA_INDEX_VERSION,

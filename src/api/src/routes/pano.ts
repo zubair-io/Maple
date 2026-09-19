@@ -27,7 +27,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { child as childLogger } from '../log.ts';
 import {
   isPanoProvisioned,

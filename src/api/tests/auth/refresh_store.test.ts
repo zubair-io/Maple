@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../src/db/object-id.ts';
 import {
   issueRefreshToken,
   revokeChain,

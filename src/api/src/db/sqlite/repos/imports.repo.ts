@@ -52,10 +52,10 @@
  * exist. {@link getImportFiles} is the collection query alone.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { SqlValue } from '../protocol.ts';
 import type { ImportFileEntry, ImportFileState, ImportStatus, ImportWithId } from '../../schema.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { changesAt, sqliteDb, type SqliteDb } from './db-handle.ts';
 import {
   toClaimedImport,

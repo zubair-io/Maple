@@ -26,7 +26,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Database } from 'bun:sqlite';
 import { Elysia } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { listChangesSince } from '../db/sqlite/repos/changes.repo.ts';
 import {
   createLiveTestDatabase,

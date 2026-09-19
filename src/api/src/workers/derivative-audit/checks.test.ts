@@ -4,7 +4,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, rm, stat } from '../../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../db/object-id.ts';
 import { evaluateAsset, type AuditDeps } from './checks.ts';
 import { resolveThumbPath } from '../../fs/xmp.ts';
 import type { ImageDoc } from '../run-stage.ts';

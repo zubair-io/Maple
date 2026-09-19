@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import { previewRoutes } from './preview.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

@@ -14,7 +14,7 @@ import { mkdtempSync, realpathSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { signAccessToken } from '../src/auth/tokens.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import { setMeilisearchClientForTests } from '../src/enrichment/meilisearch-client.ts';
 import {
   createLiveTestDatabase,

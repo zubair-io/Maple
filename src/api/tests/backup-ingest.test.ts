@@ -10,7 +10,7 @@
  *   - `backup-ingest-fileinfo.test.ts`       — asset_locations content-addressing
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../src/db/object-id.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authedHandle } from './helpers/authed-handle.ts';

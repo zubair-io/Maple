@@ -28,7 +28,7 @@
  * sweeper's ordinary created/removed handling for every candidate in it.
  */
 import { promises as nodeFs } from 'node:fs';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import * as fs from '../../fs/mirrored.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { readExif } from '../../indexer/exif.ts';

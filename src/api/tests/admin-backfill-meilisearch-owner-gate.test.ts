@@ -20,7 +20,7 @@ import {
 } from '../src/enrichment/meilisearch-client.ts';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import { meilisearchBackfillRoutes } from '../src/routes/admin-backfill-meilisearch.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);

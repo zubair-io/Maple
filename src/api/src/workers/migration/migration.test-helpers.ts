@@ -17,8 +17,8 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import type { ObjectId } from 'mongodb';
-import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import type { ObjectId } from '../../db/object-id.ts';
+import { newObjectIdHex } from '../../db/object-id.ts';
 import { toObjectId } from '../../db/sqlite/repos/values.ts';
 import { createTempLibrary } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 

@@ -6,7 +6,7 @@
 import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { closeSqlitePool, openSqlitePool } from '../db/sqlite/index.ts';
 import { logReaderRespawn } from '../db/sqlite/pool-logging.ts';
-import { sqliteDatabasePath } from '../db/sqlite/boot-migration.ts';
+import { sqliteDatabasePath } from '../db/sqlite/database-path.ts';
 import { startWorkers, stopWorkers } from './start-workers.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { flushOtelBeforeExit, initOtel, installOtelFatalFlush } from '../otel.ts';

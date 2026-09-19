@@ -18,7 +18,7 @@ import {
   testSqliteDb,
 } from '../test-sqlite.test-helpers.ts';
 import { insertDetail, insertFaceRow, insertPersonRow } from './assets.test-helpers.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import {
   advanceVectorFingerprint,
   countLiveAssetRows,

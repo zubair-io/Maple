@@ -49,12 +49,12 @@
  * maintained; `people.face-count.ts` has that argument in full.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import path from 'node:path';
 import { child as childLogger } from '../../../log.ts';
 import { assertValidPersonName } from '../../../people/person-name.ts';
 import { caseFoldKey } from '../case-fold.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import {

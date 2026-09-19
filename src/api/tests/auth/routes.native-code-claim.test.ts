@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../src/db/object-id.ts';
 import { nativeCodeIssueRoutes, nativeCodeClaimRoutes } from '../../src/routes/auth-native-code.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
 import { pkceS256 } from '../../src/auth/native_code_store.ts';

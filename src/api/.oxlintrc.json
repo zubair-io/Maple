@@ -52,18 +52,6 @@
     {
       "files": [
         "scripts/ffi-contention.ts",
-        "src/db/sqlite/import/run.ts",
-        "src/db/sqlite/import/destination.ts",
-        "src/db/sqlite/import/fixture.test-helpers.ts",
-        "src/db/sqlite/import/import.test.ts",
-        "src/db/sqlite/import/import-changes.test.ts",
-        // #3790. Stages its destination database under os.tmpdir() and removes
-        // it afterwards, exactly as its sibling suites above do — a temp path,
-        // never a library, so there is no mirror to replicate to.
-        "src/db/sqlite/import/import-contested-locations.test.ts",
-        "src/db/sqlite/import/import-resume.test.ts",
-        "src/db/sqlite/import/import-guards.test.ts",
-        "src/db/sqlite/boot-migration.test.ts",
         "src/workers/worker-main.migration.test.ts",
         "src/audio/extract-audio.ts",
         "src/audio/extract-audio.test.ts",

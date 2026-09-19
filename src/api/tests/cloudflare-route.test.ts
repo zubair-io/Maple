@@ -17,7 +17,7 @@ import { Elysia } from 'elysia';
 import { signAccessToken } from '../src/auth/tokens.ts';
 import { cloudflareRoutes } from '../src/routes/cloudflare.ts';
 import { readAppSettings } from '../src/db/sqlite/repos/app-settings.repo.ts';
-import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { newObjectIdHex } from '../src/db/object-id.ts';
 import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);

@@ -16,7 +16,7 @@ import { describe, expect, it, afterAll, beforeAll } from 'bun:test';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { solidJpeg } from '../test-support/synth-image.ts';
 import {
   createLiveTestDatabase,

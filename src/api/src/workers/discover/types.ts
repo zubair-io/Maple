@@ -7,7 +7,7 @@
  * `index.ts` for the module-level overview.
  */
 import * as path from 'node:path';
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 
 export interface DiscoverOptions {
   /** Absolute paths to watch. One path per registered folder root. */

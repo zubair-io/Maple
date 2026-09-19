@@ -1,6 +1,6 @@
 /** Resume preserves the ledger; retry creates a fresh job containing failures only. */
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import { getJob, resumeBatchJob } from '../job-runner/jobs.repo.ts';
 import { parseExportPayload } from '../export/export-payload.ts';
 import type { JobDoc } from '../db/schema.ts';

@@ -7,14 +7,14 @@
  * cannot drift between "what the count said" and "what the widget shows".
  *
  * The forcing is applied at EXECUTION time, not stamped at generation time.
- * That distinction is the whole point: a doc written by an earlier version of
- * the worker, or hand-edited in Mongo, still cannot surface a soft-hidden
- * person on an unattended living-room screen.
+ * That distinction is the whole point: a row written by an earlier version of
+ * the worker, or edited straight in the database, still cannot surface a
+ * soft-hidden person on an unattended living-room screen.
  */
 
 import { describe, it, expect } from 'bun:test';
 import { toSearchQuery } from './execute.ts';
-import { buildFilter } from '../../routes/search/query.ts';
+import { buildSearchWhere } from '../../db/sqlite/repos/search.where.ts';
 
 const LIB = '507f1f77bcf86cd799439011';
 const HIDDEN = '651f1e4a2b3c4d5e6f708192';
@@ -78,21 +78,34 @@ describe('toSearchQuery — passthrough', () => {
   });
 });
 
-describe('toSearchQuery — composed with buildFilter', () => {
-  it('produces a filter that excludes assets showing a hidden person', () => {
-    // The end-to-end guarantee, asserted against the real buildFilter rather
-    // than trusting that the flag alone is enough.
-    const query = toSearchQuery({ placeQuery: 'beach' }, LIB);
-    const filter = buildFilter(query, [HIDDEN]) as Record<string, unknown>;
+/**
+ * The end-to-end half: a forced query is only worth anything if the search
+ * layer that runs it honours the forcing. These push `toSearchQuery`'s output
+ * through the real where-builder — the same one `/api/search` uses — rather
+ * than trusting that setting the flag is enough.
+ */
+describe('toSearchQuery — composed with the search where-builder', () => {
+  it('produces a WHERE that excludes assets showing a hidden person', () => {
+    const where = buildSearchWhere(toSearchQuery({ placeQuery: 'beach' }, LIB), [HIDDEN]);
+    if ('error' in where) throw new Error(where.error);
 
-    expect(filter.faces).toEqual({
-      $not: { $elemMatch: { person_id: { $in: [HIDDEN] } } },
-    });
-    expect(filter.hidden).toEqual({ $ne: true });
+    // The exclusion is a negated sub-query over `faces`; the person id it
+    // binds is the hidden one the caller resolved.
+    const excluded = where.clauses.find((clause) => clause.startsWith('NOT ('));
+    expect(excluded).toBeDefined();
+    expect(excluded).toContain('FROM faces f');
+    expect(where.params).toContain(HIDDEN);
+
+    // Hidden ASSETS are a separate, always-on filter — an ambient surface
+    // must not show either kind.
+    expect(where.clauses).toContain('assets.hidden = 0');
   });
 
-  it('produces a month filter that survives into the Mongo query', () => {
-    const filter = buildFilter(toSearchQuery({ month: '8' }, LIB), []) as Record<string, unknown>;
-    expect(filter['exif.captured_month']).toBe(8);
+  it('produces a month filter that survives into the query', () => {
+    const where = buildSearchWhere(toSearchQuery({ month: '8' }, LIB));
+    if ('error' in where) throw new Error(where.error);
+
+    expect(where.clauses).toContain('assets.captured_month = ?');
+    expect(where.params).toContain(8);
   });
 });

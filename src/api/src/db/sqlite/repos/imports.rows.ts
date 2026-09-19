@@ -20,7 +20,7 @@
  *    {@link toImportDoc}.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type {
   ImportFileEntry,
   ImportFileKind,

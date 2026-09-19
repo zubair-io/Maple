@@ -34,7 +34,7 @@
  * {@link uploadSessions.gcAbandoned} exists and is what the routes rely on.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { UploadSessionDoc } from '../../schema.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import {

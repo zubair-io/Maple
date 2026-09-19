@@ -23,7 +23,7 @@
  * assuming it is there is what produced #2177.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { child as childLogger } from '../../../log.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { MEILI_STAGE } from './assets.stage-rearm.ts';

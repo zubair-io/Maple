@@ -38,9 +38,9 @@
  * have to read back identically.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { UploadSessionDoc } from '../../schema.ts';
-import { newObjectIdHex } from '../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import type { SqliteDb } from './db-handle.ts';
 import {
   ABANDON_PEERS_SQL,

@@ -27,7 +27,7 @@
  * that the asset's last live location".
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { meiliRearmStatement } from './assets.stage-rearm.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toHex, toObjectId } from './values.ts';

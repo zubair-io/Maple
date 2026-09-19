@@ -25,7 +25,7 @@
  * can widen or narrow the result set.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import type { AssetDoc, AssetExif, Place } from '../../schema.ts';
 import { groupByAsset, json, toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';

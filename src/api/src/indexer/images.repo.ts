@@ -22,7 +22,7 @@
  */
 
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../db/object-id.ts';
 import {
   type AssetDoc,
   type AssetFaceDoc,

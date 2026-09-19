@@ -33,7 +33,7 @@ import { mkdtemp, rm, realpath, readFile, writeFile, rename } from 'node:fs/prom
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../src/db/object-id.ts';
 import { maple } from 'maple';
 import { solidJpeg } from '../src/test-support/synth-image.ts';
 

@@ -29,7 +29,7 @@
  * coordinate is not a coordinate.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import type { AuditDoc } from '../../../workers/migration/audit-video-geo-backfill.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toObjectId } from './values.ts';

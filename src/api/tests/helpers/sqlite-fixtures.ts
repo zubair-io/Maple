@@ -14,8 +14,8 @@
  */
 
 import type { Database } from 'bun:sqlite';
-import { ObjectId } from 'mongodb';
-import { newObjectIdHex } from '../../src/db/sqlite/object-id.ts';
+import { ObjectId } from '../../src/db/object-id.ts';
+import { newObjectIdHex } from '../../src/db/object-id.ts';
 import { run } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 import type { UserRole } from '../../src/db/schema.ts';
 

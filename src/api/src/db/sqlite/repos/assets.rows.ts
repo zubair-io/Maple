@@ -34,7 +34,7 @@
  *    column cannot store — would be worse.
  */
 
-import { ObjectId } from 'mongodb';
+import { ObjectId } from '../../object-id.ts';
 import * as path from 'node:path';
 import type { AssetFaceDoc, EnrichmentStageState, FileInfo } from '../../schema.ts';
 // Type-only, so the `bool`/`json` import in the other direction stays the only

@@ -18,8 +18,8 @@
  * the same person.
  */
 
-import type { ObjectId } from 'mongodb';
-import { newObjectIdHex } from '../object-id.ts';
+import type { ObjectId } from '../../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import {
   assertInviteRedeemable,
   generateInviteCode,

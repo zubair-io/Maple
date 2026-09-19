@@ -54,7 +54,7 @@ import {
   FACE_COUNT_FOR_PERSON_SQL,
   FACE_COUNTS_BY_PERSON_SQL,
 } from './people.sql.ts';
-import { safeObjectId } from '../../safe-object-id.ts';
+import { safeObjectId } from '../../object-id.ts';
 
 /**
  * Above this many people, the keyed form stops being the cheaper plan.

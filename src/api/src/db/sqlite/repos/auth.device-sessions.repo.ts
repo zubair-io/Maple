@@ -20,7 +20,7 @@
  * grouping key says the same thing.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../object-id.ts';
 import { revokeFamily } from './auth.refresh.repo.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { nowIso, toHex } from './values.ts';

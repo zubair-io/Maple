@@ -16,7 +16,7 @@
  * that has gone missing must not take the rest of the batch down with it.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import { listCandidateIds, type CandidateScope } from '../../db/sqlite/repos/assets.migrations.ts';
 import type { Logger } from 'pino';
 import type { MigrationBatchResult } from './types.ts';

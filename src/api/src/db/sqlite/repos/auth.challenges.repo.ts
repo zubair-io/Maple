@@ -27,8 +27,8 @@
  * spent as well as rejected, so a stale ceremony cannot be retried.
  */
 
-import type { ObjectId, WithId } from 'mongodb';
-import { newObjectIdHex } from '../object-id.ts';
+import type { ObjectId, WithId } from '../../object-id.ts';
+import { newObjectIdHex } from '../../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toDate, toHex, toObjectId, toObjectIdOrNull } from './values.ts';
 import type { ChallengeDoc, ChallengePurpose } from '../../schema.ts';

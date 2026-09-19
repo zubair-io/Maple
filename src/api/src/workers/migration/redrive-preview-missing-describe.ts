@@ -29,7 +29,7 @@
  * Bump `PREVIEW_MISSING_REDRIVE_VERSION` to sweep again.
  */
 
-import type { ObjectId } from 'mongodb';
+import type { ObjectId } from '../../db/object-id.ts';
 import {
   countCandidates,
   rearmStagesAndStamp,

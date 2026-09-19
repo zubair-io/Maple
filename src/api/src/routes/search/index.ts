@@ -35,7 +35,6 @@ import { bucketsRoute } from './buckets.ts';
 
 export { _resetBucketsCacheForTests } from './buckets.ts';
 export { _resetCacheForTests } from './total-cache.ts';
-export { buildFilter } from './query.ts';
 export type { SearchQuery } from './query.ts';
 export type { SearchResult, SearchResultPHLink } from './project.ts';
 
