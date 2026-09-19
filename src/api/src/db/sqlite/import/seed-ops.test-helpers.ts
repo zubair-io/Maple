@@ -188,6 +188,9 @@ export async function seedOperational(db: Db, ids: SeedIds): Promise<void> {
       paused: false,
       last_seen_target_version: 2,
     },
+    // The discover sweeper shares this collection and fills in different
+    // fields: no stage knobs, and the one interval only it has.
+    { name: 'discover', paused: false, sweepDirIntervalMs: 900 },
   ] as never);
 
   await db.collection('stage_handlers').insertOne({
@@ -360,5 +363,22 @@ export async function seedNotImported(db: Db, ids: SeedIds): Promise<void> {
     query: {},
     result_count: 3,
     cover_asset_id: null,
+  } as never);
+  // The two the retired bounded-channel indexer left behind on every install
+  // that ever ran it. Seeded with rows rather than empty, because production's
+  // dead-letter queue happens to be empty and the skip must not rest on that.
+  await db.collection('indexer_config').insertOne({
+    _id: 'workers',
+    updatedAt: Date.now(),
+    workers: { discover: 32, hash: 32, exif: 32, thumb: 32, ai: 27, mongo: 32 },
+  } as never);
+  await db.collection('indexer_dead_letter').insertOne({
+    key: '/libraries/a/IMG_0001.dng',
+    stage: 'hash',
+    absPath: '/libraries/a/IMG_0001.dng',
+    error: 'EIO',
+    attempts: 3,
+    firstFailedAt: iso(2),
+    lastFailedAt: iso(3),
   } as never);
 }

@@ -9,10 +9,12 @@
  *  - `progress` and `counts` were subdocuments and are now plain columns,
  *    because a claim query reads them and a JSON payload cannot be indexed
  *    without a generated column nobody would use;
- *  - `worker_config.maxAttempts` is the one camelCase field in an otherwise
- *    snake_case schema, and becomes `max_attempts`. Missing it would leave every
- *    stage at whatever default the repository layer substitutes, which is a
- *    silent behaviour change rather than an error.
+ *  - `worker_config` carries two camelCase fields in an otherwise snake_case
+ *    schema, `maxAttempts` and `sweepDirIntervalMs`, which become
+ *    `max_attempts` and `sweep_dir_interval_ms`. Missing either leaves the
+ *    worker at whatever default the repository layer substitutes — every stage
+ *    back at three attempts, the discover sweeper back to visiting a directory
+ *    every 250ms — which is a silent behaviour change rather than an error.
  *
  * The lease fields keep their source units: `jobs` and `imports` hold ISO
  * strings, while `mirror_queue` and `discover_frontier` hold epoch
@@ -138,6 +140,7 @@ const workerConfigPlan = onePerDocument({
     'prompt_text',
     'ai_provider',
     'ai_model',
+    'sweep_dir_interval_ms',
   ],
   values: (doc) => {
     const name = toText(doc.name);
@@ -153,6 +156,7 @@ const workerConfigPlan = onePerDocument({
       toText(doc.prompt_text),
       toText(doc.ai_provider),
       toText(doc.ai_model),
+      toNumber(doc.sweepDirIntervalMs),
     ];
   },
 });

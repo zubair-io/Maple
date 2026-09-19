@@ -36,6 +36,9 @@ export const SKIPPED_COLLECTIONS: Record<string, string> = {
   image_access_tokens: 'capability tokens that live for minutes; a client mints another',
   managed_certificates: 'ACME account and LAN certificate; re-issued on first boot — see below',
   indexer_checkpoints: 'per-library walk resume points; the next sweep re-derives them',
+  indexer_config: 'retired pipeline pool sizes, superseded by worker_config — see below',
+  indexer_dead_letter:
+    "retired pipeline's redrive queue; a stage that gives up marks its asset — see below",
   meilisearch_backfill_state: 'search backfill cursor; a fresh backfill restarts from the top',
   meilisearch_backfill_leases: 'search backfill worker leases, seconds old and self-expiring',
   meilisearch_backfill_failures: 'search backfill redrive list; re-derived by the next backfill',
@@ -59,6 +62,44 @@ export const MANAGED_CERTIFICATES_WARNING =
   'The ACME account key and the issued LAN certificate are not carried over: the server ' +
   're-issues on first boot, against the duplicate-certificate rate limit, and any DNS-01 ' +
   'challenge records outstanding at cutover are orphaned in Cloudflare.';
+
+/**
+ * The two `indexer_*` entries above are the ones that look like operator
+ * tuning being thrown away, so they are spelled out too. They are what the
+ * first boot against a real production library turned up (#3786): both are
+ * written by a subsystem that has since been deleted, which is why neither
+ * appears in any `db.collection(…)` call site here and why reading this
+ * repository could not have found them.
+ *
+ * `indexer_config` is one document per install, `_id: "workers"`, holding the
+ * per-stage worker pool sizes of the bounded-channel indexer that ran
+ * `discover → hash → exif → thumb → ai → mongo` in memory. That pipeline is
+ * retired and the module that read the document back on startup
+ * (`indexer/indexer-config.repo.ts`, behind `PUT /api/indexer/config`) went
+ * with it, so nothing has turned those numbers into a running worker since.
+ *
+ * What replaced it is `worker_config` — one row per worker, written from
+ * Settings → Workers and read by the worker tier on every poll tick — and
+ * `worker_config` is imported in full, concurrency included. The production
+ * library shows the two apart rather than in agreement: its `indexer_config`
+ * was last written on 2026-05-09 and says every stage is 32, while its twenty
+ * `worker_config` rows, the oldest created the following day and the newest in
+ * September, say thumb 100, preview 50, exif 10, describe 3, face paused. The
+ * live tuning is the one being carried across; carrying the old document too
+ * could only mean writing a retired pipeline's numbers over it.
+ *
+ * `indexer_dead_letter` is the same pipeline's redrive queue: one document per
+ * (file, stage) that failed three times, keyed by maple id or absolute path.
+ * The concept survives, the rows do not. A per-asset stage that exhausts its
+ * retries marks `dead` on that asset's own stage row, and the slow-tier
+ * enrichment stages record theirs in `enrichment_state`; both travel with the
+ * asset they belong to. There is no destination for a queue keyed by a path
+ * and a stage vocabulary that no longer exists — `hash` and `mongo` are not
+ * stages any more, so no code on either side could re-drive one of these rows.
+ * Production's copy is empty, which is a consequence of the retirement rather
+ * than the reason this is safe: the entry would read the same at a thousand
+ * rows.
+ */
 
 /** Collections MongoDB itself owns, which are not the library's. */
 function isInternal(name: string): boolean {

@@ -172,6 +172,15 @@ describe('the rest of the library', () => {
     expect(row.last_seen_target_version).toBe(8);
   });
 
+  it('keeps the discover sweeper interval, the other camelCase field', () => {
+    const { client } = fixture.state;
+    if (client === null) return;
+    const row = one<{ sweep_dir_interval_ms: number }>(
+      `SELECT sweep_dir_interval_ms FROM worker_config WHERE name = 'discover'`,
+    );
+    expect(row.sweep_dir_interval_ms).toBe(900);
+  });
+
   it('flattens the job and import progress subdocuments into columns', () => {
     const { client, ids } = fixture.state;
     if (client === null || ids === null) return;
