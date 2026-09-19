@@ -9,7 +9,9 @@
  * clients would act on.
  *
  * Uses the throwaway mongod on :27077 the rest of the importer suite uses, and
- * skip-passes when it is not running.
+ * skip-passes when it is not running. The one exception is the schema-migration
+ * test, which needs no source at all — it is the boot every install that has
+ * already cut over now takes, and #3785 deletes the source it must not need.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
@@ -19,6 +21,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MongoClient } from 'mongodb';
 import { BootMigrationError, migrateAtBoot, sqliteDatabasePath } from './boot-migration.ts';
+import { SCHEMA_PRAGMAS } from './ddl/index.ts';
+import { fromBunSqlite, runMigrations } from './migrate.ts';
+import { ALL_MIGRATIONS } from './migrations/index.ts';
+import { initialSchemaMigration } from './migrations/0001-initial-schema.ts';
 import { closeImportSession, openImportSession, runImportOn } from './import/run.ts';
 import { connectTestMongo, seedLibrary, TEST_MONGO_URI } from './import/seed.test-helpers.ts';
 
@@ -47,6 +53,18 @@ function rowCount(path: string, table: string): number {
   const row = db.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
   db.close();
   return row.n;
+}
+
+/** The migration ids this database has recorded, in order. */
+function appliedMigrations(path: string): string[] {
+  const db = new Database(path, { readonly: true });
+  try {
+    return (
+      db.query(`SELECT id FROM schema_migrations ORDER BY id`).all() as Array<{ id: string }>
+    ).map((row) => row.id);
+  } finally {
+    db.close();
+  }
 }
 
 function cutoverMarker(path: string): string | null {
@@ -97,6 +115,39 @@ describe('the database path', () => {
     expect(sqliteDatabasePath()).toBe('./data/maple.sqlite');
     process.env.MAPLE_SQLITE_PATH = '/srv/maple/library.sqlite';
     expect(sqliteDatabasePath()).toBe('/srv/maple/library.sqlite');
+  });
+});
+
+describe('a boot onto a database that has already cut over', () => {
+  it('applies the schema migrations that shipped since (#3768)', async () => {
+    // No MongoDB needed, and deliberately so: this is the boot every existing
+    // install now takes, and it must not depend on a source that #3785 deletes.
+    //
+    // The shape is the one production was in the day after the cutover — the
+    // marker set, the data present, and a migration list that has grown since.
+    // Before #3768 nothing ran the list on this branch, so the server would
+    // open the pool and then fail on the first query naming a column
+    // `0002-facet-state` was meant to add.
+    const path = join(mkdtempSync(join(tmpdir(), 'maple-boot-schema-')), 'cutover.sqlite');
+    process.env.MAPLE_SQLITE_PATH = path;
+    const seed = new Database(path, { create: true });
+    for (const pragma of SCHEMA_PRAGMAS) seed.exec(pragma);
+    await runMigrations(fromBunSqlite(seed), [initialSchemaMigration]);
+    seed.run(`INSERT INTO server_state (id, value) VALUES ('sqlite_cutover', ?)`, [
+      '2026-09-19T00:00:00.000Z',
+    ]);
+    seed.close();
+
+    expect(appliedMigrations(path)).toEqual(['0001-initial-schema']);
+    expect(await migrateAtBoot()).toEqual({
+      status: 'already-migrated',
+      completedAt: '2026-09-19T00:00:00.000Z',
+    });
+
+    expect(appliedMigrations(path)).toEqual(ALL_MIGRATIONS.map((migration) => migration.id));
+    // And the thing the migration is for is actually there.
+    expect(rowCount(path, 'asset_subjects')).toBe(0);
+    rmSync(path, { force: true });
   });
 });
 

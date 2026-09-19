@@ -15,8 +15,9 @@ survive unchanged: every client-visible key is the same 24-character hex string
 MongoDB produced, because those strings are already on the wire. The derived
 structures are switched off for the load and rebuilt once at the end — the three
 triggers that maintain `assets.live_location_count`, the three that maintain the
-FTS5 index, the two that maintain `stage_state.media_kind` — which is the
-difference between eight statements and several million.
+FTS5 index, the two that maintain `stage_state.media_kind`, and the eight that
+maintain the mirrored facet state and `asset_subjects` (#3768) — which is the
+difference between a handful of statements and several million.
 References MongoDB could not enforce are resolved in one pass afterwards, with
 every nulled reference and dropped row counted and reported. Verification is
 then a separate step with its own verdict: row counts per table against the
@@ -423,11 +424,12 @@ checkpoint where it was.
 
 ### An unfinished file says so
 
-The load drops eight triggers and puts them back at the end. In between, the
+The load drops sixteen triggers and puts them back at the end. In between, the
 file opens cleanly, answers every query, and maintains none of the FTS5 index,
-`assets.live_location_count` or `stage_state.media_kind` — so a server pointed
-at it finds nothing new in search, shows every newly-located asset as dead, and
-never transcribes an imported video. A run killed in the middle
+`assets.live_location_count`, `stage_state.media_kind` or the mirrored facet
+state — so a server pointed at it finds nothing new in search, shows every
+newly-located asset as dead, never transcribes an imported video, and answers
+six of its facets with nothing at all. A run killed in the middle
 used to leave exactly that file with nothing to mark it. The state is now
 written to `import_meta`, verification fails on it, and the report says the file
 is not one to point a server at. Re-running the same command restores it.
