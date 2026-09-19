@@ -13,9 +13,10 @@
 # missing, so external contributors who removed it locally won't break
 # CI; the gate is active on the main repo where the file is present.
 #
-# No MongoDB needed — the harness calls the pure clustering function
-# directly. The API workflow still spins up Mongo for the DB-backed
-# tests; this workflow does not.
+# No database needed — the harness calls the pure clustering function
+# directly. Neither does the API workflow any more: the library index is a
+# SQLite file each test creates and throws away, so there is no database
+# service to start anywhere in CI.
 
 name: face-clustering
 

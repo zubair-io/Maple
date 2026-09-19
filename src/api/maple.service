@@ -25,13 +25,19 @@ ExecStart=/usr/local/bin/bun src/index.ts
 
 # Environment
 Environment=PORT=3000
-Environment=MAPLE_MONGO_URI=mongodb://localhost:27017
-Environment=MAPLE_MONGO_DB=maple
-# Persist the auto-generated JWT secret on a writable, stable path.
-# WorkingDirectory (/opt/maple) is read-only under ProtectSystem=strict,
-# so the code default (./.maple/jwt.secret) can't be written. /var/lib/maple
-# is in ReadWritePaths below and survives restarts — keeping the secret
-# stable so issued access tokens don't fail with "bad signature".
+# The library database — one SQLite file holding every folder, asset row and
+# setting. It must sit on a path this unit can write to and that survives a
+# restart: WorkingDirectory (/opt/maple) is read-only under ProtectSystem=strict,
+# so the code default (./data/maple.sqlite) cannot be created there. /var/lib/maple
+# is in ReadWritePaths below. The server creates the file and the directory
+# above it on first boot. Back this path up — losing it means a full re-index.
+Environment=MAPLE_SQLITE_PATH=/var/lib/maple/maple.sqlite
+# The fallback JWT secret file, used only on a boot where the database above
+# cannot be opened. Same reasoning as the database path: WorkingDirectory
+# (/opt/maple) is read-only under ProtectSystem=strict, so the code default
+# (./.maple/jwt.secret) can't be written. /var/lib/maple is in ReadWritePaths
+# below and survives restarts — keeping the secret stable so issued access
+# tokens don't fail with "bad signature".
 Environment=MAPLE_JWT_SECRET_FILE=/var/lib/maple/jwt.secret
 # Uncomment and set your photo library roots:
 # Environment=MAPLE_ROOTS=/srv/photos
@@ -51,7 +57,8 @@ TimeoutStopSec=30s
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-# Allow read/write to photo library and .maple/ cache directories:
+# Allow read/write to the photo library, the .maple/ cache directories, and
+# /var/lib/maple, which holds the SQLite library database:
 ReadWritePaths=/srv/photos /var/lib/maple
 
 [Install]

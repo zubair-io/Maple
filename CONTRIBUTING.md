@@ -154,7 +154,7 @@ src/
   apple/               Swift app (Mac, iOS, iPad) — SPM-based
   raw-pipeline/        Rust core (cargo workspace) — raw-core, raw-ffi, raw-wasm, maple-cli
   web/                 Angular 21 workspace — projects/maple, projects/maple-common
-  api/                 Bun + Elysia + MongoDB (Self Hosted backend + indexer)
+  api/                 Bun + Elysia + SQLite (Self Hosted backend + indexer)
   scripts/             Bash + Python harness scripts (color-pipeline, codegen, dev)
 docs/                  Specs, architecture, best practices (read these before editing)
 tools/                 Repo-wide tooling — file-budget, calibration, sanity checks

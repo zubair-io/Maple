@@ -1,6 +1,6 @@
 # Maple Self Hosted
 
-Bun + Elysia backend with MongoDB library index, background Indexer, raw-ffi thumbnail generation, and the same Angular WASM client as Maple Hosted — all self-hostable on your own hardware.
+Bun + Elysia backend with a SQLite library index, background Indexer, raw-ffi thumbnail generation, and the same Angular WASM client as Maple Hosted — all self-hostable on your own hardware.
 
 Architecture: `docs/api.md`, `docs/server-api.md`, `docs/indexer-enrichment.md`.
 
@@ -9,19 +9,11 @@ Architecture: `docs/api.md`, `docs/server-api.md`, `docs/indexer-enrichment.md`.
 ### Prerequisites
 
 - [Bun](https://bun.sh) ≥ 1.3
-- [Docker](https://www.docker.com) (for MongoDB)
 - Node / npm (only needed to rebuild the Angular UI)
 
-### 1. Start MongoDB
+There is no database to install. Maple keeps its entire library index in one SQLite file, which the server creates for itself the first time it starts.
 
-```bash
-cd src/api
-docker compose up -d mongo
-```
-
-This starts MongoDB on `localhost:27017`. Data is persisted in the `mongo_data` Docker volume.
-
-### 2. (Optional) Build the native RAW thumbnail library
+### 1. (Optional) Build the native RAW thumbnail library
 
 Required for thumbnail generation from RAW files (`.dng`, `.cr2`, etc.):
 
@@ -31,18 +23,22 @@ Required for thumbnail generation from RAW files (`.dng`, `.cr2`, etc.):
 
 This compiles `libraw_ffi.dylib` (macOS) and places it in `native/`. Without it, the server starts fine but skips RAW thumbnail generation.
 
-### 3. Install dependencies and start the server
+### 2. Install dependencies and start the server
 
 ```bash
 bun install
 bun src/index.ts
 ```
 
+The first start creates the library database at `./data/maple.sqlite` — the directory
+too, if it isn't there — brings its schema up to date, and then serves. You get a valid
+but empty library; nothing is in it until you point the indexer at a folder.
+
 The server listens on `http://localhost:3000`. The Angular UI is served from `/`. The
 static-UI handler resolves the bundle at `src/web/dist/maple/browser/` — build with
 `cd src/web && npm run build:maple` (or `ng build maple --configuration=production`).
 
-### 4. Pick a library folder in the UI
+### 3. Pick a library folder in the UI
 
 Open `http://localhost:3000`. On first run, the empty browse shell shows a
 **library picker** — navigate to your photos folder (or any subdirectory of
@@ -57,8 +53,7 @@ in the background.
 | Variable                | Default                                                                  | Description                                                                                                                                                                                                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PORT`                  | `3000`                                                                   | HTTP listen port                                                                                                                                                                                                                                                                                                                    |
-| `MAPLE_MONGO_URI`       | `mongodb://localhost:27017`                                              | MongoDB connection string                                                                                                                                                                                                                                                                                                           |
-| `MAPLE_MONGO_DB`        | `maple`                                                                  | MongoDB database name                                                                                                                                                                                                                                                                                                               |
+| `MAPLE_SQLITE_PATH`     | `./data/maple.sqlite`                                                    | The library database file, relative to the directory the server is started from. Created along with its parent directory on first boot. Put it on storage that survives a redeploy.                                                                                                                                                 |
 | `MAPLE_ROOTS`           | `/`                                                                      | Platform PATH-delimited FS roots the server may browse and read. Defaults to `/` (Docker mount is the jail).                                                                                                                                                                                                                        |
 | `MAPLE_DEV`             | (none)                                                                   | Set to `1` to proxy UI to Angular dev server                                                                                                                                                                                                                                                                                        |
 | `MAPLE_DEV_ORIGIN`      | `http://localhost:4201`                                                  | Angular dev server origin when `MAPLE_DEV=1` (the `maple` app serves on 4201)                                                                                                                                                                                                                                                       |
@@ -66,12 +61,16 @@ in the background.
 | `MAPLE_RP_ID`           | `localhost`                                                              | **WebAuthn Relying Party ID — set to your bare hostname in production** (`maple.example.com`, no scheme/port). The browser rejects passkey ceremonies whose `rpId` doesn't match the page hostname.                                                                                                                                 |
 | `MAPLE_ORIGIN`          | `http://localhost:3000,http://localhost:4200,http://localhost:4201`      | **Set to your full public origin in production** (`https://maple.example.com`). Comma-separated for multiple. Used to verify WebAuthn assertions came from the expected origin. The managed local HTTPS hostname (Settings → Network) is trusted automatically while its listener serves a certificate, so it does not belong here. |
 | `MAPLE_CORS_ORIGIN`     | `*`                                                                      | CORS `Access-Control-Allow-Origin`. Tighten to your domain in production.                                                                                                                                                                                                                                                           |
-| `MAPLE_JWT_SECRET_FILE` | `./.maple/jwt.secret` (native) · `/app/config/jwt.secret` (Docker image) | On-disk **fallback** secret path, used only when MongoDB is unreachable at boot.                                                                                                                                                                                                                                                    |
+| `MAPLE_JWT_SECRET_FILE` | `./.maple/jwt.secret` (native) · `/app/config/jwt.secret` (Docker image) | On-disk **fallback** secret path, used only when the database can't be opened at boot.                                                                                                                                                                                                                                              |
 | `MAPLE_DEV_AUTH`        | (none)                                                                   | Set to `1` to expose `/api/auth/dev-login` (passkey bypass). **NEVER set in production.**                                                                                                                                                                                                                                           |
 | `MAPLE_TLS_CERT`        | (none)                                                                   | Absolute path to a TLS certificate. Set together with `MAPLE_TLS_KEY` to serve HTTPS instead of plain HTTP — see "TLS on the LAN" below. Setting only one of the pair, or an unreadable path, fails startup with a clear error rather than silently falling back to HTTP.                                                           |
 | `MAPLE_TLS_KEY`         | (none)                                                                   | Absolute path to the TLS certificate's private key. See `MAPLE_TLS_CERT`.                                                                                                                                                                                                                                                           |
 
-**JWT secret resolution.** The HS256 signing secret is owned by the server — there is no environment variable to set it. It is resolved at startup in this order: (1) the **database** — collection `server_state`, document `_id: "jwt_secret"`, field `value`, created once on first boot; this is the canonical store because MongoDB data persists across container recreates and is shared by every instance, so the secret never silently rotates; (2) `MAPLE_JWT_SECRET_FILE` on disk, a degraded fallback used only when Mongo is unreachable; (3) an in-memory secret as a last resort if the filesystem is unusable (it won't survive a restart). The startup log line `JWT secret resolved` reports the `source` (`db`/`db-created`/`file`/`generated`/`memory`) and a non-reversible `fingerprint` — a changing fingerprint across restarts/instances is the signature of a `bad signature` auth bug.
+**The library database.** Everything the server knows about your photos — registered folders, the per-file index, worker progress, settings, auth records — lives in one SQLite file named by `MAPLE_SQLITE_PATH`. On first boot the server creates that file and the directory above it, applies any schema migrations the file hasn't recorded yet, opens its connection pool, and serves. A fresh install therefore comes up as a valid but empty library, and the indexer fills it from the roots you register. A migration that _fails_ is fatal: the server exits rather than serve a database whose shape it can't trust.
+
+Treat the file as the thing to back up and the thing to keep on persistent storage. Your originals are never written to, but the index, the settings and the signing secret all live here.
+
+**JWT secret resolution.** The HS256 signing secret is owned by the server — there is no environment variable to set it. It is resolved at startup in this order: (1) the **database** — table `server_state`, row `id = 'jwt_secret'`, column `value`, created once on first boot; this is the canonical store because the database file sits on a persistent volume, so it survives container recreates and is shared by every instance opening it, and the secret never silently rotates; (2) `MAPLE_JWT_SECRET_FILE` on disk, a degraded fallback used only when the database can't be opened; (3) an in-memory secret as a last resort if the filesystem is unusable (it won't survive a restart). The startup log line `JWT secret resolved` reports the `source` (`db`/`db-created`/`file`/`generated`/`memory`) and a non-reversible `fingerprint` — a changing fingerprint across restarts/instances is the signature of a `bad signature` auth bug.
 
 ## API reference
 
@@ -79,8 +78,8 @@ The full route reference (195 routes, with auth tier and parameters) is generate
 
 ## Development mode (UI hot-reload)
 
-One command starts MongoDB, the Bun API in proxy-to-`ng serve` mode, and the
-Angular dev server:
+One command starts the Bun API in proxy-to-`ng serve` mode and the Angular dev
+server:
 
 ```bash
 bash src/scripts/dev-self-hosted.sh
@@ -90,8 +89,8 @@ bun run dev:all
 
 Open http://localhost:3000 — the API serves the SPA and proxies non-`/api`
 routes to `ng serve` on `:4201` so HMR works through one URL. Ctrl-C stops
-the API and dev server (Mongo keeps running; stop it with
-`docker compose down`).
+both. There is nothing else left running afterwards; the library database is
+just a file under `src/api/data/`.
 
 If you'd rather start the pieces individually:
 
@@ -108,12 +107,15 @@ cd src/api && MAPLE_DEV=1 bun src/index.ts
 ```bash
 cd src/api
 
-# Start MongoDB + Maple server
+# Start the Maple server
 docker compose --profile app up -d
 
 # View logs
 docker compose logs -f maple
 ```
+
+The `app` profile is the whole file — there is no database service to bring up
+alongside it, so a bare `docker compose up -d` has nothing to do.
 
 Edit `docker-compose.yml` to mount your photo library:
 
@@ -124,12 +126,15 @@ environment:
   MAPLE_ROOTS: /photos
 ```
 
-The JWT signing secret is stored in MongoDB and shared across instances, so it
-survives `docker compose up --build` / redeploys without extra configuration —
-see "JWT secret resolution" above. The `maple_config` volume (mounted at
-`/app/config`) only holds the on-disk fallback secret used when Mongo is
-unreachable at boot; keeping the mount means even that degraded path stays
-stable.
+The one mount you must not drop is `maple_data:/app/data`, which holds the
+SQLite library file that `MAPLE_SQLITE_PATH` points at. Container filesystems
+are discarded on every recreate, so without that volume a `docker compose up
+--build` hands you an empty library and logs everyone out. The signing secret
+lives in the same file, which is why it survives redeploys and is shared by
+every instance without extra configuration — see "JWT secret resolution" above.
+The `maple_config` volume (mounted at `/app/config`) only holds the on-disk
+fallback secret used when the database can't be opened at boot; keeping the
+mount means even that degraded path stays stable.
 
 ## TLS on the LAN (enabling GPU rendering)
 
@@ -201,14 +206,12 @@ See [`docs/api.md`](../../docs/api.md). In short: the API process serves the Ang
 ## Testing
 
 ```bash
-bun test                # unit + integration; Mongo-backed tests skip-pass unless MAPLE_MONGO_URI points at a live mongod
+bun test                # unit + integration — no database process required
 bun run typecheck       # TypeScript strict check
 bun run lint            # oxlint (correctness + fs-import guardrail)
 ```
 
-CI (`.github/workflows/api.yml`) runs the suite against real MongoDB 7 and Meilisearch services. To run the Mongo-backed tests locally, start a mongod and export `MAPLE_MONGO_URI` (for example `mongodb://localhost:27017`) before `bun test`. See [`docs/testing.md`](../../docs/testing.md).
-
-Tests of code that has already moved to the SQLite backend need no database process at all: `src/db/sqlite/test-sqlite.test-helpers.ts` gives each test its own schema-applied database and disposes of it when the test ends. The mongod requirement above shrinks as the repository ports (#3746–#3751) land and disappears when the last one does.
+Nothing needs to be running first. `src/db/sqlite/test-sqlite.test-helpers.ts` gives each test its own schema-applied database file and disposes of it when the test ends, so the suite is self-contained on a clean checkout. CI (`.github/workflows/api.yml`) adds a Meilisearch service for the one integration test that exercises a real Meilisearch instance, and nothing else. See [`docs/testing.md`](../../docs/testing.md).
 
 ## Managed local HTTPS and IP fallback
 
@@ -225,7 +228,7 @@ flowchart LR
   I -->|Yes| P[Existing IP listener]
   I -->|No| F[Cloudflare Tunnel]
   F --> P
-  S[Network settings in MongoDB] --> M[Certificate manager]
+  S[Network settings in the database] --> M[Certificate manager]
   M --> D[Cloudflare TXT DNS validation]
   D --> L[Let's Encrypt]
   L --> M
@@ -255,11 +258,10 @@ Maple uses Let's Encrypt **DNS-01**, creating `_acme-challenge.<hostname>` TXT
 records through the Cloudflare API and checking public DNS propagation. It does
 not modify the hostname's A/AAAA records, open WAN ports, or change tunnel config.
 Certificates and the ACME account key persist in the database's own
-`managed_certificates` table, and the MongoDB → SQLite importer carries it
-across so a cutover does not force a re-issue (#3797). Settings and the
-write-only token live in
-`app_settings`; credentials follow the existing server-side Cloudflare settings
-storage policy, so protect DB access and backups. Neither certificate keys nor
+`managed_certificates` table, so a restart or a redeploy reuses the existing
+certificate rather than ordering a new one. Settings and the write-only token
+live in `app_settings`; credentials follow the existing server-side Cloudflare
+settings storage policy, so protect DB access and backups. Neither certificate keys nor
 API tokens are returned in settings/discovery responses.
 
 The server checks settings every 30 seconds. It renews certificates when one

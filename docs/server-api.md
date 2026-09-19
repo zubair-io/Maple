@@ -23,7 +23,7 @@ Anything marked bearer or stricter returns the standard error envelope on failur
 
 | Method | Path                         | Auth   | Purpose                                                                                                                                               |
 | ------ | ---------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/health`                | public | Liveness, plus optional MongoDB status. Backs the Docker health check                                                                                 |
+| GET    | `/api/health`                | public | Liveness, plus whether the library database is open. Backs the Docker health check                                                                    |
 | GET    | `/api/network/local-address` | public | This server's LAN address and port, so clients on the same network can prefer it over the public URL. Same trust tier as `/api/health` — no user data |
 | GET    | `/api/network/config`        | bearer | Effective network config plus per-field source                                                                                                        |
 | PUT    | `/api/network/config`        | bearer | Validate and save the operator's LAN-address override                                                                                                 |
@@ -72,7 +72,7 @@ Passkey ceremonies are two-step throughout: an `options` call returns the WebAut
 
 ## Libraries and folders
 
-A library is a registered root folder with a slug. `:id` is the folder's Mongo id.
+A library is a registered root folder with a slug. `:id` is the folder's 24-character hex id.
 
 | Method | Path                              | Auth   | Purpose                                                                                                                                   |
 | ------ | --------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -108,7 +108,7 @@ The four routes clients should prefer. Each resolves the slug through an in-memo
 | Method | Path                   | Auth       | Purpose                                                                                                                                                                                                                            |
 | ------ | ---------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/folder/:slug`    | +file      | Library-root listing. Registered separately because Elysia's `*` doesn't match an empty tail                                                                                                                                       |
-| GET    | `/api/folder/:slug/*`  | +file      | Sub-folder listing: indexed assets from Mongo merged with on-disk files not yet catalogued (`indexed: false`), enqueuing a discover scan for the strays                                                                            |
+| GET    | `/api/folder/:slug/*`  | +file      | Sub-folder listing: indexed assets from the catalog merged with on-disk files not yet catalogued (`indexed: false`), enqueuing a discover scan for the strays                                                                      |
 | GET    | `/api/image/:slug/*`   | bearer     | Stream the original file bytes; Content-Type from the extension                                                                                                                                                                    |
 | GET    | `/api/thumb/:slug/*`   | capability | Thumbnail AVIF. `ETag: "<maple_id>"`, immutable caching, 304 on `If-None-Match`. Generates on a cache miss; `202` with `Retry-After: 2` when the file exists but isn't indexed yet. This is the route the Cloudflare Worker fronts |
 | GET    | `/api/preview/:slug/*` | capability | 1280 px preview AVIF, generated on a cold miss. ETag is the preview file's own mtime and size with `must-revalidate`, so an editor overwriting it busts client caches                                                              |
@@ -123,15 +123,15 @@ The four routes clients should prefer. Each resolves the slug through an in-memo
 | ------ | ------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/fs/roots`    | +file  | The configured browse roots                                                                                                                                                                                                                                                                                                               |
 | GET    | `/api/fs/list`     | +file  | Subdirectories under `?path=` (no files). Backs the web library picker and the web, Apple and Windows Imports source pickers. `showAll=0\|1`                                                                                                                                                                                              |
-| GET    | `/api/fs/dir`      | +file  | Directories and image files at one level, enriched with catalog `asset_id`, EXIF, and paired sidecars. Two Mongo `$in` lookups per request. Paged via `cursor` + `limit`. Apple File Provider + cloud browse, Windows browse and File Explorer sync root                                                                                  |
-| GET    | `/api/fs/dir-fast` | +file  | Same paging contract, pure filesystem — no Mongo, no EXIF, no sidecars. No remaining consumer (the pickers moved to `/api/fs/list`; the grids list via `/api/folder`)                                                                                                                                                                     |
+| GET    | `/api/fs/dir`      | +file  | Directories and image files at one level, enriched with catalog `asset_id`, EXIF, and paired sidecars. Two batched database lookups per request. Paged via `cursor` + `limit`. Apple File Provider + cloud browse, Windows browse and File Explorer sync root                                                                             |
+| GET    | `/api/fs/dir-fast` | +file  | Same paging contract, pure filesystem — no database, no EXIF, no sidecars. No remaining consumer (the pickers moved to `/api/fs/list`; the grids list via `/api/folder`)                                                                                                                                                                  |
 | GET    | `/api/fs/raw`      | +file  | Stream the original bytes at `?path=`. Allowlisted to RAW ∪ bitmap extensions; others get 415. May be served from a mirror when the primary volume is unreachable (#926) — the reason Apple `CloudSource` and the Windows download and hydration paths still read here rather than `/api/image`. No `Range` support. Apple + Windows only |
 | GET    | `/api/fs/thumb`    | bearer | Thumbnail AVIF for `?path=`, cached at `.maple/thumbs/`. A cache hit is one `readFile`. Deliberately no `size` parameter. No remaining consumer (every client fetches `/api/thumb`)                                                                                                                                                       |
 | GET    | `/api/fs/preview`  | bearer | 1280 px preview for `?path=`, cached at `.maple/previews/`. Falls back to on-demand generation for un-indexed files. No remaining consumer (every client fetches `/api/preview`)                                                                                                                                                          |
 
 ## Assets
 
-`:id` is the asset's Mongo id.
+`:id` is the asset's 24-character hex id.
 
 | Method | Path                                 | Auth   | Purpose                                                                                                                                                                                                                    |
 | ------ | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -253,7 +253,7 @@ All six require a bearer — they write files and reconcile deletions. Resume id
 
 ## Workers
 
-Pause and config changes are written to `worker_config` in Mongo; the worker child re-reads it on its next poll tick, so there is no IPC.
+Pause and config changes are written to the `worker_config` table; the worker child re-reads it on its next poll tick, so there is no IPC.
 
 | Method | Path                                       | Auth   | Purpose                                                                  |
 | ------ | ------------------------------------------ | ------ | ------------------------------------------------------------------------ |

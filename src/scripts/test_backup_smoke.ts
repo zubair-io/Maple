@@ -3,11 +3,14 @@
  * End-to-end smoke test for the PhotoKit backup server endpoints.
  *
  * Runs against a local Maple API server on $MAPLE_API_URL (default
- * http://localhost:3000). Requires MongoDB running on $MAPLE_MONGO_URI.
+ * http://localhost:3000), and reads and writes the same SQLite library file
+ * that server is using.
  *
  * Prerequisites:
- *   1. MongoDB running:  docker compose up -d mongo  (from src/api/)
- *   2. API server running:  cd src/api && bun run dev
+ *   1. API server running:  cd src/api && bun run dev
+ *
+ * There is no database service to start — the library is a single SQLite file,
+ * which the server creates on its first boot.
  *
  * Usage:
  *   bun src/scripts/test_backup_smoke.ts
@@ -15,16 +18,15 @@
  *   src/scripts/test_backup_smoke.ts
  *
  * Environment variables:
- *   MAPLE_API_URL   — API base URL (default: http://localhost:3000)
- *   MAPLE_MONGO_URI — MongoDB connection string (default: mongodb://localhost:27017)
- *   MAPLE_MONGO_DB  — MongoDB database name (default: maple)
+ *   MAPLE_API_URL     — API base URL (default: http://localhost:3000)
+ *   MAPLE_SQLITE_PATH — library database file (default: src/api/data/maple.sqlite)
  *
  * Exit code:
  *   0 — all steps passed
  *   non-zero — a step failed (the failing step is printed to stderr)
  *
  * What it tests:
- *   Step 1 — Create a library folder (direct Mongo insert; /api/folders is auth-gated)
+ *   Step 1 — Create a library folder (direct SQLite insert; /api/folders is auth-gated)
  *   Step 2 — Seed a geocode_cache entry for Tokyo so the path-formatter gets a location name
  *   Step 3 — Upload a 1024-byte "RAW" in two chunks via POST /api/libraries/:id/backup/ingest
  *   Step 4 — Verify the assembled file landed on disk at the expected location
@@ -34,30 +36,47 @@
  *   Step 8 — Verify the rendered companion on disk
  *   Step 9 — Fetch the reconciliation feed via GET /api/libraries/:id/backup/state
  *   Step 10 — Mark the asset deleted via POST /api/libraries/:id/backup/notify-deleted
- *   Step 11 — Assert deleted_from_photos=true in MongoDB
- *   Step 12 — Cleanup: remove test data from disk and all three collections
+ *   Step 11 — Assert deleted_from_photos=1 on the asset row
+ *   Step 12 — Cleanup: remove test data from disk and from every table it wrote
  */
 
-import { MongoClient, ObjectId } from 'mongodb';
+import { Database } from 'bun:sqlite';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { newObjectIdHex } from '../api/src/db/object-id.ts';
+import { sqliteDatabasePath } from '../api/src/db/sqlite/database-path.ts';
 
 const API = process.env.MAPLE_API_URL ?? 'http://localhost:3000';
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const MONGO_DB = process.env.MAPLE_MONGO_DB ?? 'maple';
+
+// The server resolves a relative MAPLE_SQLITE_PATH against its own working
+// directory, which is src/api — that is where `bun run dev` starts it. This
+// script runs from the repo root, where the same relative string would name
+// <repo>/data/maple.sqlite and miss the file entirely. Resolving it against
+// src/api explicitly is what makes both processes open the same database; an
+// absolute MAPLE_SQLITE_PATH passes through untouched.
+const API_DIR = resolve(import.meta.dir, '..', 'api');
+const DB_PATH = resolve(API_DIR, sqliteDatabasePath());
 
 // Use the PID to avoid collisions when the test is run concurrently.
 const DEVICE_ID = `smoke-test-device-${process.pid}`;
 const PHID = `smoke/${process.pid}/IMG_0001`;
 // A deterministic BLAKE3-shaped hex string (the server treats it as opaque).
 const MAPLE_ID = `smoke${process.pid.toString(16).padStart(10, '0')}deadbeef12345678`;
+// `slug` is NOT NULL UNIQUE and addresses the library in public URLs, so it
+// carries the PID too.
+const LIBRARY_SLUG = `smoke-test-${process.pid}`;
 
 // Tokyo, 2024-03-15.
 const LAT = '35.68';
 const LON = '139.69';
 // Quantised cache key (4 decimal places — matches quantizedKey() in coordinate-cache.ts).
 const GEO_CACHE_KEY = `lat:35.68,lon:139.69`;
+// The ingest path reads the cache through CoordinateCache, which treats an
+// entry stamped with a different version as a miss. This is
+// GEOCODE_HANDLER_VERSION in workers/stages/geocode.ts.
+const GEOCODER_VERSION = 1;
 const CAPTURE_DATE = '2024-03-15T10:30:00Z';
 const FILENAME = 'IMG_0001.HEIC';
 
@@ -86,6 +105,55 @@ async function assertStatus(resp: Response, expected: number, label: string): Pr
   }
 }
 
+/** One row of `geocode_cache`, as the table stores it. */
+interface GeocodeRow {
+  place: string;
+  fetched_at: string;
+  geocoder_version: number;
+}
+
+const GEOCODE_SELECT_SQL = `SELECT place, fetched_at, geocoder_version FROM geocode_cache WHERE id = ?`;
+
+// The same upsert geocode-cache.repo.ts issues. Used twice here: once to seed
+// Tokyo, and once in step 12 to put back an entry that was already there.
+const GEOCODE_UPSERT_SQL = `
+  INSERT INTO geocode_cache (id, place, fetched_at, geocoder_version) VALUES (?, ?, ?, ?)
+  ON CONFLICT (id) DO UPDATE SET
+    place = excluded.place,
+    fetched_at = excluded.fetched_at,
+    geocoder_version = excluded.geocoder_version`;
+
+/**
+ * Open the library database the running server is using.
+ *
+ * Never creates the file: an empty database would have no schema, so every
+ * statement below would fail with a confusing "no such table" instead of the
+ * real problem, which is that this script and the server disagree about where
+ * the library lives.
+ */
+function openLibraryDb(): Database {
+  if (!existsSync(DB_PATH)) {
+    fail(
+      `library database not found at ${DB_PATH}`,
+      'Set MAPLE_SQLITE_PATH to the file the server uses, or start the server once ' +
+        '(cd src/api && bun run dev) — it creates the file on its first boot.',
+    );
+  }
+  try {
+    const db = new Database(DB_PATH, { readwrite: true, create: false });
+    // Foreign keys are off by default on every new connection, and the cleanup
+    // in step 12 needs them twice over: deleting the asset row has to take its
+    // locations, links and search row with it, and the folder row must not go
+    // while a location still points at it. The busy timeout covers the server
+    // writing to the same file while this script does.
+    db.exec('PRAGMA foreign_keys = ON');
+    db.exec('PRAGMA busy_timeout = 5000');
+    return db;
+  } catch (e: any) {
+    fail(`library database at ${DB_PATH} could not be opened`, e?.message);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,27 +161,13 @@ async function assertStatus(resp: Response, expected: number, label: string): Pr
 async function main(): Promise<void> {
   console.log('\n  Maple PhotoKit backup — end-to-end smoke test');
   console.log(`  API:   ${API}`);
-  console.log(`  Mongo: ${MONGO_URI}/${MONGO_DB}`);
+  console.log(`  DB:    ${DB_PATH}`);
   console.log(`  PID:   ${process.pid}`);
   console.log(`  PHID:  ${PHID}`);
   console.log('');
 
-  // ── MongoDB connection ───────────────────────────────────────────────────
-  const mongo = new MongoClient(MONGO_URI, {
-    connectTimeoutMS: 5000,
-    serverSelectionTimeoutMS: 5000,
-  });
-  try {
-    await mongo.connect();
-  } catch (e: any) {
-    fail('MongoDB unreachable — start it with: docker compose up -d mongo', e?.message);
-  }
-  const db = mongo.db(MONGO_DB);
-  const foldersColl = db.collection('folders');
-  const assetsColl = db.collection('assets');
-  const geocodeColl = db.collection('geocode_cache');
-  const uploadSessionsColl = db.collection('upload_sessions');
-  const backupSessionsColl = db.collection('backup_sessions');
+  // ── Library database ─────────────────────────────────────────────────────
+  const db = openLibraryDb();
 
   // ── Healthcheck ──────────────────────────────────────────────────────────
   try {
@@ -127,40 +181,46 @@ async function main(): Promise<void> {
   const libDir = await mkdtemp(join(tmpdir(), 'maple-smoke-'));
   console.log(`  Library dir: ${libDir}`);
 
-  // ── Step 1: Register library in MongoDB directly ─────────────────────────
-  // /api/folders is behind requireAuth. We seed the folder document directly
-  // so the backup routes (which only check foldersCollection) can find it.
-  const libraryObjectId = new ObjectId();
-  const libraryId = libraryObjectId.toHexString();
-  await foldersColl.insertOne({
-    _id: libraryObjectId,
-    path: libDir,
-    label: 'smoke-test',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  });
-  pass(`Step 1 — Library seeded in MongoDB (${libraryId})`);
+  // ── Step 1: Register library in SQLite directly ──────────────────────────
+  // /api/folders is behind requireAuth. We insert the folder row directly so
+  // the backup routes, which resolve :libraryId straight out of this table,
+  // can find it. The id is the same 24-character hex every client holds.
+  const libraryId = newObjectIdHex();
+  db.run(
+    `INSERT INTO folders (id, path, slug, label, last_scan, file_count, created_at)
+     VALUES (?, ?, ?, ?, NULL, 0, ?)`,
+    [libraryId, libDir, LIBRARY_SLUG, 'smoke-test', new Date().toISOString()],
+  );
+  pass(`Step 1 — Library seeded in SQLite (${libraryId})`);
 
   // ── Step 2: Seed geocode_cache for Tokyo ─────────────────────────────────
-  await geocodeColl.deleteOne({ _id: GEO_CACHE_KEY });
-  await geocodeColl.insertOne({
-    _id: GEO_CACHE_KEY,
-    place: {
-      source: 'nominatim',
-      geocoder_version: 1,
-      geocoded_at: new Date().toISOString(),
-      lat: 35.68,
-      lon: 139.69,
-      display_name: 'Tokyo, Japan',
-      address: { city: 'Tokyo', country: 'Japan', country_code: 'jp' },
-      pois: [{ name: 'Tokyo', category: 'place', type: 'city' }],
-      rollups: { locality: 'Tokyo', region: 'Tokyo', country_code: 'jp' },
-      search_blob: 'Tokyo Japan',
-    },
-    fetched_at: new Date(),
-    geocoder_version: 1,
-  } as any);
+  // The key is a real quantised coordinate rather than a PID-scoped one, so a
+  // developer's database may already hold a genuine Tokyo entry. Read it first
+  // and put it back in step 12, instead of throwing away a cached geocode this
+  // script did not fetch.
+  const priorGeocode = db.query(GEOCODE_SELECT_SQL).get(GEO_CACHE_KEY) as GeocodeRow | null;
+  // The Place payload the path-formatter reads: the country comes from
+  // `address`, the town from `rollups.locality`, and the first POI is the
+  // fallback. The column is TEXT with a json_valid() check, so it is stored as
+  // a JSON string.
+  const tokyoPlace = {
+    source: 'nominatim',
+    geocoder_version: GEOCODER_VERSION,
+    geocoded_at: new Date().toISOString(),
+    lat: 35.68,
+    lon: 139.69,
+    display_name: 'Tokyo, Japan',
+    address: { city: 'Tokyo', country: 'Japan', country_code: 'jp' },
+    pois: [{ name: 'Tokyo', category: 'place', type: 'city' }],
+    rollups: { locality: 'Tokyo', region: 'Tokyo', country_code: 'jp' },
+    search_blob: 'Tokyo Japan',
+  };
+  db.run(GEOCODE_UPSERT_SQL, [
+    GEO_CACHE_KEY,
+    JSON.stringify(tokyoPlace),
+    new Date().toISOString(),
+    GEOCODER_VERSION,
+  ]);
   pass('Step 2 — Geocode cache seeded for Tokyo (lat:35.68,lon:139.69)');
 
   // ── Step 3: Upload in two chunks ─────────────────────────────────────────
@@ -343,28 +403,45 @@ async function main(): Promise<void> {
   }
   pass('Step 10 — Delete notification accepted (updated=1)');
 
-  // ── Step 11: Verify deleted_from_photos in MongoDB ───────────────────────
-  const row = await assetsColl.findOne({ maple_id: MAPLE_ID });
+  // ── Step 11: Verify deleted_from_photos on the asset row ─────────────────
+  // markDeletedFromPhotos (db/repos/backup.repo.ts) sets this column on
+  // `assets`. Booleans are 0/1 integers here, so the flag reads as 1.
+  const row = db
+    .query(`SELECT id, maple_id, deleted_from_photos FROM assets WHERE maple_id = ?`)
+    .get(MAPLE_ID) as { id: string; maple_id: string; deleted_from_photos: number } | null;
   if (!row) {
-    fail(`Step 11 — asset row not found in MongoDB (maple_id=${MAPLE_ID})`);
+    fail(`Step 11 — asset row not found in SQLite (maple_id=${MAPLE_ID})`);
   }
-  if (row!.deleted_from_photos !== true) {
+  if (row.deleted_from_photos !== 1) {
     fail(
-      `Step 11 — deleted_from_photos is not true`,
-      `row: ${JSON.stringify({ maple_id: row!.maple_id, deleted_from_photos: row!.deleted_from_photos })}`,
+      `Step 11 — deleted_from_photos is not 1`,
+      `row: ${JSON.stringify({ maple_id: row.maple_id, deleted_from_photos: row.deleted_from_photos })}`,
     );
   }
-  pass('Step 11 — deleted_from_photos=true confirmed in MongoDB');
+  pass('Step 11 — deleted_from_photos=1 confirmed in SQLite');
 
   // ── Step 12: Cleanup ──────────────────────────────────────────────────────
-  await assetsColl.deleteMany({ maple_id: MAPLE_ID });
-  await uploadSessionsColl.deleteMany({ device_id: DEVICE_ID });
-  await backupSessionsColl.deleteMany({ device_id: DEVICE_ID });
-  await geocodeColl.deleteOne({ _id: GEO_CACHE_KEY });
-  await foldersColl.deleteOne({ _id: libraryObjectId });
+  // The order follows the foreign keys. The asset goes first, because deleting
+  // it cascades its locations away and a surviving location would block the
+  // folder delete. Every statement is scoped to an id this run minted, so a
+  // concurrently running copy of this script keeps its own rows.
+  db.run(`DELETE FROM assets WHERE maple_id = ?`, [MAPLE_ID]);
+  db.run(`DELETE FROM upload_sessions WHERE library_id = ?`, [libraryId]);
+  db.run(`DELETE FROM backup_sessions WHERE library_id = ?`, [libraryId]);
+  if (priorGeocode === null) {
+    db.run(`DELETE FROM geocode_cache WHERE id = ?`, [GEO_CACHE_KEY]);
+  } else {
+    db.run(GEOCODE_UPSERT_SQL, [
+      GEO_CACHE_KEY,
+      priorGeocode.place,
+      priorGeocode.fetched_at,
+      priorGeocode.geocoder_version,
+    ]);
+  }
+  db.run(`DELETE FROM folders WHERE id = ?`, [libraryId]);
+  db.close();
   await rm(libDir, { recursive: true, force: true });
-  await mongo.close();
-  pass('Step 12 — Cleanup complete (Mongo docs removed, temp dir deleted)');
+  pass('Step 12 — Cleanup complete (rows removed, temp dir deleted)');
 
   console.log('\n  All 12 steps passed — PhotoKit backup endpoints verified.\n');
 }

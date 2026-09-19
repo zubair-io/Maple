@@ -176,7 +176,7 @@ The single-concurrency rule checks both `queued` and `running`, not just running
 
 `src/api/src/pano/pano-config.repo.ts` stores the settings as one document in `app_settings` — `maple_cli_path`, `models_dir`, `ort_dylib_path`, `enabled` (default `false`). `maple_cli_path` and `enabled` are DB-only; `models_dir` and `ort_dylib_path` fall back to the process environment when unset, which is documented in the UI, so an operator can bootstrap from a `.env` or Docker Compose file before reaching the settings page. Path inputs are validated absolute and rejected if they start with `-`, so a configured value cannot smuggle a flag into the spawned command line.
 
-The web surfaces are `PanoService` (`src/web/projects/maple-common/src/lib/api/pano.service.ts`), the merge dialog (`maple-common/src/lib/pano/pano-dialog.component.ts` and the `mui-panorama-merge-modal` component), and the owner-gated settings page at `/settings/pano` (`src/web/projects/maple/src/app/settings/pano/`). The stitch request references assets by absolute server-side path where possible — the server resolves each to an asset document, indexing on demand — and by Mongo id for cloud-hosted assets with no local path.
+The web surfaces are `PanoService` (`src/web/projects/maple-common/src/lib/api/pano.service.ts`), the merge dialog (`maple-common/src/lib/pano/pano-dialog.component.ts` and the `mui-panorama-merge-modal` component), and the owner-gated settings page at `/settings/pano` (`src/web/projects/maple/src/app/settings/pano/`). The stitch request references assets by absolute server-side path where possible — the server resolves each to an asset row, indexing on demand — and by asset id for cloud-hosted assets with no local path.
 
 ## Fixtures, harness, and gates
 

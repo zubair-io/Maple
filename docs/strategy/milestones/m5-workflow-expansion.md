@@ -79,7 +79,7 @@ sessions a given surface sees. The only always-on telemetry is
 OpenTelemetry tracing and log shipping to SigNoz (`src/api/src/otel.ts`,
 config in `src/api/src/observability/observability-config.repo.ts`,
 follow-up gaps tracked in #2196). That pipe is infrastructure health, not
-product evidence: HTTP and MongoDB spans, crash stack tails, and structured
+product evidence: HTTP spans, crash stack tails, and structured
 logs, aimed at "is the server working," not "which feature do qualified
 users actually use." It is operator-configured (DB-backed, off until an
 endpoint is set — `Settings → Observability`), and metrics are plumbed but

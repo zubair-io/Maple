@@ -66,7 +66,7 @@ flowchart TD
   CLI[maple-cli] --> CORE
   CLI --> PANO[maple-pano]
   FFI --> PANO
-  API --> DB[MongoDB]
+  API --> DB[SQLite library file]
   API --> JOBS[Workers / stages / jobs]
   EDGE[Thumbnail Worker / R2] --> API
   SSR[Hosted edge routing Worker] --> AZURE[Azure static web build]
@@ -161,9 +161,10 @@ UI adoption checker. Full first-party file inventory is linked above.
 
 ## API: HTTP, persistence and background orchestration
 
-Root: `src/api/src/`. `index.ts` composes routes and startup. MongoDB is
-accessed through the shared client and domain repositories. The worker tier
-and native decode processes have separate lifetimes.
+Root: `src/api/src/`. `index.ts` composes routes and startup. The library
+database is a single SQLite file, reached through a worker-backed connection
+pool and the domain repositories in `db/repos/`. The worker tier and
+native decode processes have separate lifetimes.
 
 | Unit                                              | Responsibility                                                                                 | Quality / ownership observation                                          |
 | ------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
