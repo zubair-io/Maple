@@ -47,6 +47,7 @@ import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stag
 import {
   sqliteDb,
   changesAt,
+  matchedOne,
   deleteOutcome,
   updateOutcome,
   type DeleteOutcome,
@@ -214,7 +215,7 @@ export async function markSoftDeleted(args: {
     },
     ...moveTailStatements(hex, destination, args.source),
   ]);
-  return updateOutcome(changesAt(results, 0));
+  return updateOutcome(matchedOne(changesAt(results, 0)));
 }
 
 /**
@@ -283,5 +284,5 @@ export async function restoreFromTrash(args: {
     },
     ...moveTailStatements(hex, destination, args.source),
   ]);
-  return updateOutcome(changesAt(results, 1));
+  return updateOutcome(matchedOne(changesAt(results, 1)));
 }

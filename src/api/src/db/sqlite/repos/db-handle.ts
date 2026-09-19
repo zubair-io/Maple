@@ -125,3 +125,23 @@ export function deleteOutcome(changes: number): DeleteOutcome {
 export function changesAt(results: readonly SqlWriteResult[], index: number): number {
   return results[index]?.changes ?? 0;
 }
+
+/**
+ * A row count as "did the statement match its one row", which is the only
+ * thing a by-id update can honestly report.
+ *
+ * `bun:sqlite` counts every row a statement wrote, including rows written by
+ * triggers and by cascading deletes — `hardDelete` has said so since the
+ * cutover, where a ten-location asset deletes as sixteen. Since #3768 an
+ * update that changes `assets.deleted_at`, `assets.hidden` or
+ * `live_location_count` fans out to four satellite tables as well
+ * (`ddl/facet-state.ts`), so the raw count on those statements is the asset
+ * plus however many locations, faces, subjects and detail rows it has.
+ *
+ * Every caller of `matchedCount` asks whether it is zero, meaning "no such
+ * asset" — which is what Mongo's `updateOne` on `{ _id }` reported, and what
+ * this preserves.
+ */
+export function matchedOne(changes: number): number {
+  return changes > 0 ? 1 : 0;
+}

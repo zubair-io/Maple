@@ -54,10 +54,14 @@ describe('validation parity with buildFilter', () => {
 });
 
 describe('buildSearchWhere — the clause list', () => {
-  test('an empty query adds only the always-on hidden filter', () => {
+  test('an empty query carries no residual at all, only the visibility field', () => {
     const where = buildSearchWhere({});
     if ('error' in where) throw new Error(where.error);
-    expect(where.clauses).toEqual(['assets.hidden = 0']);
+    // The always-on hidden filter is a field rather than a clause (#3768):
+    // an empty clause list is what tells a satellite facet it can answer from
+    // its own index instead of joining `assets`.
+    expect(where.clauses).toEqual([]);
+    expect(where.hidden).toBe(0);
     expect(where.params).toEqual([]);
     expect(where.match).toEqual({ kind: 'none' });
     expect(searchWhereSql(where).sql).toBe(
@@ -144,15 +148,22 @@ describe('buildSearchWhere — the clause list', () => {
   });
 
   test('hidden is excluded by default, included by "all", required by "only"', () => {
-    const clause = (hidden?: string): readonly string[] => {
+    const visibility = (hidden?: string): { field: 0 | 1 | null; sql: string } => {
       const where = buildSearchWhere(hidden === undefined ? {} : { hidden });
       if ('error' in where) throw new Error(where.error);
-      return where.clauses;
+      expect(where.clauses).toEqual([]);
+      return { field: where.hidden, sql: searchWhereSql(where).sql };
     };
-    expect(clause()).toEqual(['assets.hidden = 0']);
-    expect(clause('none')).toEqual(['assets.hidden = 0']);
-    expect(clause('all')).toEqual([]);
-    expect(clause('only')).toEqual(['assets.hidden = 1']);
+    expect(visibility().field).toBe(0);
+    expect(visibility('none').field).toBe(0);
+    expect(visibility('all').field).toBeNull();
+    expect(visibility('only').field).toBe(1);
+
+    // And the field still reaches the statement, in the spelling every
+    // partial index on `assets` was built around.
+    expect(visibility().sql).toContain('assets.hidden = 0');
+    expect(visibility('only').sql).toContain('assets.hidden = 1');
+    expect(visibility('all').sql).not.toContain('assets.hidden');
   });
 
   test('isScreenshot=false matches the unclassified, not only the classified', () => {
@@ -178,11 +189,11 @@ describe('buildSearchWhere — the clause list', () => {
     for (const month of ['0', '13', '6.5', 'june']) {
       const where = buildSearchWhere({ month });
       if ('error' in where) throw new Error(where.error);
-      expect(where.clauses).toEqual(['assets.hidden = 0']);
+      expect(where.clauses).toEqual([]);
     }
     const valid = buildSearchWhere({ month: '6' });
     if ('error' in valid) throw new Error(valid.error);
-    expect(valid.clauses).toEqual(['assets.captured_month = ?', 'assets.hidden = 0']);
+    expect(valid.clauses).toEqual(['assets.captured_month = ?']);
   });
 
   test('bare dates widen to the whole day, as the Mongo builder does', () => {

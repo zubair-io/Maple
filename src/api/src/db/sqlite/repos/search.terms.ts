@@ -210,19 +210,21 @@ export function visionTerm(column: 'vision_scene_type' | 'vision_activity', valu
 }
 
 /**
- * Any of the listed subjects, from the `vision.subjects` array.
+ * Any of the listed subjects, read from `asset_subjects` (#3768).
  *
- * `json_each` over the array is the row-wise equivalent of Mongo's `$in` against
- * a multikey field. `COALESCE(…, '[]')` is not defensive tidiness: `json_each`
- * raises on a NULL argument, so an asset with no vision payload would fail the
- * whole statement rather than simply not match.
+ * The `vision.subjects` array became rows, so this is an ordinary keyed probe
+ * into `(asset_id, subject)` instead of a `json_each` over a payload SQLite
+ * cannot index. It reads the same table the subjects facet groups, which is the
+ * point: a chip the facet offers and a filter that answers it must be looking
+ * at one set of values, and they could not be while one parsed JSON and the
+ * other did not. `ddl/facet-state.ts` derives the table by trigger from the
+ * payload, so neither can go stale against it either.
  */
 export function subjectsTerm(subjects: readonly string[]): Term {
   return {
-    sql: `EXISTS (SELECT 1 FROM asset_detail d,
-                       json_each(COALESCE(json_extract(d.vision, '$.subjects'), '[]')) AS subject
-                   WHERE d.asset_id = assets.id
-                     AND subject.value IN (${placeholders(subjects.length)}))`,
+    sql: `EXISTS (SELECT 1 FROM asset_subjects s
+                   WHERE s.asset_id = assets.id
+                     AND s.subject IN (${placeholders(subjects.length)}))`,
     params: [...subjects],
   };
 }
@@ -289,7 +291,7 @@ export function exifTerms(q: SearchQuery): Term[] {
 }
 
 /**
- * The scalar grid filters: month, rating, flag, colour, screenshot, hidden.
+ * The scalar grid filters: month, rating, flag and colour.
  *
  * `isScreenshot=false` is `IS NOT 1`, not `= 0`, and the difference is the whole
  * result set rather than an edge case. `is_screenshot` is deliberately tri-state
@@ -322,19 +324,22 @@ export function gradeTerms(q: SearchQuery, flag: -1 | 0 | 1 | undefined): Term[]
   ];
 }
 
-/** What the caller is allowed to see: screenshots, and hidden assets. */
-export function visibilityTerms(q: SearchQuery): Term[] {
+/**
+ * The screenshot chip.
+ *
+ * `hidden` used to live here beside it and is now a field of `SearchWhere`
+ * rather than a residual clause — the facets that group a satellite table
+ * translate it into that table's own mirrored column, which they cannot do to
+ * a string in the clause list. See `search.where.ts`.
+ */
+export function screenshotTerms(q: SearchQuery): Term[] {
   const screenshot =
     q.isScreenshot === 'true'
       ? `assets.is_screenshot = 1`
       : q.isScreenshot === 'false'
         ? `assets.is_screenshot IS NOT 1`
         : null;
-  const hidden = q.hidden === 'only' ? 1 : q.hidden === 'all' ? null : 0;
-  return [
-    ...(screenshot === null ? [] : [{ sql: screenshot, params: [] }]),
-    ...(hidden === null ? [] : [{ sql: `assets.hidden = ${hidden}`, params: [] }]),
-  ];
+  return screenshot === null ? [] : [{ sql: screenshot, params: [] }];
 }
 
 /**

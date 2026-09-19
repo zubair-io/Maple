@@ -5,11 +5,17 @@
  * ## What happens on the deploy that lands this
  *
  *  1. The API process opens the SQLite database named by `MAPLE_SQLITE_PATH`.
- *  2. If that database records a completed cutover, it is skipped to step 5.
+ *  2. If that database records a completed cutover, it applies any schema
+ *     migration the file has not recorded yet and skips to step 5.
  *  3. Otherwise the process connects to MongoDB and runs the importer to
  *     completion, logging progress. It is not serving during this.
  *  4. It records the cutover in SQLite, so the next restart skips it.
  *  5. Only then does the caller spawn the worker child and start listening.
+ *
+ * Step 2 is not the same thing as step 3, and conflating them is the failure
+ * this boot had to grow out of. The cutover marker says the library's data is
+ * here; it says nothing about the schema, which moves on its own from
+ * `0003-facet-state` onwards. See {@link applySchemaMigrations}.
  *
  * For the production library — roughly 335,000 assets — step 3 is single-digit
  * minutes. That is the downtime, it happens once, and it is in the log rather
@@ -49,10 +55,13 @@
 
 import { Database } from 'bun:sqlite';
 import { child as childLogger } from '../../log.ts';
+import { SCHEMA_PRAGMAS } from './ddl/index.ts';
 import { DEFAULT_CHANGES_WINDOW } from './import/plan/index.ts';
 import { closeImportSession, openImportSession, runImportOn } from './import/run.ts';
 import type { ImportOptions } from './import/types.ts';
 import { verifyImport } from './import/verify.ts';
+import { fromBunSqlite, runMigrations } from './migrate.ts';
+import { ALL_MIGRATIONS } from './migrations/index.ts';
 
 const log = childLogger('sqlite:cutover');
 
@@ -115,6 +124,39 @@ function readCutoverMarker(path: string): string | null {
   }
 }
 
+/**
+ * Applies whatever schema migrations this database has not recorded yet.
+ *
+ * The cutover marker says the library's *data* is here; it says nothing about
+ * the schema, and the two move independently now that the freeze has started.
+ * Without this, a database that cut over before `0003-facet-state` shipped
+ * would boot with the marker set, skip the import, open the pool and fail on
+ * the first query naming a column the migration was meant to add — which is a
+ * server that starts and then answers nothing, the hardest kind of failure to
+ * read. The import path runs the same list inside `runImportOn`, so both
+ * branches leave the file fully migrated.
+ *
+ * `busy_timeout` is raised well above the schema default because a migration
+ * is the one statement that legitimately holds the write lock for a long time:
+ * `0003` rewrites every `asset_detail` row on a 335,000-asset library, which is
+ * about fifteen seconds. Three process roles boot against the same file, and
+ * `BEGIN IMMEDIATE` serialises them — with the default five seconds the two
+ * that lose would fail the boot rather than wait for the one that is working.
+ */
+async function applySchemaMigrations(path: string): Promise<void> {
+  const db = new Database(path);
+  try {
+    for (const pragma of SCHEMA_PRAGMAS) db.exec(pragma);
+    db.exec('PRAGMA busy_timeout = 300000');
+    const result = await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
+    if (result.applied.length > 0) {
+      log.info({ path, applied: result.applied, durations: result.durations }, 'schema migrated');
+    }
+  } finally {
+    db.close();
+  }
+}
+
 /** Writes the marker. Called only after the import has verified. */
 function recordCutover(db: Database, completedAt: string): void {
   db.run(
@@ -173,6 +215,7 @@ export async function migrateAtBoot(): Promise<BootMigrationOutcome> {
   const recorded = readCutoverMarker(path);
   if (recorded !== null) {
     log.info({ path, completedAt: recorded }, 'SQLite cutover already done — skipping migration');
+    await applySchemaMigrations(path);
     return { status: 'already-migrated', completedAt: recorded };
   }
 

@@ -9,7 +9,9 @@
  * clients would act on.
  *
  * Uses the throwaway mongod on :27077 the rest of the importer suite uses, and
- * skip-passes when it is not running.
+ * skip-passes when it is not running. The one exception is the schema-migration
+ * test, which needs no source at all — it is the boot every install that has
+ * already cut over now takes, and #3785 deletes the source it must not need.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
@@ -19,8 +21,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MongoClient } from 'mongodb';
 import { BootMigrationError, migrateAtBoot, sqliteDatabasePath } from './boot-migration.ts';
+import { SCHEMA_PRAGMAS } from './ddl/index.ts';
+import { fromBunSqlite, runMigrations, type Migration } from './migrate.ts';
+import { ALL_MIGRATIONS } from './migrations/index.ts';
+import { initialSchemaMigration } from './migrations/0001-initial-schema.ts';
+import { stageStateMediaKindMigration } from './migrations/0002-stage-state-media-kind.ts';
 import { closeImportSession, openImportSession, runImportOn } from './import/run.ts';
 import { connectTestMongo, seedLibrary, TEST_MONGO_URI } from './import/seed.test-helpers.ts';
+import { insertFolder } from './test-sqlite.test-helpers.ts';
+import { seedSearchAsset } from './repos/search.test-helpers.ts';
 
 const DB_NAME = `maple_boot_migration_${process.pid}`;
 
@@ -47,6 +56,18 @@ function rowCount(path: string, table: string): number {
   const row = db.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
   db.close();
   return row.n;
+}
+
+/** The migration ids this database has recorded, in order. */
+function appliedMigrations(path: string): string[] {
+  const db = new Database(path, { readonly: true });
+  try {
+    return (
+      db.query(`SELECT id FROM schema_migrations ORDER BY id`).all() as Array<{ id: string }>
+    ).map((row) => row.id);
+  } finally {
+    db.close();
+  }
 }
 
 function cutoverMarker(path: string): string | null {
@@ -97,6 +118,96 @@ describe('the database path', () => {
     expect(sqliteDatabasePath()).toBe('./data/maple.sqlite');
     process.env.MAPLE_SQLITE_PATH = '/srv/maple/library.sqlite';
     expect(sqliteDatabasePath()).toBe('/srv/maple/library.sqlite');
+  });
+});
+
+/**
+ * Builds a database carrying exactly `through` migrations, with the cutover
+ * marker set — a library that has been live for a while and has not seen the
+ * migrations that shipped since.
+ */
+async function cutoverDatabaseAt(through: readonly Migration[]): Promise<string> {
+  const path = join(mkdtempSync(join(tmpdir(), 'maple-boot-schema-')), 'cutover.sqlite');
+  const seed = new Database(path, { create: true });
+  for (const pragma of SCHEMA_PRAGMAS) seed.exec(pragma);
+  await runMigrations(fromBunSqlite(seed), through);
+  seed.run(`INSERT INTO server_state (id, value) VALUES ('sqlite_cutover', ?)`, [CUTOVER_AT]);
+  seed.close();
+  return path;
+}
+
+const CUTOVER_AT = '2026-09-19T00:00:00.000Z';
+
+describe('a boot onto a database that has already cut over', () => {
+  // No MongoDB in this block, and deliberately so: this is the boot every
+  // existing install now takes, and it must not depend on a source that #3785
+  // deletes. Before #3768 nothing ran the migration list on this branch — the
+  // marker was read as an answer to both "is the data here" and "is the schema
+  // current" — so the server would open the pool and then fail on the first
+  // query naming a column a later migration was meant to add.
+
+  it('applies every migration that shipped since the cutover', async () => {
+    const path = await cutoverDatabaseAt([initialSchemaMigration]);
+    process.env.MAPLE_SQLITE_PATH = path;
+
+    expect(appliedMigrations(path)).toEqual(['0001-initial-schema']);
+    expect(await migrateAtBoot()).toEqual({
+      status: 'already-migrated',
+      completedAt: CUTOVER_AT,
+    });
+
+    expect(appliedMigrations(path)).toEqual(ALL_MIGRATIONS.map((migration) => migration.id));
+    expect(rowCount(path, 'asset_subjects')).toBe(0);
+    rmSync(path, { force: true });
+  });
+
+  it('takes 0003 cleanly on a library that already carries 0002', async () => {
+    // The shape the owner's library is in right now: re-migrated from MongoDB
+    // this afternoon, so it came up carrying 0001 and 0002, and #3768 is the
+    // next thing it merges. The boot fix above is what executes 0003 on it, so
+    // the two have to work in this order on this exact starting state — a
+    // library seeded through 0002, not through 0001.
+    const path = await cutoverDatabaseAt([initialSchemaMigration, stageStateMediaKindMigration]);
+    process.env.MAPLE_SQLITE_PATH = path;
+    expect(appliedMigrations(path)).toEqual(['0001-initial-schema', '0002-stage-state-media-kind']);
+
+    // An asset with everything the two migrations touch, written through the
+    // repositories' own shapes, so 0003's backfill has real rows to convert
+    // and 0002's column has a value to preserve.
+    const before = new Database(path);
+    for (const pragma of SCHEMA_PRAGMAS) before.exec(pragma);
+    const libraryId = insertFolder(before, { slug: 'trips' });
+    const assetId = seedSearchAsset(before, libraryId, {
+      filename: 'clip.mp4',
+      mediaKind: 'video',
+      sceneType: 'outdoor',
+      activity: 'sailing',
+      subjects: ['boat', 'water'],
+      people: ['Ada'],
+    });
+    before.run(
+      `INSERT INTO stage_state (asset_id, stage, version, attempts, dead) VALUES (?, 'thumb', 0, 0, 0)`,
+      [assetId],
+    );
+    before.close();
+
+    expect(await migrateAtBoot()).toEqual({ status: 'already-migrated', completedAt: CUTOVER_AT });
+    expect(appliedMigrations(path)).toEqual(ALL_MIGRATIONS.map((migration) => migration.id));
+
+    const after = new Database(path, { readonly: true });
+    // 0003's backfill converted the rows that were already there…
+    expect(after.query(`SELECT COUNT(*) AS n FROM asset_subjects`).get()).toEqual({ n: 2 });
+    expect(
+      after
+        .query(`SELECT asset_live, asset_hidden FROM asset_detail WHERE asset_id = ?`)
+        .get(assetId),
+    ).toEqual({ asset_live: 1, asset_hidden: 0 });
+    // …and 0002's column is still what it was, on a row 0003 never touches.
+    expect(
+      after.query(`SELECT media_kind FROM stage_state WHERE asset_id = ?`).get(assetId),
+    ).toEqual({ media_kind: 'video' });
+    after.close();
+    rmSync(path, { force: true });
   });
 });
 
