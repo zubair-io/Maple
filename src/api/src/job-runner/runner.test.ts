@@ -38,7 +38,7 @@ function exportRunner(handle: JobHandler['run']): JobRunner {
 
 describe('JobRunner', () => {
   test('picks up a queued job and completes it', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const job = await queueExportJob();
     const runner = exportRunner(async () => ({ kind: 'done', result: { ok: true } }));
 
@@ -54,7 +54,7 @@ describe('JobRunner', () => {
   });
 
   test('reports progress through ctx.reportProgress', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const job = await queueExportJob();
 
     let observedDuringRun = { current: -1, total: -1 };
@@ -76,7 +76,7 @@ describe('JobRunner', () => {
   });
 
   test('cancellation observed mid-run flips status to cancelled', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const job = await queueExportJob();
 
     // Stands in for a batch loop: report a step, then notice the flag the route
@@ -98,14 +98,14 @@ describe('JobRunner', () => {
   });
 
   test('returns no-claim when there is nothing queued', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const runner = new JobRunner({ handlers: {} });
 
     expect((await runner.tick()).kind).toBe('no-claim');
   });
 
   test('fails the job when the handler throws', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const job = await queueExportJob();
     const runner = exportRunner(async () => {
       throw new Error('boom');
@@ -121,7 +121,7 @@ describe('JobRunner', () => {
   });
 
   test('fails the job when no handler is registered for its kind', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const job = await queueExportJob();
     const runner = new JobRunner({ handlers: {} });
 
@@ -131,7 +131,7 @@ describe('JobRunner', () => {
   });
 
   test('renews the lease while a handler waits without reporting photo progress', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const job = await createJob({ kind: 'batch_recipe_export', payload: {} });
     const runner = new JobRunner({
       workerId: 'long-render',

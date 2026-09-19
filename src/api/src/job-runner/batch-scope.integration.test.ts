@@ -45,7 +45,7 @@ afterAll(() => {
 });
 
 test('environment-only roots use the native path-list delimiter throughout batch authorization', async () => {
-  using live = await emptyLibraries();
+  using _live = await emptyLibraries();
   const roots = [join(fixture, 'first'), join(fixture, 'second')];
   await Promise.all(roots.map((root) => mkdir(root)));
   process.env.MAPLE_ROOTS = roots.join(delimiter);
@@ -64,7 +64,7 @@ test('environment-only roots use the native path-list delimiter throughout batch
 });
 
 test('batch queueing rejects a sidecar symlink outside its allowed root', async () => {
-  using live = await emptyLibraries();
+  using _live = await emptyLibraries();
   const root = join(fixture, 'allowed');
   await mkdir(root);
   const outside = join(fixture, 'outside.xmp');
@@ -78,7 +78,7 @@ test('batch queueing rejects a sidecar symlink outside its allowed root', async 
 });
 
 test('a filesystem root authorizes descendants and owns their batch fence', async () => {
-  using live = await emptyLibraries();
+  using _live = await emptyLibraries();
   const root = parse(fixture).root;
   process.env.MAPLE_ROOTS = root;
   expect(

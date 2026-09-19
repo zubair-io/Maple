@@ -21,7 +21,7 @@
  * view.
  */
 
-import { ObjectId } from 'mongodb';
+import type { ObjectId } from 'mongodb';
 import { newObjectIdHex } from '../object-id.ts';
 import type { SqlStatement } from '../protocol.ts';
 import type { LocationKey } from './assets.discover.ts';

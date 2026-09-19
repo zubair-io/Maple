@@ -78,7 +78,7 @@ describe('syncDescribeStageCapacity', () => {
     // The read path drops unusable entries but not an oversized sum, so a
     // hand-edited config doc can still arrive over the limit. Persisting it
     // would leave a stage concurrency no operator could have set themselves.
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     await syncDescribeStageCapacity(MAX_TOTAL_DESCRIBE_CAPACITY + 40);
 
     expect((await new WorkerConfigRepo().load('describe'))?.concurrency).toBe(
@@ -87,7 +87,7 @@ describe('syncDescribeStageCapacity', () => {
   });
 
   it('leaves the rest of the stage config alone when it rewrites concurrency', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const repo = new WorkerConfigRepo();
     await repo.patch('describe', { concurrency: 2, maxAttempts: 5, paused: true });
 

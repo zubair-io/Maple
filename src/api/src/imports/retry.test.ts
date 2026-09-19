@@ -23,7 +23,6 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { ObjectId } from 'mongodb';
 import { claimImport, createImport, failImport, getImport, getImportFiles } from './repo.ts';
 import { retryImport } from './retry.ts';
 import { file, seedLibrary } from './imports-test-db.fixtures.ts';

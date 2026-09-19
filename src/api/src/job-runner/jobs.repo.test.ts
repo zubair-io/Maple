@@ -75,7 +75,7 @@ function withRivalWorker(db: SqliteDb, claim: (ids: string[]) => void): SqliteDb
 
 describe('createJob', () => {
   test('writes a queued job with every default already in place', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
 
     const created = await createJob(
       { kind: 'batch_jpeg_export', payload: EXPORT_PAYLOAD },
@@ -120,7 +120,7 @@ describe('createJob', () => {
   });
 
   test('replaying a request id returns the stored job instead of a second one', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const requestId = new ObjectId().toHexString();
 
     const first = await createJob({
@@ -140,7 +140,7 @@ describe('createJob', () => {
   });
 
   test('refuses a request id that already belongs to a different job', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const requestId = new ObjectId().toHexString();
     await createJob({ kind: 'batch_jpeg_export', payload: EXPORT_PAYLOAD, requestId });
 
@@ -164,7 +164,7 @@ describe('jobConflictMessage', () => {
 
 describe('claimJob', () => {
   test('claims the oldest queued job and leaves nothing for the next worker', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const older = await newExportJob('2026-04-01T10:00:00.000Z');
     const newer = await newExportJob('2026-04-02T10:00:00.000Z');
 
@@ -185,7 +185,7 @@ describe('claimJob', () => {
   });
 
   test('only one of two concurrent claims wins the same job', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     await newExportJob();
 
     const [a, b] = await Promise.all([claimJob('worker-A', 60_000), claimJob('worker-B', 60_000)]);
@@ -219,7 +219,7 @@ describe('claimJob', () => {
   });
 
   test('leaves a running job alone until its lease lapses, then reclaims it', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const created = await newExportJob();
 
     expect(await claimJob('dead-worker', 10, at('2026-01-01T00:00:00.000Z'))).not.toBeNull();
@@ -246,7 +246,7 @@ describe('claimJob', () => {
 
 describe('updateProgress', () => {
   test('advances the counters and renews the lease', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const created = await newExportJob();
     await claimJob('worker-1', 60_000, at('2026-04-03T00:00:00.000Z'));
 
@@ -278,7 +278,7 @@ describe('updateProgress', () => {
 
 describe('cancellation', () => {
   test('flags a job and reports the flag back', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const created = await newExportJob();
 
     expect(await isCancelRequested(created._id)).toBe(false);
@@ -291,14 +291,14 @@ describe('cancellation', () => {
   });
 
   test('reports nothing for an id that never existed', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     expect(await requestCancel(new ObjectId())).toBe(false);
     expect(await isCancelRequested(new ObjectId())).toBe(false);
     expect(await getJob(new ObjectId())).toBeNull();
   });
 
   test('markCancelled keeps the partial result and releases the claim', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const created = await newExportJob();
     await claimJob('worker-1', 60_000);
 
@@ -335,7 +335,7 @@ describe('terminal transitions', () => {
   });
 
   test('failJob records the message and releases the claim', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const created = await newExportJob();
     await claimJob('worker-1', 60_000);
 
@@ -351,7 +351,7 @@ describe('terminal transitions', () => {
 
 describe('listJobs', () => {
   test('filters by status, newest first', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const a = await newExportJob('2026-04-01T10:00:00.000Z');
     const b = await newExportJob('2026-04-02T10:00:00.000Z');
     await claimJob('w', 60_000);

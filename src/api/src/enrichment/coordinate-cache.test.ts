@@ -41,13 +41,13 @@ describe('quantize / quantizedKey — pure logic', () => {
 
 describe('CoordinateCache — round-trip', () => {
   it('get() returns null on a cache miss', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const cache = new CoordinateCache({ geocoderVersion: 1 });
     expect(await cache.get(42.6526, -73.7562)).toBeNull();
   });
 
   it('set() then get() returns the same Place', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const cache = new CoordinateCache({ geocoderVersion: 1 });
     const place = makePlace();
     await cache.set(42.6526, -73.7562, place);
@@ -72,7 +72,7 @@ describe('CoordinateCache — round-trip', () => {
   });
 
   it('treats a stale geocoderVersion as a miss', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const v1Cache = new CoordinateCache({ geocoderVersion: 1 });
     await v1Cache.set(42.6526, -73.7562, makePlace());
     const v2Cache = new CoordinateCache({ geocoderVersion: 2 });
@@ -80,7 +80,7 @@ describe('CoordinateCache — round-trip', () => {
   });
 
   it('set() at v2 overwrites the v1 row', async () => {
-    using live = await createLiveTestDatabase();
+    using _live = await createLiveTestDatabase();
     const v1Cache = new CoordinateCache({ geocoderVersion: 1 });
     await v1Cache.set(42.6526, -73.7562, makePlace());
     const v2Place = { ...makePlace(), geocoder_version: 2 };

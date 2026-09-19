@@ -44,7 +44,7 @@ interface SeedOptions {
 function seedAsset(db: Database, options: SeedOptions): string {
   const assetId = insertAsset(db);
   let ordinal = 0;
-  const add = (extra: { missingSince?: string; deletedAt?: string } = {}): void => {
+  const add = (_extra: { missingSince?: string; deletedAt?: string } = {}): void => {
     insertLocation(db, {
       assetId,
       libraryId: options.libraryId,
