@@ -61,6 +61,24 @@ const sleep = (milliseconds: number): Promise<void> =>
 /** The request-path read: one asset by id, served by the primary key. */
 const POINT_SQL = `SELECT id, size, rating, media_kind FROM assets WHERE id = ?`;
 
+/**
+ * One facet, as a facet costs once it reads an index and stops.
+ *
+ * The camera facet, spelled against `assets_facet_camera` — a real one, and one
+ * #3799 leaves alone because it was already in this shape. It stands in for all
+ * twelve after that PR lands, which takes the six expensive ones from 252–1,134
+ * ms down to 12–37 ms at 335,377 assets.
+ *
+ * This matters to the sizing rather than being a curiosity: a fan-out of twelve
+ * index reads and a fan-out of twelve full backlog scans put completely
+ * different pressure on a pool, and which of the two the reader count should be
+ * chosen against is the whole question behind the ceiling.
+ */
+const FACET_SQL =
+  `SELECT camera_make, camera_model, COUNT(*) AS n FROM assets ` +
+  `WHERE deleted_at IS NULL AND live_location_count > 0 AND hidden = 0 ` +
+  `GROUP BY camera_make, camera_model`;
+
 interface Sample {
   /** Request-path reads that completed inside the window. */
   reads: number;
@@ -252,12 +270,13 @@ function printHeader(title: string): void {
  */
 async function tableSizing(id: string): Promise<void> {
   printHeader(`Sizing: request-path read, ${WINDOW_MS / 1000}s window`);
-  for (const readers of [1, 2, 3, 4, 8]) {
+  for (const readers of [1, 2, 3, 4, 6, 8]) {
     // Zero slow reads on the pool of two is the control: what an uncontended
     // request-path read costs, so the collapsed rows have something to be read
     // against. Beyond N slow reads there is nothing left to learn — the pool is
     // already fully occupied.
-    const loads = readers === 2 ? [0, 1, 2] : [1, 2, 3, 4].filter((slow) => slow <= readers);
+    const loads =
+      readers === 2 ? [0, 1, 2] : [1, 2, 3, 4, 5, 6, 7].filter((slow) => slow <= readers);
     const pool = await openWarm(readers);
     try {
       for (const slow of loads) {
@@ -342,15 +361,19 @@ function killReaders(pool: SqlitePool, count: number): void {
  * backlog count the other tables use, which stands in for the six facets #3768
  * measures at 252–1,134 ms.
  */
-async function tableSearchBurst(): Promise<void> {
-  console.log(`\n### A 12-wide search fan-out, wall time for the whole burst\n`);
+async function tableSearchBurst(
+  label: string,
+  sql: string,
+  params: readonly (string | number)[],
+): Promise<void> {
+  console.log(`\n### A 12-wide search fan-out, ${label} — wall time for the whole burst\n`);
   for (const readers of [2, 3, 4, 6, 8, 12]) {
     const pool = await openWarm(readers);
     try {
       const samples: number[] = [];
       for (let run = 0; run < 5; run += 1) {
         const startedAt = performance.now();
-        await Promise.all(Array.from({ length: 12 }, () => pool.read(SLOW_SQL, [...SLOW_PARAMS])));
+        await Promise.all(Array.from({ length: 12 }, () => pool.read(sql, [...params])));
         samples.push(performance.now() - startedAt);
       }
       console.log(`${String(readers).padStart(2)} readers: ${ms(summarise(samples).p50)} ms`);
@@ -401,7 +424,11 @@ async function main(): Promise<void> {
   await tableDegraded(seed.id, defaultReaderCount(), 2);
   await tableDegraded(seed.id, 2, 1);
   await tableRespawn(seed.id, 2, 1);
-  await tableSearchBurst();
+  // Both shapes, because which one the ceiling is chosen against is the whole
+  // argument: twelve full scans is what a faceted search cost before #3799,
+  // twelve index reads is what it costs after.
+  await tableSearchBurst('each facet a full backlog scan (pre-#3799)', SLOW_SQL, SLOW_PARAMS);
+  await tableSearchBurst('each facet served by an index (post-#3799)', FACET_SQL, []);
   await tableCost();
 
   await removeDatabase(DB_PATH);

@@ -170,12 +170,41 @@ const READER_FLOOR = 4;
 /**
  * Most readers the pool will size itself to unasked.
  *
- * More readers is not monotonically better, which is why there is a ceiling at
- * all. Past four, a burst of concurrent CPU-bound reads gets slower rather than
- * faster — the work is fixed and the threads only compete — while the property
- * worth buying, a request-path read staying flat while long reads run beside
- * it, keeps improving. Eight is where those two stop trading against each other
- * usefully. An operator who wants more sets {@link READER_COUNT_ENV}.
+ * Eight rather than six, and the reason needs stating because the benchmark
+ * beside this contains a table that looks like it says six.
+ *
+ * Run a 12-wide search fan-out — the shape `searchFacets` issues — where each
+ * of the twelve is a full backlog scan, and the wall time is *not* monotonic in
+ * the reader count: 4 readers beat 8, and somewhere around four to six is the
+ * minimum. Twelve CPU-bound scans compete for memory bandwidth rather than for
+ * cores, so adding threads makes each one slower. On that table alone the
+ * ceiling should be six, or four.
+ *
+ * That table measures a workload #3768 removes. Once the six expensive facets
+ * read an index and stop (12–37 ms each at 335,377 assets, against 252–1,134
+ * ms), the same fan-out is monotonically *better* with more readers — measured
+ * at 34.1 ms on two, 18.8 on four, 13.3 on six, 12.7 on eight. There is no
+ * inversion left to optimise around, because there is no longer enough CPU in a
+ * faceted search for the threads to fight over. The location of the old minimum
+ * was not stable across runs either; only its existence was.
+ *
+ * What does not go away is the property the count exists for: a pool of N
+ * tolerates N−1 sustained long reads and falls off a cliff at N. Six stays
+ * healthy through five concurrent long reads and collapses at six (tail 18 ms →
+ * 324 ms); eight is still flat at seven. Two more tolerated long reads is worth
+ * more than a millisecond of facet latency, because concurrent long reads are
+ * what took production down and facet latency is not.
+ *
+ * So the ceiling optimises for **surviving concurrent long reads**, and gives
+ * up a little throughput on a burst of simultaneous heavy scans — a trade that
+ * only costs anything at all in the window before #3768 lands, and even there
+ * costs about 140 ms on a search to buy three more long reads of headroom.
+ *
+ * Eight rather than more: the API process and the worker child each open a pool,
+ * so this is doubled on the box, and past eight the measured gain is fractions
+ * of a millisecond per search against real thread and page-cache cost. An
+ * operator on a large machine who wants more sets {@link READER_COUNT_ENV};
+ * that is what it is for.
  */
 const READER_CEILING = 8;
 
