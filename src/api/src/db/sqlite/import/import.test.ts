@@ -239,7 +239,7 @@ describe('mongo → sqlite import', () => {
     expect(row.seq).toBe(4242);
   });
 
-  it('leaves the four deliberately-skipped collections behind', () => {
+  it('leaves the deliberately-skipped collections behind', () => {
     if (client === null) return;
     const db = open();
     const tables = db.query(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as Array<{
@@ -251,12 +251,18 @@ describe('mongo → sqlite import', () => {
     // keeps its schema history in `schema_migrations`.
     expect(tables.map((row) => row.name)).not.toContain('migrations');
 
-    // The other three do have a table, because the schema declares every
-    // collection the API opens whether or not the import carries its rows.
-    // Emptiness is therefore the assertion: each one is rebuilt on first boot
-    // (a status snapshot, a regenerated search set) or expires on its own (a
-    // capability token that lives for minutes).
-    for (const table of ['worker_status', 'generated_searches', 'image_access_tokens']) {
+    // The rest do have a table, because the schema declares every collection
+    // the API opens whether or not the import carries its rows. Emptiness is
+    // therefore the assertion: each one is rebuilt on first boot (a status
+    // snapshot, a regenerated search set), expires on its own (a capability
+    // token that lives for minutes), or is a claim by a process the cutover
+    // ends (the backfill lease — see `plan/coverage.ts`).
+    for (const table of [
+      'worker_status',
+      'generated_searches',
+      'image_access_tokens',
+      'meilisearch_backfill_leases',
+    ]) {
       expect({ table, rows: count(table) }).toEqual({ table, rows: 0 });
     }
   });

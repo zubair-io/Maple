@@ -30,13 +30,20 @@ import { IMPORT_PLAN, SKIPPED_COLLECTIONS, uncoveredCollections } from './index.
 
 /**
  * Every collection in the owner's production library, read off it on
- * 2026-09-18, when it held 335,419 assets.
+ * 2026-09-18 and again on 2026-09-19, when it held 335,419 assets. Both
+ * readings returned the same 39 names.
  *
  * It is longer than the set any test fixture seeds because an install
  * accumulates: `indexer_config`, `indexer_dead_letter` and `indexer_queue`
  * belong to a pipeline retired in 2026, `video_geo_backfill_audit` to a
  * one-shot migration finished in August. A fresh install would carry none of
  * them, and a cutover has to decide about all of them.
+ *
+ * `meilisearch_backfill_failures` is not here and that is the inventory doing
+ * its job rather than an omission: the backfill writes that collection only
+ * when a row fails, no row ever has on this install, and MongoDB does not
+ * create a collection nothing has written to. It has a plan all the same,
+ * because an install where one HAS failed is the install that needs it.
  */
 const LIVE_INSTALL_COLLECTIONS = [
   'apns_device_tokens',
@@ -104,6 +111,33 @@ describe('a live install', () => {
   test('still surfaces one nobody has decided about', async () => {
     const db = dbWithCollections([...LIVE_INSTALL_COLLECTIONS, 'indexer_notes']);
     expect(await uncoveredCollections(db, IMPORT_PLAN)).toEqual(['indexer_notes']);
+  });
+
+  /**
+   * The three #3797 recovered, pinned as imported rather than merely covered.
+   *
+   * `uncoveredCollections` is satisfied by either answer, so the case above
+   * would keep passing if one of these were quietly moved back to a one-line
+   * skip — which is exactly how all three were lost the first time. This asks
+   * the stronger question: is there a plan whose source is this collection.
+   */
+  test('carries the certificate, the resume points and the search cursor by plan', () => {
+    const planned = new Set(IMPORT_PLAN.map((entry) => entry.source));
+    for (const collection of [
+      'managed_certificates',
+      'indexer_checkpoints',
+      'meilisearch_backfill_state',
+      'meilisearch_backfill_failures',
+    ]) {
+      expect(planned.has(collection)).toBe(true);
+      expect(SKIPPED_COLLECTIONS[collection]).toBeUndefined();
+    }
+  });
+
+  /** The companion that stays behind, for the reason `coverage.ts` gives. */
+  test('leaves the backfill lease behind, and says so rather than omitting it', () => {
+    expect(IMPORT_PLAN.some((entry) => entry.source === 'meilisearch_backfill_leases')).toBe(false);
+    expect(SKIPPED_COLLECTIONS['meilisearch_backfill_leases']).toBeDefined();
   });
 
   test("leaves MongoDB's own bookkeeping out of the reckoning", async () => {
