@@ -111,9 +111,11 @@ Environment variables are limited to things that must be known before the databa
 
 `MAPLE_SQLITE_READERS` is the one knob here that is genuinely reached for under pressure, so it is worth knowing before you need it.
 
-Reads are served by a fixed set of threads, and a pool of N tolerates N−1 concurrent long-running reads before it collapses — not degrades, collapses. Measured on a library of production shape, a pool of two serving one background scan answered 203,541 request-path reads in four seconds; the same pool with a second scan running answered 24. Every read in the process shares that pool, so "search is slow" and "the grid will not load" and "backup ingest has stalled" are the same symptom when it happens.
+Reads are served by a fixed set of threads, and a pool of N tolerates N−1 concurrent long-running reads before it falls off a cliff. Measured on a library of production shape (`src/api/scripts/sqlite-bench/reader-pool.ts`): a pool of two with one background scan running answers a request-path read in well under a millisecond, 230,750 of them in four seconds. Add a second scan and the slowest read goes from 10 ms to 227 ms. Take the pool down to one live reader and it answers 33 reads in those same four seconds.
 
-The symptom to match: reads timing out across unrelated features at once, while the process is pinned at high CPU. Set the variable above the default, restart, and confirm from the logs that the pool came up at the width you asked for. It costs one thread and a few MB of page cache each.
+Every read in the process shares that pool, so "search is slow", "the grid will not load" and "backup ingest has stalled" are one symptom rather than three.
+
+The symptom to match: reads timing out across unrelated features at once, while the process is pinned at high CPU. Set the variable above the default, restart, and confirm from the logs that the pool came up at the width you asked for. A reader costs one thread and about 8 MB.
 
 This is an environment variable rather than a Settings page row, which is the exception to the rule stated at the top of this section and not an oversight: the pool is what settings are read _through_, so there is no row to consult at the moment its width is decided.
 
