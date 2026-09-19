@@ -60,7 +60,6 @@
 export { buildSearchWhere } from './search.where.ts';
 export type { SearchWhere } from './search.where.ts';
 
-export { toTextFilter } from './search.fts.ts';
 
 export { searchFacets } from './search.facets.ts';
 
