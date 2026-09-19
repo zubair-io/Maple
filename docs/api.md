@@ -105,6 +105,19 @@ Environment variables are limited to things that must be known before the databa
 | `MAPLE_LOG_LEVEL`, `MAPLE_DIAG_EVENTLOOP`                                                                                                                             | Log level, and an opt-in event-loop lag probe                                                                                                                                                                                                                                                                                                                          |
 | `MAPLE_FFI_WORKERS`, `MAPLE_REAPER_PRUNE_HOURS`                                                                                                                       | Fallbacks for values now owned by settings documents (`performance`, `missing-reaper`): the DB row wins, then the env var, then the built-in default                                                                                                                                                                                                                   |
 | `MAPLE_AUTOCLUSTER_FACE_THRESHOLD`                                                                                                                                    | How many new faces trigger an automatic re-cluster. Env-only, with a built-in default                                                                                                                                                                                                                                                                                  |
+| `MAPLE_SQLITE_READERS`                                                                                                                                                | How many SQLite reader threads the pool spawns. Unset scales with the box: four on a small one, eight on anything with ten or more cores. Accepts 1–64; anything else refuses the boot rather than quietly starting at another width                                                                                                                                   |
+
+### Widening the reader pool during an incident
+
+`MAPLE_SQLITE_READERS` is the one knob here that is genuinely reached for under pressure, so it is worth knowing before you need it.
+
+Reads are served by a fixed set of threads, and a pool of N tolerates N−1 concurrent long-running reads before it collapses — not degrades, collapses. Measured on a library of production shape, a pool of two serving one background scan answered 203,541 request-path reads in four seconds; the same pool with a second scan running answered 24. Every read in the process shares that pool, so "search is slow" and "the grid will not load" and "backup ingest has stalled" are the same symptom when it happens.
+
+The symptom to match: reads timing out across unrelated features at once, while the process is pinned at high CPU. Set the variable above the default, restart, and confirm from the logs that the pool came up at the width you asked for. It costs one thread and a few MB of page cache each.
+
+This is an environment variable rather than a Settings page row, which is the exception to the rule stated at the top of this section and not an oversight: the pool is what settings are read _through_, so there is no row to consult at the moment its width is decided.
+
+A reader that crashes is respawned automatically (#3782) on a ladder of four attempts over about twelve seconds. `sqlite reader died and was respawned` in the logs is a thread that came back; repeats are worth investigating. `sqlite reader could not be respawned and has been retired` means the pool is permanently one thread narrower until a restart — on a pool at the floor, that is one step from the cliff above.
 
 ## Library addressing
 
