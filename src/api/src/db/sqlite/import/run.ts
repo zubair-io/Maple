@@ -379,8 +379,8 @@ async function importCollection(
  * A file whose triggers are dropped opens cleanly and answers every query —
  * and silently indexes nothing new into the FTS5 table, stops maintaining
  * `assets.live_location_count`, `stage_state.media_kind` and
- * `stage_state.asset_claimable`,
- * so a server pointed at it shows every newly-located asset as dead, finds
+ * `stage_state.asset_claimable`, so a server pointed at it shows every
+ * newly-located asset as dead, finds
  * nothing new in search, and never transcribes a newly imported video. A run
  * that is killed between here and `restoreDerived` leaves exactly that file,
  * and nothing said so. The marker is what verification and the report read to
