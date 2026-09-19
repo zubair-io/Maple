@@ -424,8 +424,9 @@ export interface VideoDescriptionMeta {
  * in `discover/handle-event.ts`) nor `missing_since` (its file vanished from
  * disk). The asset row survives one location going non-live while another
  * stays live; it is hidden from reads and parked out of stage claims only
- * when *every* entry is non-live. See `isLiveFileInfo` /
- * `liveFileInfoElemMatch` in `indexer/images.repo.ts`.
+ * when *every* entry is non-live. `isLiveFileInfo` in `indexer/images.repo.ts`
+ * is that test for one entry; the queries express it as the
+ * `live_location_count` column, which a trigger keeps true.
  */
 export interface FileInfo {
   /** Directory relative to the library root, POSIX-separated.

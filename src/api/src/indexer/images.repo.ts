@@ -90,27 +90,6 @@ export function isLiveFileInfo(entry: Pick<FileInfo, 'deleted_at' | 'missing_sin
 }
 
 /**
- * Mongo `$elemMatch` fragment that selects assets with at least one live
- * fileinfo entry (neither `deleted_at` nor `missing_since` set). The
- * `{ $in: [null] }` form treats a missing field as live (legacy rows wrote
- * neither tag), matching `isLiveFileInfo`. Used by `buildClaimQuery` (stage
- * claims), the dedupe worker, and search visibility (`applyLiveFilter` in
- * `routes/search/query.ts`) — a search result must have a resolvable primary
- * location, else the projection emits a blank `fs:` row that renders no
- * thumbnail and opens nothing.
- */
-export function liveFileInfoElemMatch(): Record<string, unknown> {
-  return {
-    fileinfo: {
-      $elemMatch: {
-        deleted_at: { $in: [null] },
-        missing_since: { $in: [null] },
-      },
-    },
-  };
-}
-
-/**
  * First live `fileinfo` entry, or `null` when the array is missing or every
  * entry is non-live (`deleted_at` and/or `missing_since` set). "Live" is
  * defined by {@link isLiveFileInfo}.
