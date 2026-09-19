@@ -205,6 +205,18 @@ export class SqliteWorkerHandle {
     return this.ready && this.deadReason === null;
   }
 
+  /**
+   * Why this handle is dead, or null while it is not.
+   *
+   * The pool reads it when sweeping up a reader that died during startup —
+   * before there was a pool object for the death hook to reach, so the reason
+   * has to be recovered from the handle rather than delivered to it.
+   */
+  // fallow-ignore-next-line unused-class-member -- read by `SqlitePool.sweepStartupDeaths`, through the `SqliteWorkerHandle` a `forEach` over `this.readers` yields; the analysis does not resolve that back to this class
+  get deathReason(): string | null {
+    return this.deadReason;
+  }
+
   stats(): SqliteWorkerStats {
     return {
       role: this.role,
