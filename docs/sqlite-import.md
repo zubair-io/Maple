@@ -257,7 +257,17 @@ because the list below used to be five entries short of the truth —
 `meilisearch_backfill_*` tables had no plan, no entry and no mention — and
 nothing about running the importer could have revealed it. A list of "things
 deliberately left behind" is only worth reading if it is exhaustive, and the
-only way to keep it exhaustive is to have the source contradict it.
+only way to keep it exhaustive is to have the source contradict it. It has
+since earned that twice over, on the first boot against a real library.
+
+The check also has a test that does not need a live database, and it is the
+inventory in `plan/coverage.test.ts` that carries the weight: a list of every
+collection the owner's production library holds, read off it rather than
+written from the plan. The earlier cases all handed the check names taken from
+the plan, so a collection the plan had never heard of was one the test had
+never heard of either, and the two agreed with each other all the way to that
+boot. Entries are added to the inventory by reading a real database; copying
+them from the plan turns the test back into the tautology it exists to break.
 
 | Collection                      | Why not                                                                                                     |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -271,10 +281,41 @@ only way to keep it exhaustive is to have the source contradict it.
 | `meilisearch_backfill_state`    | The search backfill cursor; a fresh backfill restarts from the top.                                         |
 | `meilisearch_backfill_leases`   | Worker leases seconds old, which expire on their own.                                                       |
 | `meilisearch_backfill_failures` | The backfill redrive list, re-derived by the next backfill.                                                 |
+| `indexer_config`                | The retired indexer's pool sizes, superseded by `worker_config`. See below.                                 |
+| `indexer_dead_letter`           | The same pipeline's redrive queue, keyed by a stage vocabulary that is gone. See below.                     |
 | `probe`                         | A connectivity ping, not data.                                                                              |
 
-Two of those cost the operator something, so both are printed at the end of
-every run rather than left to a table cell.
+The last two are what the first boot against a real production library added
+(#3786), and they are the reason to trust the check rather than the list. Both
+belong to the bounded-channel indexer that ran `discover → hash → exif → thumb
+→ ai → mongo` in memory, and the code that wrote them was deleted when that
+pipeline was retired — so they appear in no `db.collection(…)` call site, in no
+schema, and in nothing the plan could have been derived from, while sitting in
+every database that ever ran it.
+
+`indexer_config` is one document per install holding that pipeline's per-stage
+pool sizes. It looks exactly like operator tuning being discarded, which is why
+it is worth being precise: per-stage concurrency lives in `worker_config` now,
+one row per worker, written from Settings → Workers and read by the worker tier
+on every poll tick — and `worker_config` is imported in full. The production
+library shows the two apart rather than in agreement. Its `indexer_config` was
+last written on 2026-05-09 and says every stage is 32; its twenty
+`worker_config` rows, the oldest created the next day and the newest in
+September, say thumb 100, preview 50, exif 10, describe 3, face paused. The
+live tuning is the one being carried across, and carrying the old document too
+could only mean writing over it.
+
+`indexer_dead_letter` held one document per (file, stage) that failed three
+times. The concept survives and the rows do not: a per-asset stage that
+exhausts its retries marks `dead` on that asset's own stage row, and the
+slow-tier enrichment stages record theirs in `enrichment_state`, both of which
+travel with the asset. Nothing could re-drive a row keyed by an absolute path
+and a stage name — `hash`, `mongo` — that no longer exists. Production's copy
+is empty, which is a consequence of the retirement rather than the reason this
+is safe.
+
+Two other entries cost the operator something, so both are printed at the end
+of every run rather than left to a table cell.
 
 `image_access_tokens` are capability tokens for thumbnail and preview URLs with
 a lifetime measured in minutes. The cutover's own downtime is longer than they
