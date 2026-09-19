@@ -52,6 +52,14 @@
     {
       "files": [
         "scripts/ffi-contention.ts",
+
+        // #3785. The schema gate and its suite. The gate creates the directory
+        // holding the library database before anything can open it — that is a
+        // path the server is told to own, not a library file, and it runs
+        // before the mirror registry is even loaded. The suite stages its
+        // databases under os.tmpdir() and removes them afterwards.
+        "src/db/sqlite/boot-schema.ts",
+        "src/db/sqlite/boot-schema.test.ts",
         "src/workers/worker-main.migration.test.ts",
         "src/audio/extract-audio.ts",
         "src/audio/extract-audio.test.ts",
