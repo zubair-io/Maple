@@ -8,7 +8,7 @@ A professional, non-destructive RAW photo editor and library by Just Maple. One 
 | **Maple TV** — tvOS light-table viewer                 | `src/apple/Maple TV` | Same xcframework                               |
 | **Web app `maple`** — served by the API (Self Hosted)  | `src/web/`           | `raw-wasm` (WebAssembly + WebGPU)              |
 | **Web app `maple-syrup`** — Maple Hosted, browser-only | `src/web/`           | `raw-wasm`                                     |
-| **API + Indexer** — Bun, Elysia, MongoDB               | `src/api/`           | `libmaple_core` dylib via `bun:ffi`            |
+| **API + Indexer** — Bun, Elysia, SQLite                | `src/api/`           | `libmaple_core` dylib via `bun:ffi`            |
 | **Windows shell** — Rust host + WinUI 3                | `src/windows/`       | `raw-ffi` / `raw-gpu` linked directly          |
 | **Thumbnail edge cache** — Cloudflare Worker + R2      | `src/cloudflare/`    | Fronts the API's thumbnail route               |
 
@@ -21,7 +21,7 @@ src/
   raw-pipeline/   Rust workspace: raw-core, raw-gpu, raw-ffi, raw-wasm, maple-cli, maple-pano, codegen
   apple/          Xcode project, app + extension targets, local packages (MapleCore, MapleUI, MapleBackup)
   web/            Angular workspace: maple, maple-syrup, maple-common; Playwright e2e; Storybook
-  api/            Bun + Elysia server, MongoDB schema, indexer and enrichment workers, job runner
+  api/            Bun + Elysia server, SQLite schema, indexer and enrichment workers, job runner
   windows/        maple-windows crate + Maple.WinUI (C#) + tests
   cloudflare/     Thumbnail-cache Worker
   scripts/        Colour/pano/search harnesses, image-diff metrics, dev-self-hosted.sh
@@ -58,7 +58,7 @@ cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple" -destination
 cd src/web && bun install && bun run start:syrup
 ```
 
-**Self Hosted stack** (MongoDB in Docker on 27017, API on 3000, Angular dev server on 4201, all from the repo root):
+**Self Hosted stack** (API on 3000, Angular dev server on 4201, all from the repo root — nothing else to start, the library database is a SQLite file the API creates for itself):
 
 ```bash
 npm run dev

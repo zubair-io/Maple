@@ -3,36 +3,22 @@ version: '3.9'
 # Maple Self Hosted — Docker Compose
 #
 # Usage:
-#   docker compose up -d                          # start MongoDB (uses host-built Bun server)
-#   docker compose --profile app up -d            # also start the Maple server in Docker
+#   docker compose --profile app up -d            # start the Maple server
 #   docker compose --profile app --profile proxy up -d
 #                                                 # …and expose it via a Cloudflare Tunnel
 #
-# For development, start MongoDB only and run the Bun server natively:
-#   docker compose up -d mongo
-#   bun src/index.ts
+# Maple keeps its whole library index in one SQLite file, so there is no
+# database service here and nothing to start before the server: a plain
+# `docker compose up -d` has no work to do. The `app` profile is the whole
+# story.
+#
+# For development, skip Compose entirely and run the Bun server natively from
+# src/api with `bun src/index.ts`.
 
 services:
   # ---------------------------------------------------------------------------
-  # MongoDB
-  # ---------------------------------------------------------------------------
-  mongo:
-    image: mongo:7.0
-    restart: unless-stopped
-    ports:
-      - '27017:27017'
-    environment:
-      MONGO_INITDB_DATABASE: maple
-    volumes:
-      - mongo_data:/data/db
-    healthcheck:
-      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ---------------------------------------------------------------------------
-  # Maple Self Hosted server (optional — build with Dockerfile)
+  # Maple Self Hosted server — built from src/api/Dockerfile, behind the `app`
+  # profile so `docker compose up -d` alone starts nothing.
   # ---------------------------------------------------------------------------
   maple:
     profiles: ['app']
@@ -48,24 +34,31 @@ services:
       - '3443:3443/udp'
     environment:
       PORT: '3000'
-      MAPLE_MONGO_URI: 'mongodb://mongo:27017'
-      MAPLE_MONGO_DB: 'maple'
+      # The library database, on the maple_data volume below. Nothing else in
+      # this file matters as much as keeping those two in agreement.
+      MAPLE_SQLITE_PATH: /app/data/maple.sqlite
       # Configure semantic search at runtime under Settings → Workers → meili.
       MAPLE_MEILISEARCH_URL: ${MAPLE_MEILISEARCH_URL:-}
       MAPLE_MEILISEARCH_API_KEY: ${MAPLE_MEILISEARCH_API_KEY:-}
       # Mount your photo library here (also set MAPLE_ROOTS):
       # MAPLE_ROOTS: /photos
     volumes:
+      # THE IMPORTANT ONE. Your whole library — every folder, every asset row,
+      # every setting, the JWT signing secret — is one SQLite file under
+      # /app/data. The container filesystem is thrown away on every recreate,
+      # so without this volume a `docker compose up --build` starts you over
+      # with an empty library and logs everyone out. Your photos are safe
+      # either way (Maple never writes to originals), but everything Maple
+      # derived from them would have to be indexed again from scratch.
+      - maple_data:/app/data
       # Mount photo library directories here, e.g.:
       # - /path/to/your/photos:/photos:rw
-      # The JWT secret lives in MongoDB (mongo_data volume) and is shared
-      # across instances — no extra config needed for it to survive redeploys.
-      # /app/config only holds the on-disk FALLBACK secret used if Mongo is
-      # unreachable at boot; persisting it keeps even that path stable.
+      #
+      # /app/config holds the on-disk FALLBACK JWT secret, used only on a boot
+      # where the database cannot be opened. The real secret lives in the
+      # database on maple_data; persisting this one keeps even the degraded
+      # path from rotating it.
       - maple_config:/app/config
-    depends_on:
-      mongo:
-        condition: service_healthy
 
   # ---------------------------------------------------------------------------
   # Cloudflare Tunnel (optional — exposes Maple via a Cloudflare-proxied domain
@@ -94,7 +87,8 @@ services:
         condition: service_started
 
 volumes:
-  mongo_data:
+  # The library database. Back this up; recreating it is a full re-index.
+  maple_data:
     driver: local
   maple_config:
     driver: local

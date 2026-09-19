@@ -516,7 +516,7 @@ Four independent version numbers appear in or around a sidecar, and they mean di
 
 New fields are added by extending `ADJUSTMENT_SCHEMA`, regenerating with `tools/codegen.sh`, and mirroring the key in all writers; because absent attributes read back as the canonical default and defaults are omitted on write, a new field costs nothing in existing sidecars. Removing a field is the harder direction — the reader arm has to stay (as `papp:Look`'s does) or old sidecars stop round-tripping.
 
-Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse_ adjustment model living in its own MongoDB collection (`src/api/src/routes/presets.ts`, `src/api/src/presets/preset-validation.ts`); applying one writes the resolved field values into the sidecar like any other slider move. Preset validation follows the same philosophy as passthrough: unknown fields from a newer schema version are accepted and preserved verbatim rather than rejected. Film looks likewise store only the catalog id in `papp:FilmLook` — the `.mlut` payloads ship with the app (`raw-core/src/film_catalog.rs`).
+Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse_ adjustment model living in its own `presets` table (`src/api/src/routes/presets.ts`, `src/api/src/presets/preset-validation.ts`); applying one writes the resolved field values into the sidecar like any other slider move. Preset validation follows the same philosophy as passthrough: unknown fields from a newer schema version are accepted and preserved verbatim rather than rejected. Film looks likewise store only the catalog id in `papp:FilmLook` — the `.mlut` payloads ship with the app (`raw-core/src/film_catalog.rs`).
 
 ## Test contract
 

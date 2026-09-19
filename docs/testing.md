@@ -15,7 +15,7 @@ The table below summarizes test and review workflows in [`.github/workflows/`](.
 | `cross.yml`           | 12 jobs (see [Repo tooling gates](#repo-tooling-gates))                                      | prettier, oxlint, file budgets, budget ratchets, codegen drift, dead-code audits, secret scan, UI contract docs, editor parity manifest                                                                                             | every push to `main` + every PR, **no path filter**                                  |
 | `web.yml`             | `web-build`, `web-test`, `web-test-common`, `web-webgpu-smoke`                               | `ng build maple` + `ng build maple-syrup` + artifact/capability/adoption checks + a Playwright artifact suite; `ng test maple`; `ng test Maple-common`; a browser-WebGPU smoke (non-required, #2315, see [GPU parity](#gpu-parity)) | every push to `main` + every PR, **no path filter** (deliberate — see below)         |
 | `maple-types.yml`     | `maple-typecheck`                                                                            | Strict package source and test typechecks using the frozen API dependency lock; no native library or image fixtures required                                                                                                        | every push to `main` + every PR + `workflow_dispatch`                                |
-| `api.yml`             | `api-typecheck`, `api-tests`                                                                 | `bun run typecheck` for source and tests, then `bun test --timeout 30000` against a real Mongo 7 service and the Meilisearch integration suite against a real `getmeili/meilisearch:v1.50.0`                                        | every push to `main` + every PR + `workflow_dispatch`                                |
+| `api.yml`             | `api-typecheck`, `api-tests`                                                                 | `bun run typecheck` for source and tests, then `bun test --timeout 30000` with no database service, and the Meilisearch integration suite against a real `getmeili/meilisearch:v1.50.0`                                             | every push to `main` + every PR + `workflow_dispatch`                                |
 | `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline` | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, the ACR colour harness, the pano harness                                      | pushes/PRs touching `src/raw-pipeline/**`, the harness scripts, or the budget JSONs  |
 | `apple.yml`           | `swift-build`, `swift-regressions`, `swift-regressions-coverage`                             | MapleCore compile gate, executable regressions against a real host Rust archive, and the run/excluded class-list gate                                                                                                               | pushes/PRs touching `src/apple/**` or `src/raw-pipeline/**`                          |
 | `windows.yml`         | `windows-build-and-test`                                                                     | `cargo check` raw-core/raw-ffi for MSVC, `cargo test -p raw-core --lib`, build `maple-windows` + `Maple.WinUI`, `dotnet test` the WinUI suite, then re-run `tools/codegen.sh` on Windows                                            | every push to `main` + every PR                                                      |
@@ -184,7 +184,7 @@ It checks: the two matrices are true inverses; white round-trips exactly (P3 and
 | [`test_halo_detection.sh`](../src/scripts/test_halo_detection.sh)               | Diagnostic only                                                              | Synthetic disk                      | **not in CI**             |
 | [`test_hue_stability.sh`](../src/scripts/test_hue_stability.sh)                 | Diagnostic only                                                              | Synthetic primaries                 | **not in CI**             |
 | [`test_stage_diagnostic.sh`](../src/scripts/test_stage_diagnostic.sh)           | Diagnostic only                                                              | Committed grey DNG                  | **not in CI**             |
-| [`test_backup_smoke.ts`](../src/scripts/test_backup_smoke.ts)                   | Manual smoke test                                                            | A running API + Mongo               | **not in CI**             |
+| [`test_backup_smoke.ts`](../src/scripts/test_backup_smoke.ts)                   | Manual smoke test                                                            | A running API                       | **not in CI**             |
 
 Notes on the ones with unusual shapes:
 
@@ -192,7 +192,7 @@ Notes on the ones with unusual shapes:
 - **Pano.** Two things always run, fixtures or not: the budgets file must parse with the expected shape, and `pano_metrics.py --self-test` validates the metric implementation procedurally. Set discovery and the per-set gates activate only with `raws/pano_*/` present. Gated keys include `rmse`, `seam_energy`, `wrap_closure_px`, `mean_reproj_px`, and `coverage` — the last is a **floor**, breaching when it falls below its budget.
 - **Film looks.** A self-consistency ratchet, not an ACR comparison: each catalog look is rendered and diffed against a committed golden with tight budgets (mean ≤ 0.5, max ≤ 2.0 ΔE₀₀). A missing golden writes the baseline and fails with "baseline written" — eyeball it, then re-run. It also renders a no-look control and asserts every look differs from it by more than 0.5 mean ΔE₀₀, so a LUT that resolves to a no-op fails loudly instead of passing against its own inert baseline.
 - **Search relevance.** Measures Recall@10, MRR, and per-query rank guards against the corpus in `src/api/tests/fixtures/search-relevance/`. It needs a real Meilisearch _and_ a real Ollama with `bge-m3` pulled; both URLs unset means exit 0.
-- **Face clustering.** Runs the pure `clusterEmbeddings` function over the committed JSONL corpus and gates purity / NMI / V-measure / ARI / recall@1 against per-metric floors. No Mongo needed — the CI job doesn't even run `bun install`, because the harness imports only dependency-free modules.
+- **Face clustering.** Runs the pure `clusterEmbeddings` function over the committed JSONL corpus and gates purity / NMI / V-measure / ARI / recall@1 against per-metric floors. No database needed — the CI job doesn't even run `bun install`, because the harness imports only dependency-free modules.
 
 ---
 
@@ -335,11 +335,9 @@ bun run typecheck        # tsc --noEmit — required CI gate (api.yml)
 bun run lint             # oxlint src — this IS a CI gate (cross.yml)
 ```
 
-CI stands up two real services rather than mocking them: `mongo:7` on 27017 and `getmeili/meilisearch:v1.50.0` on 7700. The main step runs `bun test --timeout 30000` with `MAPLE_MONGO_URI` and a throwaway `MAPLE_JWT_SECRET`; a second step runs `src/enrichment/meilisearch-real.integration.test.ts` with `MAPLE_MEILISEARCH_INTEGRATION_URL` set, which is what un-gates it.
+Nothing has to be running first. The library database is a file each test makes for itself, so a local `bun test` proves exactly what CI's does. CI stands up one real service rather than mocking it — `getmeili/meilisearch:v1.50.0` on 7700 — because one suite talks to a live Meilisearch: the main step runs `bun test --timeout 30000` with a throwaway `MAPLE_JWT_SECRET`, and a second step runs `src/enrichment/meilisearch-real.integration.test.ts` with `MAPLE_MEILISEARCH_INTEGRATION_URL` set, which is what un-gates it.
 
-Mongo-backed suites **skip-pass when Mongo is unreachable** — each connects with a 1.5s server-selection timeout and, on failure, closes the half-open client and marks itself unreachable. So `bun test` on a laptop without Mongo is green but has proven much less than CI did.
-
-SQLite-backed suites have no such caveat, because there is no service to reach. [`src/api/src/db/sqlite/test-sqlite.test-helpers.ts`](../src/api/src/db/sqlite/test-sqlite.test-helpers.ts) gives each test its own database with the schema already applied, and disposes of it when the test's block exits:
+[`src/api/src/db/sqlite/test-sqlite.test-helpers.ts`](../src/api/src/db/sqlite/test-sqlite.test-helpers.ts) gives each test its own database with the schema already applied, and disposes of it when the test's block exits:
 
 ```ts
 test('rejects a duplicate filename', async () => {
@@ -351,17 +349,7 @@ test('rejects a duplicate filename', async () => {
 
 The isolation is per _test_, not per suite, so two tests can insert the same primary key — the unique-index collision between fixtures that #2491 documents — without interfering. `using` disposes the handle even when an assertion throws, and because nothing about the handle is module-level state, tests written this way run correctly under `test.concurrent`; the harness's own [self-test](../src/api/src/db/sqlite/test-sqlite.test-helpers.test.ts) proves that by holding eight databases open simultaneously at a barrier, each with the same asset id in it, and failing loudly if the run turns out to be serialised.
 
-Most of the suite is still Mongo-backed and will stay that way until the repository ports (#3746–#3751) land, so a local mongod is still what makes a full local `bun test` meaningful today.
-
-Database naming is the subtle part. Bun evaluates every module body during the import phase, before any test runs, so a suite that assigns `process.env.MAPLE_MONGO_DB` at module scope renames the database for the whole process: the last import wins, other suites' `getDb()` connect to it, and one suite's teardown can drop a database another is still using. The fix is [`src/api/src/db/test-db.test-helpers.ts`](../src/api/src/db/test-db.test-helpers.ts):
-
-```ts
-const TEST_DB = withTestDb(`maple_test_assets_overrides_${process.pid}`);
-```
-
-`withTestDb` wraps `withTestEnv`, which claims the value in a root `beforeAll` and restores the prior value in `afterAll`. Because it registers the restore _first_, teardown runs before the suite's own `afterAll` — which is why a suite that drops its database must capture the `Db` handle in `beforeAll` and drop _that_, never re-read `getDb()` at teardown. The `${process.pid}` suffix keeps concurrent runs from colliding.
-
-[`src/scripts/test_backup_smoke.ts`](../src/scripts/test_backup_smoke.ts) is a twelve-step manual end-to-end check of the PhotoKit backup endpoints — chunked ingest, sidecar upload, rendered companion, reconciliation feed, deletion notification, then cleanup. It needs a running API and Mongo, and is not part of any workflow.
+[`src/scripts/test_backup_smoke.ts`](../src/scripts/test_backup_smoke.ts) is a twelve-step manual end-to-end check of the PhotoKit backup endpoints — chunked ingest, sidecar upload, rendered companion, reconciliation feed, deletion notification, then cleanup. It needs a running API, and is not part of any workflow.
 
 ---
 

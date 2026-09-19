@@ -25,7 +25,7 @@ This is a triage result. **254 records still require runtime or consumer-contrac
 ## Confirmed, bounded follow-ups
 
 1. [#3708 — unreachable burst-sibling module](https://github.com/zubair-io/Maple/issues/3708). `src/enrichment/burst-siblings.ts` has no repository import/caller. Exact `findBurstSiblings` tracing says the module is unreachable from configured entry points. It is neither generated nor a framework-discovered route. Recheck before removal; do not invent a new behavior to consume it.
-2. [#3707 — identical upload-session reset mutation](https://github.com/zubair-io/Maple/issues/3707). The two reset branches in `src/backup/upload-session.ts` repeat the same unset/set/reload mutation. Keep their different triggers, BusyElsewhere behavior and chunk-file reset contract; share only the mutation after real Mongo regressions.
+2. [#3707 — identical upload-session reset mutation](https://github.com/zubair-io/Maple/issues/3707). The two reset branches in `src/backup/upload-session.ts` repeat the same unset/set/reload mutation. Keep their different triggers, BusyElsewhere behavior and chunk-file reset contract; share only the mutation after real regression tests exist.
 
 The backup move clone is already removed by #3687/#3644. Location naming remains represented as tracked #3661/#3689 because it had not landed at this snapshot. The original DB bootstrap cycle disappeared after #3674. The orphan indexer-repository findings disappeared with the strict API cleanup; the original ID constants disappeared with the separately owned ID consolidation. These are historical comparisons, not additional fixes in this PR.
 

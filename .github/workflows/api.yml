@@ -24,15 +24,6 @@ jobs:
   api-tests:
     runs-on: ubuntu-latest
     services:
-      mongo:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "echo 'db.runCommand({ping:1})' | mongosh --quiet"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
       meilisearch:
         image: getmeili/meilisearch:v1.50.0
         ports:
@@ -63,7 +54,6 @@ jobs:
       - name: Run API tests
         working-directory: src/api
         env:
-          MAPLE_MONGO_URI: mongodb://localhost:27017
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
         run: bun test --timeout 30000
       - name: Verify real Meilisearch task and search compatibility
@@ -83,6 +73,5 @@ jobs:
       # what knows the current pipeline + schema version and corpus hash.
       - name: Sidecar contract evidence check
         env:
-          MAPLE_MONGO_URI: mongodb://localhost:27017
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
         run: bash tools/qualification/record.sh --check sidecar_contract_api bun -- bash -c 'cd src/api && bun test src/routes/xmp.sidecar-contract.test.ts --timeout 30000'
