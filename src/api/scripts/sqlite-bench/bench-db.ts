@@ -111,6 +111,24 @@ export function median(samples: readonly number[]): number {
   return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
+/**
+ * One `EXPLAIN QUERY PLAN` line per step, unjoined.
+ *
+ * Every script here asserts something about a plan and each had grown its own
+ * copy of this; they differ only in how they lay the lines out, so the join is
+ * the caller's and the query is not.
+ */
+export function queryPlanLines(
+  db: Database,
+  sql: string,
+  params: readonly unknown[] = [],
+): string[] {
+  const rows = db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...(params as never[])) as Array<{
+    detail: string;
+  }>;
+  return rows.map((row) => row.detail);
+}
+
 /** The first positional argument as a row count, or `fallback`. */
 export function sizeArgument(args: readonly string[], fallback: number): number {
   const sizes = args
